@@ -224,6 +224,9 @@ describe("the Files tab", () => {
       subtitle: "40.2’s change, on top of the epic’s branch · not merged yet",
       modes: ["File", "Diff"],
       opens_in: "file",
+      split_modes: ["Unified", "Split"],
+      side_by_side: false,
+      side_by_side_from: 900,
       can_file: true,
       can_diff: true,
       new_ticket: "New ticket from this file",
@@ -238,12 +241,49 @@ describe("the Files tab", () => {
         page,
         file: { path: page.path, child: "SHOP-40.2", mode: "file" },
         ctx: {} as CommentContext,
-        sideBySide: false,
+        width: 1200,
         onMode: ignore,
+        onSplit: ignore,
       }),
     );
     expect(file).toContain('class="files-writing"');
     expect(file).toContain("40.2’s agent (Rust developer) is writing this file");
+  });
+
+  it("a picked file's Diff keeps Split and has the Unified · Split toggle (dogfood #61)", () => {
+    const page: FilesFilePage = {
+      path: "src/middleware.ts",
+      child: null,
+      subtitle: "in SHOP-22’s worktree · +4 −1 against main",
+      modes: ["File", "Diff"],
+      opens_in: "diff",
+      split_modes: ["Unified", "Split"],
+      side_by_side: true,
+      side_by_side_from: 900,
+      can_file: true,
+      can_diff: true,
+      new_ticket: "New ticket from this file",
+      new_ticket_body: "",
+      lines: [],
+      note: null,
+      writing: null,
+    };
+    const draw = (mode: "file" | "diff") =>
+      renderToStaticMarkup(
+        createElement(FileBody, {
+          ticket: "SHOP-22",
+          page,
+          file: { path: page.path, child: null, mode },
+          ctx: {} as CommentContext,
+          width: 1200,
+          onMode: ignore,
+          onSplit: ignore,
+        }),
+      );
+    const diff = draw("diff");
+    expect(diff).toContain('aria-label="Unified / Split"');
+    expect(/aria-checked="true"[^>]*>(?:<[^>]*>)*Split</.test(diff)).toBe(true);
+    expect(draw("file")).not.toContain('aria-label="Unified / Split"');
   });
 
   it("registers itself as the sheet's Files tab, and ⌥⌘P shows it with the search box asked for", () => {
@@ -317,6 +357,9 @@ describe("the Files tab", () => {
       subtitle: "in SHOP-22’s worktree · +4 −1 against main",
       modes: ["File", "Diff"],
       opens_in: "diff",
+      split_modes: ["Unified", "Split"],
+      side_by_side: false,
+      side_by_side_from: 900,
       can_file: true,
       can_diff: true,
       new_ticket: "New ticket from this file",
@@ -328,7 +371,15 @@ describe("the Files tab", () => {
     const ctx = {} as CommentContext;
     const file = { path: page.path, child: null, mode: "file" as const };
     const out = renderToStaticMarkup(
-      createElement(FileBody, { ticket: "SHOP-22", page, file, ctx, sideBySide: false, onMode: ignore }),
+      createElement(FileBody, {
+        ticket: "SHOP-22",
+        page,
+        file,
+        ctx,
+        width: 1200,
+        onMode: ignore,
+        onSplit: ignore,
+      }),
     );
     expect(out).toContain("<span>src/</span><span><wbr/>middleware.ts</span>");
     expect(out).toContain("in SHOP-22’s worktree · +4 −1 against main");
@@ -341,8 +392,9 @@ describe("the Files tab", () => {
         page: { ...page, can_diff: false, opens_in: "file" },
         file: { ...file, mode: null },
         ctx,
-        sideBySide: false,
+        width: 1200,
         onMode: ignore,
+        onSplit: ignore,
       }),
     );
     expect(plain).not.toContain('role="radiogroup"');

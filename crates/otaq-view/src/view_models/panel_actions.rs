@@ -26,7 +26,7 @@ pub enum Action {
     /// Backlog → Dev (⌘D).
     Start,
     Edit,
-    /// Shows the Terminal tab.
+    /// Shows Session → Agent, where typing goes to the agent: labelled for that (Q467); the Shell is the tab beside it.
     OpenTerminal,
     /// A hand-off the agent hasn't picked up (d0118): types it again, as the user's click (d0048).
     SendAgain,
@@ -117,7 +117,7 @@ impl Action {
         match self {
             Self::Start => "Start",
             Self::Edit => "Edit",
-            Self::OpenTerminal => "Open terminal",
+            Self::OpenTerminal => "Open agent session",
             Self::SendAgain => "Send again",
             Self::Run => "Run",
             Self::AnswerInTerminal => "Answer in terminal",
@@ -805,6 +805,8 @@ mod tests {
             [(A::RetryMerge, Primary), (A::MoveToReview, Secondary)]
         );
         assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
+        // It opens the agent's session, not a shell (dogfood #42, Q467).
+        assert_eq!(A::OpenTerminal.label(), "Open agent session");
         assert_eq!(A::AnswerAgent.label(), "Answer the agent\u{2026}");
         assert_eq!(A::MoveOnAnyway.icon(), Some(IconName::Eye));
     }

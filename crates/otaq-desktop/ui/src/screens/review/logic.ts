@@ -20,8 +20,14 @@ export type Step =
 /** Where the flow starts: a ticket with a PR goes to Push to PR; new commits since the review show first. */
 export function firstStep(view: ApproveView, menu: boolean): Step {
   if (view.changed !== null) return { kind: "changed", changed: view.changed, checkedFirst: true };
+  return afterChanged(view, menu);
+}
+
+/** The choice, or with one way to deliver its dialog without the choice (dogfood #18), or the confirmation. */
+function afterChanged(view: ApproveView, menu: boolean): Step {
   if (view.push_to_pr) return { kind: "open_pr" };
-  return menu ? { kind: "menu" } : { kind: "confirm" };
+  if (!menu) return { kind: "confirm" };
+  return view.menu.direct === null ? { kind: "menu" } : afterChoice(view.menu.direct);
 }
 
 /** A pick in the Approve ▾ menu. */
@@ -36,8 +42,7 @@ export function afterApproveAnyway(
   menu: boolean,
 ): Step | "merge" {
   if (!step.checkedFirst) return "merge";
-  if (view.push_to_pr) return { kind: "open_pr" };
-  return menu ? { kind: "menu" } : { kind: "confirm" };
+  return afterChanged(view, menu);
 }
 
 /** The step a Local merge's answer leads to. */
@@ -53,11 +58,6 @@ export function afterMerge(result: LocalMergeResult): Step {
     case "uncommitted":
       return { kind: "result", result };
   }
-}
-
-/** ⌘↵ / Ctrl+↵ in the message presses Squash & merge. */
-export function isSubmitKey(e: { key: string; metaKey: boolean; ctrlKey: boolean }): boolean {
-  return e.key === "Enter" && (e.metaKey || e.ctrlKey);
 }
 
 /** How many of the new commits' files the changed-since-review step shows with their lines. */

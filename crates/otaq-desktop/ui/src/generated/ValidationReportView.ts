@@ -19,7 +19,16 @@ meta: string,
 /**
  * Did not pass: drawn in red, findings first, no headings.
  */
-failed: boolean, findings: Array<ReportFinding>, 
+failed: boolean, 
+/**
+ * A passed report's own lines that are neither checks nor notes ("Pass: every item in the description is
+ * done"): its verdict, drawn with a check, never as a finding.
+ */
+summary: Array<Array<ReportSegment>>, 
+/**
+ * Only on a failed report: a passed one has none (its other lines are its summary).
+ */
+findings: Array<ReportFinding>, 
 /**
  * "CHECKED" (none on a failed report).
  */

@@ -35,7 +35,6 @@ import {
   afterMerge,
   CHANGED_FILES_SHOWN,
   firstStep,
-  isSubmitKey,
   type Step,
 } from "./logic";
 
@@ -208,6 +207,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   const [message, setMessage] = useState("");
   const [anyway, setAnyway] = useState(false);
   const started = useRef(false);
+  const messageBox = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!view || started.current) return;
@@ -324,6 +324,13 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           onConfirm={() => {
             merge();
           }}
+          // ⌘↵ merges from the message and from anywhere else in the dialog (dogfood #60).
+          onSubmit={() => {
+            if (message.trim() !== "") merge();
+          }}
+          // The message has the keyboard whenever the confirmation shows: from the start (not the merge-check link
+          // above it), and after the choice or Approve anyway (the same dialog, the focus given again).
+          initialFocus={messageBox}
           onCancel={close}
           footer={
             <>
@@ -382,6 +389,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
             </label>
             <textarea
               {...PLAIN_TEXT}
+              ref={messageBox}
               id="review-message"
               className="text-input text-area review-message"
               data-mono
@@ -389,12 +397,6 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               value={message}
               onChange={(e) => {
                 setMessage(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (!isSubmitKey(e)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                if (message.trim() !== "") merge();
               }}
             />
             <Callout icon="hourglass" tone="quiet">
@@ -716,6 +718,7 @@ export function ChangeSendBackDialog({ view, close }: { view: DecisionSendBackVi
       width={480}
       hint={view.hint}
       onConfirm={confirm}
+      onSubmit={confirm}
       onCancel={close}
       footer={
         <>
@@ -729,7 +732,9 @@ export function ChangeSendBackDialog({ view, close }: { view: DecisionSendBackVi
         <label className="review-section" htmlFor="change-decision-text">
           {view.label}
         </label>
-        <TextInput id="change-decision-text" value={text} onChange={setText} />
+        {/* A sentence or two: it grows with the text instead of scrolling sideways (dogfood #27); ↵ is a new line,
+            ⌘↵ sends. */}
+        <TextArea id="change-decision-text" value={text} onChange={setText} rows={2} grow />
         <p className="review-muted">{view.help}</p>
         <Callout icon="undo-2" tone="quiet">
           {view.note}

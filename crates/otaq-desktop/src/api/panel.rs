@@ -2106,7 +2106,7 @@ mod tests {
         let sessions = [agent(SessionState::Running)];
         let view = view_of(&facts(&working, &all, &sessions));
         assert_eq!((view.key.as_str(), view.title.as_str()), ("SHOP-19", "Price table"));
-        assert_eq!(labels(&view), ["Open terminal", "Run"]);
+        assert_eq!(labels(&view), ["Open agent session", "Run"]);
         assert_eq!(view.run, None, "no Run up, no pill");
         assert_eq!(view.signal.as_ref().unwrap().text, "40s ago");
         assert_eq!(view.tokens.as_ref().unwrap().text, "182k");

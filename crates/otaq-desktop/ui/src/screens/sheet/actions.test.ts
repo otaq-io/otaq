@@ -203,7 +203,7 @@ describe("answer options", () => {
     expect(html.match(/role="radio"/g)).toHaveLength(3);
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain("Send answer");
-    expect(html).not.toContain("Open terminal");
+    expect(html).not.toContain("Open agent session");
   });
 
   it("draws each option's note whole under its label, as the option's description (ATT-17)", () => {
@@ -236,7 +236,7 @@ describe("what it needs from you, at the top of Overview", () => {
     for (const text of ["SHOP-19", "Price table", "Working", "otaq/SHOP-19", "from main", "40s ago"]) {
       expect(html).toContain(text);
     }
-    expect(html).toContain("Open terminal");
+    expect(html).toContain("Open agent session");
     expect(html).toContain("the dependencies");
     expect(html.indexOf("sheet-tabs")).toBeLessThan(html.indexOf("panel-bar"));
   });

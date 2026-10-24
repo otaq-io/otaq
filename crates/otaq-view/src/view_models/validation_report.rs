@@ -56,6 +56,10 @@ pub struct Report {
     pub meta: String,
     /// Did not pass: drawn in red, findings first, no headings.
     pub failed: bool,
+    /// A passed report's own lines that are neither checks nor notes ("Pass: every item in the description is
+    /// done"): its verdict, drawn with a check, never as a finding.
+    pub summary: Vec<Vec<Segment>>,
+    /// Only on a failed report: a passed one has none (its other lines are its summary).
     pub findings: Vec<Finding>,
     /// "CHECKED" (none on a failed report).
     pub checked_heading: Option<&'static str>,
@@ -139,8 +143,10 @@ fn meta(r: &ValidationRecord) -> String {
     parts.join(" \u{b7} ")
 }
 
-/// The report of a round, `failed` when it reads as "did not pass".
+/// The report of a round, `failed` when it reads as "did not pass". A passed round has no findings: the lines that
+/// aren't `Checked:` or `Note:` are its summary.
 pub fn report(r: &ValidationRecord, title: String, failed: bool) -> Report {
+    let mut summary = Vec::new();
     let mut findings = Vec::new();
     let mut checked = Vec::new();
     for line in r.report.as_deref().unwrap_or_default().lines() {
@@ -157,13 +163,15 @@ pub fn report(r: &ValidationRecord, title: String, failed: bool) -> Report {
                     .filter(|c| !c.is_empty())
                     .map(segments),
             ),
-            None => findings.push(finding(line)),
+            None if failed => findings.push(finding(line)),
+            None => summary.push(segments(line)),
         }
     }
     Report {
         title,
         meta: meta(r),
         failed,
+        summary,
         findings,
         checked_heading: (!failed).then_some("CHECKED"),
         checked,
@@ -497,6 +505,7 @@ mod tests {
         );
         assert_eq!(r.meta, "round 2 · 3 min · 11k");
         assert!(r.findings.is_empty());
+        assert!(r.summary.is_empty());
         assert_eq!(r.checked_heading, Some("CHECKED"));
         let checked: Vec<_> = r.checked.iter().map(|c| text(c)).collect();
         assert_eq!(
@@ -530,6 +539,29 @@ mod tests {
         assert_eq!(r.create, "Create ticket");
     }
 
+    /// A passed report's verdict line is its summary, with a check, never a red finding (dogfood #17).
+    #[test]
+    fn a_passed_reports_other_lines_are_its_summary() {
+        let r = report(
+            &record(
+                1,
+                Some(ValidationOutcome::Pass),
+                "Pass: every item in the description is done, see SHOP-21\n\
+                 Checked: pnpm test passed",
+            ),
+            "Validation report".into(),
+            false,
+        );
+        assert!(r.findings.is_empty(), "{:?}", r.findings);
+        let summary: Vec<_> = r.summary.iter().map(|s| text(s)).collect();
+        assert_eq!(
+            summary,
+            ["Pass: every item in the description is done, see SHOP-21"]
+        );
+        assert!(r.summary[0].iter().any(|s| s.key && s.text == "SHOP-21"));
+        assert_eq!(text(&r.checked[0]), "pnpm test passed");
+    }
+
     /// *07 → Review · Failed 3 times · moved by you*: the findings with their place first, then the checks, no
     /// headings, the foot with the time it was moved.
     #[test]
@@ -551,6 +583,7 @@ mod tests {
         let r = v.report.unwrap();
         assert_eq!(r.title, "Did not pass · last report, round 3 of 3");
         assert!(r.failed);
+        assert!(r.summary.is_empty());
         assert_eq!(r.checked_heading, None);
         assert_eq!(
             r.findings[0].place.as_deref(),

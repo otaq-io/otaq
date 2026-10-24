@@ -217,7 +217,8 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
     match app.service.send(request).await {
         Ok(Reply::FileContent(content)) => {
             let child = content.child.clone();
-            let mut page = tokio::task::spawn_blocking(move || vm::file_page(&content))
+            let memory = app.review.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let mut page = tokio::task::spawn_blocking(move || vm::file_page(&content, &memory))
                 .await
                 .map_err(|e| RequestError::plain(e.to_string()))?;
             // A running child's file on an epic: its note names the child's agent (FTB-06).
@@ -253,7 +254,8 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
             if source.from == FilesFrom::Base {
                 return Err(e);
             }
-            Ok(vm::deleted_page(&source, &params.path, params.child))
+            let memory = app.review.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            Ok(vm::deleted_page(&source, &params.path, params.child, &memory))
         }
         Err(e) => Err(e),
     }
