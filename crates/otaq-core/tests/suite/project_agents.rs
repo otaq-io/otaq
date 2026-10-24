@@ -489,6 +489,7 @@ async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
         !out.contains(&claude_skill("project-agent")),
         "no skill on resume: {out}"
     );
+    assert!(!out.contains("Carry on"), "it ended, not a restart: {out}");
     // Resuming a running agent changes nothing.
     let again = w.project_agents.resume(&a.id).await.unwrap();
     assert_eq!(again.session.unwrap().id, session.id);
@@ -528,10 +529,12 @@ async fn after_a_restart_agents_are_ended_by_restart_and_resume() {
     let out = w
         .wait_for_output(&resumed.session.unwrap().id, "CWD=")
         .await;
+    // Told to carry on as its first prompt (d0122).
     assert!(
         out.contains(&format!(
-            "--resume {}",
-            used.tool_session_id.as_deref().unwrap()
+            "--resume {} {}",
+            used.tool_session_id.as_deref().unwrap(),
+            otaq_core::recovery::CARRY_ON_PROJECT_AGENT
         )),
         "{out}"
     );

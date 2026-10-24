@@ -583,7 +583,13 @@ impl ProjectAgents {
                 resume: Some(conversation),
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                ..request(&self.inner.board, &project, LaunchRole::ProjectAgent, None).await
+                ..request(
+                    &self.inner.board,
+                    &project,
+                    LaunchRole::ProjectAgent,
+                    carry_on(agent.state),
+                )
+                .await
             },
         );
         let started = match launched {
@@ -1488,6 +1494,13 @@ impl ProjectAgents {
                 .publish(Event::LeadChanged { project, epic });
         }
     }
+}
+
+/// What a resumed Project agent or epic lead in `state` is told first (d0122): "Carry on where you left off" after
+/// a restart; nothing when the user reopens one that ended (Recently ended).
+fn carry_on(state: AgentState) -> Option<FirstPrompt> {
+    matches!(state, AgentState::EndedByRestart | AgentState::Paused)
+        .then(|| FirstPrompt::Text(crate::recovery::CARRY_ON_PROJECT_AGENT.to_owned()))
 }
 
 /// A new conversation in `project`'s own folder for `role`, with no ticket and no port, told the theme in use; the

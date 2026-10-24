@@ -1198,17 +1198,24 @@ struct Returning {
     prompt: Option<String>,
     /// The conversation of its latest agent session, continued with its tool's resume.
     conversation: Option<StoredConversation>,
+    /// The user's Resume, Resume all or Retry brought it back (`return_mode` "resume").
+    resumed: bool,
 }
 
 impl Returning {
-    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer.
+    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer, else (a
+    /// Resume with nothing waiting) "Carry on where you left off" (d0122).
     fn first_prompt(&self) -> Option<FirstPrompt> {
         match (&self.skill, &self.prompt) {
             (Some(name), message) => Some(FirstPrompt::Skill {
                 name: name.clone(),
                 message: message.clone(),
             }),
-            (None, prompt) => prompt.clone().map(FirstPrompt::Text),
+            (None, Some(prompt)) => Some(FirstPrompt::Text(prompt.clone())),
+            (None, None) if self.resumed => {
+                Some(FirstPrompt::Text(crate::recovery::carry_on_text()))
+            }
+            (None, None) => None,
         }
     }
 }
@@ -1228,6 +1235,7 @@ impl Returning {
                 skill: None,
                 prompt: row.resume_prompt,
                 conversation: None,
+                resumed: false,
             }));
         }
         let conversation =
@@ -1236,6 +1244,7 @@ impl Returning {
             skill: row.resume_skill,
             prompt: row.resume_prompt,
             conversation,
+            resumed: row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME),
         }))
     }
 }

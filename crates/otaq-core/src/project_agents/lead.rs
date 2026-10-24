@@ -859,7 +859,13 @@ impl EpicLeads {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                ..super::request(&self.inner().board, &project, LaunchRole::EpicLead, None).await
+                ..super::request(
+                    &self.inner().board,
+                    &project,
+                    LaunchRole::EpicLead,
+                    super::carry_on(agent.state),
+                )
+                .await
             },
         ) {
             Ok(launched) => launched,

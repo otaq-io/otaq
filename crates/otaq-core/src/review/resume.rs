@@ -5,7 +5,9 @@
 //!   that stage's stored conversation on the tool and model it ran on (its adapter's resume), in a new session in
 //!   the same worktree; in an agent check it starts a fresh check ([`crate::recovery::resume_as`]).
 //!   It goes through the start sequence like a parked ticket (worktree kept, no base sync or setup); with the
-//!   agent limit full, the ticket waits in Queued for a slot like a Send back.
+//!   agent limit full, the ticket waits in Queued for a slot like a Send back. Its first prompt is what was
+//!   waiting (a Send back's skill, an inbox answer), else "You were interrupted by a restart. Carry on…"
+//!   ([`crate::recovery::carry_on_text`], d0122), passed when the tool starts.
 //! - **Resume all** resumes exactly the Interrupted Dev tickets ([`crate::recovery::resume_all_eligible`]).
 //! - When the tool can't find the conversation to resume the ticket becomes **Resume failed**
 //!   ([`crate::recovery::Recovery`]); **Retry** runs the same resume again, **Start from scratch** (after a

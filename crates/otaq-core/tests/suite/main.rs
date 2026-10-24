@@ -116,6 +116,7 @@ mod read_gate;
 mod reconcile;
 mod reopen;
 mod resume;
+mod resume_carry_on;
 mod run;
 mod same_file;
 mod scheduler;
