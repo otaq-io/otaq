@@ -265,6 +265,9 @@ pub struct GlobalSettings {
     pub usage_data: UsageData,
     /// The single-letter switch and the user's custom shortcuts (d0097, KEY-02, KEY-04): global, not per project.
     pub keyboard: KeyboardSettings,
+    /// The Project agent panel's width dragged at its edge (T-0502, d0113), in px; `None` is the default width.
+    /// `otaq-view`'s `layout.rs` keeps it inside its bounds. Not a row of the Settings page; Otaq has one window.
+    pub agent_panel_width: Option<u32>,
 }
 
 /// The terminal font size when none is set.
@@ -320,6 +323,7 @@ impl Default for GlobalSettings {
             description_source_mode: false,
             usage_data: UsageData::NotAsked,
             keyboard: KeyboardSettings::default(),
+            agent_panel_width: None,
         }
     }
 }

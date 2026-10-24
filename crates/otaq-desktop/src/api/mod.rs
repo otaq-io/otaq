@@ -55,6 +55,8 @@ pub use flow_editor::export_types as export_flow_editor_types;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use layout::AgentPanelWidthParams as LayoutAgentPanelWidthParams;
+#[cfg(test)]
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
 pub use notices::{

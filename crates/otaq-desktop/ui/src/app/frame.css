@@ -10,7 +10,7 @@ body {
 
 .frame {
   display: grid;
-  /* The rail and the Project agent panel set their own widths (64 px rail; the panel's 420 px from `layout.view`). */
+  /* The rail and the Project agent panel set their own widths (64 px rail; the panel's from `layout.view`, dragged). */
   grid-template-columns: auto auto minmax(0, 1fr);
   /*
    * Header 44 px (`density::HEADER`); banners only take room while there are some (36 px each, at most 2). They span
@@ -58,7 +58,7 @@ body {
   min-width: 0;
 }
 
-/* The Project agent panel's column (SHB-01, d0113): 420 px while open, pushing the main area; nothing while closed. */
+/* The Project agent panel's column (SHB-01, d0113): its width while open, pushing the main area; nothing closed. */
 .frame-agent {
   grid-area: agent;
   display: flex;
@@ -78,6 +78,40 @@ body {
 
 .frame-agent-body[hidden] {
   display: none;
+}
+
+/*
+ * Expanded (T-0502): the column keeps its width, so the board stays put, and the panel lies over the board to the
+ * window's right edge, over the ticket sheet and the Ask bar (z-index 8), under the overlays (10).
+ */
+.frame-agent[data-expanded] {
+  position: relative;
+  overflow: visible;
+}
+
+.frame-agent[data-expanded] .frame-agent-body {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 9;
+}
+
+/* The panel's right edge (T-0502): 8 px to grab, over the border; the border takes the focus colour while dragged. */
+.frame-agent-edge {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 1;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.frame-agent-edge:hover,
+.frame-agent-edge:active {
+  background: linear-gradient(to right, transparent 3px, var(--focus) 3px 5px, transparent 5px);
 }
 
 .frame-main {

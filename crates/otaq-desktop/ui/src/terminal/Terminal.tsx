@@ -52,6 +52,7 @@ import {
   typingIn,
 } from "./state";
 import "./terminal.css";
+import { FAST_SCROLL_SENSITIVITY, followWheel, SCROLL_SENSITIVITY } from "./wheel";
 
 /** What a host can ask of a terminal (its header strip's buttons). */
 export interface TerminalHandle {
@@ -238,7 +239,11 @@ export function Terminal({
       macOptionClickForcesSelection: true,
       minimumContrastRatio: MINIMUM_CONTRAST_RATIO,
       drawBoldTextInBrightColors: false,
+      // About 3 lines per wheel notch in WKWebView; set again per wheel event (`followWheel`, T-0502).
+      scrollSensitivity: SCROLL_SENSITIVITY,
+      fastScrollSensitivity: FAST_SCROLL_SENSITIVITY,
     });
+    const unwheel = followWheel(element, term);
     // Before anything is written, the replay too.
     countWidthsAsUnicode11(term);
     const fit = new FitAddon();
@@ -521,6 +526,7 @@ export function Terminal({
     return () => {
       disposed = true;
       undrop();
+      unwheel();
       if (focused) onBlur();
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();

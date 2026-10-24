@@ -44,6 +44,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::shortcut_list::ShortcutList::export_all(&cfg)?;
     // Also writes `SizeClass` and `SizeClassBound`.
     otaq_view::view_models::layout::View::export_all(&cfg)?;
+    crate::api::LayoutAgentPanelWidthParams::export_all(&cfg)?;
     crate::terminal::Feed::export_all(&cfg)?;
     crate::api::TerminalInput::export_all(&cfg)?;
     crate::api::TerminalResize::export_all(&cfg)?;
