@@ -122,6 +122,42 @@ async fn while_checking_the_check_is_told() {
     w.stop().await;
 }
 
+/// The e2e finding: right after a check passes the ticket is in Review while its Validator session is still closing;
+/// a ticked comment then goes to the agent's session, never into the check that has just finished (d0123: "while …
+/// its check is running").
+#[tokio::test(flavor = "multi_thread")]
+async fn after_the_check_the_agent_is_told_not_the_closing_check() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Price table").await;
+    let agent = w.agent_shell(&shop1).await;
+    let checker = w.shell(&shop1, SessionKind::Validator).await;
+    w.force_status(&shop1, Status::WaitingForYou).await;
+    assert!(
+        w.sessions
+            .running_of(&shop1.id, SessionKind::Validator)
+            .is_some(),
+        "the check's session is still registered as running"
+    );
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    app.request(comment("SHOP-1", "Keep the column order.", true))
+        .await
+        .unwrap();
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].text, tell_agent_line(1));
+    assert!(
+        w.deliveries
+            .pending(&checker.session)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    drop(app);
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn nothing_without_the_flag_from_an_agent_or_with_no_session() {
     let w = TestService::start().await;

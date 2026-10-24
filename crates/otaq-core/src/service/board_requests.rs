@@ -2381,11 +2381,8 @@ async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
     let Ok(ticket) = shared.board.ticket(key).await else {
         return;
     };
-    let Some(session) = shared
-        .sessions
-        .running_of(&ticket.id, SessionKind::Validator)
-        .or_else(|| shared.sessions.running_of(&ticket.id, SessionKind::Agent))
-    else {
+    let kind = crate::board::ticket_comments::told_session_kind(ticket.status);
+    let Some(session) = shared.sessions.running_of(&ticket.id, kind) else {
         return;
     };
     let line = crate::board::ticket_comments::tell_agent_line(n);
