@@ -36,10 +36,16 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
    the checks' output as a report:
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'COMMENT'
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+     --manual-check "Open the price list in a real browser: prices round as before, with the currency column" <<'COMMENT'
    Rebased onto main. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
    COMMENT
    ```
+
+   If resolving a conflict changed something you couldn't check yourself (it needs a real browser, a device, or a
+   service you can't reach), list it with `--manual-check "<what to check>"`, one line per check, repeated for each;
+   the user sees them as "Manual checks for you" before merging. This replaces your stage's unticked checks, so list
+   again the ones that still apply. Never leave a check to "the PR": there may be none.
 
    Then end your turn. The ticket moves to Ready for Review and the user can merge it.
 

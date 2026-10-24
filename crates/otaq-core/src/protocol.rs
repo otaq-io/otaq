@@ -541,6 +541,13 @@ pub enum Request {
     /// the file itself (streamed), so a 20 MB report never travels in one frame.
     #[serde(rename = "ticket.report")]
     TicketReport(TicketCommentParams),
+    /// The ticket's manual checks for the user (d0125), with how many are not ticked; answered with
+    /// [`Reply::ManualChecks`].
+    #[serde(rename = "ticket.manual_checks")]
+    TicketManualChecks(KeyParams),
+    /// Ticks or unticks manual check `n` (the user's, logged in History); answered with [`Reply::ManualChecks`].
+    #[serde(rename = "ticket.manual_check_tick")]
+    TicketManualCheckTick(ManualCheckTickParams),
     /// Fail on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and the note go
     /// to the nearest earlier Agent stage's session, and the ticket returns there. Answered with
     /// [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has unsent text (resend
@@ -1545,8 +1552,17 @@ pub struct TicketCommentParams {
     pub n: u32,
 }
 
+/// `{"key": "SHOP-34", "n": 2, "ticked": true}`: tick (or untick) one manual check (d0125).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManualCheckTickParams {
+    pub key: String,
+    pub n: u32,
+    pub ticked: bool,
+}
+
 /// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
-/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06).
+/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06);
+/// `manual_checks` are what the agent couldn't check itself, one line each (`--manual-check`, d0125).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEndParams {
     pub key: String,
@@ -1554,6 +1570,8 @@ pub struct StageEndParams {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_file: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_checks: Vec<String>,
 }
 
 /// `{"key": "SHOP-32", "action": "answer_agent", "note": "…"}`.
@@ -1584,6 +1602,9 @@ pub struct VerdictParams {
     /// `--report-file`: the full output attached to the comment (CMT-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_file: Option<crate::board::reports::ReportSource>,
+    /// `--manual-check`: what the check couldn't check itself, one line each (d0125).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_checks: Vec<String>,
 }
 
 /// `{"key": "SHOP-18", "proposal": "{…}"}`: the proposal as the skill wrote it.
@@ -2011,6 +2032,8 @@ impl Request {
             Self::TicketCommentDelete(_) => "ticket.comment_delete",
             Self::TicketComments(_) => "ticket.comments",
             Self::TicketReport(_) => "ticket.report",
+            Self::TicketManualChecks(_) => "ticket.manual_checks",
+            Self::TicketManualCheckTick(_) => "ticket.manual_check_tick",
             Self::TicketFail(_) => "ticket.fail",
             Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
@@ -2270,6 +2293,7 @@ pub enum Reply {
     TicketComment(Box<crate::board::ticket_comments::TicketComment>),
     TicketComments(crate::board::ticket_comments::TicketComments),
     TicketReport(Box<crate::board::ticket_comments::ReportFile>),
+    ManualChecks(crate::board::manual_checks::ManualChecks),
     Returned(ReturnOutcome),
     Passed(PassOutcome),
     ReviewFeedback(ReviewFeedback),

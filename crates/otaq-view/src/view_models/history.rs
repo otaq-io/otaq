@@ -1018,6 +1018,19 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             Some(who(&e.actor)),
         ),
         EventKind::Parked => ("Parked".to_owned(), Some(removed(p, who(&e.actor)))),
+        // A manual check the user ticked at review (d0125): "Ticked a manual check" · "“Reload a page offline” ·
+        // by you".
+        EventKind::ManualCheckTicked => (
+            match p.get("ticked").and_then(serde_json::Value::as_bool) {
+                Some(false) => "Unticked a manual check".to_owned(),
+                _ => "Ticked a manual check".to_owned(),
+            },
+            Some(format!(
+                "{} \u{b7} {}",
+                quote(&text(p, "text").unwrap_or_default()),
+                who(&e.actor)
+            )),
+        ),
         // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
         // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
         // "Moved to Review" · "by you · Security was removed".
@@ -2535,5 +2548,25 @@ mod tests {
             Some("by you"),
             "an ordinary drag says nothing more"
         );
+    }
+
+    /// T-0498 (d0125): ticking a manual check at review is a History line with the item.
+    #[test]
+    fn ticking_a_manual_check_is_a_history_line() {
+        let row = |ticked| {
+            event_row(&event(
+                EventKind::ManualCheckTicked,
+                1,
+                serde_json::json!({ "n": 2, "text": "Reload a never-visited page offline", "ticked": ticked }),
+            ))
+            .unwrap()
+        };
+        let ticked = row(true);
+        assert_eq!(ticked.title, "Ticked a manual check");
+        assert_eq!(
+            ticked.detail.as_deref(),
+            Some("\u{201c}Reload a never-visited page offline\u{201d} \u{b7} by you")
+        );
+        assert_eq!(row(false).title, "Unticked a manual check");
     }
 }

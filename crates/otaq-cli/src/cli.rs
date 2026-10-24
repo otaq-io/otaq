@@ -367,6 +367,10 @@ pub enum StageCommand {
         /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
         #[arg(long, value_name = "PATH")]
         report_file: Option<PathBuf>,
+        /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
+        /// review: one line; repeat it for each check
+        #[arg(long = "manual-check", value_name = "TEXT")]
+        manual_check: Vec<String>,
     },
     /// Nothing to deliver (no commits on the branch): the ticket is Closed · nothing to merge, your reason on stdin
     /// posted as your comment; refused when the branch has commits
@@ -379,6 +383,10 @@ pub enum StageCommand {
         /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
         #[arg(long, value_name = "PATH")]
         report_file: Option<PathBuf>,
+        /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
+        /// review: one line; repeat it for each check
+        #[arg(long = "manual-check", value_name = "TEXT")]
+        manual_check: Vec<String>,
     },
 }
 
@@ -392,6 +400,10 @@ pub enum CheckCommand {
         /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
         #[arg(long, value_name = "PATH")]
         report_file: Option<PathBuf>,
+        /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
+        /// review: one line; repeat it for each check
+        #[arg(long = "manual-check", value_name = "TEXT")]
+        manual_check: Vec<String>,
     },
     /// It doesn't: the findings go back to the agent
     Fail {
@@ -402,6 +414,10 @@ pub enum CheckCommand {
         /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
         #[arg(long, value_name = "PATH")]
         report_file: Option<PathBuf>,
+        /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
+        /// review: one line; repeat it for each check
+        #[arg(long = "manual-check", value_name = "TEXT")]
+        manual_check: Vec<String>,
     },
 }
 
@@ -417,6 +433,10 @@ pub enum ReviewCommand {
         /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
         #[arg(long, value_name = "PATH")]
         report_file: Option<PathBuf>,
+        /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
+        /// review: one line; repeat it for each check
+        #[arg(long = "manual-check", value_name = "TEXT")]
+        manual_check: Vec<String>,
     },
     /// The latest Send back's line comments, by file, and its PR's comments (reading it changes nothing)
     Feedback {
@@ -603,6 +623,48 @@ mod tests {
 
     fn some(text: &str) -> Option<String> {
         Some(text.to_owned())
+    }
+
+    /// T-0498 (d0125): `--manual-check` repeats on `stage next`, `stage done`, `review submit` and `check pass|fail`.
+    #[test]
+    fn manual_checks_repeat_on_every_stage_end() {
+        let items = vec!["Reload offline".to_owned(), "Install on a phone".to_owned()];
+        let flags = [
+            "--manual-check",
+            "Reload offline",
+            "--manual-check",
+            "Install on a phone",
+        ];
+        let with =
+            |command: &[&str]| parse(&[command, &["--stdin"][..], &flags[..]].concat()).unwrap();
+        for command in [
+            &["stage", "next"][..],
+            &["stage", "done"],
+            &["review", "submit"],
+        ] {
+            let manual = match with(command).command {
+                Some(Command::Stage(StageCommand::Next { manual_check, .. }))
+                | Some(Command::Stage(StageCommand::Done { manual_check, .. }))
+                | Some(Command::Review(ReviewCommand::Submit { manual_check, .. })) => manual_check,
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(manual, items, "{command:?}");
+        }
+        for command in [&["check", "pass"][..], &["check", "fail"]] {
+            let manual = match with(command).command {
+                Some(Command::Check(
+                    CheckCommand::Pass { manual_check, .. }
+                    | CheckCommand::Fail { manual_check, .. },
+                )) => manual_check,
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(manual, items, "{command:?}");
+        }
+        let none = match parse(&["stage", "next", "--stdin"]).unwrap().command {
+            Some(Command::Stage(StageCommand::Next { manual_check, .. })) => manual_check,
+            other => panic!("{other:?}"),
+        };
+        assert!(none.is_empty());
     }
 
     const MD: &str = "Opens in any editor; one file per note, no attachments.";

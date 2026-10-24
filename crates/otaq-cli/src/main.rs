@@ -154,17 +154,38 @@ fn main() -> ExitCode {
             key,
             stdin,
             report_file,
+            manual_check,
         }))
         | Some(Command::Stage(cli::StageCommand::Next {
             key,
             stdin,
             report_file,
-        })) => agent::stage_next(key, stdin, report_file, &cli.global, &out),
+            manual_check,
+        })) => agent::stage_next(
+            key,
+            agent::StageEnd {
+                stdin,
+                report_file,
+                manual_checks: manual_check,
+            },
+            &cli.global,
+            &out,
+        ),
         Some(Command::Stage(cli::StageCommand::Done {
             key,
             stdin,
             report_file,
-        })) => agent::stage_done(key, stdin, report_file, &cli.global, &out),
+            manual_check,
+        })) => agent::stage_done(
+            key,
+            agent::StageEnd {
+                stdin,
+                report_file,
+                manual_checks: manual_check,
+            },
+            &cli.global,
+            &out,
+        ),
         Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
         Some(Command::Lead(command)) => lead::run(command, &cli.global, &out),
         Some(Command::Check(command)) => agent::check(command, &cli.global, &out),

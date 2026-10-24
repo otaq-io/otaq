@@ -82,6 +82,7 @@ mod lead_turn_waits;
 mod limits;
 mod limits_per_tool;
 mod local_merge;
+mod manual_checks;
 mod mark_pr;
 mod merge_check;
 mod migrations;

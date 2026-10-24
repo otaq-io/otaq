@@ -483,6 +483,9 @@ stored_enum! {
         /// `child` (its key), `title`, `to` (the column it landed in). History reads "Created DEMO-12 Fix the
         /// build" · "by DEMO-7's agent · in Backlog".
         CreatedTicket = "created_ticket",
+        /// The user ticked or unticked a manual check (d0125): payload `n`, `text` and `ticked`. History reads
+        /// "Ticked a manual check" (or "Unticked a manual check") · the item, quoted.
+        ManualCheckTicked = "manual_check_ticked",
     }
 }
 

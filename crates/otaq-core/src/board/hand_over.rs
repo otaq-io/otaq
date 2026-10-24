@@ -11,6 +11,7 @@
 
 use sqlx::{Sqlite, Transaction};
 
+use super::manual_checks::{ManualHandOver, check_items};
 use super::reports::{ReportSource, StoredReport};
 use super::ticket_comments::{CommentAuthor, Posted, check_body, post_in};
 use super::tickets::Ticket;
@@ -25,6 +26,9 @@ pub struct HandOver {
     /// The text as stored (trimmed, within the limit).
     pub body: String,
     pub report: Option<StoredReport>,
+    /// A stage end's manual checks (d0125), stored with the comment; `None` for every other hand-over (a Send back's
+    /// note, a drag back…), which leaves them as they are.
+    pub manual: Option<ManualHandOver>,
 }
 
 impl HandOver {
@@ -35,7 +39,7 @@ impl HandOver {
         ticket_id: &str,
         actor: &Actor,
     ) -> Result<Posted, BoardError> {
-        post_in(
+        let posted = post_in(
             tx,
             ticket_id,
             &self.author,
@@ -43,7 +47,12 @@ impl HandOver {
             self.report.as_ref(),
             actor,
         )
-        .await
+        .await?;
+        if let Some(manual) = &self.manual {
+            super::manual_checks::replace_in(tx, ticket_id, &self.author, manual, &posted.id)
+                .await?;
+        }
+        Ok(posted)
     }
 
     /// Removes the copied report unless its comment was stored: the hand-over was refused or failed after the copy.
@@ -104,7 +113,46 @@ impl Board {
             author,
             body,
             report,
+            manual: None,
         }))
+    }
+
+    /// The hand-over of a stage end (`stage next`, `stage done`, a check's verdict): [`Self::hand_over`] with the
+    /// `--manual-check` items (d0125), checked before anything moves. An agent's stage end always replaces its stage's
+    /// unticked items, so ending a round with none clears them; the user's own `stage next` touches them only when it
+    /// lists some. Items need the comment's text: "Write the comment first".
+    pub async fn stage_end_hand_over(
+        &self,
+        ticket: &Ticket,
+        author: CommentAuthor,
+        body: &str,
+        report: Option<ReportSource>,
+        manual_checks: &[String],
+    ) -> Result<Option<HandOver>, BoardError> {
+        let items = check_items(manual_checks)?;
+        let (stage, round) = match &author {
+            CommentAuthor::Agent { stage, round, .. } => (stage.clone(), *round),
+            _ => (ticket.place.stage().map(str::to_owned), None),
+        };
+        let replaces =
+            matches!(author, CommentAuthor::Agent { stage: Some(_), .. }) || !items.is_empty();
+        if !items.is_empty() && body.trim().is_empty() && report.is_none() {
+            return Err(BoardError::refused(
+                super::Refusal::EmptyField,
+                super::ticket_comments::EMPTY_COMMENT,
+            ));
+        }
+        let mut hand_over = self.hand_over(ticket, author, body, report).await?;
+        if let Some(hand_over) = hand_over.as_mut()
+            && replaces
+        {
+            hand_over.manual = Some(ManualHandOver {
+                stage,
+                round,
+                items,
+            });
+        }
+        Ok(hand_over)
     }
 
     /// The user's hand-over on `ticket` (a Send back's note, a drag back's instructions…), `None` when the note is

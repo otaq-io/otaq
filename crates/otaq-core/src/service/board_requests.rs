@@ -631,6 +631,16 @@ pub(super) async fn handle(
                 move || async move { ticket_comment_request(shared, caller, &actor, request).await },
             )
         }
+        Request::TicketManualChecks(p) => {
+            boxed(move || async move { board.manual_checks(&p.key).await.map(Reply::ManualChecks) })
+        }
+        Request::TicketManualCheckTick(p) => boxed(move || async move {
+            let checks = board
+                .tick_manual_check(&p.key, p.n, p.ticked, &actor)
+                .await?;
+            publish_ticket_changed(shared, &checks.key).await;
+            Ok(Reply::ManualChecks(checks))
+        }),
         Request::TicketFail(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -858,7 +868,13 @@ pub(super) async fn handle(
             let ticket = board.ticket(&p.key).await?;
             let author = board.session_author(session).await?;
             let hand_over = board
-                .hand_over(&ticket, author, &p.report, p.report_file.clone())
+                .stage_end_hand_over(
+                    &ticket,
+                    author,
+                    &p.report,
+                    p.report_file.clone(),
+                    &p.manual_checks,
+                )
                 .await?;
             let verdict = mutate(
                 shared,
@@ -2395,7 +2411,7 @@ async fn comment_changed(
 }
 
 /// The comment an agent's `stage next` / `stage done` hands over (CMT-05, CMT-06): its summary with the
-/// `--report-file`, by the calling session's agent (the user's own terminal: the user). Refused before anything moves.
+/// `--report-file` and the `--manual-check` items (d0125), by the calling session's agent (the user's own terminal: the user). Refused before anything moves.
 async fn stage_end_hand_over(
     shared: &Shared,
     caller: &Caller,
@@ -2406,7 +2422,13 @@ async fn stage_end_hand_over(
     let board = &shared.board;
     let author = board.caller_author(caller, actor).await?;
     board
-        .hand_over(ticket, author, &p.summary, p.report_file.clone())
+        .stage_end_hand_over(
+            ticket,
+            author,
+            &p.summary,
+            p.report_file.clone(),
+            &p.manual_checks,
+        )
         .await
 }
 

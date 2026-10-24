@@ -4,10 +4,11 @@
 //! instructions**, then **the project's notes**, then **the stage it works in and that stage's skill**, then the
 //! **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent and result, oldest first),
 //! then the ticket's **comments** in full, oldest first (CMT-07, d0109: the hand-over between stages; a report is
-//! only named, never printed). After them the tickets it depends on with their last comment from an Agent stage,
-//! pending questions, recorded decisions, the **stage choices** the agent may still set ([`reader_choices`]; none on
-//! the default flow), and Otaq's own rules (`stage next`, `stage done`). The output is concise Markdown for an agent
-//! ([`render`]); `--json` prints the [`PrimeContext`] itself.
+//! only named, never printed) and the **manual checks** listed for the user (d0125). After them the tickets it
+//! depends on with their last comment from an Agent stage, pending questions, recorded decisions, the **stage
+//! choices** the agent may still set ([`reader_choices`]; none on the default flow), and Otaq's own rules (`stage
+//! next`, `stage done`, `--manual-check`). The output is concise Markdown for an agent ([`render`]); `--json` prints
+//! the [`PrimeContext`] itself.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +17,7 @@ use crate::agent_tools::models::{ModelKind, ModelList, ModelLists};
 use crate::agents::{Agent, AgentModel, ModelRef, SessionRole};
 use crate::board::comments::FeedbackComment;
 use crate::board::conflicts::{Conflict, ConflictReason};
+use crate::board::manual_checks::ManualCheck;
 use crate::board::stage_choices::StageOptions;
 use crate::board::ticket_comments::{CommentAuthor, TicketComment};
 use crate::board::tickets::{Base, Ticket};
@@ -65,6 +67,9 @@ pub struct PrimeContext {
     /// The ticket's comments (CMT-07), oldest first, deleted ones left out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<TicketComment>,
+    /// The manual checks listed for the user so far (d0125), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_checks: Vec<ManualCheck>,
     /// The pull request being prepared or already open (REV-10, REV-14): for the Open PR and Push skills.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PrimePr>,
@@ -536,6 +541,7 @@ impl Board {
         let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
         let unread_notes = crate::epic_lead::notes::unread(self, &ticket.id).await?;
         let comments = self.ticket_comments(key).await?.comments;
+        let manual_checks = self.manual_checks(key).await?.items;
         let context = PrimeContext {
             unread_notes,
             conflict,
@@ -554,6 +560,7 @@ impl Board {
             }),
             earlier,
             comments,
+            manual_checks,
             pull_request,
             choices: Vec::new(),
         };
@@ -714,6 +721,9 @@ pub struct ValidatePrime {
     /// The ticket's comments (CMT-07), oldest first, deleted ones left out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<TicketComment>,
+    /// The manual checks listed for the user so far (d0125), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_checks: Vec<ManualCheck>,
     /// `git diff <base_sha> HEAD` in the worktree: the committed change.
     pub diff: String,
     /// After a Send back: the user's line comments, each to check.
@@ -803,6 +813,7 @@ impl Board {
             rounds,
             earlier: base.earlier,
             comments: base.comments,
+            manual_checks: base.manual_checks,
             diff: self.committed_diff(&ticket).await?,
             review,
             instructions: base.instructions,
@@ -872,6 +883,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     }
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&ctx.ticket.key, &ctx.comments));
+    out.push_str(&render_manual_checks(&ctx.manual_checks));
     if let Some(review) = ctx.review.as_ref().filter(|r| !r.comments.is_empty()) {
         out.push_str(&format!(
             "\n## The user's review (Send back, round {})\n\nCheck that each line comment was addressed.\n\n",
@@ -925,9 +937,10 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
          finding with its file and line; notes start with \"Note:\". Finish with `{cmd} check pass --stdin` or \
          `{cmd} check fail --stdin` and the verdict on stdin. Save the full check run to a file in `${dir}` (never \
          in the worktree) and attach it with `--report-file`: `{cmd} check fail --stdin --report-file \
-         \"${dir}/test-run.txt\"`.\n",
+         \"${dir}/test-run.txt\"`. {manual}\n",
         ctx.diff.trim_end(),
-        dir = naming::resource_dir_env_var()
+        dir = naming::resource_dir_env_var(),
+        manual = MANUAL_CHECK_RULE.replace("{cmd}", cmd).replace("{command}", "check pass|fail"),
     ));
     out
 }
@@ -1119,6 +1132,39 @@ pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> S
     out
 }
 
+/// The heading of `prime`'s list of manual checks (d0125).
+pub const MANUAL_CHECKS_HEADING: &str = "Manual checks for the user";
+
+/// What every stage-ending agent is told about manual checks (d0125); `{cmd}` and `{command}` are filled in.
+const MANUAL_CHECK_RULE: &str = "What you couldn't check yourself (a real browser, a device, a service you can't \
+    reach), list for the user: `--manual-check \"<what to check>\"` on `{cmd} {command}`, one line per check. The \
+    user tries them at review. Never leave a check to \"the PR\": there may be no PR.";
+
+/// The "## Manual checks for the user" section (d0125): each item, ticked or not, with who listed it in which
+/// stage; nothing when there are none.
+pub fn render_manual_checks(items: &[ManualCheck]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "\n## {MANUAL_CHECKS_HEADING}\n\nWhat agents couldn't check themselves; the user tries them at review. \
+         Ending your stage replaces your stage's unticked ones with what you list then: list again the ones that \
+         still apply.\n\n"
+    );
+    for item in items {
+        let (mark, ticked) = match item.ticked() {
+            true => ("x", " \u{b7} ticked by the user"),
+            false => (" ", ""),
+        };
+        out.push_str(&format!(
+            "- [{mark}] {} \u{b7} {}{ticked}\n",
+            item.text,
+            item.source()
+        ));
+    }
+    out
+}
+
 /// The "## Comments" section (CMT-07): every comment in full, oldest first, under its heading ("Validator · Validate
 /// · round 2 · 3:05 pm"), with one line naming its report; nothing when the ticket has none. The user's reports are
 /// listed first ([`render_reports_from_you`], RPT-01). Reports are never printed.
@@ -1205,6 +1251,7 @@ pub fn render(ctx: &PrimeContext) -> String {
     }
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&t.key, &ctx.comments));
+    out.push_str(&render_manual_checks(&ctx.manual_checks));
 
     if !ctx.parents.is_empty() {
         out.push_str("\n## Depends on\n\n");
@@ -1272,6 +1319,9 @@ pub fn render(ctx: &PrimeContext) -> String {
              --stdin` with a short summary of what you did on stdin; the next stage reads it. It is refused while \
              files are uncommitted."
         ),
+        MANUAL_CHECK_RULE
+            .replace("{cmd}", cmd)
+            .replace("{command}", "stage next"),
         format!(
             "Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already \
              fixed elsewhere), end the ticket instead: `{cmd} stage done --stdin` with the reason on stdin. It is \

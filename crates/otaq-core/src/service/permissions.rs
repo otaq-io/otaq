@@ -551,6 +551,9 @@ async fn action_for(
         | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
         // Ticket comments (CMT-04): read by anyone; written by the policy's rules, edits judged by their author.
         R::TicketComments(_) | R::TicketReport(_) => Action::Read,
+        // Manual checks (d0125): read by anyone, ticked only by the user.
+        R::TicketManualChecks(_) => Action::Read,
+        R::TicketManualCheckTick(_) => Action::UserOnly("tick manual checks"),
         R::TicketCommentPost(p) => Action::Comment {
             target: facts(board, &p.key).await?,
             own: None,

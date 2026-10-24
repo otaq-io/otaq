@@ -16,6 +16,7 @@ pub mod epics;
 pub mod files;
 pub mod hand_over;
 pub mod human_check;
+pub mod manual_checks;
 pub mod merge;
 pub mod merge_check;
 pub mod moves;
@@ -288,6 +289,8 @@ stored_enum! {
         ChoiceLocked = "choice_locked",
         /// A ticket comment over the size limit (CMT-02): the message says how long it is.
         TooLong = "too_long",
+        /// A `--manual-check` with a line break: each check is one line (d0125).
+        MultiLine = "multi_line",
         /// A comment's report can't be read or stored, or is over 20 MB (CMT-03, CMT-06); nothing was posted.
         BadReport = "bad_report",
         /// A Files path that isn't one of the ticket's files: absolute, with `..` or `.git`, or a symlink out of
