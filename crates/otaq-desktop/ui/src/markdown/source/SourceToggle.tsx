@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { editorValue, sourceStart, switchSource } from "./source";
 import "./source.css";
+import { PLAIN_TEXT } from "../../components";
 
 export interface SourceMode {
   on: boolean;
@@ -106,11 +107,11 @@ export function SourceArea({
   return (
     <div className="md-content md-source-scroll">
       <textarea
+        {...PLAIN_TEXT}
         ref={area}
         className="md-source"
         value={value}
         aria-label={label}
-        spellCheck={false}
         onChange={(e) => {
           onChange(e.target.value);
         }}

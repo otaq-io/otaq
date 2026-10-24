@@ -11,7 +11,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { openTicket, selection, showTab } from "../../app/selection";
-import { Button, CodeText, Dialog, Kbd, TextArea, TextInput } from "../../components";
+import { Button, CodeText, Dialog, Kbd, TextArea, TextInput, PLAIN_TEXT } from "../../components";
 import type { ApproveView } from "../../generated/ApproveView";
 import type { DecisionChangeParams } from "../../generated/DecisionChangeParams";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
@@ -375,6 +375,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               {c.message_label}
             </label>
             <textarea
+              {...PLAIN_TEXT}
               id="review-message"
               className="text-input text-area review-message"
               data-mono

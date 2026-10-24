@@ -53,6 +53,7 @@ import {
 } from "./state";
 import "./terminal.css";
 import { FAST_SCROLL_SENSITIVITY, followWheel, SCROLL_SENSITIVITY } from "./wheel";
+import { PLAIN_TEXT, plainTextOff } from "../components";
 
 /** What a host can ask of a terminal (its header strip's buttons). */
 export interface TerminalHandle {
@@ -512,6 +513,8 @@ export function Terminal({
     void fontLoaded.then(() => {
       if (disposed) return;
       term.open(element);
+      // xterm.js sets these on its helper textarea itself today; kept here so an upgrade can't bring autocorrect back.
+      if (term.textarea) plainTextOff(term.textarea);
       term.textarea?.addEventListener("focus", onFocus);
       term.textarea?.addEventListener("blur", onBlur);
       sizeWatch.observe(element);
@@ -622,6 +625,7 @@ export function Terminal({
         <div className="terminal-find" role="search">
           <Icon name="search" />
           <input
+            {...PLAIN_TEXT}
             ref={findInput}
             className="terminal-find-input"
             aria-label="Find in terminal"

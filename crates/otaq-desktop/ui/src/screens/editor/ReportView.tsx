@@ -10,7 +10,7 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "re
 
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
-import { Tooltip } from "../../components";
+import { Tooltip, PLAIN_TEXT } from "../../components";
 import { useEnterExit } from "../../components/motion";
 import type { IconName } from "../../generated/IconName";
 import type { ReportLine } from "../../generated/ReportLine";
@@ -331,6 +331,7 @@ export function ReportViewOverlay({ params, close }: OverlayProps<"report">) {
             <label className="report-view-field">
               <Icon name="search" size={13} />
               <input
+                {...PLAIN_TEXT}
                 ref={search}
                 className="report-view-input"
                 value={query}

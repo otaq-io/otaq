@@ -2812,6 +2812,8 @@ name = "otaq-desktop"
 version = "0.1.0"
 dependencies = [
  "fontdb",
+ "objc2",
+ "objc2-foundation",
  "open",
  "otaq-core",
  "otaq-view",

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 
 import type { OverlayProps } from "../../app/registry";
 import { useSelection } from "../../app/selection";
-import { Button, Dialog, Kbd } from "../../components";
+import { Button, Dialog, Kbd, PLAIN_TEXT } from "../../components";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorTarget } from "../../generated/EditorTarget";
 import type { EditorView } from "../../generated/EditorView";
@@ -151,6 +151,7 @@ function QuickCreate({
     >
       <div className="editor-quick" role="dialog" aria-label={view.heading} style={place}>
         <input
+          {...PLAIN_TEXT}
           className="editor-quick-title"
           value={editor.form.title}
           placeholder={t.title_placeholder}

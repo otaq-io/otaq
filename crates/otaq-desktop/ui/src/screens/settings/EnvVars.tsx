@@ -5,7 +5,7 @@
 // saved text. A new line is kept here until it has a name and focus leaves it (or ↵); Esc drops it.
 import { type RefObject, useEffect, useRef, useState } from "react";
 
-import { Tooltip } from "../../components";
+import { Tooltip, PLAIN_TEXT } from "../../components";
 import type { SettingsControl } from "../../generated/SettingsControl";
 import type { SettingsEnvVar } from "../../generated/SettingsEnvVar";
 import type { SettingsRow } from "../../generated/SettingsRow";
@@ -70,12 +70,12 @@ function VarField({
   });
   return (
     <input
+      {...PLAIN_TEXT}
       ref={input}
       id={fieldId(field)}
       className="text-input settings-envvar-input"
       type="text"
       data-mono
-      spellCheck={false}
       autoComplete="off"
       value={draft}
       placeholder={placeholder}
@@ -174,11 +174,11 @@ function NewVar({ control, onDone }: { control: EnvVarsControl; onDone: (refocus
   });
   const field = (part: "name" | "value", placeholder: string) => (
     <input
+      {...PLAIN_TEXT}
       ref={part === "name" ? name : undefined}
       className="text-input settings-envvar-input"
       type="text"
       data-mono
-      spellCheck={false}
       autoComplete="off"
       value={draft[part]}
       placeholder={placeholder}

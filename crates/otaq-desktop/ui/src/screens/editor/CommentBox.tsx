@@ -9,7 +9,7 @@
 // what is typed. ⌘↵ sends it.
 import { type ClipboardEvent, type KeyboardEvent, type Ref, useCallback, useId } from "react";
 
-import { Button, Kbd } from "../../components";
+import { Button, Kbd, PROSE_TEXT } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -154,6 +154,7 @@ export function CommentBox({
         </label>
       )}
       <textarea
+        {...PROSE_TEXT}
         ref={ref}
         id={id}
         className="text-input text-area comment-box-text"

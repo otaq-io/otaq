@@ -6,7 +6,7 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { type KeyboardEvent, type RefObject, useLayoutEffect, useRef, useState } from "react";
 
-import { useEscape, useFloatingStyle } from "../../components";
+import { useEscape, useFloatingStyle, PLAIN_TEXT } from "../../components";
 import { Icon } from "../../theme/Icon";
 import {
   type CodeLanguage,
@@ -54,7 +54,8 @@ export function CodeBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 
   return (
     <NodeViewWrapper className="md-code">
-      <pre ref={scroller}>
+      {/* Code stays as typed (#41): no spell check inside the block. */}
+      <pre ref={scroller} spellCheck={false}>
         <NodeViewContent<"code"> as="code" style={{ whiteSpace: "pre" }} />
       </pre>
       <div className="md-code-tools" contentEditable={false}>
@@ -150,6 +151,7 @@ function LanguagePicker({ anchor, language, onChoose, onClose }: LanguagePickerP
       <label className="md-code-filter">
         <Icon name="search" size={12} />
         <input
+          {...PLAIN_TEXT}
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the picker opens to be typed into
           autoFocus
           value={query}

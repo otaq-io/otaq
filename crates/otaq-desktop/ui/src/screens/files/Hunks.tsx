@@ -15,7 +15,7 @@ import {
   useState,
 } from "react";
 
-import { Button } from "../../components";
+import { Button, PROSE_TEXT } from "../../components";
 import type { CodeSpan } from "../../generated/CodeSpan";
 import type { DiffAnchor } from "../../generated/DiffAnchor";
 import type { DiffHunkView } from "../../generated/DiffHunkView";
@@ -209,6 +209,7 @@ function ComposerBox({ ctx, composer }: { ctx: CommentContext; composer: Compose
   return (
     <div className="diff-composer">
       <textarea
+        {...PROSE_TEXT}
         ref={input}
         className="text-input text-area diff-composer-input"
         rows={2}

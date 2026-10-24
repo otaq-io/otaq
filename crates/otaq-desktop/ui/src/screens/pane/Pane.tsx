@@ -22,6 +22,7 @@ import {
   ToolAvatar,
   ToolProblemCallout,
   Tooltip,
+  PLAIN_TEXT,
 } from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { PaneAgent } from "../../generated/PaneAgent";
@@ -205,6 +206,7 @@ function NameField({
   const [draft, setDraft] = useState(name);
   return (
     <input
+      {...PLAIN_TEXT}
       className="pane-name-input"
       aria-label={label}
       value={draft}
@@ -362,6 +364,7 @@ function EmptyState({
       <div className="pane-composer">
         <div className="pane-input">
           <textarea
+            {...PLAIN_TEXT}
             ref={box}
             className="pane-box"
             rows={2}

@@ -14,7 +14,7 @@ import { mainWidth } from "../../app/layout";
 import { useShortcut } from "../../app/registry";
 import { openTicket, selection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { AnchoredMenu, Kbd, Popover, Tooltip } from "../../components";
+import { AnchoredMenu, Kbd, Popover, Tooltip, PLAIN_TEXT } from "../../components";
 import type { FilesViewChanges } from "../../generated/FilesViewChanges";
 import type { FilesSearchView } from "../../generated/FilesSearchView";
 import type { FilesTreeRow } from "../../generated/FilesTreeRow";
@@ -96,6 +96,7 @@ export function PickerBody({
       <label className="files-search">
         <Icon name="search" size={13} />
         <input
+          {...PLAIN_TEXT}
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the picker opens to be typed in
           autoFocus
           value={query}
@@ -319,6 +320,7 @@ export function FilesViewBody({
         <label className="files-search">
           <Icon name="search" size={13} />
           <input
+            {...PLAIN_TEXT}
             ref={searchRef}
             value={query}
             placeholder={page.search.placeholder}

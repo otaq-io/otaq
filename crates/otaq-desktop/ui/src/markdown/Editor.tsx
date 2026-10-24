@@ -65,7 +65,14 @@ export function useMarkdownEditor({
   const instance = useRef<Editor | null>(null);
   const editorProps = useMemo(
     () => ({
-      attributes: { "aria-label": label, "aria-multiline": "true", "aria-readonly": String(!editable) },
+      // Prose: no autocorrect or capitals (#41), misspellings still underlined; code blocks turn spell check off.
+      attributes: {
+        "aria-label": label,
+        "aria-multiline": "true",
+        "aria-readonly": String(!editable),
+        autocorrect: "off",
+        autocapitalize: "off",
+      },
       handleKeyDown: (_view: unknown, event: KeyboardEvent) =>
         latest.current.onKeyDown?.(event) === true ||
         event.defaultPrevented ||

@@ -29,6 +29,7 @@ import {
   TextInput,
   ToolAvatar,
   Tooltip,
+  PLAIN_TEXT,
 } from "../../components";
 import type { FlowEditorAgent } from "../../generated/FlowEditorAgent";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
@@ -1012,6 +1013,7 @@ export function AgentColumn({
             <label className="fe-agent-prompt">
               <span aria-hidden="true">&gt;</span>
               <input
+                {...PLAIN_TEXT}
                 ref={input}
                 value={text}
                 aria-label={agent.title}

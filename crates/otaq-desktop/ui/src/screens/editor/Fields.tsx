@@ -6,7 +6,7 @@
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { Button, Field, Kbd, Segmented, Select, StageChoices } from "../../components";
+import { Button, Field, Kbd, Segmented, Select, StageChoices, PLAIN_TEXT } from "../../components";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
@@ -324,6 +324,7 @@ export function EditorFields({
       <Field label={t.title} error={titleMissing && form.title.trim() === "" ? t.title_required : null}>
         {(id) => (
           <input
+            {...PLAIN_TEXT}
             id={id}
             className="text-input editor-title"
             value={form.title}
@@ -426,12 +427,12 @@ export function EditorFields({
             <span className="editor-hint">{t.external_id_hint}</span>
           </div>
           <input
+            {...PLAIN_TEXT}
             className="text-input"
             data-mono
             value={form.external_id}
             placeholder={t.external_id_placeholder}
             aria-label={t.external_id}
-            spellCheck={false}
             onChange={(e) => {
               onChange({ ...form, external_id: e.target.value });
             }}

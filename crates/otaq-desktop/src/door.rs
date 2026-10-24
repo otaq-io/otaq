@@ -4,7 +4,8 @@
 //! JSON reply or a [`RequestError`] out, dispatched by [`crate::api`]), one event subscription ([`crate::events`]),
 //! one output channel per terminal ([`crate::terminal`], answered with the attach's number), and the window: opening
 //! it with its own title bar, the caption buttons, keeping its place ([`crate::window`]), the system folder picker and
-//! folders dropped on the window (Add project). The WebView2 key switch ([`webview_keys_off`]) is set up here too.
+//! folders dropped on the window (Add project). The WebView2 key switch ([`webview_keys_off`]) and macOS's text
+//! substitutions ([`text_substitutions_off`]) are set up here too.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -278,6 +279,9 @@ pub fn run(
     placement: Option<PathBuf>,
 ) -> Result<(), String> {
     tauri::async_runtime::set(runtime);
+    // Before the webview exists, so WebKit reads them when it first checks text.
+    #[cfg(target_os = "macos")]
+    text_substitutions_off(&objc2_foundation::NSUserDefaults::standardUserDefaults());
     let placement = Arc::new(Placement {
         file: placement,
         last: Mutex::new(None),
@@ -363,4 +367,143 @@ fn webview_keys_off(tauri_app: &tauri::App) -> Result<(), tauri::Error> {
     #[cfg(not(windows))]
     let _ = tauri_app;
     Ok(())
+}
+
+/// The defaults that switch macOS's text substitutions off: smart quotes, smart dashes, text replacement and
+/// autocorrect, for the webview (`Web…`) and for native text fields (`NS…`). Titles, branch names and terminals take
+/// code (`'--port'`), which they would otherwise turn into `‘—port’`, and typing "hi" in a terminal would offer "Hi"
+/// (#41, #52).
+#[cfg(target_os = "macos")]
+const TEXT_SUBSTITUTIONS: [&str; 8] = [
+    "WebAutomaticQuoteSubstitutionEnabled",
+    "WebAutomaticDashSubstitutionEnabled",
+    "WebAutomaticTextReplacementEnabled",
+    "WebAutomaticSpellingCorrectionEnabled",
+    "NSAutomaticQuoteSubstitutionEnabled",
+    "NSAutomaticDashSubstitutionEnabled",
+    "NSAutomaticTextReplacementEnabled",
+    "NSAutomaticSpellingCorrectionEnabled",
+];
+
+/// Sets [`TEXT_SUBSTITUTIONS`] to NO in `defaults`. The app passes `standardUserDefaults`, whose writes go to the
+/// app's own domain (its bundle id; the binary's name when run unbundled), never the global one: the user's
+/// system-wide choice stays theirs for other apps, and the app's domain wins over it here. WebKit reads these keys
+/// from the app's defaults when it first checks text, so they are set before the window opens. The page sets
+/// `autocorrect`, `autocapitalize` and `spellcheck` on its fields too (`ui/src/components/plainText.ts`).
+#[cfg(target_os = "macos")]
+fn text_substitutions_off(defaults: &objc2_foundation::NSUserDefaults) {
+    for key in TEXT_SUBSTITUTIONS {
+        defaults.setBool_forKey(false, &objc2_foundation::NSString::from_str(key));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use objc2::AllocAnyThread;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
+    use objc2_foundation::{NSString, NSUserDefaults};
+
+    use super::{TEXT_SUBSTITUTIONS, text_substitutions_off};
+
+    /// A throwaway defaults domain (a suite), removed when the test ends however it ends.
+    struct Suite {
+        name: String,
+        defaults: Retained<NSUserDefaults>,
+    }
+
+    impl Suite {
+        fn new() -> Suite {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let name = format!(
+                "{}.test.door.{}.{nanos}",
+                otaq_core::naming::BUNDLE_ID,
+                std::process::id()
+            );
+            let defaults = NSUserDefaults::initWithSuiteName(
+                NSUserDefaults::alloc(),
+                Some(&NSString::from_str(&name)),
+            )
+            .expect("a suite's defaults");
+            Suite { name, defaults }
+        }
+    }
+
+    impl Drop for Suite {
+        fn drop(&mut self) {
+            // Through cfprefsd, which then writes nothing more for it.
+            let _ = std::process::Command::new("/usr/bin/defaults")
+                .args(["delete", &self.name])
+                .output();
+            // It leaves an empty file behind.
+            if let Some(home) = std::env::var_os("HOME") {
+                let file = std::path::Path::new(&home)
+                    .join("Library/Preferences")
+                    .join(format!("{}.plist", self.name));
+                let _ = std::fs::remove_file(file);
+            }
+        }
+    }
+
+    /// The global domain's value of each key, read only.
+    fn global_values() -> Vec<Option<Retained<AnyObject>>> {
+        let global = NSUserDefaults::standardUserDefaults()
+            .persistentDomainForName(&NSString::from_str("NSGlobalDomain"));
+        TEXT_SUBSTITUTIONS
+            .iter()
+            .map(|key| global.as_ref()?.objectForKey(&NSString::from_str(key)))
+            .collect()
+    }
+
+    fn same(a: &Option<Retained<AnyObject>>, b: &Option<Retained<AnyObject>>) -> bool {
+        match (a, b) {
+            (None, None) => true,
+            (Some(a), Some(b)) => a
+                .downcast_ref::<NSObject>()
+                .is_some_and(|a| a.isEqual(Some(b))),
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn text_substitutions_are_written_off_to_the_given_domain_only() {
+        let suite = Suite::new();
+        let global_before = global_values();
+
+        text_substitutions_off(&suite.defaults);
+        assert!(suite.defaults.synchronize());
+
+        // Every key is NO in the suite's own domain, and nothing else is there.
+        let domain = suite
+            .defaults
+            .persistentDomainForName(&NSString::from_str(&suite.name))
+            .expect("the suite's domain was written");
+        assert_eq!(domain.count(), TEXT_SUBSTITUTIONS.len());
+        for key in TEXT_SUBSTITUTIONS {
+            let key = NSString::from_str(key);
+            assert!(domain.objectForKey(&key).is_some(), "{key} is in the suite");
+            assert!(!suite.defaults.boolForKey(&key), "{key} is NO");
+        }
+        // As the defaults tool sees the suite's domain (read only, this domain only).
+        let read = std::process::Command::new("/usr/bin/defaults")
+            .args(["read", &suite.name])
+            .output()
+            .expect("defaults read");
+        let read = String::from_utf8_lossy(&read.stdout);
+        for key in TEXT_SUBSTITUTIONS {
+            assert!(read.contains(&format!("{key} = 0;")), "{key} in: {read}");
+        }
+
+        // The global domain is as it was.
+        let global_after = global_values();
+        for ((key, before), after) in TEXT_SUBSTITUTIONS
+            .iter()
+            .zip(&global_before)
+            .zip(&global_after)
+        {
+            assert!(same(before, after), "{key} changed in the global domain");
+        }
+    }
 }

@@ -20,7 +20,7 @@ import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
-import { Button, DecisionsList, Kbd, Segmented } from "../../components";
+import { Button, DecisionsList, Kbd, Segmented, PLAIN_TEXT } from "../../components";
 import type { DecisionItemView } from "../../generated/DecisionItemView";
 import type { DecisionsSection } from "../../generated/DecisionsSection";
 import type { DiffFileView } from "../../generated/DiffFileView";
@@ -1045,6 +1045,7 @@ export function FilesTabBody({
         <label className="files-search">
           <Icon name="search" size={13} />
           <input
+            {...PLAIN_TEXT}
             ref={search}
             value={query}
             placeholder={view.search.placeholder}

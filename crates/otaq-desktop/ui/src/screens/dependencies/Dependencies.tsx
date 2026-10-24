@@ -8,7 +8,7 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "re
 
 import type { TicketProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
-import { Popover } from "../../components";
+import { Popover, PLAIN_TEXT } from "../../components";
 import { paletteInk } from "../../cards/look";
 import type { DependenciesView } from "../../generated/DependenciesView";
 import type { DependencyDirection } from "../../generated/DependencyDirection";
@@ -155,13 +155,13 @@ export function PickerBody({
       <label className="dependency-search">
         <Icon name="search" size={13} />
         <input
+          {...PLAIN_TEXT}
           // The picker opens to type into.
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the Add click asks for the search
           autoFocus
           value={query}
           placeholder={view.search}
           aria-label={view.search}
-          spellCheck={false}
           onChange={(e) => {
             onQuery(e.target.value);
             setHover(null);

@@ -8,7 +8,7 @@ import { type KeyboardEvent, type RefObject, useCallback, useEffect, useRef, use
 import { openOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd, useFloatingStyle } from "../../components";
+import { Kbd, useFloatingStyle, PLAIN_TEXT } from "../../components";
 import type { BoardFilter } from "../../generated/BoardFilter";
 import type { SearchParams } from "../../generated/SearchParams";
 import type { SearchSuggestion } from "../../generated/SearchSuggestion";
@@ -138,13 +138,13 @@ export function SearchBox({
         </span>
       ))}
       <input
+        {...PLAIN_TEXT}
         ref={input}
         className="board-search-input"
         type="text"
         value={filter.text}
         placeholder={filter.tokens.length === 0 ? (view?.placeholder ?? "") : ""}
         aria-label={view?.placeholder ?? "Search"}
-        spellCheck={false}
         autoComplete="off"
         onChange={(e) => {
           onType(e.target.value);

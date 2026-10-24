@@ -2,6 +2,7 @@
 // text input and text area (the webview's own editing, selection and IME), the check box and the radio button.
 // Which error shows when comes from Rust (`fields.rs`: once touched, or from the service as it sent it).
 import { type ReactNode, type Ref, useId } from "react";
+import { PLAIN_TEXT, PROSE_TEXT } from "./plainText";
 
 export interface FieldProps {
   label?: string;
@@ -65,6 +66,7 @@ export function TextInput({
 }: TextProps) {
   return (
     <input
+      {...PLAIN_TEXT}
       ref={ref}
       id={id}
       className="text-input"
@@ -75,7 +77,6 @@ export function TextInput({
       aria-label={label}
       aria-invalid={invalid || undefined}
       data-mono={mono || undefined}
-      spellCheck={false}
       onChange={(e) => {
         onChange(e.target.value);
       }}
@@ -105,6 +106,7 @@ export function TextArea({
 }: TextAreaProps) {
   return (
     <textarea
+      {...PROSE_TEXT}
       ref={ref}
       id={id}
       className="text-input text-area"

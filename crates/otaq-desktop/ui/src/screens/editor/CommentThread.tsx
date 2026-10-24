@@ -9,7 +9,7 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "re
 
 import type { TicketProps } from "../../app/registry";
 import { createStore, type Store, useStore } from "../../app/store";
-import { AnchoredMenu, Button, ConfirmDialog, IconButton, ToolAvatar } from "../../components";
+import { AnchoredMenu, Button, ConfirmDialog, IconButton, ToolAvatar, PROSE_TEXT } from "../../components";
 import type { CommentReportChip } from "../../generated/CommentReportChip";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
@@ -160,6 +160,7 @@ function EditInPlace({
   return (
     <div className="comment-edit" data-over={state.over || undefined}>
       <textarea
+        {...PROSE_TEXT}
         className="text-input text-area comment-box-text"
         value={text}
         aria-label={row.heading}

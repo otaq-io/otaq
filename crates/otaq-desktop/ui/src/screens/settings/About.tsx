@@ -4,7 +4,7 @@
 // `settings.about`, `settings.license` and `settings.licenses` (`about.rs`, `licenses.rs`).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { Button, Dialog, IconButton, Kbd, OtaqMark } from "../../components";
+import { Button, Dialog, IconButton, Kbd, OtaqMark, PLAIN_TEXT } from "../../components";
 import type { AboutView } from "../../generated/AboutView";
 import type { LicensesDialog as LicensesView } from "../../generated/LicensesDialog";
 import type { LicensesItem } from "../../generated/LicensesItem";
@@ -224,6 +224,7 @@ function LicensesDialog({
           <label className="about-filter" data-filled={query !== "" || undefined}>
             <Icon name="search" />
             <input
+              {...PLAIN_TEXT}
               ref={input}
               type="text"
               value={query}

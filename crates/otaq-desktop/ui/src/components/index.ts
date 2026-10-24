@@ -39,6 +39,7 @@ export {
   usePresence,
 } from "./motion";
 export { OtaqMark } from "./OtaqMark";
+export { PLAIN_TEXT, plainTextOff, PROSE_TEXT } from "./plainText";
 export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
 export { Popover, useDismiss, useEscape, type PopoverProps } from "./Popover";
 export { PriorityChip, PriorityLabel } from "./Priority";

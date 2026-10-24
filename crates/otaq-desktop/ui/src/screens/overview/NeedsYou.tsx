@@ -10,7 +10,15 @@ import { openOverlay } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { PANEL_UNDER_TABS } from "../../app/registry/panel";
 import { requestTerminalFocus, showTab } from "../../app/selection";
-import { Button, StageChoices, TextArea, TicketPath, ToolProblemCallout, Tooltip } from "../../components";
+import {
+  Button,
+  StageChoices,
+  TextArea,
+  TicketPath,
+  ToolProblemCallout,
+  Tooltip,
+  PLAIN_TEXT,
+} from "../../components";
 import type { PanelAnswer } from "../../generated/PanelAnswer";
 import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
 import type { PanelButton } from "../../generated/PanelButton";
@@ -171,6 +179,7 @@ export function AnswerBox({
           ))}
           {picksOther(pick, answer.rows) && (
             <input
+              {...PLAIN_TEXT}
               className="field-input panel-answer-other"
               value={other}
               placeholder={answer.other_placeholder}
