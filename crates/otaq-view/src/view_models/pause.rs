@@ -7,13 +7,12 @@
 //! While the open project is paused: the amber banner first in the stack, which can't be closed ("shop-web is
 //! paused." / "All projects are paused."), Activity reads "5 paused", the rail's tile counts its paused agents in
 //! amber, and every card the pause stopped reads "Paused" in amber, its timer held ([`crate::view_models::card`]).
-//! After a restart the banner says it is **still** paused and a toast says a pause never lifts on its own (PAU-07); the
-//! reboot summary leaves paused projects out ([`crate::view_models::after_restart::outside_pause`]).
+//! After a restart the banner says it is **still** paused and that a pause never lifts on its own, with no toast
+//! (PAU-07, Q417); the reboot summary leaves paused projects out ([`crate::view_models::after_restart::outside_pause`]).
 //!
 //! The counts are the service's (`agents.pause_counts`): `working` is what Pause stops, `paused` what Resume resumes.
 
 use otaq_core::agents::pause::{PauseCounts, ProjectPause};
-use otaq_core::protocol::ServiceStatus;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -23,7 +22,6 @@ use crate::keymap::KeyAction;
 use crate::view_models::agent_tools_page::and_list;
 use crate::view_models::banners::Situation;
 use crate::view_models::limits::AgentsChip;
-use crate::view_models::toasts::{NewToast, ToastLevel};
 
 pub const PAUSE: &str = "Pause";
 pub const RESUME: &str = "Resume";
@@ -38,7 +36,7 @@ pub const PAUSE_NOTE: &str =
 /// What a pause leaves, in the banner after "5 agents stopped; " (`s24-07`).
 const LEAVES: &str =
     "Resume continues where each one was. Queued tickets wait; questions for you stay open.";
-/// The restart's first sentence, in the banner and the toast (PAU-07, `s24-08`): "Otaq restarted; a pause never lifts
+/// The restart's first sentence, in the banner (PAU-07, `s24-08`): "Otaq restarted; a pause never lifts
 /// on its own."
 pub fn restarted_line() -> String {
     format!(
@@ -283,23 +281,6 @@ pub fn banner(
         )
     };
     Some(Situation::Paused { title, text })
-}
-
-/// The toast after a restart while paused (PAU-07): "… restarted; a pause never lifts on its own." and "5 agents
-/// wait where each one was; Resume when you're ready." `None` when nothing is paused.
-pub fn restart_toast(status: &ServiceStatus) -> Option<NewToast> {
-    if status.paused.is_empty() {
-        return None;
-    }
-    let n: u32 = status.paused.iter().map(|p| p.paused).sum();
-    Some(NewToast::new(
-        ToastLevel::Success,
-        restarted_line(),
-        Some(format!(
-            "{} wait where each one was; Resume when you\u{2019}re ready.",
-            agents(n)
-        )),
-    ))
 }
 
 /// Activity while the open project is paused (PAU-08, `s24-07`): "5 paused", its dot amber. `None` while it runs.
@@ -638,20 +619,6 @@ mod tests {
         assert_eq!(
             texts(banner(Some("BILL"), &all, 200)).0,
             "All projects are still paused."
-        );
-    }
-
-    /// PAU-07: the toast after a restart while paused, with every paused project's agents.
-    #[test]
-    fn the_restart_toast_says_a_pause_never_lifts_on_its_own() {
-        let mut status = ServiceStatus::default();
-        assert_eq!(restart_toast(&status), None);
-        status.paused = counts(&[("SHOP", "shop-web", Some(100), 0, 5)]).projects;
-        let toast = restart_toast(&status).unwrap();
-        assert_eq!(toast.title, restarted_line());
-        assert_eq!(
-            toast.text.as_deref(),
-            Some("5 agents wait where each one was; Resume when you\u{2019}re ready.")
         );
     }
 

@@ -6,7 +6,9 @@
 // drag one row out*, *03 → epic flows 3 → 8*). From M17 (d0083, T-0289) the Lead row sits under the branch line (the
 // Lead Status in its full form, or Open lead; Split with the Project agent with no children, LEAD-13), rows the lead
 // created carry "added by Wishlist lead", and a lead that asks you turns the border turquoise (*01 → Row · Epic Card
-// with a lead (0083)*).
+// with a lead (0083)*). A child waiting for a parent reads "Blocked by SHOP-18" in amber with the link (DPV-01, Q448),
+// and hovering any row lights its chain and arrows as a card's hover does (DPV-02): the row carries
+// `data-chain-row` for the board's chain layer.
 import { type CSSProperties, Fragment, type PointerEvent, useState } from "react";
 
 import { Button, LeadStatus, PriorityChip, StatusPill } from "../components";
@@ -27,6 +29,8 @@ export interface EpicCardProps {
   onChild?: (key: string) => void;
   /** The button went down on a draggable row: the board may start dragging that child out. */
   onChildPress?: (key: string, e: PointerEvent) => void;
+  /** The pointer came onto (`true`) or left (`false`) a child row: its chain lights up. */
+  onChildHover?: (key: string, over: boolean) => void;
   onAdd?: () => void;
   onAction?: (kind: CardActionKind) => void;
   /** A click on the Lead Status (the default opens the epic sheet on its Lead tab). */
@@ -50,6 +54,7 @@ export function EpicCard({
   onSelect,
   onChild,
   onChildPress,
+  onChildHover,
   onAdd,
   onAction,
   onLead,
@@ -130,8 +135,16 @@ export function EpicCard({
                 className="epic-child"
                 data-finished={child.state === "merged" || child.state === "closed" || undefined}
                 data-draggable={child.draggable || undefined}
-                style={{ "--ink": childInk(child.state) } as CSSProperties}
+                data-blocked={child.blocked || undefined}
+                data-chain-row={child.key}
+                style={
+                  {
+                    "--ink": child.blocked ? "var(--st-paused)" : childInk(child.state),
+                  } as CSSProperties
+                }
                 onClick={own(() => onChild?.(child.key))}
+                onPointerEnter={() => onChildHover?.(child.key, true)}
+                onPointerLeave={() => onChildHover?.(child.key, false)}
                 onPointerDown={
                   child.draggable && onChildPress
                     ? (e) => {

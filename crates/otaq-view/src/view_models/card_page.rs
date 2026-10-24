@@ -107,8 +107,12 @@ pub struct ChildView {
     pub key: String,
     pub title: String,
     pub state: ChildState,
+    /// The state's icon, or the link while it is blocked.
     pub icon: IconName,
+    /// Its status ("Backlog"), or "Blocked by SHOP-18" while it waits for a parent (DPV-01, Q448).
     pub status_label: String,
+    /// It waits for a parent: the status is amber, and hovering the row draws its arrows (DPV-02).
+    pub blocked: bool,
     /// The row can be dragged out to queue only this child (d0080).
     pub draggable: bool,
     /// "added by Wishlist lead" (d0083).
@@ -163,8 +167,13 @@ impl EpicCardView {
                     key: c.key.to_string(),
                     title: c.title,
                     state: c.state,
-                    icon: c.state.icon(),
-                    status_label: c.status_label.to_owned(),
+                    icon: if c.blocked.is_some() {
+                        crate::view_models::dependencies::ICON
+                    } else {
+                        c.state.icon()
+                    },
+                    blocked: c.blocked.is_some(),
+                    status_label: c.blocked.unwrap_or_else(|| c.status_label.to_owned()),
                     draggable: c.draggable,
                     origin: c.origin,
                 })

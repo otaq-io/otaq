@@ -75,6 +75,7 @@ const WISHLIST: EpicCardView = {
       state: "merged",
       icon: "circle-check",
       status_label: "Merged",
+      blocked: false,
       draggable: false,
       origin: null,
     },
@@ -199,6 +200,25 @@ describe("the Epic Card draws its view", () => {
     const out = html(createElement(EpicCard, { card }));
     expect(out.match(/data-draggable="true"/g)).toHaveLength(1);
     expect(out.match(/epic-child-grip/g)).toHaveLength(1);
+  });
+
+  it("a blocked row reads Blocked by SHOP-18 in amber with the link, and is a chain row (Q448)", () => {
+    const merged = WISHLIST.children[0];
+    if (!merged) throw new Error("fixture");
+    const blocked = {
+      ...merged,
+      key: "SHOP-40.3",
+      title: "Wishlist page",
+      state: "not_started" as const,
+      icon: "link" as const,
+      status_label: "Blocked by SHOP-18",
+      blocked: true,
+    };
+    const out = html(createElement(EpicCard, { card: { ...WISHLIST, children: [merged, blocked] } }));
+    expect(out.match(/data-blocked="true"/g)).toHaveLength(1);
+    expect(out).toContain('data-chain-row="SHOP-40.3"');
+    expect(out).toContain("--ink:var(--st-paused)");
+    expect(out).toContain('<span class="epic-child-status">Blocked by SHOP-18</span>');
   });
 });
 

@@ -191,7 +191,7 @@ pub fn running_count(tickets: &[Ticket], busy: &HashSet<String>) -> usize {
 }
 
 /// The scheduler's view of the limits now: what the header's "3 / 5 agents" and Settings' "Right now: 3 running ·
-/// 2 queued tickets waiting for a slot · needs you 7 (new starts paused)" show.
+/// 2 queued tickets waiting for a slot · needs you 7 (no new starts)" show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SchedulerStatus {
     pub limits: AgentLimits,
