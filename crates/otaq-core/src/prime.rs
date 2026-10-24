@@ -939,7 +939,7 @@ fn render_conflict(c: &Conflict, restack: &str) -> String {
             "Reopened: the rebase onto `{}` conflicted. Resolve it first with the restack skill (`{restack}`).",
             c.target
         ),
-        ConflictReason::Merge => format!(
+        ConflictReason::Merge | ConflictReason::TestMerge => format!(
             "This branch conflicts with the latest `{}`. Rebase it onto `{}` and resolve the conflicts first, \
              with the restack skill (`{restack}`).",
             c.target, c.target

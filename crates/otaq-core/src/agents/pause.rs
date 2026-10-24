@@ -13,7 +13,8 @@
 //!   ticket the user resumed alone) and keeps its `paused_since`.
 //! - **Resume** ([`Pause::resume`]) lifts the flag, then resumes what the pause stopped, each on its own
 //!   conversation: the project's Interrupted tickets (Resume all's scope, [`resume_all_eligible`]; a check starts
-//!   afresh) and its Paused Project agents and leads; then the starts kept while paused run
+//!   afresh) and its Paused Project agents and leads, and hands back the conflicts the test merge flagged while
+//!   paused ([`Review::hand_back_held`], d0127); then the starts kept while paused run
 //!   ([`Pause::on_resume`]), and the scheduler wakes.
 //! - **The counts** ([`Pause::counts`]) are what the Pause and Resume menus say ("shop-web · 5 working", "7 working in
 //!   2 projects", the paused counts for Resume).
@@ -291,6 +292,10 @@ impl Pause {
             if let Err(e) = self.inner.project_agents.resume(&id).await {
                 tracing::warn!(agent = id, error = %e, "can't resume the paused agent");
             }
+        }
+        // Conflicts the test merge found while paused go to their agents now (d0127).
+        if let Err(e) = self.inner.review.hand_back_held(key).await {
+            tracing::warn!(project = key, error = %e, "can't hand the held conflicts to the agents");
         }
         Ok(())
     }

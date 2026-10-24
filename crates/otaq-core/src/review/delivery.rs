@@ -224,8 +224,8 @@ impl Review {
     }
 
     /// A conflict (`check` `None`) or a failed Merge check (`check`, its comment) goes back to the agent, or stops
-    /// after the third in a row: both count toward the same limit (d0120).
-    async fn hand_back(
+    /// after the third in a row: both count toward the same limit (d0120), and so does the test merge's (d0127).
+    pub(super) async fn hand_back(
         &self,
         ticket: &Ticket,
         target: &str,

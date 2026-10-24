@@ -28,6 +28,12 @@ pub const MERGE_CHECK_FAILED_FIXING: &str = "Merge check failed · fixing";
 /// Done through an automatic local Delivery (FLW-15, AMG-02).
 pub const MERGED_AUTOMATICALLY: &str = "Merged automatically";
 
+/// "Conflicts with main · fixing": the test merge after another ticket merged found a conflict while this one waited
+/// in Review, and its agent rebases with `restack`, no click (d0127). `target` is the branch it merges into.
+pub fn conflicts_fixing(target: &str) -> String {
+    format!("Conflicts with {target} \u{b7} fixing")
+}
+
 /// "Validation failed 3 times": the last round failed (VAL-06).
 pub fn failed_times(times: u32) -> String {
     format!("Validation failed {}", times_word(times))

@@ -1178,6 +1178,9 @@ impl Board {
                     submitted_by_you,
                     // A failed Merge check isn't a conflict: the card says "Merge check failed · fixing".
                     conflicts_with: row.conflicts_with.clone().filter(|_| !merge_check_failed),
+                    conflict_in_review: row.conflicts_with.is_some()
+                        && row.conflict_reason.as_deref()
+                            == Some(super::conflicts::ConflictReason::TestMerge.as_str()),
                     merge_check: if self.merge_checks().is_running(&row.id) {
                         Some(MergeCheckState::Running)
                     } else if merge_check_failed {

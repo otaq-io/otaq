@@ -1136,37 +1136,35 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 },
             )
         }
-        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`).
-        Status::MergeConflictFixing => Part::flag(
-            {
-                let f = flag(
-                    R::Busy,
-                    "Conflict",
-                    validation::MERGE_CONFLICT_FIXING,
-                    Legend::MergeConflictFixing,
-                );
-                // Today's calm pill on the default flow.
+        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`). A
+        // conflict the test merge found in Review says which branch: "Conflicts with main · fixing" (d0127).
+        Status::MergeConflictFixing => {
+            let fixing = match flags.conflicts_with.as_deref() {
+                Some(target) if flags.conflict_in_review => validation::conflicts_fixing(target),
+                _ => validation::MERGE_CONFLICT_FIXING.to_owned(),
+            };
+            Part::flag(
+                {
+                    let f = flag(R::Busy, "Conflict", &fixing, Legend::MergeConflictFixing);
+                    // Today's calm pill on the default flow.
+                    if x.custom_flow {
+                        f
+                    } else {
+                        f.colored(Palette::Working)
+                    }
+                },
+                Some(match flags.conflict_files.as_slice() {
+                    [] => fixing.clone(),
+                    [file] => format!("{fixing} \u{b7} {file}"),
+                    [file, rest @ ..] => format!("{fixing} \u{b7} {file} +{}", rest.len()),
+                }),
                 if x.custom_flow {
-                    f
+                    Tone::Paused
                 } else {
-                    f.colored(Palette::Working)
-                }
-            },
-            Some(match flags.conflict_files.as_slice() {
-                [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
-                [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
-                [file, rest @ ..] => format!(
-                    "{} \u{b7} {file} +{}",
-                    validation::MERGE_CONFLICT_FIXING,
-                    rest.len()
-                ),
-            }),
-            if x.custom_flow {
-                Tone::Paused
-            } else {
-                Tone::Muted
-            },
-        ),
+                    Tone::Muted
+                },
+            )
+        }
         Status::Working => Part::flag(
             flag(R::Working, "Working", "Working", Legend::AgentWorking),
             None,
@@ -4950,6 +4948,29 @@ mod tests {
         let vm = card(&t);
         assert_eq!(line(&vm), Some("Merge conflict · fixing · a.ts +2"));
         assert_eq!(vm.outline, Outline::Normal);
+        // The test merge's conflict, found while it waited in Review, names the branch (d0127); the Review flag is
+        // gone while the agent fixes it.
+        let mut t = ticket("SHOP-19", "Price table", Status::MergeConflictFixing);
+        t.flags.conflicts_with = Some("main".into());
+        t.flags.conflict_in_review = true;
+        let vm = card(&t);
+        assert_eq!(line(&vm), Some("Conflicts with main · fixing"));
+        assert_eq!(
+            vm.flag.as_ref().map(|f| f.full.as_str()),
+            Some("Conflicts with main · fixing")
+        );
+        t.flags.conflict_files = vec!["lib/pricing.ts".into()];
+        assert_eq!(
+            line(&card(&t)),
+            Some("Conflicts with main · fixing · lib/pricing.ts")
+        );
+        // Still in Review (its PR is open, or the project is paused): only the flag.
+        t.status = Status::WaitingForYou;
+        assert!(
+            !line(&card(&t)).unwrap_or_default().contains("fixing"),
+            "{:?}",
+            line(&card(&t))
+        );
         // The other Auto-merge stops show the Local merge's message.
         use otaq_core::domain::AutoMergeStop;
         for (stop, label) in [

@@ -122,6 +122,10 @@ pub struct Flags {
     /// Conflicts with `<base>`: the base branch it conflicts with (d0038).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflicts_with: Option<String>,
+    /// The conflict came from the test merge after another ticket merged, while this one waited in Review (d0127):
+    /// while its agent fixes it the card says "Conflicts with main · fixing". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub conflict_in_review: bool,
     /// Changed since you reviewed it (d0043).
     #[serde(default, skip_serializing_if = "is_false")]
     pub changed_since_review: bool,
@@ -372,6 +376,7 @@ mod tests {
                 decisions: 0,
             }),
             conflicts_with: Some("main".into()),
+            conflict_in_review: true,
             changed_since_review: true,
             messages_waiting: 2,
             hand_off: None,
