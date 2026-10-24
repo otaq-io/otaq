@@ -140,6 +140,7 @@ function routes(project: string | null = "SHOP"): StripRoutes {
       focus: createStore<PaneFocusRequest | null>(null),
     },
     last: createStore<StripTarget | null>(null),
+    blur: vi.fn(),
   };
 }
 
@@ -307,6 +308,22 @@ describe("opening and Next", () => {
     openTarget(ticket("SHOP-30", "check"), r);
     expect(r.selection.get()).toMatchObject({ ticket: "SHOP-30", tab: "check" });
     expect(r.focus.get()).toEqual({ ticket: "SHOP-30", seq: 3 });
+  });
+
+  it("⌘J takes the keyboard from the terminal that had it: a question's terminal is asked for, a review's isn't (finding 55)", () => {
+    const r = routes("SHOP");
+    r.selection.update((s) => ({ ...s, ticket: "SHOP-15", focusedTerminal: "s15" }));
+    openTarget(ticket("SHOP-18", "files"), r);
+    expect(r.blur).toHaveBeenCalledTimes(1);
+    expect(r.selection.get().focusedTerminal).toBeNull();
+    expect(r.focus.get()).toBeNull();
+    r.selection.update((s) => ({ ...s, focusedTerminal: "s18" }));
+    openTarget(ticket("SHOP-16", "agent"), r);
+    expect(r.blur).toHaveBeenCalledTimes(2);
+    expect(r.focus.get()).toEqual({ ticket: "SHOP-16", seq: 1 });
+    // Nothing had the keyboard: nothing to take.
+    openTarget(ticket("SHOP-17", "overview"), r);
+    expect(r.blur).toHaveBeenCalledTimes(2);
   });
 
   it("a Project agent opens in the panel, focused", () => {

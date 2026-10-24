@@ -20,6 +20,7 @@ const map = (letters: boolean): Keymap => ({
   terminal_app_modifiers: [],
   terminal_keys: [],
   log: false,
+  typing_hint: "Typing? Click where you want to type",
 });
 
 describe("the keyboard map", () => {

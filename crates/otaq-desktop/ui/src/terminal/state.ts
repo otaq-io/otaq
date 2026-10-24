@@ -32,6 +32,16 @@ export function takesInput(phase: TerminalPhase): boolean {
   return phase === "live";
 }
 
+/**
+ * What becomes of what the user types (d0126): sent while live; held while the terminal is still attaching and sent in
+ * order once it is live (a terminal that was just asked for gets the keyboard before its session answers); dropped
+ * while reconnecting and after the end.
+ */
+export function typingIn(phase: TerminalPhase): "send" | "hold" | "drop" {
+  if (phase === "live") return "send";
+  return phase === "attaching" ? "hold" : "drop";
+}
+
 /** The terminal font sizes (SET-01's range). */
 export const FONT_SIZES = { min: 8, max: 32 } as const;
 

@@ -73,6 +73,7 @@ const MAP: Keymap = {
   platform: "mac",
   letters: true,
   log: false,
+  typing_hint: "Typing? Click where you want to type",
   actions: [],
   terminal_keys: [],
   terminal_app_modifiers: [],
@@ -176,8 +177,10 @@ test("the list shows Rust's rows; Esc closes it and runs nothing behind it", asy
   expect(box?.textContent).toContain("Keyboard shortcuts");
   expect(host?.querySelector(".shortcuts-row[data-changed]")?.textContent).toBe("Activity⌘Jorgthenachanged");
   expect(document.activeElement).toBe(box);
-  // A letter doesn't act behind it, nor a second ?.
+  // A letter doesn't act behind it, nor a second ? a moment later (one at once would be a burst, d0126).
+  const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);
   press("?");
+  later.mockRestore();
   expect(open()).toEqual(["shortcuts"]);
   press("Escape");
   expect(open()).toEqual([]);

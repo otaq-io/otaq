@@ -212,6 +212,11 @@ describe("the empty pane", () => {
     expect(shownAgents.get()).toEqual({ NOTE: "a1" });
     expect(paneFocusRequests.get()).toMatchObject({ agent: "a1" });
     expect(textarea().value).toBe("");
+    // The new agent's terminal shows: it is asked for the keyboard at once, which it takes as soon as it opens
+    // (`Terminal.focus.test.ts`), so what the user goes on typing reaches the agent (d0126).
+    expect(terminalFocus).not.toHaveBeenCalled();
+    show(RUNNING);
+    expect(terminalFocus).toHaveBeenCalledTimes(1);
   });
 
   it("a second Send for the same project waits for the first", async () => {

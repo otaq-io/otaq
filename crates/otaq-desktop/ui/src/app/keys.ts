@@ -3,7 +3,9 @@
 // screen handler of the action it is bound to (`app.shortcuts.run`), or, if it is a key the webview would act on
 // (reload, print, find, zoom, devtools, caret browsing, history), is swallowed without doing anything. Single letters
 // and `g` sequences (KEY-02) run only while nobody is typing and the letters switch is on; after `g` the dispatcher
-// waits for the second key (`Dispatch.wait`, whose timer and hint are `keyboard.ts`'s).
+// waits for the second key (`Dispatch.wait`, whose timer and hint are `keyboard.ts`'s). Letters typed faster than about
+// 3 a second with nothing focused are typing, not shortcuts (d0126): from the second one until a pause none runs, and
+// what the first one opened is closed again (`Burst`).
 import type { KeyAction } from "../generated/KeyAction";
 import type { KeyBinding } from "../generated/KeyBinding";
 import type { Keymap } from "../generated/Keymap";
@@ -18,6 +20,8 @@ export interface KeyLike {
   altKey: boolean;
   shiftKey: boolean;
   metaKey: boolean;
+  /** The key is held down and this is its auto-repeat. */
+  repeat?: boolean;
 }
 
 /** Where the key was pressed. */
@@ -62,6 +66,8 @@ export type KeyOutcome =
   | { kind: "waiting" }
   /** Pressed while Otaq waited after `g` and no sequence's: the wait ends and the key does nothing more. */
   | { kind: "cancelled" }
+  /** Typed in a fast burst with nothing focused (d0126): it runs nothing and is dropped. */
+  | { kind: "burst" }
   /** Not in the map, but the webview would act on it: swallowed. */
   | { kind: "swallowed" }
   /** Neither: the page's elements get it as usual. */
@@ -340,6 +346,76 @@ export interface Dispatch {
   wait: (on: boolean) => void;
   /** Whether this is a Mac (only used before the map arrived). */
   mac: boolean;
+  /** The fast-typing guard (d0126); without one each key is judged alone. */
+  burst?: Burst;
+}
+
+/** Letters this close together (ms) are typing, not shortcuts: about 3 a second (d0126). */
+export const BURST_MS = 300;
+
+/**
+ * The fast-typing guard's state and what it asks of the page (d0126): when the previous typed key came while letters
+ * ran, whether a burst is on, and the page's part, noting what a letter is about to open and closing it again.
+ */
+export interface Burst {
+  /** The time in ms. */
+  now: () => number;
+  /** Before a typed key with nothing focused: what is open now, so what the key opens can be closed again. */
+  note: () => void;
+  /** A key of a burst was dropped; `first`: the burst began, so what the noted key opened closes and the hint shows. */
+  dropped: (first: boolean) => void;
+  /** When the previous typed key came while it counted (nothing focused, or right after one); `null`: none. */
+  last: number | null;
+  /** Typing is fast now: nothing runs until a pause. */
+  on: boolean;
+}
+
+export function createBurst(page: Pick<Burst, "now" | "note" | "dropped">): Burst {
+  return { ...page, last: null, on: false };
+}
+
+/** A key that types a character (Shift or not): Space and signs too, not with ⌘, Ctrl or ⌥. */
+function typesCharacter(e: KeyLike): boolean {
+  return !e.ctrlKey && !e.metaKey && !e.altKey && Array.from(e.key).length === 1;
+}
+
+/** Keys that are part of typing once a burst is on: ↵ ends the sentence, ⌫ corrects it. */
+const BURST_EDITS: ReadonlySet<string> = new Set(["Enter", "Backspace"]);
+
+/**
+ * The guard's judgement of a key (d0126): `true` when it is part of a burst and runs nothing. A typed key counts while
+ * letters run here, and right after one that did (the first letter's New ticket has the focus by then); `/` (Filter the
+ * board) puts the keyboard in its field on purpose, so what follows it is typed there. Any other key ends the burst.
+ */
+function inBurst(b: Burst, map: Keymap, e: KeyLike, ctx: KeyContext): boolean {
+  // A held key's auto-repeat isn't typing (held `j` moves on through the tickets): it neither starts nor extends a burst,
+  // and one already on stays as it is.
+  if (e.repeat === true) return false;
+  const now = b.now();
+  const fast = b.last !== null && now - b.last < BURST_MS;
+  if (typesCharacter(e)) {
+    if (fast) {
+      b.last = now;
+      const first = !b.on;
+      b.on = true;
+      b.dropped(first);
+      return true;
+    }
+    b.on = false;
+    b.last = null;
+    if (!lettersRun(map, ctx)) return false;
+    if (letterFor(map, e, ctx.letters)?.action.action !== "filter_board") b.last = now;
+    b.note();
+    return false;
+  }
+  if (b.on && fast && BURST_EDITS.has(e.key)) {
+    b.last = now;
+    b.dropped(false);
+    return true;
+  }
+  b.on = false;
+  b.last = null;
+  return false;
 }
 
 /**
@@ -380,6 +456,11 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
     d.wait(false);
     // Somebody typing now (the focus moved meanwhile) gets the key as usual.
     if (map && lettersRun(map, ctx)) {
+      // A sequence's second key comes as fast as it likes (`g b`); typing on after it is a burst.
+      if (d.burst) {
+        d.burst.note();
+        d.burst.last = d.burst.now();
+      }
       let outcome: KeyOutcome = { kind: "cancelled" };
       for (const second of sequencesFor(map, e)) {
         outcome = runBinding(d, second, ctx);
@@ -388,6 +469,8 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
       return outcome;
     }
   }
+  // The off switch leaves every letter to the page, so it needs no guard (0097); nor does a terminal's typing.
+  if (d.burst && map?.letters && !ctx.inTerminal && inBurst(d.burst, map, e, ctx)) return { kind: "burst" };
   if (ctx.inTerminal && (map === undefined || goesToTerminal(map, e))) return { kind: "terminal" };
   const mac = map ? map.platform === "mac" : d.mac;
   let binding = map && bindingFor(map, e, ctx.inTerminal);
@@ -419,6 +502,7 @@ export function stopsEvent(outcome: KeyOutcome): boolean {
     case "ran":
     case "waiting":
     case "cancelled":
+    case "burst":
     case "swallowed":
       return true;
     case "unhandled":
@@ -448,6 +532,8 @@ export function logLine(e: KeyLike, outcome: KeyOutcome): string {
       return `${name} → waiting for the second key`;
     case "cancelled":
       return `${name} → cancelled the g wait`;
+    case "burst":
+      return `${name} → dropped (typed fast with nothing focused)`;
     case "swallowed":
       return `${name} → swallowed (webview key)`;
     case "passed":

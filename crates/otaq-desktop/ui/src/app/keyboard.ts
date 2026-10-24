@@ -1,11 +1,14 @@
 // The dispatcher on the page (T-0215): one capturing `keydown` listener on the window, so it sees each key before the
 // focused element (a terminal's xterm, a text field) does. The decisions are `keys.ts`'s. The map is the user's keys,
 // asked again on every `settings_changed` (d0097: a key changed in Settings applies at once). After `g` it waits about a
-// second for the second key (`sequenceWait`, which the hint shows).
+// second for the second key (`sequenceWait`, which the hint shows). A fast burst of letters with nothing focused runs
+// nothing (d0126): what its first letter opened closes again and the typing hint shows (`typingHint`).
 import type { Keymap } from "../generated/Keymap";
 import { type PageEvents, pageEvents, watchView } from "../service";
 import { request } from "../tauri";
 import {
+  type Burst,
+  createBurst,
   dispatchKey,
   inEditorText,
   inKeyRecorder,
@@ -17,7 +20,7 @@ import {
   stopsEvent,
   widgetOpen,
 } from "./keys";
-import { modalOpen, overlays } from "./overlays";
+import { modalOpen, type OverlayStack, overlays } from "./overlays";
 import type { Registries } from "./registry";
 import { focusTerminal, selection } from "./selection";
 import { createStore } from "./store";
@@ -62,6 +65,82 @@ export function createSequenceWait(
   };
 }
 
+/** Whether the typing hint shows ("Typing? Click where you want to type", d0126). */
+export const typingHint = createStore(false);
+
+/** How long the typing hint stays after the burst's last key, in ms. */
+export const TYPING_HINT_MS = 2500;
+
+/** A menu's Esc sent by the guard's undo: the dispatcher leaves it alone. */
+let undoing = false;
+
+/** What the page's burst guard reads and closes: the overlays, the focus, the `g` wait, the hint, the clock. */
+export interface BurstPage {
+  overlays: OverlayStack;
+  /** The focused element now. */
+  focused: () => Element | null;
+  wait: (on: boolean) => void;
+  hint: typeof typingHint;
+  now: () => number;
+  timers: Pick<Window, "setTimeout" | "clearTimeout">;
+}
+
+/**
+ * The page's burst guard (d0126): before a letter runs it notes the open overlays and the focus; when a burst begins it
+ * closes the overlays opened since (New ticket, the `?` list), a menu the letter opened (its own Esc), the `g` wait, and
+ * gives the focus back, then shows the hint until the typing has paused a moment.
+ */
+export function createPageBurst(page: BurstPage): Burst & { stop: () => void } {
+  let before: { open: ReadonlySet<string>; focused: Element | null } | null = null;
+  let timer: number | undefined;
+  const hideLater = () => {
+    if (timer !== undefined) page.timers.clearTimeout(timer);
+    timer = page.timers.setTimeout(() => {
+      timer = undefined;
+      page.hint.set(false);
+    }, TYPING_HINT_MS);
+  };
+  const undo = () => {
+    page.wait(false);
+    if (before === null) return;
+    const { open, focused } = before;
+    before = null;
+    for (const o of page.overlays.store.get()) if (!open.has(o.id)) page.overlays.close(o.id);
+    const now = page.focused();
+    if (now === focused || !(now instanceof HTMLElement)) return;
+    if (now.closest('[role="menu"]')) {
+      now.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    }
+    if (focused instanceof HTMLElement && focused !== now.ownerDocument.body && focused.isConnected)
+      focused.focus();
+    else now.blur();
+  };
+  const burst = createBurst({
+    now: page.now,
+    note: () => {
+      before = { open: new Set(page.overlays.store.get().map((o) => o.id)), focused: page.focused() };
+    },
+    dropped: (first) => {
+      if (first) {
+        undoing = true;
+        try {
+          undo();
+        } finally {
+          undoing = false;
+        }
+      }
+      page.hint.set(true);
+      hideLater();
+    },
+  });
+  return Object.assign(burst, {
+    stop: () => {
+      if (timer !== undefined) page.timers.clearTimeout(timer);
+      page.hint.set(false);
+    },
+  });
+}
+
 /** The newest key log lines, newest last (only filled with `OTAQ_KEY_LOG=1`). */
 export const keyLog = createStore<readonly string[]>([]);
 
@@ -76,8 +155,16 @@ function lettersHere(focused: HTMLElement | null): LetterHold {
 export function installKeys(app: Registries, target: Window = window): () => void {
   const stopWatching = watchKeymap(keymap.set);
   const wait = createSequenceWait();
+  const burst = createPageBurst({
+    overlays,
+    focused: () => document.activeElement,
+    wait,
+    hint: typingHint,
+    now: () => Date.now(),
+    timers: window,
+  });
   const onKey = (event: KeyboardEvent) => {
-    if (isModifierKey(event) || event.isComposing) return;
+    if (isModifierKey(event) || event.isComposing || undoing) return;
     const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const outcome = dispatchKey(
       {
@@ -90,6 +177,7 @@ export function installKeys(app: Registries, target: Window = window): () => voi
         mac: navigator.userAgent.includes("Mac"),
         waiting: sequenceWait.get,
         wait,
+        burst,
       },
       event,
       {
@@ -115,6 +203,7 @@ export function installKeys(app: Registries, target: Window = window): () => voi
   return () => {
     stopWatching();
     wait(false);
+    burst.stop();
     target.removeEventListener("keydown", onKey, true);
   };
 }

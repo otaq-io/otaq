@@ -406,6 +406,9 @@ const HINT_ORDER: [KeyAction; 6] = [
     KeyAction::FocusEpic,
 ];
 
+/// **The typing hint** (d0126): shown when letters came too fast with nothing focused, so they ran nothing.
+pub const TYPING_HINT: &str = "Typing? Click where you want to type";
+
 /// **The `g` hint** for the user's keys (`bindings`, [`user_keys`]): every `g` sequence with its action's hint name,
 /// custom ones included, removed ones left out. The sheet's tab keys aren't in it (`s02-30`): they work in an open
 /// sheet only.

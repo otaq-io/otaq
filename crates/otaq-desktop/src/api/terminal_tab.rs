@@ -140,8 +140,8 @@ pub struct Check {
     pub terminal_label: String,
     /// "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19".
     pub line: String,
-    /// "Typing goes to Security reviewer" while it runs.
-    pub typing: Option<String>,
+    /// "Typing goes to Security reviewer · SHOP-19" (or "Click to type to …") while it runs.
+    pub typing: Option<session_tab::Typing>,
     /// It ended: the terminal takes no input.
     pub read_only: bool,
     /// The state label and hint for every phase and focus, as [`View::strips`].
@@ -186,8 +186,8 @@ pub struct View {
     pub recovery: Option<Recovery>,
     /// "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22": the agent session's, once there is one.
     pub line: Option<String>,
-    /// "Typing goes to Rust developer" while its session runs.
-    pub typing: Option<String>,
+    /// "Typing goes to Rust developer · SHOP-22" (or "Click to type to …") while its session runs.
+    pub typing: Option<session_tab::Typing>,
     /// Set once a check stage ran: Session's switch shows its side.
     pub check: Option<Check>,
 }
@@ -230,7 +230,7 @@ pub fn check_of(
         line: session_tab::agent_line(&side.agent, session.tool, model_of(session), worktree),
         typing: side
             .running
-            .then(|| session_tab::typing_goes_to(&side.agent)),
+            .then(|| session_tab::typing_goes_to(&side.agent, &ticket.key)),
         read_only: !side.running,
         strips,
         attach_command: strip::validator_attach_command(
@@ -412,7 +412,7 @@ pub fn view_with(
         }),
         typing: agent
             .filter(|_| running && !recovering)
-            .map(|agent| session_tab::typing_goes_to(&agent)),
+            .map(|agent| session_tab::typing_goes_to(&agent, &ticket.key)),
         check,
     }
 }
@@ -694,7 +694,9 @@ mod tests {
             view.line.as_deref(),
             Some("Agent \u{b7} /Users/me/.data/wt/shop-web/SHOP-19")
         );
-        assert_eq!(view.typing.as_deref(), Some("Typing goes to Agent"));
+        let typing = view.typing.as_ref().unwrap();
+        assert_eq!(typing.focused, "Typing goes to Agent \u{b7} SHOP-19");
+        assert_eq!(typing.unfocused, "Click to type to Agent \u{b7} SHOP-19");
         assert_eq!(view.strips.len(), 10);
         assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");
         assert_eq!(
@@ -829,7 +831,10 @@ mod tests {
             v.line,
             "Validator \u{b7} Codex \u{b7} gpt-5.5 \u{b7} /Users/me/.data/wt/shop-web/SHOP-19"
         );
-        assert_eq!(v.typing.as_deref(), Some("Typing goes to Validator"));
+        assert_eq!(
+            v.typing.as_ref().map(|t| t.focused.as_str()),
+            Some("Typing goes to Validator \u{b7} SHOP-19")
+        );
         assert!(!v.read_only);
         assert_eq!(v.attach_command, format!("{} --stage validate", strip::attach_command(&view_key())));
         assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");

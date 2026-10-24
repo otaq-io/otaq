@@ -140,6 +140,7 @@ const MAP: Keymap = {
   platform: mac ? "mac" : "win_linux",
   letters: true,
   log: false,
+  typing_hint: "Typing? Click where you want to type",
   actions: [],
   terminal_keys: [],
   terminal_app_modifiers: [MOD],

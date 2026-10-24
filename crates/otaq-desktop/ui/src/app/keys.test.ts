@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { KeyAction } from "../generated/KeyAction";
 import type { KeyBinding } from "../generated/KeyBinding";
@@ -6,6 +6,8 @@ import type { KeyPlace } from "../generated/KeyPlace";
 import type { Keymap } from "../generated/Keymap";
 import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
+  BURST_MS,
+  createBurst,
   type Dispatch,
   dispatchKey,
   type KeyContext,
@@ -52,6 +54,7 @@ const INSIDE = "inside_terminals";
 const MAC: Keymap = {
   platform: "mac",
   log: false,
+  typing_hint: "Typing? Click where you want to type",
   letters: true,
   actions: [],
   sequences: [],
@@ -82,6 +85,7 @@ const MAC: Keymap = {
 const WIN: Keymap = {
   platform: "win_linux",
   log: false,
+  typing_hint: "Typing? Click where you want to type",
   letters: true,
   actions: [],
   sequences: [],
@@ -610,6 +614,7 @@ function baseMap(platform: "mac" | "win_linux", extra: KeyBinding[] = []): Keyma
   return {
     platform,
     log: false,
+    typing_hint: "Typing? Click where you want to type",
     letters: true,
     actions: [],
     sequences: [],
@@ -966,5 +971,138 @@ describe("a recording shortcut cell (T-0395)", () => {
     }
     expect(ran).toEqual([]);
     expect(waiting()).toBe(false);
+  });
+});
+
+describe("a fast burst of letters with nothing focused (d0126)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A dispatcher with the guard on a fake clock; `dropped` records each dropped key (`true`: the burst began). */
+  function guarded(map: Keymap = MAC_0097) {
+    vi.useFakeTimers();
+    const s = setup(map, ALL);
+    const dropped: boolean[] = [];
+    let notes = 0;
+    s.d.burst = createBurst({
+      now: () => Date.now(),
+      note: () => notes++,
+      dropped: (first) => dropped.push(first),
+    });
+    /** Types `text` one key every `gap` ms; what became of each key. */
+    const type = (text: string, gap: number, ctx: KeyContext = BOARD) =>
+      Array.from(text).map((ch) => {
+        const outcome = dispatchKey(s.d, press(ch), ctx);
+        vi.advanceTimersByTime(gap);
+        return outcome;
+      });
+    return { ...s, dropped, notes: () => notes, type };
+  }
+
+  it("ten letters in a second run nothing after the first, which the guard closes again", () => {
+    const g = guarded();
+    // `c` (New ticket) first, then nine more: 100 ms apart.
+    const outcomes = g.type("cjkjkejkje", 100);
+    expect(g.ran).toEqual(["new_ticket"]);
+    expect(outcomes.slice(1).every((o) => o.kind === "burst" && stopsEvent(o))).toBe(true);
+    // The burst began on the second letter: what `c` opened closes, the hint shows; the rest are only dropped.
+    expect(g.dropped).toEqual([true, false, false, false, false, false, false, false, false]);
+    expect(g.notes()).toBe(1);
+  });
+
+  it("a burst that starts with letters that run nothing runs nothing either", () => {
+    const g = guarded();
+    g.type("hello world", 90);
+    expect(g.ran).toEqual([]);
+    expect(g.waiting()).toBe(false);
+  });
+
+  it("letters typed one at a time still run, and so does the first after a pause", () => {
+    const g = guarded();
+    g.type("jjj", 1000);
+    expect(g.ran).toEqual(["next_ticket", "next_ticket", "next_ticket"]);
+    g.type("xx", 50);
+    vi.advanceTimersByTime(BURST_MS);
+    g.type("k", 0);
+    expect(g.ran).toEqual(["next_ticket", "next_ticket", "next_ticket", "previous_ticket"]);
+  });
+
+  it("g b works however fast it is typed; typing on after it is a burst", () => {
+    const g = guarded();
+    const [first, second] = g.type("gb", 50);
+    expect(first?.kind).toBe("waiting");
+    expect(second).toEqual({ kind: "ran", action: { action: "show_board" } });
+    vi.advanceTimersByTime(1000);
+    const outcomes = g.type("gbxy", 50);
+    expect(outcomes.map((o) => o.kind)).toEqual(["waiting", "ran", "burst", "burst"]);
+    expect(g.dropped).toEqual([true, false]);
+  });
+
+  it("holding j is no burst: the key and its ten repeats in a second move eleven times", () => {
+    const g = guarded();
+    const held = press("j");
+    const outcomes = [held, ...Array.from({ length: 10 }, () => ({ ...held, repeat: true }))].map((e) => {
+      const outcome = dispatchKey(g.d, e, BOARD);
+      vi.advanceTimersByTime(100);
+      return outcome;
+    });
+    expect(outcomes.every((o) => o.kind === "ran")).toBe(true);
+    expect(g.ran).toEqual(Array.from({ length: 11 }, () => "next_ticket"));
+    expect(g.dropped).toEqual([]);
+  });
+
+  it("c then fast different letters is still a burst, and a repeat inside one leaves it on", () => {
+    const g = guarded();
+    const outcomes = g.type("cxy", 50);
+    expect(outcomes.map((o) => o.kind)).toEqual(["ran", "burst", "burst"]);
+    dispatchKey(g.d, { ...press("y"), repeat: true }, BOARD);
+    vi.advanceTimersByTime(50);
+    expect(dispatchKey(g.d, press("z"), BOARD).kind).toBe("burst");
+    expect(g.ran).toEqual(["new_ticket"]);
+    expect(g.dropped).toEqual([true, false, false]);
+  });
+
+  it("a g inside a burst starts no wait", () => {
+    const g = guarded();
+    const outcomes = g.type("gzgz", 100);
+    // `g z` is no sequence: the wait ends on z, and the second g is part of the burst, so no hint starts.
+    expect(outcomes.map((o) => o.kind)).toEqual(["waiting", "cancelled", "burst", "burst"]);
+    expect(g.waiting()).toBe(false);
+  });
+
+  it("↵ and ⌫ in a burst are dropped too; any other key ends it", () => {
+    const g = guarded();
+    const outcomes = g.type("ab", 50);
+    expect(outcomes.map((o) => o.kind)).toEqual(["passed", "burst"]);
+    expect(dispatchKey(g.d, press("↵"), BOARD).kind).toBe("burst");
+    vi.advanceTimersByTime(50);
+    // ⌘K is no typing: the palette opens and the guard starts over.
+    expect(dispatchKey(g.d, press("⌘K"), BOARD).kind).toBe("ran");
+    expect(dispatchKey(g.d, press("j"), BOARD).kind).toBe("ran");
+  });
+
+  it("/ puts the keyboard in the filter on purpose: what follows is typed there", () => {
+    const g = guarded();
+    expect(dispatchKey(g.d, press("/"), BOARD).kind).toBe("ran");
+    vi.advanceTimersByTime(80);
+    const typing = {
+      ...BOARD,
+      letters: "all" as const,
+      focusKeeps: new Set(["Enter", "Backspace", "Escape"]),
+    };
+    expect(g.type("fix", 80, typing).map((o) => o.kind)).toEqual(["passed", "passed", "passed"]);
+    expect(g.dropped).toEqual([]);
+  });
+
+  it("leaves typing in a field, a terminal and the letters switch alone", () => {
+    const g = guarded();
+    const field = { ...BOARD, letters: "all" as const };
+    expect(g.type("hello", 30, field).every((o) => o.kind === "passed")).toBe(true);
+    expect(g.type("hello", 30, TERMINAL).every((o) => o.kind === "terminal")).toBe(true);
+    const off = guarded({ ...MAC_0097, letters: false });
+    expect(off.type("cjk", 30).every((o) => o.kind === "passed")).toBe(true);
+    expect(g.dropped).toEqual([]);
+    expect(off.dropped).toEqual([]);
   });
 });

@@ -955,7 +955,7 @@ function Chooser({
   );
 }
 
-function AgentColumn({
+export function AgentColumn({
   agent,
   actions,
   input,
@@ -968,6 +968,8 @@ function AgentColumn({
 }) {
   const [text, setText] = useState("");
   const [choosing, setChoosing] = useState(false);
+  // The first message was sent from here: the agent's terminal takes the keyboard once it opens (#51, d0126).
+  const [sent, setSent] = useState(false);
   const chipsRow = useRef<HTMLDivElement>(null);
   return (
     <aside className="fe-agent" aria-label={agent.title}>
@@ -984,10 +986,24 @@ function AgentColumn({
       <div className="fe-agent-body">
         {agent.session !== null ? (
           <div className="fe-agent-terminal">
-            <Terminal key={agent.session} session={agent.session} label={agent.title} ref={terminal} />
+            <Terminal
+              key={agent.session}
+              session={agent.session}
+              label={agent.title}
+              focusWhenLive={sent}
+              ref={terminal}
+            />
           </div>
         ) : (
-          <div className="fe-agent-idle">
+          // A click anywhere in the idle panel is a click in its prompt (#51: a click beside the `>` line left the
+          // keyboard where it was).
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the prompt inside takes the keys; this only widens where a click lands
+          <div
+            className="fe-agent-idle"
+            onClick={(e) => {
+              if (e.target !== input.current) input.current?.focus();
+            }}
+          >
             {agent.hint.map((line) => (
               <p key={line} className="fe-agent-hint">
                 {line}
@@ -1007,6 +1023,7 @@ function AgentColumn({
                   e.preventDefault();
                   if (text.trim() === "") return;
                   actions.send(text);
+                  setSent(true);
                   setText("");
                 }}
               />

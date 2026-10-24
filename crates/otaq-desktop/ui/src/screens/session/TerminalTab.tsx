@@ -1,5 +1,5 @@
 // Session's terminal (SHT-04; SES-09, SES-10, SES-11, SES-06, SES-07, SES-08, ATT-03, REC-02; canvas `s25-06`): the line
-// over it ("Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22", "Typing goes to Rust developer") after
+// over it ("Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22", "Typing goes to Rust developer · SHOP-22") after
 // Session's switch, the strip (state, `$PORT`, "1 message waiting · Deliver now" or the attach command, A− / A+,
 // find), the ticket's agent session (or its check's, `side`) in T-0216's terminal, the hint line under it with
 // "Instructions: shop-web" or "leave terminal", the end marker of an ended session, and "Before the restart" for an
@@ -52,9 +52,6 @@ interface Seen {
 
 /** The newest focus request answered, across mounts: a request is answered once, by whichever tab shows it. */
 let answered = 0;
-
-/** How long a focus request waits for the terminal to take the keyboard. */
-const FOCUS_WAIT_MS = 5000;
 
 function useWidth(element: React.RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
@@ -119,6 +116,8 @@ export function TerminalTabBody({
   const attachCommand = validator?.attach_command ?? view.attach_command;
   const line = validator ? validator.line : view.line;
   const typing = validator ? validator.typing : view.typing;
+  // Who typing reaches, with the ticket's key; "Typing goes to" only while this terminal has the keyboard (finding 55).
+  const typingLabel = typing && (showTerminal && state.focused ? typing.focused : typing.unfocused);
   const [delivering, setDelivering] = useState(false);
   const scrolled =
     showTerminal && state.scrolledUp > 0 && (state.phase === "live" || state.phase === "ended");
@@ -128,7 +127,7 @@ export function TerminalTabBody({
         {head}
         {line !== null && <span className="session-line-text">{line}</span>}
         <span className="terminal-tab-spacer" />
-        {typing !== null && <span className="session-typing">{typing}</span>}
+        {typingLabel && <span className="session-typing">{typingLabel}</span>}
       </div>
       <div className="terminal-tab-strip">
         {strip && (
@@ -396,40 +395,24 @@ export function TerminalTab({ ticket, side, head }: { ticket: string; side: Side
   // The shown terminal's state; another side mounts another terminal, whose state starts over.
   const [seen, setSeen] = useState<Seen>({ session: null, state: INITIAL_STATE });
   const state = seen.session === session ? seen.state : INITIAL_STATE;
-  const latest = useRef<Seen>(seen);
   const onState = useCallback(
     (next: TerminalState) => {
-      latest.current = { session, state: next };
-      setSeen(latest.current);
+      setSeen({ session, state: next });
     },
     [session],
   );
-  const shown = useRef(session);
+  // A notification click, the action bar or ⌘J asked for this ticket's terminal: it takes the keyboard once the tab
+  // shows it, right after xterm.js opens (`TerminalHandle.focus`); what is typed meanwhile reaches it once live (d0126).
+  const wanted = useRef(false);
   useEffect(() => {
-    shown.current = session;
-  }, [session]);
-
-  // A notification click or the action bar asked for this ticket's terminal: focus it once it takes the keyboard
-  // (the session may still be attaching, or xterm.js still opening), for a few seconds at most.
-  useEffect(() => {
-    if (focusRequest === null || !answers(focusRequest, ticket, answered)) return;
-    answered = focusRequest.seq;
-    const deadline = Date.now() + FOCUS_WAIT_MS;
-    let timer: number | undefined;
-    const attempt = () => {
-      if (Date.now() > deadline) return;
-      const { session: of, state: now } = latest.current;
-      if (of === shown.current && of !== null) {
-        if (now.focused || now.phase === "ended" || now.phase === "no_session") return;
-        if (now.phase === "live") terminal.current?.focus();
-      }
-      timer = window.setTimeout(attempt, 100);
-    };
-    attempt();
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [focusRequest, ticket]);
+    if (focusRequest !== null && answers(focusRequest, ticket, answered)) {
+      answered = focusRequest.seq;
+      wanted.current = true;
+    }
+    if (!wanted.current || session === null || terminal.current === null) return;
+    wanted.current = false;
+    terminal.current.focus();
+  }, [focusRequest, ticket, session, view]);
 
   return (
     <div className="terminal-tab-root" ref={root}>
