@@ -11,7 +11,7 @@ import { openOverlay } from "../../app/overlays";
 import { type Registries, useRegistries } from "../../app/registry";
 import { selectProject, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Tooltip } from "../../components";
+import { AnchoredMenu, type Anchor, Tooltip } from "../../components";
 import type { CleanupBroom } from "../../generated/CleanupBroom";
 import type { RailButton } from "../../generated/RailButton";
 import type { RailItem } from "../../generated/RailItem";
@@ -25,6 +25,7 @@ import { Icon } from "../../theme/Icon";
 import { askBar } from "../ask_bar/logic";
 import { toggleAgentPanel } from "../pane/logic";
 import { cleanupScans } from "../recovery/logic";
+import { railMenuChoice } from "./projectMenu";
 
 /** The service events that change the rail's projects or counts. */
 export const RAIL_EVENTS = [
@@ -117,15 +118,29 @@ export interface RailProps {
   actions?: RailActions;
   /** The open project's Project agent button; none before its Ask bar loaded. */
   agent?: AskAgentButton | undefined;
+  /** The project menu open from a right-click on a tile (#11), and its owner's setter. */
+  menu?: TileMenu | null;
+  onMenu?: (menu: TileMenu | null) => void;
+}
+
+/** A right-click on a tile: that project's menu at the pointer (#11). */
+export interface TileMenu {
+  project: RailItem;
+  anchor: Anchor;
 }
 
 /** The 64 px rail of tiles. */
-export function RailTiles({ view, broom, actions, agent }: RailProps) {
+export function RailTiles({ view, broom, actions, agent, menu = null, onMenu }: RailProps) {
+  const setMenu = (next: TileMenu | null) => onMenu?.(next);
   return (
     <nav className="rail" aria-label="Projects">
       {view.items.map((item) => (
         <Tooltip key={item.key} text={item.title} detail={item.detail} note={item.note ?? undefined}>
           <button
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ project: item, anchor: { left: e.clientX, top: e.clientY, width: 0, height: 0 } });
+            }}
             type="button"
             className="rail-item"
             data-selected={item.selected || undefined}
@@ -176,6 +191,22 @@ export function RailTiles({ view, broom, actions, agent }: RailProps) {
       {bottomButton(view.bottom.terminals, "square-terminal", () => actions?.onTerminals())}
       <Broom broom={broom} />
       {bottomButton(view.bottom.settings, "settings", () => actions?.onSettings())}
+      {menu !== null && (
+        <AnchoredMenu
+          anchor={menu.anchor}
+          label={menu.project.title}
+          head={{ title: menu.project.name, detail: menu.project.path }}
+          items={view.project_menu}
+          width={240}
+          onChoose={(id) => {
+            setMenu(null);
+            railMenuChoice(menu.project.key, id);
+          }}
+          onClose={() => {
+            setMenu(null);
+          }}
+        />
+      )}
     </nav>
   );
 }
@@ -200,6 +231,7 @@ export function ShellRail() {
   );
   const broom = useServiceView(loadBroom, []).view;
   const agent = useStore(askBar)?.button;
+  const [menu, setMenu] = useState<TileMenu | null>(null);
 
   // The first project when nothing is selected yet, or when the shown one was removed. Only an answer for the
   // selection now counts: one asked before a click would switch back.
@@ -221,5 +253,14 @@ export function ShellRail() {
   }, [ringEnds]);
 
   if (view === undefined) return null;
-  return <RailTiles view={view.rail} broom={broom} actions={railActions(app)} agent={agent} />;
+  return (
+    <RailTiles
+      view={view.rail}
+      broom={broom}
+      actions={railActions(app)}
+      agent={agent}
+      menu={menu}
+      onMenu={setMenu}
+    />
+  );
 }

@@ -49,6 +49,7 @@ export const REPORT: ValidationReportView = {
   title: "Validation report",
   meta: "round 1 · 4 min · 12k",
   failed: true,
+  summary: [],
   findings: [
     {
       text: [{ text: "The description asks for keyboard navigation; arrow keys do nothing", key: false }],
@@ -192,6 +193,22 @@ describe("the sections", () => {
     expect(out).toContain("components/AddressAutocomplete.tsx:88");
     expect(out).toContain("Create ticket");
     expect(out).toContain('class="report-key"');
+  });
+
+  it("a passed report's verdict shows with a check, not as a ✕ finding (dogfood #17)", () => {
+    const passed: ValidationReportView = {
+      ...REPORT,
+      failed: false,
+      summary: [[{ text: "Pass: every item in the description is done", key: false }]],
+      findings: [],
+      checked_heading: "CHECKED",
+      notes_heading: "NOTES",
+    };
+    const out = html(createElement(Report, { report: passed, ticket: "SHOP-18" }));
+    expect(
+      /<div class="report-line" data-tone="(\w+)">(?:(?!report-line).)*Pass: every item/.exec(out)?.[1],
+    ).toBe("checked");
+    expect(out).not.toContain('data-tone="finding"');
   });
 
   it("the epic dialogs: the new key, the base note, the agents and what stays merged", () => {

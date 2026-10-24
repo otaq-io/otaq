@@ -8,7 +8,9 @@ use otaq_core::protocol::{
     KeyParams, Reply, Request, SessionListParams, TicketCommentEditParams, TicketCommentParams,
     TicketCommentPostParams,
 };
-use otaq_core::session::{SessionInfo, SessionKind};
+use otaq_core::board::ticket_comments::told_session_kind;
+use otaq_core::domain::Status;
+use otaq_core::session::SessionInfo;
 use otaq_view::view_models::ticket_comments::{self as vm, ThreadView};
 use otaq_view::view_models::tool_avatar;
 use serde::{Deserialize, Serialize};
@@ -59,6 +61,7 @@ pub struct ThreadParams {
 
 /// `{"key": "SHOP-34", "body": "…", "pasted": "…48 KB of log…"}`: a new comment, with the pasted text as its report;
 /// or with `"file": "/Users/me/perf-notes.md"`, a file added in Overview (Add, a drop; RPT-02), copied as its report.
+/// `"tell_agent": true` also tells the running agent to read it (d0123).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "CommentPostParams")]
 pub struct PostParams {
@@ -68,6 +71,9 @@ pub struct PostParams {
     pub pasted: Option<String>,
     #[serde(default)]
     pub file: Option<String>,
+    /// "Also tell the agent now" ticked (d0123).
+    #[serde(default)]
+    pub tell_agent: bool,
 }
 
 /// `{"key": "SHOP-34", "n": 3, "body": "…"}`: comment 3's new text.
@@ -117,30 +123,39 @@ async fn comments(
     }
 }
 
-/// The agent working on the ticket now: its running agent or check session's agent.
-fn working(sessions: &[SessionInfo]) -> Option<&str> {
+/// The agent working on the ticket now: its running check session's agent while the ticket is checking, else its
+/// running agent session's (d0123: the session a ticked comment tells, [`told_session_kind`]).
+fn working(status: Option<Status>, sessions: &[SessionInfo]) -> Option<&str> {
+    let kind = told_session_kind(status?);
     sessions
         .iter()
-        .filter(|s| matches!(s.kind, SessionKind::Agent | SessionKind::Validator) && s.is_running())
+        .filter(|s| s.kind == kind && s.is_running())
         .find_map(|s| s.agent.as_ref().map(|a| a.name.as_str()))
 }
 
 pub async fn thread(app: &App, params: ThreadParams) -> Result<ThreadView, RequestError> {
-    let (list, sessions) = tokio::join!(
+    let (list, sessions, ticket) = tokio::join!(
         comments(app, &params.key),
         app.service.send(Request::SessionList(SessionListParams {
             key: Some(params.key.clone()),
+        })),
+        app.service.send(Request::TicketGet(KeyParams {
+            key: params.key.clone(),
         })),
     );
     let sessions = match sessions {
         Ok(Reply::Sessions(list)) => list,
         _ => Vec::new(),
     };
+    let status = match ticket {
+        Ok(Reply::Ticket(ticket)) => Some(ticket.status),
+        _ => None,
+    };
     Ok(vm::thread(
         &vm::Facts {
             key: &params.key,
             comments: &list?,
-            working: working(&sessions),
+            working: working(status, &sessions),
             avatars: tool_avatar::shown(),
         },
         &vm::local_clock,
@@ -164,6 +179,7 @@ pub async fn post(app: &App, params: PostParams) -> Result<Done, RequestError> {
                 (Some(path), _) => Some(ReportSource::Path(path.into())),
                 (None, pasted) => pasted.map(ReportSource::Text),
             },
+            tell_agent: params.tell_agent,
         }))
         .await?;
     posted("ticket.comment_post", answer)

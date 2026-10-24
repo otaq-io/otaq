@@ -12,6 +12,7 @@ import {
   rendererFor,
   takesInput,
   terminalKey,
+  typingIn,
 } from "./state";
 
 const NONE: KeyModifiers = { control: false, alt: false, shift: false, platform: false, function: false };
@@ -35,6 +36,13 @@ describe("the terminal's state", () => {
     for (const phase of ["attaching", "reconnecting", "ended", "no_session"] as const) {
       expect(takesInput(phase)).toBe(false);
     }
+  });
+
+  it("holds what is typed while attaching until live (d0126), and drops it while reconnecting and after the end", () => {
+    expect(typingIn("live")).toBe("send");
+    expect(typingIn("attaching")).toBe("hold");
+    for (const phase of ["reconnecting", "ended", "no_session"] as const)
+      expect(typingIn(phase)).toBe("drop");
   });
 
   it("counts find results the way the find bar shows them", () => {
@@ -69,6 +77,7 @@ describe("the terminal's state", () => {
     const map: Keymap = {
       platform: "win_linux",
       log: false,
+      typing_hint: "Typing? Click where you want to type",
       letters: true,
       actions: [],
       sequences: [],
@@ -96,6 +105,7 @@ describe("the terminal's state", () => {
     const map: Keymap = {
       platform: "mac",
       log: false,
+      typing_hint: "Typing? Click where you want to type",
       letters: true,
       actions: [],
       sequences: [],

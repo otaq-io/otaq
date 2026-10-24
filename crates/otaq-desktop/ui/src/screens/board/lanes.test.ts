@@ -49,6 +49,7 @@ const cardOf = (key: string): BoardCard => ({
     key,
     key_label: key,
     epic: "Wishlist",
+    priority: null,
     title: `${key} title`,
     status: null,
     blocks: null,

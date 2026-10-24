@@ -3,4 +3,4 @@
 /**
  * On the page: `"resume"`, `{ "pick_option": 2 }`.
  */
-export type CardActionKind = "deliver_now" | { "pick_option": number } | "send_answer" | "open" | "resume" | "retry_resume" | "start_from_scratch" | "retry_start" | "review" | "push_to_pr" | "mark_merged" | "mark_closed" | "reopen" | "retry" | "run_chip" | "retry_validation" | "retry_merge" | "move_to_review" | "open_agent" | "use_fallback" | "use_validator_fallback" | "pass" | "fail" | "local_merge" | "open_pr" | "send_back_pr" | "add_child_from_pr" | "move_on_anyway" | "decide" | "skip_check";
+export type CardActionKind = "deliver_now" | { "pick_option": number } | "send_answer" | "open" | "resume" | "retry_resume" | "start_from_scratch" | "retry_start" | "review" | "push_to_pr" | "mark_merged" | "mark_closed" | "reopen" | "retry" | "run_chip" | "retry_validation" | "retry_merge" | "move_to_review" | "open_agent" | "use_fallback" | "use_validator_fallback" | "pass" | "fail" | "local_merge" | "open_pr" | "send_back_pr" | "add_child_from_pr" | "move_on_anyway" | "decide" | "skip_check" | "stop_merge_check";

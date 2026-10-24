@@ -15,6 +15,7 @@ use crate::agent_tools::SetupOutcome;
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
+use crate::board::ticket_comments::CommentAuthor;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
@@ -347,6 +348,7 @@ pub(super) async fn handle(
             match created {
                 Ok(t) => {
                     lead_changed(shared, caller, &t, LeadChange::Created, &actor).await;
+                    created_by_agent(shared, caller, std::slice::from_ref(&t), &actor).await;
                     created_in(shared, origin, std::slice::from_ref(&t))
                         .await
                         .map(|()| Reply::Ticket(Box::new(t)))
@@ -389,6 +391,7 @@ pub(super) async fn handle(
                     for t in &tickets {
                         lead_changed(shared, caller, t, LeadChange::Created, &actor).await;
                     }
+                    created_by_agent(shared, caller, &tickets, &actor).await;
                     created_in(shared, origin, &tickets)
                         .await
                         .map(|()| Reply::Tickets(tickets))
@@ -556,22 +559,29 @@ pub(super) async fn handle(
                 .map(|c| Reply::FilesChanges(Box::new(c)))
         }),
         Request::FilesProjectTree(p) => boxed(move || async move {
-            board
-                .files_project_tree(&p.project, &p.path, p.base_only)
-                .await
-                .map(|t| Reply::ProjectTree(Box::new(t)))
+            match &p.worktree {
+                Some(wt) => board.files_worktree_tree(&p.project, wt, &p.path).await,
+                None => {
+                    board
+                        .files_project_tree(&p.project, &p.path, p.base_only)
+                        .await
+                }
+            }
+            .map(|t| Reply::ProjectTree(Box::new(t)))
         }),
         Request::FilesProjectSearch(p) => boxed(move || async move {
-            board
-                .files_project_search(&p.project, &p.query)
-                .await
-                .map(|s| Reply::ProjectSearch(Box::new(s)))
+            match &p.worktree {
+                Some(wt) => board.files_worktree_search(&p.project, wt, &p.query).await,
+                None => board.files_project_search(&p.project, &p.query).await,
+            }
+            .map(|s| Reply::ProjectSearch(Box::new(s)))
         }),
         Request::FilesProjectRead(p) => boxed(move || async move {
-            board
-                .files_project_read(&p.project, &p.path)
-                .await
-                .map(|f| Reply::ProjectFile(Box::new(f)))
+            match &p.worktree {
+                Some(wt) => board.files_worktree_read(&p.project, wt, &p.path).await,
+                None => board.files_project_read(&p.project, &p.path).await,
+            }
+            .map(|f| Reply::ProjectFile(Box::new(f)))
         }),
         Request::FilesProjectDiff(p) => boxed(move || async move {
             board
@@ -621,6 +631,16 @@ pub(super) async fn handle(
                 move || async move { ticket_comment_request(shared, caller, &actor, request).await },
             )
         }
+        Request::TicketManualChecks(p) => {
+            boxed(move || async move { board.manual_checks(&p.key).await.map(Reply::ManualChecks) })
+        }
+        Request::TicketManualCheckTick(p) => boxed(move || async move {
+            let checks = board
+                .tick_manual_check(&p.key, p.n, p.ticked, &actor)
+                .await?;
+            publish_ticket_changed(shared, &checks.key).await;
+            Ok(Reply::ManualChecks(checks))
+        }),
         Request::TicketFail(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -672,6 +692,13 @@ pub(super) async fn handle(
             )
             .await
             .map(Reply::LocalMerge)
+        }),
+        Request::TicketMergeCheckStop(p) => boxed(move || async move {
+            shared
+                .review
+                .stop_merge_check(&p.key)
+                .await
+                .map(|()| Reply::Ok)
         }),
         Request::TicketSendBackPr(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -841,7 +868,13 @@ pub(super) async fn handle(
             let ticket = board.ticket(&p.key).await?;
             let author = board.session_author(session).await?;
             let hand_over = board
-                .hand_over(&ticket, author, &p.report, p.report_file.clone())
+                .stage_end_hand_over(
+                    &ticket,
+                    author,
+                    &p.report,
+                    p.report_file.clone(),
+                    &p.manual_checks,
+                )
                 .await?;
             let verdict = mutate(
                 shared,
@@ -1583,6 +1616,7 @@ pub(super) async fn handle(
         | Request::SessionResize(_)
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
+        | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
         | Request::AppFocus(_)
         | Request::Hook(_)
@@ -2272,6 +2306,49 @@ async fn lead_changed(
     publish_ticket_changed(shared, &epic.key).await;
 }
 
+/// #47: a ticket a ticket's agent (or its validator) or an epic lead created tells the app ("DEMO-7 created DEMO-12
+/// → Backlog"), and the creating ticket's History logs it. The user's tickets and a Project agent's tell nothing: its
+/// pane lists what it created (d0068, d0091).
+async fn created_by_agent(shared: &Shared, caller: &Caller, tickets: &[Ticket], actor: &Actor) {
+    let by = match caller {
+        Caller::Agent {
+            ticket, ticket_id, ..
+        }
+        | Caller::Validator {
+            ticket, ticket_id, ..
+        } => {
+            for child in tickets {
+                if let Err(e) = shared
+                    .board
+                    .record_created_ticket(ticket_id, child, actor)
+                    .await
+                {
+                    tracing::warn!(creator = %ticket, child = %child.key, error = %e,
+                                   "can't log the created ticket");
+                }
+            }
+            if !tickets.is_empty() {
+                publish_ticket_changed(shared, ticket).await;
+            }
+            ticket.to_string()
+        }
+        Caller::EpicLead { epic_id, .. } => match shared.board.ticket_by_id(epic_id).await {
+            Ok(epic) => crate::project_agents::lead::lead_name(&epic.title),
+            Err(_) => return,
+        },
+        Caller::User | Caller::ProjectAgent { .. } => return,
+    };
+    for t in tickets {
+        shared.events.publish(Event::CreatedByAgent {
+            project: t.key.project.to_string(),
+            key: t.key.clone(),
+            title: t.title.clone(),
+            by: by.clone(),
+            status: t.status,
+        });
+    }
+}
+
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and
 /// tickets that aren't working (Queued, Parked, Backlog, …) get nothing.
 async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, actor: &Actor) {
@@ -2297,6 +2374,27 @@ async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, act
     }
 }
 
+/// d0123: the user's comment posted with "Also tell the agent now" queues one line for the session running on its
+/// ticket now (its check's while checking, else its agent's), typed when it is idle with an empty input line (0048).
+/// Not a hand-off: nothing waits for the agent to pick it up. No running session: nothing.
+async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
+    let Ok(ticket) = shared.board.ticket(key).await else {
+        return;
+    };
+    let kind = crate::board::ticket_comments::told_session_kind(ticket.status);
+    let Some(session) = shared.sessions.running_of(&ticket.id, kind) else {
+        return;
+    };
+    let line = crate::board::ticket_comments::tell_agent_line(n);
+    if let Err(e) = shared
+        .deliveries
+        .queue_delivery(&session.id, DeliveryKind::TicketChange, &line)
+        .await
+    {
+        tracing::warn!(ticket = %ticket.key, error = %e, "can't queue the comment's line");
+    }
+}
+
 /// A comment was added or changed: its ticket's pending counter changed.
 async fn comment_changed(
     shared: &Shared,
@@ -2310,7 +2408,7 @@ async fn comment_changed(
 }
 
 /// The comment an agent's `stage next` / `stage done` hands over (CMT-05, CMT-06): its summary with the
-/// `--report-file`, by the calling session's agent (the user's own terminal: the user). Refused before anything moves.
+/// `--report-file` and the `--manual-check` items (d0125), by the calling session's agent (the user's own terminal: the user). Refused before anything moves.
 async fn stage_end_hand_over(
     shared: &Shared,
     caller: &Caller,
@@ -2321,7 +2419,13 @@ async fn stage_end_hand_over(
     let board = &shared.board;
     let author = board.caller_author(caller, actor).await?;
     board
-        .hand_over(ticket, author, &p.summary, p.report_file.clone())
+        .stage_end_hand_over(
+            ticket,
+            author,
+            &p.summary,
+            p.report_file.clone(),
+            &p.manual_checks,
+        )
         .await
 }
 
@@ -2357,6 +2461,9 @@ async fn ticket_comment_request(
             let posted = board
                 .post_ticket_comment(&p.key, &author, &p.body, p.report, actor)
                 .await?;
+            if p.tell_agent && matches!(author, CommentAuthor::User { .. }) {
+                tell_running_agent(shared, &p.key, posted.n).await;
+            }
             (p.key, posted)
         }
         Request::TicketCommentEdit(p) => {

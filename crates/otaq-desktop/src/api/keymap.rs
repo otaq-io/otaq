@@ -55,6 +55,8 @@ pub struct Keymap {
     pub actions: Vec<ActionInfo>,
     /// The `g` hint's second keys ([`keymap::sequence_hint`]), from the user's keys.
     pub sequences: Vec<SequenceHint>,
+    /// The hint while a fast burst of letters runs nothing ([`keymap::TYPING_HINT`], d0126).
+    pub typing_hint: &'static str,
     pub terminal_app_modifiers: Vec<Modifiers>,
     /// A focused terminal's own keys (copy, paste, font size), which the terminal handles itself (T-0216).
     pub terminal_keys: Vec<TerminalBinding>,
@@ -70,6 +72,7 @@ impl Keymap {
             platform,
             sequences: keymap::sequence_hint(&bindings),
             bindings,
+            typing_hint: keymap::TYPING_HINT,
             letters,
             actions: keymap::action_infos(),
             terminal_app_modifiers: keymap::terminal_app_modifiers(platform).to_vec(),

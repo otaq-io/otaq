@@ -139,11 +139,12 @@ const RULES: &str = "## Otaq's rules
 1. Follow the Agent instructions and the project's notes above. They add to these rules; they can't skip getting context or ending your stage.
 2. Commit everything with `/otaq-commit` before you end your stage. Never push and never open a PR: the user does that.
 3. When your stage's work is done, as the ticket's description describes, end it: `otaq stage next --stdin` with a short summary of what you did on stdin; the next stage reads it. It is refused while files are uncommitted.
-4. Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already fixed elsewhere), end the ticket instead: `otaq stage done --stdin` with the reason on stdin. It is refused once the branch has commits.
-5. When you are stuck or a decision is the user's, ask: `otaq ask human --stdin` with the question on stdin, then end your turn.
-6. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
-7. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.
-8. `otaq show <KEY>` reads any ticket; `otaq create \"Title\" --stdin` files a follow-up in Backlog.
+4. What you couldn't check yourself (a real browser, a device, a service you can't reach), list for the user: `--manual-check \"<what to check>\"` on `otaq stage next`, one line per check. The user tries them at review. Never leave a check to \"the PR\": there may be no PR.
+5. Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already fixed elsewhere), end the ticket instead: `otaq stage done --stdin` with the reason on stdin. It is refused once the branch has commits.
+6. When you are stuck or a decision is the user's, ask: `otaq ask human --stdin` with the question on stdin, then end your turn.
+7. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
+8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.
+9. `otaq show <KEY>` reads any ticket; `otaq create \"Title\" --stdin` files a follow-up in Backlog.
 ";
 
 /// The default flow's Dev, as the ticket prime names it.
@@ -378,7 +379,10 @@ async fn validate_prime_plain() {
         "\n## Your verdict\n\nKeep it short: one or two lines, one line per finding with its file and line; notes \
          start with \"Note:\". Finish with `otaq check pass --stdin` or `otaq check fail --stdin` and the verdict on \
          stdin. Save the full check run to a file in `$OTAQ_RESOURCE_DIR` (never in the worktree) and attach it with \
-         `--report-file`: `otaq check fail --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\"`.\n",
+         `--report-file`: `otaq check fail --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\"`. What you couldn't \
+         check yourself (a real browser, a device, a service you can't reach), list for the user: `--manual-check \
+         \"<what to check>\"` on `otaq check pass|fail`, one line per check. The user tries them at review. Never \
+         leave a check to \"the PR\": there may be no PR.\n",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }
@@ -665,7 +669,7 @@ async fn prime_prints_the_examples_four_comments() {
         assert!(!text.contains(gone), "{gone:?} in\n{text}");
     }
     assert!(text.contains(
-        "\n7. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.\n"
+        "\n8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.\n"
     ));
     w.stop().await;
 }

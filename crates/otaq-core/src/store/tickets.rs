@@ -92,9 +92,14 @@ pub struct TicketRow {
     pub resource_problem: Option<String>,
     /// T-0304 (migration 0041): JSON `[{other, path}]`, Review tickets adding files under the same schema path.
     pub schema_overlap: Option<String>,
+    /// T-0493 (migration 0060): JSON `{went_on, branch, remote, reason}`, the ticket went on without its remote (d0121).
+    pub remote_warning: Option<String>,
     /// T-0400 (migration 0046): the flow stage the ticket is in, or the Agent stage it waits before; `NULL` in
     /// Backlog, Ready for Dev and Done (STG-04).
     pub stage_id: Option<String>,
+    /// T-0491 (migration 0059): the next Local merge runs the Merge check even when the branch is current: an
+    /// earlier one rebased it onto new commits and no check passed on them (d0120).
+    pub merge_check_due: bool,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

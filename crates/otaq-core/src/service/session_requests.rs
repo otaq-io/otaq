@@ -65,29 +65,36 @@ pub(super) async fn handle(
             }
             let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
             // Enter in the ticket's terminal is the user's answer: the needs-you label clears (ATT-02). Not in its
-            // Shell tab or Run, which are "not the agent".
+            // Shell tab or Run, which are "not the agent". In the agent's own terminal the first line sent answers
+            // an open question (d0119).
+            let info = sessions.info(&p.session).ok();
+            let line = effect
+                .sent
+                .iter()
+                .find(|line| !line.is_empty())
+                .map(String::as_str);
             if effect.enters > 0
-                && let Some(key) = sessions
-                    .info(&p.session)
-                    .ok()
-                    .filter(|i| {
-                        !matches!(
-                            i.kind,
-                            crate::session::SessionKind::Shell | crate::session::SessionKind::Run
-                        )
-                    })
-                    .and_then(|i| i.ticket)
+                && let Some(info) = info.as_ref().filter(|i| {
+                    !matches!(
+                        i.kind,
+                        crate::session::SessionKind::Shell | crate::session::SessionKind::Run
+                    )
+                })
+                && let Some(key) = &info.ticket
                 && let Ok(id) = shared.board.ticket_id(&key.to_string()).await
-                && let Err(e) = shared.signals.enter(&id).await
             {
-                tracing::warn!(session = p.session, error = %e, "can't clear the signal");
+                let line = line.filter(|_| info.kind == SessionKind::Agent);
+                if let Err(e) = shared.signals.enter(&id, line).await {
+                    tracing::warn!(session = p.session, error = %e, "can't clear the signal");
+                }
             }
-            // Enter in a Project agent's terminal answers its permission prompt (ATT-02, d0068).
+            // Enter in a Project agent's terminal answers its permission prompt (ATT-02, d0068), or its open question
+            // (d0119).
             if effect.enters > 0
-                && sessions
-                    .info(&p.session)
-                    .is_ok_and(|i| i.kind == crate::session::SessionKind::ProjectAgent)
-                && let Err(e) = shared.project_agents.enter(&p.session).await
+                && info
+                    .as_ref()
+                    .is_some_and(|i| i.kind == crate::session::SessionKind::ProjectAgent)
+                && let Err(e) = shared.project_agents.enter(&p.session, line).await
             {
                 tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
             }
@@ -108,6 +115,15 @@ pub(super) async fn handle(
                 });
             }
             Ok((Reply::Ok, Then::Continue))
+        }
+        Request::SessionSendAgain(p) => {
+            let id = session_id(shared, p.target).await?;
+            let delivery = shared
+                .deliveries
+                .send_again(&id, p.clear_first)
+                .await
+                .map_err(session_error)?;
+            Ok((Reply::Delivery(delivery), Then::Continue))
         }
         Request::SessionFocus(p) => {
             sessions

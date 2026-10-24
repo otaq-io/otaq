@@ -129,6 +129,13 @@ pub fn signal(event: &ToolEvent, turn: TurnFacts) -> Option<Signal> {
     })
 }
 
+/// Whether `event` says where the agent's turn is: a prompt submitted, a turn ending, a prompt for the user, a failed
+/// turn or a refused model. A hand-off the agent hadn't picked up is picked up then (d0118). The model, tokens and
+/// limit windows (what the status line also reports), the tool's own id and an event Otaq doesn't know aren't.
+pub fn reports_activity(event: &ToolEvent) -> bool {
+    matches!(event, ToolEvent::ModelRefused { .. }) || signal(event, TurnFacts::default()).is_some()
+}
+
 /// The last non-empty line of a message, without Markdown list or heading marks.
 pub fn last_line(message: &str) -> Option<String> {
     message

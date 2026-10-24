@@ -9,7 +9,8 @@ import { review } from ".";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import { passOverlay } from "./CheckDialogs";
 import { ChangeDecisionBody, ResultDialog } from "./Dialogs";
-import { afterApproveAnyway, afterChoice, afterMerge, firstStep, isSubmitKey } from "./logic";
+import { isSubmitKey } from "../../components/logic";
+import { afterApproveAnyway, afterChoice, afterMerge, firstStep } from "./logic";
 
 const CHANGED: ReviewChanged = {
   title: "SHOP-18 changed since you reviewed it · 1 new commit",
@@ -37,6 +38,7 @@ const VIEW: ApproveView = {
       },
     ],
     note: "Both open a confirmation step before anything runs.",
+    direct: null,
   },
   push_to_pr: false,
   confirm: {
@@ -49,6 +51,8 @@ const VIEW: ApproveView = {
     message: "SHOP-18: Checkout API",
     note: "The worktree for SHOP-18 is removed unless it has uncommitted changes.",
     conflict: null,
+    merge_check: { text: "No merge check · ", link: "set one in project settings", project: "SHOP" },
+    manual_checks: null,
     merge: "Squash & merge",
     cancel: "Cancel",
     hint: "cancel · ⌘↵ merge",
@@ -58,6 +62,7 @@ const VIEW: ApproveView = {
     steps: ["Rebase onto main"],
     label: "Merging…",
     note: "",
+    close: "Close",
   },
   changed: null,
 };
@@ -151,6 +156,14 @@ describe("the approve flow", () => {
     expect(firstStep({ ...VIEW, push_to_pr: true }, false)).toEqual({ kind: "open_pr" });
   });
 
+  it("with one way to deliver, goes past the choice to its dialog (dogfood #18)", () => {
+    const one = { ...VIEW, menu: { ...VIEW.menu, direct: "local_merge" as const } };
+    expect(firstStep(one, true)).toEqual({ kind: "confirm" });
+    const first = firstStep({ ...one, changed: CHANGED }, true);
+    if (first.kind !== "changed") throw new Error("not changed");
+    expect(afterApproveAnyway(first, one, true)).toEqual({ kind: "confirm" });
+  });
+
   it("shows new commits since the review first; Approve anyway goes on", () => {
     const first = firstStep({ ...VIEW, changed: CHANGED }, true);
     expect(first).toEqual({ kind: "changed", changed: CHANGED, checkedFirst: true });
@@ -182,6 +195,13 @@ describe("the approve flow", () => {
       close: "Close",
     } as const;
     expect(afterMerge(refused)).toEqual({ kind: "result", result: refused });
+    const stopped = {
+      kind: "stopped",
+      title: "Merge check stopped",
+      message: "The merge check was stopped; nothing was merged into main.",
+      close: "Close",
+    } as const;
+    expect(afterMerge(stopped)).toEqual({ kind: "result", result: stopped });
   });
 
   it("merges with ⌘↵ or Ctrl+↵ in the message", () => {
@@ -243,7 +263,8 @@ describe("Change… on a recorded decision (DEC-06)", () => {
       "Split fullName everywhere, or only in the profile form?",
       "Built: only in the profile form · Other option: everywhere",
       "SEND BACK TO THE AGENT WITH",
-      'value="everywhere"',
+      // A growing text area, not a one-line field that scrolls sideways (dogfood #27).
+      'data-grow="true">everywhere</textarea>',
       "Prefilled with the other option.",
       "This is a Send back:",
       "Send back to the agent",

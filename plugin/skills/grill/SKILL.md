@@ -40,11 +40,17 @@ The one place you may write is `$OTAQ_RESOURCE_DIR`, for long output (see "Long 
    ticket, and the next stage's agent reads it in `prime`:
 
    ```sh
-   otaq stage next --stdin <<'COMMENT'
+   otaq stage next --stdin \
+     --manual-check "Import an exported file into the accounting spreadsheet" <<'COMMENT'
    Agreed with you: CSV only, admins only (the Agreed section has all 5 points).
    Reuse the CSV writer in export.rs from SHOP-12.
    COMMENT
    ```
+
+   When you agreed on something no agent will be able to check (it needs a real browser, a device, or a service
+   the agents can't reach), list it with `--manual-check "<what to check>"`, one line per check, repeated for each.
+   The user sees them as "Manual checks for you" at review. Never leave such a check to "the PR": the flow may merge
+   without one.
 
    **Nothing to build?** Only when the user agrees the ticket isn't needed (for example "already fixed in SHOP-31"),
    end the ticket instead, with the reason on stdin. It goes to Done as "Closed · nothing to merge":

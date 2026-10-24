@@ -122,7 +122,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
     let k = || KeyParams {
         key: params.key.clone(),
     };
-    let (all, proposal, check, provider, projects) = tokio::join!(
+    let (all, proposal, check, provider, projects, settings, manual) = tokio::join!(
         tickets(app, &project),
         app.service.send(Request::TicketMergeProposal(k())),
         app.service.send(Request::TicketApproveCheck(k())),
@@ -130,6 +130,10 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
             project: project.clone(),
         })),
         app.service.send(Request::ProjectList),
+        app.service.send(Request::ProjectSettingsGet(ProjectParams {
+            project: project.clone(),
+        })),
+        app.service.send(Request::TicketManualChecks(k())),
     );
     let all = all?;
     let proposal = match proposal? {
@@ -149,6 +153,11 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         _ => None,
     };
     let (repo, project_base) = info.map_or_else(Default::default, |p| (p.repo_path, p.base_branch));
+    // The Merge check the merge would run (d0120); unread, the dialog says there is none.
+    let merge_check = match settings {
+        Ok(Reply::ProjectSettings(reply)) => reply.settings.merge_check().map(str::to_owned),
+        _ => None,
+    };
     Ok(page::approve_view(ApproveFacts {
         ticket: &ticket,
         tickets: &all,
@@ -159,6 +168,12 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         project_base: &project_base,
         check: &check,
         menu: board_page::approve_menu(&ticket, &proposal.target, &all, provider.as_ref()),
+        merge_check: merge_check.as_deref(),
+        // Unread, the dialog says nothing about them (d0125: they never block).
+        manual_unticked: match manual {
+            Ok(Reply::ManualChecks(c)) => c.unticked,
+            _ => 0,
+        },
     }))
 }
 
@@ -176,9 +191,11 @@ pub struct MergeParams {
 pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeResult, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let key = ticket.key.clone();
+    // On a connection of its own: while it runs the Merge check (minutes, d0120) the board keeps its answers and
+    // Stop reaches the service.
     let outcome = match app
         .service
-        .send(Request::TicketLocalMerge(LocalMergeParams {
+        .send_alone(Request::TicketLocalMerge(LocalMergeParams {
             key: params.key,
             message: params.message,
             approve_anyway: params.approve_anyway,
@@ -734,3 +751,7 @@ mod tests {
 
 #[cfg(test)]
 mod hand_over_tests;
+#[cfg(test)]
+mod merge_check_tests;
+#[cfg(test)]
+mod manual_check_tests;

@@ -11,6 +11,8 @@ export type ActionRoute =
   // Start (DPV-03): `board.start`, whose answer may be the blocked ticket's dialog.
   | { kind: "start" }
   | { kind: "terminal" }
+  // Send again (d0118): `panel.send_again`, whose answer may be the unsent-text question.
+  | { kind: "send_again" }
   | { kind: "check" }
   | { kind: "answer_agent" }
   | { kind: "diff" }
@@ -42,6 +44,7 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "move_to_review":
     case "resume_lead":
     case "add_child_from_pr":
+    case "stop_merge_check": // d0120: on a connection of its own (Rust's), the merge finishes without merging.
       return { kind: "service" };
     // Session on the check's side (SHT-04).
     case "open_validator":
@@ -53,6 +56,8 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "open_terminal":
     case "answer_in_terminal":
       return { kind: "terminal" };
+    case "send_again":
+      return { kind: "send_again" };
     case "view_diff":
       return { kind: "diff" };
     case "edit":
@@ -164,6 +169,7 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "move_on_anyway": // FLW-13: after the last failed round.
     case "skip_check": // FLW-13: a check at the plan limit with no fallback.
     case "add_child_from_pr": // FLW-16: an epic's PR comments as a child.
+    case "stop_merge_check": // d0120: Stop on "Merging · running the merge check".
       return { kind: "service" };
     case "pass":
       return { kind: "pass" };

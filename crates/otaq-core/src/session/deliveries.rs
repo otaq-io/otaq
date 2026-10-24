@@ -16,12 +16,18 @@
 //!
 //! How the line is cleared and how long Enter waits after the text are the session's agent tool's input quirks
 //! (ADP-06, [`crate::agent_tools::InputQuirks`]).
+//!
+//! A **hand-off** (Send back, a merge conflict, Open PR, Push: [`HandOff`]) is typed through
+//! [`Deliveries::hand_off`] (the user's click) or [`Deliveries::queue_hand_off`] (automatic): from the moment it is
+//! typed its ticket shows "waiting for the agent to pick it up" until the agent's tool reports activity, and
+//! [`Deliveries::send_again`] types it once more (d0118, [`super::hand_offs`]).
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::hand_offs::{HandOff, HandOffs};
 use super::{SessionError, Sessions};
 use crate::agent_tools::{Adapters, InputQuirks};
 use crate::domain::{TicketKey, stored_enum};
@@ -112,6 +118,8 @@ pub struct Deliveries {
     idle: Arc<dyn IdleSignal>,
     /// Each session's agent tool's input quirks.
     adapters: Adapters,
+    /// The hand-offs typed and not picked up yet (the board's, [`Self::with_hand_offs`]).
+    hand_offs: HandOffs,
 }
 
 impl Deliveries {
@@ -128,7 +136,19 @@ impl Deliveries {
             events,
             idle,
             adapters,
+            hand_offs: HandOffs::default(),
         }
+    }
+
+    /// Marks hand-offs in `hand_offs` (the board's, so cards show them).
+    pub fn with_hand_offs(mut self, hand_offs: HandOffs) -> Self {
+        self.hand_offs = hand_offs;
+        self
+    }
+
+    /// The hand-offs typed and not picked up yet.
+    pub fn hand_offs(&self) -> &HandOffs {
+        &self.hand_offs
     }
 
     /// Stores an automatic delivery, tells clients the waiting count, and types it right away if the session
@@ -151,10 +171,21 @@ impl Deliveries {
         kind: DeliveryKind,
         text: &str,
     ) -> Result<(), SessionError> {
+        self.hold(session, kind, text).await.map(|_| ())
+    }
+
+    /// Stores an automatic delivery and tells clients the waiting count; returns its id.
+    async fn hold(
+        &self,
+        session: &str,
+        kind: DeliveryKind,
+        text: &str,
+    ) -> Result<String, SessionError> {
+        let id = new_id();
         sqlx::query(
             "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at) VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(new_id())
+        .bind(&id)
         .bind(session)
         .bind(kind.as_str())
         .bind(text)
@@ -162,7 +193,95 @@ impl Deliveries {
         .execute(self.store.pool())
         .await
         .map_err(store_error)?;
-        self.publish_waiting(session).await
+        self.publish_waiting(session).await?;
+        Ok(id)
+    }
+
+    /// An automatic hand-off (a merge conflict's `restack`, an automatic Delivery's PR step): queued as a
+    /// [`DeliveryKind::Skill`] like any automatic message, and pending for its agent only once it is typed (d0118).
+    pub async fn queue_hand_off(
+        &self,
+        session: &str,
+        hand_off: HandOff,
+    ) -> Result<(), SessionError> {
+        let id = self
+            .hold(session, DeliveryKind::Skill, &hand_off.text)
+            .await?;
+        self.hand_offs.queued(&id, hand_off);
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// A hand-off from the user's click (Send back, Open PR…), typed as [`Self::deliver_from_click`] or, once the user
+    /// chose "Clear it and send", [`Self::clear_and_send`]; once typed it is pending for its agent (d0118).
+    pub async fn hand_off(
+        &self,
+        session: &str,
+        hand_off: HandOff,
+        clear_first: bool,
+    ) -> Result<Delivery, SessionError> {
+        // Marked before the Enter, so the hook its tool sends at once finds it; put back as it was if nothing is typed.
+        let ticket = self.sessions.ticket_id_of(session);
+        let before = ticket.as_deref().and_then(|t| self.hand_offs.pending(t));
+        let text = hand_off.text.clone();
+        self.typed_hand_off(session, hand_off);
+        let typed = if clear_first {
+            self.clear_and_send(session, Some(&text)).await
+        } else {
+            self.deliver_from_click(session, &text).await
+        };
+        if !matches!(typed, Ok(Delivery::Sent { count: 1.. }))
+            && let Some(ticket) = &ticket
+        {
+            self.hand_offs.picked_up(ticket);
+            if let Some(before) = before {
+                self.hand_offs
+                    .typed(ticket, &before.session, before.hand_off);
+            }
+            self.publish_ticket(session);
+        }
+        typed
+    }
+
+    /// **Send again** (d0118): the session's pending hand-off typed once more, as the user's click (d0048: unsent
+    /// text asks first). Nothing is sent when it has none (its agent picked it up meanwhile).
+    pub async fn send_again(
+        &self,
+        session: &str,
+        clear_first: bool,
+    ) -> Result<Delivery, SessionError> {
+        let pending = self
+            .sessions
+            .ticket_id_of(session)
+            .and_then(|ticket| self.hand_offs.pending(&ticket))
+            .filter(|p| p.session == session);
+        match pending {
+            Some(pending) => self.hand_off(session, pending.hand_off, clear_first).await,
+            None => Ok(self.keep(session)),
+        }
+    }
+
+    /// `hand_off` was typed into `session`: its ticket shows it waits for the agent (d0118).
+    fn typed_hand_off(&self, session: &str, hand_off: HandOff) {
+        let Some(ticket_id) = self.sessions.ticket_id_of(session) else {
+            return;
+        };
+        self.hand_offs.typed(&ticket_id, session, hand_off);
+        self.publish_ticket(session);
+    }
+
+    /// The session's ticket changed: its card follows.
+    fn publish_ticket(&self, session: &str) {
+        if let (Some(id), Ok(info)) = (
+            self.sessions.ticket_id_of(session),
+            self.sessions.info(session),
+        ) && let Some(key) = info.ticket
+        {
+            self.events.publish(Event::TicketChanged {
+                project: info.project,
+                id,
+                key,
+            });
+        }
     }
 
     /// Like [`queue_delivery`](Self::queue_delivery) for an agent-to-agent question or answer: once it is typed,
@@ -280,6 +399,10 @@ impl Deliveries {
     async fn send_pending(&self, session: &str) -> Result<usize, SessionError> {
         let pending = self.pending(session).await?;
         for delivery in &pending {
+            // A hand-off is marked before its Enter, as a click's ([`Self::hand_off`]).
+            if let Some(hand_off) = self.hand_offs.take_queued(&delivery.id) {
+                self.typed_hand_off(session, hand_off);
+            }
             self.type_and_submit(session, &delivery.text).await?;
             sqlx::query("DELETE FROM pending_deliveries WHERE id = ?")
                 .bind(&delivery.id)
@@ -331,17 +454,23 @@ impl Deliveries {
         self.sessions.write(session, b"\r")
     }
 
-    /// A skill typed into a live session (Send back's `address-review`, a Delivery conflict's `restack`): copied
-    /// into the session's `worktree` first by one name (AGM-07), then named as the session's agent tool names it:
-    /// `/otaq-address-review` for Claude Code.
+    /// The line typed into a live session for a hand-off skill (Send back's `address-review`, a Delivery
+    /// conflict's `restack`), followed by `told` (what came back, CMT-05). A skill the session started with
+    /// ([`crate::session::Sessions::started_with_skill`]) is named as its agent tool names it:
+    /// `/otaq-address-review SHOP-18 was sent back…` for Claude Code. Any other is copied into the session's
+    /// `worktree` now (AGM-07) and named by its file, since the tool read its skills at its start (d0118):
+    /// [`handoff_sentence`].
     pub async fn skill_line(
         &self,
         board: &crate::board::Board,
         session: &str,
         worktree: Option<&std::path::Path>,
         skill: &str,
+        told: Option<&str>,
     ) -> String {
-        if let Some(worktree) = worktree {
+        if !self.started_with(session, skill)
+            && let Some(worktree) = worktree
+        {
             board
                 .copy_skills(
                     worktree,
@@ -352,8 +481,29 @@ impl Deliveries {
                 )
                 .await;
         }
+        self.skill_text(session, skill, told)
+    }
+
+    /// Whether the session started with the copy of `skill` (its own name, `address-review`) in its folder (d0118).
+    pub fn started_with(&self, session: &str, skill: &str) -> bool {
+        self.sessions
+            .started_with_skill(session, &crate::naming::copy_name(skill))
+    }
+
+    /// [`Self::skill_line`]'s text, for a skill already copied: its tool's reference when the session started with
+    /// it, else [`handoff_sentence`] naming the copy the tool reads.
+    pub fn skill_text(&self, session: &str, skill: &str, told: Option<&str>) -> String {
         let tool = self.sessions.info(session).ok().and_then(|info| info.tool);
-        self.adapters.of_session(tool).skill_reference(skill)
+        let adapter = self.adapters.of_session(tool);
+        let told = told.map(str::trim).filter(|t| !t.is_empty());
+        if !self.started_with(session, skill) {
+            return handoff_sentence(adapter.skill_root(), skill, told);
+        }
+        let reference = adapter.skill_reference(skill);
+        match told {
+            Some(told) => format!("{reference} {told}"),
+            None => reference,
+        }
     }
 
     /// How the session's agent tool takes typed text (ADP-06).
@@ -394,6 +544,17 @@ impl Deliveries {
             count: u32::try_from(count).unwrap_or(u32::MAX),
         });
         Ok(())
+    }
+}
+
+/// A hand-off for a skill the session didn't start with, never typed as a command (d0118): "Follow the skill in
+/// `.claude/skills/otaq-address-review/SKILL.md`: SHOP-18 was sent back with a comment. Run `otaq prime`." `root` is
+/// the copy the session's tool reads ([`crate::agent_tools::AgentTool::skill_root`]).
+pub fn handoff_sentence(root: &str, skill: &str, told: Option<&str>) -> String {
+    let file = format!("{root}/{}/SKILL.md", crate::naming::copy_name(skill));
+    match told {
+        Some(told) => format!("Follow the skill in `{file}`: {told}"),
+        None => format!("Follow the skill in `{file}`."),
     }
 }
 

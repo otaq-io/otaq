@@ -16,6 +16,7 @@ import { pane } from ".";
 import { CloseAgentDialog, RecentList } from "./parts";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  leaveExpand,
   newProjectAgent,
   paneFocusRequests,
   sendFirstMessage,
@@ -57,6 +58,8 @@ const EMPTY: PaneView = {
     recent: button("history", "Recently ended"),
     new: { icon: "plus", label: "New conversation", keys: "⇧⌘L" },
     more: button("ellipsis", "More"),
+    expand: button("maximize-2", "Expand"),
+    collapse: { icon: "minimize-2", label: "Collapse", keys: "Esc" },
     close: { icon: "panel-left-close", label: "Close", keys: "⌘L" },
   },
   empty: {
@@ -212,6 +215,11 @@ describe("the empty pane", () => {
     expect(shownAgents.get()).toEqual({ NOTE: "a1" });
     expect(paneFocusRequests.get()).toMatchObject({ agent: "a1" });
     expect(textarea().value).toBe("");
+    // The new agent's terminal shows: it is asked for the keyboard at once, which it takes as soon as it opens
+    // (`Terminal.focus.test.ts`), so what the user goes on typing reaches the agent (d0126).
+    expect(terminalFocus).not.toHaveBeenCalled();
+    show(RUNNING);
+    expect(terminalFocus).toHaveBeenCalledTimes(1);
   });
 
   it("a second Send for the same project waits for the first", async () => {
@@ -292,6 +300,42 @@ describe("the pane's keys", () => {
     });
     expect(shellLayout.get().agentOpen).toBe(false);
     expect(textarea().value).toBe("half a question");
+  });
+
+  // T-0502 (dogfood #7).
+  it("Expand lays the open panel over the board; Collapse, Esc in the box or Esc outside a terminal bring it back", () => {
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: true });
+    show(EMPTY);
+    const header = (label: string) => box.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    act(() => {
+      header("Expand")?.click();
+    });
+    expect(shellLayout.get()).toMatchObject({ agentOpen: true, agentExpanded: true });
+    expect(header("Expand")).toBeNull();
+    act(() => {
+      header("Collapse")?.click();
+    });
+    expect(shellLayout.get()).toMatchObject({ agentOpen: true, agentExpanded: false });
+
+    // Esc in the box: first back beside the board, then folded.
+    act(() => {
+      header("Expand")?.click();
+    });
+    const esc = () => {
+      act(() => {
+        textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+    };
+    esc();
+    expect(shellLayout.get()).toMatchObject({ agentOpen: true, agentExpanded: false });
+    esc();
+    expect(shellLayout.get().agentOpen).toBe(false);
+
+    // The board's Esc (`close_panel`, never sent from inside a terminal) takes it only while expanded.
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: true, agentExpanded: true });
+    expect(leaveExpand()).toBe(true);
+    expect(shellLayout.get()).toMatchObject({ agentOpen: true, agentExpanded: false });
+    expect(leaveExpand()).toBe(false);
   });
 
   it("the rail's button opens the panel with the keyboard, or closes an open one", () => {

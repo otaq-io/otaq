@@ -19,16 +19,45 @@ use crate::domain::{Actor, Status, StatusSet, TicketKey};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
-/// "2 / 3 merged".
+/// "2 of 3 merged"; children closed without merging are counted apart (#31).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpicProgress {
     pub merged: u32,
+    /// Every child, the closed ones too.
     pub total: u32,
+    /// Children closed without merging (Closed · not merged).
+    pub closed: u32,
 }
 
 impl EpicProgress {
+    /// "1 of 3 merged"; with closed children, "3 of 7 merged · 1 closed", and once every other child is merged
+    /// "11 merged · 1 closed" (a finished epic doesn't look one ticket short, #31).
     pub fn label(&self) -> String {
-        format!("{} of {} merged", self.merged, self.total)
+        if self.closed == 0 {
+            return format!("{} of {} merged", self.merged, self.total);
+        }
+        let open = self.total.saturating_sub(self.closed);
+        if self.merged >= open {
+            format!("{} merged \u{b7} {} closed", self.merged, self.closed)
+        } else {
+            format!(
+                "{} of {open} merged \u{b7} {} closed",
+                self.merged, self.closed
+            )
+        }
+    }
+
+    /// The progress of `children` (an epic's children).
+    pub fn of<'a>(children: impl Iterator<Item = &'a Ticket> + Clone) -> Self {
+        let count = |status: Status| {
+            u32::try_from(children.clone().filter(|c| c.status == status).count())
+                .unwrap_or(u32::MAX)
+        };
+        Self {
+            merged: count(Status::Merged),
+            total: u32::try_from(children.clone().count()).unwrap_or(u32::MAX),
+            closed: count(Status::ClosedNotMerged),
+        }
     }
 }
 
@@ -54,17 +83,7 @@ pub struct ClosePlan {
 
 /// An epic's progress from its project's tickets.
 pub fn progress_of(epic: &TicketKey, tickets: &[Ticket]) -> EpicProgress {
-    let children = tickets.iter().filter(|t| t.epic.as_ref() == Some(epic));
-    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
-    EpicProgress {
-        merged: count(
-            children
-                .clone()
-                .filter(|c| c.status == Status::Merged)
-                .count(),
-        ),
-        total: count(children.count()),
-    }
+    EpicProgress::of(tickets.iter().filter(|t| t.epic.as_ref() == Some(epic)))
 }
 
 impl Board {
@@ -448,4 +467,26 @@ pub(crate) async fn close_bookkeeping_noting(
         payload
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EpicProgress;
+
+    /// #31: a closed child is counted apart, so a finished epic doesn't look one ticket short.
+    #[test]
+    fn closed_children_are_counted_apart() {
+        let p = |merged, total, closed| {
+            EpicProgress {
+                merged,
+                total,
+                closed,
+            }
+            .label()
+        };
+        assert_eq!(p(1, 3, 0), "1 of 3 merged");
+        assert_eq!(p(11, 12, 1), "11 merged \u{b7} 1 closed");
+        assert_eq!(p(3, 8, 1), "3 of 7 merged \u{b7} 1 closed");
+        assert_eq!(p(0, 2, 2), "0 merged \u{b7} 2 closed");
+    }
 }

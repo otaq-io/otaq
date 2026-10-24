@@ -34,11 +34,17 @@ before.
    long output, such as your last test run, as a report (see "Long output" below):
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'COMMENT'
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+     --manual-check "In a real browser, change the page size in Settings and reload the results" <<'COMMENT'
    lib/search.ts: the page size now comes from settings; restored the removed bounds check.
    app/page.tsx: shows the total number of results. `npm test` passes (run attached).
    COMMENT
    ```
+
+   **List what you couldn't check yourself** with `--manual-check "<what to check>"`, one line per check, repeated
+   for each: something that needs a real browser, a device, or a service you can't reach. The user sees them as
+   "Manual checks for you" at review. This `stage next` replaces your stage's unticked checks from before the Send
+   back, so list again the ones that still apply. Never leave a check to "the PR": the flow may merge without one.
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message says only that ("Validate failed round 1. Run `otaq prime`."): run

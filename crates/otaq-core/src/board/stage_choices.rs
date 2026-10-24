@@ -29,7 +29,7 @@ use crate::domain::{Actor, Kind, Place, TicketKey};
 use crate::flow::{Flow, Stage, StageOption};
 use crate::store::now_ms;
 
-/// The word for skipping a stage (`--stage Grill=skip`).
+/// The word for skipping a stage (`--stage QA=skip`).
 pub const SKIP: &str = StageOption::SKIP;
 
 /// The word for a skippable stage's usual choice (`--stage QA=required`): it runs.
@@ -350,18 +350,24 @@ fn option_words(stage: &Stage) -> Vec<String> {
 }
 
 /// The choice `word` means for `stage`, among its `options` (resolved): refused when the stage has no options or
-/// `word` isn't one of them ("Quick dev isn't one of Dev's options: Rust developer, Quick developer").
+/// `word` isn't one of them ("Quick dev isn't one of Dev's options: Rust developer, Quick developer"). A skip of a
+/// stage without options says how the flow allows it (#62, d0108: a flow adds `skip` to a stage's options).
 pub fn choice_of(stage: &Stage, options: &StageOptions, word: &str) -> Result<Choice, BoardError> {
+    let word = word.trim();
     if stage.options.is_empty() {
-        return Err(BoardError::refused(
-            Refusal::NotAnOption,
+        let text = if word.eq_ignore_ascii_case(SKIP) {
+            format!(
+                "{} has no options; add `{SKIP}` to its options in the flow to allow it.",
+                stage.name
+            )
+        } else {
             format!(
                 "{} has no options: every ticket runs it as the flow says",
                 stage.name
-            ),
-        ));
+            )
+        };
+        return Err(BoardError::refused(Refusal::NotAnOption, text));
     }
-    let word = word.trim();
     let folded = word.to_lowercase();
     let usual = match &options.usual {
         Some(agent) => agent.name.to_lowercase() == folded || folded == REQUIRED,
@@ -974,6 +980,14 @@ mod tests {
             (
                 Refusal::NotAnOption,
                 "Security has no options: every ticket runs it as the flow says".into()
+            )
+        );
+        assert_eq!(
+            refusal(of(&security, "skip")),
+            (
+                Refusal::NotAnOption,
+                "Security has no options; add `skip` to its options in the flow to allow it."
+                    .into()
             )
         );
         assert_eq!(Choice::Usual.label(&qa), "required");

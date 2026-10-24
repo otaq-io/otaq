@@ -5,6 +5,9 @@
 //! **diverged**. It never merges, rebases, pushes or stashes, and never touches a checkout with uncommitted
 //! changes (P3). Epic branches are local only and skip this step (the caller doesn't call it for them).
 //!
+//! A fetch that fails (an unreachable remote, no key for it) is [`BaseSync::FetchFailed`], not an error: whether the
+//! ticket goes on from its local base branch is the caller's call (d0121).
+//!
 //! Which remote: the branch's upstream if it has one, otherwise `origin` (or the only remote). "Dirty" means
 //! uncommitted changes to tracked files; untracked files don't count, and `git merge --ff-only` refuses on its
 //! own rather than overwrite one.
@@ -29,17 +32,55 @@ pub enum BaseSync {
     OnlyOnRemote,
     /// The repository has no remote, or the branch isn't on it: nothing to fetch or compare.
     NoRemote,
+    /// `git fetch` itself failed: nothing was compared or moved (d0121).
+    FetchFailed(FetchFailure),
+}
+
+/// A `git fetch` that failed: which remote, and how git failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchFailure {
+    /// `origin`.
+    pub remote: String,
+    pub code: Option<i32>,
+    /// "Host key verification failed."
+    pub stderr: String,
+}
+
+impl FetchFailure {
+    /// The failure as the error a fetch returned before d0121.
+    pub fn error(&self) -> GitError {
+        GitError::Failed {
+            args: format!("fetch --quiet {}", self.remote),
+            code: self.code,
+            stderr: self.stderr.clone(),
+        }
+    }
+
+    /// Git's reason: "git fetch --quiet origin failed (exit 128): Host key verification failed."
+    pub fn reason(&self) -> String {
+        self.error().to_string()
+    }
 }
 
 impl Git {
     /// Fetches and fast-forwards `branch` of the repository at `repo` if it is only behind its remote.
-    /// A failed fetch is returned as the error.
+    /// A fetch that ran and failed is [`BaseSync::FetchFailed`]; git that can't run at all is the error.
     pub async fn sync_base(&self, repo: &Path, branch: &str) -> Result<BaseSync, GitError> {
         let local_ref = format!("refs/heads/{branch}");
         let Some(remote) = self.remote_for(repo, &local_ref).await? else {
             return Ok(BaseSync::NoRemote);
         };
-        self.run(repo, &["fetch", "--quiet", &remote]).await?;
+        match self.run(repo, &["fetch", "--quiet", &remote]).await {
+            Ok(_) => {}
+            Err(GitError::Failed { code, stderr, .. }) => {
+                return Ok(BaseSync::FetchFailed(FetchFailure {
+                    remote,
+                    code,
+                    stderr,
+                }));
+            }
+            Err(e) => return Err(e),
+        }
 
         let upstream = self
             .run(

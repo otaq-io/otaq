@@ -45,7 +45,7 @@ use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Priority, Status, TicketKey};
+use otaq_core::domain::{Actor, HandOffKind, MergeCheckState, Priority, Status, TicketKey};
 use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
@@ -400,6 +400,8 @@ pub enum CardActionKind {
     Decide,
     /// An agent check held for the plan limit with no usable fallback (FLW-13, Q277).
     SkipCheck,
+    /// "Merging · running the merge check" (d0120, Q475): Stop ends the check and nothing is merged.
+    StopMergeCheck,
 }
 
 impl CardActionKind {
@@ -568,7 +570,7 @@ pub struct StatusHover {
 }
 
 /// The card's one status line in words (BRD-03; *24 · The two views*): "Needs you: allow rm -rf .next?", "Working ·
-/// back from Security", "P1 · starts next". `CardStatusLine` on the page.
+/// back from Security", "starts next". `CardStatusLine` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardStatusLine")]
 pub struct StatusLine {
@@ -800,6 +802,21 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
     use otaq_core::domain::{AutoMergeStop, validation};
     let flags = &ticket.flags;
     let flag = |rank, label: &str, full: &str, legend| HeadFlag::new(rank, label, full, legend);
+    // Local merge runs the project's Merge check before the target moves (d0120): calm, with Stop
+    // ([`action`]), whatever column the ticket waits in.
+    if flags.merge_check == Some(MergeCheckState::Running) {
+        return Some(Part::flag(
+            flag(
+                R::Busy,
+                MERGING,
+                validation::MERGE_CHECK_RUNNING,
+                Legend::Validating,
+            )
+            .colored(Palette::Working),
+            Some(validation::MERGE_CHECK_RUNNING.to_owned()),
+            Tone::Muted,
+        ));
+    }
     Some(match status {
         Status::NeedsYou => {
             let text = x
@@ -1024,6 +1041,13 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             let (label, full) = match ticket.auto_merge_stop {
                 Some(AutoMergeStop::BaseDiverged) => ("Diverged".to_owned(), "Base diverged"),
                 Some(AutoMergeStop::CheckoutDirty) => ("Dirty repo".to_owned(), "Checkout dirty"),
+                Some(AutoMergeStop::KeepsFailingMergeCheck) => (
+                    format!("Check failed \u{d7}{n}"),
+                    "Merge check keeps failing",
+                ),
+                Some(AutoMergeStop::DeliveryFailed) => {
+                    ("Not delivered".to_owned(), "Couldn\u{2019}t deliver")
+                }
                 _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
             };
             Part::flag(
@@ -1086,37 +1110,61 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             validating_text(ticket, now_ms),
             Tone::Muted,
         ),
-        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`).
-        Status::MergeConflictFixing => Part::flag(
-            {
-                let f = flag(
-                    R::Busy,
-                    "Conflict",
-                    validation::MERGE_CONFLICT_FIXING,
-                    Legend::MergeConflictFixing,
-                );
-                // Today's calm pill on the default flow.
+        // A hand-off typed in that the agent hasn't picked up: what it waits for, not "Working" (d0118).
+        Status::Working | Status::MergeConflictFixing if let Some(kind) = flags.hand_off => {
+            Part::quiet(hand_off_line(kind), Tone::Muted)
+        }
+        // The Merge check failed on the rebased result (d0120): back with the agent, as after a conflict.
+        Status::MergeConflictFixing if flags.merge_check == Some(MergeCheckState::Failed) => {
+            let f = flag(
+                R::Busy,
+                CHECK_FAILED,
+                validation::MERGE_CHECK_FAILED_FIXING,
+                Legend::MergeConflictFixing,
+            );
+            Part::flag(
                 if x.custom_flow {
                     f
                 } else {
                     f.colored(Palette::Working)
-                }
-            },
-            Some(match flags.conflict_files.as_slice() {
-                [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
-                [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
-                [file, rest @ ..] => format!(
-                    "{} \u{b7} {file} +{}",
-                    validation::MERGE_CONFLICT_FIXING,
-                    rest.len()
-                ),
-            }),
-            if x.custom_flow {
-                Tone::Paused
-            } else {
-                Tone::Muted
-            },
-        ),
+                },
+                Some(validation::MERGE_CHECK_FAILED_FIXING.to_owned()),
+                if x.custom_flow {
+                    Tone::Paused
+                } else {
+                    Tone::Muted
+                },
+            )
+        }
+        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`). A
+        // conflict the test merge found in Review says which branch: "Conflicts with main · fixing" (d0127).
+        Status::MergeConflictFixing => {
+            let fixing = match flags.conflicts_with.as_deref() {
+                Some(target) if flags.conflict_in_review => validation::conflicts_fixing(target),
+                _ => validation::MERGE_CONFLICT_FIXING.to_owned(),
+            };
+            Part::flag(
+                {
+                    let f = flag(R::Busy, "Conflict", &fixing, Legend::MergeConflictFixing);
+                    // Today's calm pill on the default flow.
+                    if x.custom_flow {
+                        f
+                    } else {
+                        f.colored(Palette::Working)
+                    }
+                },
+                Some(match flags.conflict_files.as_slice() {
+                    [] => fixing.clone(),
+                    [file] => format!("{fixing} \u{b7} {file}"),
+                    [file, rest @ ..] => format!("{fixing} \u{b7} {file} +{}", rest.len()),
+                }),
+                if x.custom_flow {
+                    Tone::Paused
+                } else {
+                    Tone::Muted
+                },
+            )
+        }
         Status::Working => Part::flag(
             flag(R::Working, "Working", "Working", Legend::AgentWorking),
             None,
@@ -1193,11 +1241,41 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if flags.resuming_conversation => {
             Part::quiet("Resuming conversation\u{2026}", Tone::Muted)
         }
+        // A sibling's merge freed it; the epic lead's turn about that merge comes first (d0124).
+        Status::Queued if flags.waiting_for_lead => Part::quiet(WAITING_FOR_LEAD, Tone::Muted),
         Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
         Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
         Status::Backlog | Status::Merged => return None,
     })
+}
+
+/// The line of a hand-off typed into the live session that its agent hasn't picked up yet (d0118).
+pub const WAITING_FOR_PICK_UP: &str = "waiting for the agent to pick it up";
+
+/// What the hand-off was, as the card names it: "Sent back", "Merge conflict", "Open PR".
+pub fn hand_off_label(kind: HandOffKind) -> &'static str {
+    match kind {
+        HandOffKind::SendBack => "Sent back",
+        HandOffKind::MergeConflict => "Merge conflict",
+        HandOffKind::MergeCheck => "Merge check failed",
+        HandOffKind::OpenPr => "Open PR",
+        HandOffKind::Push => "Push to PR",
+    }
+}
+
+/// "Sent back · waiting for the agent to pick it up" (d0118): the card's and the sheet's line in place of the working
+/// one, until the agent's tool reports activity.
+pub fn hand_off_line(kind: HandOffKind) -> String {
+    format!("{} \u{b7} {WAITING_FOR_PICK_UP}", hand_off_label(kind))
+}
+
+/// The hand-off the ticket's agent hasn't picked up, while it is at work (Working, Merge conflict · fixing).
+pub fn pending_hand_off(ticket: &Ticket, status: Status) -> Option<HandOffKind> {
+    ticket
+        .flags
+        .hand_off
+        .filter(|_| matches!(status, Status::Working | Status::MergeConflictFixing))
 }
 
 /// The situation line of a No result on the validator's model (update Y §3).
@@ -1214,6 +1292,8 @@ pub fn pr_not_watched() -> String {
 pub const PARKED: &str = "Parked \u{b7} has work \u{b7} branch, files and conversation kept";
 /// *Waiting for a free slot (0016)*.
 pub const WAITING_FOR_SLOT: &str = "waiting for a free slot";
+/// A child a sibling's merge freed, until the epic lead's turn about that merge ends (d0124).
+pub const WAITING_FOR_LEAD: &str = "Waiting for the lead\u{2019}s update";
 
 /// "round 1 of 3 · 2 min": which round the validator checks and how long it has run.
 fn validating_text(ticket: &Ticket, now_ms: i64) -> Option<String> {
@@ -1422,10 +1502,11 @@ impl CardViewModel {
         let status = status::shown(ticket);
         let flags = &ticket.flags;
         let paused = paused_stop(ticket, status, x);
-        // A needs-you ticket interrupted by a restart keeps its flag (d0045); answering resumes it.
+        // A needs-you ticket interrupted by a restart keeps its flag (d0045); answering resumes it. Only a question
+        // is kept: a check or a working agent the restart stopped has nothing to answer (as `paused_stop`, T-0490).
         let kept = ticket
             .interrupted_from
-            .filter(|_| status == Status::Interrupted && !paused);
+            .filter(|was| was.is_needs_you_family() && status == Status::Interrupted && !paused);
         let stale = is_stale(status, flags.last_signal_at, now_ms);
 
         let mut parts = Vec::new();
@@ -1742,6 +1823,8 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
             icon: None,
             primary: true,
         }),
+        // Stop is quiet, but it is all the card offers while the Merge check runs (d0120).
+        CardActionKind::StopMergeCheck => Some(action),
         _ if edge || action.primary => Some(action),
         _ => None,
     }
@@ -1750,13 +1833,13 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
 /// A check out of rounds: the card's one action opens the ticket, where the choices are (BRD-03).
 pub const DECIDE: &str = "Decide";
 
-/// Ready for Dev's "Ready to start" on the one line: the frame's "starts next" (`s24-03`).
+/// Ready for Dev's next ticket while nothing starts (paused): the frame's "starts next" (`s24-03`, `s24-07`).
 pub const STARTS_NEXT: &str = "starts next";
 
 /// The one status line (BRD-03): the head flag's words, then the situation's ("Needs you: allow rm -rf .next?" after
 /// a needs-you or stopped flag, "Checking · round 1 of 3" otherwise); the situation alone when it already says what the flag
-/// says ("Security failed 3 times · …" under "Failed ×3"); a waiting card leads with its priority ("P1 · starts
-/// next"). The words keep their case, as drawn ("Checking · round 1 of 3"); a blocked ticket's line is DPV-01's.
+/// says ("Security failed 3 times · …" under "Failed ×3"). The priority is the card's chip after its key, not part of
+/// the line (#36). The words keep their case, as drawn ("Checking · round 1 of 3"); a blocked ticket's line is DPV-01's.
 /// Nothing to say: no line (a calm Backlog card).
 pub fn status_line(
     ticket: &Ticket,
@@ -1765,10 +1848,18 @@ pub fn status_line(
     situation: Option<&Situation>,
     edge: Option<Tone>,
 ) -> Option<StatusLine> {
-    let mut words = situation.map(|s| s.text.clone());
-    if words.as_deref() == Some(READY_TO_START) {
-        words = Some(STARTS_NEXT.to_owned());
+    // Waiting for the agent to pick up a hand-off: that alone, in the neutral tone (d0118).
+    if let Some(kind) = pending_hand_off(ticket, status) {
+        return Some(StatusLine {
+            text: hand_off_line(kind),
+            dot: Palette::Queued,
+            tone: Tone::Secondary,
+            icon: None,
+        });
     }
+    // An unblocked Backlog card says "Ready to start": nothing starts until it is moved, so "starts next" is only
+    // Ready for Dev's (#36).
+    let words = situation.map(|s| s.text.clone());
     let text = match (flag, words) {
         (None, None) => return None,
         (None, Some(words)) => words,
@@ -1786,12 +1877,6 @@ pub fn status_line(
                 format!("{lead} \u{b7} {words}")
             }
         }
-    };
-    let text = match priority::on_card(ticket.priority) {
-        Some(p) if ticket.place.is_waiting() && !status.is_needs_you_family() => {
-            format!("{} \u{b7} {text}", priority::short(p))
-        }
-        _ => text,
     };
     let dot = match (edge, flag) {
         (Some(Tone::Attention), _) => Palette::Attn,
@@ -2208,7 +2293,44 @@ fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
             Part::quiet(text, Tone::Warning).hover(schema_overlap_hover(&work.schema_overlap)),
         );
     }
+    // d0121: it went on without its remote; git's reason on hover. Gone at the next fetch that works.
+    if let Some(warning) = ticket.work.as_ref().and_then(|w| w.remote_warning.as_ref())
+        && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
+    {
+        parts.push(
+            Part::quiet(remote_warning_text(warning), Tone::Warning)
+                .hover(Some(remote_warning_hover(warning))),
+        );
+    }
     parts
+}
+
+/// "Couldn't update main from origin · started from your local main" (or "· merged into your local main"): the fetch
+/// before the start or the Local merge failed and the ticket went on from the local base branch (d0121).
+pub fn remote_warning_text(w: &otaq_core::domain::RemoteWarning) -> String {
+    let went_on = match w.went_on {
+        otaq_core::domain::WentOn::Started => "started from",
+        otaq_core::domain::WentOn::Merged => "merged into",
+    };
+    format!(
+        "Couldn\u{2019}t update {b} from {r} \u{b7} {went_on} your local {b}",
+        b = w.branch,
+        r = w.remote
+    )
+}
+
+/// The hover of the remote warning: git's reason.
+pub fn remote_warning_hover(w: &otaq_core::domain::RemoteWarning) -> Hover {
+    Hover {
+        icon: IconName::TriangleAlert,
+        tone: Tone::Warning,
+        title: remote_warning_text(w),
+        sections: vec![HoverSection {
+            label: None,
+            text: w.reason.clone(),
+            muted: false,
+        }],
+    }
 }
 
 /// The origin line of a card an agent created, while it waits in Backlog (d0019, d0068): "Created by Checkout
@@ -2438,6 +2560,13 @@ fn details(
     details
 }
 
+/// The Merge check's head flags (d0120): "Merging…" while it runs, "Check failed" while the agent fixes what it
+/// found; the line says the rest.
+pub const MERGING: &str = "Merging\u{2026}";
+pub const CHECK_FAILED: &str = "Check failed";
+/// Stop on "Merging · running the merge check" (d0120, Q475): nothing is merged.
+pub const STOP: &str = "Stop";
+
 /// "Use fallback": a held session starts on its tool's fallback (AGM-03).
 pub const USE_FALLBACK: &str = "Use fallback";
 /// "Open agent…": Settings → Agents on the agent whose model can't run (d0108 second gap review rule 7).
@@ -2464,6 +2593,9 @@ fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<Card
             primary: false,
         })
     };
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+        return None;
+    }
     if let Some(hold) = held(ticket, status, x) {
         return (hold.can_use_fallback || hold.can_skip_check)
             .then_some(())
@@ -2507,6 +2639,15 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     };
     // Answer, Reply and Open unblock the card: the frame's filled button.
     let open = |label| a(CardActionKind::Open, label, None, true);
+    // The only thing to do while the Merge check runs (d0120): the merge finishes on its own.
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+        return a(
+            CardActionKind::StopMergeCheck,
+            STOP,
+            Some(IconName::Square),
+            false,
+        );
+    }
     // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the panel.
     // A held role (M23, AGM-03): its fallback when it can take it, then Open agent… ([`second_action`]); quiet
     // buttons.
@@ -2690,6 +2831,9 @@ pub fn lead_note_hover(note: &otaq_core::domain::LeadNoteSent) -> Hover {
     let when = match (note.stop, note.after_rounds) {
         (StuckStop::ValidationFailed, Some(n)) => format!("SENT AFTER ROUND {n}"),
         (StuckStop::KeepsConflicting, _) => "SENT AFTER IT KEPT CONFLICTING".to_owned(),
+        (StuckStop::KeepsFailingMergeCheck, _) => {
+            "SENT AFTER ITS MERGE CHECK KEPT FAILING".to_owned()
+        }
         (StuckStop::Idle, _) => "SENT WHEN IT STOPPED".to_owned(),
         (StuckStop::ValidationFailed, None) => "SENT AFTER VALIDATION FAILED".to_owned(),
     };
@@ -2807,11 +2951,12 @@ pub fn lead_note_callout(ticket: &Ticket) -> Option<String> {
 }
 
 /// "Sent back · 3 comments · round 2"; with decisions Change… sent back, "Sent back · 1 decision changed · round 2"
-/// (comments named too when there are any; DEC-06).
+/// (comments named too when there are any; DEC-06); with neither, "Sent back · round 2" (the Send back dialog's own
+/// comment is the hand-over, #20).
 fn sent_back_text(sent: otaq_core::domain::flags::SentBack) -> String {
     let plural = |n: u32| if n == 1 { "" } else { "s" };
     let mut parts = Vec::new();
-    if sent.comments > 0 || sent.decisions == 0 {
+    if sent.comments > 0 {
         parts.push(format!(
             "{} comment{}",
             sent.comments,
@@ -2825,11 +2970,8 @@ fn sent_back_text(sent: otaq_core::domain::flags::SentBack) -> String {
             plural(sent.decisions)
         ));
     }
-    format!(
-        "Sent back \u{b7} {} \u{b7} round {}",
-        parts.join(" \u{b7} "),
-        sent.round
-    )
+    parts.push(format!("round {}", sent.round));
+    format!("Sent back \u{b7} {}", parts.join(" \u{b7} "))
 }
 
 /// "adds migrations next to SHOP-21 (db/migrations/**)", "… next to SHOP-21 +1 (…)" (M19-e): another Review ticket
@@ -3109,6 +3251,18 @@ mod tests {
                 // FLW-17 (`s03-46`).
                 Some("Keeps conflicting with the epic’s branch"),
                 Some("[Open]"),
+            ),
+            (
+                "Merging · running the merge check (0120)",
+                Some("Merging\u{2026}"),
+                Some("Merging \u{b7} running the merge check"),
+                Some("[Stop]"),
+            ),
+            (
+                "Merge check failed · fixing (0120)",
+                Some("Check failed"),
+                Some("Merge check failed \u{b7} fixing"),
+                Some("91k 10s"),
             ),
             (
                 "Picked by the lead (0083)",
@@ -4409,6 +4563,28 @@ mod tests {
         );
     }
 
+    /// A check the restart stopped (`interrupted_from` Checking) keeps no question on its card: no "answering resumes
+    /// it", no Reply; it says the validation stopped and Resume starts it fresh (#58).
+    #[test]
+    fn a_check_interrupted_by_a_restart_keeps_no_question() {
+        let mut checking = ticket("SHOP-15", "Weekly summary", Status::Interrupted);
+        checking.interrupted_from = Some(Status::Checking);
+        let vm = CardViewModel::from(
+            &checking,
+            &CardExtras {
+                was_validating: true,
+                ..main_project()
+            },
+            NOW,
+        );
+        assert_eq!(
+            line(&vm),
+            Some("Validation stopped by restart · Resume starts it fresh (not counted)")
+        );
+        assert_ne!(foot(&vm).as_deref(), Some("[Reply]"));
+        assert_ne!(vm.outline, Outline::Attention);
+    }
+
     /// MSG-06, LEAD-06: asking another agent or the lead is calm, on the situation line.
     #[test]
     fn asked_another_agent_or_the_lead() {
@@ -4587,6 +4763,23 @@ mod tests {
         assert!(CardViewModel::from(&own, &x, NOW).pinned);
     }
 
+    /// d0124: a child a sibling's merge freed says it waits for the lead's update, until its pass ends.
+    #[test]
+    fn a_freed_child_waits_for_the_leads_update() {
+        let mut t = ticket("SHOP-40.3", "Wishlist page", Status::Queued);
+        t.epic = Some("SHOP-40".parse().unwrap());
+        t.flags.waiting_for_lead = true;
+        assert_eq!(
+            line(&card(&t)),
+            Some("Waiting for the lead\u{2019}s update")
+        );
+        t.flags.waiting_for_lead = false;
+        assert_ne!(
+            line(&card(&t)),
+            Some("Waiting for the lead\u{2019}s update")
+        );
+    }
+
     /// EPC-13: a child that joined its whole-queued epic's queue says who added it.
     #[test]
     fn a_child_that_joined_the_queue_says_who_added_it() {
@@ -4663,6 +4856,73 @@ mod tests {
         }
     }
 
+    /// d0121: a ticket that went on without its remote says so, git's reason on hover, until a fetch for it works
+    /// (the core clears it then); a Done card doesn't.
+    #[test]
+    fn remote_warning() {
+        use otaq_core::domain::{RemoteWarning, WentOn};
+        let reason = "git fetch --quiet origin failed (exit 128): Host key verification failed.";
+        let mut t = ticket("SHOP-18", "Checkout API", Status::Working);
+        t.work = Some(otaq_core::board::tickets::Work {
+            remote_warning: Some(RemoteWarning {
+                went_on: WentOn::Started,
+                branch: "main".into(),
+                remote: "origin".into(),
+                reason: reason.into(),
+            }),
+            ..Default::default()
+        });
+        let vm = card(&t);
+        assert_eq!(
+            line(&vm),
+            Some("Couldn\u{2019}t update main from origin \u{b7} started from your local main")
+        );
+        let hover = &vm.situation.as_ref().unwrap().hovers[0];
+        assert_eq!(hover.tone, Tone::Warning);
+        assert_eq!(hover.sections[0].text, reason);
+
+        let warning = t.work.as_mut().unwrap().remote_warning.as_mut().unwrap();
+        warning.went_on = WentOn::Merged;
+        warning.branch = "develop".into();
+        t.status = Status::WaitingForYou;
+        assert_eq!(
+            line(&card(&t)),
+            Some(
+                "Couldn\u{2019}t update develop from origin \u{b7} merged into your local develop"
+            )
+        );
+        t.status = Status::Merged;
+        assert!(!line(&card(&t)).unwrap_or_default().contains("origin"));
+        // After a good fetch.
+        t.status = Status::Working;
+        t.work.as_mut().unwrap().remote_warning = None;
+        assert_eq!(line(&card(&t)), None);
+    }
+
+    /// d0121: an automatic Delivery whose git step failed: "Couldn't deliver · <reason>", Retry merge.
+    #[test]
+    fn a_failed_delivery() {
+        use otaq_core::domain::AutoMergeStop;
+        let mut t = ticket("BILL-6", "Late fee rule", Status::DeliveryStopped);
+        t.auto_merge_stop = Some(AutoMergeStop::DeliveryFailed);
+        let text =
+            otaq_core::domain::validation::delivery_failed("git commit failed (exit 1): lint");
+        let x = CardExtras {
+            question: Some(text.clone()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(
+            (flag_of(&vm), line(&vm)),
+            (Some("Not delivered"), Some(text.as_str()))
+        );
+        assert_eq!(
+            text,
+            "Couldn\u{2019}t deliver \u{b7} git commit failed (exit 1): lint"
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+    }
+
     #[test]
     fn labels() {
         assert_eq!(tokens_label(182_400), "182k");
@@ -4723,6 +4983,29 @@ mod tests {
         let vm = card(&t);
         assert_eq!(line(&vm), Some("Merge conflict · fixing · a.ts +2"));
         assert_eq!(vm.outline, Outline::Normal);
+        // The test merge's conflict, found while it waited in Review, names the branch (d0127); the Review flag is
+        // gone while the agent fixes it.
+        let mut t = ticket("SHOP-19", "Price table", Status::MergeConflictFixing);
+        t.flags.conflicts_with = Some("main".into());
+        t.flags.conflict_in_review = true;
+        let vm = card(&t);
+        assert_eq!(line(&vm), Some("Conflicts with main · fixing"));
+        assert_eq!(
+            vm.flag.as_ref().map(|f| f.full.as_str()),
+            Some("Conflicts with main · fixing")
+        );
+        t.flags.conflict_files = vec!["lib/pricing.ts".into()];
+        assert_eq!(
+            line(&card(&t)),
+            Some("Conflicts with main · fixing · lib/pricing.ts")
+        );
+        // Still in Review (its PR is open, or the project is paused): only the flag.
+        t.status = Status::WaitingForYou;
+        assert!(
+            !line(&card(&t)).unwrap_or_default().contains("fixing"),
+            "{:?}",
+            line(&card(&t))
+        );
         // The other Auto-merge stops show the Local merge's message.
         use otaq_core::domain::AutoMergeStop;
         for (stop, label) in [
@@ -4755,6 +5038,56 @@ mod tests {
             line(&card(&t)),
             Some("Submitted by you · “Paging works, tests pending” · not validated")
         );
+    }
+
+    /// d0120: "Merging · running the merge check" with Stop (and nothing else) while Local merge runs the check, in
+    /// Review or To deliver; "Merge check failed · fixing" while the agent fixes what it found.
+    #[test]
+    fn the_merge_check_states() {
+        for (status, custom) in [
+            (Status::WaitingForYou, false),
+            (Status::WaitingForYou, true),
+            (Status::ToDeliver, true),
+        ] {
+            let mut t = ticket("SHOP-2", "Card", status);
+            t.flags.merge_check = Some(MergeCheckState::Running);
+            let x = CardExtras {
+                custom_flow: custom,
+                ..main_project()
+            };
+            let vm = CardViewModel::from(&t, &x, NOW);
+            assert_eq!(flag_of(&vm), Some("Merging\u{2026}"), "{status:?}");
+            assert_eq!(line(&vm), Some("Merging \u{b7} running the merge check"));
+            let footer = vm.footer.as_ref().unwrap();
+            let stop = footer.action.as_ref().unwrap();
+            assert_eq!(
+                (stop.kind, stop.label, stop.primary),
+                (CardActionKind::StopMergeCheck, "Stop", false)
+            );
+            assert_eq!(footer.second, None, "no Fail beside it");
+            let one = &vm.one_line;
+            assert_eq!(
+                one.line.as_ref().map(|l| l.text.as_str()),
+                Some("Merging \u{b7} running the merge check")
+            );
+            assert_eq!(
+                one.action.as_ref().map(|a| a.kind),
+                Some(CardActionKind::StopMergeCheck)
+            );
+            assert_eq!(one.edge, None, "nothing to review while it merges");
+        }
+
+        let mut t = ticket("SHOP-2", "Card", Status::MergeConflictFixing);
+        t.flags.merge_check = Some(MergeCheckState::Failed);
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Check failed"));
+        assert_eq!(line(&vm), Some("Merge check failed \u{b7} fixing"));
+        assert_eq!(
+            vm.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merge check failed \u{b7} fixing")
+        );
+        assert_eq!(vm.outline, Outline::Normal, "the agent has it");
+        assert_eq!(vm.one_line.action, None);
     }
 
     // T-0291's lead rows, on the v2 card (LEAD-06…LEAD-10).
@@ -4837,7 +5170,7 @@ mod tests {
         assert_eq!(line(&card(&t)), Some("same file as SHOP-40.2 +1"));
     }
 
-    /// "Sent back · 1 decision changed · round 2" (DEC-06).
+    /// "Sent back · 1 decision changed · round 2" (DEC-06); no line comments, "Sent back · round 2" (#20).
     #[test]
     fn sent_back_counts_changed_decisions() {
         use otaq_core::domain::flags::SentBack;
@@ -4850,10 +5183,7 @@ mod tests {
             sent_back_text(sent(3, 0)),
             "Sent back · 3 comments · round 2"
         );
-        assert_eq!(
-            sent_back_text(sent(0, 0)),
-            "Sent back · 0 comments · round 2"
-        );
+        assert_eq!(sent_back_text(sent(0, 0)), "Sent back · round 2");
         assert_eq!(
             sent_back_text(sent(0, 1)),
             "Sent back · 1 decision changed · round 2"
@@ -5607,6 +5937,54 @@ mod tests {
                 .with_agents(&board(vec![Tool::Claude]), &other)
                 .agents,
             AgentFacts::default()
+        );
+    }
+
+    /// A hand-off typed in that the agent hasn't picked up (d0118): the one line says what it waits for, in the
+    /// neutral tone, in place of the working line; once picked up the card reads as before.
+    #[test]
+    fn a_hand_off_waiting_for_the_agent_replaces_the_working_line() {
+        let words = [
+            (HandOffKind::SendBack, "Sent back"),
+            (HandOffKind::MergeConflict, "Merge conflict"),
+            (HandOffKind::MergeCheck, "Merge check failed"),
+            (HandOffKind::OpenPr, "Open PR"),
+            (HandOffKind::Push, "Push to PR"),
+        ];
+        for (kind, label) in words {
+            let status = match kind {
+                HandOffKind::MergeConflict | HandOffKind::MergeCheck => Status::MergeConflictFixing,
+                _ => Status::Working,
+            };
+            let mut t = ticket("SHOP-18", "Login redirect", status);
+            t.flags.hand_off = Some(kind);
+            let vm = card(&t);
+            let one = vm.one_line.line.as_ref().unwrap();
+            assert_eq!(
+                one.text,
+                format!("{label} \u{b7} waiting for the agent to pick it up"),
+                "{kind:?}"
+            );
+            assert_eq!(one.tone, Tone::Secondary, "{kind:?}");
+            assert_eq!(one.dot, Palette::Queued, "{kind:?}");
+            assert_eq!(vm.one_line.edge, None, "{kind:?}: not the user's turn");
+
+            t.flags.hand_off = None;
+            let one = card(&t).one_line.line.unwrap();
+            assert!(
+                !one.text.contains("waiting for the agent"),
+                "{kind:?}: {}",
+                one.text
+            );
+        }
+        // Only while its agent is at it.
+        let mut t = ticket("SHOP-18", "Login redirect", Status::WaitingForYou);
+        t.flags.hand_off = Some(HandOffKind::SendBack);
+        assert!(
+            !card(&t)
+                .one_line
+                .line
+                .is_some_and(|l| l.text.contains("waiting for the agent"))
         );
     }
 }

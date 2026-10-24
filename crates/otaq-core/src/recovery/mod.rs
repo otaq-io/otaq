@@ -242,6 +242,21 @@ pub const RETURN_RESUME: &str = "resume";
 /// `tickets.return_mode`: the next start is a new conversation in the same worktree (Start from scratch).
 pub const RETURN_SCRATCH: &str = "scratch";
 
+/// The first prompt of a ticket's conversation reopened by Resume, Resume all or Retry when nothing else was waiting
+/// (REC-01, d0122): "You were interrupted by a restart. Carry on where you left off; run `otaq prime` if you need
+/// the ticket again."
+pub fn carry_on_text() -> String {
+    format!(
+        "You were interrupted by a restart. Carry on where you left off; run `{} prime` if you need the ticket \
+         again.",
+        crate::naming::COMMAND_NAME
+    )
+}
+
+/// The first prompt of a Project agent or an epic lead resumed from "Ended by restart" (d0122, d0068, d0083).
+pub const CARRY_ON_PROJECT_AGENT: &str =
+    "You were interrupted by a restart. Carry on where you left off.";
+
 /// The tickets Resume all resumes (d0045): Interrupted Dev tickets only, never Start interrupted, Resume failed,
 /// Review or Approved.
 pub fn resume_all_eligible<'a>(
@@ -522,6 +537,11 @@ impl Recovery {
                 .interrupt_validation(id, ticket.status, reason)
                 .await?
                 .map(Reconciled::WasValidating),
+            // The checker asked the user: the question stays in Needs you, the round isn't counted.
+            Outcome::InterruptAsking => self
+                .interrupt_asking(id, ticket.status, reason)
+                .await?
+                .map(Reconciled::Interrupted),
         };
         Ok(done.unwrap_or(Reconciled::Nothing))
     }
@@ -666,9 +686,10 @@ impl Recovery {
                 .await
             }
             // The checker's session decides an agent check; a human check and a Delivery wait for a click.
-            Outcome::Unchanged | Outcome::NoteSessionEnded | Outcome::InterruptValidation => {
-                Ok(None)
-            }
+            Outcome::Unchanged
+            | Outcome::NoteSessionEnded
+            | Outcome::InterruptValidation
+            | Outcome::InterruptAsking => Ok(None),
         }
     }
 
@@ -793,6 +814,25 @@ impl Recovery {
                 payload,
             )
             .await?;
+        if key.is_some() {
+            self.inner
+                .board
+                .abandon_round(ticket_id, crate::domain::ValidationOutcome::Interrupted)
+                .await?;
+        }
+        Ok(key)
+    }
+
+    /// Interrupted keeping the checker's question (d0045, d0119): the round ends "interrupted" (not counted);
+    /// Resume starts a fresh check.
+    async fn interrupt_asking(
+        &self,
+        ticket_id: &str,
+        before: Status,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<TicketKey>, BoardError> {
+        payload["validation"] = json!(true);
+        let key = self.interrupt(ticket_id, before, true, payload).await?;
         if key.is_some() {
             self.inner
                 .board

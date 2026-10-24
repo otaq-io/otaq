@@ -476,3 +476,49 @@ async fn priorities_on_the_command_line() {
     assert_eq!(created[1]["priority"], 3, "no line: Normal");
     w.stop().await;
 }
+
+/// #43: `otaq create` inside the user's own git worktree of a project's repository (`git worktree add
+/// ../experiment`, outside the repository's folder) finds the project through git's common dir; a folder that is no
+/// project's worktree still asks for `-P`.
+#[tokio::test(flavor = "multi_thread")]
+async fn create_in_your_own_worktree_finds_the_project() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let repo = w.board.project("SHOP").await.unwrap().repo_path;
+    let experiment = w.home.path().join("habitat-experiment");
+    otaq_core::git::testing::git(
+        std::path::Path::new(&repo),
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "experiment/accent",
+            &experiment.display().to_string(),
+        ],
+    );
+    let before = count(&w).await;
+    let run = |cwd: &std::path::Path| {
+        Command::new(CB)
+            .args(["create", "Violet accent", "--json"])
+            .env(DataDir::env_var(), w.data.root())
+            .env_remove(naming::ticket_env_var())
+            .current_dir(cwd)
+            .output()
+            .unwrap()
+    };
+    let made: Value = serde_json::from_str(&ok(&run(&experiment))).unwrap();
+    assert!(made["key"].as_str().unwrap().starts_with("SHOP-"), "{made}");
+    assert_eq!(count(&w).await, before + 1);
+
+    let elsewhere = w.home.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    otaq_core::git::testing::git(&elsewhere, &["init", "--quiet"]);
+    let e = error(&run(&elsewhere));
+    assert_eq!(
+        e["message"], "name a project with -P SHOP, or run it inside a project's folder",
+        "{e}"
+    );
+    assert_eq!(count(&w).await, before + 1);
+    w.stop().await;
+}

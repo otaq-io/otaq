@@ -22,6 +22,9 @@ const page: FilesFilePage = {
   subtitle: "in SHOP-22’s worktree",
   modes: ["File", "Diff"],
   opens_in: "diff",
+  split_modes: ["Unified", "Split"],
+  side_by_side: false,
+  side_by_side_from: 900,
   can_file: true,
   can_diff: true,
   new_ticket: "New ticket from this file",
@@ -47,8 +50,9 @@ describe("OpenFile.line", () => {
             page,
             file,
             ctx: {} as CommentContext,
-            sideBySide: false,
+            width: 1200,
             onMode: () => undefined,
+            onSplit: () => undefined,
           }),
         );
       });

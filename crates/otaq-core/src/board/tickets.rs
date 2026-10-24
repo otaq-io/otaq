@@ -14,8 +14,8 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, BuildState, Flags, Kind, Place, Priority, ProjectKey, ResourceState, SchemaOverlap,
-    StartStep, Status, StatusSet, TicketKey, stored_enum,
+    Actor, BuildState, Flags, Kind, MergeCheckState, Place, Priority, ProjectKey, RemoteWarning,
+    ResourceState, SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -190,6 +190,9 @@ pub struct Work {
     /// Other Review tickets that add files under the same schema path (M19-e).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub schema_overlap: Vec<SchemaOverlap>,
+    /// The fetch before its start or Local merge failed and it went on from the local base branch (d0121).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_warning: Option<RemoteWarning>,
 }
 
 /// The step a start stopped at, and why: "setup command failed" + the command's last lines.
@@ -435,6 +438,10 @@ stored_enum! {
         /// schema-path glob) and `files` (what `other` adds under it). Recorded once per new overlap; files are never
         /// touched. History reads "Schema path shared with SHOP-21" · "db/migrations/**".
         SchemaOverlap = "schema_overlap",
+        /// The fetch before a start or a Local merge failed and the ticket went on from the local base branch
+        /// (d0121): payload `went_on` (`started` / `merged`), `branch`, `remote`, `reason` (git's). History reads
+        /// "Couldn't update main from origin · started from your local main" · the reason.
+        RemoteUnreachable = "remote_unreachable",
         /// A ticket's or an epic's agent row changed (AGT-04, d0086; rows went with M32, AGM-02, and History still
         /// reads the ones recorded before): payload `role`, `agent` (the name now; null = emptied), `from` (the name
         /// before), `set_by` (`user` / `agent` with `picked_by` and `reason`) and, logged on an epic for a child,
@@ -472,6 +479,13 @@ stored_enum! {
         CommentEdited = "comment_edited",
         /// A ticket comment was deleted: payload `n`, `body` (what it said), `report` and `author`; its report stays.
         CommentDeleted = "comment_deleted",
+        /// The ticket's agent created another ticket with `otaq create` (#47): logged on the creator, payload
+        /// `child` (its key), `title`, `to` (the column it landed in). History reads "Created DEMO-12 Fix the
+        /// build" · "by DEMO-7's agent · in Backlog".
+        CreatedTicket = "created_ticket",
+        /// The user ticked or unticked a manual check (d0125): payload `n`, `text` and `ticked`. History reads
+        /// "Ticked a manual check" (or "Unticked a manual check") · the item, quoted.
+        ManualCheckTicked = "manual_check_ticked",
     }
 }
 
@@ -1151,6 +1165,9 @@ impl Board {
                 );
                 let counts = check_counts.get(&row.id).cloned().unwrap_or_default();
                 let counted = CountedCheck::of(&flow, &place, &counts);
+                let merge_check_failed = row.conflicts_with.is_some()
+                    && row.conflict_reason.as_deref()
+                        == Some(super::conflicts::ConflictReason::MergeCheck.as_str());
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
@@ -1166,7 +1183,18 @@ impl Board {
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && (status.is_queued() || status.at_work()),
                     submitted_by_you,
-                    conflicts_with: row.conflicts_with.clone(),
+                    // A failed Merge check isn't a conflict: the card says "Merge check failed · fixing".
+                    conflicts_with: row.conflicts_with.clone().filter(|_| !merge_check_failed),
+                    conflict_in_review: row.conflicts_with.is_some()
+                        && row.conflict_reason.as_deref()
+                            == Some(super::conflicts::ConflictReason::TestMerge.as_str()),
+                    merge_check: if self.merge_checks().is_running(&row.id) {
+                        Some(MergeCheckState::Running)
+                    } else if merge_check_failed {
+                        Some(MergeCheckState::Failed)
+                    } else {
+                        None
+                    },
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
@@ -1185,6 +1213,14 @@ impl Board {
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
+                    // Only while its agent is at it: a ticket that moved on has nothing to pick up.
+                    hand_off: self.hand_offs().kind_of(&row.id).filter(|_| {
+                        crate::signals::LIVE.contains(&status)
+                            || status == Status::MergeConflictFixing
+                    }),
+                    // Only while it waits before an Agent stage (d0124).
+                    waiting_for_lead: self.leads().waits_for_lead(&row.id)
+                        && matches!(status, Status::Queued | Status::WaitingForSlot),
                     review_entry: review_entry_flag(&row, status, &counted),
                     validation_round: failed_round_marker(&row, status, &counted),
                     validating_round: validating_round(status, &counted),
@@ -1252,6 +1288,10 @@ impl Board {
                         .as_deref()
                         .and_then(|j| serde_json::from_str(j).ok())
                         .unwrap_or_default(),
+                    remote_warning: row
+                        .remote_warning
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok()),
                 };
                 // While a start runs, its current step is marked here too (no message yet); that isn't a problem.
                 let start_problem = row

@@ -9,7 +9,7 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "re
 
 import type { TicketProps } from "../../app/registry";
 import { createStore, type Store, useStore } from "../../app/store";
-import { AnchoredMenu, Button, ConfirmDialog, IconButton, ToolAvatar } from "../../components";
+import { AnchoredMenu, Button, ConfirmDialog, IconButton, ToolAvatar, PROSE_TEXT } from "../../components";
 import type { CommentReportChip } from "../../generated/CommentReportChip";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
@@ -160,6 +160,7 @@ function EditInPlace({
   return (
     <div className="comment-edit" data-over={state.over || undefined}>
       <textarea
+        {...PROSE_TEXT}
         className="text-input text-area comment-box-text"
         value={text}
         aria-label={row.heading}
@@ -301,6 +302,8 @@ export function CommentThread({ ticket }: TicketProps) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  // "Also tell the agent now" (d0123): ticked by default, as the user leaves it while the thread shows.
+  const [tellAgent, setTellAgent] = useState(true);
   const box = useRef<HTMLTextAreaElement>(null);
   const attach = useStore(attachRequests);
   useEffect(() => {
@@ -323,6 +326,7 @@ export function CommentThread({ ticket }: TicketProps) {
       body: value.text,
       pasted: value.pasted?.text ?? null,
       file: value.file?.path ?? null,
+      tell_agent: view.box.tell_agent !== null && tellAgent,
     }).then(
       () => {
         setBusy(false);
@@ -371,6 +375,8 @@ export function CommentThread({ ticket }: TicketProps) {
         busy={busy}
         error={error}
         ref={box}
+        tellAgent={tellAgent}
+        onTellAgent={setTellAgent}
       />
       {toDelete && (
         <DeleteDialog

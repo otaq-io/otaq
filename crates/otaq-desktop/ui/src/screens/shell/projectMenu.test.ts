@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { HeaderProject } from "../../generated/HeaderProject";
 import type { FlowEditorOpen } from "../flow_editor/logic";
-import { projectMenuChoice, type ProjectMenuRoutes } from "./projectMenu";
+import { projectMenuChoice, type ProjectMenuRoutes, railMenuChoice } from "./projectMenu";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(),
@@ -78,5 +78,21 @@ describe("the project menu", () => {
       ["drawer.new", { project: "SHOP" }],
     ]);
     expect(await t.terminals[0]).toBe("terminal:s-1");
+  });
+});
+
+describe("the rail's project menu (#11)", () => {
+  it("opens the project's Settings: at the top, at its Name field, at Remove project", () => {
+    const opened: unknown[] = [];
+    const open = (params: unknown) => {
+      opened.push(params);
+    };
+    for (const id of ["project_settings", "rename_project", "remove_project", "unknown"])
+      railMenuChoice("SHOP", id, open);
+    expect(opened).toEqual([
+      { project: "SHOP" },
+      { project: "SHOP", section: "general" },
+      { project: "SHOP", section: "remove_project" },
+    ]);
   });
 });

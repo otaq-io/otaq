@@ -266,7 +266,9 @@ export function afterDrop(
       confirmParkAll(outcome.dialog, ask);
       return;
     case "approve":
-      showApprove(outcome.menu);
+      // One way to deliver: its dialog at once, without the choice (dogfood #18).
+      if (outcome.menu.direct !== null) openApproveChoice(outcome.menu.direct, outcome.menu.key);
+      else showApprove(outcome.menu);
       return;
     case "drag_back":
       openOverlay("drag_back", outcome.dialog);

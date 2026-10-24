@@ -1937,6 +1937,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Backlog",
@@ -1964,6 +1965,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
@@ -2023,6 +2025,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "error",
                     "icon": null,
@@ -2060,6 +2063,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "attn",
                     "icon": null,
@@ -2092,6 +2096,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -2124,6 +2129,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -2156,6 +2162,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -2283,6 +2290,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2320,6 +2328,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2357,6 +2366,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2394,6 +2404,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2431,6 +2442,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2468,6 +2480,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2502,6 +2515,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -2646,6 +2660,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2683,6 +2698,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2720,6 +2736,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2754,6 +2771,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -2988,6 +3006,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "Ready for Review",
@@ -3028,6 +3047,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "To deliver",
@@ -3055,6 +3075,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": {
                         "dot": "review",
                         "icon": null,
@@ -3113,6 +3134,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Merged",
@@ -3140,6 +3162,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3391,6 +3414,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Backlog",
@@ -3418,6 +3442,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
@@ -3477,6 +3502,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "error",
                     "icon": null,
@@ -3514,6 +3540,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "attn",
                     "icon": null,
@@ -3546,6 +3573,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3578,6 +3606,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3610,6 +3639,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3737,6 +3767,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3774,6 +3805,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3811,6 +3843,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3848,6 +3881,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3885,6 +3919,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3922,6 +3957,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3956,6 +3992,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -4100,6 +4137,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -4137,6 +4175,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -4174,6 +4213,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -4208,6 +4248,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -4442,6 +4483,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "Ready for Review",
@@ -4482,6 +4524,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "To deliver",
@@ -4509,6 +4552,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": {
                         "dot": "review",
                         "icon": null,
@@ -4567,6 +4611,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Merged",
@@ -4594,6 +4639,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -4845,6 +4891,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Backlog",
@@ -4872,6 +4919,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
@@ -4931,6 +4979,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "error",
                     "icon": null,
@@ -4968,6 +5017,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "attn",
                     "icon": null,
@@ -5000,6 +5050,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -5032,6 +5083,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -5064,6 +5116,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -5191,6 +5244,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5228,6 +5282,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5265,6 +5320,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5302,6 +5358,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5339,6 +5396,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5376,6 +5434,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5410,6 +5469,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -5554,6 +5614,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5591,6 +5652,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5628,6 +5690,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5662,6 +5725,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -5896,6 +5960,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "Ready for Review",
@@ -5936,6 +6001,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "To deliver",
@@ -5963,6 +6029,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": {
                         "dot": "review",
                         "icon": null,
@@ -6021,6 +6088,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Merged",
@@ -6048,6 +6116,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -6477,6 +6546,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -7063,6 +7133,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -7649,6 +7720,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -8679,6 +8751,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Tag notes",
@@ -8728,6 +8801,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "paused",
                     "icon": "link",
@@ -8847,6 +8921,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -8879,6 +8954,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9223,6 +9299,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "Sort notes by date",
@@ -9285,6 +9362,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Share link",
@@ -9574,6 +9652,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Tag notes",
@@ -9623,6 +9702,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "paused",
                     "icon": "link",
@@ -9742,6 +9822,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9774,6 +9855,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -10118,6 +10200,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "Sort notes by date",
@@ -10180,6 +10263,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Share link",
@@ -10469,6 +10553,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Tag notes",
@@ -10518,6 +10603,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": {
                     "dot": "paused",
                     "icon": "link",
@@ -10637,6 +10723,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -10669,6 +10756,7 @@
                     "open_panel_keys": "↵",
                     "open_terminal": "Open terminal",
                     "origin": null,
+                    "priority": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -11013,6 +11101,7 @@
                       "open_panel_keys": "↵",
                       "open_terminal": "Open terminal",
                       "origin": null,
+                      "priority": null,
                       "status": null,
                       "time": null,
                       "title": "Sort notes by date",
@@ -11075,6 +11164,7 @@
                   "open_panel_keys": "↵",
                   "open_terminal": "Open terminal",
                   "origin": null,
+                  "priority": null,
                   "status": null,
                   "time": null,
                   "title": "Share link",

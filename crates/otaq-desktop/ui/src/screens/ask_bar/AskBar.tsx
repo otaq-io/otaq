@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { shellLayout } from "../../app/layout";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd } from "../../components";
+import { Kbd, PLAIN_TEXT } from "../../components";
 import type { AskBarParams } from "../../generated/AskBarParams";
 import type { AskBarView } from "../../generated/AskBarView";
 import type { AskSuggestion } from "../../generated/AskSuggestion";
@@ -100,6 +100,7 @@ export function AskBarBody({
           <Icon name={view.icon} size={16} />
         </span>
         <input
+          {...PLAIN_TEXT}
           ref={field}
           className="ask-input"
           aria-label={view.placeholder}

@@ -886,6 +886,20 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             return None;
         }
         EventKind::Created => ("Created".to_owned(), Some(by(e))),
+        // The agent filed another ticket (#47): "Created DEMO-12 Fix the build" · "by DEMO-7's agent · in Backlog".
+        EventKind::CreatedTicket => (
+            format!(
+                "Created {} {}",
+                text(p, "child").unwrap_or_default(),
+                text(p, "title").unwrap_or_default()
+            )
+            .trim_end()
+            .to_owned(),
+            Some(match text(p, "to").and_then(|s| s.parse::<Status>().ok()) {
+                Some(to) => format!("{} \u{b7} in {}", who(&e.actor), to.label()),
+                None => who(&e.actor),
+            }),
+        ),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
             // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
@@ -913,6 +927,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::StartRetried => ("Retry start".to_owned(), Some(who(&e.actor))),
         EventKind::Held => ("Held".to_owned(), text(p, "message").map(first_line)),
         EventKind::StartNote => ("Note".to_owned(), text(p, "message").map(first_line)),
+        // d0121: "Couldn't update main from origin · started from your local main", git's reason under it.
+        EventKind::RemoteUnreachable => (
+            serde_json::from_value(p.clone()).map_or_else(
+                |_| "Couldn\u{2019}t update the base from its remote".to_owned(),
+                |w| super::card::remote_warning_text(&w),
+            ),
+            text(p, "reason").map(first_line),
+        ),
         EventKind::TemplateRefreshFailed => (
             "Template refresh failed".to_owned(),
             text(p, "message").map(first_line),
@@ -996,6 +1018,19 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             Some(who(&e.actor)),
         ),
         EventKind::Parked => ("Parked".to_owned(), Some(removed(p, who(&e.actor)))),
+        // A manual check the user ticked at review (d0125): "Ticked a manual check" · "“Reload a page offline” ·
+        // by you".
+        EventKind::ManualCheckTicked => (
+            match p.get("ticked").and_then(serde_json::Value::as_bool) {
+                Some(false) => "Unticked a manual check".to_owned(),
+                _ => "Ticked a manual check".to_owned(),
+            },
+            Some(format!(
+                "{} \u{b7} {}",
+                quote(&text(p, "text").unwrap_or_default()),
+                who(&e.actor)
+            )),
+        ),
         // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
         // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
         // "Moved to Review" · "by you · Security was removed".
@@ -1392,6 +1427,46 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    /// #47: the ticket whose agent filed another one says so, under All.
+    #[test]
+    fn a_ticket_s_agent_created_another() {
+        let row = event_row(&HistoryEvent {
+            actor: Actor::Agent("DEMO-7".parse().unwrap()),
+            ..event(
+                EventKind::CreatedTicket,
+                MIN,
+                json!({"child": "DEMO-12", "title": "Fix the build", "to": "backlog"}),
+            )
+        })
+        .unwrap();
+        assert_eq!(row.title, "Created DEMO-12 Fix the build");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("by DEMO-7's agent \u{b7} in Backlog")
+        );
+        assert_eq!(row.kind, Kind::Other);
+    }
+
+    /// d0121: the warning's own words, git's reason under it.
+    #[test]
+    fn an_unreachable_remote() {
+        let row = event_row(&event(
+            EventKind::RemoteUnreachable,
+            MIN,
+            json!({ "went_on": "started", "branch": "main", "remote": "origin",
+                    "reason": "git fetch --quiet origin failed (exit 128): Host key verification failed." }),
+        ))
+        .unwrap();
+        assert_eq!(
+            row.title,
+            "Couldn\u{2019}t update main from origin \u{b7} started from your local main"
+        );
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
+        );
+    }
 
     /// One entry per validation round in place of its bare event, sorted with the rest (VAL-12).
     #[test]
@@ -2473,5 +2548,25 @@ mod tests {
             Some("by you"),
             "an ordinary drag says nothing more"
         );
+    }
+
+    /// T-0498 (d0125): ticking a manual check at review is a History line with the item.
+    #[test]
+    fn ticking_a_manual_check_is_a_history_line() {
+        let row = |ticked| {
+            event_row(&event(
+                EventKind::ManualCheckTicked,
+                1,
+                serde_json::json!({ "n": 2, "text": "Reload a never-visited page offline", "ticked": ticked }),
+            ))
+            .unwrap()
+        };
+        let ticked = row(true);
+        assert_eq!(ticked.title, "Ticked a manual check");
+        assert_eq!(
+            ticked.detail.as_deref(),
+            Some("\u{201c}Reload a never-visited page offline\u{201d} \u{b7} by you")
+        );
+        assert_eq!(row(false).title, "Unticked a manual check");
     }
 }

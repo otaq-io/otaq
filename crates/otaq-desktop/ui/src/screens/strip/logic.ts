@@ -4,6 +4,7 @@
 // Nothing opens without the user's press: Next never moves on by itself (d0016).
 import type { SuggestionConfirm } from "../../app/registry";
 import {
+  focusTerminal,
   openTicket,
   requestTerminalFocus,
   type Selection,
@@ -21,12 +22,14 @@ import { request } from "../../tauri";
 import { chosenAgent, PANE_ROUTES, type PaneRoutes, showAgentInPane } from "../pane/logic";
 
 /** Where opening an item lands: the selection, the terminal focus requests, the Project agent panel (its `selection`
- * is the same store) and the last item the strip opened. */
+ * is the same store), the last item the strip opened, and taking the keyboard out of the focused terminal. */
 export interface StripRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
   pane: PaneRoutes;
   last: Store<StripTarget | null>;
+  /** Takes the keyboard from the element that has it (the focused terminal's). */
+  blur: () => void;
 }
 
 /** The item the strip (a chip, Next or ⌘J) opened last. */
@@ -37,6 +40,9 @@ export const STRIP_ROUTES: StripRoutes = {
   focus: terminalFocusRequests,
   pane: PANE_ROUTES,
   last: lastOpened,
+  blur: () => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  },
 };
 
 /**
@@ -62,10 +68,16 @@ export function stripParams(project: string, open: StripOpen | null): StripParam
 
 /**
  * Opens an item (NYS-01): its project on screen; a ticket on its tab with its terminal focused when that is the tab
- * (an epic's Lead tab is its lead's terminal); a Project agent in the panel, focused.
+ * (an epic's Lead tab is its lead's terminal); a Project agent in the panel, focused. A terminal that had the keyboard
+ * loses it first, so nothing typed meanwhile reaches the ticket that was open (finding 55): the target's terminal
+ * takes it once it opens, and a target with no terminal leaves the keyboard on the page.
  */
 export function openTarget(target: StripTarget, routes: StripRoutes = STRIP_ROUTES): void {
   routes.last.set(target);
+  if (routes.selection.get().focusedTerminal !== null) {
+    routes.blur();
+    focusTerminal(null, routes.selection);
+  }
   switch (target.kind) {
     case "ticket":
       selectProject(target.project, routes.selection);

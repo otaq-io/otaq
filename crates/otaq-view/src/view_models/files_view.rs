@@ -21,6 +21,7 @@ use otaq_core::board::files::EntryKind;
 use otaq_core::board::project_files::{
     EpicSource, FileOwner, LineRange, NoWorktree, OwnerLines, OwnerTicket, ProjectChanges,
     ProjectCounts, ProjectEntry, ProjectFile, ProjectSearch, ProjectSource, ProjectSources,
+    UserWorktree,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, StatusSet, TicketKey};
@@ -39,6 +40,7 @@ use super::flow_columns::Columns;
 use super::menu::MenuItem;
 use super::tool_avatar::ToolAvatarView;
 use crate::icons::IconName;
+use crate::shell::tilde;
 use crate::theme::Palette;
 
 // ---- Words ----
@@ -53,6 +55,9 @@ pub const BASE_SECTION: &str = "BASE BRANCH";
 pub const THE_DEFAULT: &str = "the default";
 pub const EPICS_SECTION: &str = "EPICS \u{b7} THE EPIC\u{2019}S BRANCH";
 pub const TICKETS_SECTION: &str = "TICKETS \u{b7} THEIR WORKTREE";
+/// Your own git worktrees of the repository (#43), shown read-only.
+pub const YOURS_SECTION: &str = "YOUR WORKTREES";
+pub const YOUR_WORKTREE: &str = "your worktree";
 pub const READ_ONLY: &str = "read-only";
 
 /// "main · every ticket’s changes": the view's default source, and the picker's back link.
@@ -90,8 +95,15 @@ pub struct SourceBar {
     pub subtitle: String,
 }
 
-/// `counts` is `None` while the tickets' changes load (the bare base shows at once, FIL-02).
+/// `counts` is `None` while the tickets' changes load (the bare base shows at once, FIL-02). One of your worktrees:
+/// "experiment/accent · your worktree" over "~/code/habitat-experiment · read-only" (#43).
 pub fn source_bar(source: &ProjectSource, counts: Option<&ProjectCounts>) -> SourceBar {
+    if let Some(folder) = &source.worktree {
+        return SourceBar {
+            title: format!("{} \u{b7} {YOUR_WORKTREE}", source.base_branch),
+            subtitle: format!("{} \u{b7} {READ_ONLY}", tilde(folder)),
+        };
+    }
     let subtitle = match counts {
         None => "the base branch".to_owned(),
         Some(c) if c.tickets == 0 => {
@@ -422,7 +434,7 @@ pub fn page(
     keys: ViewKeys,
     working: bool,
 ) -> Page {
-    Page {
+    let mut page = Page {
         project: source.project.clone(),
         base_branch: source.base_branch.clone(),
         source: source_bar(source, counts),
@@ -445,7 +457,16 @@ pub fn page(
         ),
         menu: file_menu(keys.new_ticket),
         working,
+    };
+    if source.worktree.is_some() {
+        // One of your worktrees (#43): its tree alone, no ticket's changes to filter, count or wait for.
+        page.filters = Vec::new();
+        page.loading = None;
+        page.empty = None;
+        page.checking = format!("on {} \u{b7} {READ_ONLY}", source.base_branch);
+        page.working = false;
     }
+    page
 }
 
 pub const COPY_PATH: &str = "Copy path";
@@ -524,6 +545,8 @@ pub enum Pick {
     Base,
     /// A ticket's worktree or an epic's branch: its own Files tab's tree (`files.*`).
     Ticket { key: String },
+    /// One of your own worktrees (#43): its folder, the view's requests then read it instead of the base.
+    Worktree { path: String },
 }
 
 /// One row of the picker: "SHOP-29" "Coupon field" "Dev · 2 files". `FilesViewPickerRow` on the page.
@@ -550,7 +573,7 @@ pub struct PickerSection {
 #[ts(rename = "FilesViewPicker")]
 pub struct Picker {
     pub placeholder: &'static str,
-    /// BASE BRANCH, EPICS · THE EPIC’S BRANCH (when there are any), TICKETS · THEIR WORKTREE (when there are any).
+    /// BASE BRANCH, EPICS · THE EPIC’S BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
     pub sections: Vec<PickerSection>,
     /// "No worktree yet: SHOP-12, SHOP-44 (Grill) … and 3 in Backlog. A ticket gets its worktree when it reaches Dev."
     pub no_worktree: Option<String>,
@@ -604,6 +627,18 @@ fn ticket_row(t: &OwnerTicket) -> PickerRow {
         key: Some(t.key.to_string()),
         title: t.title.clone(),
         detail: Some(detail.join(" \u{b7} ")),
+    }
+}
+
+/// "experiment/accent" "~/code/habitat-experiment · read-only".
+fn worktree_row(w: &UserWorktree) -> PickerRow {
+    PickerRow {
+        pick: Pick::Worktree {
+            path: w.path.clone(),
+        },
+        key: None,
+        title: w.label().to_owned(),
+        detail: Some(format!("{} \u{b7} {READ_ONLY}", tilde(&w.path))),
     }
 }
 
@@ -664,6 +699,12 @@ pub fn picker(sources: &ProjectSources, first_stage: &str) -> Picker {
         sections.push(PickerSection {
             title: TICKETS_SECTION,
             rows: sources.tickets.iter().map(ticket_row).collect(),
+        });
+    }
+    if !sources.yours.is_empty() {
+        sections.push(PickerSection {
+            title: YOURS_SECTION,
+            rows: sources.yours.iter().map(worktree_row).collect(),
         });
     }
     Picker {
@@ -1392,6 +1433,7 @@ pub mod example {
             base_branch: branch.to_owned(),
             base_sha: "a1b2c3d4".to_owned(),
             base_short: "a1b2c3d".to_owned(),
+            worktree: None,
         }
     }
 
@@ -2053,6 +2095,12 @@ pub fn gallery() -> Gallery {
             status: Status::Working,
             stage: Some("Grill".to_owned()),
         }],
+        yours: vec![UserWorktree {
+            path: "~/code/habitat-experiment".to_owned(),
+            branch: Some("experiment/accent".to_owned()),
+            head: "e4f5a6b7c8".to_owned(),
+            head_short: "e4f5a6b".to_owned(),
+        }],
     };
     Gallery {
         all: page(&source, Some(&counts), Filter::All, top, keys.clone(), true),
@@ -2230,6 +2278,7 @@ mod tests {
             epics: Vec::new(),
             tickets: Vec::new(),
             no_worktree: Vec::new(),
+            yours: Vec::new(),
         };
         let pick = picker(&sources, "Dev");
         assert_eq!(
@@ -2399,8 +2448,8 @@ mod tests {
         );
     }
 
-    /// `s28-04`: BASE BRANCH, the epic with its children, the tickets in flow order with stage and files, the line
-    /// naming the tickets with no worktree yet.
+    /// `s28-04`: BASE BRANCH, the epic with its children, the tickets in flow order with stage and files, your own
+    /// worktrees (#43), the line naming the tickets with no worktree yet.
     #[test]
     fn the_picker_has_its_sections_in_order() {
         let mut shop36 = ticket("SHOP-36", "VAT rounding hotfix", Status::Working, "Dev");
@@ -2472,6 +2521,20 @@ mod tests {
                 stage: None,
             }))
             .collect(),
+            yours: vec![
+                UserWorktree {
+                    path: "/work/habitat-experiment".to_owned(),
+                    branch: Some("experiment/accent".to_owned()),
+                    head: "e4f5a6b7c8".to_owned(),
+                    head_short: "e4f5a6b".to_owned(),
+                },
+                UserWorktree {
+                    path: "/work/bisect".to_owned(),
+                    branch: None,
+                    head: "0a1b2c3d4e".to_owned(),
+                    head_short: "0a1b2c3".to_owned(),
+                },
+            ],
         };
         let p = picker(&sources, "Dev");
         assert_eq!(p.placeholder, "Find a ticket or epic");
@@ -2516,7 +2579,20 @@ mod tests {
                             .to_owned(),
                     ]
                 ),
+                (
+                    "YOUR WORKTREES",
+                    vec![
+                        "experiment/accent | /work/habitat-experiment \u{b7} read-only".to_owned(),
+                        "0a1b2c3 | /work/bisect \u{b7} read-only".to_owned(),
+                    ]
+                ),
             ]
+        );
+        assert_eq!(
+            p.sections[3].rows[0].pick,
+            Pick::Worktree {
+                path: "/work/habitat-experiment".to_owned()
+            }
         );
         assert_eq!(
             p.no_worktree.as_deref(),
@@ -2536,6 +2612,51 @@ mod tests {
             no_worktree_line(&sources.no_worktree[4..], "Dev").as_deref(),
             Some("No worktree yet: 3 in Backlog. A ticket gets its worktree when it reaches Dev.")
         );
+    }
+
+    /// One of your worktrees picked (#43): the view's own frame on its tree, read-only, with no filters, counts or
+    /// waiting, and a file of it reads "on experiment/accent · read-only" with nobody changing it.
+    #[test]
+    fn your_worktree_opens_read_only() {
+        let source = ProjectSource {
+            base_branch: "experiment/accent".to_owned(),
+            worktree: Some("/work/habitat-experiment".to_owned()),
+            ..base("main")
+        };
+        let p = page(
+            &source,
+            None,
+            Filter::All,
+            Vec::new(),
+            ViewKeys::default(),
+            true,
+        );
+        assert_eq!(p.source.title, "experiment/accent \u{b7} your worktree");
+        assert_eq!(
+            p.source.subtitle,
+            "/work/habitat-experiment \u{b7} read-only"
+        );
+        assert!(p.filters.is_empty());
+        assert_eq!((p.loading, p.empty, p.working), (None, None, false));
+        assert_eq!(p.checking, "on experiment/accent \u{b7} read-only");
+        let file = ProjectFile {
+            source,
+            path: "src/accent.css".to_owned(),
+            on_base: true,
+            size: 18,
+            binary: false,
+            text: ":root { --a: 1; }\n".to_owned(),
+            truncated: false,
+            owners: Vec::new(),
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: Vec::new(),
+            same_file: Vec::new(),
+        };
+        let pane = file_pane(&file, &BTreeMap::new());
+        assert_eq!(pane.subtitle, "on experiment/accent \u{b7} read-only");
+        assert!(!pane.can_diff);
     }
 
     /// One ticket's worktree (`s28-04`): its tab's tree, read-only, the back link, Open SHOP-29 and the note.

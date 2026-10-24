@@ -22,6 +22,7 @@ async fn defaults() {
     );
     assert!(global.notifications);
     assert!(!global.description_source_mode);
+    assert_eq!(global.agent_panel_width, None);
     assert_eq!(global.keyboard, KeyboardSettings::default());
     assert_eq!(global.theme, ThemeSetting::default());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
@@ -62,6 +63,7 @@ async fn global_values_round_trip_and_keep_other_rows() {
     global.terminal_font_size = 15;
     global.notifications = false;
     global.description_source_mode = true;
+    global.agent_panel_width = Some(560);
     global.keyboard.letters = false;
     global.keyboard.changes.push(KeyboardChange {
         action: "park".into(),

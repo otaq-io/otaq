@@ -20,7 +20,7 @@ import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
-import { Button, DecisionsList, Kbd, Segmented } from "../../components";
+import { Button, DecisionsList, Kbd, Segmented, PLAIN_TEXT } from "../../components";
 import type { DecisionItemView } from "../../generated/DecisionItemView";
 import type { DecisionsSection } from "../../generated/DecisionsSection";
 import type { DiffFileView } from "../../generated/DiffFileView";
@@ -749,13 +749,18 @@ export interface FileBodyProps {
   page: FilesFilePage;
   file: OpenFile;
   ctx: CommentContext;
-  sideBySide: boolean;
+  /** The right side's width: Split below the page's `side_by_side_from` reads as unified. */
+  width: number;
   onMode: (mode: "file" | "diff") => void;
+  /** Unified · Split, the same choice as All changes' (dogfood #61). */
+  onSplit: (sideBySide: boolean) => void;
 }
 
-/** A file opened from the tree (FTB-03): its header with File · Diff and New ticket from this file, then its lines. */
-export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBodyProps) {
+/** A file opened from the tree (FTB-03): its header with File · Diff, Unified · Split on its Diff, and New ticket
+ * from this file, then its lines. */
+export function FileBody({ ticket, page, file, ctx, width, onMode, onSplit }: FileBodyProps) {
   const mode = shownMode(file.mode, page);
+  const sideBySide = showsSideBySide(page.side_by_side, width, page.side_by_side_from);
   const load = useCallback(
     () =>
       request("files.diff", {
@@ -806,6 +811,16 @@ export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBo
             }}
           />
         )}
+        {mode === "diff" && (
+          <Segmented
+            label={page.split_modes.join(" / ")}
+            options={page.split_modes}
+            selected={page.side_by_side ? 1 : 0}
+            onSelect={(i) => {
+              onSplit(i === 1);
+            }}
+          />
+        )}
         <Button
           compact
           variant="secondary"
@@ -851,8 +866,8 @@ export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBo
   );
 }
 
-/** The open file, asked for by path (and child). */
-function FilePane(props: Omit<FileBodyProps, "page">) {
+/** The open file, asked for by path (and child); `tick` asks again after Unified · Split (the service ignores it). */
+function FilePane({ tick, ...props }: Omit<FileBodyProps, "page"> & { tick: number }) {
   const { ticket, file } = props;
   const load = useCallback(
     () =>
@@ -860,8 +875,9 @@ function FilePane(props: Omit<FileBodyProps, "page">) {
         key: ticket,
         path: file.path,
         ...(file.child !== null && { child: file.child }),
+        tick,
       }) as Promise<FilesFilePage>,
-    [ticket, file.path, file.child],
+    [ticket, file.path, file.child, tick],
   );
   const { view: page, error } = useServiceView(load, FILES_EVENTS);
   if (page?.path === file.path) return <FileBody {...props} page={page} />;
@@ -896,8 +912,10 @@ export interface FilesTabBodyProps {
   decisions?: DecisionsSection | null;
   state: FilesState;
   onState: (change: (s: FilesState) => FilesState) => void;
-  /** Reloads All changes after Unified · Split. */
+  /** Reloads All changes and the open file after Unified · Split. */
   reload: () => void;
+  /** Bumped by `reload`: the open file is asked for again with it. */
+  tick?: number;
   /** Above the source (the project Files view's back link to the base, FIL-07). */
   head?: ReactNode;
   /** Above the right side (a picked ticket's "Open SHOP-29" and its note in the Files view). */
@@ -915,6 +933,7 @@ export function FilesTabBody({
   state,
   onState,
   reload,
+  tick = 0,
   head,
   note,
 }: FilesTabBodyProps) {
@@ -946,11 +965,6 @@ export function FilesTabBody({
   const onMode = (sideBySide: boolean) => {
     request("files.mode", { side_by_side: sideBySide }).then(reload, ignore);
   };
-  const sideBySide = showsSideBySide(
-    changes?.side_by_side ?? false,
-    width,
-    changes?.side_by_side_from ?? Number.POSITIVE_INFINITY,
-  );
 
   let left: ReactNode;
   if (found !== null) {
@@ -1007,10 +1021,12 @@ export function FilesTabBody({
         ticket={ticket}
         file={state.file}
         ctx={ctx}
-        sideBySide={sideBySide}
+        width={width}
+        tick={tick}
         onMode={(mode) => {
           onState((s) => (s.file ? { ...s, file: { ...s.file, mode } } : s));
         }}
+        onSplit={onMode}
       />
     );
   } else {
@@ -1045,6 +1061,7 @@ export function FilesTabBody({
         <label className="files-search">
           <Icon name="search" size={13} />
           <input
+            {...PLAIN_TEXT}
             ref={search}
             value={query}
             placeholder={view.search.placeholder}
@@ -1178,6 +1195,7 @@ export function FilesTab({ ticket, readOnly }: TicketProps & { readOnly?: ReadOn
       state={state}
       onState={onState}
       reload={reload}
+      tick={tick}
       {...(readOnly && { head: readOnly.head, note: readOnly.note })}
     />
   );

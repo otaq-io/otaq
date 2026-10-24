@@ -551,6 +551,23 @@ async fn after_a_restart_the_lead_waits_for_the_users_click_and_is_counted_on_it
     let still = lead(&w, &wishlist).await.unwrap();
     assert_eq!(still.agent.state, AgentState::EndedByRestart);
     let _ = api;
+    // The user's Resume continues its conversation, told to carry on (d0122).
+    let resumed = w
+        .project_agents
+        .leads()
+        .resume(&key(&wishlist))
+        .await
+        .unwrap();
+    let out = w.wait_for_output(&session(&resumed), "ARGS").await;
+    assert!(
+        out.contains(&format!(
+            "--resume {} {}",
+            open.agent.tool_session_id.as_deref().unwrap(),
+            otaq_core::recovery::CARRY_ON_PROJECT_AGENT
+        )),
+        "{out}"
+    );
+    w.sessions.stop(&session(&resumed)).await.unwrap();
     w.stop().await;
 }
 

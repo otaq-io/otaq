@@ -61,7 +61,9 @@ use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, Place, StartStep, Status};
+use crate::domain::{
+    Actor, BuildState, HandOffKind, Place, RemoteWarning, StartStep, Status, WentOn,
+};
 use crate::flow::engine::{Move, RunResult, first_stage};
 use crate::git::BaseSync;
 use crate::naming;
@@ -71,11 +73,11 @@ use crate::recovery::Recovery;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::env::applied;
+use crate::session::hand_offs::HandOff;
 use crate::session::{
     END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
     StoredConversation, TerminalSize,
 };
-use crate::skills::Marker;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::ticket_env::TicketEnv;
@@ -660,9 +662,14 @@ impl Starter {
         // 2. Keep the base current.
         self.mark_step(ticket, StartStep::SyncBase).await;
         if let Some(branch) = to_sync {
-            match git.sync_base(repo, &branch).await {
-                Ok(BaseSync::Diverged { message }) => return Ok(Done::Held(message)),
-                Ok(BaseSync::CheckoutDirty { message }) => {
+            let synced = git
+                .sync_base(repo, &branch)
+                .await
+                .map_err(|e| (StartStep::SyncBase, e.into()))?;
+            let fetched = !matches!(synced, BaseSync::FetchFailed(_));
+            match synced {
+                BaseSync::Diverged { message } => return Ok(Done::Held(message)),
+                BaseSync::CheckoutDirty { message } => {
                     self.note(
                         ticket,
                         actor,
@@ -671,8 +678,34 @@ impl Starter {
                     )
                     .await;
                 }
-                Ok(_) => {}
-                Err(e) => return Err((StartStep::SyncBase, e.into())),
+                // d0121: a local (or the user's pick) Delivery starts from the local base as it is, with a warning;
+                // a PR flow needs the remote and stops as before.
+                BaseSync::FetchFailed(failure) => {
+                    let goes_on = board
+                        .goes_on_without_remote(ticket)
+                        .await
+                        .map_err(|e| (StartStep::SyncBase, e.into()))?;
+                    if !goes_on {
+                        return Err((StartStep::SyncBase, failure.error().into()));
+                    }
+                    let warning = RemoteWarning {
+                        went_on: WentOn::Started,
+                        reason: failure.reason(),
+                        remote: failure.remote,
+                        branch: branch.clone(),
+                    };
+                    board
+                        .record_remote_warning(&ticket.id, &warning, actor)
+                        .await
+                        .map_err(|e| (StartStep::SyncBase, e.into()))?;
+                }
+                _ => {}
+            }
+            if fetched {
+                board
+                    .clear_remote_warning(&ticket.id)
+                    .await
+                    .map_err(|e| (StartStep::SyncBase, e.into()))?;
             }
         }
 
@@ -799,33 +832,31 @@ impl Starter {
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
             ) {
-                // The skill is copied into the worktree first, by one name (AGM-07).
-                let written = board
-                    .copy_skills(
-                        &worktree.path,
-                        inner.adapters.shipped_skills(),
-                        None,
-                        Some(skill),
-                        Marker::Worktree,
+                // By its name when the session started with it, else by its file, copied now (d0118); what came
+                // back follows the skill (CMT-05), never a note's text.
+                let text = deliveries
+                    .skill_line(
+                        board,
+                        &running.id,
+                        Some(&worktree.path),
+                        skill,
+                        returning.as_ref().and_then(|r| r.prompt.as_deref()),
                     )
                     .await;
-                let skill_line = inner
-                    .adapters
-                    .of_session(running.tool)
-                    .skill_reference(written.runs.as_deref().unwrap_or(skill));
-                // What came back follows the skill (CMT-05), never a note's text.
-                let text = match returning
-                    .as_ref()
-                    .and_then(|r| r.prompt.as_deref())
-                    .filter(|p| !p.trim().is_empty())
-                {
-                    Some(told) => format!("{skill_line} {told}"),
-                    None => skill_line,
+                // A Send back or a conflict waiting for the agent's slot: pending for it once typed (d0118).
+                let queued = match HandOffKind::of_skill(skill) {
+                    Some(kind) => {
+                        deliveries
+                            .queue_hand_off(&running.id, HandOff::new(kind, text))
+                            .await
+                    }
+                    None => {
+                        deliveries
+                            .queue_delivery(&running.id, DeliveryKind::Skill, &text)
+                            .await
+                    }
                 };
-                deliveries
-                    .queue_delivery(&running.id, DeliveryKind::Skill, &text)
-                    .await
-                    .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
+                queued.map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
             }
             return Ok(Done::Started(Box::new(running)));
         }
@@ -938,23 +969,22 @@ impl Starter {
         start: Start,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
-        // Every skill of the running agent, and the one it runs first, written into the worktree by one name
-        // (AGM-07); a copy that can't be written is logged.
+        // Every skill of the running agent, the one it runs first and every hand-off skill (d0118), written into the
+        // worktree by one name (AGM-07); a copy that can't be written is logged.
         let stored = match (agent, &runs_on.agent) {
             (None, Some(stored)) => inner.board.store().agent(&stored.id).await?,
             _ => None,
         };
-        let first_prompt = inner
+        let (first_prompt, written) = inner
             .board
-            .copy_for_session(
+            .copy_for_ticket_session(
                 cwd,
                 inner.adapters.shipped_skills(),
                 agent.or(stored.as_ref()),
                 first_prompt,
-                Marker::Worktree,
+                &project.key,
             )
-            .await
-            .0;
+            .await;
         let launched = inner
             .adapters
             .launch(
@@ -975,7 +1005,7 @@ impl Starter {
                 },
             )
             .map_err(|e| StartError::Other(e.to_string()))?;
-        inner
+        let session = inner
             .sessions
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
@@ -1001,7 +1031,14 @@ impl Starter {
                 theme: Some(launched.theme),
             })
             .await
-            .map_err(|e| StartError::Other(e.to_string()))
+            .map_err(|e| StartError::Other(e.to_string()))?;
+        if let Err(e) = inner
+            .sessions
+            .set_started_skills(&session.id, written.names)
+        {
+            tracing::warn!(ticket = %ticket.key, error = %e, "the session's skills weren't recorded");
+        }
+        Ok(session)
     }
 
     /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
@@ -1205,17 +1242,24 @@ struct Returning {
     prompt: Option<String>,
     /// The conversation of its latest agent session, continued with its tool's resume.
     conversation: Option<StoredConversation>,
+    /// The user's Resume, Resume all or Retry brought it back (`return_mode` "resume").
+    resumed: bool,
 }
 
 impl Returning {
-    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer.
+    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer, else (a
+    /// Resume with nothing waiting) "Carry on where you left off" (d0122).
     fn first_prompt(&self) -> Option<FirstPrompt> {
         match (&self.skill, &self.prompt) {
             (Some(name), message) => Some(FirstPrompt::Skill {
                 name: name.clone(),
                 message: message.clone(),
             }),
-            (None, prompt) => prompt.clone().map(FirstPrompt::Text),
+            (None, Some(prompt)) => Some(FirstPrompt::Text(prompt.clone())),
+            (None, None) if self.resumed => {
+                Some(FirstPrompt::Text(crate::recovery::carry_on_text()))
+            }
+            (None, None) => None,
         }
     }
 }
@@ -1235,6 +1279,7 @@ impl Returning {
                 skill: None,
                 prompt: row.resume_prompt,
                 conversation: None,
+                resumed: false,
             }));
         }
         let conversation =
@@ -1243,6 +1288,7 @@ impl Returning {
             skill: row.resume_skill,
             prompt: row.resume_prompt,
             conversation,
+            resumed: row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME),
         }))
     }
 }

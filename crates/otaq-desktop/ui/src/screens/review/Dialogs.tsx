@@ -11,7 +11,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { openTicket, selection, showTab } from "../../app/selection";
-import { Button, Dialog, Kbd, TextArea, TextInput } from "../../components";
+import { Button, CodeText, Dialog, Kbd, TextArea, TextInput, PLAIN_TEXT } from "../../components";
 import type { ApproveView } from "../../generated/ApproveView";
 import type { DecisionChangeParams } from "../../generated/DecisionChangeParams";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
@@ -35,7 +35,6 @@ import {
   afterMerge,
   CHANGED_FILES_SHOWN,
   firstStep,
-  isSubmitKey,
   type Step,
 } from "./logic";
 
@@ -208,6 +207,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   const [message, setMessage] = useState("");
   const [anyway, setAnyway] = useState(false);
   const started = useRef(false);
+  const messageBox = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!view || started.current) return;
@@ -324,6 +324,13 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           onConfirm={() => {
             merge();
           }}
+          // ⌘↵ merges from the message and from anywhere else in the dialog (dogfood #60).
+          onSubmit={() => {
+            if (message.trim() !== "") merge();
+          }}
+          // The message has the keyboard whenever the confirmation shows: from the start (not the merge-check link
+          // above it), and after the choice or Approve anyway (the same dialog, the focus given again).
+          initialFocus={messageBox}
           onCancel={close}
           footer={
             <>
@@ -350,6 +357,28 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               <span className="review-spacer" />
               {c.locked && <Icon name="lock" size={13} />}
             </div>
+            <p className="review-muted review-merge-check">
+              <CodeText text={c.merge_check.text} />
+              {c.merge_check.link !== null && (
+                <button
+                  type="button"
+                  className="review-link"
+                  onClick={() => {
+                    close();
+                    // The Merge check row is in the project's Commands, next to the setup command (d0120).
+                    openOverlay("settings", { project: c.merge_check.project, section: "commands" });
+                  }}
+                >
+                  {c.merge_check.link}
+                </button>
+              )}
+            </p>
+            {c.manual_checks !== null && (
+              <p className="review-muted review-manual-checks">
+                <Icon name="list-checks" size={13} />
+                <span>{c.manual_checks}</span>
+              </p>
+            )}
             {c.conflict !== null && (
               <Callout icon="git-compare-arrows" tone="paused">
                 {c.conflict}
@@ -359,6 +388,8 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               {c.message_label}
             </label>
             <textarea
+              {...PLAIN_TEXT}
+              ref={messageBox}
               id="review-message"
               className="text-input text-area review-message"
               data-mono
@@ -366,12 +397,6 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               value={message}
               onChange={(e) => {
                 setMessage(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (!isSubmitKey(e)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                if (message.trim() !== "") merge();
               }}
             />
             <Callout icon="hourglass" tone="quiet">
@@ -383,11 +408,17 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
     }
     case "merging":
       return (
+        // It can be closed while it runs (d0120): the merge finishes on its own and its toasts say how it ended.
         <Dialog
           title={view.merging.title}
           width={480}
-          onCancel={ignore}
-          footer={<Button label={view.merging.label} loading disabled />}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label={view.merging.close} onClick={close} />
+              <Button label={view.merging.label} loading disabled />
+            </>
+          }
         >
           <div className="review-body">
             {view.merging.steps.map((s, i) => (
@@ -478,6 +509,20 @@ export function ResultDialog({
             <Callout icon="triangle-alert" tone="paused">
               {result.message}
             </Callout>
+          </div>
+        </Dialog>
+      );
+    case "stopped":
+      return (
+        <Dialog
+          title={result.title}
+          width={480}
+          onConfirm={close}
+          onCancel={close}
+          footer={<Button label={result.close} onClick={close} />}
+        >
+          <div className="review-body">
+            <p className="review-text">{result.message}</p>
           </div>
         </Dialog>
       );
@@ -673,6 +718,7 @@ export function ChangeSendBackDialog({ view, close }: { view: DecisionSendBackVi
       width={480}
       hint={view.hint}
       onConfirm={confirm}
+      onSubmit={confirm}
       onCancel={close}
       footer={
         <>
@@ -686,7 +732,9 @@ export function ChangeSendBackDialog({ view, close }: { view: DecisionSendBackVi
         <label className="review-section" htmlFor="change-decision-text">
           {view.label}
         </label>
-        <TextInput id="change-decision-text" value={text} onChange={setText} />
+        {/* A sentence or two: it grows with the text instead of scrolling sideways (dogfood #27); ↵ is a new line,
+            ⌘↵ sends. */}
+        <TextArea id="change-decision-text" value={text} onChange={setText} rows={2} grow />
         <p className="review-muted">{view.help}</p>
         <Callout icon="undo-2" tone="quiet">
           {view.note}

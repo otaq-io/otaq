@@ -13,6 +13,7 @@
 //!   in which stage, and its comment's first line; Add, a drop or a paste opens the comment box with the file as a
 //!   chip, since a comment always has its own line (d0109).
 
+use otaq_core::board::manual_checks::ManualChecks;
 use otaq_core::board::reports::size_label;
 use otaq_core::board::ticket_comments::{AT_CREATION_LABEL, CommentAuthor, TicketComment};
 use serde::Serialize;
@@ -22,6 +23,7 @@ use otaq_core::domain::Status;
 
 use crate::icons::IconName;
 use crate::keymap::Platform;
+use crate::view_models::manual_checks::{self, ChecklistView};
 use crate::view_models::ticket_comments::{Mark, agent_mark};
 
 pub const DESCRIPTION: &str = "Description";
@@ -241,6 +243,8 @@ pub struct OverviewView {
     pub leave: LeaveDialog,
     /// "Mark as usage limit" in what it needs from you, while its agent is Idle (USG-07).
     pub usage_limit: Option<UsageLimitButton>,
+    /// "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
+    pub manual_checks: Option<ChecklistView>,
     /// "Attachments · 3"; "Attachments" with none.
     pub attachments_heading: String,
     pub attachments: Vec<AttachmentRow>,
@@ -254,6 +258,7 @@ pub fn view(
     key: &str,
     status: Status,
     comments: &[TicketComment],
+    checks: Option<&ManualChecks>,
     avatars: bool,
     platform: Platform,
 ) -> OverviewView {
@@ -268,6 +273,7 @@ pub fn view(
             .expect("a changed description has the bar"),
         leave: leave_dialog(key),
         usage_limit: usage_limit(status),
+        manual_checks: checks.and_then(|c| manual_checks::checklist(status, c)),
         attachments_heading: match attachments.len() {
             0 => ATTACHMENTS.to_owned(),
             n => format!("{ATTACHMENTS} \u{b7} {n}"),
@@ -286,6 +292,7 @@ pub fn gallery() -> OverviewView {
         "SHOP-22",
         Status::NeedsYou,
         &fixtures::shop_22(),
+        None,
         true,
         Platform::Mac,
     )
@@ -392,6 +399,7 @@ mod tests {
             "SHOP-22",
             Status::NeedsYou,
             &fixtures::shop_22(),
+            None,
             true,
             Platform::Mac,
         );
@@ -492,7 +500,14 @@ mod tests {
         for c in &mut comments {
             c.report = None;
         }
-        let v = view("SHOP-22", Status::Idle, &comments, true, Platform::WinLinux);
+        let v = view(
+            "SHOP-22",
+            Status::Idle,
+            &comments,
+            None,
+            true,
+            Platform::WinLinux,
+        );
         assert_eq!(v.attachments_heading, "Attachments");
         assert!(v.attachments.is_empty());
         assert_eq!(v.bar.keys, "Ctrl+S");
@@ -515,9 +530,36 @@ mod tests {
         ] {
             assert_eq!(usage_limit(status), None, "{status:?}");
         }
-        let idle = view("SHOP-22", Status::Idle, &[], true, Platform::Mac);
+        let idle = view("SHOP-22", Status::Idle, &[], None, true, Platform::Mac);
         assert_eq!(idle.usage_limit, Some(button));
         assert_eq!(gallery().usage_limit, None);
+    }
+
+    /// d0125: "Manual checks for you" on the review's Overview (above Approve), not while the agent works.
+    #[test]
+    fn manual_checks_on_the_review_overview() {
+        let checks = crate::view_models::manual_checks::fixtures::demo_3();
+        let review = view(
+            "DEMO-3",
+            Status::WaitingForYou,
+            &[],
+            Some(&checks),
+            true,
+            Platform::Mac,
+        );
+        let list = review.manual_checks.expect("at Review");
+        assert_eq!(list.heading, "Manual checks for you");
+        assert_eq!(list.items.len(), 2);
+        let working = view(
+            "DEMO-3",
+            Status::Working,
+            &[],
+            Some(&checks),
+            true,
+            Platform::Mac,
+        );
+        assert_eq!(working.manual_checks, None);
+        assert_eq!(gallery().manual_checks, None);
     }
 
     /// `s25-04`: reading, editing unchanged (no bar), changed (the bar), and back to the saved text (no bar again).

@@ -60,7 +60,10 @@ pub struct ViewParams {
     pub filter: Filter,
     #[serde(default)]
     #[ts(optional)]
-    pub base_only: Option<bool>,
+    pub base_only: Option<bool>,    /// One of your own worktrees instead of the base (its folder, from the picker; #43).
+    #[serde(default)]
+    #[ts(optional)]
+    pub worktree: Option<String>,
 }
 
 /// What `files_view.view` answers: the view, or why the base can't be read (no repository, no base branch).
@@ -88,6 +91,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
                 project: params.project.clone(),
                 path: String::new(),
                 base_only,
+                worktree: params.worktree.clone(),
             }))
     };
     let (keys, working) = tokio::join!(super::keymap::labels(app), working(app, &params.project));
@@ -95,7 +99,12 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         go_to_file: keys.label(KeyAction::GoToFile),
         new_ticket: keys.label(KeyAction::NewTicket),
     };
-    let answer = match params.filter {
+    // One of your worktrees has only its tree: no ticket's changes to filter.
+    let filter = match params.worktree {
+        Some(_) => Filter::All,
+        None => params.filter,
+    };
+    let answer = match filter {
         Filter::All => tree(base_only).await.and_then(|r| match r {
             Reply::ProjectTree(t) => Ok(vm::page(
                 &t.source,
@@ -144,6 +153,10 @@ pub struct TreeParams {
     pub project: String,
     pub path: String,
     pub depth: u32,
+    /// One of your own worktrees instead of the base (its folder, from the picker; #43).
+    #[serde(default)]
+    #[ts(optional)]
+    pub worktree: Option<String>,
 }
 
 pub async fn tree(app: &App, params: TreeParams) -> Result<Vec<TreeRow>, RequestError> {
@@ -153,6 +166,7 @@ pub async fn tree(app: &App, params: TreeParams) -> Result<Vec<TreeRow>, Request
             project: params.project,
             path: params.path,
             base_only: false,
+            worktree: params.worktree,
         }))
         .await?
     {
@@ -167,6 +181,10 @@ pub async fn tree(app: &App, params: TreeParams) -> Result<Vec<TreeRow>, Request
 pub struct SearchParams {
     pub project: String,
     pub query: String,
+    /// One of your own worktrees instead of the base (its folder, from the picker; #43).
+    #[serde(default)]
+    #[ts(optional)]
+    pub worktree: Option<String>,
 }
 
 pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, RequestError> {
@@ -175,6 +193,7 @@ pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, Reque
         .send(Request::FilesProjectSearch(ProjectFilesSearchParams {
             project: params.project,
             query: params.query.clone(),
+            worktree: params.worktree,
         }))
         .await?
     {
@@ -238,6 +257,7 @@ pub async fn picked(app: &App, params: PickedParams) -> Result<PickedLoad, Reque
                 project: params.project.clone(),
                 path: String::new(),
                 base_only: true,
+                worktree: None,
             })),
     );
     let tab = tab?;
@@ -320,6 +340,10 @@ async fn owner_facts(
 pub struct FileParams {
     pub project: String,
     pub path: String,
+    /// One of your own worktrees instead of the base (its folder, from the picker; #43).
+    #[serde(default)]
+    #[ts(optional)]
+    pub worktree: Option<String>,
 }
 
 /// A picked file (`files.project_read`): the base's lines with the bars, highlighted off the runtime's threads (a
@@ -331,6 +355,7 @@ pub async fn file(app: &App, params: FileParams) -> Result<vm::FilePane, Request
             project: params.project.clone(),
             path: params.path,
             base_only: false,
+            worktree: params.worktree,
         }))
         .await?
     {
@@ -432,7 +457,8 @@ mod tests {
     use super::*;
 
     /// A project nobody is changing: a file reads as on main, read-only, with no Changed by; All changes says nothing
-    /// is changing; a file's menu and New ticket's description; Diff of a ticket that isn't changing files is refused.
+    /// is changing; a file's menu and New ticket's description; Diff of a ticket that isn't changing files is refused;
+    /// your own worktree is in the picker and opens read-only (#43).
     #[tokio::test(flavor = "multi_thread")]
     async fn a_file_and_all_changes_of_a_quiet_project() {
         let h = Harness::new(None);
@@ -495,6 +521,49 @@ mod tests {
         )
         .await;
         assert!(refused.is_err());
+
+        // #43: your own worktree is in the picker and opens read-only, from git at its HEAD.
+        let experiment = repos.root().join("habitat-experiment");
+        otaq_core::git::testing::git(
+            &path,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "-b",
+                "experiment/accent",
+                &experiment.display().to_string(),
+            ],
+        );
+        let picker = table(&h.app, "files_view.sources", json!({ "project": key }))
+            .await
+            .unwrap();
+        let yours = &picker["sections"][1];
+        assert_eq!(yours["title"], "YOUR WORKTREES", "{picker}");
+        assert_eq!(yours["rows"][0]["title"], "experiment/accent");
+        let folder = yours["rows"][0]["pick"]["path"].clone();
+        assert_eq!(yours["rows"][0]["pick"]["kind"], "worktree");
+        let view = table(
+            &h.app,
+            "files_view.view",
+            json!({ "project": key, "filter": "changed", "worktree": folder }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            view["view"]["source"]["title"],
+            "experiment/accent \u{b7} your worktree",
+            "{view}"
+        );
+        assert_eq!((view["view"]["filter"].clone(), view["view"]["filters"].clone()), (json!("all"), json!([])));
+        let file = table(
+            &h.app,
+            "files_view.file",
+            json!({ "project": key, "path": "file2.txt", "worktree": folder }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(file["subtitle"], "on experiment/accent \u{b7} read-only", "{file}");
         h.service.stop_all().await;
     }
 }

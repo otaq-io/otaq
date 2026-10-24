@@ -6,8 +6,8 @@
 //! Install / Sign in… button runs exactly that command in a visible terminal under the row, on the user's click.
 //!
 //! After Tools comes 4 · Project (the add-project form, T-0034), then 5 · Flow (ONB-04: the project's flow, from an
-//! agent, a preset or the default); once the flow is settled the onboarding steps disappear and the empty board is
-//! step 6 · Done (ONB-10).
+//! agent, a preset or the default); once the flow is settled the onboarding steps disappear and the empty board shows.
+//! The indicator lists only the five steps it shows (no "Done" step; dogfood report 2026-10-24, #3).
 
 use otaq_core::naming;
 use otaq_core::tools::{PermissionVerdict, Tool, ToolAction, ToolStatus, ToolsReport};
@@ -24,8 +24,8 @@ pub enum Step {
     Flow,
 }
 
-/// The step indicator in the title bar (ONB-10).
-pub const STEPS: [&str; 6] = ["Welcome", "Theme", "Tools", "Project", "Flow", "Done"];
+/// The step indicator in the title bar (ONB-10): only the steps onboarding shows; the board after Flow isn't one.
+pub const STEPS: [&str; 5] = ["Welcome", "Theme", "Tools", "Project", "Flow"];
 
 impl Step {
     /// The step's place in [`STEPS`] (0-based; the indicator shows it plus one).
@@ -361,11 +361,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_indicator_has_six_steps_with_flow_fifth() {
-        assert_eq!(
-            STEPS,
-            ["Welcome", "Theme", "Tools", "Project", "Flow", "Done"]
-        );
+    fn the_indicator_has_five_steps_ending_with_flow() {
+        assert_eq!(STEPS, ["Welcome", "Theme", "Tools", "Project", "Flow"]);
         for (step, n) in [
             (Step::Welcome, 1),
             (Step::Theme, 2),

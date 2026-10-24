@@ -125,6 +125,11 @@ export function dialogKey(destructive: boolean, key: string): DialogOutcome | nu
   return null;
 }
 
+/** ⌘↵ / Ctrl+↵ (Shift or not): sends a dialog's text, Local merge's message (`Dialog`'s `onSubmit`). */
+export function isSubmitKey(e: { key: string; metaKey: boolean; ctrlKey: boolean }): boolean {
+  return e.key === "Enter" && (e.metaKey || e.ctrlKey);
+}
+
 /**
  * Where Tab moves focus inside a modal of `count` focusable elements: the next one (the previous with ⇧), wrapping
  * around, so focus never leaves the dialog. From outside the dialog (`current` -1) it enters at the first or last.
@@ -194,4 +199,14 @@ export function markStrokes(size: number): { outline: number; columns: number; f
   const min = (MARK_MIN_STROKE * MARK_VIEWBOX) / size;
   const columns = Math.max(MARK_COLUMNS, min);
   return { outline: Math.max(MARK_OUTLINE, min), columns, flagShift: columns / 2 - MARK_FLAG_OVERLAP };
+}
+
+/**
+ * A view model's text cut where it marks code with backticks ("For example `npm test`."): the odd pieces are code.
+ * An unclosed backtick stays text.
+ */
+export function codeSpans(text: string): { text: string; code: boolean }[] {
+  const parts = text.split("`");
+  if (parts.length % 2 === 0) return [{ text, code: false }];
+  return parts.flatMap((part, i) => (part === "" ? [] : [{ text: part, code: i % 2 === 1 }]));
 }

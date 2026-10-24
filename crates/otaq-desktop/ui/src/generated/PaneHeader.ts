@@ -5,7 +5,7 @@ import type { PillView } from "./PillView";
 
 /**
  * The panel's header (`s24-05`): the bot icon, "Project agent", the switcher (the conversation's name ▾), the state
- * pill, …, Recently ended, + and the close icon.
+ * pill, …, Recently ended, +, Expand and the close icon.
  */
 export type PaneHeader = { icon: IconName, 
 /**
@@ -32,6 +32,11 @@ pill: PillView | null, recent: PaneButton,
  * + shows the empty pane (as ⇧⌘L does); nothing starts.
  */
 new: PaneButton, more: PaneButton, 
+/**
+ * Expand (T-0502, dogfood #7): the panel over the board at the window's full width; `collapse` (or Esc outside
+ * its terminal) brings it back beside the board.
+ */
+expand: PaneButton, collapse: PaneButton, 
 /**
  * Folds the panel back into the Ask bar, as ⌘L and Esc do; the conversation is kept (d0113).
  */

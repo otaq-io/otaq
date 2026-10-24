@@ -444,6 +444,11 @@ impl AgentTool for ClaudeCode {
     fn skill_reference(&self, skill: &str) -> String {
         launch::skill_reference(skill)
     }
+
+    /// `.claude/skills`: the only one of the two copies Claude Code reads.
+    fn skill_root(&self) -> &'static str {
+        crate::skills::copy::SKILL_ROOTS[1]
+    }
 }
 
 #[cfg(test)]

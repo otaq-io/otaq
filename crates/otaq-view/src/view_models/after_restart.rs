@@ -476,10 +476,12 @@ pub fn summary_with(
     if interrupted.is_empty() && agents_part.is_none() && report.leads_ended.is_empty() {
         return None;
     }
-    // Needs-you tickets kept their question: answering from Needs you resumes and delivers it (d0045).
-    let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = interrupted
-        .iter()
-        .partition(|t| t.status == Status::Interrupted && t.interrupted_from.is_some());
+    // Needs-you tickets kept their question: answering from Needs you resumes and delivers it (d0045). An
+    // interrupted check is a row: its Resume starts a fresh check (d0063).
+    let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = interrupted.iter().partition(|t| {
+        t.status == Status::Interrupted
+            && t.interrupted_from.is_some_and(|s| s.is_needs_you_family())
+    });
     let mut rows: Vec<SummaryRow> = listed
         .iter()
         .map(|t| {
@@ -878,6 +880,56 @@ mod tests {
         let row = &page.agents.unwrap().rows[0];
         assert!(!row.resumable);
         assert_eq!(row.detail, "Resumed \u{b7} same conversation");
+    }
+
+    /// T-0490 (#58; d0045, d0063): a check the restart interrupted is a Resume row, ticked, never "keeps its
+    /// question"; a ticket interrupted while it asked is in that note, its question kept for Needs you.
+    #[test]
+    fn an_interrupted_check_is_a_resume_row_not_a_kept_question() {
+        let mut checking = card_fixtures::ticket("SHOP-15", "Coupon field", Status::Interrupted);
+        checking.interrupted_from = Some(Status::Checking);
+        let mut asked = card_fixtures::ticket("SHOP-22", "Login", Status::Interrupted);
+        asked.interrupted_from = Some(Status::AsksYou);
+        asked.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q1".into(),
+            text: "Which email provider should I use?".into(),
+            options: Vec::new(),
+            recommended: None,
+            notes: Vec::new(),
+            asked_at: 0,
+            via_lead: None,
+        });
+        let tickets = vec![checking, asked];
+        let mut r = report(&["SHOP-15", "SHOP-22"], &[]);
+        r.was_validating = vec!["SHOP-15".parse().unwrap()];
+        let page = summary(&r, &tickets, &[], &projects(), &BTreeSet::new(), false).unwrap();
+        let rows: Vec<(&str, RowState, &str, bool)> = page
+            .rows
+            .iter()
+            .map(|r| (r.key.as_str(), r.state, r.detail.as_str(), r.checked))
+            .collect();
+        assert_eq!(
+            rows,
+            [(
+                "SHOP-15",
+                RowState::Interrupted,
+                "was Validating \u{b7} Resume = fresh validation",
+                true
+            )]
+        );
+        assert_eq!(page.selected, ["SHOP-15"]);
+        assert_eq!(
+            page.notes,
+            [
+                "Turquoise tickets keep their question \u{2014} SHOP-22. Answering it from Needs you resumes and \
+                 delivers it."
+            ]
+        );
+        assert_eq!(
+            tickets[1].question.as_ref().map(|q| q.text.as_str()),
+            Some("Which email provider should I use?"),
+            "kept for Needs you"
+        );
     }
 
     /// *16 → Recovery per tool*: each row names its agent and tool with several tools; a row whose tool is logged

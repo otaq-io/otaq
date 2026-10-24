@@ -60,6 +60,7 @@ pub struct TestService {
     pub messages: crate::messages::Messages,
     pub validation: crate::validation::Validation,
     pub project_agents: crate::project_agents::ProjectAgents,
+    pub scheduler: crate::scheduler::Scheduler,
     pub warm: crate::warm::store::WarmBuilds,
     pub adapters: crate::agent_tools::Adapters,
     pub ticket_env: crate::ticket_env::TicketEnv,
@@ -614,6 +615,7 @@ impl TestService {
         let messages = service.messages();
         let validation = service.validation();
         let project_agents = service.project_agents();
+        let scheduler = service.scheduler();
         let warm = service.warm();
         let adapters = service.adapters();
         let ticket_env = service.ticket_env();
@@ -653,6 +655,7 @@ impl TestService {
             messages,
             validation,
             project_agents,
+            scheduler,
             warm,
             adapters,
             ticket_env,

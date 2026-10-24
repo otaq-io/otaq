@@ -19,12 +19,20 @@
 //!   resets it.
 //!
 //! Escape sequences may arrive split across writes; the parser keeps its state between them.
+//!
+//! **The line's text** is followed as well as bytes allow, for an answer typed in the terminal (d0119): typed and
+//! pasted characters are added, Backspace takes the last one off, Ctrl+U and Ctrl+C empty it, and Enter reports it
+//! ([`InputEffect::sent`]). A line recalled from history, or edited after moving the cursor, may not be what the
+//! program shows; a recalled line reports no text at all.
 
 /// What one write did to the input line.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InputEffect {
     /// How many times Enter was pressed.
     pub enters: usize,
+    /// The text of each line sent with Enter, in order, trimmed: empty for an empty line (or one whose text the
+    /// tracker couldn't follow, a history entry).
+    pub sent: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +69,10 @@ pub struct InputTracker {
     line: Line,
     parse: Parse,
     params: Vec<u8>,
+    /// The line's text as far as it can be followed, in UTF-8 bytes.
+    text: Vec<u8>,
+    /// The line came from history: its text is unknown until it is sent or cleared.
+    recalled: bool,
 }
 
 impl Default for InputTracker {
@@ -75,6 +87,8 @@ impl InputTracker {
             line: Line::Empty,
             parse: Parse::Ground,
             params: Vec::new(),
+            text: Vec::new(),
+            recalled: false,
         }
     }
 
@@ -97,6 +111,8 @@ impl InputTracker {
     /// Otaq cleared the line itself (with the bytes of the session's agent tool, ADP-06).
     pub fn clear_line(&mut self) {
         self.line = Line::Empty;
+        self.text.clear();
+        self.recalled = false;
     }
 
     /// Takes keystrokes typed by a person.
@@ -118,6 +134,14 @@ impl InputTracker {
                 b'\r' => {
                     self.line = Line::Empty;
                     effect.enters += 1;
+                    let sent = if self.recalled {
+                        String::new()
+                    } else {
+                        String::from_utf8_lossy(&self.text).trim().to_owned()
+                    };
+                    effect.sent.push(sent);
+                    self.text.clear();
+                    self.recalled = false;
                 }
                 0x1b => self.parse = Parse::Escape,
                 b'\n' => self.add_line_break(),
@@ -126,11 +150,13 @@ impl InputTracker {
                 0x01 | 0x05 | 0x02 | 0x06 => self.cursor_moved(),
                 // Ctrl+P, Ctrl+N: history.
                 0x10 | 0x0e => self.history(),
-                // Other control keys (Tab, Ctrl+C, Ctrl+U, …) don't add text and can't be trusted to remove it.
+                // Ctrl+C, Ctrl+U: the text is gone from the line, though the flag can't trust it.
+                0x03 | 0x15 => self.text.clear(),
+                // Other control keys (Tab, …) don't add text and can't be trusted to remove it.
                 0x00..=0x1f => {}
                 // UTF-8 continuation bytes belong to the character already counted.
-                0x80..=0xbf => {}
-                _ => self.add_text(),
+                0x80..=0xbf => self.text.push(b),
+                _ => self.add_text(b),
             },
             Parse::Escape => match b {
                 b'[' => {
@@ -177,16 +203,16 @@ impl InputTracker {
             }
             Parse::Paste => match b {
                 0x1b => self.parse = Parse::PasteEscape,
-                0x80..=0xbf => {}
+                0x80..=0xbf => self.text.push(b),
                 b'\r' | b'\n' => self.add_line_break(),
-                _ => self.add_text(),
+                _ => self.add_text(b),
             },
             Parse::PasteEscape => {
                 if b == b'[' {
                     self.params.clear();
                     self.parse = Parse::PasteCsi;
                 } else {
-                    self.add_text();
+                    self.add_text(0x1b);
                     self.parse = Parse::Paste;
                 }
             }
@@ -204,11 +230,15 @@ impl InputTracker {
         }
     }
 
-    fn add_text(&mut self) {
+    fn add_text(&mut self, b: u8) {
+        if b >= 0x20 {
+            self.text.push(b);
+        }
         self.add(false);
     }
 
     fn add_line_break(&mut self) {
+        self.text.push(b'\n');
         self.add(true);
     }
 
@@ -232,6 +262,8 @@ impl InputTracker {
     }
 
     fn backspace(&mut self) {
+        // The last character: its continuation bytes, then its first byte.
+        while self.text.pop().is_some_and(|b| (0x80..=0xbf).contains(&b)) {}
         if let Line::Text {
             count,
             exact: true,
@@ -265,6 +297,7 @@ impl InputTracker {
     }
 
     fn history(&mut self) {
+        self.recalled = true;
         let count = match self.line {
             Line::Empty => 1,
             Line::Text { count, .. } => count,
@@ -297,6 +330,33 @@ mod tests {
         assert_eq!(enters, 1);
         let (_, enters) = after(&[b"\r\r"]);
         assert_eq!(enters, 2, "Enter on an empty line still counts");
+    }
+
+    /// d0119: the text of each sent line, for an answer typed in the terminal.
+    #[test]
+    fn enter_reports_the_line_it_sent() {
+        let sent = |chunks: &[&[u8]]| {
+            let mut t = InputTracker::new();
+            chunks
+                .iter()
+                .flat_map(|c| t.feed(c).sent)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(sent(&[b"Post", b"mark\r"]), ["Postmark"]);
+        assert_eq!(sent(&[b"\r"]), [""], "an empty line");
+        assert_eq!(sent(&[b"  \r"]), [""], "only spaces");
+        assert_eq!(sent(&[b"SESx\x7f\r"]), ["SES"]);
+        assert_eq!(sent(&["Résumé\x7f\x7fé\r".as_bytes()]), ["Résué"]);
+        assert_eq!(sent(&[b"one\rtwo\r"]), ["one", "two"]);
+        assert_eq!(sent(&[b"wrong\x15right\r"]), ["right"], "Ctrl+U");
+        assert_eq!(sent(&[b"wrong\x03"],), Vec::<String>::new());
+        assert_eq!(sent(&[b"\x1b[200~a\rb\x1b[201~\r"]), ["a\nb"]);
+        assert_eq!(
+            sent(&[b"\x1b[A\r"]),
+            [""],
+            "a recalled line's text is unknown"
+        );
+        assert_eq!(sent(&[b"\x1b[Ax\r", b"y\r"]), ["", "y"]);
     }
 
     #[test]

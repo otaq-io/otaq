@@ -11,7 +11,7 @@ import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
 import { paletteInk } from "../../cards/look";
-import { Button } from "../../components";
+import { Button, PLAIN_TEXT } from "../../components";
 import type { EpicGrid as Grid } from "../../generated/EpicGrid";
 import type { EpicHead } from "../../generated/EpicHead";
 import type { EpicOverviewView } from "../../generated/EpicOverviewView";
@@ -81,6 +81,7 @@ export function LeadAsks({ view, answer }: { view: PanelView; answer: PanelAnswe
         {other !== null && (
           <span className="lead-asks-other">
             <input
+              {...PLAIN_TEXT}
               className="field-input"
               value={text}
               placeholder={answer.other_placeholder}

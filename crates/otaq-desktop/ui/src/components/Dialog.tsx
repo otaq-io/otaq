@@ -3,7 +3,8 @@
 // panel's stacking or a size container's frame can shrink it or let a press through to what is behind; and a raised box with a title, a body and a footer with the `esc cancel` hint. Focus moves
 // in when it opens (to the default button), Tab and ⇧Tab stay inside, Esc cancels, and focus goes back where it was
 // when it closes. ↵ presses the default button: confirm on an ordinary dialog, Cancel on a destructive one
-// (`dialog.rs`).
+// (`dialog.rs`). A dialog with a text area to send (Local merge's message) also takes ⌘↵ / Ctrl+↵ from anywhere
+// inside it (`onSubmit`).
 import { type ReactNode, type RefObject, useCallback, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 
@@ -12,16 +13,17 @@ import { inKeyLayer } from "../markdown/keys";
 import { Button } from "./Button";
 import { Kbd } from "./Kbd";
 import { useEnterExit } from "./motion";
-import { defaultOutcome, dialogKey, type DialogOutcome, trapFocus } from "./logic";
+import { defaultOutcome, dialogKey, type DialogOutcome, isSubmitKey, trapFocus } from "./logic";
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
-/** Keeps Tab inside `root` and turns Esc and ↵ into the dialog's outcomes, while mounted. */
+/** Keeps Tab inside `root` and turns Esc, ↵ (and ⌘↵ with `onSubmit`) into the dialog's outcomes, while mounted. */
 function useModalKeys(
   root: RefObject<HTMLElement | null>,
   destructive: boolean,
   onOutcome: (outcome: DialogOutcome) => void,
+  onSubmit: (() => void) | undefined,
 ): void {
   // Focus goes back where it was when the dialog closes.
   useEffect(() => {
@@ -45,6 +47,14 @@ function useModalKeys(
         e.preventDefault();
         return;
       }
+      // ⌘↵ wherever the focus is in the dialog, its text area or a button (the page's dispatcher leaves it to a
+      // dialog, d0097): handled here, not by the field, so nothing else in the dialog can keep it from sending.
+      if (onSubmit && isSubmitKey(e) && !e.isComposing) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSubmit();
+        return;
+      }
       const target = e.target as HTMLElement | null;
       // ↵ on a button presses that button; in a text area or the description editor it is a new line.
       if (
@@ -63,7 +73,7 @@ function useModalKeys(
     return () => {
       box.removeEventListener("keydown", onKey);
     };
-  }, [root, destructive, onOutcome]);
+  }, [root, destructive, onOutcome, onSubmit]);
 }
 
 export interface DialogProps {
@@ -84,6 +94,8 @@ export interface DialogProps {
   /** A destructive dialog: ↵ cancels. */
   destructive?: boolean;
   onConfirm?: () => void;
+  /** ⌘↵ / Ctrl+↵ anywhere in the dialog (in its text area too, where ↵ is a new line). */
+  onSubmit?: () => void;
   onCancel: () => void;
   /** The element focused when it opens; the first focusable one otherwise. */
   initialFocus?: RefObject<HTMLElement | null>;
@@ -113,6 +125,7 @@ export function Dialog({
   hints,
   destructive = false,
   onConfirm,
+  onSubmit,
   onCancel,
   initialFocus,
 }: DialogProps) {
@@ -128,7 +141,7 @@ export function Dialog({
     },
     [onConfirm, onCancel],
   );
-  useModalKeys(box, destructive, onOutcome);
+  useModalKeys(box, destructive, onOutcome, onSubmit);
   useEffect(() => {
     (initialFocus?.current ?? box.current?.querySelector<HTMLElement>(FOCUSABLE) ?? box.current)?.focus();
   }, [initialFocus]);

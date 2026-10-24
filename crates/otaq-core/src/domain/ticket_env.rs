@@ -58,6 +58,29 @@ pub struct SchemaOverlap {
     pub files: Vec<String>,
 }
 
+/// The fetch before a start or a Local merge failed and the ticket went on from its local base branch (d0121). Kept
+/// on the ticket until a later fetch for it works.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteWarning {
+    pub went_on: WentOn,
+    /// The base branch: `main`.
+    pub branch: String,
+    /// The remote that couldn't be reached: `origin`.
+    pub remote: String,
+    /// Git's reason: "git fetch --quiet origin failed (exit 128): Host key verification failed."
+    pub reason: String,
+}
+
+/// What went on without the remote (d0121).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WentOn {
+    /// The ticket started from the local base branch.
+    Started,
+    /// The ticket merged into the local base branch.
+    Merged,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

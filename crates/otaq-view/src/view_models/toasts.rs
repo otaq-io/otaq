@@ -85,6 +85,9 @@ impl NewToast {
 
 /// The Auto-merge toast's title, "SHOP-40.1 merged automatically into the Wishlist branch" (d0064): the merge icon.
 const MERGED_AUTOMATICALLY: &str = " merged automatically into ";
+/// The Local merge's warning toast, "Couldn't update main from origin · merged into your local main" (d0121): the
+/// warning triangle.
+const REMOTE_UNREACHABLE: &str = "Couldn\u{2019}t update ";
 /// The cancel toast's title, "Validation cancelled: SHOP-29’s code changed" (d0063): the ban icon, secondary.
 const VALIDATION_CANCELLED: &str = "Validation cancelled: ";
 
@@ -142,6 +145,9 @@ impl ToastItem {
             (Some(IconName::Play), Some(ToastIconTone::Working))
         } else if self.title.contains(MERGED_AUTOMATICALLY) {
             (Some(IconName::GitMerge), None)
+        } else if self.title.starts_with(REMOTE_UNREACHABLE) {
+            // d0121: merged into the local base branch, the remote couldn't be reached.
+            (Some(IconName::TriangleAlert), None)
         } else if self.title.starts_with(VALIDATION_CANCELLED) {
             (Some(IconName::Ban), Some(ToastIconTone::Secondary))
         } else if self.title == crate::view_models::flow_settings::FLOW_CHANGE_CANCELLED {
@@ -409,6 +415,12 @@ mod tests {
             ..m.items()[0].clone()
         };
         assert_eq!(cleaned.view().icon, Some(IconName::BrushCleaning));
+        let remote = ToastItem {
+            title: "Couldn\u{2019}t update main from origin \u{b7} merged into your local main"
+                .into(),
+            ..m.items()[0].clone()
+        };
+        assert_eq!(remote.view().icon, Some(IconName::TriangleAlert));
         assert_eq!(views[0].icon, None);
     }
 }

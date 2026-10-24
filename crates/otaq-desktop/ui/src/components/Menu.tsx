@@ -11,6 +11,7 @@ import type { MenuSearch } from "../generated/MenuSearch";
 import { Icon } from "../theme/Icon";
 import { type Anchor, useFloatingStyle } from "./Floating";
 import { chooseMenu, filterMenu, firstMatch, menuKey, searchKey, selectable } from "./logic";
+import { PLAIN_TEXT } from "./plainText";
 
 export type MenuClose = "key" | "outside";
 
@@ -117,13 +118,13 @@ export function Menu({
         <div className="menu-search">
           <Icon name="search" size={13} />
           <input
+            {...PLAIN_TEXT}
             ref={field}
             className="menu-search-input"
             type="text"
             value={query}
             placeholder={search.placeholder}
             aria-label={search.placeholder}
-            spellCheck={false}
             onChange={(e) => {
               setQuery(e.target.value);
               setHighlighted(firstMatch(filterMenu(all, e.target.value)));

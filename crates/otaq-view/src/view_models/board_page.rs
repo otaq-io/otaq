@@ -1030,6 +1030,9 @@ pub struct ApproveMenu {
     pub title: String,
     pub items: Vec<ApproveItem>,
     pub note: String,
+    /// The one enabled choice when there is no other (an epic child's Local merge into its epic): the page opens its
+    /// dialog straight away, without the choice (dogfood #18).
+    pub direct: Option<ApproveChoice>,
 }
 
 fn choice_icon(choice: ApproveChoice) -> IconName {
@@ -1046,22 +1049,29 @@ pub fn approve_menu(
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
 ) -> ApproveMenu {
+    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr)
+        .into_iter()
+        .zip(1..)
+        .map(|(o, number)| ApproveItem {
+            choice: o.choice,
+            number,
+            icon: choice_icon(o.choice),
+            title: o.title,
+            detail: o.detail,
+            enabled: o.enabled,
+        })
+        .collect();
+    let mut enabled = items.iter().filter(|i| i.enabled).map(|i| i.choice);
+    let direct = match (enabled.next(), enabled.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    };
     ApproveMenu {
         key: ticket.key.to_string(),
         title: approve::menu_title(ticket),
-        items: approve::options(ticket, target, tickets, pr)
-            .into_iter()
-            .zip(1..)
-            .map(|(o, number)| ApproveItem {
-                choice: o.choice,
-                number,
-                icon: choice_icon(o.choice),
-                title: o.title,
-                detail: o.detail,
-                enabled: o.enabled,
-            })
-            .collect(),
+        items,
         note: approve::menu_note(ticket),
+        direct,
     }
 }
 
@@ -2179,7 +2189,8 @@ mod tests {
             done.folds,
             [DoneFold {
                 epic: "SHOP-40".into(),
-                label: "Wishlist · 2 of 4 merged".into(),
+                // The closed child is counted apart (#31).
+                label: "Wishlist · 2 of 3 merged · 1 closed".into(),
                 keys: vec!["SHOP-40.1".into(), "SHOP-40.2".into()],
             }]
         );
@@ -2189,7 +2200,7 @@ mod tests {
         let json = serde_json::to_value(&board).unwrap();
         assert_eq!(
             json["columns"][5]["folds"][0]["label"],
-            "Wishlist · 2 of 4 merged"
+            "Wishlist · 2 of 3 merged · 1 closed"
         );
         assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
 
@@ -3098,6 +3109,40 @@ mod tests {
         assert_eq!(backlog, ["SHOP-45.2"]);
     }
 
+    /// One enabled delivery (an epic child, or Open PR without a provider): its dialog opens without the choice
+    /// (dogfood #18).
+    #[test]
+    fn one_way_to_deliver_skips_the_choice() {
+        let mut child = ticket("SHOP-40.1", "Wishlist API", Status::WaitingForYou);
+        child.epic = Some("SHOP-40".parse().unwrap());
+        child.base = otaq_core::board::tickets::Base::Epic("SHOP-40".parse().unwrap());
+        let menu = approve_menu(&child, "epic-branch", std::slice::from_ref(&child), None);
+        assert_eq!(menu.items.len(), 1);
+        assert_eq!(menu.direct, Some(ApproveChoice::LocalMerge));
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        let no_provider = PrProvider {
+            remote: Some("git.acme.internal/web/handbook".into()),
+            provider: None,
+            logged_in: None,
+            cli_found: false,
+            open_pr_skill: "open-pr".to_owned(),
+        };
+        assert!(no_provider.open_pr_blocked().is_some());
+        let menu = approve_menu(
+            &review,
+            "main",
+            std::slice::from_ref(&review),
+            Some(&no_provider),
+        );
+        assert_eq!(menu.items.len(), 2);
+        assert!(!menu.items[1].enabled);
+        assert_eq!(menu.direct, Some(ApproveChoice::LocalMerge));
+        let mut pushed = ticket("SHOP-26", "Add sitemap", Status::WaitingForYou);
+        pushed.flags.pr_number = Some(481);
+        let menu = approve_menu(&pushed, "main", std::slice::from_ref(&pushed), None);
+        assert_eq!(menu.direct, Some(ApproveChoice::PushToPr));
+    }
+
     #[test]
     fn drops_say_what_comes_next() {
         let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
@@ -3123,6 +3168,7 @@ mod tests {
             menu.note,
             "Both open a confirmation step before anything runs."
         );
+        assert_eq!(menu.direct, None, "two ways to deliver: the choice shows");
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
@@ -3642,8 +3688,22 @@ flow:
         let pr = line_of(&page, "SHOP-26").0.unwrap();
         assert!(pr.starts_with("PR #481 open"), "{pr}");
         assert_eq!(line_of(&page, "SHOP-26").1, None);
+        // #36: the priority is the card's chip after its key, in every column, not the line's lead.
         let p1 = line_of(&page, "SHOP-35").0.unwrap();
-        assert!(p1.starts_with("P1 \u{b7} "), "{p1}");
+        assert!(!p1.starts_with("P1"), "{p1}");
+        let chip = |key: &str| {
+            page.columns
+                .iter()
+                .flat_map(cards_in)
+                .find_map(|c| match c {
+                    BoardCard::Ticket { card, .. } if card.key == key => {
+                        Some(card.priority.as_ref().map(|p| p.short.clone()))
+                    }
+                    _ => None,
+                })
+                .flatten()
+        };
+        assert_eq!(chip("SHOP-35").as_deref(), Some("P1"));
         let waits = line_of(&page, "SHOP-20").0.unwrap();
         assert_eq!(waits, "Blocked \u{b7} waits for SHOP-18 to merge");
         let child = page.columns[0].cards.iter().find_map(|c| match c {

@@ -22,6 +22,7 @@ use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
+use otaq_core::session::deliveries::handoff_sentence;
 use otaq_core::store::now_ms;
 use serde_json::{Value, json};
 
@@ -593,7 +594,7 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
         delivered[before..],
         [
             format!("Note from Wishlist lead: {NOTE}"),
-            format!("/{}", naming::copy_name("restack"))
+            handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
         ]
     );
     assert_eq!(
@@ -615,6 +616,57 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
     assert_eq!(inbox.lead_note.and_then(|n| n.view), Some(VIEW.to_owned()));
     lead_stop(&w, &lead).await;
     assert!(pending(&w, &session(&lead)).await.is_empty());
+    w.stop().await;
+}
+
+/// A child whose Merge check keeps failing (d0120): conflicts and failed checks count together, and its first stop
+/// goes to the lead, "Merge check keeps failing on `<epic branch>`", with no inbox item.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_check_that_keeps_failing_goes_to_the_lead_once() {
+    let w = world().await;
+    settings(&w, true).await;
+    let mut project_settings = w.board.project_settings("SHOP").await.unwrap();
+    project_settings.merge_check = Some("echo 'FAIL: 1 of 284'; exit 1".into());
+    w.board
+        .save_project_settings("SHOP", &project_settings)
+        .await
+        .unwrap();
+    let project = w.board.project("SHOP").await.unwrap();
+    let repo = PathBuf::from(&project.repo_path);
+    let (lead, _shell) = busy_lead(&w).await;
+    let t = ticket(&w, "SHOP-40.2").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "wishlist.ts", "the child's line\n");
+    w.agent_shell(&t).await;
+    // The epic branch moved with a sibling's file: the rebase is clean, and brings it in.
+    conflict_on_epic_branch(&repo, "sibling.ts");
+
+    for n in 1..=2 {
+        let after = pass(&w, "SHOP-40.2").await;
+        assert_eq!(after.status, Status::MergeConflictFixing, "failure {n}");
+    }
+    let held = pass(&w, "SHOP-40.2").await;
+    assert_eq!(held.status, Status::Working, "held at work, not turquoise");
+    assert_eq!(held.auto_merge_conflicts, 3);
+    assert!(item(&w, "SHOP-40.2").await.is_none());
+    let wake = lead_takes_the_wake_up(&w, &lead).await;
+    assert!(
+        wake.starts_with(&format!(
+            "SHOP-40.2 stopped: Merge check keeps failing on `{}`. Send it one note",
+            naming::branch("SHOP-40")
+        )),
+        "{wake}"
+    );
+    lead_stop(&w, &lead).await;
+    wait_until("handed back", async || {
+        w.status("SHOP-40.2").await == Status::DeliveryStopped
+    })
+    .await;
+    let stopped = ticket(&w, "SHOP-40.2").await;
+    assert_eq!(
+        stopped.auto_merge_stop,
+        Some(AutoMergeStop::KeepsFailingMergeCheck)
+    );
     w.stop().await;
 }
 

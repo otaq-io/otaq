@@ -63,6 +63,7 @@ use crate::usage::{self, Usage};
 use access::{OsPeerCredentials, PeerCredentials};
 pub use events::EventBus;
 use lock::{LockError, ServiceLock};
+pub use permissions::AgentActivity;
 
 /// How long a stopping service waits for connections to send what they have queued.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -287,6 +288,7 @@ impl Shared {
         if events.is_empty() {
             return;
         }
+        self.signals.tool_reported(&caller, &events);
         match self.signals.apply_events(&caller, tool, &events).await {
             Ok(signals) => self.after_signals(&caller, tool, &signals).await,
             Err(e) => tracing::warn!(%tool, error = %e, "can't apply the watched file's events"),
@@ -628,7 +630,8 @@ impl Service {
             events.clone(),
             Arc::new(signals.clone()),
             adapters.clone(),
-        );
+        )
+        .with_hand_offs(board.hand_offs().clone());
         starter.set_deliveries(deliveries.clone());
         starter.set_gate(gate.clone());
         signals.set_models(models.clone());
@@ -690,6 +693,8 @@ impl Service {
             ports.clone(),
             ticket_env.clone(),
         );
+        // "Merging · running the merge check" shows and goes at once (d0120).
+        board.merge_checks().set_events(events.clone());
         let review = Review::new(
             board.clone(),
             config.data.clone(),
@@ -898,6 +903,13 @@ impl Service {
                             events.publish(*toast)
                         }
                         Ok(_) => {}
+                        // A git step failed: the card says so, with Retry merge (d0121).
+                        Err(crate::board::BoardError::Git(e)) => {
+                            tracing::warn!(ticket = id, error = %e, "automatic Delivery failed");
+                            if let Err(e) = review.board().automatic_delivery_failed(&id, &e).await {
+                                tracing::warn!(ticket = id, error = %e, "can't record the failed Delivery");
+                            }
+                        }
                         Err(e) => {
                             tracing::warn!(ticket = id, error = %e, "automatic Delivery failed")
                         }

@@ -331,22 +331,33 @@ async fn respond(
     shared: &Shared,
 ) -> (Message, Then) {
     // The agent permission scope (CLI-02): checked once here, for every request.
-    if let Err(e) = permissions::check(who, &request, &shared.board).await {
-        return (
-            Message::error(id, board_requests::error_body(&e)),
-            Then::Continue,
-        );
+    let activity = match permissions::check(who, &request, &shared.board).await {
+        Ok(action) => action.map(|action| permissions::agent_activity(&request, &action)),
+        Err(e) => {
+            return (
+                Message::error(id, board_requests::error_body(&e)),
+                Then::Continue,
+            );
+        }
+    };
+    let acts = activity == Some(permissions::AgentActivity::Acts);
+    // Any `otaq` command of the agent's own, a read too (`prime`), means it picked up a hand-off typed into its session;
+    // the status line's bookkeeping and hooks don't (hooks count in `signals.hook`, d0118).
+    if activity.is_some_and(|a| a != permissions::AgentActivity::Bookkeeping) {
+        shared.signals.agent_active(who);
     }
-    // A Project agent's command means it is at it again: a permission prompt it waited on was answered (ATT-02).
-    if let Some((agent, _)) = who.project_agent()
-        && !matches!(request, Request::Hook(_))
+    // A Project agent's command that acts means it is at it again: a permission prompt it waited on was answered
+    // (ATT-02). Reads and the status line's bookkeeping aren't it acting (d0119).
+    if acts
+        && let Some((agent, _)) = who.project_agent()
         && let Err(e) = shared.project_agents.active(agent).await
     {
         tracing::warn!(agent, error = %e, "can't record a Project agent command");
     }
-    // Any `otaq` command of an agent is a signal: it clears turquoise and moves the last signal (ATT-02, ATT-05).
-    if who.is_agent()
-        && !matches!(request, Request::Hook(_))
+    // An `otaq` command of an agent that acts is a signal: it clears Needs you and Idle and moves the last signal
+    // (ATT-02, ATT-05); an open question stays (d0119).
+    if acts
+        && who.is_agent()
         && let Err(e) = shared.signals.command(who).await
     {
         tracing::warn!(error = %e, "can't record an agent command");
@@ -416,6 +427,7 @@ async fn respond(
         | Request::SessionResize(_)
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
+        | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)) => {
             match session_requests::handle(request, client, shared).await {
                 Ok(answer) => answer,

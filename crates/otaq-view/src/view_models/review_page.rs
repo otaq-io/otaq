@@ -46,11 +46,44 @@ pub struct ConfirmView {
     pub note: String,
     /// "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
     pub conflict: Option<String>,
+    /// The Merge check's one line (d0120).
+    pub merge_check: MergeCheckNote,
+    /// "2 manual checks not ticked" beside it while some are open (d0125); it never disables Squash & merge.
+    pub manual_checks: Option<String>,
     /// "Squash & merge", or "Squash & merge into release/2.3" on another base.
     pub merge: String,
     pub cancel: &'static str,
     /// "cancel · ⌘↵ merge"
     pub hint: String,
+}
+
+/// The confirmation's line about the Merge check (d0120): "Runs `npm test` first when main has moved.", or without
+/// one "No merge check · " and the link "set one in project settings", which opens the project's Commands where the
+/// Merge check row is. The page shows the `…` parts as code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "LocalMergeCheckNote")]
+pub struct MergeCheckNote {
+    pub text: String,
+    pub link: Option<String>,
+    /// The project whose settings the link opens.
+    pub project: String,
+}
+
+impl MergeCheckNote {
+    pub fn of(project: &str, command: Option<&str>, target: &str) -> Self {
+        match command.map(str::trim).filter(|c| !c.is_empty()) {
+            Some(command) => Self {
+                text: ap::merge_check_runs_first(command, target),
+                link: None,
+                project: project.to_owned(),
+            },
+            None => Self {
+                text: format!("{} \u{b7} ", ap::NO_MERGE_CHECK),
+                link: Some(ap::SET_ONE_IN_PROJECT_SETTINGS.to_owned()),
+                project: project.to_owned(),
+            },
+        }
+    }
 }
 
 /// *Local merge · rebasing onto main…*: the steps while it runs.
@@ -61,6 +94,8 @@ pub struct MergingView {
     pub steps: Vec<String>,
     pub label: &'static str,
     pub note: String,
+    /// The dialog can be closed while it runs; the merge finishes on its own (d0120).
+    pub close: &'static str,
 }
 
 /// A new commit since the review: short sha and subject.
@@ -134,6 +169,10 @@ pub struct ApproveFacts<'a> {
     pub project_base: &'a str,
     pub check: &'a ApproveCheck,
     pub menu: ApproveMenu,
+    /// The project's Merge check command (d0120), `None` when it has none.
+    pub merge_check: Option<&'a str>,
+    /// The ticket's manual checks not ticked (d0125).
+    pub manual_unticked: u32,
 }
 
 pub fn approve_view(f: ApproveFacts) -> ApproveView {
@@ -160,6 +199,12 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
                     t = f.target
                 )
             }),
+            merge_check: MergeCheckNote::of(
+                &ticket.key.project.to_string(),
+                f.merge_check,
+                f.target,
+            ),
+            manual_checks: crate::view_models::manual_checks::not_ticked(f.manual_unticked),
             merge: if other_base {
                 format!("Squash & merge into {}", f.target)
             } else {
@@ -176,6 +221,7 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
                 "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
                 otaq_core::naming::PRODUCT_NAME
             ),
+            close: "Close",
         },
         changed: changed_view(&ticket.key, f.check),
     }
@@ -207,6 +253,12 @@ pub enum MergeResult {
         worktree: Option<String>,
         close: &'static str,
     },
+    /// The user's Stop of the Merge check (Q475): nothing merged, the ticket where it was.
+    Stopped {
+        title: String,
+        message: String,
+        close: &'static str,
+    },
     /// *Local merge · refused, uncommitted changes* (the user's checkout) or a diverged base: Retry.
     Refused {
         title: String,
@@ -228,18 +280,19 @@ pub enum MergeResult {
     },
 }
 
-/// The toasts after a Local merge: "Local merge done · SHOP-18", then who started ("SHOP-20 started · all
-/// dependencies merged").
+/// The toasts after a Local merge: "Local merge done · SHOP-18", "Couldn't update main from origin · merged into your
+/// local main" with git's reason when the fetch failed (d0121), then who started ("SHOP-20 started · all dependencies
+/// merged").
 pub fn merged_toasts(
     key: &TicketKey,
     outcome: &LocalMergeOutcome,
     tickets: &[Ticket],
 ) -> Vec<ToastText> {
     let LocalMergeOutcome::Merged {
+        ticket,
         target,
         commit,
         started,
-        ..
     } = outcome
     else {
         return Vec::new();
@@ -248,6 +301,17 @@ pub fn merged_toasts(
         title: format!("Local merge done \u{b7} {key}"),
         text: Some(format!("Squashed into {target} as {}", ap::short(commit))),
     }];
+    if let Some(warning) = ticket
+        .work
+        .as_ref()
+        .and_then(|w| w.remote_warning.as_ref())
+        .filter(|w| w.went_on == otaq_core::domain::WentOn::Merged)
+    {
+        toasts.push(ToastText {
+            title: crate::view_models::card::remote_warning_text(warning),
+            text: Some(warning.reason.clone()),
+        });
+    }
     match started.as_slice() {
         [] => {}
         [one] => toasts.push(ToastText {
@@ -294,6 +358,24 @@ pub fn merge_result(
                 .as_ref()
                 .and_then(|w| w.worktree.as_deref())
                 .map(crate::shell::tilde),
+            close: "Close",
+        },
+        // Shown as a conflict is: what failed, and that the agent fixes it with no click (d0120).
+        MergeView::CheckFailed { title, text } => MergeResult::Conflict {
+            title,
+            text,
+            files: Vec::new(),
+            help: ap::check_failed_help(key, target),
+            worktree: ticket
+                .work
+                .as_ref()
+                .and_then(|w| w.worktree.as_deref())
+                .map(crate::shell::tilde),
+            close: "Close",
+        },
+        MergeView::CheckStopped { message } => MergeResult::Stopped {
+            title: "Merge check stopped".to_owned(),
+            message,
             close: "Close",
         },
         MergeView::DirtyCheckout { message } | MergeView::Diverged { message } => {
@@ -438,6 +520,8 @@ mod tests {
             project_base: "main",
             check,
             menu: approve_menu(t, target, all, None),
+            merge_check: None,
+            manual_unticked: 0,
         }
     }
 
@@ -462,6 +546,115 @@ mod tests {
         assert!(view.changed.is_none());
         assert!(!view.push_to_pr);
         assert_eq!(view.menu.items[0].title, "Local merge");
+    }
+
+    /// d0120: without a Merge check the dialog says so once and links to the row; with one it names the command and
+    /// the branch it merges into.
+    #[test]
+    fn the_confirmation_says_whether_a_merge_check_runs() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let none = approve_view(facts(&t, &all, "main", &ApproveCheck::Unchanged));
+        assert_eq!(
+            none.confirm.merge_check,
+            MergeCheckNote {
+                text: "No merge check \u{b7} ".into(),
+                link: Some("set one in project settings".into()),
+                project: "SHOP".into(),
+            }
+        );
+        let blank = approve_view(ApproveFacts {
+            merge_check: Some("  "),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(blank.confirm.merge_check, none.confirm.merge_check);
+        let set = approve_view(ApproveFacts {
+            merge_check: Some("npm test"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(
+            set.confirm.merge_check,
+            MergeCheckNote {
+                text: "Runs `npm test` first when main has moved.".into(),
+                link: None,
+                project: "SHOP".into(),
+            }
+        );
+        let hotfix = approve_view(ApproveFacts {
+            merge_check: Some("make check"),
+            ..facts(&t, &all, "release/2.3", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(
+            hotfix.confirm.merge_check.text,
+            "Runs `make check` first when release/2.3 has moved."
+        );
+        assert_eq!(
+            none.merging.close, "Close",
+            "it can be closed while it runs"
+        );
+    }
+
+    /// d0125: the confirmation counts the manual checks not ticked, and says nothing once all are.
+    #[test]
+    fn the_confirmation_counts_unticked_manual_checks() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let ticked = approve_view(facts(&t, &all, "main", &ApproveCheck::Unchanged));
+        assert_eq!(ticked.confirm.manual_checks, None);
+        let open = approve_view(ApproveFacts {
+            manual_unticked: 2,
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(
+            open.confirm.manual_checks.as_deref(),
+            Some("2 manual checks not ticked")
+        );
+        assert_eq!(open.confirm.merge, "Squash & merge", "never blocked");
+    }
+
+    /// d0120, Q475: a failed check reads as a conflict does (the agent fixes it, no click); a stopped one says nothing
+    /// was merged.
+    #[test]
+    fn a_failed_or_stopped_merge_check_has_its_dialog() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let failed = LocalMergeOutcome::CheckFailed {
+            target: "main".into(),
+            command: "npm test".into(),
+            exit: Some(1),
+        };
+        let MergeResult::Conflict {
+            title,
+            text,
+            files,
+            help,
+            ..
+        } = merge_result(&t, "main", &failed, &all)
+        else {
+            panic!("not the check's dialog");
+        };
+        assert_eq!(title, "Merge check failed on main");
+        assert_eq!(
+            text,
+            "Merge check `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit again."
+        );
+        assert!(files.is_empty());
+        assert_eq!(
+            help,
+            "Nothing was merged into main. SHOP-18 went back to its agent, which fixes it and moves on again; the \
+             check\u{2019}s output is attached to its comment."
+        );
+        let stopped = LocalMergeOutcome::CheckStopped {
+            target: "main".into(),
+        };
+        assert_eq!(
+            merge_result(&t, "main", &stopped, &all),
+            MergeResult::Stopped {
+                title: "Merge check stopped".into(),
+                message: "The merge check was stopped; nothing was merged into main.".into(),
+                close: "Close",
+            }
+        );
     }
 
     #[test]
@@ -514,6 +707,57 @@ mod tests {
             (changed.anyway, changed.send_back),
             ("Approve anyway", "Send back")
         );
+    }
+
+    /// d0121: merged into the local base with the remote unreachable: a warning toast with git's reason, after
+    /// "Local merge done".
+    #[test]
+    fn a_merge_without_the_remote_warns() {
+        use otaq_core::domain::{RemoteWarning, WentOn};
+        let mut t = review_ticket();
+        t.work = Some(otaq_core::board::tickets::Work {
+            remote_warning: Some(RemoteWarning {
+                went_on: WentOn::Merged,
+                branch: "main".into(),
+                remote: "origin".into(),
+                reason: "git fetch --quiet origin failed (exit 128): Host key verification failed."
+                    .into(),
+            }),
+            ..Default::default()
+        });
+        let merged = LocalMergeOutcome::Merged {
+            ticket: Box::new(t.clone()),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+        };
+        let toasts = merged_toasts(&t.key, &merged, &[]);
+        assert_eq!(toasts.len(), 2);
+        assert_eq!(
+            toasts[1].title,
+            "Couldn\u{2019}t update main from origin \u{b7} merged into your local main"
+        );
+        assert_eq!(
+            toasts[1].text.as_deref(),
+            Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
+        );
+        // A warning left from the start isn't the merge's.
+        let mut started = t.clone();
+        started
+            .work
+            .as_mut()
+            .unwrap()
+            .remote_warning
+            .as_mut()
+            .unwrap()
+            .went_on = WentOn::Started;
+        let merged = LocalMergeOutcome::Merged {
+            ticket: Box::new(started),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+        };
+        assert_eq!(merged_toasts(&t.key, &merged, &[]).len(), 1);
     }
 
     #[test]

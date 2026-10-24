@@ -189,6 +189,15 @@
   font: 400 12px/1.4 var(--font-ui);
 }
 
+/* A command in the help ("For example `npm test`", d0120), as the env vars hint draws one. */
+.settings-row-description code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: 400 11px var(--font-mono);
+}
+
 /* What macOS allows Otaq's notifications, under the main switch's text, with its one action (ATT-14). */
 .settings-os-status {
   display: flex;

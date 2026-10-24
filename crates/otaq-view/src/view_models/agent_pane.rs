@@ -54,6 +54,10 @@ pub const LABEL: &str = "Project agent";
 /// The switcher's text on the empty pane: the conversation the first message starts.
 pub const TITLE: &str = "New conversation";
 
+/// The header's Expand and its way back (T-0502; d0113 sets no wording, listed for the designer).
+pub const EXPAND: &str = "Expand";
+pub const COLLAPSE: &str = "Collapse";
+
 /// The example prompts: a fixed generic set, the same for every project (d0087, Q-E). A click fills the box and
 /// never sends.
 pub const EXAMPLES: [&str; 4] = [
@@ -84,7 +88,7 @@ pub struct Button {
 }
 
 /// The panel's header (`s24-05`): the bot icon, "Project agent", the switcher (the conversation's name ▾), the state
-/// pill, …, Recently ended, + and the close icon.
+/// pill, …, Recently ended, +, Expand and the close icon.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "PaneHeader")]
 pub struct Header {
@@ -103,6 +107,10 @@ pub struct Header {
     /// + shows the empty pane (as ⇧⌘L does); nothing starts.
     pub new: Button,
     pub more: Button,
+    /// Expand (T-0502, dogfood #7): the panel over the board at the window's full width; `collapse` (or Esc outside
+    /// its terminal) brings it back beside the board.
+    pub expand: Button,
+    pub collapse: Button,
     /// Folds the panel back into the Ask bar, as ⌘L and Esc do; the conversation is kept (d0113).
     pub close: Button,
 }
@@ -537,6 +545,16 @@ pub fn view(f: &Facts) -> PaneView {
             icon: IconName::Ellipsis,
             label: "More",
             keys: None,
+        },
+        expand: Button {
+            icon: IconName::Maximize2,
+            label: EXPAND,
+            keys: None,
+        },
+        collapse: Button {
+            icon: IconName::Minimize2,
+            label: COLLAPSE,
+            keys: f.keys.label(KeyAction::ClosePanel),
         },
         close: Button {
             icon: IconName::PanelLeftClose,
@@ -1193,6 +1211,23 @@ mod tests {
         assert_eq!(
             (v.header.recent.icon, v.header.more.icon),
             (IconName::History, IconName::Ellipsis)
+        );
+        // T-0502: Expand, and the way back with Esc.
+        assert_eq!(
+            (
+                v.header.expand.icon,
+                v.header.expand.label,
+                v.header.expand.keys
+            ),
+            (IconName::Maximize2, "Expand", None)
+        );
+        assert_eq!(
+            (
+                v.header.collapse.icon,
+                v.header.collapse.label,
+                v.header.collapse.keys.as_deref()
+            ),
+            (IconName::Minimize2, "Collapse", Some("Esc"))
         );
     }
 

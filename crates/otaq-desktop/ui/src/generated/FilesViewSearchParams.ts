@@ -3,4 +3,8 @@
 /**
  * What is typed in the search box.
  */
-export type FilesViewSearchParams = { project: string, query: string, };
+export type FilesViewSearchParams = { project: string, query: string, 
+/**
+ * One of your own worktrees instead of the base (its folder, from the picker; #43).
+ */
+worktree?: string, };

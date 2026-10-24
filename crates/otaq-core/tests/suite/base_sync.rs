@@ -170,10 +170,22 @@ async fn no_remote_skips_fetching() {
 }
 
 #[tokio::test]
-async fn a_failed_fetch_is_an_error() {
+async fn a_failed_fetch_is_its_own_outcome() {
     let r = setup();
+    let before = r.head("develop");
     let gone = r.repos.root().join("billing-api-origin.git");
     std::fs::remove_dir_all(gone).unwrap();
-    let err = runner().sync_base(&r.clone, "develop").await.unwrap_err();
-    assert!(err.to_string().contains("fetch"), "{err}");
+    let result = runner().sync_base(&r.clone, "develop").await.unwrap();
+    let BaseSync::FetchFailed(failure) = result else {
+        panic!("expected a failed fetch, got {result:?}");
+    };
+    assert_eq!(failure.remote, "origin");
+    assert!(
+        failure
+            .reason()
+            .starts_with("git fetch --quiet origin failed (exit "),
+        "{}",
+        failure.reason()
+    );
+    assert_eq!(r.head("develop"), before, "nothing moved");
 }

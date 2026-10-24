@@ -265,6 +265,9 @@ pub struct GlobalSettings {
     pub usage_data: UsageData,
     /// The single-letter switch and the user's custom shortcuts (d0097, KEY-02, KEY-04): global, not per project.
     pub keyboard: KeyboardSettings,
+    /// The Project agent panel's width dragged at its edge (T-0502, d0113), in px; `None` is the default width.
+    /// `otaq-view`'s `layout.rs` keeps it inside its bounds. Not a row of the Settings page; Otaq has one window.
+    pub agent_panel_width: Option<u32>,
 }
 
 /// The terminal font size when none is set.
@@ -320,6 +323,7 @@ impl Default for GlobalSettings {
             description_source_mode: false,
             usage_data: UsageData::NotAsked,
             keyboard: KeyboardSettings::default(),
+            agent_panel_width: None,
         }
     }
 }
@@ -477,6 +481,10 @@ impl Default for TerminalRenderer {
 #[serde(default)]
 pub struct ProjectSettings {
     pub setup_command: String,
+    /// "Merge check" (d0120): the command Local merge runs on the merged result in its scratch worktree before the
+    /// target branch moves, when the rebase brought in new commits (`npm test`). Empty by default; never guessed
+    /// (d0023). Read it with [`Self::merge_check`].
+    pub merge_check: Option<String>,
     pub run_command: String,
     pub open_url: String,
     /// Files copied from the repository into each worktree, relative to the repository root.
@@ -509,6 +517,7 @@ impl Default for ProjectSettings {
     fn default() -> Self {
         Self {
             setup_command: String::new(),
+            merge_check: None,
             run_command: String::new(),
             open_url: String::new(),
             env_files: Vec::new(),
@@ -522,6 +531,16 @@ impl Default for ProjectSettings {
             schema_paths: Vec::new(),
             view: ViewPrefs::default(),
         }
+    }
+}
+
+impl ProjectSettings {
+    /// The Merge check command, trimmed; `None` when it is empty (d0120).
+    pub fn merge_check(&self) -> Option<&str> {
+        self.merge_check
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
     }
 }
 
@@ -1101,6 +1120,16 @@ mod tests {
             serde_json::from_value::<ThemeSetting>(by_os).unwrap(),
             defaults.theme
         );
+    }
+
+    #[test]
+    fn the_merge_check_is_empty_by_default_and_read_trimmed() {
+        assert_eq!(ProjectSettings::default().merge_check(), None);
+        let set: ProjectSettings =
+            read_or_default(serde_json::json!({"merge_check": "  npm test \n"}));
+        assert_eq!(set.merge_check(), Some("npm test"));
+        let blank: ProjectSettings = read_or_default(serde_json::json!({"merge_check": "   "}));
+        assert_eq!(blank.merge_check(), None);
     }
 
     #[test]

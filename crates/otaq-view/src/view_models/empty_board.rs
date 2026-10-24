@@ -49,12 +49,14 @@ pub struct Button {
     pub action: KeyAction,
 }
 
-/// "⌘N new ticket" under the button.
+/// "⌘N new ticket" under the button: a button too, running the action its key runs (d0126: a hint that looked like a
+/// link but wasn't one left the keyboard on the board, finding 5 of the 2026-10-24 dogfood report).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EmptyBoardHint")]
 pub struct Hint {
     pub keys: Option<String>,
     pub label: &'static str,
+    pub action: KeyAction,
 }
 
 /// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket, the
@@ -93,6 +95,7 @@ pub fn view(name: &str, keys: &KeyLabels) -> View {
             keys.label(action).map(|keys| Hint {
                 keys: Some(keys),
                 label,
+                action,
             })
         })
         .collect(),
@@ -143,6 +146,17 @@ mod tests {
                 ("⌘L".to_owned(), "ask the Project agent")
             ]
         );
+    }
+
+    /// d0126: each hint is a button that runs its key's action (⌘L opens the Project agent, focused).
+    #[test]
+    fn the_hints_run_their_keys_actions() {
+        let actions: Vec<KeyAction> = view("shop-web", &fixtures::base())
+            .hints
+            .iter()
+            .map(|h| h.action)
+            .collect();
+        assert_eq!(actions, [KeyAction::NewTicket, KeyAction::FocusPane]);
     }
 
     #[test]

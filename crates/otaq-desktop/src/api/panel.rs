@@ -25,8 +25,8 @@ use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
-    CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
-    ProjectParams, Reply, Request, SessionListParams, SetChoiceParams, SubmitByUserParams, UsageParams,
+    CloseParams, CommentsParams, DeliverNowParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
+    ProjectParams, Reply, Request, SessionListParams, SessionTarget, SetChoiceParams, SubmitByUserParams, UsageParams,
     ValidationActionParams,
 };
 use otaq_core::session::deliveries::Delivery;
@@ -39,6 +39,7 @@ use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
+use otaq_view::view_models::build_aside::{self, BuildAsideLine};
 use otaq_view::view_models::comments;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
@@ -78,6 +79,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.mark_closed" => reply(&mark_closed(app, parse(params)?).await?),
         "panel.answer" => reply(&answer(app, parse(params)?).await?),
         "panel.card" => reply(&card(app, parse(params)?).await?),
+        "panel.send_again" => reply(&send_again(app, parse(params)?).await?),
         "panel.reopen_parent" => reply(&reopen_parent(app, parse(params)?).await?),
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
@@ -409,6 +411,9 @@ pub struct View {
     pub path: Option<PathView>,
     /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
     pub open_agent: Option<String>,
+    /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
+    /// on the Overview and at the top of the Run and Shell.
+    pub build_aside: Option<BuildAsideLine>,
 }
 
 /// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
@@ -702,6 +707,7 @@ pub fn view_of(f: &Facts) -> View {
         choices: f.agents.and_then(stage_choices::panel_choices),
         path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
+        build_aside: build_aside::line(ticket),
     }
 }
 
@@ -1093,6 +1099,7 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             validation_request(&key, ValidationAction::MoveToReview, ""),
             format!("{key} can\u{2019}t be moved to Review"),
         ),
+        Action::StopMergeCheck => return stop_merge_check(app, &key).await,
         Action::OpenPrInBrowser => {
             let url = ticket(app, &key)
                 .await?
@@ -1120,6 +1127,25 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
         Ok(_) => Ok(()),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// Stop on "Merging · running the merge check" (d0120, Q475): on a connection of its own, since the Local merge it
+/// stops may be waiting on the shared one (an automatic Delivery after a move). The merge answers that nothing was
+/// merged; a check that already ended is a toast.
+async fn stop_merge_check(app: &App, key: &str) -> Result<(), RequestError> {
+    match app
+        .service
+        .send_alone(Request::TicketMergeCheckStop(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s merge check can\u{2019}t be stopped"), &e);
             Err(e)
         }
     }
@@ -1541,6 +1567,7 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         CardActionKind::MarkMerged => {
             return action(app, panel_action(Action::MarkMerged)).await.map(|()| Sent::Done);
         }
+        CardActionKind::StopMergeCheck => return stop_merge_check(app, &params.key).await.map(|()| Sent::Done),
         CardActionKind::DeliverNow => (
             strip::deliver_now_request(
                 &key,
@@ -1593,6 +1620,50 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// What `panel.send_again` takes: the ticket, and whether the terminal's typed line is cleared first.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelSendAgainParams")]
+pub struct SendAgainParams {
+    pub key: String,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+/// `panel.send_again` (d0118): the hand-off its agent hasn't picked up, typed again as the user's click; unsent text in
+/// its terminal asks first (d0048).
+pub async fn send_again(app: &App, params: SendAgainParams) -> Result<Sent, RequestError> {
+    let key = key_of(&params.key)?;
+    let request = Request::SessionSendAgain(DeliverNowParams {
+        target: SessionTarget {
+            key: Some(params.key.clone()),
+            ..Default::default()
+        },
+        clear_first: params.clear,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
+            let kind = ticket(app, &params.key)
+                .await?
+                .and_then(|t| t.flags.hand_off)
+                .unwrap_or(otaq_core::domain::HandOffKind::SendBack);
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    key,
+                    None,
+                    actions::send_again_sending(kind),
+                    strip::Click::SendAgain,
+                )
+                .unclearable_by(unclearable_by),
+            )))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s hand-off wasn\u{2019}t sent again"), &e);
             Err(e)
         }
     }
@@ -2035,7 +2106,7 @@ mod tests {
         let sessions = [agent(SessionState::Running)];
         let view = view_of(&facts(&working, &all, &sessions));
         assert_eq!((view.key.as_str(), view.title.as_str()), ("SHOP-19", "Price table"));
-        assert_eq!(labels(&view), ["Open terminal", "Run"]);
+        assert_eq!(labels(&view), ["Open agent session", "Run"]);
         assert_eq!(view.run, None, "no Run up, no pill");
         assert_eq!(view.signal.as_ref().unwrap().text, "40s ago");
         assert_eq!(view.tokens.as_ref().unwrap().text, "182k");
@@ -2279,15 +2350,15 @@ mod tests {
             pending: 2,
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)"]);
-        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back"]);
+        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)", "Run"]);
+        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back", "Run"]);
         assert!(!view.approve_opens_menu);
         // DEC-05: open recorded decisions; Local merge / Open PR move into ▾.
         let view = view_of(&Facts {
             decisions: 1,
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back"]);
+        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back", "Run"]);
         assert!(view.approve_opens_menu);
         assert_eq!(view.approve_more, Some("Approve choices"));
         // In another flow (FLW-14): Pass and Fail, Fail sending the pending comments.
@@ -2300,8 +2371,8 @@ mod tests {
             });
             labels(&view).into_iter().map(str::to_owned).collect()
         };
-        assert_eq!(custom(2, 0), ["Pass", "Fail (2)"]);
-        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail"]);
+        assert_eq!(custom(2, 0), ["Pass", "Fail (2)", "Run"]);
+        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail", "Run"]);
         let view = view_of(&Facts {
             custom_flow: true,
             ..facts(&review, &all, &[])

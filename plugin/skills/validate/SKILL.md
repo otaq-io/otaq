@@ -56,11 +56,18 @@ the worktree: your check runs' output goes there (see "Long output").
    or, when nothing fails (notes are fine):
 
    ```sh
-   otaq check pass --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'VERDICT'
+   otaq check pass --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+     --manual-check "In Safari, the discount shows on the checkout page after a reload" <<'VERDICT'
    Pass: the discount applies to the total; `npm test` passes (run attached); no leftovers.
    Note: UI for adding items: covered by SHOP-40.2
    VERDICT
    ```
+
+   **What you couldn't check yourself** (it needs a real browser, a device, or a service you can't reach) goes in
+   `--manual-check "<what to check>"`, one line per check, repeated for each, on `check pass` or `check fail`. The
+   user sees them as "Manual checks for you" at review. Never write that "the PR" or "a manual test" will cover it:
+   the flow may merge without a PR. Each verdict replaces this check's earlier unticked ones, so list again the ones
+   that still apply. Something you could check but didn't is not a manual check: run it.
 
 ## Long output
 

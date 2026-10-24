@@ -37,11 +37,18 @@ time.
    it in `prime`. Attach long output, such as your last test run, as a report (see "Long output" below):
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'COMMENT'
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+     --manual-check "On a phone, the price table scrolls sideways and the header stays put" <<'COMMENT'
    Added the price table with sorting by price and name. Prices align right; the table scrolls on mobile widths.
    `npm test` passes (run attached).
    COMMENT
    ```
+
+   **List what you couldn't check yourself** with `--manual-check "<what to check>"`, one line per check, repeated
+   for each: something that needs a real browser, a device, or a service you can't reach. The user sees them as
+   "Manual checks for you" at review and ticks them. Never leave a check to "the PR" or "a manual test later": the
+   flow may merge without a PR, and then nobody would try it. Each `stage next` replaces your stage's unticked
+   checks, so after a failed check or a Send back list again the ones that still apply.
 
    If you learned something a later ticket should know (an API shape, a trap, a file others will touch), end the
    comment with a line that starts `Notes for later tickets:`. In an epic, the lead reads it and passes it on.

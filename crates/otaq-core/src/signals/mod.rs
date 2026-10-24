@@ -12,8 +12,9 @@
 //! every session anyway (its tickets become Interrupted, [`crate::recovery`]).
 //!
 //! [`state::transition`] is the state machine: hook signals, `ask human`, any other `otaq` command of the
-//! agent, and Enter in the ticket's terminal (ATT-01, ATT-02, ATT-04). Every hook and command also moves the
-//! ticket's **last signal** (ATT-05). The status, its text and the last signal are stored on the ticket.
+//! agent that acts, and Enter in the ticket's terminal (ATT-01, ATT-02, ATT-04). Every hook and such command also
+//! moves the ticket's **last signal** (ATT-05). The status, its text and the last signal are stored on the ticket;
+//! the ticket's open question is read from the store at each step and holds Asks you (d0119).
 //!
 //! Hook status changes are not written to the History tab (they come several times per turn).
 
@@ -42,7 +43,7 @@ use crate::session::deliveries::IdleSignal;
 use crate::session::{ModelRan, SessionError, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
-pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, signal};
+pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, reports_activity, signal};
 pub use model_refused::Refusals;
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
@@ -194,6 +195,7 @@ impl Signals {
             .adapters
             .get(tool)
             .map_hook(event, payload, context);
+        self.tool_reported(caller, &events);
         if events.is_empty() {
             return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
         }
@@ -489,8 +491,32 @@ impl Signals {
         })
     }
 
-    /// The agent ran a `otaq` command (other than `hook` and `ask human`): it is active, so any turquoise
-    /// label clears (ATT-02) and the last signal moves (ATT-05).
+    /// `caller`'s tool reported `events` (a hook, or a read of its watched file): when one says where the agent's turn
+    /// is ([`reports_activity`]), the ticket's hand-off is picked up (d0118). The status line's model never is.
+    pub fn tool_reported(&self, caller: &Caller, events: &[crate::agent_tools::ToolEvent]) {
+        if events.iter().any(reports_activity) {
+            self.agent_active(caller);
+        }
+    }
+
+    /// The ticket's agent did something of its own (its tool reported its turn, or it ran an `otaq` command that isn't
+    /// the status line's bookkeeping): a hand-off typed into its session is picked up (d0118).
+    pub fn agent_active(&self, caller: &Caller) {
+        if let Caller::Agent {
+            ticket, ticket_id, ..
+        } = caller
+            && self.inner.board.hand_offs().picked_up(ticket_id)
+        {
+            self.inner.events.publish(Event::TicketChanged {
+                project: ticket.project.to_string(),
+                id: ticket_id.clone(),
+                key: ticket.clone(),
+            });
+        }
+    }
+
+    /// The agent ran an `otaq` command that acts ([`crate::service::AgentActivity::Acts`]): it is active, so Needs
+    /// you and Idle clear (ATT-02, never an open question, d0119) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
         if let Caller::Agent { ticket_id, .. } = caller {
             self.inner.board.overlaps().touch(ticket_id);
@@ -516,8 +542,28 @@ impl Signals {
     }
 
     /// Enter was pressed in the ticket's terminal: the user answered, so the needs-you label clears (ATT-02).
-    pub async fn enter(&self, ticket_id: &str) -> Result<(), BoardError> {
+    /// `line` is what was sent from the agent's own terminal (none from a validator's): while the ticket has an open
+    /// question and no permission prompt shows on top of it, a line that isn't empty answers it (d0119).
+    pub async fn enter(&self, ticket_id: &str, line: Option<&str>) -> Result<(), BoardError> {
+        if let Some(line) = line
+            && self.status_of(ticket_id).await? != Some(Status::NeedsYou)
+            && let Some(question) = self.inner.board.answer_in_terminal(ticket_id, line).await?
+        {
+            tracing::info!(
+                ticket = ticket_id,
+                question = question.id,
+                "question answered in the terminal"
+            );
+        }
         self.apply(ticket_id, &Input::Enter).await
+    }
+
+    async fn status_of(&self, ticket_id: &str) -> Result<Option<Status>, BoardError> {
+        let state: Option<String> = sqlx::query_scalar("SELECT state FROM tickets WHERE id = ?")
+            .bind(ticket_id)
+            .fetch_optional(self.inner.board.store().pool())
+            .await?;
+        Ok(state.and_then(|s| s.parse().ok()))
     }
 
     /// The user answered the agent from the inbox (or the card or panel): the needs-you label clears (ATT-02).
@@ -585,6 +631,13 @@ impl Signals {
         };
         // An agent that waits for the user during a validation is marked so (interrupted_from validating).
         let behind = interrupted_from.as_deref() == Some(Status::Checking.as_str());
+        // The store decides (d0119): an open question holds Asks you.
+        let question = self
+            .inner
+            .board
+            .open_user_question(ticket_id)
+            .await?
+            .map(|q| q.text);
         let before = SignalState {
             status,
             text,
@@ -594,6 +647,7 @@ impl Signals {
             validating: status == Status::Checking
                 || status == Status::CheckerNeedsYou
                 || (behind && status.is_agent_waiting()),
+            question,
         };
         let after = transition(&before, input, now_ms());
         if after == before {

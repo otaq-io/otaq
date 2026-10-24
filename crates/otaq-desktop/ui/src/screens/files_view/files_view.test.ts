@@ -29,6 +29,7 @@ import {
   viewStates,
   withFile,
   withFilter,
+  withPick,
 } from "./logic";
 
 vi.mock("../../tauri", () => ({
@@ -230,6 +231,28 @@ describe("the picker (FIL-07, s28-04)", () => {
     expect(coupon.map((s) => s.title)).toEqual(["TICKETS · THEIR WORKTREE"]);
     expect(coupon[0]?.rows.map((r) => r.key)).toEqual(["SHOP-29"]);
     expect(pickerSections(PICKER, "shop-40")[0]?.rows[0]?.title).toBe("Wishlist · SHOP-40");
+  });
+});
+
+describe("your own worktrees (#43)", () => {
+  it("picking one shows its tree afresh; the base and a ticket clear it", () => {
+    const onBase = { ...FIRST, filter: "changed" as const, file: "src/a.ts", open: new Set(["src"]) };
+    const mine = withPick(onBase, { kind: "worktree", path: "/work/habitat-experiment" });
+    expect([mine.worktree, mine.picked, mine.file, mine.filter, mine.open.size]).toEqual([
+      "/work/habitat-experiment",
+      null,
+      null,
+      "all",
+      0,
+    ]);
+    const same = withPick(
+      { ...mine, file: "accent.css" },
+      { kind: "worktree", path: "/work/habitat-experiment" },
+    );
+    expect(same.file).toBe("accent.css");
+    expect(withPick(mine, { kind: "base" }).worktree).toBeNull();
+    const ticket = withPick(mine, { kind: "ticket", key: "SHOP-29" });
+    expect([ticket.worktree, ticket.picked]).toEqual([null, "SHOP-29"]);
   });
 });
 

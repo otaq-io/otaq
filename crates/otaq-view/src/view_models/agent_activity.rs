@@ -7,8 +7,10 @@ use std::time::{Duration, Instant};
 
 use otaq_core::board::change_note::change_parts;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Actor, TicketKey};
+use otaq_core::domain::{Actor, Status, TicketKey};
 use otaq_core::signals::LIVE;
+
+use crate::view_models::toasts::{NewToast, ToastLevel};
 
 /// Tickets an agent creates within this quiet time make one toast (a `create -f` batch arrives as one burst).
 pub const BATCH_QUIET: Duration = Duration::from_millis(800);
@@ -45,49 +47,81 @@ pub fn fresh_from_project_agent(ticket: &Ticket, now_ms: i64) -> bool {
         && (0..FRESH_MS).contains(&(now_ms - ticket.created_at))
 }
 
-/// Collects agent-created tickets until a quiet moment, then gives one toast for them all.
+/// A ticket an agent created, as the service told it (`created_by_agent`, #47).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Created {
+    /// Who created it, as the toast names it: "DEMO-7" (a ticket's agent) or "Wishlist lead".
+    pub by: String,
+    pub key: TicketKey,
+    /// Where it landed: Backlog, or Ready for Dev in its epic's queue.
+    pub status: Status,
+}
+
+/// Collects agent-created tickets until a quiet moment, then gives one toast per creator and column.
 #[derive(Debug, Default)]
 pub struct CreationBatch {
-    items: Vec<(TicketKey, String)>,
+    items: Vec<Created>,
     last: Option<Instant>,
 }
 
 impl CreationBatch {
     /// Notes a ticket an agent created (seen for the first time).
-    pub fn add(&mut self, ticket: &Ticket, now: Instant) {
-        if ticket.created_by.is_agent() && !self.items.iter().any(|(k, _)| k == &ticket.key) {
-            self.items.push((ticket.key.clone(), ticket.title.clone()));
+    pub fn add(&mut self, created: Created, now: Instant) {
+        if !self.items.iter().any(|c| c.key == created.key) {
+            self.items.push(created);
             self.last = Some(now);
         }
     }
 
-    /// The toast (title, text) once nothing new arrived for [`BATCH_QUIET`]; the batch is then empty again.
-    pub fn take_if_quiet(&mut self, now: Instant) -> Option<(String, String)> {
-        let last = self.last?;
-        if now.duration_since(last) < BATCH_QUIET || self.items.is_empty() {
-            return None;
+    /// The toasts once nothing new arrived for [`BATCH_QUIET`], one per creator and column in the order they came;
+    /// the batch is then empty again.
+    pub fn take_if_quiet(&mut self, now: Instant) -> Vec<NewToast> {
+        let Some(last) = self.last else {
+            return Vec::new();
+        };
+        if now.duration_since(last) < BATCH_QUIET {
+            return Vec::new();
         }
-        let items = std::mem::take(&mut self.items);
         self.last = None;
-        Some(creation_toast(&items))
+        let mut groups: Vec<(String, Status, Vec<TicketKey>)> = Vec::new();
+        for c in std::mem::take(&mut self.items) {
+            match groups
+                .iter_mut()
+                .find(|(by, status, _)| *by == c.by && *status == c.status)
+            {
+                Some((_, _, keys)) => keys.push(c.key),
+                None => groups.push((c.by, c.status, vec![c.key])),
+            }
+        }
+        groups
+            .iter()
+            .map(|(by, status, keys)| creation_toast(by, keys, *status))
+            .collect()
     }
 }
 
-/// "Ticket created by agent" / "SHOP-29 Add cart analytics → Backlog", or for a batch "3 tickets created by agent"
-/// / "SHOP-29, SHOP-30, SHOP-31 → Backlog".
-pub fn creation_toast(items: &[(TicketKey, String)]) -> (String, String) {
-    match items {
-        [(key, title)] => (
-            format!("Ticket {CREATED_BY_AGENT}"),
-            format!("{key} {title} → Backlog"),
-        ),
-        _ => {
-            let keys: Vec<String> = items.iter().map(|(k, _)| k.to_string()).collect();
-            (
-                format!("{} tickets {CREATED_BY_AGENT}", items.len()),
-                format!("{} → Backlog", keys.join(", ")),
-            )
-        }
+/// "Ticket created by agent" · "DEMO-7 created DEMO-12 → Backlog", or for a batch "3 tickets created by agent" ·
+/// "DEMO-7 created DEMO-12, DEMO-13, DEMO-14 → Backlog". A click on a one-ticket toast opens that ticket.
+pub fn creation_toast(by: &str, keys: &[TicketKey], status: Status) -> NewToast {
+    let title = match keys {
+        [_] => format!("Ticket {CREATED_BY_AGENT}"),
+        _ => format!("{} tickets {CREATED_BY_AGENT}", keys.len()),
+    };
+    let list: Vec<String> = keys.iter().map(ToString::to_string).collect();
+    NewToast {
+        ticket: match keys {
+            [key] => Some(key.to_string()),
+            _ => None,
+        },
+        ..NewToast::new(
+            ToastLevel::Success,
+            title,
+            Some(format!(
+                "{by} created {} \u{2192} {}",
+                list.join(", "),
+                status.label()
+            )),
+        )
     }
 }
 
@@ -186,31 +220,65 @@ mod tests {
         assert!(!fresh_from_project_agent(&t, 3_000));
     }
 
+    fn made(by: &str, key: &str, status: Status) -> Created {
+        Created {
+            by: by.into(),
+            key: key.parse().unwrap(),
+            status,
+        }
+    }
+
     #[test]
-    fn one_toast_per_burst() {
+    fn one_toast_per_burst_naming_the_creator_and_the_tickets() {
         let t0 = Instant::now();
         let mut batch = CreationBatch::default();
-        batch.add(&by_agent("SHOP-29", "Add cart analytics"), t0);
-        assert_eq!(batch.take_if_quiet(t0 + Duration::from_millis(100)), None);
+        batch.add(made("DEMO-7", "DEMO-12", Status::Backlog), t0);
+        assert_eq!(batch.take_if_quiet(t0 + Duration::from_millis(100)), []);
+        let toasts = batch.take_if_quiet(t0 + BATCH_QUIET);
+        assert_eq!(toasts.len(), 1);
+        assert_eq!(toasts[0].level, ToastLevel::Success);
+        assert_eq!(toasts[0].title, "Ticket created by agent");
         assert_eq!(
-            batch.take_if_quiet(t0 + BATCH_QUIET),
-            Some((
-                "Ticket created by agent".into(),
-                "SHOP-29 Add cart analytics → Backlog".into()
-            ))
+            toasts[0].text.as_deref(),
+            Some("DEMO-7 created DEMO-12 \u{2192} Backlog")
         );
-        assert_eq!(batch.take_if_quiet(t0 + BATCH_QUIET * 3), None, "emptied");
+        assert_eq!(
+            toasts[0].ticket.as_deref(),
+            Some("DEMO-12"),
+            "a click opens it"
+        );
+        assert_eq!(batch.take_if_quiet(t0 + BATCH_QUIET * 3), [], "emptied");
 
-        for (n, key) in ["SHOP-30", "SHOP-31", "SHOP-32"].iter().enumerate() {
+        // A burst: one toast per creator and column, seen twice counts once.
+        for (n, key) in ["DEMO-13", "DEMO-14", "DEMO-15", "DEMO-13"]
+            .iter()
+            .enumerate()
+        {
             batch.add(
-                &by_agent(key, "x"),
+                made("DEMO-7", key, Status::Backlog),
                 t0 + Duration::from_millis(100 * n as u64),
             );
         }
-        batch.add(&ticket("SHOP-33", "mine", Status::Backlog), t0);
-        let (title, text) = batch.take_if_quiet(t0 + Duration::from_secs(5)).unwrap();
-        assert_eq!(title, "3 tickets created by agent");
-        assert_eq!(text, "SHOP-30, SHOP-31, SHOP-32 → Backlog");
+        batch.add(made("Wishlist lead", "DEMO-40.5", Status::Queued), t0);
+        let toasts = batch.take_if_quiet(t0 + Duration::from_secs(5));
+        let shown: Vec<(&str, Option<&str>)> = toasts
+            .iter()
+            .map(|t| (t.title.as_str(), t.text.as_deref()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "3 tickets created by agent",
+                    Some("DEMO-7 created DEMO-13, DEMO-14, DEMO-15 \u{2192} Backlog")
+                ),
+                (
+                    "Ticket created by agent",
+                    Some("Wishlist lead created DEMO-40.5 \u{2192} Ready for Dev")
+                ),
+            ]
+        );
+        assert_eq!(toasts[0].ticket, None);
     }
 
     #[test]

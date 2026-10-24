@@ -21,8 +21,18 @@ pub const NO_RESULT: &str = "Validation ended without a result";
 pub const DISCARDED: &str = "Validation discarded: the validator changed files";
 /// A Delivery's free rebase conflicted; the agent is rebasing with `restack`, no click (FLW-17).
 pub const MERGE_CONFLICT_FIXING: &str = "Merge conflict · fixing";
+/// Local merge runs the project's Merge check on the merged result before the target moves (d0120).
+pub const MERGE_CHECK_RUNNING: &str = "Merging · running the merge check";
+/// The Merge check failed: nothing merged, the agent fixes it with `restack`, no click (d0120).
+pub const MERGE_CHECK_FAILED_FIXING: &str = "Merge check failed · fixing";
 /// Done through an automatic local Delivery (FLW-15, AMG-02).
 pub const MERGED_AUTOMATICALLY: &str = "Merged automatically";
+
+/// "Conflicts with main · fixing": the test merge after another ticket merged found a conflict while this one waited
+/// in Review, and its agent rebases with `restack`, no click (d0127). `target` is the branch it merges into.
+pub fn conflicts_fixing(target: &str) -> String {
+    format!("Conflicts with {target} \u{b7} fixing")
+}
 
 /// "Validation failed 3 times": the last round failed (VAL-06).
 pub fn failed_times(times: u32) -> String {
@@ -91,6 +101,36 @@ pub const DELIVERED_WITHOUT_CHECKS: &str = "Delivered without checks";
 /// "Keeps conflicting with `main`": a Delivery's third conflict in a row (FLW-17, AMG-03).
 pub fn keeps_conflicting(target: &str) -> String {
     format!("Keeps conflicting with `{target}`")
+}
+
+/// "Merge check keeps failing on `main`": a Delivery's third conflict or failed Merge check in a row, the last one a
+/// failed check (d0120).
+pub fn keeps_failing_merge_check(target: &str) -> String {
+    format!("Merge check keeps failing on `{target}`")
+}
+
+/// The comment a failed Merge check posts, with the output attached (d0120, d0109): "Merge check `npm test` failed on
+/// the result rebased onto main (exit 1). Fix it, then submit again." `exit` is `None` when a signal ended it.
+pub fn merge_check_failed(command: &str, target: &str, exit: Option<i32>) -> String {
+    let exit = exit.map_or_else(|| "killed by a signal".to_owned(), |c| format!("exit {c}"));
+    format!(
+        "Merge check `{command}` failed on the result rebased onto {target} ({exit}). Fix it, then submit again."
+    )
+}
+
+/// What a live agent session is typed after `restack` when the Merge check failed (CMT-05: the hand-over named, never
+/// its text): "SHOP-19's merge check failed on the result rebased onto `main`; the comment has its output. Run `otaq
+/// prime`."
+pub fn merge_check_failed_told(key: &super::TicketKey, target: &str) -> String {
+    format!(
+        "{key}'s merge check failed on the result rebased onto `{target}`; the comment has its output. Run `{} prime`.",
+        crate::naming::COMMAND_NAME
+    )
+}
+
+/// "Couldn't deliver · git commit failed (exit 1): …": an automatic Delivery's git step failed (d0121).
+pub fn delivery_failed(reason: &str) -> String {
+    format!("Couldn\u{2019}t deliver \u{b7} {reason}")
 }
 
 stored_enum! {
@@ -214,10 +254,15 @@ stored_enum! {
     pub enum AutoMergeStop ("auto-merge stop") {
         /// Three conflicts in a row: "Keeps conflicting with `<target>`".
         KeepsConflicting = "keeps_conflicting",
+        /// Three conflicts or failed Merge checks in a row, the last a failed check: "Merge check keeps failing on
+        /// `<target>`" (d0120).
+        KeepsFailingMergeCheck = "keeps_failing_merge_check",
         /// The base diverged from its remote (GIT-01).
         BaseDiverged = "base_diverged",
         /// The user's checkout of the target branch has uncommitted changes (GIT-03).
         CheckoutDirty = "checkout_dirty",
+        /// A git step of the automatic Delivery failed (a hook refused the commit): "Couldn't deliver · …" (d0121).
+        DeliveryFailed = "delivery_failed",
     }
 }
 

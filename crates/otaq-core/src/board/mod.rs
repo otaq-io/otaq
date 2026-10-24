@@ -1,6 +1,7 @@
 //! The board's rules: projects, tickets, epics, dependencies, moves and pins (SDD §6, §7). The service calls
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
+pub mod agent_created;
 pub mod agent_edits;
 pub mod batch;
 pub mod change_note;
@@ -15,7 +16,9 @@ pub mod epics;
 pub mod files;
 pub mod hand_over;
 pub mod human_check;
+pub mod manual_checks;
 pub mod merge;
+pub mod merge_check;
 pub mod moves;
 pub mod needs_you;
 pub mod order;
@@ -24,6 +27,7 @@ pub mod project_files;
 pub mod projects;
 pub mod questions;
 pub mod readiness;
+pub mod remote;
 pub mod reports;
 pub mod review;
 pub mod send_back;
@@ -45,6 +49,7 @@ use crate::domain::stored_enum;
 use crate::epic_lead::overlap::Overlaps;
 use crate::epic_lead::wake::LeadLink;
 use crate::git::{Git, GitError};
+use crate::session::hand_offs::HandOffs;
 use crate::store::{Store, StoreError};
 use crate::terminals::run::RunPorts;
 
@@ -60,8 +65,12 @@ pub struct Board {
     limit_stops: LimitStops,
     /// Tickets whose Run is up, with its port: the card's `▶ :4020` (RUN-01).
     run_ports: RunPorts,
+    /// Tickets whose Merge check runs now: "Merging · running the merge check" (d0120).
+    merge_checks: merge_check::MergeChecks,
     /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
     overlaps: Overlaps,
+    /// Hand-offs typed into live sessions that their agents haven't picked up yet (d0118).
+    hand_offs: HandOffs,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
     project_files: project_files::ProjectFilesCache,
     /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
@@ -89,7 +98,9 @@ impl Board {
             focus: Focus::default(),
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
+            merge_checks: merge_check::MergeChecks::default(),
             overlaps: Overlaps::default(),
+            hand_offs: HandOffs::default(),
             project_files: Default::default(),
             leads: LeadLink::default(),
             trust: Trust::default(),
@@ -134,9 +145,19 @@ impl Board {
         &self.run_ports
     }
 
+    /// The Merge checks running now (d0120); Local merge keeps it.
+    pub fn merge_checks(&self) -> &merge_check::MergeChecks {
+        &self.merge_checks
+    }
+
     /// Running epic children's changed files; the scheduler's passes keep it.
     pub fn overlaps(&self) -> &Overlaps {
         &self.overlaps
+    }
+
+    /// The hand-offs waiting for their agents to pick them up (d0118); the deliveries and the signals share it.
+    pub fn hand_offs(&self) -> &HandOffs {
+        &self.hand_offs
     }
 
     /// The epic leads' side of board changes (d0083); the Project agents set it.
@@ -268,6 +289,8 @@ stored_enum! {
         ChoiceLocked = "choice_locked",
         /// A ticket comment over the size limit (CMT-02): the message says how long it is.
         TooLong = "too_long",
+        /// A `--manual-check` with a line break: each check is one line (d0125).
+        MultiLine = "multi_line",
         /// A comment's report can't be read or stored, or is over 20 MB (CMT-03, CMT-06); nothing was posted.
         BadReport = "bad_report",
         /// A Files path that isn't one of the ticket's files: absolute, with `..` or `.git`, or a symlink out of

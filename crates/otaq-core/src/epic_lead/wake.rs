@@ -15,8 +15,13 @@
 //!   open, it is **handed back** through the callback its owner registered with [`EpicLeads::on_hand_back`], which
 //!   sends it to the user as if no lead were live. Handovers live in memory: a restart ends the lead, and the
 //!   owners' own rows say what still waits.
+//! - **Children wait for the lead's turn** (d0124): a merge's or a close's wake-up is a handover of its own
+//!   ([`FREED`], [`EpicLeads::wake_for_finished`]). Until the turn it was typed in ends, or the lead ends, the epic's
+//!   children that the finished child held back don't start ([`LeadWait`]): "Waiting for the lead's update". Only that
+//!   turn counts: one the user starts by typing while the wake-up still waits isn't it. Nothing waits on a delay, and
+//!   it is all in memory: after a restart the lead is "Ended by restart", so nothing waits for it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -63,6 +68,8 @@ pub trait LeadEvents: Send + Sync {
     /// A child was added to, or reopened in, an epic that had reached Review: its lead (ended there) resumes with
     /// no message.
     fn epic_back<'a>(&'a self, epic: &'a TicketKey) -> Fut<'a, ()>;
+    /// What each live lead's epic children wait for (d0124), for the scheduler.
+    fn lead_waits(&self) -> Fut<'_, Vec<LeadWait>>;
     /// Whether the child's next stop would go to its lead (T-0285): a live lead, and the child's attempt unused.
     fn takes_stop<'a>(&'a self, child: &'a Ticket) -> Fut<'a, bool>;
     /// The child reached a stop (T-0285): whether its live lead took it as the child's first stop, which is then
@@ -71,9 +78,13 @@ pub trait LeadEvents: Send + Sync {
 }
 
 /// The board's link to the epic leads, set once the service has them. Without it (a board on its own) the calls
-/// do nothing. Cheap to clone.
+/// do nothing. It also keeps which tickets wait for their lead's update now (the scheduler's last pass), for the
+/// cards. Cheap to clone.
 #[derive(Clone, Default)]
-pub struct LeadLink(Arc<Mutex<Option<Arc<dyn LeadEvents>>>>);
+pub struct LeadLink {
+    events: Arc<Mutex<Option<Arc<dyn LeadEvents>>>>,
+    waiting: Arc<Mutex<HashSet<String>>>,
+}
 
 impl std::fmt::Debug for LeadLink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -83,11 +94,37 @@ impl std::fmt::Debug for LeadLink {
 
 impl LeadLink {
     pub fn set(&self, events: Arc<dyn LeadEvents>) {
-        *self.0.lock().expect("lead link") = Some(events);
+        *self.events.lock().expect("lead link") = Some(events);
     }
 
     fn get(&self) -> Option<Arc<dyn LeadEvents>> {
-        self.0.lock().expect("lead link").clone()
+        self.events.lock().expect("lead link").clone()
+    }
+
+    /// See [`LeadEvents::lead_waits`]; none without leads.
+    pub async fn lead_waits(&self) -> Vec<LeadWait> {
+        match self.get() {
+            Some(events) => events.lead_waits().await,
+            None => Vec::new(),
+        }
+    }
+
+    /// Whether the ticket waits for its lead's update ("Waiting for the lead's update", d0124).
+    pub fn waits_for_lead(&self, ticket_id: &str) -> bool {
+        self.waiting.lock().expect("lead waits").contains(ticket_id)
+    }
+
+    /// Whether any ticket waits for its lead's update now.
+    pub fn any_waiting(&self) -> bool {
+        !self.waiting.lock().expect("lead waits").is_empty()
+    }
+
+    /// The tickets that wait for their lead's update now (the scheduler's pass): those whose card changed.
+    pub fn set_waiting(&self, now: HashSet<String>) -> Vec<String> {
+        let mut waiting = self.waiting.lock().expect("lead waits");
+        let changed = waiting.symmetric_difference(&now).cloned().collect();
+        *waiting = now;
+        changed
     }
 
     /// See [`LeadEvents::epic_queued`]; false without leads.
@@ -145,6 +182,23 @@ impl LeadLink {
     }
 }
 
+/// The handover owner of a merge's or a close's wake-up (d0124): the children it freed wait for the turn it starts.
+pub const FREED: &str = "freed";
+
+/// An epic with a live lead, and what its children wait for (d0124).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeadWait {
+    pub epic: TicketKey,
+    /// When the lead's session started: a child that finished before it was never this session's to pass on.
+    pub since: i64,
+    /// Finished children whose turn ended (or whose wake-up couldn't be queued), by id, with when: they hold nothing
+    /// back unless they finished again after it.
+    pub released: HashMap<String, i64>,
+    /// The children each open turn's finished child held back when it finished, by id: they wait even when the lead
+    /// removes the link in that turn.
+    pub freed: HashSet<String>,
+}
+
 /// A question or a first stop sent to a lead, waiting for it to act (T-0284, T-0285).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Handover {
@@ -180,6 +234,10 @@ struct HandoversInner {
     /// Each lead's turn count, from its turns' Working hooks.
     turns: HashMap<String, u64>,
     callbacks: HashMap<&'static str, HandBack>,
+    /// By lead: the finished children whose turn hasn't ended, with the children each held back (d0124).
+    freed: HashMap<String, HashMap<String, Vec<String>>>,
+    /// By lead: the finished children whose turn ended, with when (d0124).
+    released: HashMap<String, HashMap<String, i64>>,
 }
 
 impl Handovers {
@@ -228,9 +286,52 @@ impl Handovers {
         back
     }
 
-    /// The lead `lead` ended: every open handover, taken out.
+    /// The lead `lead` ended: every open handover, taken out. Its children wait for it no more (d0124).
     pub(crate) fn lead_ended(&self, lead: &str) -> Vec<Handover> {
-        self.lock().open.remove(lead).unwrap_or_default()
+        let mut inner = self.lock();
+        inner.freed.remove(lead);
+        inner.released.remove(lead);
+        let mut open = inner.open.remove(lead).unwrap_or_default();
+        open.retain(|h| h.owner != FREED);
+        open
+    }
+
+    /// `child` (by id) finished while the lead `lead` was live: `held` (ids) wait for the turn about it (d0124).
+    pub(crate) fn freed(&self, lead: &str, child: &str, held: Vec<String>) {
+        self.lock()
+            .freed
+            .entry(lead.to_owned())
+            .or_default()
+            .insert(child.to_owned(), held);
+    }
+
+    /// The lead `lead`'s turn about `child` ended (or it couldn't be woken): what it held back may start.
+    pub(crate) fn release(&self, lead: &str, child: &str) {
+        let mut inner = self.lock();
+        if let Some(freed) = inner.freed.get_mut(lead) {
+            freed.remove(child);
+        }
+        inner
+            .released
+            .entry(lead.to_owned())
+            .or_default()
+            .insert(child.to_owned(), crate::store::now_ms());
+    }
+
+    /// What the lead `lead`'s epic children wait for, with its session's start.
+    fn wait_of(&self, lead: &str, epic: TicketKey, since: i64) -> LeadWait {
+        let inner = self.lock();
+        LeadWait {
+            epic,
+            since,
+            released: inner.released.get(lead).cloned().unwrap_or_default(),
+            freed: inner
+                .freed
+                .get(lead)
+                .into_iter()
+                .flat_map(|f| f.values().flatten().cloned())
+                .collect(),
+        }
     }
 
     fn settle(&self, owner: &str, reference: &str) -> bool {
@@ -251,9 +352,15 @@ impl Handovers {
         self.lock().open.get(lead).cloned().unwrap_or_default()
     }
 
-    /// Hands each handover back through its owner's callback.
+    /// Hands each handover back through its owner's callback. A merge's or a close's ([`FREED`]) releases the
+    /// children it held back.
     pub(crate) async fn hand_back(&self, handovers: Vec<Handover>) {
         for handover in handovers {
+            if handover.owner == FREED {
+                tracing::info!(child = %handover.child, epic = %handover.epic, "the lead's turn about it ended");
+                self.release(&handover.lead, &handover.reference);
+                continue;
+            }
             let callback = self.lock().callbacks.get(handover.owner).cloned();
             tracing::info!(
                 owner = handover.owner, child = %handover.child, epic = %handover.epic,
@@ -312,6 +419,45 @@ impl EpicLeads {
             return Ok(None);
         }
         Ok(Some(id))
+    }
+
+    /// Wakes the lead after `child` merged or was closed (LEAD-04), as a handover of its own ([`FREED`], d0124):
+    /// until the turn the wake-up is typed in ends, or the lead ends, `held` (ids of the epic's children that waited
+    /// for `child`) don't start. With no live lead, or when the wake-up can't be queued, nothing waits. Whether it
+    /// was queued.
+    pub async fn wake_for_finished(
+        &self,
+        epic: &str,
+        wake: Wake,
+        text: &str,
+        child: &Ticket,
+        held: Vec<String>,
+    ) -> Result<bool, BoardError> {
+        let Some(lead) = self.live_lead(epic).await? else {
+            tracing::debug!(epic, "no live lead to wake");
+            return Ok(false);
+        };
+        let id = &lead.agent.id;
+        // Before it is typed, so the turn's end always finds it.
+        self.handovers().freed(id, &child.id, held);
+        let woken = self
+            .wake_with_handover(epic, wake, text, FREED, &child.key, &child.id)
+            .await;
+        if !matches!(woken, Ok(Some(_))) {
+            self.handovers().release(id, &child.id);
+            self.lead_changed(&lead);
+        }
+        Ok(woken?.is_some())
+    }
+
+    /// What each live lead's epic children wait for (d0124): its session's start and its open and ended turns about
+    /// finished children.
+    pub async fn lead_waits(&self) -> Result<Vec<LeadWait>, BoardError> {
+        let mut waits = Vec::new();
+        for (lead, epic, since) in self.live_leads().await? {
+            waits.push(self.handovers().wait_of(&lead, epic, since));
+        }
+        Ok(waits)
     }
 
     /// The lead acted on a handover (answered, passed on, sent a note): it is no longer handed back. Whether it
@@ -438,6 +584,47 @@ mod tests {
         h.register(handover("9", "asks 9"));
         assert_eq!(h.lead_ended("lead").len(), 1);
         assert!(h.lead_ended("lead").is_empty());
+    }
+
+    /// d0124: a merge's handover releases its children at the end of its own turn, never by a callback; the lead
+    /// ending forgets it and hands nothing of it back.
+    #[tokio::test]
+    async fn a_merge_turn_releases_what_it_held_back() {
+        let h = Handovers::default();
+        let epic: TicketKey = "SHOP-40".parse().unwrap();
+        let mut merge = handover("m", "SHOP-40.1 merged: Wishlist API");
+        merge.owner = FREED;
+        merge.reference = "id-40.1".into();
+        h.freed("lead", "id-40.1", vec!["id-40.3".into()]);
+        h.register(merge.clone());
+        let wait = h.wait_of("lead", epic.clone(), 7);
+        assert_eq!(wait.freed, HashSet::from(["id-40.3".to_owned()]));
+        assert!(wait.released.is_empty());
+
+        // The user's own turn, while the wake-up still waits, isn't it.
+        h.turn_started("lead", &[merge.text.clone()]);
+        h.hand_back(h.turn_ended("lead")).await;
+        assert!(!h.wait_of("lead", epic.clone(), 7).freed.is_empty());
+        h.turn_started("lead", &[]);
+        h.hand_back(h.turn_ended("lead")).await;
+        let wait = h.wait_of("lead", epic.clone(), 7);
+        assert!(wait.freed.is_empty());
+        assert!(wait.released.contains_key("id-40.1"));
+
+        h.freed("lead", "id-40.2", vec!["id-40.4".into()]);
+        let mut close = handover("c", "SHOP-40.2 closed without merging: Export");
+        close.owner = FREED;
+        h.register(close);
+        assert!(h.lead_ended("lead").is_empty(), "nothing to hand back");
+        assert_eq!(
+            h.wait_of("lead", epic, 7),
+            LeadWait {
+                epic: "SHOP-40".parse().unwrap(),
+                since: 7,
+                released: HashMap::new(),
+                freed: HashSet::new(),
+            }
+        );
     }
 
     #[test]

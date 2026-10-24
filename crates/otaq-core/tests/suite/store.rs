@@ -22,6 +22,7 @@ const TABLES: &[&str] = &[
     "lead_stuck",
     "lead_suggestions",
     "limit_windows",
+    "manual_checks",
     "messages",
     "pending_deliveries",
     "pr_flows",
@@ -378,6 +379,25 @@ async fn one_row_round_trips_through_every_table() {
     assert_eq!(row.get::<i64, _>("round"), 2);
     assert_eq!(row.get::<i64, _>("report_lines"), 2310);
     assert_eq!(row.get::<Option<i64>, _>("deleted_at"), None);
+
+    sqlx::query(
+        "INSERT INTO manual_checks (id, ticket_id, n, body, author_kind, author_id, author_name, author_tool, \
+         stage_id, round, added_at) \
+         VALUES (?, ?, 1, 'In Safari, reload offline', 'agent', 'validator', 'Validator', 'claude', 'validate', 2, ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let ticked: Option<i64> =
+        sqlx::query_scalar("SELECT ticked_at FROM manual_checks WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(ticked, None);
 
     sqlx::query(
         "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, 1, 'send_back', ?)",

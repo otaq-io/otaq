@@ -639,7 +639,13 @@ async fn resume(
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)
                 .expect("resumed");
-            (s, format!("--resume {conversation}{flag}"))
+            (
+                s,
+                format!(
+                    "--resume {conversation}{flag} {}",
+                    otaq_core::recovery::carry_on_text()
+                ),
+            )
         }
         Resume::OpenPr => {
             let w = &world.w;

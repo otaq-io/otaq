@@ -496,6 +496,32 @@ impl EpicLeads {
     }
 
     /// Every live lead's session, with its tool.
+    /// Every live lead: its Project agent id, its epic, and when its session started (d0124).
+    pub(crate) async fn live_leads(&self) -> Result<Vec<(String, TicketKey, i64)>, BoardError> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id, epic_id FROM project_agents WHERE epic_id IS NOT NULL AND state = ?",
+        )
+        .bind(AgentState::Running.as_str())
+        .fetch_all(self.inner().board.store().pool())
+        .await?;
+        let mut live = Vec::new();
+        for (id, epic_id) in rows {
+            let agent = self.agents.get(&id).await?;
+            if is_live(&agent)
+                && let Some(session) = agent.session
+            {
+                let epic = self.inner().board.ticket_by_id(&epic_id).await?;
+                live.push((id, epic.key, session.started_at));
+            }
+        }
+        Ok(live)
+    }
+
+    /// Publishes that the lead changed, so the board and the scheduler look again.
+    pub(crate) fn lead_changed(&self, lead: &Lead) {
+        self.agents.changed(&lead.agent.project, &lead.agent.id);
+    }
+
     pub(crate) async fn live_sessions(&self) -> Result<Vec<(String, Option<Tool>)>, BoardError> {
         let ids: Vec<(String,)> =
             sqlx::query_as("SELECT id FROM project_agents WHERE epic_id IS NOT NULL AND state = ?")
@@ -859,7 +885,13 @@ impl EpicLeads {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                ..super::request(&self.inner().board, &project, LaunchRole::EpicLead, None).await
+                ..super::request(
+                    &self.inner().board,
+                    &project,
+                    LaunchRole::EpicLead,
+                    super::carry_on(agent.state),
+                )
+                .await
             },
         ) {
             Ok(launched) => launched,
@@ -964,9 +996,30 @@ impl LeadEvents for BoardLeadEvents {
                 Finished::Merged => (Wake::Merge, merged_text(&child.key, &child.title)),
                 Finished::Closed => (Wake::Close, closed_text(&child.key, &child.title)),
             };
-            if let Err(e) = leads.wake(&epic.to_string(), wake, &text).await {
+            // The siblings that waited for it wait for the lead's turn about it too (d0124).
+            let held = crate::scheduler::held_back_by(&leads.inner().board, child)
+                .await
+                .inspect_err(|e| tracing::warn!(child = %child.key, error = %e, "can't read the waiting siblings"))
+                .unwrap_or_default();
+            if let Err(e) = leads
+                .wake_for_finished(&epic.to_string(), wake, &text, child, held)
+                .await
+            {
                 tracing::warn!(%epic, child = %child.key, error = %e, "can't wake the epic's lead");
             }
+        })
+    }
+
+    fn lead_waits(&self) -> Fut<'_, Vec<crate::epic_lead::wake::LeadWait>> {
+        Box::pin(async move {
+            let Some(leads) = self.leads() else {
+                return Vec::new();
+            };
+            leads
+                .lead_waits()
+                .await
+                .inspect_err(|e| tracing::warn!(error = %e, "can't read what waits for the leads"))
+                .unwrap_or_default()
         })
     }
 

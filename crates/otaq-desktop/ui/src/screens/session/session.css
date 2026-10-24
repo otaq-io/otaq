@@ -7,6 +7,12 @@
   padding: 14px 24px 16px;
 }
 
+/* "The build was set aside to save disk · Run or Shell brings it back" above the Run or the Shell (d0125). */
+.session-build-aside {
+  flex: none;
+  padding-bottom: 10px;
+}
+
 .session .run-tab {
   padding: 0;
 }

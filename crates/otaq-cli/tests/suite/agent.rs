@@ -430,6 +430,68 @@ async fn stage_next_and_review_submit_both_move_the_ticket_on() {
     w.stop().await;
 }
 
+/// T-0498 (d0125): `otaq stage next --manual-check …` lists what the agent couldn't check for the user, one line
+/// each; `prime` shows them; a line break is refused and nothing moves.
+#[tokio::test(flavor = "multi_thread")]
+async fn stage_next_lists_manual_checks() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    validation_off(&w).await;
+    let ticket = w.board.ticket("SHOP-19").await.unwrap();
+    w.give_worktree(&ticket).await;
+    let agent = w.agent_shell(&ticket).await;
+    prime(&agent).await;
+
+    let refused = agent
+        .run_with_stdin(
+            &format!("'{CB}' stage next --stdin --manual-check \"$(printf 'Reload offline\\nOn a phone')\""),
+            "Done.",
+        )
+        .await;
+    assert_eq!(
+        (refused.status, refused.stderr.trim()),
+        (
+            1,
+            "error: A manual check is one line: give each check its own `--manual-check`"
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(w.status("SHOP-19").await, Status::Working);
+
+    let ran = agent
+        .run_with_stdin(
+            &format!(
+                "'{CB}' stage next --stdin --manual-check 'Production build: reload a visited page offline' \
+                 --manual-check 'Open a never-visited page offline'"
+            ),
+            "Pages cache for offline use.",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(w.status("SHOP-19").await, Status::WaitingForYou);
+    let checks = w.board.manual_checks("SHOP-19").await.unwrap();
+    assert_eq!(
+        checks
+            .items
+            .iter()
+            .map(|i| i.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Production build: reload a visited page offline",
+            "Open a never-visited page offline"
+        ]
+    );
+    assert_eq!(checks.unticked, 2);
+    let primed = agent.run(&format!("'{CB}' prime")).await;
+    assert!(
+        primed
+            .stdout
+            .contains("- [ ] Open a never-visited page offline \u{b7} "),
+        "{primed:?}"
+    );
+    w.stop().await;
+}
+
 /// T-0406 (AGM-10, d0033): `otaq stage done` with no commits beyond the base closes the ticket as Closed · nothing
 /// to merge with the reason; the session ends after its turn, and Reopen brings the ticket back. With commits it is
 /// refused.

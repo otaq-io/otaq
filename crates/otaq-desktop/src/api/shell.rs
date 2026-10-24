@@ -21,6 +21,7 @@ use otaq_view::shell::tilde;
 use otaq_view::view_models::activity::{self, Button as ActivityButton, Inputs};
 use otaq_view::view_models::flow_setup_page::{self, Header as HeaderFlowSetup};
 use otaq_view::view_models::limits::{self, Field, Popover};
+use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::project_menu::{self, ProjectMenu};
 use otaq_view::view_models::search_page;
 use otaq_view::view_models::switcher::{self, QuickRow, RAIL_WIDTH, RailBottom, RailItem};
@@ -317,7 +318,7 @@ async fn popover_with(app: &App, connected: &[AvatarTool]) -> Result<activity::P
 }
 
 /// The project rail, the 64 px column of tiles at every width, in the user's order.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "RailView")]
 pub struct Rail {
     /// The project to show: the page's selection while it exists, else the first one (`None`: no projects).
@@ -331,6 +332,8 @@ pub struct Rail {
     pub switch_keys: Option<String>,
     /// Terminals and Settings, under Cleanup.
     pub bottom: RailBottom,
+    /// A right-click on a tile: Project settings…, Rename…, Remove project… (#11).
+    pub project_menu: Vec<MenuItem>,
 }
 
 pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
@@ -371,6 +374,7 @@ pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
             .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
         switch_keys: model.keys.label(KeyAction::SwitchProject),
         bottom: switcher::bottom(&model.keys),
+        project_menu: project_menu::rail_menu(&model.keys),
     })
 }
 

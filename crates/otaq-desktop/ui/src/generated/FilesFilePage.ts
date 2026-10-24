@@ -12,6 +12,15 @@ export type FilesFilePage = { path: string, child: string | null, subtitle: stri
  */
 opens_in: FilesFileMode, 
 /**
+ * Unified · Split on its Diff: the same choice as All changes', kept for every ticket ([`ReviewMemory`],
+ * dogfood #61).
+ */
+split_modes: [string, string], side_by_side: boolean, 
+/**
+ * Below this width Split shows as Unified.
+ */
+side_by_side_from: number, 
+/**
  * Not for a deleted file.
  */
 can_file: boolean, 

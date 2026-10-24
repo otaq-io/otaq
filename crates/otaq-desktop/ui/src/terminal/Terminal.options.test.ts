@@ -213,3 +213,44 @@ describe("the terminal's drawing options", () => {
     ]);
   });
 });
+
+// T-0502 (dogfood #7): a wheel notch scrolls about 3 lines in WKWebView, a trackpad as far as the fingers (`wheel.ts`).
+describe("the terminal's wheel", () => {
+  function hostOf(): Element {
+    const host = container.querySelector(".terminal-host");
+    if (!host) throw new Error("no terminal host");
+    return host;
+  }
+
+  function wheel(deltaY: number, host: Element = hostOf()) {
+    // The xterm.js element inside the host, where the wheel lands.
+    const inner = document.createElement("div");
+    host.append(inner);
+    inner.dispatchEvent(new WheelEvent("wheel", { deltaY, deltaMode: 0, bubbles: true }));
+    inner.remove();
+  }
+
+  it("passes the scroll sensitivities to xterm.js", async () => {
+    const term = await mount();
+    expect(term.options).toMatchObject({ scrollSensitivity: 1, fastScrollSensitivity: 5 });
+  });
+
+  it("scrolls a notch's fractional pixels 12 times as far, a trackpad's whole pixels as they are", async () => {
+    const term = await mount();
+    const host = hostOf();
+    // A slow notch: 0.1 line of 40 px, fixed-point.
+    wheel(3.9996337890625);
+    expect(term.current.scrollSensitivity).toBe(12);
+    wheel(4);
+    expect(term.current.scrollSensitivity).toBe(1);
+    wheel(-4.000244140625);
+    expect(term.current.scrollSensitivity).toBe(12);
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    // Unmounted, the old terminal no longer follows the wheel.
+    wheel(4, host);
+    expect(term.current.scrollSensitivity).toBe(12);
+  });
+});

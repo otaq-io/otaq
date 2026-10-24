@@ -9,6 +9,8 @@
 //! - Posting, editing and deleting log `comment_posted`, `comment_edited` and `comment_deleted` with the actor.
 //! - A comment the user wrote with a new ticket ([`super::tickets::NewTicketInput::first_comment`], RPT-03) is marked
 //!   "at creation": its row's `stage_id` is [`AT_CREATION`] (a user's comment has no stage otherwise).
+//! - The user's comment can also tell the ticket's running agent or check to read it ([`tell_agent_line`], d0123);
+//!   the service queues that line as an automatic delivery.
 //! - Who may do what (CMT-04) is the policy's ([`crate::policy::Action::Comment`]); a check's checker posts only
 //!   through its verdict, which calls [`post_in`] itself.
 
@@ -37,6 +39,26 @@ pub const AT_CREATION: &str = "@creation";
 
 /// What a comment posted with its ticket says where its stage would: "You · at creation".
 pub const AT_CREATION_LABEL: &str = "at creation";
+
+/// The line typed into the running agent's session when the user's comment is posted with "Also tell the agent now"
+/// (d0123): "The user added comment 3. Run `otaq prime` to read it." The comment itself is never typed in.
+pub fn tell_agent_line(n: u32) -> String {
+    format!(
+        "The user added comment {n}. Run `{} prime` to read it.",
+        crate::naming::COMMAND_NAME
+    )
+}
+
+/// The session a ticked comment tells (d0123): the check's only while the ticket is checking (its status says so), else
+/// the ticket's agent's. A check that has just passed may still be closing while the ticket is in Review; it isn't told.
+pub fn told_session_kind(status: crate::domain::Status) -> crate::session::SessionKind {
+    use crate::domain::Status;
+    use crate::session::SessionKind;
+    match status {
+        Status::Checking | Status::CheckerNeedsYou => SessionKind::Validator,
+        _ => SessionKind::Agent,
+    }
+}
 
 /// The first comment of a new ticket (RPT-03): the user's line and, usually, the report the New ticket form took.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -741,6 +763,26 @@ async fn live_row(
 
 #[cfg(test)]
 mod tests {
+    /// d0123: a ticked comment tells the check only while the ticket is checking; else the agent.
+    #[test]
+    fn the_told_session_follows_the_status() {
+        use crate::domain::Status;
+        use crate::session::SessionKind;
+        assert_eq!(told_session_kind(Status::Checking), SessionKind::Validator);
+        assert_eq!(
+            told_session_kind(Status::CheckerNeedsYou),
+            SessionKind::Validator
+        );
+        for status in [
+            Status::Working,
+            Status::WaitingForYou,
+            Status::CheckFailed,
+            Status::CheckNoResult,
+        ] {
+            assert_eq!(told_session_kind(status), SessionKind::Agent, "{status:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

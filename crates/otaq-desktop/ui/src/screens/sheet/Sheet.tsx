@@ -373,11 +373,12 @@ export function useSheetKeys(view: PanelView | null): void {
   useEffect(() => {
     current.current = view;
   }, [view]);
-  // Esc in the Project agent's panel is the panel's (it folds): the sheet stays open (T-0458's Q-D).
+  // Esc in the Project agent's panel is the panel's (it folds): the sheet stays open (T-0458's Q-D). So is Esc while
+  // the panel lies expanded over the sheet (T-0502).
   useShortcut(
     "close_panel",
     useCallback(() => {
-      if (inAgentPanel()) return false;
+      if (inAgentPanel() || shellLayout.get().agentExpanded) return false;
       closeTicket();
       return true;
     }, []),

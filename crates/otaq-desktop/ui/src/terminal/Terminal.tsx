@@ -17,6 +17,9 @@ import type { TerminalSettings } from "../generated/TerminalSettings";
 import { keymap } from "../app/keyboard";
 import { useShortcut } from "../app/registry";
 import { focusTerminal, selection } from "../app/selection";
+import { useStore } from "../app/store";
+import type { TerminalLinkNote } from "../generated/TerminalLinkNote";
+import { noticesStore } from "../screens/notices/notices";
 import { watchView } from "../service";
 import { attachTerminal, request } from "../tauri";
 import { Icon } from "../theme/Icon";
@@ -49,12 +52,15 @@ import {
   takesInput,
   type TerminalState,
   terminalKey,
+  typingIn,
 } from "./state";
 import "./terminal.css";
+import { FAST_SCROLL_SENSITIVITY, followWheel, SCROLL_SENSITIVITY } from "./wheel";
+import { PLAIN_TEXT, plainTextOff } from "../components";
 
 /** What a host can ask of a terminal (its header strip's buttons). */
 export interface TerminalHandle {
-  /** Gives it the keyboard. */
+  /** Gives it the keyboard: now, or right after it opens when it isn't open yet (its font still loading). */
   focus(): void;
   /** Opens the find bar (as ⌘F / Ctrl+Shift+F does). */
   openFind(): void;
@@ -75,6 +81,9 @@ export interface TerminalProps {
   onState?: (state: TerminalState) => void;
   /** Where file paths in its output open (d0117 point 8); without it they aren't links. */
   files?: FilesPlace;
+  /** Takes the keyboard as soon as it opens (a terminal the user just asked for, d0126); read when its session
+   * attaches. What is typed before the session is live is sent once it is. */
+  focusWhenLive?: boolean;
   ref?: Ref<TerminalHandle>;
 }
 
@@ -109,7 +118,18 @@ function searchOptions(element: Element) {
   };
 }
 
-export function Terminal({ session, label, readOnly = false, onState, files, ref }: TerminalProps) {
+/** The terminal's own stream is lost while the link to the service looks fine (the notices haven't caught up). */
+const RECONNECTING_NOTE: TerminalLinkNote = { text: "Reconnecting… agents keep running", icon: "refresh-cw" };
+
+export function Terminal({
+  session,
+  label,
+  readOnly = false,
+  onState,
+  files,
+  focusWhenLive = false,
+  ref,
+}: TerminalProps) {
   const well = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -121,12 +141,20 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
   const [opened, setOpened] = useState(false);
   const findInput = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<TerminalState>(INITIAL_STATE);
+  // While the link to the service is down: "Reconnecting… agents keep running", or "Service stopped" (#58).
+  const linkNote = useStore(noticesStore)?.terminal_note ?? RECONNECTING_NOTE;
   const [settings, setSettings] = useState<TerminalSettings>();
   const [picked, setPicked] = useState<PickedSize>();
   const [find, setFind] = useState<Find>(CLOSED_FIND);
   // "⌘-click to open" at a link while ⌘ is held, in the box's coordinates.
   const [linkHint, setLinkHint] = useState<(LinkHint & { above: boolean }) | null>(null);
   const webglFailed = useRef(false);
+  // A focus asked for before xterm.js opened: served right after `term.open` (d0126).
+  const focusPending = useRef(false);
+  const wantsFocus = useRef(focusWhenLive);
+  useEffect(() => {
+    wantsFocus.current = focusWhenLive;
+  }, [focusWhenLive]);
   // Read at each click, so a host's new object doesn't attach the terminal again.
   const filesPlace = useRef(files);
   useEffect(() => {
@@ -170,7 +198,11 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
   useImperativeHandle(
     ref,
     () => ({
-      focus: () => xterm.current?.focus(),
+      focus: () => {
+        const term = xterm.current;
+        if (term?.element) term.focus();
+        else focusPending.current = true;
+      },
       openFind,
       jumpToLatest,
       changeFontSize: (delta: number) => {
@@ -199,20 +231,28 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
     let attach: number | undefined;
     let replaying = false;
     let newLines = 0;
+    // Typed while attaching, sent in order once live (`typingIn`).
+    let held: Outgoing[] = [];
+    if (wantsFocus.current) focusPending.current = true;
     const term = new XTerm({
       allowProposedApi: true,
       scrollback: SCROLLBACK,
       fontFamily: fontFamily(element),
       fontSize: INITIAL_STATE.fontSize,
       theme: terminalColors(getComputedStyle(element)),
-      disableStdin: true,
+      // Typing is taken while attaching too, and held until live (`typingIn`).
+      disableStdin: readOnly,
       cursorBlink: false,
       macOptionIsMeta: true,
       // Option-drag selects, also inside a tool that takes the mouse (d0117 point 3).
       macOptionClickForcesSelection: true,
       minimumContrastRatio: MINIMUM_CONTRAST_RATIO,
       drawBoldTextInBrightColors: false,
+      // About 3 lines per wheel notch in WKWebView; set again per wheel event (`followWheel`, T-0502).
+      scrollSensitivity: SCROLL_SENSITIVITY,
+      fastScrollSensitivity: FAST_SCROLL_SENSITIVITY,
     });
+    const unwheel = followWheel(element, term);
     // Before anything is written, the replay too.
     countWidthsAsUnicode11(term);
     const fit = new FitAddon();
@@ -316,8 +356,11 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
     );
     const sendInput = (data: Uint8Array, reply: boolean) => {
       // Answers to questions in the replayed output were for an earlier moment of the program: not sent.
-      if (readOnly || !takesInput(phase) || (reply && replaying)) return;
-      sender.push({ kind: "input", data, reply });
+      if (readOnly || (reply && replaying)) return;
+      const typing = typingIn(phase);
+      if (typing === "send") sender.push({ kind: "input", data, reply });
+      // The program's answers are for the moment they were asked; what the user typed waits for live.
+      else if (typing === "hold" && !reply) held.push({ kind: "input", data, reply });
     };
     const reportFocus = (now: boolean) => {
       request("terminal.focus", { session, focused: now }).catch(() => undefined);
@@ -392,14 +435,17 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
 
     const setPhase = (next: TerminalPhase) => {
       phase = next;
-      term.options.disableStdin = readOnly || !takesInput(next);
+      term.options.disableStdin = readOnly || typingIn(next) === "drop";
       term.options.cursorInactiveStyle = takesInput(next) ? "outline" : "none";
       if (takesInput(next)) {
         // The PTY follows this terminal's size; a new connection holds no focus until told (ATT-03).
         sender.push({ kind: "resize", cols: term.cols, rows: term.rows });
         if (focused) reportFocus(true);
+        for (const item of held) sender.push(item);
+        held = [];
       } else {
         sender.clear();
+        if (typingIn(next) === "drop") held = [];
       }
       update({ phase: next });
     };
@@ -475,16 +521,23 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
     void fontLoaded.then(() => {
       if (disposed) return;
       term.open(element);
+      // xterm.js sets these on its helper textarea itself today; kept here so an upgrade can't bring autocorrect back.
+      if (term.textarea) plainTextOff(term.textarea);
       term.textarea?.addEventListener("focus", onFocus);
       term.textarea?.addEventListener("blur", onBlur);
       sizeWatch.observe(element);
       fitToBox();
       setOpened(true);
+      if (focusPending.current) {
+        focusPending.current = false;
+        term.focus();
+      }
     });
 
     return () => {
       disposed = true;
       undrop();
+      unwheel();
       if (focused) onBlur();
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();
@@ -580,6 +633,7 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
         <div className="terminal-find" role="search">
           <Icon name="search" />
           <input
+            {...PLAIN_TEXT}
             ref={findInput}
             className="terminal-find-input"
             aria-label="Find in terminal"
@@ -649,8 +703,8 @@ export function Terminal({ session, label, readOnly = false, onState, files, ref
         )}
         {state.phase === "reconnecting" && (
           <div className="terminal-reconnecting" role="status">
-            <Icon name="refresh-cw" />
-            Reconnecting… agents keep running
+            <Icon name={linkNote.icon} />
+            {linkNote.text}
           </div>
         )}
       </div>

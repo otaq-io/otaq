@@ -5,16 +5,20 @@
 //! # `--json` shapes
 //!
 //! - `dep add` / `dep remove`: the dependent `Ticket` afterwards.
-//! - `dep tree`: `[{"key", "title", "status", "kind", "depth", "current"}]`, the Stack list in the panel's order.
+//! - `dep tree`: `{"key", "title", "kind", "status", "parents": [node], "children": [node]}`, each node
+//!   `{"key", "title", "kind", "status", "nodes": [node]}`: what it waits for (up) and what waits for it (down), each
+//!   ticket once (#9).
 //! - `dep cycles`: `[[key, …, key]]`, each loop starting and ending on the same ticket; `[]` when healthy.
 
-use otaq_core::board::stack::{empty_text, stack_rows};
+use otaq_core::board::deps::{DepNode, DepTree};
+use otaq_core::board::stack::empty_text;
 use otaq_core::data_dir::DataDir;
-use otaq_core::protocol::{DepParams, ErrorBody, ProjectParams, Reply, Request};
+use otaq_core::domain::{Status, TicketKey};
+use otaq_core::protocol::{DepParams, ErrorBody, KeyParams, ProjectParams, Reply, Request};
 
 use crate::cli::{DepCommand, GlobalArgs};
 use crate::output::Output;
-use crate::read::{get_ticket, list_tickets, unexpected};
+use crate::read::unexpected;
 use crate::service::{self, client_error, internal};
 use crate::target;
 
@@ -53,27 +57,16 @@ pub fn run(command: DepCommand, global: &GlobalArgs, out: &Output) -> Result<(),
                 out.print(&human, &ticket, Some(&ticket.key.to_string()));
             }
             DepCommand::Tree { key: k } => {
-                let current = get_ticket(&client, &key(k).await?.to_string()).await?;
-                let tickets = list_tickets(&client, current.key.project.as_str()).await?;
-                let rows = stack_rows(&current.key, &tickets);
-                let human = if rows.is_empty() {
-                    empty_text(&current.key)
-                } else {
-                    rows.iter()
-                        .map(|r| {
-                            let mark = if r.current { "  ← this ticket" } else { "" };
-                            format!(
-                                "{}{:<10} {:<22} {}{mark}",
-                                "  ".repeat(r.depth),
-                                r.key.to_string(),
-                                r.status.label(),
-                                r.title
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
+                let key = key(k).await?.to_string();
+                let tree = match client
+                    .request(Request::DepTree(KeyParams { key }))
+                    .await
+                    .map_err(client_error)?
+                {
+                    Reply::DepTree(t) => t,
+                    other => return Err(unexpected(&other)),
                 };
-                out.print(&human, &rows, Some(&current.key.to_string()));
+                out.print(&tree_text(&tree), &tree, Some(&tree.key.to_string()));
             }
             DepCommand::Cycles => {
                 let project = target::require_project(&client, &data, global).await?;
@@ -106,4 +99,39 @@ pub fn run(command: DepCommand, global: &GlobalArgs, out: &Output) -> Result<(),
         }
         Ok(())
     })
+}
+
+/// The ticket on top, then "Waits for:" and "Waited on by:" as indented trees, each ticket once (#9): a diamond's
+/// shared ticket shows under its nearest path only. A ticket without links says so.
+fn tree_text(tree: &DepTree) -> String {
+    if tree.parents.is_empty() && tree.children.is_empty() {
+        return empty_text(&tree.key);
+    }
+    let mut lines = vec![line(0, &tree.key, tree.status, &tree.title)];
+    for (heading, nodes) in [
+        ("Waits for:", &tree.parents),
+        ("Waited on by:", &tree.children),
+    ] {
+        if !nodes.is_empty() {
+            lines.push(heading.to_owned());
+            nodes_text(nodes, 1, &mut lines);
+        }
+    }
+    lines.join("\n")
+}
+
+fn nodes_text(nodes: &[DepNode], depth: usize, lines: &mut Vec<String>) {
+    for node in nodes {
+        lines.push(line(depth, &node.key, node.status, &node.title));
+        nodes_text(&node.nodes, depth + 1, lines);
+    }
+}
+
+fn line(depth: usize, key: &TicketKey, status: Status, title: &str) -> String {
+    format!(
+        "{}{:<10} {:<22} {title}",
+        "  ".repeat(depth),
+        key.to_string(),
+        status.label()
+    )
 }

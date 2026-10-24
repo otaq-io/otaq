@@ -6,6 +6,14 @@ import type { SizeClassBound } from "./SizeClassBound";
  */
 export type LayoutView = { classes: Array<SizeClassBound>, rail: number, 
 /**
- * The Project agent panel's width while it is open.
+ * The open panel's width before the window's bound: the dragged width, else [`AGENT_PANEL`].
  */
-agent_panel: number, };
+agent_panel: number, 
+/**
+ * The drag's bounds: the panel's narrowest, and what the board keeps ([`agent_panel_widest`]).
+ */
+agent_panel_min: number, board_min: number, 
+/**
+ * The edge's tooltip and name.
+ */
+agent_panel_edge: string, };

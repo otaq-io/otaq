@@ -79,7 +79,7 @@ pub struct Head {
 pub fn head(epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) -> Head {
     let p = progress_of(&epic.key, tickets);
     Head {
-        progress: format!("{} of {} merged", p.merged, p.total),
+        progress: p.label(),
         lead: lead
             .filter(|l| l.status != LeadStatus::None)
             .map(|l| LeadPill {

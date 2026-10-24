@@ -13,7 +13,7 @@
 import { type KeyboardEvent, memo, type PointerEvent, useLayoutEffect, useRef } from "react";
 
 import { paletteInk, toneInk } from "../../cards/look";
-import { Button, ToolAvatar, Tooltip } from "../../components";
+import { Button, PriorityChip, ToolAvatar, Tooltip } from "../../components";
 import { LeadStatus } from "../../components/LeadStatus";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { CardActionKind } from "../../generated/CardActionKind";
@@ -123,19 +123,23 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
             <span>{card.epic}</span>
           </span>
         )}
-        {card.blocks === null ? (
+        {card.blocks === null && card.priority === null ? (
           <Tooltip text={card.title}>
             <span className="list-row-title-text">{card.title}</span>
           </Tooltip>
         ) : (
           <span className="list-row-title-line">
+            {/* The card's priority chip before the title (#39): P1, P2, P4; Normal shows none. */}
+            {card.priority !== null && <PriorityChip priority={card.priority} />}
             <Tooltip text={card.title}>
               <span className="list-row-title-text">{card.title}</span>
             </Tooltip>
-            <span className="list-row-blocks">
-              <Icon name="link" size={11} />
-              <span>{card.blocks.tag}</span>
-            </span>
+            {card.blocks !== null && (
+              <span className="list-row-blocks">
+                <Icon name="link" size={11} />
+                <span>{card.blocks.tag}</span>
+              </span>
+            )}
           </span>
         )}
       </span>

@@ -583,7 +583,13 @@ impl ProjectAgents {
                 resume: Some(conversation),
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                ..request(&self.inner.board, &project, LaunchRole::ProjectAgent, None).await
+                ..request(
+                    &self.inner.board,
+                    &project,
+                    LaunchRole::ProjectAgent,
+                    carry_on(agent.state),
+                )
+                .await
             },
         );
         let started = match launched {
@@ -978,6 +984,8 @@ impl ProjectAgents {
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         if matches!(delivery, Delivery::Sent { .. }) {
+            // Continue answers its open question (d0119).
+            self.answered_in_terminal(id, message).await?;
             self.changed(&agent.project, id);
         }
         Ok(delivery)
@@ -1027,7 +1035,7 @@ impl ProjectAgents {
         Ok(out)
     }
 
-    /// The Project agent is at it again (any `otaq` command of it, or Enter in its terminal): a permission
+    /// The Project agent is at it again (an `otaq` command of it that acts, or Enter in its terminal): a permission
     /// prompt it waited on was answered (ATT-02).
     pub async fn active(&self, id: &str) -> Result<(), BoardError> {
         if self.clear_waiting(id) {
@@ -1037,8 +1045,9 @@ impl ProjectAgents {
         Ok(())
     }
 
-    /// Enter in a session's terminal: if it is a Project agent's, it is active.
-    pub async fn enter(&self, session: &str) -> Result<(), BoardError> {
+    /// Enter in a session's terminal: if it is a Project agent's, it is active. `line` (the first line sent that
+    /// isn't empty) answers its open question unless a permission prompt shows on top of it (d0119).
+    pub async fn enter(&self, session: &str, line: Option<&str>) -> Result<(), BoardError> {
         let agent: Option<(Option<String>,)> =
             sqlx::query_as("SELECT project_agent_id FROM sessions WHERE id = ?")
                 .bind(session)
@@ -1047,10 +1056,34 @@ impl ProjectAgents {
         match agent {
             Some((Some(agent),)) => {
                 self.lead_typed(&agent);
+                let prompt = self
+                    .inner
+                    .waiting
+                    .lock()
+                    .expect("waiting agents")
+                    .contains_key(&agent);
+                if let Some(line) = line.filter(|_| !prompt) {
+                    self.answered_in_terminal(&agent, line).await?;
+                }
                 self.active(&agent).await
             }
             _ => Ok(()),
         }
+    }
+
+    /// The user sent `line` to the Project agent `id` (Enter in its terminal, or the Ask bar's Continue): it answers
+    /// the agent's open question, if any (d0119).
+    async fn answered_in_terminal(&self, id: &str, line: &str) -> Result<(), BoardError> {
+        if let Some(question) = self.inner.board.answer_agent_in_terminal(id, line).await? {
+            tracing::info!(
+                agent = id,
+                question = question.id,
+                "question answered in the terminal"
+            );
+            let agent = self.get(id).await?;
+            self.changed(&agent.project, id);
+        }
+        Ok(())
     }
 
     fn clear_waiting(&self, id: &str) -> bool {
@@ -1089,14 +1122,8 @@ impl ProjectAgents {
                 question,
                 since,
             };
-            if let Some(q) = &agent.question {
-                items.push(item(
-                    Status::AsksYou,
-                    format!("asks: {}", q.text.trim()),
-                    Some(q.clone()),
-                    q.asked_at,
-                ));
-            } else if let Some(prompt) = &agent.needs_you {
+            // A permission prompt shows on top of its question (d0119).
+            if let Some(prompt) = &agent.needs_you {
                 let since = self
                     .inner
                     .waiting
@@ -1109,6 +1136,13 @@ impl ProjectAgents {
                     format!("permission: {}", prompt.trim()),
                     None,
                     since,
+                ));
+            } else if let Some(q) = &agent.question {
+                items.push(item(
+                    Status::AsksYou,
+                    format!("asks: {}", q.text.trim()),
+                    Some(q.clone()),
+                    q.asked_at,
                 ));
             }
         }
@@ -1460,6 +1494,13 @@ impl ProjectAgents {
                 .publish(Event::LeadChanged { project, epic });
         }
     }
+}
+
+/// What a resumed Project agent or epic lead in `state` is told first (d0122): "Carry on where you left off" after
+/// a restart; nothing when the user reopens one that ended (Recently ended).
+fn carry_on(state: AgentState) -> Option<FirstPrompt> {
+    matches!(state, AgentState::EndedByRestart | AgentState::Paused)
+        .then(|| FirstPrompt::Text(crate::recovery::CARRY_ON_PROJECT_AGENT.to_owned()))
 }
 
 /// A new conversation in `project`'s own folder for `role`, with no ticket and no port, told the theme in use; the

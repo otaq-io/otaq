@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { openOverlay } from "../../app/overlays";
 import { type OverlayProps, useShortcut } from "../../app/registry";
 import { selectProject } from "../../app/selection";
-import { Kbd, useDismiss } from "../../components";
+import { Kbd, useDismiss, PLAIN_TEXT } from "../../components";
 import type { QuickSwitcherParams } from "../../generated/QuickSwitcherParams";
 import type { QuickSwitcherRow } from "../../generated/QuickSwitcherRow";
 import type { QuickSwitcherView } from "../../generated/QuickSwitcherView";
@@ -116,6 +116,7 @@ export function QuickSwitcher({ close }: OverlayProps<"quick_switcher">) {
       <div className="quick-input">
         <Icon name="folder-git-2" size={15} />
         <input
+          {...PLAIN_TEXT}
           // The switcher opens to type into.
           // eslint-disable-next-line jsx-a11y/no-autofocus -- ⌘P opens it to type a project's name at once
           autoFocus

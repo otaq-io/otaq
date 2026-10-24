@@ -1,17 +1,35 @@
 // The app frame (*24 → Row · The two views*, *Row · The Project agent*; SHB-01, d0113): the header row (also the title
 // bar), the banner area across the window that pushes everything under it down, then **rail | Project agent panel
-// (only while open, 420 px, pushing the board) | main area**. The main area holds the board (no Board | Files tabs:
+// (only while open, 420 px until its edge is dragged, pushing the board; expanded, over the board) | main area**.
+// The main area holds the board (no Board | Files tabs:
 // the project Files view is the toolbar's third view, FIL-01); the ticket sheet opens over its right side (SHL-05) and the Ask bar
-// floats at its bottom centre. The overlay and toast hosts go over everything. Each slot is filled by the screen
+// floats at the bottom centre of what the sheet leaves of the board (#21). The overlay and toast hosts go over everything. Each slot is filled by the screen
 // registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import "./frame.css";
 import { OVERLAY_HOST_ID, playEnterWhenReady, playLeave, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import { DRAG_REGION } from "../tauri";
 import { useTheme } from "../theme/theme";
-import { layoutView, loadLayout, mainWidth, type ShellLayout, shellLayout } from "./layout";
+import {
+  agentPanelWidth,
+  keepAgentPanelWidth,
+  layoutView,
+  loadLayout,
+  mainWidth,
+  type ShellLayout,
+  shellLayout,
+  useWindowWidth,
+} from "./layout";
 import { closeOverlay, useOpenOverlays } from "./overlays";
 import { type OverlayId, type OverlayProps, type SlotId, useRegistries } from "./registry";
 import { useSelection } from "./selection";
@@ -71,13 +89,27 @@ function OverlayHost() {
  * closes, staying mounted until the slide ends (OT-6, 0095). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
  * changes only its width, so the drag stays instant.
  */
-function PanelLayer({ open }: { open: boolean }) {
+function PanelLayer({ open, onWidth }: { open: boolean; onWidth: (width: number) => void }) {
   const layer = useRef<HTMLDivElement>(null);
   const { mounted, leaving, done } = usePresence(open);
   useLayoutEffect(
     () => (mounted && layer.current ? playEnterWhenReady(layer.current, "panel") : undefined),
     [mounted],
   );
+  // Its width, so the Ask bar stays on the board beside it (#21); 0 once it is gone.
+  useLayoutEffect(() => {
+    const element = layer.current;
+    if (!mounted || element === null || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      onWidth(element.offsetWidth);
+    });
+    observer.observe(element);
+    onWidth(element.offsetWidth);
+    return () => {
+      observer.disconnect();
+      onWidth(0);
+    };
+  }, [mounted, onWidth]);
   useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
   if (!mounted) return null;
   return (
@@ -88,14 +120,101 @@ function PanelLayer({ open }: { open: boolean }) {
 }
 
 /**
- * The Project agent panel's column (SHB-01, d0113): the panel at 420 px between the rail and the main area while it is
- * open, pushing the board; nothing while it is closed. It stays mounted closed, so its terminal keeps its place.
+ * The panel's right edge (T-0502): dragging it sets the panel's width between Rust's bounds, kept when the drag ends;
+ * a double-click goes back to the default width. The drag itself stays on the page.
  */
-function AgentColumn({ view, open }: { view: LayoutView; open: boolean }) {
+function AgentEdge({
+  view,
+  width,
+  windowWidth,
+  onDrag,
+}: {
+  view: LayoutView;
+  width: number;
+  windowWidth: number;
+  onDrag: (width: number | null) => void;
+}) {
+  const start = useRef<{ x: number; width: number } | null>(null);
+  const dragged = useRef<number | null>(null);
+  const down = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    start.current = { x: e.clientX, width };
+    dragged.current = null;
+  };
+  const move = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const from = start.current;
+    if (!from) return;
+    dragged.current = agentPanelWidth(view, windowWidth, from.width + e.clientX - from.x);
+    onDrag(dragged.current);
+  };
+  const up = () => {
+    const kept = dragged.current;
+    start.current = null;
+    dragged.current = null;
+    if (kept === null) return;
+    keepAgentPanelWidth(kept).then(
+      () => {
+        onDrag(null);
+      },
+      (error: unknown) => {
+        onDrag(null);
+        console.error("the panel's width couldn't be kept", error);
+      },
+    );
+  };
   return (
-    <div className="frame-agent" data-slot="agent_panel" data-open={open || undefined}>
-      <div className="frame-agent-body" style={{ width: view.agent_panel }} hidden={!open}>
+    <div
+      className="frame-agent-edge"
+      // A pointer's handle, as the flow editor's grips: the panel's width has no key of its own.
+      aria-hidden="true"
+      title={view.agent_panel_edge}
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+      onDoubleClick={() => {
+        keepAgentPanelWidth(null).catch((error: unknown) => {
+          console.error("the panel's width couldn't be reset", error);
+        });
+      }}
+    />
+  );
+}
+
+/**
+ * The Project agent panel's column (SHB-01, d0113): the panel between the rail and the main area while it is open,
+ * pushing the board, its right edge dragged to resize it; nothing while it is closed. Expanded (T-0502), the column
+ * keeps its width, so the board stays where it is, and the panel lies over the board up to the window's right edge. It
+ * stays mounted closed, so its terminal keeps its place.
+ */
+function AgentColumn({
+  view,
+  open,
+  expanded,
+  windowWidth,
+}: {
+  view: LayoutView;
+  open: boolean;
+  expanded: boolean;
+  windowWidth: number;
+}) {
+  // The width during a drag of the edge, until Rust's view has the kept one.
+  const [dragging, setDragging] = useState<number | null>(null);
+  const width = dragging ?? agentPanelWidth(view, windowWidth);
+  const shown = expanded && windowWidth > 0 ? Math.max(windowWidth - view.rail, 0) : width;
+  return (
+    <div
+      className="frame-agent"
+      data-slot="agent_panel"
+      data-open={open || undefined}
+      data-expanded={expanded || undefined}
+      style={expanded ? { width } : undefined}
+    >
+      <div className="frame-agent-body" style={{ width: shown }} hidden={!open}>
         <Slot id="agent_panel" />
+        {!expanded && <AgentEdge view={view} width={width} windowWidth={windowWidth} onDrag={setDragging} />}
       </div>
     </div>
   );
@@ -109,14 +228,34 @@ export interface FrameBodyProps {
   bannerFallback?: ReactNode;
   /** Gets the main area's element, to measure it. */
   mainRef?: (element: HTMLDivElement | null) => void;
+  /** The window's width, the panel's bound (0: none, as while the markup tests render). */
+  windowWidth?: number;
+}
+
+/**
+ * Where the Ask bar's layer ends on the right (#21): at the open ticket sheet's left edge, so the bar stays on the
+ * board instead of covering the sheet's footer; `null` (hidden) while the sheet fills the main area.
+ */
+export function askBarRight(ticketOpen: boolean, expanded: boolean, sheetWidth: number): number | null {
+  if (!ticketOpen) return 0;
+  return expanded ? null : sheetWidth;
 }
 
 /**
  * Everything under the hosts: header, banners, rail, the Project agent panel while open, the main area with the
- * ticket sheet and the Ask bar over it.
+ * ticket sheet and the Ask bar beside it.
  */
-export function FrameBody({ view, layout, ticketOpen, bannerFallback, mainRef }: FrameBodyProps) {
+export function FrameBody({
+  view,
+  layout,
+  ticketOpen,
+  bannerFallback,
+  mainRef,
+  windowWidth = 0,
+}: FrameBodyProps) {
   const expanded = layout.panelExpanded && ticketOpen;
+  const [sheetWidth, setSheetWidth] = useState(0);
+  const askRight = askBarRight(ticketOpen, expanded, sheetWidth);
   return (
     <>
       {/* The header row is the title bar: pressing its empty parts moves the window (T-0214). */}
@@ -133,16 +272,30 @@ export function FrameBody({ view, layout, ticketOpen, bannerFallback, mainRef }:
       <div className="frame-banners" data-slot="banners">
         <Slot id="banners" placeholder={bannerFallback} />
       </div>
-      {view && <AgentColumn view={view} open={layout.agentOpen} />}
+      {view && (
+        <AgentColumn
+          view={view}
+          open={layout.agentOpen}
+          expanded={layout.agentOpen && layout.agentExpanded}
+          windowWidth={windowWidth}
+        />
+      )}
       <div className="frame-main" ref={mainRef} data-expanded={expanded || undefined}>
         <div className="frame-board" data-slot="board">
           <Slot id="board" placeholder={<Placeholder name="Board" />} />
         </div>
-        <PanelLayer open={ticketOpen} />
-        {/* Over the board, the List and the ticket, at the bottom centre; it hides itself while the panel is open. */}
-        <div className="frame-ask" data-slot="ask_bar">
-          <Slot id="ask_bar" />
-        </div>
+        <PanelLayer open={ticketOpen} onWidth={setSheetWidth} />
+        {/* Over the board and the List, at the bottom centre of what the ticket sheet leaves of them; it hides
+            itself while the Project agent panel is open. */}
+        {askRight !== null && (
+          <div
+            className="frame-ask"
+            data-slot="ask_bar"
+            style={askRight > 0 ? { right: askRight } : undefined}
+          >
+            <Slot id="ask_bar" />
+          </div>
+        )}
       </div>
     </>
   );
@@ -159,6 +312,7 @@ export function Frame({ bannerFallback }: FrameProps) {
   const { ticket } = useSelection();
   const layout = useStore(shellLayout);
   const view = useStore(layoutView);
+  const windowWidth = useWindowWidth();
   useEffect(loadLayout, []);
   // The panel's widest is the main area minus what the board keeps, so the frame measures it.
   const observer = useRef<ResizeObserver | null>(null);
@@ -179,6 +333,7 @@ export function Frame({ bannerFallback }: FrameProps) {
         ticketOpen={ticket !== null}
         bannerFallback={bannerFallback}
         mainRef={mainRef}
+        windowWidth={windowWidth}
       />
       <OverlayHost />
       <div className="frame-layer" data-slot="toasts">

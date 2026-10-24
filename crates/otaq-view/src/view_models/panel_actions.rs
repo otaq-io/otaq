@@ -26,8 +26,10 @@ pub enum Action {
     /// Backlog → Dev (⌘D).
     Start,
     Edit,
-    /// Shows the Terminal tab.
+    /// Shows Session → Agent, where typing goes to the agent: labelled for that (Q467); the Shell is the tab beside it.
     OpenTerminal,
+    /// A hand-off the agent hasn't picked up (d0118): types it again, as the user's click (d0048).
+    SendAgain,
     /// Run (M9, T-0134).
     Run,
     /// Needs-you family: the Terminal tab, focused.
@@ -85,6 +87,8 @@ pub enum Action {
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
+    /// "Merging · running the merge check" (d0120, Q475): the check ends and nothing is merged.
+    StopMergeCheck,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -113,7 +117,8 @@ impl Action {
         match self {
             Self::Start => "Start",
             Self::Edit => "Edit",
-            Self::OpenTerminal => "Open terminal",
+            Self::OpenTerminal => "Open agent session",
+            Self::SendAgain => "Send again",
             Self::Run => "Run",
             Self::AnswerInTerminal => "Answer in terminal",
             Self::ViewParent => "View parent",
@@ -142,6 +147,7 @@ impl Action {
             Self::MoveToReview => "Move to Review",
             Self::ResumeLead => "Resume lead",
             Self::OpenAgent => "Open agent\u{2026}",
+            Self::StopMergeCheck => crate::view_models::card::STOP,
         }
     }
 
@@ -157,6 +163,7 @@ impl Action {
             Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
             Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
             Self::AnswerAgent => IconName::MessageSquare,
+            Self::SendAgain => IconName::Send,
             Self::Run => IconName::Play,
             Self::ViewParent => IconName::Link2,
             Self::Resume => IconName::Play,
@@ -169,6 +176,7 @@ impl Action {
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
+            Self::StopMergeCheck => IconName::Square,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
             Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
                 return None;
@@ -182,6 +190,7 @@ impl Action {
             Self::Start
             | Self::Edit
             | Self::OpenTerminal
+            | Self::SendAgain
             | Self::AnswerInTerminal
             | Self::ViewParent
             | Self::RetryStart
@@ -196,7 +205,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen | Self::ResumeLead => None,
-            Self::OpenAgent => None,
+            Self::OpenAgent | Self::StopMergeCheck => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveOnAnyway
@@ -207,6 +216,11 @@ impl Action {
             | Self::MoveToReview => None,
         }
     }
+}
+
+/// What Send again types, as the unsent-text question names it: "The hand-off again (Sent back)".
+pub fn send_again_sending(kind: otaq_core::domain::HandOffKind) -> String {
+    format!("The hand-off again ({})", card::hand_off_label(kind))
 }
 
 /// The Approve button's label (DEC-05, d0084): "Approve · keeps 1 decision" / "Approve · keeps 3 decisions" while
@@ -256,6 +270,10 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
     let s = ticket.status;
+    // While Local merge runs the Merge check, Stop is all there is to do (d0120): the merge finishes on its own.
+    if ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Running) {
+        return vec![(A::StopMergeCheck, Secondary)];
+    }
     if ticket.kind == Kind::Epic {
         // No Start on an epic: its children start (d0059). Its review flow is T-0109.
         // By the kind of stage it is in (STG-08): its Backlog, its human check, its Delivery, Done.
@@ -274,6 +292,14 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
             StatusSet::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
             _ => Vec::new(),
         };
+    }
+    // A hand-off typed in that the agent hasn't picked up (d0118): Send again first.
+    if card::pending_hand_off(ticket, s).is_some() {
+        let mut bar = vec![(A::SendAgain, Primary), (A::OpenTerminal, Secondary)];
+        if s == Status::Working {
+            bar.push((A::Run, Secondary));
+        }
+        return bar;
     }
     match s {
         Status::Backlog => vec![(A::Start, Primary), (A::Edit, Secondary)],
@@ -306,11 +332,20 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
         Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
-        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next.
-        Status::WaitingForYou if custom => vec![(A::Pass, Primary), (A::Fail, Secondary)],
-        Status::WaitingForYou => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
-        // Waits for the Delivery click (not on the default flow): Local merge or Open PR.
-        Status::ToDeliver => vec![(A::Approve, Primary)],
+        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next. Run tries the
+        // change, as during Dev (d0125); it brings a set-aside build back first.
+        Status::WaitingForYou if custom => vec![
+            (A::Pass, Primary),
+            (A::Fail, Secondary),
+            (A::Run, Secondary),
+        ],
+        Status::WaitingForYou => vec![
+            (A::Approve, Primary),
+            (A::SendBack, Secondary),
+            (A::Run, Secondary),
+        ],
+        // Waits for the Delivery click (not on the default flow): Local merge or Open PR; Run too (d0125).
+        Status::ToDeliver => vec![(A::Approve, Primary), (A::Run, Secondary)],
         Status::PrOpen => {
             // Epic children never offer the PR actions; they merge locally (d0059).
             if ticket.epic.is_some() {
@@ -483,6 +518,28 @@ mod tests {
             .collect()
     }
 
+    /// d0120: while Local merge runs the Merge check, the sheet's only button is Stop (Approve can't run twice).
+    #[test]
+    fn a_running_merge_check_offers_only_stop() {
+        for status in [Status::WaitingForYou, Status::ToDeliver] {
+            let mut t = ticket("SHOP-1", "t", status);
+            t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Running);
+            assert_eq!(buttons(&t), [(A::StopMergeCheck, Look::Secondary)]);
+            assert_eq!(
+                all_buttons_in(&t, true),
+                [(A::StopMergeCheck, Look::Secondary)]
+            );
+        }
+        assert_eq!(A::StopMergeCheck.label(), "Stop");
+        let mut t = ticket("SHOP-1", "t", Status::MergeConflictFixing);
+        t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Failed);
+        assert_eq!(
+            buttons(&t),
+            [(A::OpenTerminal, Look::Secondary)],
+            "the agent fixes it"
+        );
+    }
+
     fn all(status: Status) -> Vec<(Action, Look)> {
         all_buttons(&ticket("SHOP-1", "t", status))
     }
@@ -532,7 +589,11 @@ mod tests {
         assert_eq!(all(Status::StartInterrupted), [(A::RetryStart, Primary)]);
         assert_eq!(
             all(Status::WaitingForYou),
-            [(A::Approve, Primary), (A::SendBack, Secondary)]
+            [
+                (A::Approve, Primary),
+                (A::SendBack, Secondary),
+                (A::Run, Secondary)
+            ]
         );
         assert_eq!(
             all(Status::PrOpen),
@@ -547,6 +608,26 @@ mod tests {
         assert_eq!(all(Status::ClosedNotMerged), [(A::Reopen, Secondary)]);
     }
 
+    /// d0125: a ticket waiting in a human check or a click-mode Delivery offers Run next to Approve, as during Dev;
+    /// an open PR, a merged ticket and an epic don't.
+    #[test]
+    fn run_at_review() {
+        use Look::*;
+        let review = ticket("SHOP-22", "Offline habits", Status::WaitingForYou);
+        assert!(all_buttons(&review).contains(&(A::Run, Secondary)));
+        assert!(all_buttons_in(&review, true).contains(&(A::Run, Secondary)));
+        assert_eq!(
+            all(Status::ToDeliver),
+            [(A::Approve, Primary), (A::Run, Secondary)]
+        );
+        for status in [Status::PrOpen, Status::Merged, Status::Backlog] {
+            assert!(!all(status).iter().any(|(a, _)| *a == A::Run), "{status}");
+        }
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
+        epic.kind = Kind::Epic;
+        assert_eq!(all_buttons(&epic), [(A::Approve, Primary)]);
+    }
+
     /// FLW-14, FLW-16 (`s03-46`): in another flow a human check offers Pass · Fail; an open PR Send back with PR
     /// comments and an epic's open PR Add a child from PR comments on every flow.
     #[test]
@@ -554,7 +635,14 @@ mod tests {
         use Look::*;
         let custom = |t: &Ticket| all_buttons_in(t, true);
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        assert_eq!(custom(&review), [(A::Pass, Primary), (A::Fail, Secondary)]);
+        assert_eq!(
+            custom(&review),
+            [
+                (A::Pass, Primary),
+                (A::Fail, Secondary),
+                (A::Run, Secondary)
+            ]
+        );
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
@@ -717,6 +805,8 @@ mod tests {
             [(A::RetryMerge, Primary), (A::MoveToReview, Secondary)]
         );
         assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
+        // It opens the agent's session, not a shell (dogfood #42, Q467).
+        assert_eq!(A::OpenTerminal.label(), "Open agent session");
         assert_eq!(A::AnswerAgent.label(), "Answer the agent\u{2026}");
         assert_eq!(A::MoveOnAnyway.icon(), Some(IconName::Eye));
     }
@@ -850,6 +940,33 @@ mod tests {
         assert_eq!(
             refusal(&ticket("SHOP-28", "t", Status::StartInterrupted), None),
             None
+        );
+    }
+
+    /// Send again leads the bar while a hand-off waits for the agent (d0118), for each kind; gone once picked up.
+    #[test]
+    fn send_again_while_a_hand_off_waits_for_the_agent() {
+        use otaq_core::domain::HandOffKind;
+        for kind in HandOffKind::ALL {
+            let status = match kind {
+                HandOffKind::MergeConflict | HandOffKind::MergeCheck => Status::MergeConflictFixing,
+                _ => Status::Working,
+            };
+            let mut t = ticket("SHOP-18", "t", status);
+            t.flags.hand_off = Some(kind);
+            let bar = buttons(&t);
+            assert_eq!(bar[0], (A::SendAgain, Look::Primary), "{kind:?}");
+            assert!(bar.iter().any(|(a, _)| *a == A::OpenTerminal), "{kind:?}");
+            t.flags.hand_off = None;
+            assert!(
+                !buttons(&t).iter().any(|(a, _)| *a == A::SendAgain),
+                "{kind:?}"
+            );
+        }
+        assert_eq!(A::SendAgain.label(), "Send again");
+        assert_eq!(
+            send_again_sending(HandOffKind::SendBack),
+            "The hand-off again (Sent back)"
         );
     }
 }

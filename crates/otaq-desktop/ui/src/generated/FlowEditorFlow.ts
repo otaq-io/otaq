@@ -19,7 +19,11 @@ summary: string, watch: string,
 /**
  * A step's details are open: the animation folds to one line.
  */
-folded: boolean, fold_note: string, tiles: Array<FlowEditorTile>, steps: Array<FlowEditorStep>, add_stage: string, 
+folded: boolean, fold_note: string, 
+/**
+ * The walking ticket's key, from the project's own key: "SHOP-1", "DEMO-1".
+ */
+ticket_key: string, tiles: Array<FlowEditorTile>, steps: Array<FlowEditorStep>, add_stage: string, 
 /**
  * What Add a stage sends as `after`: the stage before the Delivery.
  */

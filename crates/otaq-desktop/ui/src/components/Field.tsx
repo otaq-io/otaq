@@ -1,7 +1,8 @@
 // Form pieces (*01 · Components → Badges & Inputs → Fields*): a labelled field with a hint or an error under it, the
 // text input and text area (the webview's own editing, selection and IME), the check box and the radio button.
 // Which error shows when comes from Rust (`fields.rs`: once touched, or from the service as it sent it).
-import { type ReactNode, type Ref, useId } from "react";
+import { type ReactNode, type Ref, useId, useLayoutEffect, useRef } from "react";
+import { PLAIN_TEXT, PROSE_TEXT } from "./plainText";
 
 export interface FieldProps {
   label?: string;
@@ -65,6 +66,7 @@ export function TextInput({
 }: TextProps) {
   return (
     <input
+      {...PLAIN_TEXT}
       ref={ref}
       id={id}
       className="text-input"
@@ -75,7 +77,6 @@ export function TextInput({
       aria-label={label}
       aria-invalid={invalid || undefined}
       data-mono={mono || undefined}
-      spellCheck={false}
       onChange={(e) => {
         onChange(e.target.value);
       }}
@@ -86,6 +87,8 @@ export function TextInput({
 
 interface TextAreaProps extends Omit<TextProps, "ref"> {
   rows?: number;
+  /** Grows with its text from `rows` lines up to a limit, then scrolls (a message of a sentence or two). */
+  grow?: boolean;
   ref?: Ref<HTMLTextAreaElement>;
 }
 
@@ -101,11 +104,25 @@ export function TextArea({
   disabled,
   label,
   rows = 3,
+  grow = false,
   ref,
 }: TextAreaProps) {
+  const own = useRef<HTMLTextAreaElement | null>(null);
+  useLayoutEffect(() => {
+    const el = own.current;
+    if (!grow || !el) return;
+    // Measured at its smallest, then grown to fit its text and borders; the CSS limit makes it scroll past that.
+    el.style.height = "auto";
+    el.style.height = `${String(el.scrollHeight + el.offsetHeight - el.clientHeight)}px`;
+  }, [grow, value]);
   return (
     <textarea
-      ref={ref}
+      {...PROSE_TEXT}
+      ref={(el) => {
+        own.current = el;
+        if (typeof ref === "function") return ref(el);
+        if (ref) ref.current = el;
+      }}
       id={id}
       className="text-input text-area"
       value={value}
@@ -115,6 +132,7 @@ export function TextArea({
       aria-label={label}
       aria-invalid={invalid || undefined}
       data-mono={mono || undefined}
+      data-grow={grow || undefined}
       onChange={(e) => {
         onChange(e.target.value);
       }}

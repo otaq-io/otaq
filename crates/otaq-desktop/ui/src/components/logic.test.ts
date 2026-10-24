@@ -4,6 +4,7 @@ import type { MenuItem } from "../generated/MenuItem";
 import {
   acceptsPress,
   chooseMenu,
+  codeSpans,
   defaultOutcome,
   dialogKey,
   EDGE,
@@ -215,5 +216,23 @@ describe("markStrokes", () => {
     const { outline, columns } = markStrokes(24);
     expect(outline).toBe(MARK_OUTLINE);
     expect(onScreen(columns, 24)).toBeCloseTo(MARK_MIN_STROKE);
+  });
+});
+
+describe("codeSpans", () => {
+  it("draws the backticked parts as code", () => {
+    expect(codeSpans("For example `npm test`.")).toEqual([
+      { text: "For example ", code: false },
+      { text: "npm test", code: true },
+      { text: ".", code: false },
+    ]);
+    expect(codeSpans("Runs `a` then `b`")).toEqual([
+      { text: "Runs ", code: false },
+      { text: "a", code: true },
+      { text: " then ", code: false },
+      { text: "b", code: true },
+    ]);
+    expect(codeSpans("no code")).toEqual([{ text: "no code", code: false }]);
+    expect(codeSpans("one ` tick")).toEqual([{ text: "one ` tick", code: false }]);
   });
 });

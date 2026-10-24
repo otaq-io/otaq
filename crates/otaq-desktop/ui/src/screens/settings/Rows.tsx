@@ -8,6 +8,7 @@ import {
   AnchoredMenu,
   Button,
   Checkbox,
+  CodeText,
   IconButton,
   pickTheme,
   Segmented,
@@ -544,7 +545,11 @@ function Row({ row }: { row: SettingsRow }) {
     <div className="settings-row" data-dimmed={row.dimmed || undefined}>
       <div className="settings-row-text">
         <span className="settings-row-label">{row.label}</span>
-        {row.description !== "" && <span className="settings-row-description">{row.description}</span>}
+        {row.description !== "" && (
+          <span className="settings-row-description">
+            <CodeText text={row.description} />
+          </span>
+        )}
       </div>
       <div className="settings-row-control">
         <Control row={row} />

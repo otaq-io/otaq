@@ -43,6 +43,8 @@ stored_enum! {
         ValidationFailed = "validation_failed",
         /// "Keeps conflicting with `<epic branch>`" (AMG-03, d0064).
         KeepsConflicting = "keeps_conflicting",
+        /// "Merge check keeps failing on `<epic branch>`" (d0120).
+        KeepsFailingMergeCheck = "keeps_failing_merge_check",
         /// Idle: the agent stopped and waits for input (ATT-01, d0042).
         Idle = "idle",
     }
@@ -88,6 +90,26 @@ pub struct ByLead {
     pub waits_for: Vec<TicketKey>,
 }
 
+/// Where a ticket's Merge check is (d0120): what the card and the sheet say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeCheckState {
+    /// Local merge runs it now, before the target moves; the user can stop it.
+    Running,
+    /// It failed: nothing was merged and the ticket's agent fixes it.
+    Failed,
+}
+
+impl MergeCheckState {
+    /// "Merging · running the merge check", "Merge check failed · fixing".
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Running => super::validation::MERGE_CHECK_RUNNING,
+            Self::Failed => super::validation::MERGE_CHECK_FAILED_FIXING,
+        }
+    }
+}
+
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
@@ -100,12 +122,26 @@ pub struct Flags {
     /// Conflicts with `<base>`: the base branch it conflicts with (d0038).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflicts_with: Option<String>,
+    /// The conflict came from the test merge after another ticket merged, while this one waited in Review (d0127):
+    /// while its agent fixes it the card says "Conflicts with main · fixing". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub conflict_in_review: bool,
     /// Changed since you reviewed it (d0043).
     #[serde(default, skip_serializing_if = "is_false")]
     pub changed_since_review: bool,
     /// N messages waiting to be typed into the session (d0048).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub messages_waiting: u32,
+    /// A hand-off typed into the live session that its agent hasn't picked up yet: "Sent back · waiting for the agent
+    /// to pick it up" (d0118). Cleared by the session's next hook or `otaq` command; never stored (a restart drops it).
+    /// Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hand_off: Option<super::HandOffKind>,
+    /// A waiting epic child that a sibling's merge freed waits for the lead's turn about it: "Waiting for the lead's
+    /// update" (d0124). From the scheduler's last pass; never stored (a restart drops it, and the lead with it).
+    /// Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub waiting_for_lead: bool,
     /// Run is running, on this port: `▶ :4020` (d0035).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_port: Option<u16>,
@@ -198,6 +234,10 @@ pub struct Flags {
     /// when it gave none). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nothing_to_merge: Option<String>,
+    /// The Merge check (d0120): "Merging · running the merge check" while Local merge runs it, "Merge check failed ·
+    /// fixing" while the agent fixes what it found. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_check: Option<MergeCheckState>,
     /// A Backlog ticket (not an epic) whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -341,8 +381,11 @@ mod tests {
                 decisions: 0,
             }),
             conflicts_with: Some("main".into()),
+            conflict_in_review: true,
             changed_since_review: true,
             messages_waiting: 2,
+            hand_off: None,
+            waiting_for_lead: true,
             run_port: Some(4020),
             updated_by_agent: true,
             answering: Some("SHOP-40.2".parse().unwrap()),
@@ -375,6 +418,7 @@ mod tests {
             delivered_without_checks: true,
             delivering_automatically: true,
             nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
+            merge_check: Some(MergeCheckState::Failed),
             ready_to_start: true,
             your_turn: true,
             same_file: vec![SameFile {

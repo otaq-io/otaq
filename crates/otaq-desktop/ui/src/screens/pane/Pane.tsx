@@ -1,11 +1,11 @@
 // The Project agent panel (T-0330, T-0458; SHL-04, SHB-03, PAG-01…PAG-07, ATT-03; d0113, d0087, d0068, d0060, d0077;
 // *18 · Project agents & terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states
 // (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent*): the `pane` slot, 420 px
-// between the rail and the main area while open. It shows one conversation, or the empty panel "Ask the Project
-// agent" whose first message starts one (d0087). Its header has "Project agent", the switcher (the conversation ▾),
-// the state pill, …, Recently ended, + and the close icon; then the agent line, Created and changed, its real
-// terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L and Esc (outside the terminal)
-// fold it back into the Ask bar. Everything it says comes from `pane.view`.
+// (or as dragged, T-0502) between the rail and the main area while open. It shows one conversation, or the empty panel
+// "Ask the Project agent" whose first message starts one (d0087). Its header has "Project agent", the switcher (the
+// conversation ▾), the state pill, …, Recently ended, +, Expand (T-0502) and the close icon; then the agent line,
+// Created and changed, its real terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L
+// and Esc (outside the terminal) fold it back into the Ask bar. Everything it says comes from `pane.view`.
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { shellLayout, useSizeClass, useWindowWidth } from "../../app/layout";
@@ -22,6 +22,7 @@ import {
   ToolAvatar,
   ToolProblemCallout,
   Tooltip,
+  PLAIN_TEXT,
 } from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { PaneAgent } from "../../generated/PaneAgent";
@@ -49,6 +50,7 @@ import {
   focusFits,
   focusTarget,
   hasChoice,
+  leaveExpand,
   newProjectAgent,
   type PaneFocusRequest,
   paneFocusRequests,
@@ -56,6 +58,7 @@ import {
   showAgent,
   shownAgents,
   startOn,
+  toggleExpandPane,
 } from "./logic";
 import { CloseAgentDialog, RecentList } from "./parts";
 
@@ -203,6 +206,7 @@ function NameField({
   const [draft, setDraft] = useState(name);
   return (
     <input
+      {...PLAIN_TEXT}
       className="pane-name-input"
       aria-label={label}
       value={draft}
@@ -360,6 +364,7 @@ function EmptyState({
       <div className="pane-composer">
         <div className="pane-input">
           <textarea
+            {...PLAIN_TEXT}
             ref={box}
             className="pane-box"
             rows={2}
@@ -370,10 +375,11 @@ function EmptyState({
               onDraft(e.target.value);
             }}
             onKeyDown={(e) => {
-              // Esc folds the panel (the box keeps its words, d0113); Enter sends, Shift+Enter is a new line.
+              // Esc leaves Expand, else folds the panel (the box keeps its words, d0113); Enter sends, Shift+Enter is a
+              // new line.
               if (e.key === "Escape") {
                 e.preventDefault();
-                closePane();
+                if (!leaveExpand()) closePane();
                 return;
               }
               if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
@@ -484,6 +490,7 @@ export interface PaneBodyProps {
 /** The pane for a loaded view (also what the gallery and the tests render). */
 export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) {
   const { header, running } = view;
+  const expanded = useStore(shellLayout).agentExpanded;
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [floating, setFloating] = useState<Floating>(null);
@@ -630,6 +637,12 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
           />
         )}
         <HeaderButton
+          button={expanded ? header.collapse : header.expand}
+          onClick={() => {
+            toggleExpandPane();
+          }}
+        />
+        <HeaderButton
           button={header.close}
           onClick={() => {
             closePane();
@@ -725,6 +738,11 @@ function foldFromInside(): boolean {
   return true;
 }
 
+/** Esc while expanded (`leaveExpand`), as a shortcut handler. */
+function leaveExpandKey(): boolean {
+  return leaveExpand();
+}
+
 /** One project's pane: asks `pane.view` for the agent the page shows, and opens on `opens_on` the first time. */
 function ProjectPane({ project }: { project: string }) {
   const shown = useStore(shownAgents);
@@ -752,6 +770,8 @@ function ProjectPane({ project }: { project: string }) {
     if (!chose && view?.opens_on != null) showAgent(project, view.opens_on);
   }, [chose, view?.opens_on, project]);
   useShortcut("close_panel", foldFromInside);
+  // Added after the fold, so tried before it: Esc leaves Expand first.
+  useShortcut("close_panel", leaveExpandKey);
   // The user looks at the shown conversation while the panel is open, until it closes or shows another: its replies
   // until then aren't new on the Ask bar (SHB-03).
   const open = useStore(shellLayout).agentOpen;

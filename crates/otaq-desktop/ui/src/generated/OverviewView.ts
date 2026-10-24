@@ -2,6 +2,7 @@
 import type { AttachmentRow } from "./AttachmentRow";
 import type { DescriptionLeaveDialog } from "./DescriptionLeaveDialog";
 import type { DescriptionSaveBar } from "./DescriptionSaveBar";
+import type { ManualChecksView } from "./ManualChecksView";
 import type { OverviewUsageLimit } from "./OverviewUsageLimit";
 
 /**
@@ -24,6 +25,10 @@ bar: DescriptionSaveBar, leave: DescriptionLeaveDialog,
  * "Mark as usage limit" in what it needs from you, while its agent is Idle (USG-07).
  */
 usage_limit: OverviewUsageLimit | null, 
+/**
+ * "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
+ */
+manual_checks: ManualChecksView | null, 
 /**
  * "Attachments · 3"; "Attachments" with none.
  */

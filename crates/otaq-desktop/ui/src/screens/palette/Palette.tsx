@@ -6,7 +6,7 @@ import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } fr
 
 import { type OverlayProps, useRegistries } from "../../app/registry";
 import { openTicket, selectProject, selection } from "../../app/selection";
-import { Kbd } from "../../components";
+import { Kbd, PLAIN_TEXT } from "../../components";
 import type { PaletteParams } from "../../generated/PaletteParams";
 import type { PaletteRow } from "../../generated/PaletteRow";
 import type { PaletteView } from "../../generated/PaletteView";
@@ -243,6 +243,7 @@ export function Palette({ params, close }: OverlayProps<"command_palette">) {
     <>
       {actionsOnly && <span className="palette-prefix">{ACTIONS_PREFIX}</span>}
       <input
+        {...PLAIN_TEXT}
         // The palette opens to type into.
         // eslint-disable-next-line jsx-a11y/no-autofocus -- ⌘K opens it to type at once
         autoFocus

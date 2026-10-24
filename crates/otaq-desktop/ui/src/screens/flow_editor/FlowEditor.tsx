@@ -29,6 +29,7 @@ import {
   TextInput,
   ToolAvatar,
   Tooltip,
+  PLAIN_TEXT,
 } from "../../components";
 import type { FlowEditorAgent } from "../../generated/FlowEditorAgent";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
@@ -199,7 +200,7 @@ function StartFromColumn({ start, actions }: { start: FlowEditorStartFrom; actio
 // ----------------------------------------------------------------------------------------------------------- The flow
 
 /** The animation: the walking ticket goes from tile to tile, and the caption under them follows it. */
-export function FlowAnimation({ tiles }: { tiles: readonly FlowEditorTile[] }) {
+export function FlowAnimation({ tiles, ticketKey }: { tiles: readonly FlowEditorTile[]; ticketKey: string }) {
   const [at, setAt] = useState(0);
   const still = useMemo(() => reducedMotion(), []);
   useEffect(() => {
@@ -233,7 +234,7 @@ export function FlowAnimation({ tiles }: { tiles: readonly FlowEditorTile[] }) {
             className="fe-anim-ticket"
             style={{ left: `calc(${String(width * index)}% + 6px)`, width: `calc(${String(width)}% - 12px)` }}
           >
-            <span className="fe-anim-key">SHOP-1</span>
+            <span className="fe-anim-key">{ticketKey}</span>
             <span className="fe-anim-state" data-palette={tile.tone.palette}>
               <span className="fe-anim-dot" />
               {tile.ticket}
@@ -855,7 +856,7 @@ function FlowColumn({
           {flow.fold_note}
         </div>
       ) : (
-        <FlowAnimation tiles={flow.tiles} />
+        <FlowAnimation tiles={flow.tiles} ticketKey={flow.ticket_key} />
       )}
       <div className="fe-flow-body">
         <StepList flow={flow} actions={actions} />
@@ -955,7 +956,7 @@ function Chooser({
   );
 }
 
-function AgentColumn({
+export function AgentColumn({
   agent,
   actions,
   input,
@@ -968,6 +969,8 @@ function AgentColumn({
 }) {
   const [text, setText] = useState("");
   const [choosing, setChoosing] = useState(false);
+  // The first message was sent from here: the agent's terminal takes the keyboard once it opens (#51, d0126).
+  const [sent, setSent] = useState(false);
   const chipsRow = useRef<HTMLDivElement>(null);
   return (
     <aside className="fe-agent" aria-label={agent.title}>
@@ -984,10 +987,24 @@ function AgentColumn({
       <div className="fe-agent-body">
         {agent.session !== null ? (
           <div className="fe-agent-terminal">
-            <Terminal key={agent.session} session={agent.session} label={agent.title} ref={terminal} />
+            <Terminal
+              key={agent.session}
+              session={agent.session}
+              label={agent.title}
+              focusWhenLive={sent}
+              ref={terminal}
+            />
           </div>
         ) : (
-          <div className="fe-agent-idle">
+          // A click anywhere in the idle panel is a click in its prompt (#51: a click beside the `>` line left the
+          // keyboard where it was).
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the prompt inside takes the keys; this only widens where a click lands
+          <div
+            className="fe-agent-idle"
+            onClick={(e) => {
+              if (e.target !== input.current) input.current?.focus();
+            }}
+          >
             {agent.hint.map((line) => (
               <p key={line} className="fe-agent-hint">
                 {line}
@@ -996,6 +1013,7 @@ function AgentColumn({
             <label className="fe-agent-prompt">
               <span aria-hidden="true">&gt;</span>
               <input
+                {...PLAIN_TEXT}
                 ref={input}
                 value={text}
                 aria-label={agent.title}
@@ -1007,6 +1025,7 @@ function AgentColumn({
                   e.preventDefault();
                   if (text.trim() === "") return;
                   actions.send(text);
+                  setSent(true);
                   setText("");
                 }}
               />

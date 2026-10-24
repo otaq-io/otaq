@@ -16,7 +16,7 @@ import {
 } from "react";
 
 import { useStore } from "../../app/store";
-import { Button, Kbd } from "../../components";
+import { Button, Kbd, PLAIN_TEXT } from "../../components";
 import { placeFloating, type Rect } from "../../components/logic";
 import { TOOLTIP_DELAY } from "../../components/Tooltip";
 import { Icon } from "../../theme/Icon";
@@ -166,6 +166,7 @@ function LinkPopover({ editor, target }: { editor: Editor; target: LinkTarget })
       <div className="md-link-field" data-invalid={error !== null || undefined}>
         <Icon name="link" size={13} />
         <input
+          {...PLAIN_TEXT}
           ref={field}
           type="text"
           value={text}
@@ -173,7 +174,6 @@ function LinkPopover({ editor, target }: { editor: Editor; target: LinkTarget })
           aria-label="URL"
           aria-invalid={error !== null}
           aria-describedby={error === null ? undefined : "md-link-error"}
-          spellCheck={false}
           autoComplete="off"
           onChange={(e) => {
             setText(e.target.value);

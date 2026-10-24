@@ -240,7 +240,7 @@ impl Board {
                                 base_sha = ?, sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, auto_merge_conflicts = 0,
                                 auto_merge_stop = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                                updated_by = ?, updated_at = ?, ",
+                                merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -444,13 +444,15 @@ impl Board {
         Ok(())
     }
 
-    /// A Delivery's conflict goes to the nearest earlier Agent stage (FLW-17): Working there (its live session gets
-    /// `restack`), or Queued before it with the skill still to run. The conflict stays on the ticket until the agent
-    /// moves on again.
+    /// A Delivery's conflict, or its failed Merge check (d0120), goes to the nearest earlier Agent stage (FLW-17):
+    /// Working there (its live session gets `restack`), or Queued before it with the skill still to run. The conflict
+    /// stays on the ticket until the agent moves on again. A failed check's comment (`hand_over`, with the output as
+    /// its report) is posted first, in the same change (CMT-05).
     pub(crate) async fn record_conflict_fix(
         &self,
         ticket: &Ticket,
         target: &str,
+        hand_over: Option<&super::hand_over::HandOver>,
         to: Status,
         resume_skill: Option<&str>,
         actor: &Actor,
@@ -468,6 +470,9 @@ impl Board {
             false => stage,
         };
         let mut tx = self.store.begin_write().await?;
+        if let Some(hand_over) = hand_over {
+            hand_over.post(&mut tx, &ticket.id, actor).await?;
+        }
         super::send_back::return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor)
             .await?;
         record_event(

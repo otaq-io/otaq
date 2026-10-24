@@ -242,6 +242,30 @@ describe("the New ticket form's report (RPT-03, T-0474)", () => {
 });
 
 describe("the editor", () => {
+  it("types the title and code as plain text: no autocorrect, capitals or spell check (#41)", () => {
+    const host = mount(
+      createElement(EditorFields, {
+        view: VIEW,
+        form: { ...FORM, body: "Run it:\n\n```\nnpm test --port 3000\n```" },
+        onChange: noop,
+        titleMissing: false,
+        refusal: null,
+        onSave: noop,
+      }),
+    );
+    const title = host.querySelector(".editor-title");
+    expect(title?.getAttribute("autocorrect")).toBe("off");
+    expect(title?.getAttribute("autocapitalize")).toBe("off");
+    expect(title?.getAttribute("spellcheck")).toBe("false");
+    // The description is prose: no autocorrect or capitals, misspellings still underlined; its code blocks aren't.
+    const prose = host.querySelector(".ProseMirror");
+    expect(prose?.getAttribute("autocorrect")).toBe("off");
+    expect(prose?.getAttribute("autocapitalize")).toBe("off");
+    expect(prose?.getAttribute("spellcheck")).not.toBe("false");
+    expect(host.querySelector(".md-code pre")?.getAttribute("spellcheck")).toBe("false");
+    unmount();
+  });
+
   it("the full form: every field of a new ticket, the title error once a save was tried", () => {
     const props = {
       view: VIEW,

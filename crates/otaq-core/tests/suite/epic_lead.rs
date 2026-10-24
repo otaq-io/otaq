@@ -391,7 +391,10 @@ async fn a_queue_start_checks_the_plan_and_every_status_follows_the_turns() {
     assert_eq!(status(&w, &wishlist).await, LeadStatus::Idle);
 
     // The user types in the Lead tab: re-planning, as a wake-up (d0091: the lead never plans from scratch).
-    w.project_agents.enter(&session(&lead.agent)).await.unwrap();
+    w.project_agents
+        .enter(&session(&lead.agent), None)
+        .await
+        .unwrap();
     prompt(&w, &lead, "Split this into tickets of about a day").await;
     assert_eq!(status(&w, &wishlist).await, LeadStatus::Replanning);
     stop(&w, &lead).await;

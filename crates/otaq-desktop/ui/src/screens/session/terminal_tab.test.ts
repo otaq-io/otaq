@@ -67,7 +67,10 @@ const VIEW: TerminalTabView = {
   ended: null,
   recovery: null,
   line: "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-19",
-  typing: "Typing goes to Rust developer",
+  typing: {
+    focused: "Typing goes to Rust developer · SHOP-19",
+    unfocused: "Click to type to Rust developer · SHOP-19",
+  },
   check: null,
 };
 
@@ -79,7 +82,10 @@ const CHECKING: TerminalTabView = {
     label: "Security reviewer",
     terminal_label: "SHOP-19 · Security reviewer terminal",
     line: "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19",
-    typing: "Typing goes to Security reviewer",
+    typing: {
+      focused: "Typing goes to Security reviewer · SHOP-19",
+      unfocused: "Click to type to Security reviewer · SHOP-19",
+    },
     read_only: false,
     strips: strips().map((s) => ({ ...s, state: { ...s.state, label: `check ${s.state.label}` } })),
     attach_command: "otaq attach SHOP-19 --stage security",
@@ -99,14 +105,21 @@ function render(view: TerminalTabView, state: TerminalState = LIVE, narrow = fal
 }
 
 describe("the agent's and the check's sides (SHT-04)", () => {
-  it("leads with the line: who, on what, where, and who typing goes to", () => {
-    const html = render(VIEW);
+  it("leads with the line: who, on what, where, and who typing goes to, with the ticket's key", () => {
+    const focused = { ...LIVE, focused: true };
+    const html = render(VIEW, focused);
     expect(html).toContain("Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-19");
-    expect(html).toContain("Typing goes to Rust developer");
-    const check = render(CHECKING, LIVE, false, "check");
+    expect(html).toContain("Typing goes to Rust developer · SHOP-19");
+    const check = render(CHECKING, focused, false, "check");
     expect(check).toContain("Security reviewer · Claude Code · sonnet");
-    expect(check).toContain("Typing goes to Security reviewer");
-    expect(render({ ...VIEW, typing: null })).not.toContain("Typing goes to Rust developer");
+    expect(check).toContain("Typing goes to Security reviewer · SHOP-19");
+    expect(render({ ...VIEW, typing: null }, focused)).not.toContain("Typing goes to Rust developer");
+  });
+
+  it("says Typing goes to only while the terminal has the keyboard, else Click to type to (finding 55)", () => {
+    const html = render(VIEW);
+    expect(html).toContain("Click to type to Rust developer · SHOP-19");
+    expect(html).not.toContain("Typing goes to Rust developer");
   });
 
   it("attaches the check's session with its own strip and attach command", () => {

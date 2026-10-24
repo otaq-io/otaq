@@ -4,11 +4,13 @@
 //! picked with Add or dropped on Overview for the comment box's chip: its name and size, or why it can't be a report
 //! (missing, not a file, over 20 MB: core's own refusals, so the box says what posting would say).
 //! `overview.usage_limit` is USG-07's "Mark as usage limit" on an Idle ticket (the Inbox's row action before T-0459).
+//! `overview.manual_check_tick` ticks an item of "Manual checks for you" (d0125; the service's
+//! `ticket.manual_check_tick`).
 
 use std::path::PathBuf;
 
 use otaq_core::board::reports::{open_report, size_label};
-use otaq_core::protocol::{KeyParams, Reply, Request};
+use otaq_core::protocol::{KeyParams, ManualCheckTickParams, Reply, Request};
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::overview::{self as vm, OverviewView};
 use otaq_view::view_models::tool_avatar;
@@ -27,6 +29,10 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             mark_usage_limit(app, parse(params)?).await?;
             reply(&Value::Null)
         }
+        "overview.manual_check_tick" => {
+            tick(app, parse(params)?).await?;
+            reply(&Value::Null)
+        }
         _ => Err(unknown(method)),
     }
 }
@@ -40,6 +46,7 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     FileParams::export_all(cfg)?;
     FileChip::export_all(cfg)?;
     vm::UsageLimitButton::export_all(cfg)?;
+    TickParams::export_all(cfg)?;
     Ok(())
 }
 
@@ -61,6 +68,15 @@ pub struct FileParams {
     pub path: String,
 }
 
+/// `{"key": "DEMO-3", "n": 2, "ticked": true}`: the user ticks (or unticks) manual check 2 (d0125).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "ManualCheckTickParams")]
+pub struct TickParams {
+    pub key: String,
+    pub n: u32,
+    pub ticked: bool,
+}
+
 /// The comment box's chip for a file: "perf-notes.md", "2 KB"; posted as the comment's report by its path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OverviewFileChip")]
@@ -71,13 +87,14 @@ pub struct FileChip {
 }
 
 pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, RequestError> {
-    let status = match app
-        .service
-        .send(Request::TicketGet(KeyParams {
-            key: params.key.clone(),
-        }))
-        .await?
-    {
+    let k = || KeyParams {
+        key: params.key.clone(),
+    };
+    let (ticket, checks) = tokio::join!(
+        app.service.send(Request::TicketGet(k())),
+        app.service.send(Request::TicketManualChecks(k())),
+    );
+    let status = match ticket? {
         Reply::Ticket(t) => t.status,
         other => {
             return Err(RequestError::plain(format!(
@@ -99,10 +116,16 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
             )));
         }
     };
+    // Unread, the checklist doesn't show; the review goes on without it (d0125: it never blocks).
+    let checks = match checks {
+        Ok(Reply::ManualChecks(c)) => Some(c),
+        _ => None,
+    };
     Ok(vm::view(
         &params.key,
         status,
         &comments,
+        checks.as_ref(),
         tool_avatar::shown(),
         Platform::current(),
     ))
@@ -112,6 +135,19 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
 pub async fn mark_usage_limit(app: &App, params: ViewParams) -> Result<(), RequestError> {
     app.service
         .send(Request::UsageMarkLimit(KeyParams { key: params.key }))
+        .await?;
+    Ok(())
+}
+
+/// A tick in "Manual checks for you" (d0125): recorded in History by the service, which publishes `ticket_changed`,
+/// so the Overview follows.
+pub async fn tick(app: &App, params: TickParams) -> Result<(), RequestError> {
+    app.service
+        .send(Request::TicketManualCheckTick(ManualCheckTickParams {
+            key: params.key,
+            n: params.n,
+            ticked: params.ticked,
+        }))
         .await?;
     Ok(())
 }

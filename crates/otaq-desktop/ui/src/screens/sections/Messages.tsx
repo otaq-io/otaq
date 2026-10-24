@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
-import { Button } from "../../components";
+import { Button, PLAIN_TEXT } from "../../components";
 import type { MessageLineView } from "../../generated/MessageLineView";
 import type { MessagesView } from "../../generated/MessagesView";
 import type { MessageThreadView } from "../../generated/MessageThreadView";
@@ -85,6 +85,7 @@ function Reply({ view, thread }: { view: MessagesView; thread: MessageThreadView
   return (
     <div className="message-reply">
       <input
+        {...PLAIN_TEXT}
         className="text-input"
         value={text}
         placeholder={view.placeholder}

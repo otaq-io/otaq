@@ -27,7 +27,11 @@ actions: Array<KeyActionInfo>,
 /**
  * The `g` hint's second keys ([`keymap::sequence_hint`]), from the user's keys.
  */
-sequences: Array<SequenceHint>, terminal_app_modifiers: Array<KeyModifiers>, 
+sequences: Array<SequenceHint>, 
+/**
+ * The hint while a fast burst of letters runs nothing ([`keymap::TYPING_HINT`], d0126).
+ */
+typing_hint: string, terminal_app_modifiers: Array<KeyModifiers>, 
 /**
  * A focused terminal's own keys (copy, paste, font size), which the terminal handles itself (T-0216).
  */

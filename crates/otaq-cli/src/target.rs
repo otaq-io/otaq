@@ -2,10 +2,12 @@
 //! current project, or `$OTAQ_TICKET` when the key is omitted.
 //!
 //! The current project is `-P`, else the project of `$OTAQ_TICKET`, else the project whose worktree
-//! (`wt/<repo-name>/<KEY>/…`) or repository holds the current folder.
+//! (`wt/<repo-name>/<KEY>/…`) or repository holds the current folder, else the project whose repository the current
+//! folder is a git worktree of (its common dir, #43).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{ProjectKey, TicketKey};
@@ -93,13 +95,34 @@ pub async fn current_project(
     else {
         return Ok(None);
     };
-    Ok(projects
+    let repo_of = |p: &ProjectInfo| {
+        let repo = PathBuf::from(&p.repo_path);
+        otaq_core::paths::canonical(&repo).unwrap_or(repo)
+    };
+    let inside = projects
         .iter()
-        .filter(|p| {
-            let repo = PathBuf::from(&p.repo_path);
-            let repo = otaq_core::paths::canonical(&repo).unwrap_or(repo);
-            cwd.starts_with(repo)
-        })
-        .max_by_key(|p| p.repo_path.len())
-        .and_then(|p| ProjectKey::new(&p.key).ok()))
+        .filter(|p| cwd.starts_with(repo_of(p)))
+        .max_by_key(|p| p.repo_path.len());
+    // A git worktree of a project's repository elsewhere (`git worktree add ../experiment`, #43): the repository
+    // whose `.git` is its common dir.
+    let found = inside.or_else(|| {
+        let common = git_common_dir(&cwd)?;
+        let repo = common.parent()?;
+        projects.iter().find(|p| repo_of(p) == repo)
+    });
+    Ok(found.and_then(|p| ProjectKey::new(&p.key).ok()))
+}
+
+/// `git rev-parse --git-common-dir` in `folder`, canonical: the main repository's `.git` from any of its worktrees.
+fn git_common_dir(folder: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(folder)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let dir = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
+    Some(otaq_core::paths::canonical(&dir).unwrap_or(dir))
 }

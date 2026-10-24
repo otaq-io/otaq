@@ -9,12 +9,13 @@ use super::finish::FinishedTicket;
 use super::{ADDRESS_REVIEW_SKILL, Review};
 use crate::board::BoardError;
 use crate::board::tickets::Ticket;
-use crate::domain::{Actor, Status};
+use crate::domain::{Actor, HandOffKind, Status};
 use crate::flow::apply_now::{
     ApplyNowAnswer, ApplyNowParams, ApplyNowPlan, Live, MoveWrite, PlannedWrite, Refreshed,
 };
 use crate::session::SessionKind;
 use crate::session::deliveries::Delivery;
+use crate::session::hand_offs::HandOff;
 use crate::validation::Validation;
 
 impl Review {
@@ -209,11 +210,15 @@ impl Review {
                     .map(std::path::Path::new);
                 let text = inner
                     .deliveries
-                    .skill_line(board, &session.id, worktree, ADDRESS_REVIEW_SKILL)
+                    .skill_line(board, &session.id, worktree, ADDRESS_REVIEW_SKILL, None)
                     .await;
                 match inner
                     .deliveries
-                    .deliver_from_click(&session.id, &text)
+                    .hand_off(
+                        &session.id,
+                        HandOff::new(HandOffKind::SendBack, text),
+                        false,
+                    )
                     .await
                 {
                     Ok(Delivery::Sent { .. }) => {}

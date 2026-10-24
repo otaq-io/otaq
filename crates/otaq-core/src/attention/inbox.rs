@@ -567,16 +567,28 @@ impl Inbox {
     ) -> Result<Delivery, BoardError> {
         let inner = &self.inner;
         let ticket = inner.board.ticket(key).await?;
-        let waiting = answerable(&ticket).ok_or_else(|| {
+        let not_waiting = || {
             BoardError::refused(
                 Refusal::MoveRefused,
                 format!("{} isn't waiting for an answer", ticket.key),
             )
-        })?;
-        let question = inner.board.open_question(&ticket.id).await?;
+        };
+        let waiting = answerable(&ticket).ok_or_else(not_waiting)?;
+        // Only the open question takes an answer (d0119): Asks you without one (answered in the terminal, replaced
+        // or closed meanwhile) is refused, and an Idle agent's answer is free text, never shaped by an older question.
+        let question = match waiting.label {
+            Status::AsksYou => Some(
+                inner
+                    .board
+                    .open_user_question(&ticket.id)
+                    .await?
+                    .ok_or_else(not_waiting)?,
+            ),
+            _ => None,
+        };
         let text = answer_text(question.as_ref(), choice)?;
         let session = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
-        let delivery = match (waiting, session) {
+        let delivery = match (waiting.how, session) {
             (Waiting::Live, Some(session)) => {
                 let typed = if clear {
                     self.inner
@@ -589,12 +601,7 @@ impl Inbox {
                         .deliver_from_click(&session.id, &text)
                         .await
                 };
-                let delivery =
-                    typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-                if matches!(delivery, Delivery::Sent { .. }) {
-                    inner.signals.answered(&ticket.id).await?;
-                }
-                delivery
+                typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?
             }
             (Waiting::Live, None) => {
                 return Err(BoardError::refused(
@@ -610,10 +617,15 @@ impl Inbox {
                 Delivery::Sent { count: 1 }
             }
         };
-        if matches!(delivery, Delivery::Sent { .. })
-            && let Some(question) = question
-        {
+        if !matches!(delivery, Delivery::Sent { .. }) {
+            return Ok(delivery);
+        }
+        // The question closes first: while it is open it holds Asks you (d0119).
+        if let Some(question) = &question {
             inner.board.record_answer(&question.id, &text).await?;
+        }
+        inner.signals.answered(&ticket.id).await?;
+        if question.is_some() {
             // A question that went through its epic's lead is logged on the epic too (LEAD-06): its Messages refresh.
             if let Some(epic) = &ticket.epic
                 && let Ok(epic) = inner.board.ticket(&epic.to_string()).await
@@ -697,16 +709,29 @@ enum Waiting {
     Interrupted,
 }
 
+/// What an answerable ticket waits with: how, and its label (Asks you or Idle).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Answerable {
+    how: Waiting,
+    label: Status,
+}
+
 /// Whether the ticket takes an answer: Asks you and Idle (a permission prompt is answered in the terminal, and
 /// simply asks again after a resume).
-fn answerable(ticket: &Ticket) -> Option<Waiting> {
+fn answerable(ticket: &Ticket) -> Option<Answerable> {
     let takes_answer = |s: Status| matches!(s, Status::AsksYou | Status::Idle);
     if takes_answer(ticket.status) {
-        Some(Waiting::Live)
+        Some(Answerable {
+            how: Waiting::Live,
+            label: ticket.status,
+        })
     } else if ticket.status == Status::Interrupted
-        && ticket.interrupted_from.is_some_and(takes_answer)
+        && let Some(label) = ticket.interrupted_from.filter(|s| takes_answer(*s))
     {
-        Some(Waiting::Interrupted)
+        Some(Answerable {
+            how: Waiting::Interrupted,
+            label,
+        })
     } else {
         None
     }

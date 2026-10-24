@@ -27,6 +27,7 @@ mod m38_example;
 mod notify_check;
 mod onboarding;
 mod open_pr;
+mod open_questions;
 mod opencode_hook;
 mod pr;
 mod prime;

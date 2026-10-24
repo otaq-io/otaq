@@ -233,3 +233,58 @@ async fn the_users_moves_are_never_refused() {
     }
     w.stop().await;
 }
+
+/// A new agent's first `prime` can arrive before its run opens (the start sets the ticket Working after the spawn):
+/// it counts for the run the session then opens, and `stage next` goes through. A hand-over after it re-arms the gate.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prime_before_the_run_opens_counts_for_it() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.board
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
+    let t = w.create("SHOP", "Export orders as CSV").await;
+    w.give_worktree(&t).await;
+    let dev = w.agent_shell(&t).await;
+    // Held stands for the start's wait before Working: no run is open, and the scheduler leaves it alone.
+    w.force_status(&t, Status::Held).await;
+    let key = t.key.to_string();
+    let open: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM stage_runs WHERE ticket_id = ? AND ended_at IS NULL",
+    )
+    .bind(&t.id)
+    .fetch_one(w.board.store().pool())
+    .await
+    .unwrap();
+    assert_eq!(open, 0, "no run while it waits to start");
+
+    ok(&send(&w, &dev, "ticket.prime", json!({"key": key})).await);
+    tick().await;
+    // The start's state change opens the run now.
+    w.force_status(&t, Status::Working).await;
+
+    // A hand-over after the prime (a comment Otaq handed it) needs a new prime.
+    let next = json!({"key": key, "summary": "Done."});
+    tick().await;
+    sqlx::query(
+        "UPDATE stage_runs SET handed_over_at = ? WHERE ticket_id = ? AND ended_at IS NULL",
+    )
+    .bind(now_ms())
+    .bind(&t.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        refused(&send(&w, &dev, "ticket.stage_next", next.clone()).await),
+        "Run `otaq prime` first."
+    );
+    sqlx::query("UPDATE stage_runs SET handed_over_at = NULL WHERE ticket_id = ?")
+        .bind(&t.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+
+    ok(&send(&w, &dev, "ticket.stage_next", next).await);
+    assert_eq!(w.status(&key).await, Status::WaitingForYou);
+    w.stop().await;
+}

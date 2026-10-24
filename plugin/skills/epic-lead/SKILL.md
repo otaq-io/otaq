@@ -55,7 +55,13 @@ why it comes where it does, and the sources. Cite it as "plan, step 2" in your a
   that the Project agent does that (from the Ask bar, or Split with the Project agent on an epic card with no children),
   and end your turn.
 - **Keeping the plan current is yours:** after a merge, or when the user asks for a small change, add a missing child,
-  re-order children, or change a never-started one, naming the source of each change:
+  re-order children, or change a never-started one, naming the source of each change.
+- **Before you add a child, read the open children for the same scope:** their descriptions (`otaq show SHOP-40.3`)
+  and comments (`otaq comments SHOP-40.3`), since the user may have put that work into one already. If a
+  never-started child covers it, change that child instead; if a running child covers it, send that child a note
+  (see "The merge turn", step 6). **A lesson for a child that is already running goes to it as a note, never as a
+  new child**: a sibling would redo its work. Only work no open child covers becomes a new child; it joins the epic's
+  queue and its card says you added it:
 
   ```sh
   otaq create "Wishlist empty state" --parent SHOP-40 --deps SHOP-40.3 --stdin <<'BODY'
@@ -98,8 +104,9 @@ naming the source of each change. Then end your turn.
 
 ## The merge turn
 
-A message such as "SHOP-40.1 merged: Wishlist API" (or "closed without merging") wakes you. Run `otaq prime --epic`,
-then:
+A message such as "SHOP-40.1 merged: Wishlist API" (or "closed without merging") wakes you. The children that waited
+for it don't start until this turn ends ("Waiting for the lead's update" on their cards), so what you write into their
+descriptions now is there when they start. Run `otaq prime --epic`, then:
 
 1. **Read what landed:** the merged child's last comment, its "Notes for later tickets" and its recorded
    decisions, and its merged code on the epic branch.
@@ -133,7 +140,8 @@ then:
    MARK
    ```
 
-4. **Re-plan:** add a missing child, re-order children with priorities and dependencies. When `## Same file` shows
+4. **Re-plan:** add a missing child (only after reading the open children for the same scope, see "The plan"),
+   re-order children with priorities and dependencies. When `## Same file` shows
    two children changing the same file, make a never-started child wait for the running one only when it could
    otherwise start before the other merges; skip a wait that existing dependencies already imply.
 5. **Change a never-started child's stage choice** when what landed changes how hard it is, with the reason ("40.3
@@ -145,8 +153,9 @@ then:
    otaq update SHOP-40.3 --stage "Dev=Quick developer" --reason "only a config change after 40.1"
    ```
 
-6. **Send at most one note to a running child, and only when it matters now.** The note waits as unread; the child
-   reads it before its next commit (or when it goes idle) and can't submit until it has:
+6. **Send at most one note to a running child, and only when it matters now.** A lesson from the merge that concerns
+   a running child goes to it this way, not into a new child. The note waits as unread; the child reads it before its
+   next commit (or when it goes idle) and can't submit until it has:
 
    ```sh
    otaq note SHOP-40.4 --stdin <<'NOTE'

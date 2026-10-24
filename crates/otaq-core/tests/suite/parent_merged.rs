@@ -14,6 +14,8 @@ use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{StartStep, Status};
+use otaq_core::flow::Delivers;
+use otaq_core::flow::default::testing::delivering;
 use otaq_core::git::testing::{commit, git};
 use otaq_core::ports::PortPool;
 use otaq_core::scheduler::{Scheduler, StartTickets, ToStart};
@@ -193,9 +195,13 @@ async fn a_diverged_base_holds_the_children_with_the_message() {
     assert_eq!(w.f.ticket("SHOP-2").await.status, Status::Held);
 }
 
+/// A flow that delivers by PR needs the remote (d0121).
 #[tokio::test]
 async fn a_failed_fetch_holds_the_children_and_nothing_retries() {
     let w = world().await;
+    w.f.board
+        .edit_flow_for_tests("SHOP", delivering(Delivers::Pr))
+        .await;
     chain(&w).await;
     set(&w.f, "SHOP-1", Status::Merged).await;
     git(
@@ -219,6 +225,29 @@ async fn a_failed_fetch_holds_the_children_and_nothing_retries() {
         scheduler.pass().await.unwrap();
     }
     assert!(recorder.0.lock().unwrap().is_empty());
+}
+
+/// d0121: on a flow that doesn't deliver by PR (the default lets the user pick), a failed fetch starts the freed
+/// children from the local base; each start records the warning.
+#[tokio::test]
+async fn a_failed_fetch_on_a_local_flow_starts_the_children() {
+    let w = world().await;
+    chain(&w).await;
+    set(&w.f, "SHOP-1", Status::Merged).await;
+    git(
+        &w.clone,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "/nonexistent/shop-web-origin.git",
+        ],
+    );
+    let (recorder, scheduler) = recording(&w);
+
+    scheduler.on_parent_merged("SHOP-1").await.unwrap();
+    assert_eq!(*recorder.0.lock().unwrap(), ["SHOP-2"]);
+    assert_eq!(w.f.ticket("SHOP-2").await.status, Status::Queued);
 }
 
 #[tokio::test]

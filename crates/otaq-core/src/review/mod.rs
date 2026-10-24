@@ -8,8 +8,8 @@
 //! earlier Agent stage with the round's line comments and the note, the note posted first as the user's comment
 //! (d0034, d0108 rule 6, d0109); it then walks every later stage again. The click is the go-ahead (d0018), so it is
 //! never held, except by the optional agent limit:
-//! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), with
-//!   what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
+//! - the session is **live**: `/otaq-address-review` is typed into it (a copy it started with, d0118; one it didn't
+//!   is named by its file, [`crate::session::deliveries::handoff_sentence`]), with what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
 //!   prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
 //!   line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
@@ -26,7 +26,9 @@ mod apply_now;
 mod close;
 pub mod delivery;
 pub mod drag;
+mod early_conflict;
 pub mod finish;
+mod merge_check;
 pub mod park;
 pub mod pr_state;
 pub mod resume;
@@ -44,13 +46,14 @@ use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, Status, TicketKey, ValidationTrigger};
+use crate::domain::{Actor, HandOffKind, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
 use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
+use crate::session::hand_offs::HandOff;
 use crate::session::{SessionKind, Sessions, Start};
 use crate::start::{StartOutcome, Starter};
 use crate::ticket_env::TicketEnv;
@@ -116,6 +119,17 @@ pub enum LocalMergeOutcome {
     /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
     /// (FLW-17). An epic's conflict stays on its card.
     Conflict { target: String, files: Vec<String> },
+    /// The Merge check `command` failed on the merged result (d0120; `exit` `None`: a signal ended it): nothing was
+    /// merged; the ticket went back to its nearest earlier Agent stage with a comment holding the output as its
+    /// report, whose session fixes it with `restack` (no click), or stopped there after the third conflict or
+    /// failed check in a row. An epic's stays on its card, with the comment.
+    CheckFailed {
+        target: String,
+        command: String,
+        exit: Option<i32>,
+    },
+    /// The user stopped the Merge check (Q475): nothing was merged and the ticket stays where it was.
+    CheckStopped { target: String },
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
     Changed { check: ApproveCheck },
@@ -134,7 +148,8 @@ struct Inner {
     deliveries: Deliveries,
     starter: Starter,
     scheduler: Scheduler,
-    /// One Local merge at a time: they share the scratch worktree and move base branches.
+    /// One Local merge at a time: they share the scratch worktree and move base branches, and each Merge check
+    /// sees the merges before it (d0120).
     merging: tokio::sync::Mutex<()>,
     ports: PortPool,
     /// Done releases a clean worktree's build into the stock (WRM-03), unless it was freed at Review (M19-c).
@@ -290,23 +305,44 @@ impl Review {
         approve_anyway: bool,
         actor: &Actor,
     ) -> Result<LocalMergeOutcome, BoardError> {
-        let outcome = self.merge(key, message, approve_anyway, actor).await?;
-        if let LocalMergeOutcome::Conflict { target, .. } = &outcome {
-            let ticket = self.inner.board.ticket(key).await?;
-            self.delivery_conflict(&ticket, target, actor).await?;
+        let Merge { outcome, failed } = self.merge(key, message, approve_anyway, actor).await?;
+        match (&outcome, failed) {
+            (LocalMergeOutcome::Conflict { target, .. }, _) => {
+                let ticket = self.inner.board.ticket(key).await?;
+                self.delivery_conflict(&ticket, target, actor).await?;
+            }
+            (_, Some(failed)) => {
+                let ticket = self.inner.board.ticket(key).await?;
+                self.delivery_check_failed(&ticket, &failed, actor).await?;
+            }
+            _ => {}
         }
         Ok(outcome)
     }
 
+    /// Stops the Merge check `key`'s Local merge runs now (Q475): nothing is merged and the ticket stays where it
+    /// was. Refused when it runs none.
+    pub async fn stop_merge_check(&self, key: &str) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        if board.merge_checks().stop(&ticket.id) {
+            return Ok(());
+        }
+        Err(BoardError::refused(
+            Refusal::MoveRefused,
+            format!("{} isn't running its merge check", ticket.key),
+        ))
+    }
+
     /// The Local merge itself, from a human check that offers it or from the Delivery stage (the click, or an
-    /// automatic Delivery): a conflict is only recorded on the ticket.
+    /// automatic Delivery): a conflict or a failed Merge check is only recorded on the ticket.
     async fn merge(
         &self,
         key: &str,
         message: &str,
         approve_anyway: bool,
         actor: &Actor,
-    ) -> Result<LocalMergeOutcome, BoardError> {
+    ) -> Result<Merge, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
@@ -330,7 +366,7 @@ impl Review {
         if !approve_anyway {
             let check = board.approve_check(key).await?;
             if check != ApproveCheck::Unchanged {
-                return Ok(LocalMergeOutcome::Changed { check });
+                return Ok(LocalMergeOutcome::Changed { check }.into());
             }
         }
         let target = board.merge_target(&ticket).await?;
@@ -340,7 +376,26 @@ impl Review {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| project.name.clone());
+        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
+        let git = &board.project_git(&project.key).await?;
+        let settings = board.project_settings(&project.key).await?;
+        let command = settings.merge_check().map(str::to_owned);
+        let check = command.as_deref().map(|command| {
+            merge_check::merge_check(
+                board,
+                &inner.data,
+                inner.ticket_env.seeder(),
+                git,
+                &project,
+                &settings,
+                &ticket,
+                command,
+            )
+        });
+        let recheck = board.merge_check_due(&ticket.id).await?;
         let request = MergeRequest {
+            check,
+            recheck,
             scratch: inner.data.scratch_path(&repo_name).map_err(other)?,
             repo,
             project_name: project.name.clone(),
@@ -353,10 +408,9 @@ impl Review {
                 .map(PathBuf::from),
             target: target.target.clone(),
             sync_target: !target.into_epic,
+            goes_on_without_remote: board.goes_on_without_remote(&ticket).await?,
             message: message.trim().to_owned(),
         };
-        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
-        let git = &board.project_git(&project.key).await?;
         let branch_ref = format!("refs/heads/{}", target.branch);
         let head_before = git.resolve(&request.repo, &branch_ref).await?;
         let outcome = git.local_merge(&request).await;
@@ -368,11 +422,26 @@ impl Review {
             )
         {
             board.record_otaq_rebase(&ticket.id, before, &after).await?;
+            // Rebased onto new commits and no check passed on them: the next merge checks even so (d0120).
+            if before != after {
+                board.set_merge_check_due(&ticket.id, true).await?;
+            }
         }
-        Ok(match outcome? {
-            MergeOutcome::Merged { commit, onto } => {
+        if matches!(outcome, Ok(MergeOutcome::CheckFailed { .. })) {
+            board.set_merge_check_due(&ticket.id, true).await?;
+        }
+        let mut failed = None;
+        let outcome = match outcome? {
+            MergeOutcome::Merged {
+                commit,
+                onto,
+                fetch_failed,
+                ..
+            } => {
                 let merged = board
                     .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
+                    .await?;
+                self.remote_after_merge(&merged, &request, fetch_failed, actor)
                     .await?;
                 // Done: the session ends, ports return, the worktree goes unless it has changes (REC-05).
                 if let Err(e) = self.finish(&merged).await {
@@ -387,7 +456,8 @@ impl Review {
                     .child_finished(&merged, crate::epic_lead::wake::Finished::Merged)
                     .await;
                 let merged = board.ticket_by_id(&merged.id).await?;
-                // The early conflict flag on every other ticket in Review that merges into the same branch.
+                // The early conflict flag on every other ticket in Review that merges into the same branch, and its
+                // hand-back to the agent (d0127).
                 if let Err(e) = self
                     .flag_conflicts(
                         &ticket.key.project.to_string(),
@@ -438,55 +508,63 @@ impl Review {
                     files,
                 }
             }
-        })
+            MergeOutcome::CheckFailed { exit, output } => {
+                // Recorded like a conflict, with no files: it clears when the agent moves on again.
+                board
+                    .set_conflict(
+                        &ticket.id,
+                        &Conflict {
+                            target: target.target.clone(),
+                            files: Vec::new(),
+                            reason: ConflictReason::MergeCheck,
+                        },
+                    )
+                    .await?;
+                let command = command.unwrap_or_default();
+                failed = Some(CheckFailure {
+                    target: target.target.clone(),
+                    command: command.clone(),
+                    exit,
+                    output,
+                });
+                LocalMergeOutcome::CheckFailed {
+                    target: target.target,
+                    command,
+                    exit,
+                }
+            }
+            MergeOutcome::CheckStopped => LocalMergeOutcome::CheckStopped {
+                target: target.target,
+            },
+        };
+        Ok(Merge { outcome, failed })
     }
 
-    /// After a merge into `target` (GIT-04, d0038): a read-only test merge of every ticket in Ready for Review that
-    /// merges into it; "conflicts with `target`" is set or cleared. No files touched, no tokens.
-    pub async fn flag_conflicts(
+    /// After a Local merge into a base branch (d0121): a fetch that failed leaves its warning ("merged into your local
+    /// main") on the ticket and in History; one that worked clears an earlier warning. An epic branch isn't fetched.
+    async fn remote_after_merge(
         &self,
-        project: &str,
-        repo: &std::path::Path,
-        target: &str,
+        merged: &Ticket,
+        request: &MergeRequest,
+        fetch_failed: Option<crate::git::FetchFailure>,
+        actor: &Actor,
     ) -> Result<(), BoardError> {
         let board = &self.inner.board;
-        let git = board.git()?;
-        for ticket in board.tickets(project).await? {
-            if ticket.status != Status::WaitingForYou {
-                continue;
+        match fetch_failed {
+            Some(failure) => {
+                let warning = crate::domain::RemoteWarning {
+                    went_on: crate::domain::WentOn::Merged,
+                    reason: failure.reason(),
+                    remote: failure.remote,
+                    branch: request.target.clone(),
+                };
+                board
+                    .record_remote_warning(&merged.id, &warning, actor)
+                    .await
             }
-            let Ok(merge) = board.merge_target(&ticket).await else {
-                continue;
-            };
-            if merge.target != target {
-                continue;
-            }
-            match git.test_merge(repo, target, &merge.branch).await? {
-                Some(files) => {
-                    board
-                        .set_conflict(
-                            &ticket.id,
-                            &Conflict {
-                                target: target.to_owned(),
-                                files,
-                                reason: ConflictReason::Merge,
-                            },
-                        )
-                        .await?;
-                    tracing::info!(ticket = %ticket.key, target, "conflicts with the merged branch");
-                }
-                None => {
-                    if board
-                        .conflict(&ticket.id)
-                        .await?
-                        .is_some_and(|c| c.reason == ConflictReason::Merge)
-                    {
-                        board.clear_conflict(&ticket.id).await?;
-                    }
-                }
-            }
+            None if request.sync_target => board.clear_remote_warning(&merged.id).await,
+            None => Ok(()),
         }
-        Ok(())
     }
 
     /// Whether the optional agent limit is on and every slot is taken (d0016). Back-pressure doesn't hold a
@@ -513,8 +591,8 @@ impl Review {
                 .record_send_back(ticket, *hand_over, to, skill, actor)
                 .await
                 .map(|sent| sent.told),
-            Return::Fix { target } => board
-                .record_conflict_fix(ticket, target, to, skill, actor)
+            Return::Fix { target, hand_over } => board
+                .record_conflict_fix(ticket, target, *hand_over, to, skill, actor)
                 .await
                 .map(|()| None),
             Return::PrComments { hand_over } => board
@@ -594,26 +672,20 @@ impl Review {
                     .as_ref()
                     .and_then(|w| w.worktree.as_deref())
                     .map(std::path::Path::new);
-                let skill_line = inner
-                    .deliveries
-                    .skill_line(&inner.board, &session.id, worktree, skill)
-                    .await;
                 // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05).
-                let text = match told {
-                    Some(told) => format!("{skill_line} {told}"),
-                    None => skill_line,
-                };
-                let typed = if clear_first {
-                    inner
-                        .deliveries
-                        .clear_and_send(&session.id, Some(&text))
-                        .await
-                } else {
-                    inner
-                        .deliveries
-                        .deliver_from_click(&session.id, &text)
-                        .await
-                };
+                let text = inner
+                    .deliveries
+                    .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
+                    .await;
+                // Pending for the agent once typed (d0118).
+                let typed = inner
+                    .deliveries
+                    .hand_off(
+                        &session.id,
+                        HandOff::new(action.hand_off(), text),
+                        clear_first,
+                    )
+                    .await;
                 match typed.map_err(other)? {
                     Delivery::Sent { .. } => {}
                     // Text was typed in the moment between the check and the send: it stays as the user typed it.
@@ -640,12 +712,38 @@ impl Review {
     }
 }
 
+/// A Local merge's answer, with what the hand-back of a failed Merge check needs.
+struct Merge {
+    outcome: LocalMergeOutcome,
+    failed: Option<CheckFailure>,
+}
+
+impl From<LocalMergeOutcome> for Merge {
+    fn from(outcome: LocalMergeOutcome) -> Self {
+        Self {
+            outcome,
+            failed: None,
+        }
+    }
+}
+
+/// A failed Merge check (d0120): the file holding its output.
+pub(crate) struct CheckFailure {
+    pub(crate) target: String,
+    pub(crate) command: String,
+    pub(crate) exit: Option<i32>,
+    pub(crate) output: PathBuf,
+}
+
 /// What returns a ticket to its agent.
 enum Return<'a> {
     /// The user's note as their comment, if they wrote one.
     SendBack { hand_over: Option<&'a HandOver> },
-    /// A Delivery's conflict (FLW-17).
-    Fix { target: &'a str },
+    /// A Delivery's conflict (FLW-17), or its failed Merge check with the comment to post (d0120).
+    Fix {
+        target: &'a str,
+        hand_over: Option<&'a HandOver>,
+    },
     /// Send back with PR comments (FLW-16): the agent reads them with `otaq review feedback`.
     PrComments { hand_over: Option<&'a HandOver> },
     /// A drag back to an earlier Agent stage with the user's instructions (FLW-18).
@@ -657,7 +755,7 @@ impl<'a> Return<'a> {
         match self {
             Self::SendBack { hand_over } | Self::PrComments { hand_over } => *hand_over,
             Self::DragBack(back) => back.hand_over,
-            Self::Fix { .. } => None,
+            Self::Fix { hand_over, .. } => *hand_over,
         }
     }
 
@@ -667,6 +765,20 @@ impl<'a> Return<'a> {
                 ADDRESS_REVIEW_SKILL
             }
             Self::Fix { .. } => RESTACK_SKILL,
+        }
+    }
+
+    /// What the card says while the agent hasn't picked it up (d0118).
+    fn hand_off(&self) -> HandOffKind {
+        match self {
+            Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
+                HandOffKind::SendBack
+            }
+            // A failed Merge check comes back with its comment (d0120).
+            Self::Fix {
+                hand_over: Some(_), ..
+            } => HandOffKind::MergeCheck,
+            Self::Fix { .. } => HandOffKind::MergeConflict,
         }
     }
 

@@ -6,10 +6,11 @@
 // the button off (`commentRules.ts`). A file added in Overview (Add, a drop; RPT-02) waits as its own chip
 // ("perf-notes.md · 2 KB ✕") with the line "A comment always has its own line; the file goes with it."; a file pasted
 // into the box becomes the pasted chip. Its words and the limit come from Rust (`CommentBoxView`); the box keeps only
-// what is typed. ⌘↵ sends it.
+// what is typed. ⌘↵ sends it. While the ticket's agent or check runs the thread's box shows "Also tell the agent now"
+// (d0123, `CommentBoxView.tell_agent`), ticked by default; the thread keeps the tick and posts it as `tell_agent`.
 import { type ClipboardEvent, type KeyboardEvent, type Ref, useCallback, useId } from "react";
 
-import { Button, Kbd } from "../../components";
+import { Button, Checkbox, Kbd, PROSE_TEXT } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -103,6 +104,9 @@ export interface CommentBoxProps {
   /** The service's refusal, under the box. */
   error?: string | null;
   ref?: Ref<HTMLTextAreaElement>;
+  /** "Also tell the agent now" ticked; shown only when the view has the tick box (d0123). */
+  tellAgent?: boolean;
+  onTellAgent?: (tell: boolean) => void;
 }
 
 export function CommentBox({
@@ -114,6 +118,8 @@ export function CommentBox({
   busy = false,
   error,
   ref,
+  tellAgent = true,
+  onTellAgent,
 }: CommentBoxProps) {
   const id = useId();
   const state = boxState(value, view.limits, view.optional);
@@ -154,6 +160,7 @@ export function CommentBox({
         </label>
       )}
       <textarea
+        {...PROSE_TEXT}
         ref={ref}
         id={id}
         className="text-input text-area comment-box-text"
@@ -208,6 +215,9 @@ export function CommentBox({
           </span>
         )}
         <span className="editor-spacer" />
+        {view.tell_agent !== null && onTellAgent && (
+          <Checkbox checked={tellAgent} label={view.tell_agent} onChange={onTellAgent} />
+        )}
         {view.submit !== null && (
           <>
             <Kbd keys={SAVE_KEYS} />

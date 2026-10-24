@@ -23,6 +23,8 @@ const notices = (summary_for: number | null): Notices => ({
   banners: [],
   toasts: [],
   only_restart_allowed: false,
+  terminal_note: null,
+  service_down: false,
   input_enabled: true,
   summary_for,
 });

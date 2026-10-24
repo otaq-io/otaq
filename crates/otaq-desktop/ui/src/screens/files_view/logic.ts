@@ -6,6 +6,7 @@ import type { FilesFileMode } from "../../generated/FilesFileMode";
 import type { FilesViewFile } from "../../generated/FilesViewFile";
 import type { FilesViewFilter } from "../../generated/FilesViewFilter";
 import type { MenuItem } from "../../generated/MenuItem";
+import type { FilesViewPick } from "../../generated/FilesViewPick";
 import type { FilesViewPicker } from "../../generated/FilesViewPicker";
 import type { FilesViewPickerSection } from "../../generated/FilesViewPickerSection";
 import { closeTicket, selection } from "../../app/selection";
@@ -28,6 +29,9 @@ export interface ViewState {
   diffOf: string | null;
   /** A ticket or epic picked in the picker (its key); `null`: the base branch with every ticket's changes. */
   picked: string | null;
+  /** One of your own worktrees picked in the picker (its folder; #43): the view shows its tree instead of the base,
+   * read-only. */
+  worktree: string | null;
   /** The line of the picked file to scroll to and mark (a terminal's path link): a new object each time it is asked
    * for, so asking for the same line again scrolls again. */
   line: { line: number } | null;
@@ -40,6 +44,7 @@ export const FIRST: ViewState = {
   mode: null,
   diffOf: null,
   picked: null,
+  worktree: null,
   line: null,
 };
 
@@ -114,7 +119,7 @@ export const filesViewWanted: Store<{ project: string; n: number } | null> = cre
  */
 export function openProjectFile(project: string, path: string, line: number | null): void {
   viewStates.update((m) => {
-    const state = pickFile({ ...(m.get(project) ?? FIRST), picked: null }, path);
+    const state = pickFile({ ...(m.get(project) ?? FIRST), picked: null, worktree: null }, path);
     return new Map(m).set(project, {
       ...state,
       mode: line === null ? state.mode : "file",
@@ -123,6 +128,26 @@ export function openProjectFile(project: string, path: string, line: number | nu
   });
   if (selection.get().ticket !== null) closeTicket();
   filesViewWanted.update((w) => ({ project, n: (w?.n ?? 0) + 1 }));
+}
+
+/** A row picked in the picker: the base, a ticket or epic, or one of your worktrees. Moving between the base and a
+ * worktree starts its tree afresh (their paths differ). */
+export function withPick(state: ViewState, pick: FilesViewPick): ViewState {
+  const worktree = pick.kind === "worktree" ? pick.path : null;
+  const picked = pick.kind === "ticket" ? pick.key : null;
+  const fresh =
+    worktree === state.worktree
+      ? state
+      : {
+          ...state,
+          filter: "all" as const,
+          open: new Set<string>(),
+          file: null,
+          mode: null,
+          diffOf: null,
+          line: null,
+        };
+  return { ...fresh, picked, worktree };
 }
 
 /** The picker's sections with only the rows whose key or title holds `query` (any case); empty sections go. */

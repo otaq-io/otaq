@@ -27,7 +27,7 @@ const SWITCHES: {
     parts: [part("agent", "Agent", "waiting"), part("run", "Run", "running"), part("shell", "Shell")],
     shown: "agent",
     line: "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22",
-    right: "Typing goes to Rust developer",
+    right: "Typing goes to Rust developer · SHOP-22",
   },
   {
     caption: "SHOP-30 · validating: the Validator runs",
@@ -39,7 +39,7 @@ const SWITCHES: {
     ],
     shown: "check",
     line: "Validator · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-30",
-    right: "Typing goes to Validator",
+    right: "Click to type to Validator · SHOP-30",
   },
   {
     caption: "SHOP-19 · in Security: the Security reviewer asks you",
@@ -51,7 +51,7 @@ const SWITCHES: {
     ],
     shown: "check",
     line: "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19",
-    right: "Typing goes to Security reviewer",
+    right: "Typing goes to Security reviewer · SHOP-19",
   },
   {
     caption: "SHOP-22 · Run",

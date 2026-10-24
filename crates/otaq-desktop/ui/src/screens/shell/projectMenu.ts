@@ -2,8 +2,10 @@
 // Rust's (`shell.header`'s `menu`, `otaq-view`'s `project_menu.rs`); this file only says where each choice goes:
 // Change flow… opens the flow editor over the board, Export flow… the save dialog then `settings.flow_export`, Project
 // settings… the project's Settings, Open in Finder `shell.open_folder`, Open a terminal here a new terminal in the
-// Terminals drawer.
+// Terminals drawer. The rail's menu (a right-click on a tile, #11) opens the project's Settings: at the top, at its
+// Name field (Rename…) or at Remove project.
 import { openOverlay } from "../../app/overlays";
+import type { OverlayParams } from "../../app/registry/overlays";
 import type { HeaderProject } from "../../generated/HeaderProject";
 import { request, saveFlowFile } from "../../tauri";
 import { changeFlowOpen, type FlowEditorOpen, openFlowEditor } from "../flow_editor/logic";
@@ -55,4 +57,30 @@ export async function projectMenuChoice(
     default:
       return;
   }
+}
+
+/** Where a choice in the rail's menu opens the project's Settings; `null` for an id it doesn't know. */
+export function railMenuTarget(project: string, id: string): OverlayParams["settings"] | null {
+  switch (id) {
+    case "project_settings":
+      return { project };
+    case "rename_project":
+      return { project, section: "general" };
+    case "remove_project":
+      return { project, section: "remove_project" };
+    default:
+      return null;
+  }
+}
+
+/** The rail's menu choice for `project`. */
+export function railMenuChoice(
+  project: string,
+  id: string,
+  openSettings: (params: OverlayParams["settings"]) => void = (params) => {
+    openOverlay("settings", params);
+  },
+): void {
+  const target = railMenuTarget(project, id);
+  if (target) openSettings(target);
 }

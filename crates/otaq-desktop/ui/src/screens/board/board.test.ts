@@ -95,6 +95,7 @@ const cardOf = (key: string): BoardCard => ({
     key,
     key_label: key,
     epic: null,
+    priority: null,
     title: key,
     status: null,
     blocks: null,
@@ -397,7 +398,13 @@ describe("drops", () => {
         method === "board.drop"
           ? ({
               kind: "approve",
-              menu: { key: "SHOP-18", title: "Approve SHOP-18 Checkout API", items: [], note: "" },
+              menu: {
+                key: "SHOP-18",
+                title: "Approve SHOP-18 Checkout API",
+                items: [],
+                note: "",
+                direct: null,
+              },
             } satisfies DropOutcome)
           : null,
       );
@@ -414,6 +421,25 @@ describe("drops", () => {
       { id: "local_merge", params: { ticket: "SHOP-18" } },
       { id: "open_pr", params: { ticket: "SHOP-26" } },
     ]);
+  });
+
+  it("a drop with one way to deliver opens its dialog without the choice (dogfood #18)", () => {
+    const menus: string[] = [];
+    afterDrop(
+      {
+        kind: "approve",
+        menu: {
+          key: "SHOP-40.1",
+          title: "Approve SHOP-40.1 Wishlist API",
+          items: [],
+          note: "",
+          direct: "local_merge",
+        },
+      },
+      (menu) => menus.push(menu.title),
+    );
+    expect(menus).toEqual([]);
+    expect(overlays.store.get()).toEqual([{ id: "local_merge", params: { ticket: "SHOP-40.1" } }]);
   });
 
   it("a move needs nothing more; a not-yet move and a refusal are toasts", async () => {
@@ -453,6 +479,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     remove: "Remove the pasted text",
     optional: true,
     limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+    tell_agent: null,
   });
   const sendBack: DragBackDialog = {
     key: "SHOP-19",
@@ -799,6 +826,7 @@ describe("the board screen", () => {
       key,
       key_label: key,
       epic: null,
+      priority: null,
       title: "Child",
       status: null,
       blocks: null,
@@ -938,6 +966,7 @@ describe("the Review column (T-0328, d0087)", () => {
       key,
       key_label: key,
       epic: null,
+      priority: null,
       title: "Checkout API",
       status: null,
       blocks: null,

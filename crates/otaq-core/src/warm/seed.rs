@@ -93,6 +93,15 @@ pub enum SeededFrom {
     Checkout { head: Option<String> },
 }
 
+/// Where a Merge check's scratch worktree was seeded from ([`Seeder::seed_scratch`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScratchSeed {
+    /// The ticket's own worktree build.
+    Worktree,
+    /// The project's warm build.
+    WarmBuild,
+}
+
 /// A seeded worktree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Seeded {
@@ -232,41 +241,81 @@ impl Seeder {
         worktree: &Path,
         leave_out: Vec<PathBuf>,
     ) -> Option<SeededFrom> {
-        let handover = Handover::Clone(self.cloner.clone());
-        if let Some(slot) = self.warm.read(project, ticket).await {
-            let record = slot.record().cloned();
-            let times = read_times(slot.path()).await;
-            let top = match list_top(slot.path()) {
-                Ok(top) => top,
-                Err(e) => {
-                    tracing::warn!(ticket, error = %e, "can't read the warm build; not seeding");
-                    return None;
-                }
-            };
-            let plan = hand_over(&handover, slot.path(), worktree, top, leave_out).await;
-            let entry = slot.entry();
-            // The copy is done: a Clear waiting for it may go on.
-            drop(slot);
-            let plan = plan?;
-            let commit = record.as_ref().map(|r| r.built_at.clone());
-            if self
-                .trick(git, worktree, commit.as_deref(), times, Vec::new(), ticket)
-                .await
-                .is_none()
-            {
-                tracing::warn!(ticket, "the clone is removed");
-                undo(&plan, worktree).await;
-                return None;
+        match self
+            .seed_from_warm(git, project, ticket, worktree, leave_out.clone())
+            .await
+        {
+            Some(found) => found,
+            None => {
+                let repo = PathBuf::from(&project.repo_path);
+                let head = self
+                    .seed_from_folder(git, &repo, ticket, worktree, leave_out)
+                    .await?;
+                Some(SeededFrom::Checkout { head })
             }
-            return Some(SeededFrom::WarmBuild {
-                built_at: commit,
-                from: record.as_ref().map(|r| r.from.clone()),
-                kept_at: record.as_ref().map(|r| r.kept_at),
-                entry,
-                moved: false,
-            });
         }
-        let repo = PathBuf::from(&project.repo_path);
+    }
+
+    /// Clones the project's warm build into `worktree`, under a reader slot named by `ticket`. `None` when there is
+    /// no warm build; `Some(None)` when there is one but seeding from it failed (the worktree is as before).
+    async fn seed_from_warm(
+        &self,
+        git: &Git,
+        project: &Project,
+        ticket: &str,
+        worktree: &Path,
+        leave_out: Vec<PathBuf>,
+    ) -> Option<Option<SeededFrom>> {
+        let handover = Handover::Clone(self.cloner.clone());
+        let slot = self.warm.read(project, ticket).await?;
+        let record = slot.record().cloned();
+        let times = read_times(slot.path()).await;
+        let top = match list_top(slot.path()) {
+            Ok(top) => top,
+            Err(e) => {
+                tracing::warn!(ticket, error = %e, "can't read the warm build; not seeding");
+                return Some(None);
+            }
+        };
+        let plan = hand_over(&handover, slot.path(), worktree, top, leave_out).await;
+        let entry = slot.entry();
+        // The copy is done: a Clear waiting for it may go on.
+        drop(slot);
+        let Some(plan) = plan else {
+            return Some(None);
+        };
+        let commit = record.as_ref().map(|r| r.built_at.clone());
+        if self
+            .trick(git, worktree, commit.as_deref(), times, Vec::new(), ticket)
+            .await
+            .is_none()
+        {
+            tracing::warn!(ticket, "the clone is removed");
+            undo(&plan, worktree).await;
+            return Some(None);
+        }
+        Some(Some(SeededFrom::WarmBuild {
+            built_at: commit,
+            from: record.as_ref().map(|r| r.from.clone()),
+            kept_at: record.as_ref().map(|r| r.kept_at),
+            entry,
+            moved: false,
+        }))
+    }
+
+    /// Clones the gitignored files of `folder` (the user's checkout, or a ticket's worktree) into `worktree`, with
+    /// the times `folder`'s tracked files have and its own uncommitted changes marked new. `Some(head)` (`folder`'s
+    /// commit, `None` before its first) when something was cloned.
+    async fn seed_from_folder(
+        &self,
+        git: &Git,
+        folder: &Path,
+        ticket: &str,
+        worktree: &Path,
+        leave_out: Vec<PathBuf>,
+    ) -> Option<Option<String>> {
+        let handover = Handover::Clone(self.cloner.clone());
+        let repo = folder.to_owned();
         let ignored = match ignored_paths(git, &repo).await {
             Ok(ignored) if ignored.is_empty() => return None,
             Ok(ignored) => ignored,
@@ -310,7 +359,66 @@ impl Seeder {
             undo(&plan, worktree).await;
             return None;
         }
-        Some(SeededFrom::Checkout { head })
+        Some(head)
+    }
+
+    /// Seeds Otaq's scratch worktree before a Merge check (d0120) with a build, copy-on-write only (WRM-01: never a
+    /// plain copy, and never a rename, which would take the build away from where it lives): the ticket's own
+    /// worktree build (`from`) first, else the project's warm build, else nothing. Only while warm builds are on for
+    /// the project; the env files are left out (the caller copies them as a start does). `None` when nothing was
+    /// seeded; a failure is logged, never returned.
+    pub async fn seed_scratch(
+        &self,
+        board: &Board,
+        git: &Git,
+        project: &Project,
+        ticket: &str,
+        from: Option<&Path>,
+        scratch: &Path,
+    ) -> Option<ScratchSeed> {
+        match self.warm.enabled(&project.key).await {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => {
+                tracing::warn!(ticket, error = %e, "can't tell whether warm builds are on; not seeding");
+                return None;
+            }
+        }
+        if self.warm.mode() != HandoffMode::Clone {
+            tracing::info!(
+                ticket,
+                "the data folder's disk can't clone; the merge check builds from nothing"
+            );
+            return None;
+        }
+        let leave_out: Vec<PathBuf> = match board.project_settings(&project.key).await {
+            Ok(settings) => settings
+                .env_files
+                .iter()
+                .map(|f| f.trim())
+                .filter(|f| !f.is_empty())
+                .map(PathBuf::from)
+                .collect(),
+            Err(e) => {
+                tracing::warn!(ticket, error = %e, "can't read the project's settings; not seeding");
+                return None;
+            }
+        };
+        if let Some(from) = from.filter(|f| f.is_dir())
+            && self
+                .seed_from_folder(git, from, ticket, scratch, leave_out.clone())
+                .await
+                .is_some()
+        {
+            return Some(ScratchSeed::Worktree);
+        }
+        match self
+            .seed_from_warm(git, project, ticket, scratch, leave_out)
+            .await
+        {
+            Some(Some(_)) => Some(ScratchSeed::WarmBuild),
+            _ => None,
+        }
     }
 
     /// Where the disk can't clone (M19-b): the nearest build in the stock for the worktree's commit, claimed and

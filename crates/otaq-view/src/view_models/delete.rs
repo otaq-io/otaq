@@ -10,6 +10,7 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
+use crate::view_models::ticket_comments::cut;
 
 pub const DELETE: &str = "delete";
 
@@ -83,6 +84,9 @@ fn join_keys(keys: &[String]) -> String {
     }
 }
 
+/// How much of the ticket's title the confirmation's heading shows (a line or two, #6); the rest ends in "…".
+const TITLE_CHARS: usize = 60;
+
 pub fn text(preview: &DeletePreview) -> DeleteText {
     let key = &preview.key;
     let epic_with_children = preview.is_epic && !preview.children.is_empty();
@@ -99,7 +103,7 @@ pub fn text(preview: &DeletePreview) -> DeleteText {
             keys.join(", ")
         )
     } else {
-        format!("Delete {key} {}?", preview.title)
+        format!("Delete {key} {}?", cut(&preview.title, TITLE_CHARS))
     };
     let mut body = vec![if epic_with_children {
         "None of them started.".to_owned()
@@ -247,6 +251,25 @@ mod tests {
         assert_eq!(
             t.body[1],
             "SHOP-22, SHOP-23 and SHOP-24 depend on it; those links will be removed."
+        );
+    }
+
+    #[test]
+    fn a_long_title_is_cut_to_about_sixty_characters() {
+        let mut p = preview(&[]);
+        p.title = "Make the weekly summary card show streaks, totals and the best day, with a tooltip per day and a \
+                   link to the full history page for that week"
+            .into();
+        let t = text(&p);
+        assert_eq!(
+            t.title,
+            "Delete SHOP-21 Make the weekly summary card show streaks, totals and the\u{2026}?"
+        );
+        // A title that fits stays whole (see `no_dependents`).
+        p.title = "x".repeat(60);
+        assert_eq!(
+            text(&p).title,
+            format!("Delete SHOP-21 {}?", "x".repeat(60))
         );
     }
 

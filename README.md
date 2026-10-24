@@ -116,8 +116,9 @@ a new model needs no Otaq update.
   way.
 - **Defaults per role, overridable per project.** Choose which named agent writes code, validates, leads epics and
   runs the Project agent; a project can change any of the four.
-- **Agents suggest agents.** When the Project agent or an epic lead plans tickets, it proposes an agent for each one
-  from your notes ("Light: docs-only change"), and creates nothing until you agree. Your own choice always wins.
+- **Agents suggest agents.** The Project agent's plan and an agent's proposed tickets name an agent for each ticket
+  from your notes ("Light: docs-only change"), and they create nothing until you agree. An epic lead may still add a
+  child to its running epic on its own; the card says it was added by the lead. Your own choice always wins.
 - **Limits per tool, with fallbacks.** When one tool hits its usage limit or is logged out, only its agents wait; the
   rest keep going. The banner offers **Move waiting to…** another tool, and with **Use fallback agents automatically**
   on, waiting tickets start on each agent's fallback by themselves. A running conversation never changes tools.
@@ -136,7 +137,8 @@ child, so you see the whole feature at a glance.
 
 An epic can have a **lead**: a read-only agent that plans the children with you, answers their questions first (and
 passes on the ones it can't, with a recommended answer), shares what each merged child learned with the ones still to
-come, and flags children that touch the same files. It never edits code or merges anything.
+come, and flags children that touch the same files. A child that a merge lets start waits for the lead's update
+about that merge first. It never edits code or merges anything.
 
 ### Project agents and terminals
 

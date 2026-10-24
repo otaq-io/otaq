@@ -221,9 +221,23 @@ pub fn agent_line(
     .join(" \u{b7} ")
 }
 
-/// "Typing goes to Rust developer", while its terminal takes input.
-pub fn typing_goes_to(agent: &str) -> String {
-    format!("Typing goes to {agent}")
+/// Who typing reaches, with the ticket's key so a wrong ticket shows (finding 55 of the 2026-10-24 dogfood report). The
+/// page shows `focused` only while that terminal has the keyboard, else `unfocused`. `SessionTyping` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SessionTyping")]
+pub struct Typing {
+    /// "Typing goes to Griller · DEMO-15".
+    pub focused: String,
+    /// "Click to type to Griller · DEMO-15".
+    pub unfocused: String,
+}
+
+/// Who typing reaches while the agent's terminal takes input.
+pub fn typing_goes_to(agent: &str, key: &TicketKey) -> Typing {
+    Typing {
+        focused: format!("Typing goes to {agent} \u{b7} {key}"),
+        unfocused: format!("Click to type to {agent} \u{b7} {key}"),
+    }
 }
 
 /// Run's line: "pnpm dev · in SHOP-22’s worktree · :4022"; none before a run command is set.
@@ -520,9 +534,13 @@ mod tests {
             "Validator \u{b7} Claude Code \u{b7} tool default"
         );
         assert_eq!(agent_line("Griller", None, None, None), "Griller");
-        assert_eq!(
-            typing_goes_to("Rust developer"),
-            "Typing goes to Rust developer"
-        );
+    }
+
+    /// Finding 55: the label names the ticket, and says "Typing goes to" only while that terminal has the keyboard.
+    #[test]
+    fn typing_names_the_agent_and_the_ticket_focused_or_not() {
+        let typing = typing_goes_to("Griller", &"DEMO-15".parse().unwrap());
+        assert_eq!(typing.focused, "Typing goes to Griller \u{b7} DEMO-15");
+        assert_eq!(typing.unfocused, "Click to type to Griller \u{b7} DEMO-15");
     }
 }

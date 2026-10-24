@@ -143,7 +143,7 @@ export const VIEW: PanelView = {
   buttons: [
     {
       action: "open_terminal",
-      label: "Open terminal",
+      label: "Open agent session",
       tooltip: null,
       icon: "square-terminal",
       look: "secondary",
@@ -167,6 +167,7 @@ export const VIEW: PanelView = {
   choices: null,
   path: null,
   open_agent: null,
+  build_aside: null,
   refusal: null,
   holds: [],
 };

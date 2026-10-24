@@ -14,11 +14,16 @@ import { CommentThread } from "./CommentThread";
 import { type BoxValue, boxState, chars, EMPTY_BOX, pasteAction, withPasted } from "./commentRules";
 import { type ReportTarget, setReportOpener } from "./reportOpener";
 
-const ipc = vi.hoisted((): { calls: string[]; thread: unknown } => ({ calls: [], thread: null }));
+const ipc = vi.hoisted((): { calls: string[]; posts: unknown[]; thread: unknown } => ({
+  calls: [],
+  posts: [],
+  thread: null,
+}));
 vi.mock(import("../../tauri"), async (original) => ({
   ...(await original()),
-  request: (method: string) => {
+  request: (method: string, params?: unknown) => {
     ipc.calls.push(method);
+    if (method === "ticket_comments.post") ipc.posts.push(params);
     return Promise.resolve(method === "ticket_comments.thread" ? ipc.thread : "· 48 KB");
   },
   subscribeEvents: () => Promise.resolve(),
@@ -30,6 +35,7 @@ beforeAll(() => {
 
 afterEach(() => {
   ipc.calls = [];
+  ipc.posts = [];
   document.body.innerHTML = "";
 });
 
@@ -40,7 +46,7 @@ const BOX: CommentBoxView = {
   label: null,
   placeholder: "Add a comment for the next stage…",
   submit: "Comment",
-  footer: "Read by the next stage’s agent · to talk to Rust developer now, use its terminal",
+  footer: "Read by the next stage’s agent",
   footer_icon: "arrow-right",
   needs_line: "Say what the next agent should look for",
   pasted: "Pasted text",
@@ -50,6 +56,7 @@ const BOX: CommentBoxView = {
   remove: "Remove the pasted text",
   optional: false,
   limits: LIMITS,
+  tell_agent: null,
 };
 
 describe("the paste rule", () => {
@@ -283,5 +290,49 @@ describe("CommentThread", () => {
     });
     expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4 }]);
     setReportOpener(() => undefined);
+  });
+});
+
+describe("Also tell the agent now (d0123)", () => {
+  async function thread(view: CommentThreadView) {
+    ipc.thread = view;
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(CommentThread, { ticket: "SHOP-34" }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    return host;
+  }
+  const tickBox = (host: HTMLElement) =>
+    host.querySelector<HTMLInputElement>(".comment-box input[type=checkbox]");
+  async function post(host: HTMLElement, text: string) {
+    await type(host, text);
+    await act(async () => {
+      button(host).click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  it("shows the tick box, ticked, while a session runs, and the post tells the agent", async () => {
+    const host = await thread({ ...THREAD, box: { ...BOX, tell_agent: "Also tell the agent now" } });
+    const box = tickBox(host);
+    expect(box?.checked).toBe(true);
+    expect(box?.closest("label")?.textContent).toBe("Also tell the agent now");
+    await post(host, "Use useToday() on the detail and Stats pages.");
+    expect(ipc.posts).toMatchObject([{ key: "SHOP-34", tell_agent: true }]);
+    await act(async () => {
+      tickBox(host)?.click();
+      await Promise.resolve();
+    });
+    await post(host, "Only for later stages.");
+    expect(ipc.posts).toMatchObject([{ tell_agent: true }, { tell_agent: false }]);
+  });
+
+  it("has no tick box and never tells an agent when none runs", async () => {
+    const host = await thread(THREAD);
+    expect(tickBox(host)).toBeNull();
+    await post(host, "For the next stage.");
+    expect(ipc.posts).toMatchObject([{ tell_agent: false }]);
   });
 });

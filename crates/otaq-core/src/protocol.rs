@@ -541,6 +541,13 @@ pub enum Request {
     /// the file itself (streamed), so a 20 MB report never travels in one frame.
     #[serde(rename = "ticket.report")]
     TicketReport(TicketCommentParams),
+    /// The ticket's manual checks for the user (d0125), with how many are not ticked; answered with
+    /// [`Reply::ManualChecks`].
+    #[serde(rename = "ticket.manual_checks")]
+    TicketManualChecks(KeyParams),
+    /// Ticks or unticks manual check `n` (the user's, logged in History); answered with [`Reply::ManualChecks`].
+    #[serde(rename = "ticket.manual_check_tick")]
+    TicketManualCheckTick(ManualCheckTickParams),
     /// Fail on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and the note go
     /// to the nearest earlier Agent stage's session, and the ticket returns there. Answered with
     /// [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has unsent text (resend
@@ -563,6 +570,11 @@ pub enum Request {
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
     TicketLocalMerge(LocalMergeParams),
+    /// **Stop** on "Merging · running the merge check" (d0120, Q475): the Merge check of the ticket's Local merge
+    /// ends, nothing is merged and the ticket stays where it was; the Local merge request answers
+    /// [`LocalMergeOutcome::CheckStopped`]. Answered with [`Reply::Ok`]; refused when it runs none.
+    #[serde(rename = "ticket.merge_check_stop")]
+    TicketMergeCheckStop(KeyParams),
     /// The check before any approve (REV-06): new commits since the review? Answered with
     /// [`Reply::ApproveCheck`].
     #[serde(rename = "ticket.approve_check")]
@@ -762,6 +774,11 @@ pub enum Request {
     /// [`Reply::Delivery`].
     #[serde(rename = "session.deliver_now")]
     SessionDeliverNow(DeliverNowParams),
+    /// **Send again** (d0118): types the session's hand-off that its agent hasn't picked up yet once more, as the
+    /// user's click (d0048: unsent text answers `needs_confirmation`; `clear_first` is "Clear it and send"). Nothing is
+    /// typed when it has none. Answered with [`Reply::Delivery`].
+    #[serde(rename = "session.send_again")]
+    SessionSendAgain(DeliverNowParams),
     /// A client's terminal for the session gained or lost keyboard focus (SES-10). Answered with
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
@@ -1382,6 +1399,9 @@ pub struct ProjectFilesPathParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub base_only: bool,
+    /// One of your own worktrees instead of the base (its folder, from `files.project_sources`; #43).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 /// `{"project": "SHOP", "query": "pricing"}`.
@@ -1389,6 +1409,9 @@ pub struct ProjectFilesPathParams {
 pub struct ProjectFilesSearchParams {
     pub project: String,
     pub query: String,
+    /// One of your own worktrees instead of the base (#43).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 /// `{"project": "SHOP", "path": "src/lib/pricing.ts", "ticket": "SHOP-29"}`.
@@ -1502,13 +1525,16 @@ pub struct CommentsParams {
 }
 
 /// `{"key": "SHOP-34", "body": "…"}`, with `"report": {"path": "/abs/test-run.txt"}` or `{"text": "…"}`: a new
-/// ticket comment (CMT-06, CMT-11).
+/// ticket comment (CMT-06, CMT-11). `"tell_agent": true` also tells the ticket's running agent (or check) to read it
+/// (d0123): the user's comments only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketCommentPostParams {
     pub key: String,
     pub body: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tell_agent: bool,
 }
 
 /// `{"key": "SHOP-34", "n": 2, "body": "…"}`: comment 2's new text.
@@ -1526,8 +1552,17 @@ pub struct TicketCommentParams {
     pub n: u32,
 }
 
+/// `{"key": "SHOP-34", "n": 2, "ticked": true}`: tick (or untick) one manual check (d0125).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManualCheckTickParams {
+    pub key: String,
+    pub n: u32,
+    pub ticked: bool,
+}
+
 /// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
-/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06).
+/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06);
+/// `manual_checks` are what the agent couldn't check itself, one line each (`--manual-check`, d0125).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEndParams {
     pub key: String,
@@ -1535,6 +1570,8 @@ pub struct StageEndParams {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_file: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_checks: Vec<String>,
 }
 
 /// `{"key": "SHOP-32", "action": "answer_agent", "note": "…"}`.
@@ -1565,6 +1602,9 @@ pub struct VerdictParams {
     /// `--report-file`: the full output attached to the comment (CMT-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_file: Option<crate::board::reports::ReportSource>,
+    /// `--manual-check`: what the check couldn't check itself, one line each (d0125).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manual_checks: Vec<String>,
 }
 
 /// `{"key": "SHOP-18", "proposal": "{…}"}`: the proposal as the skill wrote it.
@@ -1992,11 +2032,14 @@ impl Request {
             Self::TicketCommentDelete(_) => "ticket.comment_delete",
             Self::TicketComments(_) => "ticket.comments",
             Self::TicketReport(_) => "ticket.report",
+            Self::TicketManualChecks(_) => "ticket.manual_checks",
+            Self::TicketManualCheckTick(_) => "ticket.manual_check_tick",
             Self::TicketFail(_) => "ticket.fail",
             Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
+            Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
             Self::TicketSendBackPr(_) => "ticket.send_back_pr",
@@ -2078,6 +2121,7 @@ impl Request {
             Self::SessionResize(_) => "session.resize",
             Self::SessionInput(_) => "session.input",
             Self::SessionDeliverNow(_) => "session.deliver_now",
+            Self::SessionSendAgain(_) => "session.send_again",
             Self::SessionFocus(_) => "session.focus",
             Self::AppFocus(_) => "app.focus",
             Self::SessionBeforeRestart(_) => "session.before_restart",
@@ -2249,6 +2293,7 @@ pub enum Reply {
     TicketComment(Box<crate::board::ticket_comments::TicketComment>),
     TicketComments(crate::board::ticket_comments::TicketComments),
     TicketReport(Box<crate::board::ticket_comments::ReportFile>),
+    ManualChecks(crate::board::manual_checks::ManualChecks),
     Returned(ReturnOutcome),
     Passed(PassOutcome),
     ReviewFeedback(ReviewFeedback),
@@ -2478,6 +2523,17 @@ pub enum Event {
         key: TicketKey,
         title: String,
         message: String,
+    },
+    /// A ticket's agent or an epic lead created a ticket (#47; d0016: a toast, no notification): "Ticket created by
+    /// agent" · "DEMO-7 created DEMO-12 → Backlog". `by` names the creator as the toast does (the ticket's key, or
+    /// the lead's name); `status` is where the new ticket landed (Backlog, or Queued in its epic's queue). Not sent
+    /// for the user's tickets nor a Project agent's (its pane lists what it created).
+    CreatedByAgent {
+        project: String,
+        key: TicketKey,
+        title: String,
+        by: String,
+        status: Status,
     },
     /// A question or answer between agents was typed into the other agent's session (MSG-02, MSG-06): the
     /// receiving ticket's key; both tickets' cards and Messages refetch.

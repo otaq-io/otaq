@@ -1,5 +1,5 @@
 // The one-line ticket card (BRD-03; *24 · The two views*): the key (with its epic's name on the same row for an
-// epic child), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
+// epic child) and its priority chip (P1, P2, P4), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
 // state's colour (a blocked ticket's in amber after a link, DPV-01), a muted "Blocks SHOP-20" when others wait for
 // it, then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
 // has a coloured edge (turquoise, the review colour for your check, red for a closed parent). The pill, the model,
@@ -9,7 +9,7 @@
 // actions (open terminal, open panel) show on hover.
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
-import { Button, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
+import { Button, PriorityChip, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
 import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardActionKind } from "../generated/CardActionKind";
 import type { CardStatusHover } from "../generated/CardStatusHover";
@@ -57,8 +57,17 @@ function HoverBubble({ anchor, children }: { anchor: RefObject<HTMLElement | nul
   );
 }
 
-/** Shows `content` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave or blur hide it. */
-function WithHover({ content, children }: { content: ReactNode; children: ReactNode }) {
+/** Shows `content` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave, blur, a pointer
+ * down (the click that opens the sheet) or the card becoming selected hide it (#6). */
+function WithHover({
+  content,
+  selected,
+  children,
+}: {
+  content: ReactNode;
+  selected: boolean;
+  children: ReactNode;
+}) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
@@ -78,6 +87,16 @@ function WithHover({ content, children }: { content: ReactNode; children: ReactN
     window.clearTimeout(timer.current);
     setOpen(false);
   };
+  // Selecting the card opens its sheet over the board (or moves the board's selection to it): the bubble goes, and
+  // a show still waiting for its delay is dropped.
+  const [wasSelected, setWasSelected] = useState(selected);
+  if (selected !== wasSelected) {
+    setWasSelected(selected);
+    if (selected) setOpen(false);
+  }
+  useEffect(() => {
+    if (selected) window.clearTimeout(timer.current);
+  }, [selected]);
   return (
     <span
       ref={anchor}
@@ -87,6 +106,7 @@ function WithHover({ content, children }: { content: ReactNode; children: ReactN
         show(TOOLTIP_DELAY);
       }}
       onMouseLeave={hide}
+      onPointerDown={hide}
       onFocus={() => {
         show(0);
       }}
@@ -180,12 +200,17 @@ function QuickActions({ card, onOpenPanel }: { card: TicketCardView; onOpenPanel
   );
 }
 
-function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
+function Body({
+  card,
+  onAction,
+  selected,
+}: Pick<TicketCardProps, "card" | "onAction"> & { selected: boolean }) {
   return (
     <>
-      <WithHover content={<StatusHoverCard hover={card.hover} />}>
+      <WithHover content={<StatusHoverCard hover={card.hover} />} selected={selected}>
         <div className="card-head">
           <span className="card-key">{card.key_label}</span>
+          {card.priority !== null && <PriorityChip priority={card.priority} />}
           <span className="card-spacer" />
           {card.epic !== null && (
             <span className="card-epic">
@@ -195,6 +220,7 @@ function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
           )}
         </div>
       </WithHover>
+      {/* The shared tooltip goes on any press or key (T-0506), so the click or ↵ that opens the sheet hides it. */}
       <Tooltip text={card.title}>
         <div className="card-title">{card.title}</div>
       </Tooltip>
@@ -234,7 +260,7 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPa
       }
       onClick={onSelect}
     >
-      <Body card={card} {...(onAction ? { onAction } : {})} />
+      <Body card={card} selected={state.selected} {...(onAction ? { onAction } : {})} />
       {(onOpenPanel !== undefined || state.hovered) && (
         <QuickActions card={card} {...(onOpenPanel ? { onOpenPanel } : {})} />
       )}

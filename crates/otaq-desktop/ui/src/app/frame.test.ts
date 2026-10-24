@@ -3,10 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { LayoutView } from "../generated/LayoutView";
-import { Frame, FrameBody } from "./Frame";
+import { askBarRight, Frame, FrameBody } from "./Frame";
 import {
+  agentPanelWidth,
   INITIAL_LAYOUT,
   layoutView,
+  setAgentExpanded,
   setAgentOpen,
   type ShellLayout,
   shellLayout,
@@ -26,6 +28,9 @@ const VIEW: LayoutView = {
   ],
   rail: 64,
   agent_panel: 420,
+  agent_panel_min: 320,
+  board_min: 404,
+  agent_panel_edge: "Drag to resize. Double-click for the default width.",
 };
 
 // The frame renders without a DOM: React's server renderer gives its markup (no new test packages).
@@ -36,12 +41,12 @@ function render(app: Registries, bannerFallback?: ReactNode): string {
 }
 
 /** The frame's body with `layout`. */
-function body(layout: ShellLayout, ticketOpen = false): string {
+function body(layout: ShellLayout, ticketOpen = false, windowWidth = 0, view = VIEW): string {
   return renderToStaticMarkup(
     createElement(
       RegistriesContext,
       { value: createRegistries() },
-      createElement(FrameBody, { view: VIEW, layout, ticketOpen }),
+      createElement(FrameBody, { view, layout, ticketOpen, windowWidth }),
     ),
   );
 }
@@ -149,6 +154,31 @@ describe("the frame", () => {
     );
   });
 
+  // T-0502 (dogfood #7).
+  it("the panel shows its kept width inside the window's bound, with its edge to drag", () => {
+    const open = { ...INITIAL_LAYOUT, agentOpen: true };
+    const wide = body(open, false, 1440, { ...VIEW, agent_panel: 640 });
+    expect(wide).toContain('<div class="frame-agent-body" style="width:640px">');
+    expect(wide).toContain(
+      '<div class="frame-agent-edge" aria-hidden="true" title="Drag to resize. Double-click for the default width."></div>',
+    );
+    // 1280 px leaves the board its 404 px: the panel is at most 812 px.
+    expect(body(open, false, 1280, { ...VIEW, agent_panel: 1000 })).toContain('style="width:812px"');
+  });
+
+  it("expanded, the panel lies over the board to the window's edge; the column keeps its width, the edge goes", () => {
+    const html = body({ ...INITIAL_LAYOUT, agentOpen: true, agentExpanded: true }, false, 1440, {
+      ...VIEW,
+      agent_panel: 640,
+    });
+    expect(html).toContain(
+      '<div class="frame-agent" data-slot="agent_panel" data-open="true" data-expanded="true" style="width:640px"><div class="frame-agent-body" style="width:1376px">',
+    );
+    expect(html).not.toContain("frame-agent-edge");
+    // Closed, nothing is expanded.
+    expect(body({ ...INITIAL_LAYOUT, agentOpen: false, agentExpanded: true })).not.toContain("data-expanded");
+  });
+
   it("the expanded ticket sheet fills the main area while a ticket is open; the agent panel stays", () => {
     const expanded = { ...INITIAL_LAYOUT, panelExpanded: true, agentOpen: true };
     const html = body(expanded, true);
@@ -174,11 +204,41 @@ describe("the layout's state", () => {
     expect(sizeClass(1440, [])).toBeNull();
   });
 
+  it("the panel's width mirrors Rust's bounds (`layout::agent_panel_width`)", () => {
+    expect(agentPanelWidth(VIEW, 1440)).toBe(420);
+    expect(agentPanelWidth(VIEW, 1440, 200)).toBe(320);
+    expect(agentPanelWidth(VIEW, 1440, 1400)).toBe(972);
+    expect(agentPanelWidth(VIEW, 700, 500)).toBe(320);
+    expect(agentPanelWidth(VIEW, 0, 2000)).toBe(2000);
+  });
+
+  it("only an open panel expands, and closing it ends Expand", () => {
+    setAgentExpanded(true);
+    expect(shellLayout.get().agentExpanded).toBe(false);
+    setAgentOpen(true);
+    setAgentExpanded(true);
+    expect(shellLayout.get()).toMatchObject({ agentOpen: true, agentExpanded: true });
+    setAgentOpen(false);
+    expect(shellLayout.get()).toMatchObject({ agentOpen: false, agentExpanded: false });
+    setAgentOpen(true);
+    expect(shellLayout.get().agentExpanded).toBe(false);
+  });
+
   it("the switches flip the page state", () => {
     setAgentOpen(true);
     toggleExpanded();
     expect(shellLayout.get()).toMatchObject({ agentOpen: true, panelExpanded: true });
     setAgentOpen(false);
     expect(shellLayout.get().agentOpen).toBe(false);
+  });
+});
+
+describe("the Ask bar beside the ticket sheet (#21)", () => {
+  it("ends at the sheet's left edge, and hides while the sheet fills the main area", () => {
+    expect(askBarRight(false, false, 0)).toBe(0);
+    expect(askBarRight(true, false, 640)).toBe(640);
+    expect(askBarRight(true, true, 1200)).toBeNull();
+    expect(slots(body({ ...INITIAL_LAYOUT, panelExpanded: true }, true))).not.toContain("ask_bar");
+    expect(slots(body(INITIAL_LAYOUT, true))).toContain("ask_bar");
   });
 });

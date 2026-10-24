@@ -55,6 +55,12 @@ fontdb = "0.23.0"
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The app's own defaults, to switch macOS's smart quotes, dashes, text replacement and autocorrect off for the webview
+# (#41, #52; `src/door.rs`). MIT; the versions Tauri 2.12 itself uses on macOS.
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSString", "NSUserDefaults"] }
+
 [dev-dependencies]
 # The freshness test generates the types into a temporary folder.
 tempfile = "3.27.0"

@@ -3,7 +3,7 @@
 // strip item, the Ask bar), and Send's guard against a second start. Everything the panel says, and where a project
 // opens the first time (`opens_on`), is Rust's (`pane.view`, `otaq-view`'s `agent_pane.rs`). Nothing here starts an
 // agent except Send with words, the user's go-ahead (d0087, d0018). The code calls the panel "the pane", as before.
-import { setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
+import { setAgentExpanded, setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
 import { type Selection, selectProject, selection } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
 import type { LeadSplit } from "../../generated/LeadSplit";
@@ -106,6 +106,21 @@ export function showPane(routes: PaneRoutes = PANE_ROUTES): void {
 /** Folds the panel back into the Ask bar: its close icon, ⌘L from inside it, Esc (d0113). The conversation is kept. */
 export function closePane(routes: PaneRoutes = PANE_ROUTES): void {
   setAgentOpen(false, routes.layout);
+}
+
+/** The header's Expand and its way back (T-0502): the open panel over the board at full width, or beside it again. */
+export function toggleExpandPane(routes: PaneRoutes = PANE_ROUTES): void {
+  setAgentExpanded(!routes.layout.get().agentExpanded, routes.layout);
+}
+
+/**
+ * Esc while the panel is expanded (T-0502), wherever the keyboard is outside a terminal (in one, Esc is the agent's):
+ * back beside the board, still open. Whether it took the key.
+ */
+export function leaveExpand(routes: PaneRoutes = PANE_ROUTES): boolean {
+  if (!routes.layout.get().agentExpanded) return false;
+  setAgentExpanded(false, routes.layout);
+  return true;
 }
 
 /**

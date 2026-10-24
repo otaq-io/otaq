@@ -1,6 +1,6 @@
 //! First run and Add project as the Tauri page draws them (T-0233; UI-08, UI-11, SET-02, PRJ-01…PRJ-03; *14 · First
 //! run & onboarding*, *02 → No projects yet*): the title bar's step indicator (Welcome · Theme · Tools · Project ·
-//! Flow · Done, ONB-10), the Welcome and Theme steps' words, the tools checklist from [`OnboardingModel`] (rows, the permission-mode
+//! Flow, ONB-10), the Welcome and Theme steps' words, the tools checklist from [`OnboardingModel`] (rows, the permission-mode
 //! warning, Continue and why it is off), the Add project form from [`AddProjectModel`] (the onboarding card and the
 //! later dialog), and the "No projects yet" board. Every text the GPUI app wrote in its drawing code lives here now.
 //! The form says that adding a project lets Claude Code work in its folder, and why the trust wasn't recorded when it
@@ -75,7 +75,7 @@ pub struct Dot {
     pub state: DotState,
 }
 
-/// The window's title bar during onboarding: the product name and the six steps.
+/// The window's title bar during onboarding: the product name and the five steps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingTitleBar")]
 pub struct TitleBar {
@@ -955,7 +955,6 @@ mod tests {
                 DotState::Done,
                 DotState::Current,
                 DotState::Next,
-                DotState::Next,
                 DotState::Next
             ]
         );
@@ -971,11 +970,10 @@ mod tests {
                 ("2", "Theme"),
                 ("3", "Tools"),
                 ("4", "Project"),
-                ("5", "Flow"),
-                ("6", "Done")
+                ("5", "Flow")
             ]
         );
-        // s14-12: on the Flow step the four before it are checked, Done is next.
+        // s14-12: on the Flow step the four before it are checked, and Flow is the last step.
         let flow = title_bar(StepId::Flow);
         let states: Vec<DotState> = flow.steps.iter().map(|d| d.state).collect();
         assert_eq!(
@@ -985,8 +983,7 @@ mod tests {
                 DotState::Done,
                 DotState::Done,
                 DotState::Done,
-                DotState::Current,
-                DotState::Next
+                DotState::Current
             ]
         );
         assert_eq!(texts(&fixtures::base()).title_bars.len(), 5);

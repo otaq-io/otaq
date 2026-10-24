@@ -3,7 +3,8 @@
 //! `stage next`, `stage done` and `check pass|fail` from that session are refused until it has, since the run started
 //! or since Otaq last handed it a new comment (`stage_runs.handed_over_at`: a Send back, a drag back, a fail that
 //! resumes it). Comments posted while it runs after its prime are for the next agent and don't re-arm the gate. The
-//! user's own moves never pass through here.
+//! user's own moves never pass through here. A prime read before the session's first run opened (`sessions.primed_at`)
+//! counts for that run.
 
 use sqlx::FromRow;
 
@@ -57,15 +58,51 @@ impl Board {
 
     /// `session` ran `prime` for the ticket `ticket_id`: its open stage run is primed now. Nothing when the ticket
     /// runs no stage.
+    ///
+    /// A new agent can read its prime before its run opens (the start sets the ticket Working after the spawn): the
+    /// prime is kept on the session then, for the run it opens first ([`Self::refuse_unprimed`]).
     pub async fn record_prime(&self, ticket_id: &str, session: &str) -> Result<(), BoardError> {
-        if let Some(run) = self.open_run(ticket_id, session).await? {
-            sqlx::query("UPDATE stage_runs SET primed_at = ? WHERE id = ?")
-                .bind(now_ms())
-                .bind(&run.id)
-                .execute(self.store.pool())
-                .await?;
+        match self.open_run(ticket_id, session).await? {
+            Some(run) => {
+                sqlx::query("UPDATE stage_runs SET primed_at = ? WHERE id = ?")
+                    .bind(now_ms())
+                    .bind(&run.id)
+                    .execute(self.store.pool())
+                    .await?;
+            }
+            None => {
+                sqlx::query("UPDATE sessions SET primed_at = ? WHERE id = ? AND ticket_id = ?")
+                    .bind(now_ms())
+                    .bind(session)
+                    .bind(ticket_id)
+                    .execute(self.store.pool())
+                    .await?;
+            }
         }
         Ok(())
+    }
+
+    /// When `session` primed before `run` opened, if `run` is the first the session works in: its prime then counts
+    /// for it (a later run of the same session needs its own).
+    async fn primed_before_run(
+        &self,
+        run: &OpenRun,
+        session: &str,
+    ) -> Result<Option<i64>, BoardError> {
+        Ok(sqlx::query_scalar(
+            "SELECT s.primed_at FROM sessions s
+             WHERE s.id = ? AND s.primed_at IS NOT NULL AND s.primed_at >= s.started_at
+               AND EXISTS (SELECT 1 FROM stage_runs r WHERE r.id = ? AND r.session_id = s.id)
+               AND NOT EXISTS (SELECT 1 FROM stage_runs r WHERE r.session_id = s.id AND r.id != ?
+                                                              AND r.started_at <= ?)",
+        )
+        .bind(session)
+        .bind(&run.id)
+        .bind(&run.id)
+        .bind(run.started_at)
+        .fetch_optional(self.store.pool())
+        .await?
+        .flatten())
     }
 
     /// Refuses `session`'s stage end (`stage next`, `stage done`, `check pass|fail`) until it has run `prime` since its
@@ -79,6 +116,10 @@ impl Board {
         if run.primed() {
             return Ok(());
         }
+        let before_run = self.primed_before_run(&run, session).await?;
+        if before_run.is_some_and(|at| run.handed_over_at.is_none_or(|handed| at >= handed)) {
+            return Ok(());
+        }
         // The session's last prime on this ticket, in this run or an earlier one (a failed check resumes Dev's
         // session in a new run): what it read then isn't unread now.
         let last_prime: Option<i64> = sqlx::query_scalar(
@@ -89,6 +130,7 @@ impl Board {
         .bind(session)
         .fetch_one(self.store.pool())
         .await?;
+        let last_prime = last_prime.max(before_run);
         let unread: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM ticket_comments
              WHERE ticket_id = ? AND deleted_at IS NULL AND (? IS NULL OR posted_at > ?)",

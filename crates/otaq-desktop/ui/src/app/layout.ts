@@ -1,9 +1,11 @@
-// The window's layout state (SHB-01, SHL-05, T-0327, T-0458): whether the Project agent panel is open, the dragged
-// ticket sheet widths per window size class, and whether the ticket sheet is expanded. All of it is page state, so
-// each window keeps its own, for the app's life. The sizes and the size classes are Rust's (`layout.view`,
-// `panel.rs`); this file keeps only the moment of interaction: the drags and the switches.
+// The window's layout state (SHB-01, SHL-05, T-0327, T-0458, T-0502): whether the Project agent panel is open or
+// expanded, the dragged ticket sheet widths per window size class, and whether the ticket sheet is expanded. All of it
+// is page state, so each window keeps its own, for the app's life; only the Project agent panel's dragged width is
+// kept in the settings (`layout.agent_panel_width`). The sizes, their bounds and the size classes are Rust's
+// (`layout.view`, `panel.rs`); this file keeps only the moment of interaction: the drags and the switches.
 import { useEffect, useState } from "react";
 
+import type { LayoutAgentPanelWidthParams } from "../generated/LayoutAgentPanelWidthParams";
 import type { LayoutView } from "../generated/LayoutView";
 import type { SizeClass } from "../generated/SizeClass";
 import type { SizeClassBound } from "../generated/SizeClassBound";
@@ -19,12 +21,15 @@ export interface ShellLayout {
   panelWidths: ClassDrags;
   /** Expand (`e`): the ticket sheet takes the main area. */
   panelExpanded: boolean;
+  /** Expand in the Project agent panel's header: the open panel lies over the board, full width (T-0502). */
+  agentExpanded: boolean;
 }
 
 export const INITIAL_LAYOUT: ShellLayout = {
   agentOpen: false,
   panelWidths: {},
   panelExpanded: false,
+  agentExpanded: false,
 };
 
 export const shellLayout = createStore<ShellLayout>(INITIAL_LAYOUT);
@@ -71,9 +76,35 @@ export function withDrag(drags: ClassDrags, cls: SizeClass, width: number | null
     : { ...drags, [cls]: width };
 }
 
-/** Opens or closes the Project agent panel; the conversation is kept either way (d0113). */
+/** Opens or closes the Project agent panel; the conversation is kept either way (d0113). Closed, it isn't expanded. */
 export function setAgentOpen(open: boolean, store: Store<ShellLayout> = shellLayout): void {
-  if (store.get().agentOpen !== open) store.update((l) => ({ ...l, agentOpen: open }));
+  const now = store.get();
+  if (now.agentOpen !== open || (!open && now.agentExpanded))
+    store.update((l) => ({ ...l, agentOpen: open, agentExpanded: open && l.agentExpanded }));
+}
+
+/** Expand and its way back (the header's control, Esc): only an open panel expands. */
+export function setAgentExpanded(expanded: boolean, store: Store<ShellLayout> = shellLayout): void {
+  const want = expanded && store.get().agentOpen;
+  if (store.get().agentExpanded !== want) store.update((l) => ({ ...l, agentExpanded: want }));
+}
+
+/**
+ * The open panel's width in a window `windowWidth` px wide (`layout::agent_panel_width`): `width` (a drag under way,
+ * else the kept one) between the panel's narrowest and what leaves the board its minimum. No window yet (0): no bound.
+ */
+export function agentPanelWidth(view: LayoutView, windowWidth: number, width = view.agent_panel): number {
+  const widest =
+    windowWidth > 0 ? Math.max(view.agent_panel_min, windowWidth - view.rail - view.board_min) : Infinity;
+  return Math.min(Math.max(width, view.agent_panel_min), widest);
+}
+
+/** Keeps the width a drag of the panel's edge ended at (`null`: the double-click, the default); takes Rust's view. */
+export function keepAgentPanelWidth(width: number | null): Promise<void> {
+  const params: LayoutAgentPanelWidthParams = { width };
+  return request("layout.agent_panel_width", params).then((view) => {
+    layoutView.set(view as LayoutView);
+  });
 }
 
 export function toggleExpanded(): void {
