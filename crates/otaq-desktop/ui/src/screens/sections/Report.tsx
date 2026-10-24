@@ -42,7 +42,7 @@ function Text({ segments }: { segments: readonly ReportSegment[] }) {
   );
 }
 
-/** The report's lines (no head): findings, checks and notes. `ticket` is the ticket the report is about. */
+/** The report's lines (no head): a passed one's summary or a failed one's findings, then checks and notes. `ticket` is the ticket the report is about. */
 export function ReportBody({ report, ticket }: { report: ValidationReportView; ticket: string }) {
   const [creating, setCreating] = useState<string | null>(null);
   const create = (note: string) => {
@@ -58,6 +58,17 @@ export function ReportBody({ report, ticket }: { report: ValidationReportView; t
   };
   return (
     <div className="report-body">
+      {/* A passed report's verdict ("Pass: every item… is done") reads as a pass, not as a finding (dogfood #17). */}
+      {report.summary.map((line, i) => (
+        <div key={`s${String(i)}`} className="report-line" data-tone="checked">
+          <Icon name="check" size={12} />
+          <span className="report-text">
+            <span>
+              <Text segments={line} />
+            </span>
+          </span>
+        </div>
+      ))}
       {report.findings.map((f, i) => (
         <div key={`f${String(i)}`} className="report-line" data-tone="finding">
           <Icon name="x" size={12} />

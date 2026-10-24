@@ -790,6 +790,12 @@ pub struct FilePage {
     pub modes: [&'static str; 2],
     /// File for an unchanged file; Diff for a changed one (`s25-07`) and a deleted one.
     pub opens_in: FileMode,
+    /// Unified · Split on its Diff: the same choice as All changes', kept for every ticket ([`ReviewMemory`],
+    /// dogfood #61).
+    pub split_modes: [&'static str; 2],
+    pub side_by_side: bool,
+    /// Below this width Split shows as Unified.
+    pub side_by_side_from: f32,
     /// Not for a deleted file.
     pub can_file: bool,
     /// Only for a changed file.
@@ -858,8 +864,8 @@ pub fn code_lines(path: &str, text: &str) -> Vec<CodeLine> {
         .collect()
 }
 
-/// A file read with `files.read`.
-pub fn file_page(content: &FileContent) -> FilePage {
+/// A file read with `files.read`; `memory` holds Unified · Split.
+pub fn file_page(content: &FileContent, memory: &ReviewMemory) -> FilePage {
     let changed = content.change.as_ref();
     let mut subtitle = read_in(&content.source);
     match changed {
@@ -910,6 +916,9 @@ pub fn file_page(content: &FileContent) -> FilePage {
         } else {
             FileMode::File
         },
+        split_modes: MODES,
+        side_by_side: memory.side_by_side,
+        side_by_side_from: vm::SIDE_BY_SIDE_FROM,
         can_file: true,
         can_diff: changed.is_some(),
         new_ticket: NEW_TICKET,
@@ -921,13 +930,21 @@ pub fn file_page(content: &FileContent) -> FilePage {
 }
 
 /// A file that is gone from the worktree (deleted): only its Diff shows what it was.
-pub fn deleted_page(source: &FilesSource, path: &str, child: Option<String>) -> FilePage {
+pub fn deleted_page(
+    source: &FilesSource,
+    path: &str,
+    child: Option<String>,
+    memory: &ReviewMemory,
+) -> FilePage {
     FilePage {
         path: path.to_owned(),
         child,
         subtitle: format!("{} \u{b7} deleted", read_in(source)),
         modes: FILE_MODES,
         opens_in: FileMode::Diff,
+        split_modes: MODES,
+        side_by_side: memory.side_by_side,
+        side_by_side_from: vm::SIDE_BY_SIDE_FROM,
         can_file: false,
         can_diff: true,
         new_ticket: NEW_TICKET,
@@ -1263,17 +1280,20 @@ pub fn gallery() -> Gallery {
         ),
     ];
     let text = "import { NextResponse } from 'next/server'\nimport type { NextRequest } from 'next/server'\n\nexport function middleware(req: NextRequest) {\n  const session = req.cookies.get('sid') ?? req.headers.get('x-sid')\n  if (req.nextUrl.pathname === '/auth/callback') {\n    return NextResponse.next() // cookie is set on this response\n  }\n  return NextResponse.next()\n}\n";
-    let file = file_page(&FileContent {
-        source: source("SHOP-22"),
-        path: "src/middleware.ts".into(),
-        child: None,
-        size: text.len() as u64,
-        binary: false,
-        text: text.into(),
-        truncated: false,
-        change: Some(modified(4, 1, false)),
-        tags: Vec::new(),
-    });
+    let file = file_page(
+        &FileContent {
+            source: source("SHOP-22"),
+            path: "src/middleware.ts".into(),
+            child: None,
+            size: text.len() as u64,
+            binary: false,
+            text: text.into(),
+            truncated: false,
+            change: Some(modified(4, 1, false)),
+            tags: Vec::new(),
+        },
+        &ReviewMemory::default(),
+    );
     let search = search_view(
         "log",
         &[
@@ -1909,17 +1929,20 @@ mod tests {
             ]
         );
 
-        let page = file_page(&FileContent {
-            source: branch.clone(),
-            path: "src/components/WishlistButton.tsx".into(),
-            child: Some(key("SHOP-40.2")),
-            size: 300,
-            binary: false,
-            text: "'use client'\n".into(),
-            truncated: false,
-            change: Some(change(FileStatus::Added, 12, 0, true)),
-            tags: vec![tag("SHOP-40.2", TagKind::Writing)],
-        });
+        let page = file_page(
+            &FileContent {
+                source: branch.clone(),
+                path: "src/components/WishlistButton.tsx".into(),
+                child: Some(key("SHOP-40.2")),
+                size: 300,
+                binary: false,
+                text: "'use client'\n".into(),
+                truncated: false,
+                change: Some(change(FileStatus::Added, 12, 0, true)),
+                tags: vec![tag("SHOP-40.2", TagKind::Writing)],
+            },
+            &ReviewMemory::default(),
+        );
         assert_eq!(
             page.subtitle,
             "40.2\u{2019}s change, on top of the epic\u{2019}s branch \u{b7} not merged yet"
@@ -1948,7 +1971,13 @@ mod tests {
             change: Some(change(FileStatus::Modified, 4, 1, false)),
             tags: Vec::new(),
         };
-        let page = file_page(&content);
+        let page = file_page(&content, &ReviewMemory::default());
+        assert_eq!(page.split_modes, ["Unified", "Split"]);
+        assert!(!page.side_by_side);
+        // Split chosen on All changes stays Split on a picked file's Diff (dogfood #61).
+        let split = ReviewMemory { side_by_side: true };
+        assert!(file_page(&content, &split).side_by_side);
+        assert!(deleted_page(&content.source, "src/old.ts", None, &split).side_by_side);
         assert_eq!(
             page.subtitle,
             "in SHOP-22\u{2019}s worktree \u{b7} +4 \u{2212}1 against main"
@@ -1963,7 +1992,7 @@ mod tests {
             change: None,
             ..content.clone()
         };
-        let page = file_page(&readme);
+        let page = file_page(&readme, &ReviewMemory::default());
         assert_eq!(
             page.subtitle,
             "in SHOP-22\u{2019}s worktree \u{b7} not changed"
@@ -1978,7 +2007,7 @@ mod tests {
             ..readme
         };
         assert_eq!(
-            file_page(&logo).note.as_deref(),
+            file_page(&logo, &ReviewMemory::default()).note.as_deref(),
             Some("Binary file \u{b7} 2 KB")
         );
         assert_eq!(
@@ -1986,10 +2015,15 @@ mod tests {
             "`src/middleware.ts`\n\n"
         );
         assert_eq!(
-            file_page(&content).new_ticket_body,
+            file_page(&content, &ReviewMemory::default()).new_ticket_body,
             "`src/middleware.ts`\n\n"
         );
-        let gone = deleted_page(&content.source, "src/old.ts", None);
+        let gone = deleted_page(
+            &content.source,
+            "src/old.ts",
+            None,
+            &ReviewMemory::default(),
+        );
         assert_eq!(gone.subtitle, "in SHOP-22\u{2019}s worktree \u{b7} deleted");
         assert!(!gone.can_file && gone.opens_in == FileMode::Diff);
     }

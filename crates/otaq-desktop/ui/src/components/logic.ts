@@ -125,6 +125,11 @@ export function dialogKey(destructive: boolean, key: string): DialogOutcome | nu
   return null;
 }
 
+/** ⌘↵ / Ctrl+↵ (Shift or not): sends a dialog's text, Local merge's message (`Dialog`'s `onSubmit`). */
+export function isSubmitKey(e: { key: string; metaKey: boolean; ctrlKey: boolean }): boolean {
+  return e.key === "Enter" && (e.metaKey || e.ctrlKey);
+}
+
 /**
  * Where Tab moves focus inside a modal of `count` focusable elements: the next one (the previous with ⇧), wrapping
  * around, so focus never leaves the dialog. From outside the dialog (`current` -1) it enters at the first or last.

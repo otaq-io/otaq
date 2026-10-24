@@ -67,8 +67,9 @@ export function FilesGallery() {
               page={g.file}
               file={{ path: g.file.path, child: null, mode: "file" }}
               ctx={ctx}
-              sideBySide={false}
+              width={1200}
               onMode={ignore}
+              onSplit={ignore}
             />
           </div>
         </div>

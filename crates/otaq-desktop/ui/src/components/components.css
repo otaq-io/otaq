@@ -509,6 +509,14 @@
   resize: vertical;
 }
 
+/* Grows with its text (`TextArea`'s `grow`): from its rows to about ten lines, then it scrolls. */
+.text-area[data-grow] {
+  min-height: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  resize: none;
+}
+
 .select {
   display: flex;
   align-items: center;

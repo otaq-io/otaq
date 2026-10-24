@@ -398,7 +398,13 @@ describe("drops", () => {
         method === "board.drop"
           ? ({
               kind: "approve",
-              menu: { key: "SHOP-18", title: "Approve SHOP-18 Checkout API", items: [], note: "" },
+              menu: {
+                key: "SHOP-18",
+                title: "Approve SHOP-18 Checkout API",
+                items: [],
+                note: "",
+                direct: null,
+              },
             } satisfies DropOutcome)
           : null,
       );
@@ -415,6 +421,25 @@ describe("drops", () => {
       { id: "local_merge", params: { ticket: "SHOP-18" } },
       { id: "open_pr", params: { ticket: "SHOP-26" } },
     ]);
+  });
+
+  it("a drop with one way to deliver opens its dialog without the choice (dogfood #18)", () => {
+    const menus: string[] = [];
+    afterDrop(
+      {
+        kind: "approve",
+        menu: {
+          key: "SHOP-40.1",
+          title: "Approve SHOP-40.1 Wishlist API",
+          items: [],
+          note: "",
+          direct: "local_merge",
+        },
+      },
+      (menu) => menus.push(menu.title),
+    );
+    expect(menus).toEqual([]);
+    expect(overlays.store.get()).toEqual([{ id: "local_merge", params: { ticket: "SHOP-40.1" } }]);
   });
 
   it("a move needs nothing more; a not-yet move and a refusal are toasts", async () => {
