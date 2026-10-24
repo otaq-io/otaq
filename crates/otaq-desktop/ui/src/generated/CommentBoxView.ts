@@ -15,8 +15,8 @@ label: string | null, placeholder: string,
  */
 submit: string | null, 
 /**
- * The quiet line under it: "Read by the next stage's agent · to talk to Rust developer now, use its terminal"
- * while an agent works, a dialog's "Posted as a comment for Dev · every later stage reads it".
+ * The quiet line under it: "Read by the next stage's agent" while an agent works (the tick box beside it says
+ * whether the running one is told too, d0123), a dialog's "Posted as a comment for Dev · every later stage reads it".
  */
 footer: string | null, 
 /**

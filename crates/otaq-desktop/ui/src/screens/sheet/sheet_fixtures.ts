@@ -167,6 +167,7 @@ export const VIEW: PanelView = {
   choices: null,
   path: null,
   open_agent: null,
+  build_aside: null,
   refusal: null,
   holds: [],
 };

@@ -283,3 +283,26 @@
 .overview-usage-limit {
   display: flex;
 }
+
+/* "Manual checks for you" above Approve (d0125): one tick box per item, where it came from under its text. */
+.manual-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.manual-check {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.manual-check-source {
+  padding-left: 22px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.manual-check[data-ticked] .choice span {
+  color: var(--text-secondary);
+}

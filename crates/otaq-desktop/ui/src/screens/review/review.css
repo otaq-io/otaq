@@ -31,6 +31,17 @@
   font: 400 11px var(--font-mono);
 }
 
+/* "2 manual checks not ticked" under the Merge check's line (d0125); it never disables the merge. */
+.review-manual-checks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-manual-checks .icon {
+  flex: none;
+}
+
 .review-link {
   padding: 0;
   border: 0;

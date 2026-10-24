@@ -366,6 +366,12 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
                 </button>
               )}
             </p>
+            {c.manual_checks !== null && (
+              <p className="review-muted review-manual-checks">
+                <Icon name="list-checks" size={13} />
+                <span>{c.manual_checks}</span>
+              </p>
+            )}
             {c.conflict !== null && (
               <Callout icon="git-compare-arrows" tone="paused">
                 {c.conflict}

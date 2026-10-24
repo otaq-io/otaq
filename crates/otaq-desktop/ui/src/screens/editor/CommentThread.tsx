@@ -302,6 +302,8 @@ export function CommentThread({ ticket }: TicketProps) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  // "Also tell the agent now" (d0123): ticked by default, as the user leaves it while the thread shows.
+  const [tellAgent, setTellAgent] = useState(true);
   const box = useRef<HTMLTextAreaElement>(null);
   const attach = useStore(attachRequests);
   useEffect(() => {
@@ -324,7 +326,7 @@ export function CommentThread({ ticket }: TicketProps) {
       body: value.text,
       pasted: value.pasted?.text ?? null,
       file: value.file?.path ?? null,
-      tell_agent: false,
+      tell_agent: view.box.tell_agent !== null && tellAgent,
     }).then(
       () => {
         setBusy(false);
@@ -373,6 +375,8 @@ export function CommentThread({ ticket }: TicketProps) {
         busy={busy}
         error={error}
         ref={box}
+        tellAgent={tellAgent}
+        onTellAgent={setTellAgent}
       />
       {toDelete && (
         <DeleteDialog

@@ -97,8 +97,8 @@ pub struct CommentBoxView {
     pub placeholder: String,
     /// The box's own button ("Comment", ⌘↵); none in a dialog, whose button sends it.
     pub submit: Option<String>,
-    /// The quiet line under it: "Read by the next stage's agent · to talk to Rust developer now, use its terminal"
-    /// while an agent works, a dialog's "Posted as a comment for Dev · every later stage reads it".
+    /// The quiet line under it: "Read by the next stage's agent" while an agent works (the tick box beside it says
+    /// whether the running one is told too, d0123), a dialog's "Posted as a comment for Dev · every later stage reads it".
     pub footer: Option<String>,
     /// Before the line: an arrow in the thread, a speech bubble in a dialog (`s03-50`, `s07-20`).
     pub footer_icon: IconName,
@@ -157,7 +157,7 @@ impl CommentBoxView {
             ..Self::new(
                 None,
                 Some(SUBMIT.to_owned()),
-                working.map(working_line),
+                working.map(|_| WORKING_LINE.to_owned()),
                 false,
             )
         }
@@ -184,10 +184,9 @@ impl CommentBoxView {
 /// The thread box's tick box while the ticket's agent or check runs (d0123).
 pub const TELL_AGENT: &str = "Also tell the agent now";
 
-/// "Read by the next stage's agent · to talk to Rust developer now, use its terminal" (CMT-10).
-pub fn working_line(agent: &str) -> String {
-    format!("Read by the next stage\u{2019}s agent \u{b7} to talk to {agent} now, use its terminal")
-}
+/// The box's line while an agent works (CMT-10): the comment is a hand-over for the next stage; "Also tell the agent
+/// now" beside it is what reaches the running one (d0123), so the line no longer sends the user to its terminal.
+pub const WORKING_LINE: &str = "Read by the next stage\u{2019}s agent";
 
 /// Edit in place: Cancel · Save.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -555,9 +554,7 @@ mod tests {
         assert_eq!(b.submit.as_deref(), Some("Comment"));
         assert_eq!(
             b.footer.as_deref(),
-            Some(
-                "Read by the next stage\u{2019}s agent \u{b7} to talk to Rust developer now, use its terminal"
-            )
+            Some("Read by the next stage\u{2019}s agent")
         );
         assert_eq!(b.label, None);
         assert!(!b.optional);

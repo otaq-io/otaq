@@ -115,6 +115,30 @@
   color: var(--st-attn);
 }
 
+/* The build set aside at Review (d0125): a quiet line, its icon turning while the build comes back. */
+.build-aside {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.build-aside .icon {
+  flex: none;
+}
+
+.build-aside[data-bringing] .icon {
+  animation: spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .build-aside[data-bringing] .icon {
+    animation: none;
+  }
+}
+
 /* Answer the agent (*SHOP-32 · Validation failed 3 times*). */
 .panel-answer-agent {
   display: flex;

@@ -122,7 +122,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
     let k = || KeyParams {
         key: params.key.clone(),
     };
-    let (all, proposal, check, provider, projects, settings) = tokio::join!(
+    let (all, proposal, check, provider, projects, settings, manual) = tokio::join!(
         tickets(app, &project),
         app.service.send(Request::TicketMergeProposal(k())),
         app.service.send(Request::TicketApproveCheck(k())),
@@ -133,6 +133,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         app.service.send(Request::ProjectSettingsGet(ProjectParams {
             project: project.clone(),
         })),
+        app.service.send(Request::TicketManualChecks(k())),
     );
     let all = all?;
     let proposal = match proposal? {
@@ -168,6 +169,11 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         check: &check,
         menu: board_page::approve_menu(&ticket, &proposal.target, &all, provider.as_ref()),
         merge_check: merge_check.as_deref(),
+        // Unread, the dialog says nothing about them (d0125: they never block).
+        manual_unticked: match manual {
+            Ok(Reply::ManualChecks(c)) => c.unticked,
+            _ => 0,
+        },
     }))
 }
 
@@ -747,3 +753,5 @@ mod tests {
 mod hand_over_tests;
 #[cfg(test)]
 mod merge_check_tests;
+#[cfg(test)]
+mod manual_check_tests;

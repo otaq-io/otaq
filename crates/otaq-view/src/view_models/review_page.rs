@@ -48,6 +48,8 @@ pub struct ConfirmView {
     pub conflict: Option<String>,
     /// The Merge check's one line (d0120).
     pub merge_check: MergeCheckNote,
+    /// "2 manual checks not ticked" beside it while some are open (d0125); it never disables Squash & merge.
+    pub manual_checks: Option<String>,
     /// "Squash & merge", or "Squash & merge into release/2.3" on another base.
     pub merge: String,
     pub cancel: &'static str,
@@ -169,6 +171,8 @@ pub struct ApproveFacts<'a> {
     pub menu: ApproveMenu,
     /// The project's Merge check command (d0120), `None` when it has none.
     pub merge_check: Option<&'a str>,
+    /// The ticket's manual checks not ticked (d0125).
+    pub manual_unticked: u32,
 }
 
 pub fn approve_view(f: ApproveFacts) -> ApproveView {
@@ -200,6 +204,7 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
                 f.merge_check,
                 f.target,
             ),
+            manual_checks: crate::view_models::manual_checks::not_ticked(f.manual_unticked),
             merge: if other_base {
                 format!("Squash & merge into {}", f.target)
             } else {
@@ -516,6 +521,7 @@ mod tests {
             check,
             menu: approve_menu(t, target, all, None),
             merge_check: None,
+            manual_unticked: 0,
         }
     }
 
@@ -586,6 +592,24 @@ mod tests {
             none.merging.close, "Close",
             "it can be closed while it runs"
         );
+    }
+
+    /// d0125: the confirmation counts the manual checks not ticked, and says nothing once all are.
+    #[test]
+    fn the_confirmation_counts_unticked_manual_checks() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let ticked = approve_view(facts(&t, &all, "main", &ApproveCheck::Unchanged));
+        assert_eq!(ticked.confirm.manual_checks, None);
+        let open = approve_view(ApproveFacts {
+            manual_unticked: 2,
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(
+            open.confirm.manual_checks.as_deref(),
+            Some("2 manual checks not ticked")
+        );
+        assert_eq!(open.confirm.merge, "Squash & merge", "never blocked");
     }
 
     /// d0120, Q475: a failed check reads as a conflict does (the agent fixes it, no click); a stopped one says nothing

@@ -332,11 +332,20 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
         Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
-        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next.
-        Status::WaitingForYou if custom => vec![(A::Pass, Primary), (A::Fail, Secondary)],
-        Status::WaitingForYou => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
-        // Waits for the Delivery click (not on the default flow): Local merge or Open PR.
-        Status::ToDeliver => vec![(A::Approve, Primary)],
+        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next. Run tries the
+        // change, as during Dev (d0125); it brings a set-aside build back first.
+        Status::WaitingForYou if custom => vec![
+            (A::Pass, Primary),
+            (A::Fail, Secondary),
+            (A::Run, Secondary),
+        ],
+        Status::WaitingForYou => vec![
+            (A::Approve, Primary),
+            (A::SendBack, Secondary),
+            (A::Run, Secondary),
+        ],
+        // Waits for the Delivery click (not on the default flow): Local merge or Open PR; Run too (d0125).
+        Status::ToDeliver => vec![(A::Approve, Primary), (A::Run, Secondary)],
         Status::PrOpen => {
             // Epic children never offer the PR actions; they merge locally (d0059).
             if ticket.epic.is_some() {
@@ -580,7 +589,11 @@ mod tests {
         assert_eq!(all(Status::StartInterrupted), [(A::RetryStart, Primary)]);
         assert_eq!(
             all(Status::WaitingForYou),
-            [(A::Approve, Primary), (A::SendBack, Secondary)]
+            [
+                (A::Approve, Primary),
+                (A::SendBack, Secondary),
+                (A::Run, Secondary)
+            ]
         );
         assert_eq!(
             all(Status::PrOpen),
@@ -595,6 +608,26 @@ mod tests {
         assert_eq!(all(Status::ClosedNotMerged), [(A::Reopen, Secondary)]);
     }
 
+    /// d0125: a ticket waiting in a human check or a click-mode Delivery offers Run next to Approve, as during Dev;
+    /// an open PR, a merged ticket and an epic don't.
+    #[test]
+    fn run_at_review() {
+        use Look::*;
+        let review = ticket("SHOP-22", "Offline habits", Status::WaitingForYou);
+        assert!(all_buttons(&review).contains(&(A::Run, Secondary)));
+        assert!(all_buttons_in(&review, true).contains(&(A::Run, Secondary)));
+        assert_eq!(
+            all(Status::ToDeliver),
+            [(A::Approve, Primary), (A::Run, Secondary)]
+        );
+        for status in [Status::PrOpen, Status::Merged, Status::Backlog] {
+            assert!(!all(status).iter().any(|(a, _)| *a == A::Run), "{status}");
+        }
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
+        epic.kind = Kind::Epic;
+        assert_eq!(all_buttons(&epic), [(A::Approve, Primary)]);
+    }
+
     /// FLW-14, FLW-16 (`s03-46`): in another flow a human check offers Pass · Fail; an open PR Send back with PR
     /// comments and an epic's open PR Add a child from PR comments on every flow.
     #[test]
@@ -602,7 +635,14 @@ mod tests {
         use Look::*;
         let custom = |t: &Ticket| all_buttons_in(t, true);
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        assert_eq!(custom(&review), [(A::Pass, Primary), (A::Fail, Secondary)]);
+        assert_eq!(
+            custom(&review),
+            [
+                (A::Pass, Primary),
+                (A::Fail, Secondary),
+                (A::Run, Secondary)
+            ]
+        );
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(

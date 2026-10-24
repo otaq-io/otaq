@@ -50,6 +50,7 @@ const VIEW: ApproveView = {
     note: "The worktree for SHOP-18 is removed unless it has uncommitted changes.",
     conflict: null,
     merge_check: { text: "No merge check · ", link: "set one in project settings", project: "SHOP" },
+    manual_checks: null,
     merge: "Squash & merge",
     cancel: "Cancel",
     hint: "cancel · ⌘↵ merge",

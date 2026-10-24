@@ -26,6 +26,10 @@ conflict: string | null,
  */
 merge_check: LocalMergeCheckNote, 
 /**
+ * "2 manual checks not ticked" beside it while some are open (d0125); it never disables Squash & merge.
+ */
+manual_checks: string | null, 
+/**
  * "Squash & merge", or "Squash & merge into release/2.3" on another base.
  */
 merge: string, cancel: string, 

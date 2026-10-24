@@ -39,6 +39,7 @@ use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
+use otaq_view::view_models::build_aside::{self, BuildAsideLine};
 use otaq_view::view_models::comments;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
@@ -410,6 +411,9 @@ pub struct View {
     pub path: Option<PathView>,
     /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
     pub open_agent: Option<String>,
+    /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
+    /// on the Overview and at the top of the Run and Shell.
+    pub build_aside: Option<BuildAsideLine>,
 }
 
 /// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
@@ -703,6 +707,7 @@ pub fn view_of(f: &Facts) -> View {
         choices: f.agents.and_then(stage_choices::panel_choices),
         path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
+        build_aside: build_aside::line(ticket),
     }
 }
 
@@ -2345,15 +2350,15 @@ mod tests {
             pending: 2,
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)"]);
-        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back"]);
+        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)", "Run"]);
+        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back", "Run"]);
         assert!(!view.approve_opens_menu);
         // DEC-05: open recorded decisions; Local merge / Open PR move into ▾.
         let view = view_of(&Facts {
             decisions: 1,
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back"]);
+        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back", "Run"]);
         assert!(view.approve_opens_menu);
         assert_eq!(view.approve_more, Some("Approve choices"));
         // In another flow (FLW-14): Pass and Fail, Fail sending the pending comments.
@@ -2366,8 +2371,8 @@ mod tests {
             });
             labels(&view).into_iter().map(str::to_owned).collect()
         };
-        assert_eq!(custom(2, 0), ["Pass", "Fail (2)"]);
-        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail"]);
+        assert_eq!(custom(2, 0), ["Pass", "Fail (2)", "Run"]);
+        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail", "Run"]);
         let view = view_of(&Facts {
             custom_flow: true,
             ..facts(&review, &all, &[])

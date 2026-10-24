@@ -3,7 +3,8 @@
 // queued notice, the conflict strip and the Start interrupted callout; the choices and the path. The M12 rows (d0063,
 // d0064): the validation buttons, the token split, the Auto-merge stop message and Answer the agent's note box. The
 // actions are the sheet's (`sheet/actions`); everything it says comes from `panel.view`; it keeps only the picked
-// answer.
+// answer. At Review, "Manual checks for you" (the Overview's, `aboveBar`) sits above Approve, and a build set aside to
+// save disk says so under the bar (d0125, `BuildAside`; the Run and Shell show the same line).
 import { type ReactNode, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -19,6 +20,7 @@ import {
   Tooltip,
   PLAIN_TEXT,
 } from "../../components";
+import type { BuildAsideLine } from "../../generated/BuildAsideLine";
 import type { PanelAnswer } from "../../generated/PanelAnswer";
 import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
 import type { PanelButton } from "../../generated/PanelButton";
@@ -436,7 +438,26 @@ function MetaLine({ view }: { view: PanelView }) {
  * Answer the agent's box), the choices and the path, the queued notice, the open PR's box and the Start interrupted
  * callout. The registered sections (Epic, Stack, Messages) are Overview's own, under the description.
  */
-export function NeedsYou({ view, actions }: { view: PanelView; actions: PanelActions }) {
+/** "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125). */
+export function BuildAside({ line }: { line: BuildAsideLine }) {
+  return (
+    <p className="build-aside" data-bringing={line.bringing || undefined} role="status">
+      <Icon name={line.icon} size={13} />
+      <span>{line.text}</span>
+    </p>
+  );
+}
+
+export function NeedsYou({
+  view,
+  actions,
+  aboveBar,
+}: {
+  view: PanelView;
+  actions: PanelActions;
+  /** Shown right above the action bar: the review's manual checks (d0125). */
+  aboveBar?: ReactNode;
+}) {
   const app = useRegistries();
   const { press, busy, answering, setAnswering, cardAnswer } = actions;
   const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;
@@ -465,6 +486,7 @@ export function NeedsYou({ view, actions }: { view: PanelView; actions: PanelAct
           <>
             {view.refusal && <Refusal refusal={view.refusal} />}
             <Holds view={view} />
+            {aboveBar}
             {view.buttons.length > 0 && (
               <div className="panel-bar">
                 {view.buttons.map((button) => (
@@ -486,6 +508,7 @@ export function NeedsYou({ view, actions }: { view: PanelView; actions: PanelAct
             )}
           </>
         )}
+        {view.build_aside !== null && <BuildAside line={view.build_aside} />}
         {view.stop_message !== null && (
           <p className="panel-stop-message">
             <Icon name="triangle-alert" size={13} />
