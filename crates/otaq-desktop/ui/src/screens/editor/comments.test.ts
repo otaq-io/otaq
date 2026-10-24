@@ -50,6 +50,7 @@ const BOX: CommentBoxView = {
   remove: "Remove the pasted text",
   optional: false,
   limits: LIMITS,
+  tell_agent: null,
 };
 
 describe("the paste rule", () => {

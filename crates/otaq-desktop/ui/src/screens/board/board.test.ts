@@ -453,6 +453,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     remove: "Remove the pasted text",
     optional: true,
     limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+    tell_agent: null,
   });
   const sendBack: DragBackDialog = {
     key: "SHOP-19",

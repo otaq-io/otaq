@@ -1,5 +1,6 @@
 //! Ticket comments and reports from the command line (CMT-06, d0109): `otaq comment [KEY] --stdin [--report-file
-//! PATH]` posts a comment for the next stage's agent, `otaq comment edit [KEY] <N> --stdin` and `otaq comment delete
+//! PATH] [--tell-agent]` posts a comment for the next stage's agent (and, with `--tell-agent`, tells the running one
+//! to read it, d0123), `otaq comment edit [KEY] <N> --stdin` and `otaq comment delete
 //! [KEY] <N>` change one, `otaq comments [KEY]` lists them, and `otaq report [KEY] <N>` prints comment N's report
 //! (`--path`: only its file, so an agent can `grep` it without loading it). They work on `$OTAQ_TICKET` unless a key
 //! is given; the service judges who may write (CMT-04).
@@ -49,6 +50,10 @@ pub struct CommentArgs {
     /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
     #[arg(long, value_name = "PATH")]
     pub report_file: Option<PathBuf>,
+    /// Also tell the ticket's running agent (or its check) now: once it is idle, it is typed "The user added comment
+    /// N. Run `otaq prime` to read it." Nothing without a running session, or from an agent
+    #[arg(long)]
+    pub tell_agent: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -139,7 +144,14 @@ pub fn comment(args: CommentArgs, global: &GlobalArgs, out: &Output) -> Result<(
     match args.command {
         Some(CommentCommand::Edit { args, stdin }) => edit(args, stdin, global, out),
         Some(CommentCommand::Delete { args }) => delete(args, global, out),
-        None => post(args.key, args.stdin, args.report_file, global, out),
+        None => post(
+            args.key,
+            args.stdin,
+            args.report_file,
+            args.tell_agent,
+            global,
+            out,
+        ),
     }
 }
 
@@ -159,11 +171,12 @@ pub fn report_source(report_file: Option<PathBuf>) -> Result<Option<ReportSource
     Ok(Some(ReportSource::Path(path)))
 }
 
-/// `otaq comment [KEY] --stdin [--report-file PATH]`.
+/// `otaq comment [KEY] --stdin [--report-file PATH] [--tell-agent]`.
 fn post(
     key: Option<String>,
     stdin: bool,
     report_file: Option<PathBuf>,
+    tell_agent: bool,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
@@ -171,7 +184,12 @@ fn post(
     let report = report_source(report_file)?;
     let body = read_stdin(stdin)?;
     let (key, reply) = send(key, global, |key| {
-        Request::TicketCommentPost(TicketCommentPostParams { key, body, report })
+        Request::TicketCommentPost(TicketCommentPostParams {
+            key,
+            body,
+            report,
+            tell_agent,
+        })
     })?;
     let comment = comment_reply(reply)?;
     let with = comment

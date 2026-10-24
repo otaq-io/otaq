@@ -824,6 +824,7 @@ async fn each_change_tells_clients_the_ticket_changed() {
             key: "SHOP-1".into(),
             body: "Also keep the column order.".into(),
             report: None,
+            tell_agent: false,
         }),
         serde_json::from_value(json!({"method": "ticket.comment_edit",
             "params": {"key": "SHOP-1", "n": 1, "body": "Keep the order."}}))

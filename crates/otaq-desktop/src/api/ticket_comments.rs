@@ -59,6 +59,7 @@ pub struct ThreadParams {
 
 /// `{"key": "SHOP-34", "body": "…", "pasted": "…48 KB of log…"}`: a new comment, with the pasted text as its report;
 /// or with `"file": "/Users/me/perf-notes.md"`, a file added in Overview (Add, a drop; RPT-02), copied as its report.
+/// `"tell_agent": true` also tells the running agent to read it (d0123).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "CommentPostParams")]
 pub struct PostParams {
@@ -68,6 +69,9 @@ pub struct PostParams {
     pub pasted: Option<String>,
     #[serde(default)]
     pub file: Option<String>,
+    /// "Also tell the agent now" ticked (d0123).
+    #[serde(default)]
+    pub tell_agent: bool,
 }
 
 /// `{"key": "SHOP-34", "n": 3, "body": "…"}`: comment 3's new text.
@@ -164,6 +168,7 @@ pub async fn post(app: &App, params: PostParams) -> Result<Done, RequestError> {
                 (Some(path), _) => Some(ReportSource::Path(path.into())),
                 (None, pasted) => pasted.map(ReportSource::Text),
             },
+            tell_agent: params.tell_agent,
         }))
         .await?;
     posted("ticket.comment_post", answer)

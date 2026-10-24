@@ -3,5 +3,10 @@
 /**
  * `{"key": "SHOP-34", "body": "…", "pasted": "…48 KB of log…"}`: a new comment, with the pasted text as its report;
  * or with `"file": "/Users/me/perf-notes.md"`, a file added in Overview (Add, a drop; RPT-02), copied as its report.
+ * `"tell_agent": true` also tells the running agent to read it (d0123).
  */
-export type CommentPostParams = { key: string, body: string, pasted: string | null, file: string | null, };
+export type CommentPostParams = { key: string, body: string, pasted: string | null, file: string | null, 
+/**
+ * "Also tell the agent now" ticked (d0123).
+ */
+tell_agent: boolean, };

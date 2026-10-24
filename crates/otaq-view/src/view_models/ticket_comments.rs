@@ -116,6 +116,9 @@ pub struct CommentBoxView {
     /// An empty box is fine (a dialog's optional comment); the thread's box needs text.
     pub optional: bool,
     pub limits: CommentLimits,
+    /// The tick box's label, "Also tell the agent now", only in the thread's box while the ticket's agent or check
+    /// runs (d0123); ticked by default. Ticked, the post sends `tell_agent`.
+    pub tell_agent: Option<String>,
 }
 
 impl CommentBoxView {
@@ -142,17 +145,22 @@ impl CommentBoxView {
             remove: "Remove the pasted text".to_owned(),
             optional,
             limits: CommentLimits::current(),
+            tell_agent: None,
         }
     }
 
-    /// The thread's box: its own Comment button, and the quiet line while `working` (the running agent's name).
+    /// The thread's box: its own Comment button, and the quiet line and "Also tell the agent now" while `working`
+    /// (the running agent's name).
     pub fn thread(working: Option<&str>) -> Self {
-        Self::new(
-            None,
-            Some(SUBMIT.to_owned()),
-            working.map(working_line),
-            false,
-        )
+        Self {
+            tell_agent: working.map(|_| TELL_AGENT.to_owned()),
+            ..Self::new(
+                None,
+                Some(SUBMIT.to_owned()),
+                working.map(working_line),
+                false,
+            )
+        }
     }
 
     /// A dialog's box (Send back, Fail, drag back; T-0447): its label and line, the dialog's own button.
@@ -172,6 +180,9 @@ impl CommentBoxView {
         self
     }
 }
+
+/// The thread box's tick box while the ticket's agent or check runs (d0123).
+pub const TELL_AGENT: &str = "Also tell the agent now";
 
 /// "Read by the next stage's agent · to talk to Rust developer now, use its terminal" (CMT-10).
 pub fn working_line(agent: &str) -> String {
@@ -490,6 +501,11 @@ mod tests {
     fn the_four_comment_thread_reads_as_the_frame() {
         let v = view(&shop_34(), Some("Rust developer"));
         assert_eq!(v.heading, "Comments \u{b7} 4");
+        // d0123: the tick box while the agent (or its check) runs.
+        assert_eq!(
+            v.composer.tell_agent.as_deref(),
+            Some("Also tell the agent now")
+        );
         assert_eq!(
             v.hint,
             "Every stage\u{2019}s agent reads them before it starts"
@@ -660,6 +676,7 @@ mod tests {
     fn the_writing_states_words() {
         let b = CommentBoxView::thread(None);
         assert_eq!(b.pasted, "Pasted text");
+        assert_eq!(b.tell_agent, None, "no tick box without a running session");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
         assert_eq!(b.needs_line, "Say what the next agent should look for");
         assert_eq!(b.limits.chars, 2000);
@@ -672,6 +689,10 @@ mod tests {
         );
         assert_eq!(d.label.as_deref(), Some("Comment for Dev (optional)"));
         assert_eq!(d.submit, None);
+        assert_eq!(
+            d.tell_agent, None,
+            "a dialog's comment is for the next stage"
+        );
         assert!(d.optional);
         assert_eq!(d.limits, b.limits);
     }

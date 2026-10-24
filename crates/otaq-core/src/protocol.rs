@@ -1512,13 +1512,16 @@ pub struct CommentsParams {
 }
 
 /// `{"key": "SHOP-34", "body": "…"}`, with `"report": {"path": "/abs/test-run.txt"}` or `{"text": "…"}`: a new
-/// ticket comment (CMT-06, CMT-11).
+/// ticket comment (CMT-06, CMT-11). `"tell_agent": true` also tells the ticket's running agent (or check) to read it
+/// (d0123): the user's comments only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketCommentPostParams {
     pub key: String,
     pub body: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tell_agent: bool,
 }
 
 /// `{"key": "SHOP-34", "n": 2, "body": "…"}`: comment 2's new text.

@@ -323,6 +323,7 @@ export function CommentThread({ ticket }: TicketProps) {
       body: value.text,
       pasted: value.pasted?.text ?? null,
       file: value.file?.path ?? null,
+      tell_agent: false,
     }).then(
       () => {
         setBusy(false);

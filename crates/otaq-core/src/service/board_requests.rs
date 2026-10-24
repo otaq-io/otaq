@@ -15,6 +15,7 @@ use crate::agent_tools::SetupOutcome;
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
+use crate::board::ticket_comments::CommentAuthor;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
@@ -2305,6 +2306,30 @@ async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, act
     }
 }
 
+/// d0123: the user's comment posted with "Also tell the agent now" queues one line for the session running on its
+/// ticket now (its check's while checking, else its agent's), typed when it is idle with an empty input line (0048).
+/// Not a hand-off: nothing waits for the agent to pick it up. No running session: nothing.
+async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
+    let Ok(ticket) = shared.board.ticket(key).await else {
+        return;
+    };
+    let Some(session) = shared
+        .sessions
+        .running_of(&ticket.id, SessionKind::Validator)
+        .or_else(|| shared.sessions.running_of(&ticket.id, SessionKind::Agent))
+    else {
+        return;
+    };
+    let line = crate::board::ticket_comments::tell_agent_line(n);
+    if let Err(e) = shared
+        .deliveries
+        .queue_delivery(&session.id, DeliveryKind::TicketChange, &line)
+        .await
+    {
+        tracing::warn!(ticket = %ticket.key, error = %e, "can't queue the comment's line");
+    }
+}
+
 /// A comment was added or changed: its ticket's pending counter changed.
 async fn comment_changed(
     shared: &Shared,
@@ -2365,6 +2390,9 @@ async fn ticket_comment_request(
             let posted = board
                 .post_ticket_comment(&p.key, &author, &p.body, p.report, actor)
                 .await?;
+            if p.tell_agent && matches!(author, CommentAuthor::User { .. }) {
+                tell_running_agent(shared, &p.key, posted.n).await;
+            }
             (p.key, posted)
         }
         Request::TicketCommentEdit(p) => {

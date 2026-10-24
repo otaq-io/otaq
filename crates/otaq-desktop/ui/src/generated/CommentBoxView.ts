@@ -46,4 +46,9 @@ remove: string,
 /**
  * An empty box is fine (a dialog's optional comment); the thread's box needs text.
  */
-optional: boolean, limits: CommentLimits, };
+optional: boolean, limits: CommentLimits, 
+/**
+ * The tick box's label, "Also tell the agent now", only in the thread's box while the ticket's agent or check
+ * runs (d0123); ticked by default. Ticked, the post sends `tell_agent`.
+ */
+tell_agent: string | null, };

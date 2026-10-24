@@ -165,5 +165,6 @@ export const REPORT_FIELD: EditorReportField = {
     remove: "Remove the pasted text",
     optional: true,
     limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+    tell_agent: null,
   },
 };

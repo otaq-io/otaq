@@ -5,7 +5,9 @@
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
+use otaq_core::board::ticket_comments::tell_agent_line;
 use otaq_core::data_dir::DataDir;
+use otaq_core::domain::Status;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use serde_json::Value;
@@ -290,5 +292,46 @@ async fn an_agent_comments_on_its_own_ticket_and_greps_a_report() {
     let ran = agent.run(&format!("'{CB}' comments --json")).await;
     let listed: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(listed["comments"].as_array().unwrap().len(), 2);
+    w.stop().await;
+}
+
+/// d0123: `--tell-agent` sends the flag, so the ticket's running agent is told "The user added comment N. Run `otaq
+/// prime` to read it."; off unless given. `otaq comment --help` says what it does.
+#[tokio::test(flavor = "multi_thread")]
+async fn tell_agent_tells_the_running_agent() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Export orders as CSV").await;
+    w.force_status(&shop1, Status::Working).await;
+    let agent = w.agent_shell(&shop1).await;
+
+    stdout(&cb(
+        &w,
+        &["comment", "SHOP-1", "--stdin"],
+        Some("For later."),
+    ));
+    assert!(
+        w.deliveries
+            .pending(&agent.session)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let posted = cb(
+        &w,
+        &["comment", "SHOP-1", "--stdin", "--tell-agent"],
+        Some("Also keep the column order."),
+    );
+    assert_eq!(stdout(&posted).trim(), "Posted comment 2 on SHOP-1.");
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].text, tell_agent_line(2));
+
+    let help = stdout(&cb(&w, &["comment", "--help"], None));
+    assert!(help.contains("--tell-agent"), "{help}");
+    assert!(
+        help.contains("Also tell the ticket's running agent (or its check) now"),
+        "{help}"
+    );
     w.stop().await;
 }

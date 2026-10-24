@@ -29,6 +29,7 @@ mod closed_parent;
 mod codex_sessions;
 mod codex_setup;
 mod codex_signals;
+mod comment_tell_agent;
 mod comments;
 mod compatibility;
 mod conflict_flag;
