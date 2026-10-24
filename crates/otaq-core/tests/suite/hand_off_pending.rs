@@ -276,6 +276,7 @@ async fn send_again_types_it_once_more_and_asks_over_unsent_text() {
             session: shell.session.clone(),
             data: encode_bytes(b"also rename the"),
             reply: false,
+            if_empty: false,
         }))
         .await
         .unwrap();

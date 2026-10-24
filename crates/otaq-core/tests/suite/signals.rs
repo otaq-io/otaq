@@ -63,6 +63,7 @@ async fn labels_texts_clearing_and_last_signal() {
             session: shell.session.clone(),
             data: encode_bytes(b"Postmark\r"),
             reply: false,
+            if_empty: false,
         }))
         .await
         .unwrap();
@@ -147,6 +148,7 @@ async fn enter_in_the_shell_tab_keeps_the_question() {
             session: shell.session.clone(),
             data: encode_bytes(b"pwd\r"),
             reply: false,
+            if_empty: false,
         }))
         .await
         .unwrap();

@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStore } from "../../app/store";
 import { overlays } from "../../app/overlays";
+import type { FlowEditorView } from "../../generated/FlowEditorView";
 import {
   addOnOpening,
+  applyDraft,
   askEach,
+  askToWrite,
   changeFlowOpen,
   chipPressed,
   columnEditorOpen,
@@ -12,10 +15,14 @@ import {
   editStage,
   importChoice,
   keyMove,
+  NO_CHOICES,
   nextTile,
   openFlowEditor,
   sendFirst,
   skillButton,
+  withClash,
+  withFolder,
+  withModel,
   writeSkill,
 } from "./logic";
 
@@ -48,11 +55,11 @@ describe("the flow editor's calls", () => {
   it("a chip sends its words, opens the chooser, or asks the one tool", async () => {
     const agents = createStore<Readonly<Record<string, string>>>({});
     const chooser = vi.fn();
-    await chipPressed("SHOP", "onboarding", { kind: "choose_tool" }, chooser, ask, agents);
+    await chipPressed("SHOP", "onboarding", { kind: "choose_tool" }, chooser, vi.fn(), ask, agents);
     expect(chooser).toHaveBeenCalledTimes(1);
     expect(ask).not.toHaveBeenCalled();
     ask.mockResolvedValue({ agent: "a-cc" });
-    await chipPressed("SHOP", "onboarding", { kind: "ask", tool: "claude" }, chooser, ask, agents);
+    await chipPressed("SHOP", "onboarding", { kind: "ask", tool: "claude" }, chooser, vi.fn(), ask, agents);
     expect(ask).toHaveBeenCalledWith("flow_editor.ask", {
       project: "SHOP",
       from: "onboarding",
@@ -63,6 +70,7 @@ describe("the flow editor's calls", () => {
       "project",
       { kind: "send", message: "Why is Security here?" },
       chooser,
+      vi.fn(),
       ask,
       agents,
     );
@@ -72,20 +80,76 @@ describe("the flow editor's calls", () => {
     });
   });
 
-  it("Ask the agent to write it goes to the panel's agent, and the panel shows the one that writes", async () => {
-    const agents = createStore<Readonly<Record<string, string>>>({});
-    ask.mockResolvedValue({ agent: "pa-1" });
-    expect(await writeSkill("SHOP", "plan", ask, agents)).toBe("pa-1");
-    expect(ask).toHaveBeenLastCalledWith("flow_editor.write_skill", { project: "SHOP", stage: "plan" });
-    expect(agents.get()).toEqual({ SHOP: "pa-1" });
-    await chipPressed("SHOP", "project", { kind: "write_skill", stage: "plan" }, vi.fn(), ask, agents);
-    expect(ask).toHaveBeenLastCalledWith("flow_editor.write_skill", {
+  it("Ask the agent to write it sends nothing: it fills the idle box, or types into the running agent's line", async () => {
+    const fill = vi.fn();
+    expect(await askToWrite("SHOP", "plan", "Write a skill for the Plan stage: ", null, fill, ask)).toBe(
+      "box",
+    );
+    expect(fill).toHaveBeenCalledWith("plan", "Write a skill for the Plan stage: ");
+    expect(ask).not.toHaveBeenCalled();
+    ask.mockResolvedValue(null);
+    expect(await askToWrite("SHOP", "plan", "Write a skill for the Plan stage: ", "pa-1", fill, ask)).toBe(
+      "terminal",
+    );
+    expect(ask).toHaveBeenCalledWith("flow_editor.prefill", {
       project: "SHOP",
       stage: "plan",
       agent: "pa-1",
     });
+    expect(fill).toHaveBeenCalledTimes(1);
+    // The Write the skill chip does the same.
+    ask.mockReset();
+    const write = vi.fn();
+    await chipPressed(
+      "SHOP",
+      "project",
+      { kind: "write_skill", stage: "plan", prefill: "Write a skill for the Plan stage: " },
+      vi.fn(),
+      write,
+      ask,
+    );
+    expect(write).toHaveBeenCalledWith("plan", "Write a skill for the Plan stage: ");
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("the user's send from the prefilled box starts the agent, which the panel then shows", async () => {
+    const agents = createStore<Readonly<Record<string, string>>>({});
+    expect(await writeSkill("SHOP", "plan", "  ", ask, agents)).toBeNull();
+    expect(ask).not.toHaveBeenCalled();
+    ask.mockResolvedValue({ agent: "pa-1" });
+    const text = "Write a skill for the Plan stage: list the steps before any code";
+    expect(await writeSkill("SHOP", "plan", text, ask, agents)).toBe("pa-1");
+    expect(ask).toHaveBeenLastCalledWith("flow_editor.write_skill", { project: "SHOP", stage: "plan", text });
+    expect(agents.get()).toEqual({ SHOP: "pa-1" });
     await skillButton("SHOP", "plan", "undo_skill", ask);
     expect(ask).toHaveBeenLastCalledWith("flow_editor.undo_skill", { project: "SHOP", stage: "plan" });
+  });
+
+  it("a problem's picks are kept until Apply sends them (Q426)", async () => {
+    let picks = withFolder(NO_CHOICES, "security-review", "/skills/security-review");
+    picks = withModel(picks, "Rust developer", "claude", "opus");
+    picks = withModel(picks, "Security reviewer", "default", "ignored");
+    picks = withClash(picks, "Validator", "add_as");
+    expect(picks).toEqual({
+      clashes: { Validator: "add_as" },
+      skill_folders: { "security-review": "/skills/security-review" },
+      models: { "Rust developer": "claude:opus", "Security reviewer": "default" },
+    });
+    expect(NO_CHOICES).toEqual({ clashes: {}, skill_folders: {}, models: {} });
+    ask.mockResolvedValue(null);
+    const view = {
+      project: "SHOP",
+      from: "project",
+      proposal: 3,
+      choices: picks,
+    } as unknown as FlowEditorView;
+    await applyDraft(view, ask);
+    expect(ask).toHaveBeenCalledWith("flow_editor.apply", {
+      project: "SHOP",
+      from: "project",
+      proposal: 3,
+      choices: picks,
+    });
   });
 
   it("Both, and compare asks each tool", async () => {

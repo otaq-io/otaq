@@ -30,19 +30,29 @@
 //! offers **Pick a skill…** (the user's imported skills, searchable) and **Ask the agent to write it** (the Project
 //! agent writes it in Otaq's folder and hands it in as Otaq's copy, d0092, never the repo, d0023); while it writes the
 //! field says so with Stop, then shows the skill tinted with Open and Undo ([`SkillState`]). Apply stays off while an
-//! agent stage has no skill ("Plan needs a skill").
+//! agent stage has no skill ("Plan needs a skill"). **Ask the agent to write it** sends nothing (Q441): it puts "Write a
+//! skill for the Plan stage: " in the panel's box ([`write_skill_prefill`]) for the user to finish and send.
+//!
+//! **Problems that need a pick** (Q426; FED-04, FLW-04's controls): a step whose problem has a fix shows it in its
+//! details ([`FixRow`]): an import clash's Keep mine (the default) · Take theirs · Add as "<name> (<file>)", the model
+//! menu for an agent whose model isn't listed or whose tool isn't connected, and "Import its folder…" for a missing
+//! skill. The page keeps the picks ([`Choices`]) until Apply sends them, as the preview did; a picked problem no
+//! longer marks its step, and Apply turns on once none is left.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::Agent;
+use otaq_core::agents::{Agent, AgentModel, shipped};
 use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark, WrittenSkill};
 use otaq_core::flow::engine::back_to;
 use otaq_core::flow::model::{
     CheckBy, Column, Delivers, FlowAgent, FlowFile, Stage, StageKind, StageOption,
 };
 use otaq_core::flow::presets::{preset, presets};
-use otaq_core::flow::proposal::{About, Change, Proposal, Source, flow_agent_of};
+use otaq_core::flow::proposal::{
+    About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, Proposal,
+    ProposalProblem, Source, flow_agent_of,
+};
 use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow};
 use otaq_core::project_agents::{AgentState, ProjectAgent};
 use serde::{Deserialize, Serialize};
@@ -52,8 +62,11 @@ use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
 use crate::theme::Status as Legend;
+use crate::view_models::agent_page::{Choice, DEFAULT_MODEL};
+use crate::view_models::agents::{DEFAULT, ListState};
 use crate::view_models::card::tokens_label;
 use crate::view_models::menu::{MenuItem, MenuSearch};
+use crate::view_models::model_picker::{self, Picker};
 use crate::view_models::status::PillView;
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools;
@@ -234,6 +247,114 @@ pub enum Pick {
     Entry { proposal: u32 },
     /// Another project's flow (Import a flow… → from a project).
     Project { project: String },
+}
+
+/// The user's picks for the draft's problems (Q426; FLW-04's, field for field), which the page keeps until Apply sends
+/// them (`flow.apply`'s choices): a pick per import clash by the agent's name (Keep mine when left out), a folder per
+/// missing skill, a local model per agent whose model isn't listed or whose tool isn't connected (`default`,
+/// `claude`, `claude:opus`). The view is rebuilt with them on every pick. `FlowEditorChoices` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[ts(rename = "FlowEditorChoices")]
+pub struct Choices {
+    #[serde(default)]
+    pub clashes: BTreeMap<String, ClashPick>,
+    #[serde(default)]
+    pub skill_folders: BTreeMap<String, String>,
+    #[serde(default)]
+    pub models: BTreeMap<String, String>,
+}
+
+/// One import clash's pick (the core's `ClashChoice`). `FlowEditorClashPick` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "FlowEditorClashPick")]
+pub enum ClashPick {
+    #[default]
+    KeepMine,
+    TakeTheirs,
+    AddAs,
+}
+
+impl From<ClashPick> for ClashChoice {
+    fn from(pick: ClashPick) -> Self {
+        match pick {
+            ClashPick::KeepMine => Self::KeepMine,
+            ClashPick::TakeTheirs => Self::TakeTheirs,
+            ClashPick::AddAs => Self::AddAs,
+        }
+    }
+}
+
+impl Choices {
+    /// What Apply sends (`flow.apply`'s `choices`).
+    pub fn apply_choices(&self) -> ApplyChoices {
+        ApplyChoices {
+            clashes: self
+                .clashes
+                .iter()
+                .map(|(name, pick)| (name.clone(), (*pick).into()))
+                .collect(),
+            skill_folders: self.skill_folders.clone(),
+            models: self.models.clone(),
+        }
+    }
+
+    /// The pick `problem` asks for is there (a problem with no fix never is).
+    pub fn fix(&self, problem: &ProposalProblem) -> bool {
+        match &problem.fix {
+            Some(Fix::ImportSkillFolder { skill }) => self.skill_folders.contains_key(skill),
+            Some(Fix::PickModel { agent }) => self.models.contains_key(agent),
+            None => false,
+        }
+    }
+}
+
+/// A local model for an agent (FLW-04's, with M32's picker `s15-30`): the default model or a connected tool, then that
+/// tool's list. `FlowEditorModelFix` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowEditorModelFix")]
+pub struct ModelFix {
+    pub agent: String,
+    pub tool_label: &'static str,
+    /// The default model, then each connected tool; ids `default`, `claude`…
+    pub tools: Vec<Choice>,
+    /// The tool's picker once one is picked.
+    pub picker: Option<Picker>,
+    pub model_label: &'static str,
+}
+
+/// What a fix offers (Q426). `FlowEditorFixControl` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "FlowEditorFixControl")]
+pub enum FixControl {
+    /// Keep mine · Take theirs · Add as "<name> (<file>)" (ids `keep_mine`, `take_theirs`, `add_as`), selected as
+    /// picked.
+    Clash { agent: String, options: Vec<Choice> },
+    /// "Import its folder…": the system folder picker, then [`Choices::skill_folders`].
+    Folder {
+        skill: String,
+        label: &'static str,
+        /// The folder picker's title.
+        picker_title: String,
+        /// The folder picked.
+        picked: Option<String>,
+    },
+    /// The model menu ([`Choices::models`]).
+    Model { fix: ModelFix },
+}
+
+/// A problem's fix, or an import clash, in a step's details (or under the flow when no step runs its agent).
+/// `FlowEditorFix` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowEditorFix")]
+pub struct FixRow {
+    /// "security-review isn’t on this machine", "Security reviewer: opus isn’t in Claude Code’s model list",
+    /// "Security reviewer is in the file and already here, with other instructions."
+    pub text: String,
+    /// Apply no longer waits for it: picked (a clash, Keep mine by default, never keeps Apply off).
+    pub fixed: bool,
+    pub control: FixControl,
 }
 
 /// The agent's default for each kind (FED-04: "Developer for An agent works, Validator for An agent checks").
@@ -471,12 +592,13 @@ pub enum SkillState {
     /// The stage's skill (clicking it picks another).
     Set { skill: String },
     /// "No skill yet. An agent stage needs one: it’s what the agent follows in Plan.", with Pick a skill… and Ask the
-    /// agent to write it.
+    /// agent to write it, which puts `prefill` in the agent's box ([`write_skill_prefill`], Q441).
     Empty {
         text: String,
         pick: &'static str,
         ask: &'static str,
         hint: &'static str,
+        prefill: String,
     },
     /// "Being written by the Project agent…" with Stop.
     Writing {
@@ -575,7 +697,10 @@ pub struct Details {
     pub skill: Option<SkillField>,
     pub can_label: &'static str,
     pub can: Vec<CanRow>,
+    /// Its problem that no pick fixes (a problem with a fix shows in [`Details::fixes`]).
     pub problem: Option<String>,
+    /// The picks its problems and its agents' import clashes need (Q426).
+    pub fixes: Vec<FixRow>,
     pub mark: Option<MarkView>,
 }
 
@@ -602,8 +727,10 @@ pub struct FlowPart {
     pub legend_title: &'static str,
     pub legend: Vec<LegendRow>,
     pub details: Option<Details>,
-    /// Problems about the whole flow or an agent (a stage's show on it).
+    /// Problems about the whole flow or an agent no step runs (a stage's, and its agents', show on it).
     pub problems: Vec<String>,
+    /// The picks of those (an agent no step runs: its clash, its model, its skill's folder).
+    pub fixes: Vec<FixRow>,
     /// When the draft would reach tickets (FED-08); `None` with nothing to apply and in onboarding.
     pub change_line: Option<String>,
     /// "Undo all" while the agent's changes can be taken back.
@@ -624,8 +751,9 @@ pub enum ChipAction {
         #[ts(type = "string")]
         tool: Tool,
     },
-    /// "Write the skill": as the stage's Ask the agent to write it (FED-06).
-    WriteSkill { stage: String },
+    /// "Write the skill": as the stage's Ask the agent to write it (FED-06): `prefill` goes in the box, nothing is sent
+    /// (Q441).
+    WriteSkill { stage: String, prefill: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -706,6 +834,9 @@ pub struct View {
     pub flow: FlowPart,
     pub agent: AgentPanel,
     pub footer: Footer,
+    /// The picks as Apply sends them: every clash with its pick (Keep mine by default), only the folders and models
+    /// still asked for.
+    pub choices: Choices,
 }
 
 /// What [`view`] reads.
@@ -741,6 +872,8 @@ pub struct Facts<'a> {
     /// The Project agent role's agent: what the first message starts.
     pub new_agent: Option<&'a Agent>,
     pub keys: &'a KeyLabels,
+    /// The user's picks so far (the page's, until Apply).
+    pub choices: &'a Choices,
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {
@@ -877,12 +1010,286 @@ fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
         .find(|m| m.stage_id == id && m.mark != Mark::Removed)
 }
 
-/// Each stage's problem from the draft's check (its first).
-fn stage_problem(proposal: &Proposal, id: &str) -> Option<String> {
-    proposal.problems.iter().find_map(|p| match &p.about {
-        About::Stage { id: of, .. } if of == id => Some(p.message.clone()),
-        _ => None,
+/// The stages that run the agent `name`, or offer it as an option: where its problems and its clash show (Q426).
+fn agent_stages<'a>(file: &'a FlowFile, name: &'a str) -> impl Iterator<Item = &'a Stage> + 'a {
+    file.flow.stages.iter().filter(move |s| {
+        s.agent
+            .as_deref()
+            .is_some_and(|a| a.eq_ignore_ascii_case(name))
+            || s.options
+                .iter()
+                .any(|o| matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(name)))
     })
+}
+
+/// A problem shows on `stage`: it is about the stage, or about an agent the stage runs or offers.
+fn shows_on(file: &FlowFile, problem: &ProposalProblem, stage: &Stage) -> bool {
+    match &problem.about {
+        About::Stage { id, .. } => *id == stage.id,
+        About::Agent { name } => agent_stages(file, name).any(|s| s.id == stage.id),
+        About::Flow => false,
+    }
+}
+
+/// A problem shows on a step (else under the flow).
+fn on_a_step(file: &FlowFile, problem: &ProposalProblem) -> bool {
+    match &problem.about {
+        About::Stage { .. } => true,
+        About::Agent { name } => agent_stages(file, name).next().is_some(),
+        About::Flow => false,
+    }
+}
+
+/// "Security reviewer: Claude Code isn’t connected", "Security reviewer: opus isn’t in Claude Code’s model list"
+/// (FLW-04's words); the check's own message otherwise.
+fn model_problem(f: &Facts, agent: &str, message: &str) -> String {
+    let model = f
+        .file
+        .agents
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(agent))
+        .map(|a| shipped::model_of(&a.model));
+    match model {
+        Some(Ok(AgentModel::Tool { tool, .. })) if !f.tools.connected.contains(&tool) => {
+            format!("{agent}: {} isn\u{2019}t connected", tool.display_name())
+        }
+        Some(Ok(AgentModel::Tool {
+            tool,
+            model: Some(model),
+        })) => format!(
+            "{agent}: {model} isn\u{2019}t in {}\u{2019}s model list",
+            tool.display_name()
+        ),
+        _ => message.to_owned(),
+    }
+}
+
+/// What a problem says on its step and as Apply's reason: a fix's own words, else the check's message.
+fn problem_text(f: &Facts, problem: &ProposalProblem) -> String {
+    match &problem.fix {
+        // A folder that can't be imported keeps the check's reason.
+        Some(Fix::ImportSkillFolder { skill })
+            if !problem.message.contains("can't be imported") =>
+        {
+            format!("{skill} isn\u{2019}t on this machine")
+        }
+        Some(Fix::PickModel { agent }) => model_problem(f, agent, &problem.message),
+        _ => problem.message.clone(),
+    }
+}
+
+/// The first problem Apply still waits for: none picked for it.
+fn left<'a>(f: &Facts<'a>) -> Option<&'a ProposalProblem> {
+    f.proposal.problems.iter().find(|p| !f.choices.fix(p))
+}
+
+/// A step's problem (the first one no pick fixed yet), in the error colour; "needs a skill" for an agent stage with
+/// none.
+fn step_problem(f: &Facts, stage: &Stage) -> Option<String> {
+    if stage.needs_skill() {
+        return Some(NEEDS_A_SKILL.to_owned());
+    }
+    f.proposal
+        .problems
+        .iter()
+        .find(|p| shows_on(f.file, p, stage) && !f.choices.fix(p))
+        .map(|p| problem_text(f, p))
+}
+
+/// Where `tool`'s model list stands for the picker.
+fn list_state(tools: &Tools, tool: Tool) -> ListState<'_> {
+    match tools.list(tool) {
+        Some(list) => ListState::Listed(list),
+        None if tools.connected.contains(&tool) => ListState::Loading,
+        None => ListState::Unread,
+    }
+}
+
+fn model_fix(f: &Facts, agent: &str) -> ModelFix {
+    let picked = f
+        .choices
+        .models
+        .get(agent)
+        .and_then(|m| shipped::model_of(m).ok());
+    let tool = match &picked {
+        Some(AgentModel::Tool { tool, .. }) => Some(*tool),
+        _ => None,
+    };
+    let mut tools = vec![Choice {
+        id: DEFAULT.to_owned(),
+        label: DEFAULT_MODEL.to_owned(),
+        selected: picked == Some(AgentModel::Default),
+    }];
+    tools.extend(
+        Tool::ALL
+            .iter()
+            .filter(|t| f.tools.connected.contains(t))
+            .map(|t| Choice {
+                id: t.as_str().to_owned(),
+                label: t.display_name().to_owned(),
+                selected: tool == Some(*t),
+            }),
+    );
+    let picker = tool.map(|tool| {
+        let model = match &picked {
+            Some(AgentModel::Tool { model, .. }) => model.as_deref(),
+            _ => None,
+        };
+        model_picker::picker(tool, list_state(f.tools, tool), model, false, None)
+    });
+    ModelFix {
+        agent: agent.to_owned(),
+        tool_label: "Tool",
+        tools,
+        picker,
+        model_label: "Model",
+    }
+}
+
+/// "Rust developer, Security reviewer": `words` joined with "and" before the last.
+fn joined_words(words: &[&str]) -> String {
+    match words {
+        [] => String::new(),
+        [one] => (*one).to_owned(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// An import clash's row (second gap review rule 3): Keep mine (the default) · Take theirs · Add as "<name> (<file>)".
+fn clash_row(f: &Facts, changed: &AgentChange) -> Option<FixRow> {
+    let clash = changed.clash.as_ref()?;
+    let place = match &f.proposal.source {
+        Source::Preset { .. } => "the preset",
+        Source::AgentsFile => "the shipped agents file",
+        _ => "the file",
+    };
+    let fields: Vec<&str> = changed.fields.iter().map(|f| f.field.as_str()).collect();
+    let pick = f
+        .choices
+        .clashes
+        .get(&changed.name)
+        .copied()
+        .unwrap_or_default();
+    let mut options = vec![
+        Choice {
+            id: "keep_mine".to_owned(),
+            label: "Keep mine".to_owned(),
+            selected: pick == ClashPick::KeepMine,
+        },
+        Choice {
+            id: "take_theirs".to_owned(),
+            label: "Take theirs".to_owned(),
+            selected: pick == ClashPick::TakeTheirs,
+        },
+    ];
+    if let Some(add_as) = &clash.add_as {
+        options.push(Choice {
+            id: "add_as".to_owned(),
+            label: format!("Add as \u{201c}{add_as}\u{201d}"),
+            selected: pick == ClashPick::AddAs,
+        });
+    }
+    Some(FixRow {
+        text: format!(
+            "{} is in {place} and already here, with other {}.",
+            changed.name,
+            joined_words(&fields)
+        ),
+        fixed: true,
+        control: FixControl::Clash {
+            agent: changed.name.clone(),
+            options,
+        },
+    })
+}
+
+/// The import clashes of the draft (agents it changes that it brings from a file or a preset).
+fn clashes<'a>(f: &'a Facts) -> impl Iterator<Item = &'a AgentChange> + 'a {
+    f.proposal
+        .diff
+        .agents
+        .iter()
+        .filter(|a| a.change == AgentChangeKind::Changed && a.clash.is_some())
+}
+
+/// The fixes of `problems` (a skill both a stage and its agent name is one fix), then the clashes of `agents`.
+fn fix_rows<'a>(
+    f: &Facts,
+    problems: impl Iterator<Item = &'a ProposalProblem>,
+    agents: impl Iterator<Item = &'a AgentChange>,
+) -> Vec<FixRow> {
+    let mut asked = HashSet::new();
+    let mut rows: Vec<FixRow> = problems
+        .filter_map(|p| {
+            let fixed = f.choices.fix(p);
+            match p.fix.as_ref()? {
+                Fix::ImportSkillFolder { skill } => asked
+                    .insert(format!("skill:{}", skill.to_lowercase()))
+                    .then(|| FixRow {
+                        text: problem_text(f, p),
+                        fixed,
+                        control: FixControl::Folder {
+                            skill: skill.clone(),
+                            label: "Import its folder\u{2026}",
+                            picker_title: format!("The folder of {skill}"),
+                            picked: f.choices.skill_folders.get(skill).cloned(),
+                        },
+                    }),
+                Fix::PickModel { agent } => asked
+                    .insert(format!("model:{}", agent.to_lowercase()))
+                    .then(|| FixRow {
+                        text: problem_text(f, p),
+                        fixed,
+                        control: FixControl::Model {
+                            fix: model_fix(f, agent),
+                        },
+                    }),
+            }
+        })
+        .collect();
+    rows.extend(agents.filter_map(|a| clash_row(f, a)));
+    rows
+}
+
+/// A step's fixes: its problems' and those of the agents it runs or offers, then their clashes.
+fn stage_fixes(f: &Facts, stage: &Stage) -> Vec<FixRow> {
+    fix_rows(
+        f,
+        f.proposal
+            .problems
+            .iter()
+            .filter(|p| shows_on(f.file, p, stage)),
+        clashes(f).filter(|a| agent_stages(f.file, &a.name).any(|s| s.id == stage.id)),
+    )
+}
+
+/// The picks as Apply sends them: each clash's pick (Keep mine by default); a folder or a model only where one is
+/// still asked for.
+fn choices_kept(f: &Facts) -> Choices {
+    let picks = f.choices;
+    let mut kept = Choices::default();
+    for a in clashes(f) {
+        kept.clashes.insert(
+            a.name.clone(),
+            picks.clashes.get(&a.name).copied().unwrap_or_default(),
+        );
+    }
+    for p in &f.proposal.problems {
+        match &p.fix {
+            Some(Fix::ImportSkillFolder { skill }) => {
+                if let Some(folder) = picks.skill_folders.get(skill) {
+                    kept.skill_folders.insert(skill.clone(), folder.clone());
+                }
+            }
+            Some(Fix::PickModel { agent }) => {
+                if let Some(model) = picks.models.get(agent) {
+                    kept.models.insert(agent.clone(), model.clone());
+                }
+            }
+            None => {}
+        }
+    }
+    kept
 }
 
 /// What the walking ticket says in a stage, and its colour.
@@ -998,10 +1405,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
                 None => (None, None),
             },
         };
-        let problem = match stage.needs_skill() {
-            true => Some(NEEDS_A_SKILL.to_owned()),
-            false => stage_problem(f.proposal, &stage.id),
-        };
+        let problem = step_problem(f, stage);
         StepRow {
             id: stage.id.clone(),
             name: stage.name.clone(),
@@ -1176,23 +1580,12 @@ fn written_view(written: &WrittenSkill) -> MarkView {
     }
 }
 
-/// What the Ask the agent to write it button and the Write the skill chip send the Project agent (FED-06): "Write a
-/// skill for the Plan stage: …", with where the stage sits (Q-B).
-pub fn write_skill_message(file: &FlowFile, stage: &str) -> String {
-    let Some(at) = file.flow.position(stage) else {
-        return format!("Write a skill for the {stage} stage.");
-    };
-    let name = &file.flow.stages[at].name;
-    let before = at
-        .checked_sub(1)
-        .map_or("Ready for Dev", |i| file.flow.stages[i].name.as_str());
-    let place = match file.flow.stages.get(at + 1) {
-        Some(next) => format!("between {before} and {}", next.name),
-        None => format!("after {before}"),
-    };
-    format!(
-        "Write a skill for the {name} stage: what an agent does in {name}, {place} in this flow."
-    )
+/// What Ask the agent to write it and the Write the skill chip put in the agent's box (FED-06, Q441): "Write a skill
+/// for the Plan stage: ", the caret after it. The user adds what the stage should do and sends; nothing is sent
+/// before.
+pub fn write_skill_prefill(file: &FlowFile, stage: &str) -> String {
+    let name = file.flow.stage(stage).map_or(stage, |s| s.name.as_str());
+    format!("Write a skill for the {name} stage: ")
 }
 
 /// The user's imported skills, each once, by name (Pick a skill…).
@@ -1260,6 +1653,7 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             pick: "Pick a skill\u{2026}",
             ask: "Ask the agent to write it",
             hint: "Pick: your own skills, searchable. Ask: starts the Project agent on the right and uses tokens.",
+            prefill: write_skill_prefill(f.file, &stage.id),
         }
     };
     Some(SkillField {
@@ -1349,7 +1743,13 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         skill: skill_field(f, stage),
         can_label: "A ticket can",
         can: can_rows(f, stage),
-        problem: stage_problem(f.proposal, &stage.id),
+        problem: f
+            .proposal
+            .problems
+            .iter()
+            .find(|p| p.fix.is_none() && shows_on(f.file, p, stage))
+            .map(|p| p.message.clone()),
+        fixes: stage_fixes(f, stage),
         mark: mark_of(f.marks, &stage.id).map(mark_view),
     }
 }
@@ -1492,13 +1892,23 @@ fn change_line(f: &Facts) -> Option<String> {
     })
 }
 
-fn problems(proposal: &Proposal) -> Vec<String> {
-    proposal
+/// The problems no step shows: about the whole flow, or an agent no step runs or offers.
+fn problems(f: &Facts) -> Vec<String> {
+    f.proposal
         .problems
         .iter()
-        .filter(|p| !matches!(p.about, About::Stage { .. }))
+        .filter(|p| p.fix.is_none() && !on_a_step(f.file, p))
         .map(|p| p.message.clone())
         .collect()
+}
+
+/// The fixes no step shows (an agent no step runs or offers).
+fn flow_fixes(f: &Facts) -> Vec<FixRow> {
+    fix_rows(
+        f,
+        f.proposal.problems.iter().filter(|p| !on_a_step(f.file, p)),
+        clashes(f).filter(|a| agent_stages(f.file, &a.name).next().is_none()),
+    )
 }
 
 fn flow_part(f: &Facts) -> FlowPart {
@@ -1524,7 +1934,8 @@ fn flow_part(f: &Facts) -> FlowPart {
         legend_title: "Every step is one of four kinds:",
         legend: legend(),
         details: selected.map(|s| details(f, s)),
-        problems: problems(f.proposal),
+        problems: problems(f),
+        fixes: flow_fixes(f),
         change_line: change_line(f),
         undo_all: f.can_undo_all.then_some("Undo all"),
     }
@@ -1892,6 +2303,7 @@ fn agent_panel(f: &Facts) -> AgentPanel {
                     label: "Write the skill".to_owned(),
                     action: ChipAction::WriteSkill {
                         stage: stage.id.clone(),
+                        prefill: write_skill_prefill(f.file, &stage.id),
                     },
                 },
                 Chip {
@@ -1912,9 +2324,9 @@ fn agent_panel(f: &Facts) -> AgentPanel {
 
 fn footer(f: &Facts) -> Footer {
     // "Plan needs a skill · being written" while the agent writes it (`s27-06`).
-    let reason = f.proposal.problems.first().map(|p| match &p.about {
+    let reason = left(f).map(|p| match &p.about {
         About::Stage { id, .. } if writing(f, id) => format!("{} \u{b7} being written", p.message),
-        _ => p.message.clone(),
+        _ => problem_text(f, p),
     });
     match f.opened {
         Opened::Onboarding => Footer {
@@ -1947,6 +2359,7 @@ pub fn view(f: &Facts) -> View {
         flow: flow_part(f),
         agent: agent_panel(f),
         footer: footer(f),
+        choices: choices_kept(f),
     }
 }
 
@@ -2320,6 +2733,8 @@ pub fn gallery() -> Gallery {
         agent: None,
     }];
     let written = [written_plan()];
+    let no_choices = Choices::default();
+    let imported_proposal = imported(&shop);
     let plan = |proposal: &'_ Proposal,
                 file: &'_ FlowFile,
                 writing: &'_ [SkillWriting],
@@ -2347,6 +2762,7 @@ pub fn gallery() -> Gallery {
             agent: None,
             new_agent: None,
             keys: &keys,
+            choices: &no_choices,
         })
     };
     let facts = |opened, proposal: &'_ Proposal, file: &'_ FlowFile| -> View {
@@ -2372,6 +2788,7 @@ pub fn gallery() -> Gallery {
             agent: None,
             new_agent: None,
             keys: &keys,
+            choices: &no_choices,
         })
     };
     Gallery {
@@ -2396,6 +2813,33 @@ pub fn gallery() -> Gallery {
                 "Its skill written".to_owned(),
                 plan(&wrote_proposal, &wrote, &[], &written),
             ),
+            (
+                "An imported file: a skill to import, a clash".to_owned(),
+                view(&Facts {
+                    project: "SHOP",
+                    project_name: "shop-web",
+                    opened: Opened::Project,
+                    proposal: &imported_proposal,
+                    marks: &[],
+                    can_undo_all: false,
+                    swap: false,
+                    applies: &at_once,
+                    file: &shop,
+                    in_use: &default,
+                    stored: &stored,
+                    tools: &tools,
+                    setup: &setup,
+                    projects: &[],
+                    captions: &captions,
+                    writing: &[],
+                    written: &[],
+                    selected: Some("security"),
+                    agent: None,
+                    new_agent: None,
+                    keys: &keys,
+                    choices: &no_choices,
+                }),
+            ),
         ],
     }
 }
@@ -2406,7 +2850,8 @@ pub mod fixtures {
     use otaq_core::flow::draft::WrittenSkill;
     use otaq_core::flow::model::FlowFile;
     use otaq_core::flow::proposal::{
-        About, FlowDiff, Proposal, ProposalProblem, ProposedBy, Source,
+        About, AgentChange, AgentChangeKind, AgentField, Clash, Fix, FlowDiff, Proposal,
+        ProposalProblem, ProposedBy, Source,
     };
 
     use super::{StageEdit, Template, edited};
@@ -2585,6 +3030,46 @@ flow:
             created_at: 0,
         }
     }
+
+    /// shop-web's flow imported from team.yaml (Q426): Security's skill isn't on this machine, and the file's Security
+    /// reviewer clashes with the user's.
+    pub fn imported(file: &FlowFile) -> Proposal {
+        let missing = |about: About| ProposalProblem {
+            about,
+            message: "Security names the skill `security-review`, which isn't on this machine"
+                .into(),
+            fix: Some(Fix::ImportSkillFolder {
+                skill: "security-review".into(),
+            }),
+        };
+        let mut proposal = proposal(file, false);
+        proposal.source = Source::Document {
+            file: Some("team.yaml".into()),
+        };
+        proposal.problems = vec![
+            missing(About::Stage {
+                id: "security".into(),
+                name: "Security".into(),
+            }),
+            missing(About::Agent {
+                name: "Security reviewer".into(),
+            }),
+        ];
+        proposal.diff.agents = vec![AgentChange {
+            name: "Security reviewer".into(),
+            change: AgentChangeKind::Changed,
+            fields: vec![AgentField {
+                field: "instructions".into(),
+                from: String::new(),
+                to: "Look for risky code.".into(),
+            }],
+            used_in: Vec::new(),
+            clash: Some(Clash {
+                add_as: Some("Security reviewer (team.yaml)".into()),
+            }),
+        }];
+        proposal
+    }
 }
 
 #[cfg(test)]
@@ -2627,6 +3112,7 @@ mod tests {
         captions: BTreeMap<String, String>,
         writing: Vec<SkillWriting>,
         written: Vec<WrittenSkill>,
+        choices: Choices,
     }
 
     fn env(setup: FlowSetup) -> Env {
@@ -2641,6 +3127,7 @@ mod tests {
             )]),
             writing: Vec::new(),
             written: Vec::new(),
+            choices: Choices::default(),
         }
     }
 
@@ -2685,6 +3172,7 @@ mod tests {
             agent,
             new_agent: None,
             keys: &e.keys,
+            choices: &e.choices,
         })
     }
 
@@ -3224,6 +3712,238 @@ mod tests {
         assert_eq!(v.footer.reason, v.flow.steps[4].problem);
     }
 
+    /// Q426 (FED-04, FLW-04's controls): each problem that needs a pick marks its step and shows its fix in the step's
+    /// details (a missing skill: Import its folder…; a model not listed or a tool not connected: the model menu); an
+    /// import clash shows Keep mine (the default) · Take theirs · Add as. Each pick clears its problem; Apply turns on
+    /// after the last, and sends the picks.
+    #[test]
+    fn problems_that_need_a_pick_show_their_fix_on_the_step() {
+        use otaq_core::flow::proposal::{AgentField as Field, Clash};
+        let mut e = env(not_asked());
+        let mut file = shop_web();
+        file.agents[1].model = "claude:opus-9".into();
+        file.agents[3].model = format!("{}:gpt-5.5", Tool::ALL[1].as_str());
+        let mut d = draft(&file, false);
+        d.proposal.source = Source::Document {
+            file: Some("team.yaml".into()),
+        };
+        let missing = |about: About| ProposalProblem {
+            about,
+            message: "Security names the skill `security-review`, which isn't on this machine"
+                .into(),
+            fix: Some(Fix::ImportSkillFolder {
+                skill: "security-review".into(),
+            }),
+        };
+        let model = |agent: &str| ProposalProblem {
+            about: About::Agent { name: agent.into() },
+            message: format!(
+                "{agent}'s model isn't in its tool's model list: pick a model from it"
+            ),
+            fix: Some(Fix::PickModel {
+                agent: agent.into(),
+            }),
+        };
+        d.proposal.problems = vec![
+            missing(About::Stage {
+                id: "security".into(),
+                name: "Security".into(),
+            }),
+            missing(About::Agent {
+                name: "Security reviewer".into(),
+            }),
+            model("Rust developer"),
+            model("Security reviewer"),
+        ];
+        d.proposal.diff.agents = vec![AgentChange {
+            name: "Validator".into(),
+            change: AgentChangeKind::Changed,
+            fields: vec![Field {
+                field: "instructions".into(),
+                from: String::new(),
+                to: "Run the tests.".into(),
+            }],
+            used_in: Vec::new(),
+            clash: Some(Clash {
+                add_as: Some("Validator (team.yaml)".into()),
+            }),
+        }];
+        let codex = Tool::ALL[1].display_name();
+        let claude = Tool::ALL[0].display_name();
+        let not_listed =
+            format!("Rust developer: opus-9 isn\u{2019}t in {claude}\u{2019}s model list");
+        let not_connected = format!("Security reviewer: {codex} isn\u{2019}t connected");
+
+        // Each step with a problem is marked; Apply is off with the first.
+        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
+        let problem = |v: &View, id: &str| {
+            v.flow
+                .steps
+                .iter()
+                .find(|s| s.id == id)
+                .and_then(|s| s.problem.clone())
+        };
+        assert_eq!(problem(&v, "dev"), Some(not_listed.clone()));
+        assert_eq!(
+            problem(&v, "security").as_deref(),
+            Some("security-review isn\u{2019}t on this machine")
+        );
+        assert_eq!(problem(&v, "validate"), None, "a clash keeps Apply on");
+        assert!(v.flow.problems.is_empty() && v.flow.fixes.is_empty());
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(
+            v.footer.reason.as_deref(),
+            Some("security-review isn\u{2019}t on this machine")
+        );
+
+        // Security: its missing skill once (the stage and its agent name it), then its agent's model.
+        let fixes = |v: &View| v.flow.details.as_ref().unwrap().fixes.clone();
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &file,
+            Some("security"),
+            None,
+        );
+        let security = fixes(&v);
+        assert_eq!(
+            security[0],
+            FixRow {
+                text: "security-review isn\u{2019}t on this machine".into(),
+                fixed: false,
+                control: FixControl::Folder {
+                    skill: "security-review".into(),
+                    label: "Import its folder\u{2026}",
+                    picker_title: "The folder of security-review".into(),
+                    picked: None,
+                },
+            }
+        );
+        assert_eq!(security[1].text, not_connected);
+        assert_eq!(security.len(), 2);
+        assert_eq!(v.flow.details.as_ref().unwrap().problem, None);
+
+        // Dev: the model menu, the default model and the connected tools.
+        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
+        let [dev] = fixes(&v).try_into().unwrap();
+        assert_eq!((dev.text.as_str(), dev.fixed), (not_listed.as_str(), false));
+        let FixControl::Model { fix } = &dev.control else {
+            panic!("the model menu: {dev:?}");
+        };
+        let tools: Vec<(&str, bool)> = fix
+            .tools
+            .iter()
+            .map(|c| (c.label.as_str(), c.selected))
+            .collect();
+        assert_eq!(
+            tools,
+            [
+                ("Default model", false),
+                (claude, false),
+                (Tool::ALL[3].display_name(), false)
+            ]
+        );
+        assert_eq!(fix.picker, None);
+
+        // Validate: the clash, Keep mine picked.
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &file,
+            Some("validate"),
+            None,
+        );
+        let [clash] = fixes(&v).try_into().unwrap();
+        assert_eq!(
+            clash.text,
+            "Validator is in the file and already here, with other instructions."
+        );
+        assert!(clash.fixed);
+        let FixControl::Clash { agent, options } = &clash.control else {
+            panic!("the clash's choices: {clash:?}");
+        };
+        assert_eq!(agent, "Validator");
+        let options: Vec<(&str, &str, bool)> = options
+            .iter()
+            .map(|o| (o.id.as_str(), o.label.as_str(), o.selected))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("keep_mine", "Keep mine", true),
+                ("take_theirs", "Take theirs", false),
+                (
+                    "add_as",
+                    "Add as \u{201c}Validator (team.yaml)\u{201d}",
+                    false
+                )
+            ]
+        );
+        assert_eq!(
+            v.choices.clashes.get("Validator"),
+            Some(&ClashPick::KeepMine)
+        );
+
+        // The folder and a tool picked: those problems are gone from their steps.
+        e.choices
+            .skill_folders
+            .insert("security-review".into(), "/skills/security-review".into());
+        e.choices
+            .models
+            .insert("Rust developer".into(), Tool::ALL[0].as_str().into());
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &file,
+            Some("security"),
+            None,
+        );
+        assert_eq!(problem(&v, "dev"), None);
+        assert_eq!(problem(&v, "security"), Some(not_connected.clone()));
+        assert_eq!(v.footer.reason, Some(not_connected.clone()));
+        let security = fixes(&v);
+        assert!(security[0].fixed);
+        assert!(matches!(
+            &security[0].control,
+            FixControl::Folder { picked: Some(p), .. } if p == "/skills/security-review"
+        ));
+        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
+        let [dev] = fixes(&v).try_into().unwrap();
+        let FixControl::Model { fix } = &dev.control else {
+            panic!("the model menu: {dev:?}");
+        };
+        assert!(dev.fixed);
+        assert!(fix.tools[1].selected);
+        assert!(fix.picker.is_some(), "the tool's models follow");
+
+        // The last one picked: Apply is on and sends every pick.
+        e.choices
+            .models
+            .insert("Security reviewer".into(), DEFAULT.into());
+        e.choices
+            .clashes
+            .insert("Validator".into(), ClashPick::AddAs);
+        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
+        assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));
+        assert!(v.footer.apply_enabled);
+        assert_eq!(v.footer.reason, None);
+        let sent = v.choices.apply_choices();
+        assert_eq!(sent.clashes.get("Validator"), Some(&ClashChoice::AddAs));
+        assert_eq!(
+            sent.skill_folders
+                .get("security-review")
+                .map(String::as_str),
+            Some("/skills/security-review")
+        );
+        assert_eq!(sent.models.len(), 2);
+    }
+
     #[test]
     fn edits_change_the_document() {
         let file = shop_web();
@@ -3378,7 +4098,7 @@ mod tests {
 
     #[test]
     fn the_gallery_builds() {
-        assert_eq!(gallery().cells.len(), 5);
+        assert_eq!(gallery().cells.len(), 6);
     }
 
     fn plan_details(v: &View) -> &Details {
@@ -3437,6 +4157,7 @@ mod tests {
                 pick: "Pick a skill\u{2026}",
                 ask: "Ask the agent to write it",
                 hint: "Pick: your own skills, searchable. Ask: starts the Project agent on the right and uses tokens.",
+                prefill: "Write a skill for the Plan stage: ".into(),
             }
         );
         // Pick a skill…: the user's imported skills, with their captions.
@@ -3482,7 +4203,8 @@ mod tests {
                 (
                     "Write the skill",
                     &ChipAction::WriteSkill {
-                        stage: "plan".into()
+                        stage: "plan".into(),
+                        prefill: "Write a skill for the Plan stage: ".into(),
                     }
                 ),
                 (
@@ -3493,9 +4215,10 @@ mod tests {
                 )
             ]
         );
+        // Q441: the request is only prefilled, the caret after it; the user finishes it and sends.
         assert_eq!(
-            write_skill_message(&file, "plan"),
-            "Write a skill for the Plan stage: what an agent does in Plan, between Grill and Dev in this flow."
+            write_skill_prefill(&file, "plan"),
+            "Write a skill for the Plan stage: "
         );
         // A stage of the flow in use has no templates.
         let v = render(&e, Opened::Project, &d, &file, &shop, Some("dev"), None);

@@ -3,4 +3,4 @@
 /**
  * A fixed chip in the agent panel: the words it sends, or the tool picker. `FlowEditorChipAction` on the page.
  */
-export type FlowEditorChipAction = { "kind": "send", message: string, } | { "kind": "choose_tool" } | { "kind": "ask", tool: string, } | { "kind": "write_skill", stage: string, };
+export type FlowEditorChipAction = { "kind": "send", message: string, } | { "kind": "choose_tool" } | { "kind": "ask", tool: string, } | { "kind": "write_skill", stage: string, prefill: string, };

@@ -104,8 +104,9 @@ tool's flow, it is "The user chose another flow."; you're done).
 
 ## Writing a stage's skill
 
-When the user asks you to **write a skill for a stage** ("Write a skill for the Plan stage: …", sent by the editor's
-**Ask the agent to write it**), you write it in a folder Otaq gives you, never in this repo:
+When the user asks you to **write a skill for a stage** ("Write a skill for the Plan stage: …": the editor's **Ask
+the agent to write it** starts the line, the user finishes it), you write it in a folder Otaq gives you,
+never in this repo:
 
 1. **Get the folder**: `otaq flow write-skill <stage>` (the stage's id or name, e.g. `otaq flow write-skill plan`). It
    prints the only folder you may write in; the editor shows the stage's skill as being written.

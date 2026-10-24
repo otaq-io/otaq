@@ -1925,6 +1925,10 @@ pub struct InputParams {
     /// don't touch the unsent-input flag.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reply: bool,
+    /// Type only into an empty input line (SDD §2, d0048): with unsent text there the request is refused
+    /// (`needs_confirmation`) and nothing is typed. The flow editor's prefilled write-skill request (Q441).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub if_empty: bool,
 }
 
 /// The answer to `session.attach`.

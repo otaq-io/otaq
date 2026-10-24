@@ -63,6 +63,19 @@ pub(super) async fn handle(
                 sessions.write(&p.session, &bytes).map_err(session_error)?;
                 return Ok((Reply::Ok, Then::Continue));
             }
+            // Never over the user's unsent text when the caller asks for an empty line (SDD §2, d0048).
+            if p.if_empty
+                && sessions
+                    .has_unsent_input(&p.session)
+                    .map_err(session_error)?
+            {
+                let mut body = ErrorBody::new(
+                    ErrorKind::Refused,
+                    "Its input line has unsent text: send or clear it in its terminal.",
+                );
+                body.data = Some(json!({ "refusal": Refusal::NeedsConfirmation }));
+                return Err(body);
+            }
             let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
             // Enter in the ticket's terminal is the user's answer: the needs-you label clears (ATT-02). Not in its
             // Shell tab or Run, which are "not the agent". In the agent's own terminal the first line sent answers

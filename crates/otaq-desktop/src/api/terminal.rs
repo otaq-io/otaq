@@ -100,6 +100,7 @@ async fn input(app: &App, params: TerminalInput) -> Result<Value, RequestError> 
             session: params.session,
             data: params.data,
             reply: params.reply,
+            if_empty: false,
         }))
         .await?;
     Ok(Value::Null)

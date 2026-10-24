@@ -523,6 +523,7 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
             session: info.id.clone(),
             data: otaq_core::protocol::encode_bytes(text),
             reply: false,
+            if_empty: false,
         })
     };
 
@@ -550,6 +551,35 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
     app.request(input(b"draft")).await.unwrap();
     sessions.clear_line(&info.id, b"\x05\x15").unwrap();
     assert!(!sessions.has_unsent_input(&info.id).unwrap());
+
+    // `if_empty` (the flow editor's prefill, Q441): typed into an empty line, refused over unsent text, with nothing
+    // typed (SDD §2, d0048).
+    let if_empty = |text: &[u8]| {
+        Request::SessionInput(otaq_core::protocol::InputParams {
+            session: info.id.clone(),
+            data: otaq_core::protocol::encode_bytes(text),
+            reply: false,
+            if_empty: true,
+        })
+    };
+    app.request(if_empty(b"mine ")).await.unwrap();
+    assert!(sessions.has_unsent_input(&info.id).unwrap());
+    let refused = app.request(if_empty(b"PREFILL")).await.unwrap_err();
+    let otaq_core::client::ClientError::Service(body) = refused else {
+        panic!("{refused:?}")
+    };
+    assert_eq!(body.kind, otaq_core::protocol::ErrorKind::Refused);
+    assert_eq!(body.data.unwrap()["refusal"], "needs_confirmation");
+    assert_eq!(
+        body.message,
+        "Its input line has unsent text: send or clear it in its terminal."
+    );
+    app.request(input(b"kept\r")).await.unwrap();
+    read_until(&mut attached, &mut seen, "mine kept\r\n").await;
+    assert!(
+        !String::from_utf8_lossy(&seen).contains("PREFILL"),
+        "nothing typed over the user's text"
+    );
 
     stopper.stop();
     task.await.unwrap();
