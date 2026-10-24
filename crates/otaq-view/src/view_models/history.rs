@@ -25,11 +25,10 @@ use otaq_core::usage::SessionUsage;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::icons::IconName;
-use crate::theme::Palette;
 use crate::view_models::clock;
 use crate::view_models::stage_choices::{self, HistoryLine};
 use crate::view_models::ticket_comments::{self as comments, Mark, ReportChip};
+use crate::view_models::tool_problems::tool_word;
 use crate::view_models::validation_report;
 
 /// What History knows beyond the events: the flow's stage names (a comment's author names its stage by id) and
@@ -185,7 +184,8 @@ fn kind_of(kind: EventKind) -> Kind {
     }
 }
 
-/// One line of the History table.
+/// One row of Activity's timeline (Q432, `s25-07`): the time, who (you, the agent, Otaq), a plain sentence, and on a
+/// row where an agent ran its duration and tokens as quiet text after it ([`HistoryRow::cost`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryRow {
     pub title: String,
@@ -196,19 +196,39 @@ pub struct HistoryRow {
     pub duration: String,
     /// The session's tokens ("226k"); "—" for events, other sessions, and unknown counts (USG-01).
     pub tokens: String,
+    /// An agent ran in this row (a session's end, a check's round): its duration and tokens trail the sentence.
+    pub ran: bool,
     /// The full tool session id, for the copy button.
     pub tool_session_id: Option<String>,
+    /// A session's start: it comes before an event at the same moment.
     pub is_session: bool,
-    /// A validation round's outcome icon and colours; sessions and events have their own icons.
-    pub outcome: Option<(IconName, Palette)>,
     /// A session row's session id (its title names the agent, [`with_agents`]).
     pub session: Option<String>,
-    /// A description or comment row's author mark, in place of the icon.
-    pub mark: Option<Mark>,
+    /// Who: you, the agent (its tool avatar), or Otaq.
+    pub mark: Mark,
     /// What the row opens: a before / after, or what a comment said.
     pub opens: Option<Opens>,
     /// Activity's filter it shows under.
     pub kind: Kind,
+}
+
+impl HistoryRow {
+    /// "· 18 min · 64k tokens" after the sentence of a row where an agent ran (Q432); none on other rows, and none
+    /// when nothing was recorded (never "0 tokens"; tokens and time only, never a dollar figure, d0086).
+    pub fn cost(&self) -> Option<String> {
+        if !self.ran {
+            return None;
+        }
+        let known = |s: &str| !s.is_empty() && s != "\u{2014}";
+        let mut parts = Vec::new();
+        if known(&self.duration) && self.duration != "running" {
+            parts.push(self.duration.clone());
+        }
+        if known(&self.tokens) && self.tokens != "0" {
+            parts.push(format!("{} tokens", self.tokens));
+        }
+        (!parts.is_empty()).then(|| format!("\u{b7} {}", parts.join(" \u{b7} ")))
+    }
 }
 
 /// "Built: only in the profile form · Other option: everywhere"; several other options read "Other options: a · b".
@@ -242,7 +262,10 @@ pub fn rows_in(
     usage: &[SessionUsage],
     facts: &Facts,
 ) -> Vec<HistoryRow> {
-    let mut rows: Vec<HistoryRow> = sessions.iter().map(|s| session_row(s, usage)).collect();
+    let mut rows: Vec<HistoryRow> = sessions
+        .iter()
+        .flat_map(|s| session_rows(s, usage, facts))
+        .collect();
     rows.extend(events.iter().filter_map(|e| event_row_in(e, facts)));
     // Newest first; a session row comes before an event at the same moment.
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -267,17 +290,22 @@ pub fn rows_with_rounds(
     let mut rows = rows_in(&events, sessions, usage, facts);
     rows.extend(records.iter().map(|r| {
         let round = validation_report::round_row(r, rounds);
+        // The check's agent ran the round: its tool's avatar, from its session.
+        let tool = sessions
+            .iter()
+            .find(|s| r.session.as_ref() == Some(&s.id))
+            .and_then(|s| s.tool);
         HistoryRow {
             title: round.title,
             detail: round.detail,
             at: round.at,
             duration: round.duration,
             tokens: round.tokens,
+            ran: true,
             tool_session_id: None,
             is_session: false,
-            outcome: Some((round.icon, round.palette)),
             session: None,
-            mark: None,
+            mark: comments::agent_mark(tool, facts.avatars),
             opens: None,
             kind: Kind::Stage,
         }
@@ -286,7 +314,18 @@ pub fn rows_with_rounds(
     rows
 }
 
-fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
+/// Whether a session is an agent's (its end carries its duration and tokens); a shell, the Run and the project
+/// terminal are yours.
+fn agent_ran(kind: SessionKind) -> bool {
+    !matches!(
+        kind,
+        SessionKind::Shell | SessionKind::Run | SessionKind::Project
+    )
+}
+
+/// A session's rows: its start ("Agent session started", named by [`with_agents`]: "Grill started · Griller") and, once
+/// an agent's session ended, its end with the duration and tokens ("Agent session ended · 18 min · 64k tokens").
+fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<HistoryRow> {
     let title = match s.kind {
         SessionKind::Agent => "Agent session",
         SessionKind::Answer => "Answer session",
@@ -297,39 +336,59 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         SessionKind::Validator => "Validator session",
         SessionKind::ProjectAgent => "Project agent",
     };
+    let agent = agent_ran(s.kind);
     let duration = match s.ended_at {
         Some(end) => clock::duration(end - s.started_at),
         None => "running".to_owned(),
     };
-    // "claude 3be94c10… · service stopped": the tool's command and its id.
-    let conversation = s
+    // "Claude Code · sonnet": the tool and the model asked for; the conversation's id is copied, not shown.
+    let detail = s
         .tool
-        .zip(s.tool_session_id.as_deref())
-        .map(|(tool, id)| format!("{} {id}", tool.command_name()));
-    let detail = match (conversation, s.end_reason.as_deref()) {
-        (Some(conversation), Some(reason)) => Some(format!("{conversation} · {reason}")),
-        (Some(conversation), None) => Some(conversation),
-        (None, Some(reason)) => Some(reason.to_owned()),
-        (None, None) => None,
+        .map(|tool| match &s.model {
+            Some(model) => format!("{} \u{b7} {model}", tool_word(tool)),
+            None => tool_word(tool).to_owned(),
+        })
+        .filter(|_| agent);
+    let mark = match agent {
+        true => comments::agent_mark(s.tool, facts.avatars),
+        false => Mark::You,
     };
-    HistoryRow {
-        title: title.to_owned(),
-        detail,
+    let kind = match agent {
+        true => Kind::Stage,
+        // The Run's and the Shell's sessions aren't stage work.
+        false => Kind::Other,
+    };
+    let start = HistoryRow {
+        title: match agent {
+            true => format!("{title} started"),
+            false => title.to_owned(),
+        },
+        detail: match agent {
+            true => detail,
+            false => s.end_reason.clone(),
+        },
         at: s.started_at,
-        duration,
+        duration: duration.clone(),
         tokens: crate::view_models::usage::session_label(usage, &s.id),
+        ran: false,
         tool_session_id: s.tool_session_id.clone(),
         is_session: true,
-        outcome: None,
         session: Some(s.id.clone()),
-        mark: None,
+        mark: mark.clone(),
         opens: None,
-        // The Run's and the Shell's sessions aren't stage work.
-        kind: match s.kind {
-            SessionKind::Shell | SessionKind::Run | SessionKind::Project => Kind::Other,
-            _ => Kind::Stage,
-        },
-    }
+        kind,
+    };
+    let end = s.ended_at.filter(|_| agent).map(|at| HistoryRow {
+        title: format!("{title} ended"),
+        // "service stopped", "exited".
+        detail: s.end_reason.clone(),
+        at,
+        ran: true,
+        tool_session_id: None,
+        is_session: false,
+        ..start.clone()
+    });
+    std::iter::once(start).chain(end).collect()
 }
 
 fn who(actor: &Actor) -> String {
@@ -358,14 +417,6 @@ fn short_question(question: &str) -> String {
         out.push_str(word);
     }
     format!("{out} \u{2026}")
-}
-
-/// "by Wishlist lead" when an epic lead made the change (its name is in the payload, CLI-07), else [`who`].
-fn by(e: &HistoryEvent) -> String {
-    match text(&e.payload, "lead") {
-        Some(lead) => format!("by {lead}"),
-        None => who(&e.actor),
-    }
 }
 
 /// "description", "title · priority": the fields a lead's update changed, as History names them.
@@ -729,11 +780,11 @@ fn told(
         at: e.at,
         duration: "\u{2014}".to_owned(),
         tokens: "\u{2014}".to_owned(),
+        ran: false,
         tool_session_id: None,
         is_session: false,
-        outcome: None,
         session: None,
-        mark: Some(mark),
+        mark,
         opens: Some(opens),
         kind,
     }
@@ -885,7 +936,8 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
             return None;
         }
-        EventKind::Created => ("Created".to_owned(), Some(by(e))),
+        // "You created the ticket" (Q432, `s25-07`).
+        EventKind::Created => (format!("{} created the ticket", changed_by(e)), None),
         // The agent filed another ticket (#47): "Created DEMO-12 Fix the build" · "by DEMO-7's agent · in Backlog".
         EventKind::CreatedTicket => (
             format!(
@@ -1329,39 +1381,78 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         at: e.at,
         duration: "—".to_owned(),
         tokens: "—".to_owned(),
+        ran: false,
         tool_session_id: None,
         is_session: false,
-        outcome: None,
         session: None,
-        mark: None,
+        mark: event_mark(e, facts),
         opens: None,
         kind: kind_of(e.kind),
     })
 }
 
-/// The named agents in History (AGT-05, d0086): each session's row titled "Session started on Sonnet ·
-/// claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on; with several tools "Session started on
-/// Verifier · Copilot · auto", the swap note before its session id), and its end and a Done ticket's agents as lines
-/// of their own, newest first like the rest.
+/// Who an event's row shows (Q432): Otaq for what happened on its own (a restart, a start that failed, an automatic
+/// merge…), the agent for its own and its lead's doings, else you.
+fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
+    let otaq = matches!(
+        e.kind,
+        EventKind::StartInterrupted
+            | EventKind::Held
+            | EventKind::StartNote
+            | EventKind::RemoteUnreachable
+            | EventKind::TemplateRefreshFailed
+            | EventKind::ChoiceDropped
+            | EventKind::SchemaOverlap
+            | EventKind::Interrupted
+            | EventKind::SessionEnded
+            | EventKind::ResumeFailed
+            | EventKind::StartedFromScratch
+            | EventKind::MergedAutomatically
+            | EventKind::AutoMergeStopped
+            | EventKind::JoinedQueue
+            | EventKind::ValidationEnded
+            | EventKind::SentToFix
+            | EventKind::Rebased
+    );
+    if otaq {
+        return Mark::Otaq;
+    }
+    if text(&e.payload, "lead").is_some() {
+        return comments::agent_mark(None, facts.avatars);
+    }
+    match e.actor {
+        Actor::User(_) => Mark::You,
+        Actor::Agent(_) | Actor::ProjectAgent(_) => comments::agent_mark(None, facts.avatars),
+    }
+}
+
+/// The named agents in Activity (AGT-05, d0086; Q432): each session's start reads "Grill started · Griller" over
+/// "Claude Code · claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on, and the swap note after
+/// it), its end "Grill finished · Griller" with its duration and tokens, and a Done ticket's agents are lines of their
+/// own, newest first like the rest.
 pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
     for line in lines {
         match line {
-            HistoryLine::Start {
+            HistoryLine::Session {
                 session,
-                title,
+                started,
+                detail,
                 note,
+                ended,
             } => {
-                if let Some(row) = rows
+                for row in rows
                     .iter_mut()
-                    .find(|r| r.session.as_ref() == Some(session))
+                    .filter(|r| r.session.as_ref() == Some(session))
                 {
-                    row.title = title.clone();
-                    // "asked for gpt-5.5, ran on auto · copilot c7f1d0…" (AGT-05).
-                    if let Some(note) = note {
-                        row.detail = Some(match row.detail.take() {
-                            Some(detail) => format!("{note} \u{b7} {detail}"),
-                            None => note.clone(),
+                    if row.is_session {
+                        row.title = started.clone();
+                        // "asked for gpt-5.5, ran on auto" (AGT-05).
+                        row.detail = Some(match note {
+                            Some(note) => format!("{detail} \u{b7} {note}"),
+                            None => detail.clone(),
                         });
+                    } else {
+                        row.title = ended.clone();
                     }
                 }
             }
@@ -1371,11 +1462,11 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 at: *at,
                 duration: "\u{2014}".to_owned(),
                 tokens: tokens.clone(),
+                ran: false,
                 tool_session_id: None,
                 is_session: false,
-                outcome: None,
                 session: None,
-                mark: None,
+                mark: Mark::Otaq,
                 opens: None,
                 kind: Kind::Stage,
             }),
@@ -1501,8 +1592,10 @@ mod tests {
             &Facts::default(),
         );
         let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
-        assert_eq!(titles, ["Round 1 · failed", "Created"]);
-        assert_eq!(rows[0].outcome, Some((IconName::ShieldX, Palette::Attn)));
+        assert_eq!(titles, ["Round 1 · failed", "You created the ticket"]);
+        // The check's agent ran the round: its time and tokens trail it.
+        assert!(rows[0].ran);
+        assert_eq!(rows[0].mark, Mark::Agent);
         // The verdict is the checker's comment (its own row, with its report): the round opens nothing (CMT-14).
         assert_eq!(rows[0].opens, None);
     }
@@ -1653,9 +1746,9 @@ mod tests {
         );
         assert_eq!(
             at("Griller \u{b7} Grill edited").mark,
-            Some(Mark::Tool {
+            Mark::Tool {
                 avatar: crate::view_models::tool_avatar::ToolAvatarView::of(Tool::Claude, None)
-            })
+            }
         );
         // Only the changed line and one around it, with "…" where lines were left out.
         let yours = at("You edited the description").opens.clone().unwrap();
@@ -1667,7 +1760,7 @@ mod tests {
                 "+- up to 10,000 rows, then a message".into()
             ]
         );
-        assert_eq!(at("You edited the description").mark, Some(Mark::You));
+        assert_eq!(at("You edited the description").mark, Mark::You);
         // The edited comment: before / after.
         let edited = at("You edited Rust").opens.clone().unwrap();
         assert_eq!(
@@ -1752,7 +1845,7 @@ mod tests {
                 Kind::Other
             ]
         );
-        assert_eq!(rows[0].title, "Created", "oldest first");
+        assert_eq!(rows[0].title, "You created the ticket", "oldest first");
         let titles = |filter| -> Vec<String> {
             filtered(&rows, filter)
                 .iter()
@@ -1808,7 +1901,7 @@ mod tests {
             lead.title,
             "Wishlist lead edited the description \u{b7} 2 lines changed"
         );
-        assert_eq!(lead.mark, Some(Mark::Agent));
+        assert_eq!(lead.mark, Mark::Agent);
         // An agent that edits or deletes its own comment.
         let own = row(by_agent(
             EventKind::CommentEdited,
@@ -1816,7 +1909,7 @@ mod tests {
             json!({"n": 3, "before": "a", "after": "b", "author": agent("Rust developer", "dev", None, Tool::Claude)}),
         ));
         assert_eq!(own.title, "Rust developer \u{b7} dev edited its comment");
-        assert_eq!(own.mark, Some(Mark::Agent), "avatars hidden");
+        assert_eq!(own.mark, Mark::Agent, "avatars hidden");
         let gone = row(by_agent(
             EventKind::CommentDeleted,
             MIN,
@@ -2031,7 +2124,7 @@ mod tests {
             ),
             (
                 lead_event(EventKind::Created, json!({"lead": "Wishlist lead"})),
-                ("Created", Some("by Wishlist lead")),
+                ("Wishlist lead created the ticket", None),
             ),
             (
                 lead_event(
@@ -2439,37 +2532,149 @@ mod tests {
         assert_eq!(
             titles,
             [
-                "Agent session",
-                "Agent session",
+                "Agent session started",
+                "Agent session ended",
+                "Agent session started",
                 "Start failed",
                 "Ready for Dev",
-                "Created"
+                "You created the ticket"
             ]
         );
         assert_eq!(rows[0].duration, "running");
-        assert_eq!(rows[1].duration, "72 min");
         assert_eq!(
-            rows[1].detail.as_deref(),
-            Some("claude 3be94c10-a · service stopped")
+            rows[0].cost(),
+            None,
+            "a running session's end is still to come"
         );
-        assert_eq!(rows[1].tool_session_id.as_deref(), Some("3be94c10-a"));
+        assert_eq!(rows[1].duration, "72 min");
+        assert_eq!(rows[1].detail.as_deref(), Some("service stopped"));
+        assert_eq!(rows[1].cost().as_deref(), Some("\u{b7} 72 min"));
+        assert_eq!(rows[2].detail.as_deref(), Some("Claude Code"));
+        assert_eq!(rows[2].tool_session_id.as_deref(), Some("3be94c10-a"));
         assert_eq!(
-            rows[2].detail.as_deref(),
+            rows[3].detail.as_deref(),
             Some("setup command failed: setup command failed (exit 1):")
         );
-        assert_eq!(rows[4].detail.as_deref(), Some("by you"));
+        assert_eq!(rows[3].mark, Mark::Otaq);
+        assert_eq!(rows[5].detail, None);
+        assert_eq!(rows[5].mark, Mark::You);
         assert!(rows.iter().all(|r| r.tokens == "—"));
+    }
+
+    /// Q432 (`s25-07`): Activity reads as a timeline: who, a plain sentence, and the duration and tokens only after
+    /// a row where an agent ran, never as "0 tokens" or a dollar figure.
+    #[test]
+    fn activity_rows_read_as_a_timeline() {
+        let events = vec![event(EventKind::Created, 0, json!({}))];
+        let mut griller = session("g", 5 * MIN, Some(23 * MIN), Some("exited"));
+        griller.model = Some("sonnet".into());
+        let shell = SessionInfo {
+            kind: SessionKind::Shell,
+            ..session("sh", 6 * MIN, Some(30 * MIN), None)
+        };
+        let usage = vec![SessionUsage {
+            session: "g".into(),
+            tokens: Some(otaq_core::usage::Tokens {
+                input: 60_000,
+                cached: 0,
+                output: 4_000,
+                reasoning: None,
+            }),
+        }];
+        let base = rows_in(
+            &events,
+            &[griller.clone(), shell],
+            &usage,
+            &Facts::default(),
+        );
+        // Before the named agents are read: the session's own words.
+        let plain = oldest_first(base.clone());
+        assert_eq!(plain[1].title, "Agent session started");
+        assert_eq!(
+            plain[1].detail.as_deref(),
+            Some("Claude Code \u{b7} sonnet")
+        );
+        assert_eq!(plain[3].title, "Agent session ended");
+        let named = oldest_first(with_agents(
+            base,
+            &[HistoryLine::Session {
+                session: "g".into(),
+                started: "Grill started \u{b7} Griller".into(),
+                detail: "Claude Code \u{b7} sonnet".into(),
+                note: None,
+                ended: "Grill finished \u{b7} Griller".into(),
+            }],
+        ));
+        let read: Vec<_> = named
+            .iter()
+            .map(|r| (r.title.as_str(), r.mark.clone(), r.cost()))
+            .collect();
+        assert_eq!(
+            read,
+            [
+                ("You created the ticket", Mark::You, None),
+                ("Grill started \u{b7} Griller", Mark::Agent, None),
+                ("Shell", Mark::You, None),
+                (
+                    "Grill finished \u{b7} Griller",
+                    Mark::Agent,
+                    Some("\u{b7} 18 min \u{b7} 64k tokens".to_owned())
+                ),
+            ]
+        );
+        assert_eq!(
+            named[1].detail.as_deref(),
+            Some("Claude Code \u{b7} sonnet")
+        );
+        assert_eq!(named[1].tool_session_id.as_deref(), Some("3be94c10-g"));
+        assert_eq!(named[3].detail.as_deref(), Some("exited"));
+        // With avatars on, the agent's rows show its tool.
+        let facts = Facts {
+            avatars: true,
+            ..Facts::default()
+        };
+        let shown = session_rows(&griller, &usage, &facts);
+        assert!(matches!(shown[0].mark, Mark::Tool { .. }));
+        // An agent row with nothing recorded has no trailing text; tokens alone read alone.
+        let end = &named[3];
+        let unknown = HistoryRow {
+            duration: "\u{2014}".into(),
+            tokens: "\u{2014}".into(),
+            ..end.clone()
+        };
+        assert_eq!(unknown.cost(), None);
+        let none = HistoryRow {
+            duration: "\u{2014}".into(),
+            tokens: "0".into(),
+            ..end.clone()
+        };
+        assert_eq!(none.cost(), None, "never \"0 tokens\"");
+        let tokens_only = HistoryRow {
+            duration: "running".into(),
+            ..end.clone()
+        };
+        assert_eq!(tokens_only.cost().as_deref(), Some("\u{b7} 64k tokens"));
+        // What happened on its own is Otaq's.
+        let restart = event_row(&event(
+            EventKind::Interrupted,
+            0,
+            json!({"reason": "restart"}),
+        ))
+        .unwrap();
+        assert_eq!((restart.cost(), restart.mark), (None, Mark::Otaq));
     }
 
     #[test]
     fn durations_round_to_minutes() {
-        let r = session_row(
+        let facts = Facts::default();
+        let r = session_rows(
             &session("x", 0, Some(125 * MIN + 30_000), Some("exit 0")),
             &[],
+            &facts,
         );
-        assert_eq!(r.duration, "2 h 5 min");
-        let r = session_row(&session("y", 0, Some(30_000), None), &[]);
-        assert_eq!(r.duration, "0 min");
+        assert_eq!(r[1].duration, "2 h 5 min");
+        let r = session_rows(&session("y", 0, Some(30_000), None), &[], &facts);
+        assert_eq!(r[1].duration, "0 min");
     }
 
     /// AGM-08: a stage choice's line, on the ticket and (for an epic lead's choice) on the epic.

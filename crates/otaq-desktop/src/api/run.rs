@@ -95,7 +95,7 @@ pub async fn tab(app: &App, params: Params) -> Result<TabView, RequestError> {
 }
 
 /// How a Run click went: the tab as it is now, or the project has no run command yet and the dialog asks for one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 #[ts(rename = "RunStarted")]
 pub enum Started {
@@ -528,7 +528,7 @@ mod tests {
         let key = created.key.to_string();
 
         let view = table(&h.app, "run.tab", json!({ "key": key })).await.unwrap();
-        assert_eq!(view["card"]["title"], "Not running");
+        assert_eq!(view["state"]["text"], "Not running");
         assert_eq!(view["session"], Value::Null);
 
         // Not started: no worktree to run in (the refusal is a toast); "no_run_command" opens the dialog instead.

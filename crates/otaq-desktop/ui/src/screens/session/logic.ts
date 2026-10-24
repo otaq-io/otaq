@@ -9,13 +9,9 @@ import { request } from "../../tauri";
 /** The service events after which the Run tab, the processes and the panel's pill are asked again. */
 export const RUN_EVENTS = ["run_changed", "ticket_changed"] as const;
 
-/** What a card button does on the page. */
+/** What a button on the Run's line does (Open is the line's link, Edit command its ⋯). */
 export type Press =
-  | { kind: "request"; method: "run.start" | "run.stop" }
-  | { kind: "open"; url: string }
-  | { kind: "edit_command" }
-  | { kind: "copy"; text: string }
-  | { kind: "none" };
+  { kind: "request"; method: "run.start" | "run.stop" } | { kind: "copy"; text: string } | { kind: "none" };
 
 // No `default`: a new button fails ESLint's switch-exhaustiveness-check until it gets its press.
 export function pressOf(button: RunButtonView): Press {
@@ -25,10 +21,6 @@ export function pressOf(button: RunButtonView): Press {
       return { kind: "request", method: "run.start" };
     case "stop":
       return { kind: "request", method: "run.stop" };
-    case "open":
-      return button.url === null || !button.enabled ? { kind: "none" } : { kind: "open", url: button.url };
-    case "edit_command":
-      return { kind: "edit_command" };
     case "copy_lsof":
       return button.copy === null ? { kind: "none" } : { kind: "copy", text: button.copy };
   }

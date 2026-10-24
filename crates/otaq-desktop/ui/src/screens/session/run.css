@@ -1,5 +1,5 @@
 /*
- * *13 · Run & Shell*: the Run tab's state card and output, the Shell tab, the run-command dialog and the processes
+ * *13 · Run & Shell*: the Run's line and output, the Shell tab, the run-command dialog and the processes
  * menu. Colors are the theme's tokens.
  */
 .run-tab {
@@ -31,43 +31,37 @@
   min-width: 0;
 }
 
-.run-card {
-  --run-ink: var(--text-primary);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg-column);
-}
-
-.run-card[data-tone="progress"] {
-  --run-ink: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.run-card[data-tone="success"] {
-  --run-ink: var(--st-approved);
-  border-color: var(--st-approved);
-  background: var(--st-approved-bg);
-}
-
-.run-card[data-tone="danger"] {
-  --run-ink: var(--st-error);
-  border-color: var(--st-error);
-  background: var(--st-error-bg);
-}
-
-.run-card-head {
-  display: flex;
+/* The Run's line (Q433): what runs, then its state in words, coloured by its tone; no state card. */
+.run-line-words {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--run-ink);
+  min-width: 0;
 }
 
-.run-card[data-tone="progress"] .run-card-head > .icon {
+.run-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.run-state[data-tone="progress"] {
+  color: var(--accent);
+}
+
+.run-state[data-tone="success"] {
+  color: var(--st-approved);
+}
+
+.run-state[data-tone="danger"] {
+  color: var(--st-error);
+}
+
+.run-state[data-tone="progress"] > .icon {
   animation: run-spin 1s linear infinite;
 }
 
@@ -78,28 +72,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .run-card[data-tone="progress"] .run-card-head > .icon,
+  .run-state[data-tone="progress"] > .icon,
   .run-thinking-title > .icon {
     animation: none;
   }
 }
 
-.run-card-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-command {
-  color: var(--text-secondary);
-  font: 400 11.5px var(--font-mono);
-  overflow-wrap: anywhere;
-}
-
+/* A failure's reason, the port's owner, "No run command yet…": under the line. */
 .run-message {
   margin: 0;
   color: var(--text-secondary);
@@ -107,23 +86,8 @@
   line-height: 1.5;
 }
 
-.run-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.run-note {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.run-output-label {
-  padding: 0 4px;
-  color: var(--text-muted);
-  font: 400 10px var(--font-mono);
-  letter-spacing: 0.08em;
+.run-message[data-tone="danger"] {
+  color: var(--st-error);
 }
 
 .run-output {

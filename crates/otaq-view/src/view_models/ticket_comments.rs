@@ -51,6 +51,8 @@ pub enum Mark {
     Tool { avatar: ToolAvatarView },
     /// An agent while avatars are hidden (one tool connected) or its tool isn't known: a plain agent mark.
     Agent,
+    /// Otaq itself, in Activity (Q432): what happened on its own (a restart, an automatic merge, a start that failed).
+    Otaq,
 }
 
 /// A comment's report: "Report · 48 KB" and Open.

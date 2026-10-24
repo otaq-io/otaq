@@ -902,15 +902,18 @@ pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
 // ---------------------------------------------------------------------------------------------------------------
 // History
 
-/// A History line of the agents (`history.rs` adds them to the table).
+/// A History line of the agents (`history.rs` adds them to Activity's timeline).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryLine {
-    /// The title of a session's own row: "Session started on Sonnet · claude-sonnet-5-6 (Sonnet →
-    /// claude-sonnet-5-6)", and the swap note in its detail ("asked for gpt-5.5, ran on auto").
-    Start {
+    /// A session's own rows (Q432, `s25-07`): its start "Grill started · Griller" with "Claude Code · sonnet" under
+    /// it ("Claude Code · claude-sonnet-5-6 (Sonnet → claude-sonnet-5-6)" when it moved on) and the swap note ("asked
+    /// for gpt-5.5, ran on auto"), and its end "Grill finished · Griller".
+    Session {
         session: String,
-        title: String,
+        started: String,
+        detail: String,
         note: Option<String>,
+        ended: String,
     },
     /// A line of its own: "Session ended · Sonnet · claude-sonnet-5-5 · 54k", "Developer: Light (deleted) ·
     /// claude-haiku-5-5 · 48k".
@@ -921,7 +924,30 @@ pub enum HistoryLine {
     },
 }
 
-/// One line per session start and end with the exact model, and a Done or Closed ticket's agents as they ran.
+/// The stage a session ran ("Grill"), from the ticket's stage runs; its role ("Developer") when no run names it.
+fn session_stage(t: &TicketAgents, session: &SessionAgentRun) -> String {
+    t.runs
+        .iter()
+        .rev()
+        .find(|r| r.session.as_deref() == Some(session.id.as_str()))
+        .map(|r| {
+            t.path
+                .iter()
+                .find(|p| p.stage_id == r.stage)
+                .map(|p| p.stage.clone())
+                .or_else(|| {
+                    t.stages
+                        .iter()
+                        .find(|s| s.stage_id == r.stage)
+                        .map(|s| s.stage.clone())
+                })
+                .unwrap_or_else(|| r.stage.clone())
+        })
+        .unwrap_or_else(|| session.role.label().to_owned())
+}
+
+/// Each named session's start and end with its stage, tool and exact model, and a Done or Closed ticket's agents as
+/// they ran.
 pub fn history_lines(t: &TicketAgents, tools: &Tools) -> Vec<HistoryLine> {
     let mut lines = Vec::new();
     for session in &t.sessions {
@@ -931,27 +957,19 @@ pub fn history_lines(t: &TicketAgents, tools: &Tools) -> Vec<HistoryLine> {
         let tool = session_tool(t, session, tools);
         let models = tools.list(tool);
         let exact = exact_model(session, models);
-        let name = name_with_tool(tools, tool, &name);
-        let mut title = format!("Session started on {name} \u{b7} {exact}");
+        let stage = session_stage(t, session);
+        let mut detail = format!("{} \u{b7} {exact}", tool_word(tool));
         if let Some(moved) = &session.moved_on {
             let follow = follow_name(session.model.as_deref(), models).unwrap_or(name.clone());
-            title.push_str(&format!(" ({follow} \u{2192} {})", moved.now));
+            detail.push_str(&format!(" ({follow} \u{2192} {})", moved.now));
         }
-        lines.push(HistoryLine::Start {
+        lines.push(HistoryLine::Session {
             session: session.id.clone(),
-            title,
+            started: format!("{stage} started \u{b7} {name}"),
+            detail,
             note: swap_note(session, tool, tools),
+            ended: format!("{stage} finished \u{b7} {name}"),
         });
-        if let Some(at) = session.ended_at {
-            lines.push(HistoryLine::Line {
-                at,
-                title: format!(
-                    "Session ended \u{b7} {name} \u{b7} {exact} \u{b7} {}",
-                    tokens_text(session.tokens)
-                ),
-                tokens: "\u{2014}".to_owned(),
-            });
-        }
     }
     if finished(t) {
         for role in SessionRole::ALL {
@@ -2127,22 +2145,30 @@ mod tests {
         let titles: Vec<_> = lines
             .iter()
             .map(|l| match l {
-                HistoryLine::Start { title, .. } | HistoryLine::Line { title, .. } => {
-                    title.as_str()
-                }
+                HistoryLine::Session { started, .. } => started.as_str(),
+                HistoryLine::Line { title, .. } => title.as_str(),
             })
             .collect();
         assert_eq!(
             titles,
             [
-                "Session started on Quick developer \u{b7} claude-haiku-5-5",
-                "Session ended \u{b7} Quick developer \u{b7} claude-haiku-5-5 \u{b7} 10k",
-                "Session started on Validator \u{b7} claude-opus-5-5",
-                "Session ended \u{b7} Validator \u{b7} claude-opus-5-5 \u{b7} 10k",
+                "Dev started \u{b7} Quick developer",
+                "Validate started \u{b7} Validator",
                 "Developer: Quick developer \u{b7} claude-haiku-5-5 \u{b7} 10k",
                 "Validator: Validator \u{b7} claude-opus-5-5 \u{b7} 10k",
             ]
         );
+        let HistoryLine::Session { detail, ended, .. } = &lines[0] else {
+            panic!("a session's rows first");
+        };
+        assert_eq!(detail, "Claude Code \u{b7} claude-haiku-5-5");
+        assert_eq!(ended, "Dev finished \u{b7} Quick developer");
+        // A session no stage run names reads by its role.
+        t.runs.clear();
+        let HistoryLine::Session { started, .. } = &history_lines(&t, &tools)[0] else {
+            panic!("a session's rows first");
+        };
+        assert_eq!(started, "Developer started \u{b7} Quick developer");
     }
 
     #[test]

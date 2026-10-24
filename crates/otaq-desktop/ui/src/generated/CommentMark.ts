@@ -4,4 +4,4 @@ import type { ToolAvatarView } from "./ToolAvatarView";
 /**
  * How a comment's author is marked before its name.
  */
-export type CommentMark = { "kind": "you" } | { "kind": "tool", avatar: ToolAvatarView, } | { "kind": "agent" };
+export type CommentMark = { "kind": "you" } | { "kind": "tool", avatar: ToolAvatarView, } | { "kind": "agent" } | { "kind": "otaq" };

@@ -10,6 +10,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
+use crate::view_models::menu::MenuItem;
 use crate::view_models::processes;
 use crate::view_models::run::{self as vm, RunButton, Tone};
 use crate::view_models::run_command::{Phase, RunCommandModel};
@@ -17,7 +18,7 @@ use crate::view_models::session_tab;
 use crate::view_models::shell;
 use crate::view_models::toasts::{NewToast, ToastLevel};
 
-/// The state card's colour.
+/// The colour of the Run's state words on its line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "RunTone")]
@@ -39,15 +40,13 @@ impl From<Tone> for ToneView {
     }
 }
 
-/// What a card button does.
+/// What a button on the Run's line does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "RunButtonKind")]
 pub enum ButtonKind {
     Run,
     Stop,
-    Open,
-    EditCommand,
     Retry,
     CopyLsof,
 }
@@ -59,131 +58,17 @@ pub struct ButtonView {
     pub label: String,
     pub icon: IconName,
     pub primary: bool,
-    pub enabled: bool,
-    /// Open's substituted URL.
-    pub url: Option<String>,
     /// Copy lsof command's text.
     pub copy: Option<String>,
 }
 
-/// The state card above the output.
+/// The Run's state in the line's words (Q433): "Serving", "Stopped by you at 11:48", "Failed to start · exit 1".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "RunCardView")]
-pub struct CardView {
-    pub title: String,
+#[ts(rename = "RunStateView")]
+pub struct StateView {
+    pub text: String,
     pub tone: ToneView,
     pub icon: IconName,
-    pub port: Option<String>,
-    pub command: Option<String>,
-    pub message: Option<String>,
-    pub buttons: Vec<ButtonView>,
-    /// "No Open URL set for billing-api, so there's no Open button." next to Stop (*Run · backend*).
-    pub note: Option<String>,
-}
-
-pub fn card_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> CardView {
-    let card = vm::card(run, hhmm);
-    let edit_first = card.buttons.contains(&RunButton::EditCommand);
-    let port = run.port.map(|p| p.to_string()).unwrap_or_default();
-    let buttons = card
-        .buttons
-        .iter()
-        .map(|b| {
-            let (kind, label, icon, primary, enabled, url, copy) = match b {
-                RunButton::Run => (
-                    ButtonKind::Run,
-                    "Run".to_owned(),
-                    IconName::Play,
-                    true,
-                    true,
-                    None,
-                    None,
-                ),
-                RunButton::Stop => (
-                    ButtonKind::Stop,
-                    "Stop".to_owned(),
-                    IconName::Square,
-                    false,
-                    true,
-                    None,
-                    None,
-                ),
-                RunButton::Open {
-                    url,
-                    label,
-                    enabled,
-                } => (
-                    ButtonKind::Open,
-                    label.clone(),
-                    IconName::ExternalLink,
-                    true,
-                    *enabled,
-                    Some(url.clone()),
-                    None,
-                ),
-                RunButton::EditCommand => (
-                    ButtonKind::EditCommand,
-                    "Edit command".to_owned(),
-                    IconName::Pencil,
-                    true,
-                    true,
-                    None,
-                    None,
-                ),
-                RunButton::Retry => (
-                    ButtonKind::Retry,
-                    "Retry".to_owned(),
-                    IconName::RotateCcw,
-                    !edit_first,
-                    true,
-                    None,
-                    None,
-                ),
-                RunButton::CopyLsof => (
-                    ButtonKind::CopyLsof,
-                    "Copy lsof command".to_owned(),
-                    IconName::Copy,
-                    false,
-                    true,
-                    None,
-                    Some(vm::lsof(&port)),
-                ),
-            };
-            ButtonView {
-                kind,
-                label,
-                icon,
-                primary,
-                enabled,
-                url,
-                copy,
-            }
-        })
-        .collect();
-    let icon = match (run.state, card.tone) {
-        (RunState::NotStarted, _) => IconName::Play,
-        (_, Tone::Neutral) => IconName::Square,
-        (_, Tone::Progress) => IconName::LoaderCircle,
-        (_, Tone::Success) => IconName::Dot,
-        (_, Tone::Danger) => IconName::TriangleAlert,
-    };
-    CardView {
-        note: (run.state.is_live() && run.open_url.as_deref().unwrap_or("").is_empty()).then(
-            || {
-                format!(
-                    "No Open URL set for {}, so there\u{2019}s no Open button.",
-                    run.project_name
-                )
-            },
-        ),
-        title: card.title,
-        tone: card.tone.into(),
-        icon,
-        port: card.port,
-        command: card.command,
-        message: card.message,
-        buttons,
-    }
 }
 
 /// Session's "Open http://localhost:4022" (SHT-04), while the Run is up and the project sets an Open URL.
@@ -194,39 +79,106 @@ pub struct OpenUrlView {
     pub url: String,
 }
 
-/// What `run.tab` answers: Session's Run line, the state card and the Run's output session.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// The ⋯ menu's Edit command (RUN-02's dialog).
+pub const MENU_EDIT_COMMAND: &str = "edit_command";
+
+/// What `run.tab` answers: Session's Run line and the Run's output session. No state card (Q433): the line says
+/// the state, and Run / Stop sit on it, Edit command under its ⋯; the terminal gets the space.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "RunTabView")]
 pub struct TabView {
     pub key: String,
     pub project: String,
     /// "pnpm dev · in SHOP-22’s worktree · :4022" (SHT-04); none before a run command is set.
     pub line: Option<String>,
+    pub state: StateView,
+    /// Why, under the line: a failure's reason, the port's owner, "No run command yet…".
+    pub message: Option<String>,
     pub open_url: Option<OpenUrlView>,
-    pub card: CardView,
-    pub output_label: &'static str,
+    /// Run, Stop, Retry, Copy lsof command: the state's buttons after Open.
+    pub buttons: Vec<ButtonView>,
+    /// "No Open URL set for billing-api, so there’s no Open button." (*Run · backend*): the line's tooltip.
+    pub note: Option<String>,
+    /// The line's ⋯: Edit command.
+    pub menu: Vec<MenuItem>,
+    pub menu_label: &'static str,
     /// The Run's session, attached read-only; `None` before the first Run.
     pub session: Option<String>,
     pub idle: &'static str,
 }
 
 pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
-    let card = card_view(run, hhmm);
+    let card = vm::card(run, hhmm);
+    let port = run.port.map(|p| p.to_string()).unwrap_or_default();
+    // Retry leads unless the command is what needs fixing (it's under ⋯ now).
+    let fix_first = card.buttons.contains(&RunButton::EditCommand);
+    let buttons = card
+        .buttons
+        .iter()
+        .filter_map(|b| {
+            let (kind, label, icon, primary, copy) = match b {
+                RunButton::Run => (ButtonKind::Run, "Run", IconName::Play, true, None),
+                RunButton::Stop => (ButtonKind::Stop, "Stop", IconName::Square, false, None),
+                RunButton::Retry => (
+                    ButtonKind::Retry,
+                    "Retry",
+                    IconName::RotateCcw,
+                    !fix_first,
+                    None,
+                ),
+                RunButton::CopyLsof => (
+                    ButtonKind::CopyLsof,
+                    "Copy lsof command",
+                    IconName::Copy,
+                    false,
+                    Some(vm::lsof(&port)),
+                ),
+                // Open is the line's "Open http://localhost:4022"; Edit command is under ⋯.
+                RunButton::Open { .. } | RunButton::EditCommand => return None,
+            };
+            Some(ButtonView {
+                kind,
+                label: label.to_owned(),
+                icon,
+                primary,
+                copy,
+            })
+        })
+        .collect();
+    let icon = match (run.state, card.tone) {
+        (RunState::NotStarted, _) => IconName::Play,
+        (_, Tone::Neutral) => IconName::Square,
+        (_, Tone::Progress) => IconName::LoaderCircle,
+        (_, Tone::Success) => IconName::Dot,
+        (_, Tone::Danger) => IconName::TriangleAlert,
+    };
+    // A set command needs no "Runs the project's run command…": the line says it.
+    let message = match run.state {
+        RunState::NotStarted if !run.command.is_empty() => None,
+        _ => card.message,
+    };
     TabView {
         key: run.key.to_string(),
         project: run.project.clone(),
         line: session_tab::run_line(&run.command, &run.key, run.port),
-        open_url: session_tab::open_url(run).map(|(label, url)| OpenUrlView { label, url }),
-        // Open is the line's "Open http://localhost:4022", not the card's.
-        card: CardView {
-            buttons: card
-                .buttons
-                .into_iter()
-                .filter(|b| b.kind != ButtonKind::Open)
-                .collect(),
-            ..card
+        state: StateView {
+            text: card.title,
+            tone: card.tone.into(),
+            icon,
         },
-        output_label: "OUTPUT",
+        message,
+        open_url: session_tab::open_url(run).map(|(label, url)| OpenUrlView { label, url }),
+        buttons,
+        note: (run.state.is_live() && run.open_url.as_deref().unwrap_or("").is_empty()).then(
+            || {
+                format!(
+                    "No Open URL set for {}, so there\u{2019}s no Open button.",
+                    run.project_name
+                )
+            },
+        ),
+        menu: vec![MenuItem::new(MENU_EDIT_COMMAND, "Edit command").icon(IconName::Pencil)],
+        menu_label: "Run options",
         session: run.session.clone(),
         idle: "(not running)",
     }
@@ -492,21 +444,53 @@ mod tests {
 
     const HHMM: fn(i64) -> String = |_| "11:48".to_owned();
 
+    fn kinds(v: &TabView) -> Vec<ButtonKind> {
+        v.buttons.iter().map(|b| b.kind).collect()
+    }
+
+    /// Q433: no state card. Each state reads in the line's words, with its buttons on the line and Edit command
+    /// always under ⋯.
     #[test]
-    fn every_run_state_reads_like_its_frame() {
+    fn the_run_line_in_each_state() {
+        let line = Some("pnpm dev --port $PORT \u{b7} in SHOP-19\u{2019}s worktree \u{b7} :4020");
+        let words = |v: &TabView| (v.state.text.clone(), v.state.tone);
+
         let idle = tab_view(&run(RunState::NotStarted), HHMM);
-        assert_eq!(idle.card.title, "Not running");
-        assert_eq!(idle.card.icon, IconName::Play);
-        assert_eq!(idle.card.port.as_deref(), Some(":4020"));
-        assert_eq!(idle.card.buttons[0].kind, ButtonKind::Run);
-        assert_eq!(idle.output_label, "OUTPUT");
-        assert_eq!(
-            idle.line.as_deref(),
-            Some("pnpm dev --port $PORT \u{b7} in SHOP-19\u{2019}s worktree \u{b7} :4020")
-        );
+        assert_eq!(idle.line.as_deref(), line);
+        assert_eq!(words(&idle), ("Not running".into(), ToneView::Neutral));
+        assert_eq!(idle.state.icon, IconName::Play);
+        assert_eq!(idle.message, None, "the line already says what runs");
+        assert_eq!(kinds(&idle), [ButtonKind::Run]);
+        assert!(idle.buttons[0].primary);
         assert_eq!(idle.open_url, None);
-        // Running, Session's line opens the URL; the card keeps Stop.
+        assert_eq!(
+            idle.menu
+                .iter()
+                .map(|m| (m.id.as_str(), m.label.as_str()))
+                .collect::<Vec<_>>(),
+            [(MENU_EDIT_COMMAND, "Edit command")]
+        );
+
+        let mut unset = run(RunState::NotStarted);
+        unset.command = String::new();
+        let unset = tab_view(&unset, HHMM);
+        assert_eq!(unset.line, None);
+        assert_eq!(
+            unset.message.as_deref(),
+            Some("No run command yet. Run asks for the command that starts this project.")
+        );
+        assert_eq!(kinds(&unset), [ButtonKind::Run]);
+
+        let starting = tab_view(&run(RunState::Starting), HHMM);
+        assert_eq!(
+            words(&starting),
+            ("Starting\u{2026}".into(), ToneView::Progress)
+        );
+        assert_eq!(starting.open_url, None, "Open waits for the port");
+        assert_eq!(kinds(&starting), [ButtonKind::Stop]);
+
         let up = tab_view(&run(RunState::Running), HHMM);
+        assert_eq!(words(&up), ("Serving".into(), ToneView::Success));
         assert_eq!(
             up.open_url,
             Some(OpenUrlView {
@@ -514,52 +498,69 @@ mod tests {
                 url: "http://localhost:4020".into()
             })
         );
-        assert_eq!(
-            up.card.buttons.iter().map(|b| b.kind).collect::<Vec<_>>(),
-            [ButtonKind::Stop]
-        );
-
-        let running = card_view(&run(RunState::Running), HHMM);
-        assert_eq!(running.tone, ToneView::Success);
-        assert_eq!(running.buttons[0].label, "Open localhost:4020");
-        assert_eq!(
-            running.buttons[0].url.as_deref(),
-            Some("http://localhost:4020")
-        );
-        assert!(running.buttons[0].enabled && running.buttons[0].primary);
-        assert_eq!(running.buttons[1].kind, ButtonKind::Stop);
-        assert_eq!(running.note, None);
-
-        let starting = card_view(&run(RunState::Starting), HHMM);
-        assert!(!starting.buttons[0].enabled, "Open waits for the port");
-
-        let failed = card_view(&run(RunState::FailedToStart), HHMM);
-        assert_eq!(failed.title, "Failed to start \u{b7} exit 1");
-        assert_eq!(failed.tone, ToneView::Danger);
-        assert_eq!(
-            (
-                failed.buttons[0].kind,
-                failed.buttons[1].kind,
-                failed.buttons[1].primary
-            ),
-            (ButtonKind::EditCommand, ButtonKind::Retry, false)
-        );
-
-        let taken = card_view(&run(RunState::PortInUse), HHMM);
-        assert_eq!(taken.title, "Port 4020 is in use");
-        assert_eq!(taken.buttons[1].copy.as_deref(), Some("lsof -i :4020"));
+        assert_eq!(kinds(&up), [ButtonKind::Stop]);
+        assert!(!up.buttons[0].primary);
+        assert_eq!(up.note, None);
 
         let mut stopped = run(RunState::Stopped);
         stopped.stopped_by = Some(StopCause::You);
-        assert_eq!(card_view(&stopped, HHMM).title, "Stopped by you at 11:48");
+        let stopped = tab_view(&stopped, HHMM);
+        assert_eq!(
+            words(&stopped),
+            ("Stopped by you at 11:48".into(), ToneView::Neutral)
+        );
+        assert_eq!(kinds(&stopped), [ButtonKind::Run]);
+        assert_eq!(
+            tab_view(&run(RunState::Stopped), HHMM).state.text,
+            "Stopped \u{b7} exited 1 at 11:48"
+        );
+
+        let failed = tab_view(&run(RunState::FailedToStart), HHMM);
+        assert_eq!(
+            words(&failed),
+            ("Failed to start \u{b7} exit 1".into(), ToneView::Danger)
+        );
+        assert_eq!(
+            failed.message.as_deref(),
+            Some(
+                "pnpm exited after 3s. The command may be wrong for this project, or setup didn\u{2019}t finish."
+            )
+        );
+        assert_eq!(kinds(&failed), [ButtonKind::Retry]);
+        assert!(!failed.buttons[0].primary, "fixing the command comes first");
+        assert_eq!(failed.menu[0].id, MENU_EDIT_COMMAND);
+
+        let taken = tab_view(&run(RunState::PortInUse), HHMM);
+        assert_eq!(
+            words(&taken),
+            ("Port 4020 is in use".into(), ToneView::Danger)
+        );
+        assert!(
+            taken
+                .message
+                .as_deref()
+                .unwrap()
+                .starts_with("Another process is listening on 4020.")
+        );
+        assert_eq!(kinds(&taken), [ButtonKind::Retry, ButtonKind::CopyLsof]);
+        assert!(taken.buttons[0].primary);
+        assert_eq!(taken.buttons[1].copy.as_deref(), Some("lsof -i :4020"));
+
+        let restarted = tab_view(&run(RunState::StoppedByRestart), HHMM);
+        assert_eq!(
+            restarted.state.text,
+            "Stopped by restart \u{b7} was running at 11:48"
+        );
+        assert_eq!(kinds(&restarted), [ButtonKind::Run]);
 
         let mut backend = run(RunState::Running);
         backend.project_name = "billing-api".into();
         backend.open_url = None;
-        let card = card_view(&backend, HHMM);
-        assert_eq!(card.buttons.len(), 1, "only Stop");
+        let backend = tab_view(&backend, HHMM);
+        assert_eq!(backend.open_url, None);
+        assert_eq!(kinds(&backend), [ButtonKind::Stop]);
         assert_eq!(
-            card.note.as_deref(),
+            backend.note.as_deref(),
             Some("No Open URL set for billing-api, so there\u{2019}s no Open button.")
         );
     }

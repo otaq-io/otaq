@@ -9,7 +9,15 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "re
 
 import type { TicketProps } from "../../app/registry";
 import { createStore, type Store, useStore } from "../../app/store";
-import { AnchoredMenu, Button, ConfirmDialog, IconButton, ToolAvatar, PROSE_TEXT } from "../../components";
+import {
+  AnchoredMenu,
+  Button,
+  ConfirmDialog,
+  IconButton,
+  OtaqMark,
+  ToolAvatar,
+  PROSE_TEXT,
+} from "../../components";
 import type { CommentReportChip } from "../../generated/CommentReportChip";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
@@ -61,6 +69,13 @@ export function Mark({ row }: { row: Pick<CommentRow, "mark"> }) {
       return (
         <span className="comment-mark">
           <Icon name="bot" size={11} />
+        </span>
+      );
+    // Activity's rows of what happened on its own (Q432).
+    case "otaq":
+      return (
+        <span className="comment-mark" data-otaq>
+          <OtaqMark size={12} />
         </span>
       );
   }

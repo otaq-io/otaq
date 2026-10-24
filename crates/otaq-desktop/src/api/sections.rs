@@ -25,7 +25,6 @@ use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::history::{self, HistoryRow, Opens};
 use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
-use otaq_view::theme::Palette;
 use otaq_view::view_models::ticket_comments::Mark;
 use otaq_view::view_models::tool_avatar;
 use otaq_view::view_models::validation_report;
@@ -380,24 +379,22 @@ pub async fn answer_message(app: &App, params: AnswerMessage) -> Result<(), Requ
 // ---------------------------------------------------------------------------------------------------------------
 // History (REC-03; d0045)
 
+/// One row of Activity's timeline (Q432, `s25-07`): the time, who, a plain sentence and what it opens.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryRowView")]
 pub struct HistoryRowView {
+    /// "You created the ticket", "Grill started · Griller".
     pub title: String,
+    /// "Claude Code · sonnet", "“Don’t touch the auth middleware…”".
     pub detail: Option<String>,
     /// "09:42".
     pub when: String,
-    pub duration: String,
-    pub tokens: String,
+    /// "· 18 min · 64k tokens" after the sentence, only where an agent ran (never a dollar figure, d0086).
+    pub cost: Option<String>,
     /// The full tool session id, for the copy button (`claude --resume <id>`).
     pub tool_session_id: Option<String>,
-    pub is_session: bool,
-    /// The row's icon: a session's terminal, an event's clock, a validation round's outcome.
-    pub icon: IconName,
-    /// A validation round's outcome colours.
-    pub palette: Option<Palette>,
-    /// A description or comment row's author mark, drawn in place of the icon (CMT-14).
-    pub mark: Option<Mark>,
+    /// Who: you, the agent (its tool avatar), Otaq.
+    pub mark: Mark,
     /// What the row opens: a before / after, or what a comment said and its report (CMT-14).
     pub opens: Option<Opens>,
     /// Activity's filter it shows under (SHT-05).
@@ -416,21 +413,12 @@ pub struct FilterView {
 
 impl From<HistoryRow> for HistoryRowView {
     fn from(r: HistoryRow) -> Self {
-        let icon = match r.outcome {
-            Some((icon, _)) => icon,
-            None if r.is_session => IconName::SquareTerminal,
-            None => IconName::History,
-        };
         Self {
+            cost: r.cost(),
             title: r.title,
             detail: r.detail,
             when: local_hhmm(r.at),
-            duration: r.duration,
-            tokens: r.tokens,
             tool_session_id: r.tool_session_id,
-            is_session: r.is_session,
-            icon,
-            palette: r.outcome.map(|(_, p)| p),
             mark: r.mark,
             opens: r.opens,
             kind: r.kind,
@@ -450,8 +438,6 @@ pub struct HistoryTotal {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryView")]
 pub struct HistoryView {
-    /// EVENT, WHEN, DURATION, TOKENS.
-    pub columns: [&'static str; 4],
     /// All · Comments · Stages · Description.
     pub filters: Vec<FilterView>,
     /// "oldest first".
@@ -469,7 +455,6 @@ pub struct HistoryView {
 /// Activity from History's rows (newest first): oldest first, with the filters.
 pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
     HistoryView {
-        columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
         filters: history::Filter::ALL
             .into_iter()
             .map(|filter| FilterView {
@@ -792,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn no_messages_no_section_and_history_has_its_columns() {
+    fn no_messages_no_section_and_activity_has_its_filters() {
         assert_eq!(with_lead(Vec::new(), None), None);
         assert_eq!(with_lead(Vec::new(), Some("Wishlist lead")), None);
         // The epic lead's threads (T-0290): named ends and the "with Wishlist lead" heading.
@@ -808,7 +793,6 @@ mod tests {
         assert_eq!(view.threads[0].question.from.as_deref(), Some("SHOP-40.2"));
         assert_eq!(view.threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
         let history = history_of(Vec::new());
-        assert_eq!(history.columns, ["EVENT", "WHEN", "DURATION", "TOKENS"]);
         let filters: Vec<_> = history.filters.iter().map(|f| (f.label, f.kind)).collect();
         assert_eq!(
             filters,
@@ -1013,8 +997,9 @@ mod tests {
         let messages = table(&h.app, "sections.messages", json!({ "key": lone })).await.unwrap();
         assert_eq!(messages, Value::Null);
         let history = table(&h.app, "sections.history", json!({ "key": lone })).await.unwrap();
-        assert_eq!(history["rows"][0]["title"], "Created");
-        assert_eq!(history["rows"][0]["icon"], "history");
+        assert_eq!(history["rows"][0]["title"], "You created the ticket");
+        assert_eq!(history["rows"][0]["mark"]["kind"], "you");
+        assert_eq!(history["rows"][0]["cost"], Value::Null);
         assert_eq!(history["total"], Value::Null, "no validation rounds");
         assert_eq!(history["key"], lone.to_string());
         // Create ticket takes only a "Not covered by any ticket" note of the ticket's validation.

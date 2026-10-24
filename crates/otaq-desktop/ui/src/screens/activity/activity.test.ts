@@ -21,9 +21,8 @@ const FILTERS: ActivityFilterView[] = [
 ];
 
 describe("Activity", () => {
-  it(" sessions with their copyable Claude session ID, events without", () => {
+  it("reads as a timeline: who, the sentence, the cost only where an agent ran, the copyable session ID (Q432)", () => {
     const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
       filters: FILTERS,
       order: "oldest first",
       copy_hint: "Copy session ID",
@@ -33,46 +32,64 @@ describe("Activity", () => {
       key: "SHOP-28",
       rows: [
         {
-          title: "Agent session",
-          detail: "claude 9f1c-77 · exited",
-          when: "09:42",
-          duration: "38 min",
-          tokens: "74k",
+          title: "You created the ticket",
+          detail: null,
+          when: "9:10 am",
+          cost: null,
+          tool_session_id: null,
+          mark: { kind: "you" },
+          opens: null,
+          kind: "other",
+        },
+        {
+          title: "Dev started · Rust developer",
+          detail: "Codex · gpt-5.5",
+          when: "9:42 am",
+          cost: null,
           tool_session_id: "9f1c-77",
-          is_session: true,
-          icon: "square-terminal",
-          palette: null,
-          mark: null,
+          mark: { kind: "agent" },
           opens: null,
           kind: "stage",
         },
         {
-          title: "Created",
-          detail: "by you",
-          when: "09:10",
-          duration: "—",
-          tokens: "—",
+          title: "Dev finished · Rust developer",
+          detail: "exited",
+          when: "10:20 am",
+          cost: "· 38 min · 74k tokens",
           tool_session_id: null,
-          is_session: false,
-          icon: "history",
-          palette: null,
-          mark: null,
+          mark: { kind: "agent" },
+          opens: null,
+          kind: "stage",
+        },
+        {
+          title: "Interrupted by restart",
+          detail: "conversation saved",
+          when: "10:21 am",
+          cost: null,
+          tool_session_id: null,
+          mark: { kind: "otaq" },
           opens: null,
           kind: "stage",
         },
       ],
     };
     const out = html(createElement(HistoryBody, { view }));
-    for (const text of ["EVENT", "DURATION", "Agent session", "claude 9f1c-77", "38 min", "Created"]) {
-      expect(out).toContain(text);
-    }
+    expect(out).toMatch(
+      /9:10 am.*data-you.*You created the ticket.*9:42 am.*Dev started · Rust developer.*Codex · gpt-5.5/,
+    );
+    expect(out).toContain(
+      'Dev finished · Rust developer<span class="history-cost"> · 38 min · 74k tokens</span>',
+    );
+    expect(out.match(/history-cost/g)).toHaveLength(1);
+    expect(out).toContain("otaq-mark");
+    expect(out).not.toContain("EVENT");
+    expect(out).not.toContain("$");
     expect(out.match(/Copy session ID/g)).toHaveLength(1);
     expect(html(createElement(HistoryBody, { view: { ...view, rows: [] } }))).toContain(view.empty);
   });
 
   it(" validation rounds open nothing any more; the total sits under the rows", () => {
     const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
       filters: FILTERS,
       order: "oldest first",
       copy_hint: "Copy session ID",
@@ -85,13 +102,9 @@ describe("Activity", () => {
           title: "Round 1 · failed",
           detail: "agent submitted",
           when: "10:02",
-          duration: "4 min",
-          tokens: "12k",
+          cost: "· 4 min · 12k tokens",
           tool_session_id: null,
-          is_session: false,
-          icon: "shield-x",
-          palette: "attn",
-          mark: null,
+          mark: { kind: "agent" },
           opens: null,
           kind: "stage",
         },
@@ -109,19 +122,14 @@ describe("Activity", () => {
       title: "",
       detail: null,
       when: "2:14 pm",
-      duration: "—",
-      tokens: "—",
+      cost: null,
       tool_session_id: null,
-      is_session: false,
-      icon: "history",
-      palette: null,
       mark: { kind: "agent" },
       opens: null,
       kind: "comment",
       ...over,
     });
     const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
       filters: FILTERS,
       order: "oldest first",
       copy_hint: "Copy session ID",
@@ -178,18 +186,13 @@ describe("Activity", () => {
       title,
       detail: null,
       when: "2:02 pm",
-      duration: "—",
-      tokens: "—",
+      cost: null,
       tool_session_id: null,
-      is_session: false,
-      icon: "history",
-      palette: null,
-      mark: null,
+      mark: { kind: "you" },
       opens,
       kind,
     });
     const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
       filters: FILTERS,
       order: "oldest first",
       copy_hint: "Copy session ID",

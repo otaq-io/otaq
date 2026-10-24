@@ -8,10 +8,6 @@ import type { HistoryTotal } from "./HistoryTotal";
  */
 export type HistoryView = { 
 /**
- * EVENT, WHEN, DURATION, TOKENS.
- */
-columns: [string, string, string, string], 
-/**
  * All · Comments · Stages · Description.
  */
 filters: Array<ActivityFilterView>, 
