@@ -232,6 +232,6 @@ async fn an_epic_with_nothing_merged_ends_closed_not_merged() {
             .await
             .unwrap()
             .label(),
-        "0 of 1 merged"
+        "0 merged · 1 closed"
     );
 }

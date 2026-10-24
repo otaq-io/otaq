@@ -191,7 +191,7 @@ fn merged_label(epic: &Ticket, tickets: &[Ticket]) -> LaneProgress {
     LaneProgress {
         merged: p.merged,
         total: p.total,
-        label: format!("{} of {} merged", p.merged, p.total),
+        label: p.label(),
     }
 }
 

@@ -78,6 +78,8 @@ const notices = (banners: Banner[], only = false): Notices => ({
   banners,
   toasts: [],
   only_restart_allowed: only,
+  terminal_note: null,
+  service_down: false,
   input_enabled: !only,
   summary_for: null,
 });

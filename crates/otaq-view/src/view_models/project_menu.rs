@@ -23,6 +23,9 @@ pub const EXPORT_FLOW: &str = "export_flow";
 pub const PROJECT_SETTINGS: &str = "project_settings";
 pub const OPEN_FOLDER: &str = "open_folder";
 pub const OPEN_TERMINAL: &str = "open_terminal";
+/// The rail's menu only: the project's Settings at its Name field, and at Remove project.
+pub const RENAME_PROJECT: &str = "rename_project";
+pub const REMOVE_PROJECT: &str = "remove_project";
 
 /// The project menu. `ProjectMenuView` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -99,6 +102,22 @@ pub fn menu(f: &Facts) -> ProjectMenu {
     }
 }
 
+/// A right-click on a project's tile in the rail (#11): Project settings…, Rename… and Remove project…, the same for
+/// every project. Rename… and Remove project… open the project's Settings at its Name field and at Remove project.
+pub fn rail_menu(keys: &KeyLabels) -> Vec<MenuItem> {
+    let mut settings =
+        MenuItem::new(PROJECT_SETTINGS, "Project settings\u{2026}").icon(IconName::Settings);
+    settings.shortcut = keys.label(KeyAction::Settings);
+    vec![
+        settings,
+        MenuItem::new(RENAME_PROJECT, "Rename\u{2026}").icon(IconName::Pencil),
+        MenuItem::new(REMOVE_PROJECT, "Remove project\u{2026}")
+            .icon(IconName::Trash2)
+            .danger()
+            .separated(),
+    ]
+}
+
 /// The menu in the component gallery: shop-web's flow in use, and with Grill first waiting.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ProjectMenuGallery")]
@@ -170,6 +189,25 @@ pub mod fixtures {
 mod tests {
     use super::*;
     use crate::key_labels::fixtures as keys;
+
+    #[test]
+    fn the_rail_menu_offers_settings_rename_and_remove() {
+        let keys = keys::base();
+        let menu = rail_menu(&keys);
+        let rows: Vec<(&str, &str, bool, bool)> = menu
+            .iter()
+            .map(|i| (i.id.as_str(), i.label.as_str(), i.danger, i.separated))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (PROJECT_SETTINGS, "Project settings\u{2026}", false, false),
+                (RENAME_PROJECT, "Rename\u{2026}", false, false),
+                (REMOVE_PROJECT, "Remove project\u{2026}", true, true),
+            ]
+        );
+        assert_eq!(menu[0].shortcut, keys.label(KeyAction::Settings));
+    }
 
     #[test]
     fn the_menu_matches_the_frame_s26_08() {

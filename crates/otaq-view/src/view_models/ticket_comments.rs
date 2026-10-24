@@ -377,7 +377,7 @@ pub fn verdict_line(verdict: &str) -> String {
 }
 
 /// `text` within `max` characters, cut at the last space before it with "…".
-fn cut(text: &str, max: usize) -> String {
+pub(crate) fn cut(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_owned();
     }

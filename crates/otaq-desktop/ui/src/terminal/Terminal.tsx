@@ -17,6 +17,9 @@ import type { TerminalSettings } from "../generated/TerminalSettings";
 import { keymap } from "../app/keyboard";
 import { useShortcut } from "../app/registry";
 import { focusTerminal, selection } from "../app/selection";
+import { useStore } from "../app/store";
+import type { TerminalLinkNote } from "../generated/TerminalLinkNote";
+import { noticesStore } from "../screens/notices/notices";
 import { watchView } from "../service";
 import { attachTerminal, request } from "../tauri";
 import { Icon } from "../theme/Icon";
@@ -115,6 +118,9 @@ function searchOptions(element: Element) {
   };
 }
 
+/** The terminal's own stream is lost while the link to the service looks fine (the notices haven't caught up). */
+const RECONNECTING_NOTE: TerminalLinkNote = { text: "Reconnecting… agents keep running", icon: "refresh-cw" };
+
 export function Terminal({
   session,
   label,
@@ -135,6 +141,8 @@ export function Terminal({
   const [opened, setOpened] = useState(false);
   const findInput = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<TerminalState>(INITIAL_STATE);
+  // While the link to the service is down: "Reconnecting… agents keep running", or "Service stopped" (#58).
+  const linkNote = useStore(noticesStore)?.terminal_note ?? RECONNECTING_NOTE;
   const [settings, setSettings] = useState<TerminalSettings>();
   const [picked, setPicked] = useState<PickedSize>();
   const [find, setFind] = useState<Find>(CLOSED_FIND);
@@ -695,8 +703,8 @@ export function Terminal({
         )}
         {state.phase === "reconnecting" && (
           <div className="terminal-reconnecting" role="status">
-            <Icon name="refresh-cw" />
-            Reconnecting… agents keep running
+            <Icon name={linkNote.icon} />
+            {linkNote.text}
           </div>
         )}
       </div>

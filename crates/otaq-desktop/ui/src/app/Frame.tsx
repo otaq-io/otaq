@@ -3,7 +3,7 @@
 // (only while open, 420 px until its edge is dragged, pushing the board; expanded, over the board) | main area**.
 // The main area holds the board (no Board | Files tabs:
 // the project Files view is the toolbar's third view, FIL-01); the ticket sheet opens over its right side (SHL-05) and the Ask bar
-// floats at its bottom centre. The overlay and toast hosts go over everything. Each slot is filled by the screen
+// floats at the bottom centre of what the sheet leaves of the board (#21). The overlay and toast hosts go over everything. Each slot is filled by the screen
 // registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
 import {
   type PointerEvent as ReactPointerEvent,
@@ -89,13 +89,27 @@ function OverlayHost() {
  * closes, staying mounted until the slide ends (OT-6, 0095). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
  * changes only its width, so the drag stays instant.
  */
-function PanelLayer({ open }: { open: boolean }) {
+function PanelLayer({ open, onWidth }: { open: boolean; onWidth: (width: number) => void }) {
   const layer = useRef<HTMLDivElement>(null);
   const { mounted, leaving, done } = usePresence(open);
   useLayoutEffect(
     () => (mounted && layer.current ? playEnterWhenReady(layer.current, "panel") : undefined),
     [mounted],
   );
+  // Its width, so the Ask bar stays on the board beside it (#21); 0 once it is gone.
+  useLayoutEffect(() => {
+    const element = layer.current;
+    if (!mounted || element === null || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      onWidth(element.offsetWidth);
+    });
+    observer.observe(element);
+    onWidth(element.offsetWidth);
+    return () => {
+      observer.disconnect();
+      onWidth(0);
+    };
+  }, [mounted, onWidth]);
   useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
   if (!mounted) return null;
   return (
@@ -219,8 +233,17 @@ export interface FrameBodyProps {
 }
 
 /**
+ * Where the Ask bar's layer ends on the right (#21): at the open ticket sheet's left edge, so the bar stays on the
+ * board instead of covering the sheet's footer; `null` (hidden) while the sheet fills the main area.
+ */
+export function askBarRight(ticketOpen: boolean, expanded: boolean, sheetWidth: number): number | null {
+  if (!ticketOpen) return 0;
+  return expanded ? null : sheetWidth;
+}
+
+/**
  * Everything under the hosts: header, banners, rail, the Project agent panel while open, the main area with the
- * ticket sheet and the Ask bar over it.
+ * ticket sheet and the Ask bar beside it.
  */
 export function FrameBody({
   view,
@@ -231,6 +254,8 @@ export function FrameBody({
   windowWidth = 0,
 }: FrameBodyProps) {
   const expanded = layout.panelExpanded && ticketOpen;
+  const [sheetWidth, setSheetWidth] = useState(0);
+  const askRight = askBarRight(ticketOpen, expanded, sheetWidth);
   return (
     <>
       {/* The header row is the title bar: pressing its empty parts moves the window (T-0214). */}
@@ -259,11 +284,18 @@ export function FrameBody({
         <div className="frame-board" data-slot="board">
           <Slot id="board" placeholder={<Placeholder name="Board" />} />
         </div>
-        <PanelLayer open={ticketOpen} />
-        {/* Over the board, the List and the ticket, at the bottom centre; it hides itself while the panel is open. */}
-        <div className="frame-ask" data-slot="ask_bar">
-          <Slot id="ask_bar" />
-        </div>
+        <PanelLayer open={ticketOpen} onWidth={setSheetWidth} />
+        {/* Over the board and the List, at the bottom centre of what the ticket sheet leaves of them; it hides
+            itself while the Project agent panel is open. */}
+        {askRight !== null && (
+          <div
+            className="frame-ask"
+            data-slot="ask_bar"
+            style={askRight > 0 ? { right: askRight } : undefined}
+          >
+            <Slot id="ask_bar" />
+          </div>
+        )}
       </div>
     </>
   );

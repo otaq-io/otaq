@@ -1,6 +1,10 @@
 //! What the window shows about its link to the background service (ARC-03, SVC-04).
 
 use otaq_core::client::{Compatibility, ConnectionState, ServiceInfo};
+use serde::Serialize;
+use ts_rs::TS;
+
+use crate::icons::IconName;
 
 /// The app's view of the link, including the phases before a client exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +30,38 @@ impl From<ConnectionState> for LinkState {
             ConnectionState::Reconnecting { attempt } => Self::Reconnecting { attempt },
         }
     }
+}
+
+/// What a terminal says over its scrollback while the link is down (#58): agents keep running only while the
+/// client is reconnecting to a live service; once the service has stopped they stopped with it.
+/// `TerminalLinkNote` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalLinkNote")]
+pub struct TerminalNote {
+    pub text: &'static str,
+    pub icon: IconName,
+}
+
+pub fn terminal_note(state: &LinkState) -> Option<TerminalNote> {
+    match state {
+        LinkState::Reconnecting { .. } => Some(TerminalNote {
+            text: "Reconnecting\u{2026} agents keep running",
+            icon: IconName::RefreshCw,
+        }),
+        LinkState::Stopped | LinkState::Failed(_) => Some(TerminalNote {
+            text: "Service stopped",
+            icon: IconName::CircleStop,
+        }),
+        LinkState::Connecting | LinkState::Connected(_) => None,
+    }
+}
+
+/// Whether what the window last heard from the service may be stale (#58): the header's running count dims.
+pub fn service_down(state: &LinkState) -> bool {
+    matches!(
+        state,
+        LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_)
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +133,27 @@ impl ConnectionViewModel {
 #[cfg(test)]
 mod tests {
     use otaq_core::protocol::{PROTOCOL_VERSION, ServiceStatus};
+
+    /// #58: a stopped service doesn't say its agents keep running, and the header's count dims while the link is
+    /// down.
+    #[test]
+    fn a_stopped_service_says_so_in_terminals() {
+        use super::{LinkState, service_down, terminal_note};
+        let text = |state| terminal_note(&state).map(|n| n.text);
+        assert_eq!(
+            text(LinkState::Reconnecting { attempt: 2 }),
+            Some("Reconnecting\u{2026} agents keep running")
+        );
+        assert_eq!(text(LinkState::Stopped), Some("Service stopped"));
+        assert_eq!(
+            text(LinkState::Failed("no socket".into())),
+            Some("Service stopped")
+        );
+        assert_eq!(text(LinkState::Connecting), None);
+        assert!(service_down(&LinkState::Stopped));
+        assert!(service_down(&LinkState::Reconnecting { attempt: 1 }));
+        assert!(!service_down(&LinkState::Connecting));
+    }
 
     use super::*;
 

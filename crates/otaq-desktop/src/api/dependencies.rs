@@ -235,7 +235,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(view["blocked_by"]["rows"][0]["key"], json!(api));
-        assert_eq!(view["blocked_by"]["rows"][0]["place"], "Backlog \u{b7} starts next");
+        assert_eq!(view["blocked_by"]["rows"][0]["place"], "Backlog \u{b7} ready to start");
         assert_eq!(view["blocked_by"]["note"], "starts when it merges");
         // DPV-03: dropped on Dev, the blocked page goes to Ready for Dev and the dialog says why it waits.
         let dropped = table(

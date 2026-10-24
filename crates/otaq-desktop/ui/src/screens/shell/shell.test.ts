@@ -115,6 +115,22 @@ const RAIL: RailView = {
   ring_ends_in_ms: 4000,
   switch_keys: "⌘P",
   bottom: { terminals: { label: "Terminals", keys: "⌃`" }, settings: { label: "Settings", keys: "⌘," } },
+  project_menu: [
+    ["project_settings", "Project settings…"],
+    ["rename_project", "Rename…"],
+    ["remove_project", "Remove project…"],
+  ].map(([id, label]) => ({
+    id: id ?? "",
+    label: label ?? "",
+    icon: null,
+    shortcut: null,
+    danger: id === "remove_project",
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: false,
+    header: false,
+  })),
 };
 
 describe("the quick switcher's keys", () => {
@@ -192,6 +208,22 @@ describe("the rail", () => {
       click?.();
     }
     expect(ran).toEqual(["terminals", "settings"]);
+  });
+});
+
+describe("the rail's project menu (#11)", () => {
+  it("opens at the pointer with the project's name and folder, then Project settings, Rename and Remove", () => {
+    const project = RAIL.items[0];
+    if (!project) throw new Error("a project");
+    const out = renderToStaticMarkup(
+      createElement(RailTiles, {
+        view: RAIL,
+        menu: { project, anchor: { left: 30, top: 80, width: 0, height: 0 } },
+      }),
+    );
+    for (const text of ["shop-web", "Project settings…", "Rename…", "Remove project…"])
+      expect(out).toContain(text);
+    expect(renderToStaticMarkup(createElement(RailTiles, { view: RAIL }))).not.toContain("Rename…");
   });
 });
 

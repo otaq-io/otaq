@@ -5,7 +5,7 @@ import type { PillPalette } from "./PillPalette";
 
 /**
  * The card's one status line in words (BRD-03; *24 · The two views*): "Needs you: allow rm -rf .next?", "Working ·
- * back from Security", "P1 · starts next". `CardStatusLine` on the page.
+ * back from Security", "starts next". `CardStatusLine` on the page.
  */
 export type CardStatusLine = { text: string, 
 /**

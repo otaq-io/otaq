@@ -591,6 +591,8 @@ pub struct FlowPart {
     /// A step's details are open: the animation folds to one line.
     pub folded: bool,
     pub fold_note: &'static str,
+    /// The walking ticket's key, from the project's own key: "SHOP-1", "DEMO-1".
+    pub ticket_key: String,
     pub tiles: Vec<Tile>,
     pub steps: Vec<StepRow>,
     pub add_stage: &'static str,
@@ -1513,6 +1515,7 @@ fn flow_part(f: &Facts) -> FlowPart {
         watch: "Watch it",
         folded: selected.is_some(),
         fold_note: "The animation folds while you edit a stage",
+        ticket_key: format!("{}-1", f.project),
         tiles: tiles(f),
         steps: steps_list(f),
         add_stage: "Add a stage",
@@ -2724,7 +2727,9 @@ mod tests {
             v.start_from.entries[0].line,
             "Agents build and check; you review"
         );
-        // The animation: long words for five steps, fixed captions for Ready, You check and Delivery.
+        // The animation: the project's own key, long words for five steps, fixed captions for Ready, You check and
+        // Delivery.
+        assert_eq!(v.flow.ticket_key, "SHOP-1");
         let tiles: Vec<(&str, &str, &str)> = v
             .flow
             .tiles

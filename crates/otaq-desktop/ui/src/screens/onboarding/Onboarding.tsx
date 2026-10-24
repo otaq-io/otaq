@@ -1,5 +1,5 @@
 // First run (UI-08, UI-11, ONB-04, ONB-10; *14 · First run & onboarding*): over the whole window, its own title bar
-// with the step indicator (Welcome · Theme · Tools · Project · Flow · Done) between the OS's window controls, and one
+// with the step indicator (Welcome · Theme · Tools · Project · Flow) between the OS's window controls, and one
 // card per step: Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the agent tools
 // and the checklist, Re-check, Continue only once an agent tool is connected; a row's Sign in…, Show or Hide checks
 // again once done), Project (Add your first project), Flow (the flow editor from Otaq default, `FlowEditorPage`;

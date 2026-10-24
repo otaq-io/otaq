@@ -5,6 +5,7 @@ import type { CardSignal } from "./CardSignal";
 import type { CardStatusHover } from "./CardStatusHover";
 import type { CardStatusLine } from "./CardStatusLine";
 import type { CardTone } from "./CardTone";
+import type { PriorityView } from "./PriorityView";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
@@ -19,7 +20,11 @@ key_label: string,
 /**
  * The epic's name on the key's row, for an epic child ("Wishlist").
  */
-epic: string | null, title: string, 
+epic: string | null, 
+/**
+ * The priority chip after the key: P1, P2 and P4, none for Normal (d0065; #36), in every column.
+ */
+priority: PriorityView | null, title: string, 
 /**
  * The one status line; `null` on a calm Backlog card.
  */

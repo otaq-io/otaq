@@ -19,6 +19,7 @@
 
 use otaq_core::agents::{Agent, AgentList, AgentModel};
 use otaq_core::board::epic_flight::{EpicPlace, REVIEW_EPIC, children_of, epic_place};
+use otaq_core::board::epics::EpicProgress;
 use otaq_core::board::order::{ColumnOrder, fold_dev};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Kind, Status, StatusSet, TicketKey};
@@ -200,22 +201,21 @@ pub fn done_folds(keys: &[TicketKey], all: &[Ticket]) -> (Vec<TicketKey>, Vec<Do
             .iter()
             .find(|t| &t.key == epic)
             .map_or_else(|| epic.to_string(), |t| t.title.clone());
-        let (merged, children) = all
-            .iter()
-            .find(|t| &t.key == epic)
-            .map(|e| {
-                let children = children_of(e, all);
-                let merged = children
-                    .iter()
-                    .filter(|c| c.status == Status::Merged)
-                    .count();
-                (merged, children.len())
-            })
-            .unwrap_or((members.len(), members.len()));
+        let progress = all.iter().find(|t| &t.key == epic).map_or_else(
+            || {
+                let n = u32::try_from(members.len()).unwrap_or(u32::MAX);
+                EpicProgress {
+                    merged: n,
+                    total: n,
+                    closed: 0,
+                }
+            },
+            |e| EpicProgress::of(children_of(e, all).into_iter()),
+        );
         order.extend(members.iter().cloned());
         folds.push(DoneFold {
             epic: epic.clone(),
-            label: format!("{title} · {merged} of {children} merged"),
+            label: format!("{title} · {}", progress.label()),
             keys: members,
         });
     }
@@ -1231,7 +1231,8 @@ mod tests {
             done.folds,
             [DoneFold {
                 epic: "SHOP-40".parse().unwrap(),
-                label: "Wishlist · 2 of 4 merged".into(),
+                // SHOP-40.5 is closed: counted apart (#31).
+                label: "Wishlist · 2 of 3 merged · 1 closed".into(),
                 keys: vec!["SHOP-40.1".parse().unwrap(), "SHOP-40.2".parse().unwrap()],
             }]
         );
@@ -1244,7 +1245,7 @@ mod tests {
         tickets[2].place = otaq_core::domain::Place::stage_of("dev");
         let done = &build(&input(&tickets, None))[5];
         assert_eq!(done.folds.len(), 1);
-        assert_eq!(done.folds[0].label, "Wishlist · 1 of 4 merged");
+        assert_eq!(done.folds[0].label, "Wishlist · 1 of 3 merged · 1 closed");
         assert_eq!(done.count, "4");
 
         // Under a filter the fold counts once, shown over total.
@@ -1259,7 +1260,7 @@ mod tests {
         })[5];
         assert_eq!(keys(&done.cards), ["SHOP-17", "SHOP-40.2"]);
         assert_eq!(done.folds[0].keys.len(), 1);
-        assert_eq!(done.folds[0].label, "Wishlist · 2 of 4 merged");
+        assert_eq!(done.folds[0].label, "Wishlist · 2 of 3 merged · 1 closed");
         assert_eq!((done.count.as_str(), done.hidden), ("2/4", 2));
     }
 

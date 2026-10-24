@@ -38,7 +38,7 @@ pub fn epic_choices(tickets: &[Ticket]) -> Vec<EpicChoice> {
             EpicChoice {
                 key: e.key.clone(),
                 title: e.title.clone(),
-                progress: format!("{} of {} merged", p.merged, p.total),
+                progress: p.label(),
                 new_key: TicketKey::child(
                     e.key.project.clone(),
                     e.key.number,

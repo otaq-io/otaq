@@ -2179,7 +2179,8 @@ mod tests {
             done.folds,
             [DoneFold {
                 epic: "SHOP-40".into(),
-                label: "Wishlist · 2 of 4 merged".into(),
+                // The closed child is counted apart (#31).
+                label: "Wishlist · 2 of 3 merged · 1 closed".into(),
                 keys: vec!["SHOP-40.1".into(), "SHOP-40.2".into()],
             }]
         );
@@ -2189,7 +2190,7 @@ mod tests {
         let json = serde_json::to_value(&board).unwrap();
         assert_eq!(
             json["columns"][5]["folds"][0]["label"],
-            "Wishlist · 2 of 4 merged"
+            "Wishlist · 2 of 3 merged · 1 closed"
         );
         assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
 
@@ -3642,8 +3643,22 @@ flow:
         let pr = line_of(&page, "SHOP-26").0.unwrap();
         assert!(pr.starts_with("PR #481 open"), "{pr}");
         assert_eq!(line_of(&page, "SHOP-26").1, None);
+        // #36: the priority is the card's chip after its key, in every column, not the line's lead.
         let p1 = line_of(&page, "SHOP-35").0.unwrap();
-        assert!(p1.starts_with("P1 \u{b7} "), "{p1}");
+        assert!(!p1.starts_with("P1"), "{p1}");
+        let chip = |key: &str| {
+            page.columns
+                .iter()
+                .flat_map(cards_in)
+                .find_map(|c| match c {
+                    BoardCard::Ticket { card, .. } if card.key == key => {
+                        Some(card.priority.as_ref().map(|p| p.short.clone()))
+                    }
+                    _ => None,
+                })
+                .flatten()
+        };
+        assert_eq!(chip("SHOP-35").as_deref(), Some("P1"));
         let waits = line_of(&page, "SHOP-20").0.unwrap();
         assert_eq!(waits, "Blocked \u{b7} waits for SHOP-18 to merge");
         let child = page.columns[0].cards.iter().find_map(|c| match c {

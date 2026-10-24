@@ -11,7 +11,7 @@ import { PANE_ROUTES, type PaneRoutes, showAgent, showPane } from "../pane/logic
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
 
-/** The steps in order; Done is the empty board itself (*6 · Done · empty board*, ONB-10). */
+/** The steps in order; the empty board follows Flow and is not a step (ONB-10). */
 export const STEP_ORDER: readonly OnboardingStepId[] = ["welcome", "theme", "tools", "project", "flow"];
 
 /**

@@ -508,8 +508,8 @@ fn lead_details(f: &DetailFacts) -> (Detail, Detail) {
     (who, model)
 }
 
-/// The details line (SHT-01): Assignee, Model, Working (while it works or waits for you), Priority, Branch, and an
-/// epic child's Epic; an epic's (SHT-07) Lead, Model, Tickets "5 · 1 merged · 1 working", Priority and its branch.
+/// The details line (SHT-01): Assignee, Model (not once it is Done), Working (while it works or waits for you),
+/// Priority, Branch, and an epic child's Epic; an epic's (SHT-07) Lead, Model, Tickets "5 · 1 merged · 1 working", Priority and its branch.
 pub fn details(f: &DetailFacts) -> Vec<Detail> {
     let ticket = f.ticket;
     let priority = Detail {
@@ -526,7 +526,13 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         );
         return vec![lead, model, tickets, priority, branch(ticket)];
     }
-    let (who, model) = assignee(f);
+    // A finished ticket has no one on it: no Assignee (nor its Model), not the last agent that ran (#36).
+    let (who, model) = if ticket.place == Place::Done {
+        (None, None)
+    } else {
+        let (who, model) = assignee(f);
+        (Some(who), Some(model))
+    };
     let epic = ticket.epic.as_ref().map(|epic| Detail {
         change: Some(DetailChange::Open {
             key: epic.to_string(),
@@ -536,8 +542,8 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
             f.epic_title.map_or_else(|| epic.to_string(), str::to_owned),
         )
     });
-    [who, model]
-        .into_iter()
+    who.into_iter()
+        .chain(model)
         .chain(working(f))
         .chain([priority, branch(ticket)])
         .chain(epic)
@@ -763,6 +769,37 @@ mod tests {
             now: 103 * MIN,
         });
         assert_eq!(plain[0].avatar, None);
+    }
+
+    /// #36: after the merge nobody is on the ticket, so the line has no Assignee (it said "Validator", the last agent
+    /// that ran).
+    #[test]
+    fn a_done_ticket_has_no_assignee() {
+        let mut t = shop_22();
+        t.status = Status::Merged;
+        t.place = Place::Done;
+        let mut validator = session(
+            "s2",
+            SessionRole::Validator,
+            "Validator",
+            CODEX,
+            None,
+            Some("gpt-5.5"),
+        );
+        validator.running = false;
+        let agents = agents_of(&t, vec![validator]);
+        let tools = tools();
+        let details = details(&DetailFacts {
+            ticket: &t,
+            agents: Some(&agents),
+            tools: &tools,
+            epic_title: None,
+            lead: None,
+            tickets: &[],
+            now: 0,
+        });
+        let labels: Vec<&str> = details.iter().map(|d| d.label).collect();
+        assert_eq!(labels, ["Priority", "Branch"]);
     }
 
     /// A child of the Wishlist epic: the epic in the breadcrumb (key shortened) and its Epic detail linking back,

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { installContextMenu } from "./app/contextMenu";
 import { Frame } from "./app/Frame";
 import { KeyLog } from "./app/KeyLog";
 import { installKeys } from "./app/keyboard";
@@ -11,6 +12,7 @@ import { TypingHint } from "./app/TypingHint";
 // service couldn't start shows in the banner area (T-0231, Q40).
 export function App({ registries }: { registries: Registries }) {
   useEffect(() => installKeys(registries), [registries]);
+  useEffect(() => installContextMenu(), []);
   return (
     <RegistriesContext value={registries}>
       <Frame />

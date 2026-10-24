@@ -200,7 +200,7 @@ function StartFromColumn({ start, actions }: { start: FlowEditorStartFrom; actio
 // ----------------------------------------------------------------------------------------------------------- The flow
 
 /** The animation: the walking ticket goes from tile to tile, and the caption under them follows it. */
-export function FlowAnimation({ tiles }: { tiles: readonly FlowEditorTile[] }) {
+export function FlowAnimation({ tiles, ticketKey }: { tiles: readonly FlowEditorTile[]; ticketKey: string }) {
   const [at, setAt] = useState(0);
   const still = useMemo(() => reducedMotion(), []);
   useEffect(() => {
@@ -234,7 +234,7 @@ export function FlowAnimation({ tiles }: { tiles: readonly FlowEditorTile[] }) {
             className="fe-anim-ticket"
             style={{ left: `calc(${String(width * index)}% + 6px)`, width: `calc(${String(width)}% - 12px)` }}
           >
-            <span className="fe-anim-key">SHOP-1</span>
+            <span className="fe-anim-key">{ticketKey}</span>
             <span className="fe-anim-state" data-palette={tile.tone.palette}>
               <span className="fe-anim-dot" />
               {tile.ticket}
@@ -856,7 +856,7 @@ function FlowColumn({
           {flow.fold_note}
         </div>
       ) : (
-        <FlowAnimation tiles={flow.tiles} />
+        <FlowAnimation tiles={flow.tiles} ticketKey={flow.ticket_key} />
       )}
       <div className="fe-flow-body">
         <StepList flow={flow} actions={actions} />

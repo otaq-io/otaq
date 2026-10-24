@@ -3,8 +3,8 @@
 //! key, title, the card's status line, who, time and its one action, from [`board::ticket_card`] so both views say
 //! the same), its status icon and its track: one step per stage of the flow, the steps it passed filled, its own in
 //! its state's colour. Rows are grouped by the project's Group by ([`GroupBy`]): **Stage** (flow order: Backlog with
-//! "drag a row to Ready, or Start", Ready with "starts in priority order", each stage, Done with "4 this week ·
-//! show"), **Status** (Needs you · Working · Waiting to start · Backlog · Open PRs · Done this week) or **Agent**;
+//! "drag a row to Ready, or Start", Ready with "starts in priority order", each stage, Finished with "4 this week ·
+//! show"), **Status** (Needs you · Working · Waiting to start · Backlog · Open PRs · Finished this week) or **Agent**;
 //! Hide empty stages leaves empty groups out. Within a group the board's order holds (the core's, d0065 for Ready), so
 //! answering a ticket changes its row's edge and words, not its place.
 //!
@@ -48,8 +48,12 @@ pub const BACKLOG: &str = "Backlog";
 pub const BACKLOG_HINT: &str = "drag a row to Ready, or Start";
 pub const READY: &str = "Ready";
 pub const READY_HINT: &str = "starts in priority order";
+/// A finished ticket's place on its track.
 pub const DONE: &str = "Done";
-/// Done's hint while its rows are folded, and while they show.
+/// The group of finished tickets, whatever the stages are named: the default flow's last stage is itself Done, so
+/// the two never read alike (#53, Q468).
+pub const FINISHED: &str = "Finished";
+/// Finished's hint while its rows are folded, and while they show.
 pub const DONE_SHOW: &str = "{n} this week \u{b7} show";
 pub const DONE_HIDE: &str = "{n} this week \u{b7} hide";
 
@@ -58,7 +62,7 @@ pub const NEEDS_YOU: &str = "Needs you";
 pub const WORKING: &str = "Working";
 pub const WAITING_TO_START: &str = "Waiting to start";
 pub const OPEN_PRS: &str = "Open PRs";
-pub const DONE_THIS_WEEK: &str = "Done this week";
+pub const FINISHED_THIS_WEEK: &str = "Finished this week";
 
 /// Group by Agent's groups besides each agent: not started yet, and the stages you check.
 pub const NOT_STARTED: &str = "Not started";
@@ -430,7 +434,7 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs, leads: &[Lead]) -> Li
         Bucket {
             target: Some(DropTargetId::DONE),
             done: true,
-            ..Bucket::new(flow_columns::DONE, DONE, IconName::CircleCheck)
+            ..Bucket::new(flow_columns::DONE, FINISHED, IconName::CircleCheck)
         },
         flow_columns::DONE,
         None,
@@ -503,7 +507,7 @@ fn group(bucket: Bucket<'_>, filtered: bool, done_folded: bool) -> Group {
     }
 }
 
-/// Group by Status (LST-01): Needs you · Working · Waiting to start · Backlog · Open PRs · Done this week, each in
+/// Group by Status (LST-01): Needs you · Working · Waiting to start · Backlog · Open PRs · Finished this week, each in
 /// flow order.
 fn by_status(stages: Vec<Bucket<'_>>) -> Vec<Bucket<'_>> {
     let mut groups = vec![
@@ -530,7 +534,7 @@ fn by_status(stages: Vec<Bucket<'_>>) -> Vec<Bucket<'_>> {
         Bucket {
             tone: Some(Tone::Muted),
             done: true,
-            ..Bucket::new("done", DONE_THIS_WEEK, IconName::CircleCheck)
+            ..Bucket::new("done", FINISHED_THIS_WEEK, IconName::CircleCheck)
         },
     ];
     for listed in stages.into_iter().flat_map(|b| b.rows) {
@@ -549,14 +553,14 @@ fn by_status(stages: Vec<Bucket<'_>>) -> Vec<Bucket<'_>> {
 }
 
 /// Group by Agent: Not started, then each agent in the flow's order (the one the row names, else its stage's), You for
-/// the stages you check, Done this week.
+/// the stages you check, Finished this week.
 fn by_agent<'t>(stages: Vec<Bucket<'t>>, columns: &Columns) -> Vec<Bucket<'t>> {
     let mut not_started = Bucket::new("not_started", NOT_STARTED, IconName::CircleDashed);
     let mut agents: Vec<Bucket> = Vec::new();
     let mut you = Bucket::new("you", YOU, IconName::UserCheck);
     let mut done = Bucket {
         done: true,
-        ..Bucket::new("done", DONE_THIS_WEEK, IconName::CircleCheck)
+        ..Bucket::new("done", FINISHED_THIS_WEEK, IconName::CircleCheck)
     };
     // Every agent of the flow has its group, in order, even before a ticket reaches it.
     for stage in &columns.flow().stages {
@@ -1077,7 +1081,7 @@ mod tests {
                 ("Review".into(), "1".into(), None, keys(&["SHOP-18"])),
                 ("PR open".into(), "1".into(), None, keys(&["SHOP-26"])),
                 (
-                    "Done".into(),
+                    "Finished".into(),
                     "4".into(),
                     s("4 this week \u{b7} show"),
                     keys(&[])
@@ -1160,7 +1164,51 @@ mod tests {
         );
     }
 
-    /// Hide empty stages leaves out an empty stage, never Backlog, Ready or Done; a filter counts "1/3".
+    /// #39: a row shows its ticket's priority chip, in Backlog and Ready alike; Normal shows none.
+    #[test]
+    fn rows_show_the_priority() {
+        use otaq_core::board::settings::GroupBy as G;
+        let flow = shop_web();
+        let tickets = tickets();
+        let list = view(&input(&flow, &tickets), &prefs(G::Stage));
+        let chip = |key| {
+            row(&list, key)
+                .card
+                .priority
+                .as_ref()
+                .map(|p| p.short.clone())
+        };
+        assert_eq!(chip("SHOP-31").as_deref(), Some("P1"));
+        assert_eq!(chip("SHOP-35").as_deref(), Some("P1"));
+        assert_eq!(chip("SHOP-20"), None);
+    }
+
+    /// #53 (Q468): with the default flow, whose last stage is named Done, the stage group says "Done" and the group
+    /// of finished tickets says "Finished", so the two never read alike; by Status it is "Finished this week".
+    #[test]
+    fn the_finished_group_is_never_called_done() {
+        use otaq_core::board::settings::GroupBy as G;
+        let flow = otaq_core::flow::default::default_flow();
+        let tickets = tickets();
+        let titles = |group_by| -> Vec<String> {
+            view(&input(&flow, &tickets), &prefs(group_by))
+                .groups
+                .iter()
+                .map(|g| g.title.clone())
+                .collect()
+        };
+        let by_stage = titles(G::Stage);
+        assert_eq!(by_stage.iter().filter(|t| *t == "Done").count(), 1);
+        assert_eq!(by_stage.last().map(String::as_str), Some(FINISHED));
+        let by_status = titles(G::Status);
+        assert_eq!(
+            by_status.last().map(String::as_str),
+            Some(FINISHED_THIS_WEEK)
+        );
+        assert!(!by_status.iter().any(|t| t.starts_with("Done")));
+    }
+
+    /// Hide empty stages leaves out an empty stage, never Backlog, Ready or Finished; a filter counts "1/3".
     #[test]
     fn hide_empty_stages_and_a_filter() {
         use otaq_core::board::settings::GroupBy as G;
@@ -1180,7 +1228,7 @@ mod tests {
         .iter()
         .map(|g| g.title.clone())
         .collect();
-        assert_eq!(shown, ["Backlog", "Ready", "Grill", "Done"]);
+        assert_eq!(shown, ["Backlog", "Ready", "Grill", "Finished"]);
         let all = view(&input(&flow, &tickets), &prefs(G::Stage));
         let dev = all.groups.iter().find(|g| g.title == "Dev").unwrap();
         assert_eq!(
@@ -1201,7 +1249,7 @@ mod tests {
         assert_eq!(backlog.entries.len(), 1);
     }
 
-    /// LST-01 by Status (`s24-04`): Needs you · Working · Waiting to start · Backlog · Open PRs · Done this week, with
+    /// LST-01 by Status (`s24-04`): Needs you · Working · Waiting to start · Backlog · Open PRs · Finished this week, with
     /// their counts and colours.
     #[test]
     fn the_example_by_status() {
@@ -1238,7 +1286,7 @@ mod tests {
                 ),
                 ("Open PRs".into(), "1".into(), None, keys(&["SHOP-26"])),
                 (
-                    "Done this week".into(),
+                    "Finished this week".into(),
                     "4".into(),
                     s("4 this week \u{b7} show"),
                     keys(&[])
@@ -1252,7 +1300,7 @@ mod tests {
         assert!(list.groups.iter().all(|g| g.target.is_none()));
     }
 
-    /// Group by Agent: Not started, each agent of the flow in order, You, Done this week.
+    /// Group by Agent: Not started, each agent of the flow in order, You, Finished this week.
     #[test]
     fn by_agent_follows_the_flow() {
         use otaq_core::board::settings::GroupBy as G;
@@ -1274,7 +1322,7 @@ mod tests {
                 ("Security reviewer".into(), "2".into()),
                 ("Shipper".into(), "1".into()),
                 ("You".into(), "1".into()),
-                ("Done this week".into(), "4".into()),
+                ("Finished this week".into(), "4".into()),
             ]
         );
     }

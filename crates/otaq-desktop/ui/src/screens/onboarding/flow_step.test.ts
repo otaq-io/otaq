@@ -26,7 +26,7 @@ function routes(): PaneRoutes {
 const page = (project: string, shows: boolean): FlowSetupPageView => ({ project, shows });
 
 describe("the Flow step", () => {
-  it("is the fifth step; Done is the board itself", () => {
+  it("is the fifth and last step; the board follows it", () => {
     expect(STEP_ORDER).toEqual(["welcome", "theme", "tools", "project", "flow"]);
   });
 

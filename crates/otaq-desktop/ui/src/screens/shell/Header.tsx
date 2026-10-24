@@ -12,7 +12,7 @@ import { createRef, type ReactNode, type RefObject, useCallback, useEffect, useR
 import { toggleOverlay, useOpenOverlays } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { useSelection } from "../../app/selection";
-import { createStore } from "../../app/store";
+import { createStore, useStore } from "../../app/store";
 import { AnchoredMenu, Kbd, MetaChip, StatusPill, Tooltip } from "../../components";
 import type { ActivityButton } from "../../generated/ActivityButton";
 import type { HeaderProject } from "../../generated/HeaderProject";
@@ -21,6 +21,7 @@ import type { ShellParams } from "../../generated/ShellParams";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { noticesStore } from "../notices/notices";
 import { projectMenuChoice } from "./projectMenu";
 
 /** The service events that change what the header shows. */
@@ -104,10 +105,12 @@ export interface ActivityChipProps {
   open?: boolean;
   /** The live header's button is the popover's anchor; the gallery's copies are not. */
   anchor?: RefObject<HTMLButtonElement | null>;
+  /** The link to the service is down: the count is the last one heard, so it dims (#58). */
+  stale?: boolean;
 }
 
 /** Activity: "● 6 running · ▷ 3", the amber warning when the view has one, and its hover. A click toggles the popover. */
-export function ActivityChip({ activity, open = false, anchor }: ActivityChipProps) {
+export function ActivityChip({ activity, open = false, anchor, stale = false }: ActivityChipProps) {
   const { agents, warning } = activity;
   return (
     <Tooltip text={activity.hover.title} detail={activity.hover.lines}>
@@ -117,6 +120,7 @@ export function ActivityChip({ activity, open = false, anchor }: ActivityChipPro
         className="header-activity"
         data-open={open || undefined}
         data-limit={warning?.limit || undefined}
+        data-stale={stale || undefined}
         aria-label={activity.label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -126,7 +130,7 @@ export function ActivityChip({ activity, open = false, anchor }: ActivityChipPro
       >
         <span
           className="header-dot"
-          data-active={agents.active || undefined}
+          data-active={(agents.active && !stale) || undefined}
           data-paused={agents.paused || undefined}
         />
         <span className="header-mono">{agents.count}</span>
@@ -159,9 +163,18 @@ export interface HeaderBarProps {
   search?: ReactNode;
   /** Pause, after Activity (the `header_pause` slot, PAU-08, T-0457; SHB-01). */
   pause?: ReactNode;
+  /** The link to the service is down (`Notices.service_down`): Activity's count dims. */
+  serviceDown?: boolean;
 }
 
-export function HeaderBar({ view, activityOpen = false, onSearch, search, pause }: HeaderBarProps) {
+export function HeaderBar({
+  view,
+  activityOpen = false,
+  onSearch,
+  search,
+  pause,
+  serviceDown = false,
+}: HeaderBarProps) {
   // A project in Flow setup has no board, so no search.
   const searches = view.project !== null && view.project.flow_setup === null;
   return (
@@ -177,7 +190,12 @@ export function HeaderBar({ view, activityOpen = false, onSearch, search, pause 
         </button>
       )}
       <div className="header-gap" />
-      <ActivityChip activity={view.activity} open={activityOpen} anchor={activityAnchor} />
+      <ActivityChip
+        activity={view.activity}
+        open={activityOpen}
+        anchor={activityAnchor}
+        stale={serviceDown}
+      />
       {pause}
     </div>
   );
@@ -203,6 +221,7 @@ export function ShellHeader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: Activity's reset times move with the clock
   }, [project, tick]);
   const { view } = useServiceView(load, HEADER_EVENTS);
+  const serviceDown = useStore(noticesStore)?.service_down ?? false;
   useEffect(() => {
     headerStore.set(view);
   }, [view]);
@@ -215,6 +234,7 @@ export function ShellHeader() {
       activityOpen={activityOpen}
       search={Search && <Search />}
       pause={Pause && <Pause />}
+      serviceDown={serviceDown}
       onSearch={() => {
         app.shortcuts.run({ action: "filter_board" });
       }}

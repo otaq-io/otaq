@@ -26,6 +26,7 @@ const SHOP_22: TicketCardView = {
   key: "SHOP-22",
   key_label: "SHOP-22",
   epic: null,
+  priority: null,
   title: "Fix flaky login redirect",
   status: { text: "Needs you: allow rm -rf .next?", dot: "attn", tone: "attention", icon: null },
   blocks: null,

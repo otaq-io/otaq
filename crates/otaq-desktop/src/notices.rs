@@ -35,7 +35,7 @@ use otaq_view::view_models::agent_activity::{Created, CreationBatch};
 use otaq_view::view_models::banners::{
     BannerModel, BannerView, Situation, SituationKind, TrustFailure,
 };
-use otaq_view::view_models::connection::{ConnectionViewModel, LinkState};
+use otaq_view::view_models::connection::{self, ConnectionViewModel, LinkState};
 use otaq_view::view_models::limit_banner::{self, LimitLine};
 use otaq_view::view_models::restart;
 use otaq_view::view_models::toasts::{NewToast, RECONNECTED, ToastLevel, ToastModel, ToastView};
@@ -135,6 +135,11 @@ pub struct NoticesView {
     /// value (*16 → Opening after a reboot*, T-0235).
     #[ts(type = "number | null")]
     pub summary_for: Option<i64>,
+    /// What a terminal says over its scrollback while the link is down: "Reconnecting… agents keep running", or
+    /// "Service stopped" once the service has ended (#58); `null` while connected.
+    pub terminal_note: Option<connection::TerminalNote>,
+    /// The link is down (reconnecting, stopped or failed): the header's running count is last known, so it dims.
+    pub service_down: bool,
 }
 
 /// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
@@ -588,6 +593,8 @@ impl State {
             input_enabled: ConnectionViewModel::new(&self.link).input_enabled
                 && !self.banners.only_restart_allowed(),
             summary_for: self.summary_for,
+            terminal_note: connection::terminal_note(&self.link),
+            service_down: connection::service_down(&self.link),
         }
     }
 
@@ -1145,11 +1152,23 @@ mod tests {
         assert_eq!(view.banners[0].title, "Restart required");
         assert!(view.only_restart_allowed);
         assert!(!view.input_enabled);
+        assert_eq!(view.terminal_note, None);
+        assert!(!view.service_down);
         n.on_link(&LinkState::Reconnecting { attempt: 1 });
         assert_eq!(titles(&n.view())[0].0, "Reconnecting…");
         assert!(!n.view().input_enabled, "SVC-04");
+        assert_eq!(
+            n.view().terminal_note.map(|t| t.text),
+            Some("Reconnecting… agents keep running")
+        );
         n.on_link(&LinkState::Stopped);
         assert_eq!(titles(&n.view())[0].0, "Background service stopped");
+        // #58: the terminals agree with the banner, and the header's running count dims.
+        assert_eq!(
+            n.view().terminal_note.map(|t| t.text),
+            Some("Service stopped")
+        );
+        assert!(n.view().service_down);
         n.on_link(&connected(Compatibility::Same, running(0, 0)));
         assert!(n.view().banners.is_empty());
         assert!(!n.view().only_restart_allowed);

@@ -570,7 +570,7 @@ pub struct StatusHover {
 }
 
 /// The card's one status line in words (BRD-03; *24 · The two views*): "Needs you: allow rm -rf .next?", "Working ·
-/// back from Security", "P1 · starts next". `CardStatusLine` on the page.
+/// back from Security", "starts next". `CardStatusLine` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardStatusLine")]
 pub struct StatusLine {
@@ -1498,10 +1498,11 @@ impl CardViewModel {
         let status = status::shown(ticket);
         let flags = &ticket.flags;
         let paused = paused_stop(ticket, status, x);
-        // A needs-you ticket interrupted by a restart keeps its flag (d0045); answering resumes it.
+        // A needs-you ticket interrupted by a restart keeps its flag (d0045); answering resumes it. Only a question
+        // is kept: a check or a working agent the restart stopped has nothing to answer (as `paused_stop`, T-0490).
         let kept = ticket
             .interrupted_from
-            .filter(|_| status == Status::Interrupted && !paused);
+            .filter(|was| was.is_needs_you_family() && status == Status::Interrupted && !paused);
         let stale = is_stale(status, flags.last_signal_at, now_ms);
 
         let mut parts = Vec::new();
@@ -1828,13 +1829,13 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
 /// A check out of rounds: the card's one action opens the ticket, where the choices are (BRD-03).
 pub const DECIDE: &str = "Decide";
 
-/// Ready for Dev's "Ready to start" on the one line: the frame's "starts next" (`s24-03`).
+/// Ready for Dev's next ticket while nothing starts (paused): the frame's "starts next" (`s24-03`, `s24-07`).
 pub const STARTS_NEXT: &str = "starts next";
 
 /// The one status line (BRD-03): the head flag's words, then the situation's ("Needs you: allow rm -rf .next?" after
 /// a needs-you or stopped flag, "Checking · round 1 of 3" otherwise); the situation alone when it already says what the flag
-/// says ("Security failed 3 times · …" under "Failed ×3"); a waiting card leads with its priority ("P1 · starts
-/// next"). The words keep their case, as drawn ("Checking · round 1 of 3"); a blocked ticket's line is DPV-01's.
+/// says ("Security failed 3 times · …" under "Failed ×3"). The priority is the card's chip after its key, not part of
+/// the line (#36). The words keep their case, as drawn ("Checking · round 1 of 3"); a blocked ticket's line is DPV-01's.
 /// Nothing to say: no line (a calm Backlog card).
 pub fn status_line(
     ticket: &Ticket,
@@ -1852,10 +1853,9 @@ pub fn status_line(
             icon: None,
         });
     }
-    let mut words = situation.map(|s| s.text.clone());
-    if words.as_deref() == Some(READY_TO_START) {
-        words = Some(STARTS_NEXT.to_owned());
-    }
+    // An unblocked Backlog card says "Ready to start": nothing starts until it is moved, so "starts next" is only
+    // Ready for Dev's (#36).
+    let words = situation.map(|s| s.text.clone());
     let text = match (flag, words) {
         (None, None) => return None,
         (None, Some(words)) => words,
@@ -1873,12 +1873,6 @@ pub fn status_line(
                 format!("{lead} \u{b7} {words}")
             }
         }
-    };
-    let text = match priority::on_card(ticket.priority) {
-        Some(p) if ticket.place.is_waiting() && !status.is_needs_you_family() => {
-            format!("{} \u{b7} {text}", priority::short(p))
-        }
-        _ => text,
     };
     let dot = match (edge, flag) {
         (Some(Tone::Attention), _) => Palette::Attn,
@@ -2953,11 +2947,12 @@ pub fn lead_note_callout(ticket: &Ticket) -> Option<String> {
 }
 
 /// "Sent back · 3 comments · round 2"; with decisions Change… sent back, "Sent back · 1 decision changed · round 2"
-/// (comments named too when there are any; DEC-06).
+/// (comments named too when there are any; DEC-06); with neither, "Sent back · round 2" (the Send back dialog's own
+/// comment is the hand-over, #20).
 fn sent_back_text(sent: otaq_core::domain::flags::SentBack) -> String {
     let plural = |n: u32| if n == 1 { "" } else { "s" };
     let mut parts = Vec::new();
-    if sent.comments > 0 || sent.decisions == 0 {
+    if sent.comments > 0 {
         parts.push(format!(
             "{} comment{}",
             sent.comments,
@@ -2971,11 +2966,8 @@ fn sent_back_text(sent: otaq_core::domain::flags::SentBack) -> String {
             plural(sent.decisions)
         ));
     }
-    format!(
-        "Sent back \u{b7} {} \u{b7} round {}",
-        parts.join(" \u{b7} "),
-        sent.round
-    )
+    parts.push(format!("round {}", sent.round));
+    format!("Sent back \u{b7} {}", parts.join(" \u{b7} "))
 }
 
 /// "adds migrations next to SHOP-21 (db/migrations/**)", "… next to SHOP-21 +1 (…)" (M19-e): another Review ticket
@@ -4567,6 +4559,28 @@ mod tests {
         );
     }
 
+    /// A check the restart stopped (`interrupted_from` Checking) keeps no question on its card: no "answering resumes
+    /// it", no Reply; it says the validation stopped and Resume starts it fresh (#58).
+    #[test]
+    fn a_check_interrupted_by_a_restart_keeps_no_question() {
+        let mut checking = ticket("SHOP-15", "Weekly summary", Status::Interrupted);
+        checking.interrupted_from = Some(Status::Checking);
+        let vm = CardViewModel::from(
+            &checking,
+            &CardExtras {
+                was_validating: true,
+                ..main_project()
+            },
+            NOW,
+        );
+        assert_eq!(
+            line(&vm),
+            Some("Validation stopped by restart · Resume starts it fresh (not counted)")
+        );
+        assert_ne!(foot(&vm).as_deref(), Some("[Reply]"));
+        assert_ne!(vm.outline, Outline::Attention);
+    }
+
     /// MSG-06, LEAD-06: asking another agent or the lead is calm, on the situation line.
     #[test]
     fn asked_another_agent_or_the_lead() {
@@ -5135,7 +5149,7 @@ mod tests {
         assert_eq!(line(&card(&t)), Some("same file as SHOP-40.2 +1"));
     }
 
-    /// "Sent back · 1 decision changed · round 2" (DEC-06).
+    /// "Sent back · 1 decision changed · round 2" (DEC-06); no line comments, "Sent back · round 2" (#20).
     #[test]
     fn sent_back_counts_changed_decisions() {
         use otaq_core::domain::flags::SentBack;
@@ -5148,10 +5162,7 @@ mod tests {
             sent_back_text(sent(3, 0)),
             "Sent back · 3 comments · round 2"
         );
-        assert_eq!(
-            sent_back_text(sent(0, 0)),
-            "Sent back · 0 comments · round 2"
-        );
+        assert_eq!(sent_back_text(sent(0, 0)), "Sent back · round 2");
         assert_eq!(
             sent_back_text(sent(0, 1)),
             "Sent back · 1 decision changed · round 2"

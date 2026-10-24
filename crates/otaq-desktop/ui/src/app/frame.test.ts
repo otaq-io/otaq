@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { LayoutView } from "../generated/LayoutView";
-import { Frame, FrameBody } from "./Frame";
+import { askBarRight, Frame, FrameBody } from "./Frame";
 import {
   agentPanelWidth,
   INITIAL_LAYOUT,
@@ -230,5 +230,15 @@ describe("the layout's state", () => {
     expect(shellLayout.get()).toMatchObject({ agentOpen: true, panelExpanded: true });
     setAgentOpen(false);
     expect(shellLayout.get().agentOpen).toBe(false);
+  });
+});
+
+describe("the Ask bar beside the ticket sheet (#21)", () => {
+  it("ends at the sheet's left edge, and hides while the sheet fills the main area", () => {
+    expect(askBarRight(false, false, 0)).toBe(0);
+    expect(askBarRight(true, false, 640)).toBe(640);
+    expect(askBarRight(true, true, 1200)).toBeNull();
+    expect(slots(body({ ...INITIAL_LAYOUT, panelExpanded: true }, true))).not.toContain("ask_bar");
+    expect(slots(body(INITIAL_LAYOUT, true))).toContain("ask_bar");
   });
 });

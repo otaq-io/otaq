@@ -9,6 +9,7 @@ import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardActionKind } from "../generated/CardActionKind";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { TicketCard } from ".";
+import { RESTING } from "./look";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -17,6 +18,7 @@ const SHOP_32: TicketCardView = {
   key: "SHOP-32",
   key_label: "SHOP-32",
   epic: null,
+  priority: null,
   title: "Address autocomplete",
   status: { text: "Security failed 3 times · unescaped SQL", dot: "attn", tone: "attention", icon: null },
   blocks: null,
@@ -85,6 +87,53 @@ describe("the one-line card", () => {
     expect(bubble()?.textContent).toContain("Tokens: 312k");
     act(() => {
       head.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }));
+    });
+    expect(bubble()).toBeNull();
+  });
+
+  const titleTip = () => host.querySelector<HTMLElement>(".tooltip");
+  const restOnTitle = () => {
+    const title = host.querySelector<HTMLElement>(".card-title");
+    if (!title) throw new Error("the title");
+    act(() => {
+      title.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(TOOLTIP_DELAY);
+    });
+    return title;
+  };
+
+  it("the title's tooltip hides on pointer down, before the click opens the sheet (#6)", () => {
+    const title = restOnTitle();
+    expect(titleTip()?.textContent).toBe("Address autocomplete");
+    act(() => {
+      title.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(titleTip()).toBeNull();
+  });
+
+  it("the key row's full status hides on pointer down and when the card becomes selected (its sheet opens, #6)", () => {
+    const head = host.querySelector<HTMLElement>(".card-head");
+    if (!head) throw new Error("the key's row");
+    const rest = () => {
+      act(() => {
+        head.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+      });
+      act(() => {
+        vi.advanceTimersByTime(TOOLTIP_DELAY);
+      });
+    };
+    rest();
+    expect(bubble()).not.toBeNull();
+    act(() => {
+      head.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(bubble()).toBeNull();
+    rest();
+    expect(bubble()).not.toBeNull();
+    act(() => {
+      root.render(createElement(TicketCard, { card: SHOP_32, state: { ...RESTING, selected: true } }));
     });
     expect(bubble()).toBeNull();
   });

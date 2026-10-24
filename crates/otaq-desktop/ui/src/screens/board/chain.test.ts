@@ -90,6 +90,7 @@ const card = (key: string): BoardCard => {
     key,
     key_label: key,
     epic: null,
+    priority: null,
     title: "Checkout page",
     status: null,
     blocks: null,

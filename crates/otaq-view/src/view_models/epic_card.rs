@@ -174,7 +174,7 @@ impl EpicViewModel {
             pill,
             title: epic.title.clone(),
             segments: children.iter().map(|c| ChildState::of(c.status)).collect(),
-            progress: format!("{} of {} merged", progress.merged, progress.total),
+            progress: progress.label(),
             branch,
             children: children
                 .iter()
@@ -276,6 +276,21 @@ mod tests {
             child("SHOP-40.1", "Wishlist API", Status::Merged),
             child("SHOP-40.3", "Wishlist page", Status::Backlog),
         ]
+    }
+
+    /// #31: a child closed on purpose is counted apart on the card and the sheet's head.
+    #[test]
+    fn a_closed_child_is_counted_apart() {
+        let mut tickets = wishlist();
+        tickets[1].status = Status::Merged;
+        tickets[3].status = Status::ClosedNotMerged;
+        let vm = EpicViewModel::from(&tickets[0], &tickets, None);
+        assert_eq!(vm.progress, "2 merged \u{b7} 1 closed");
+        let head = crate::view_models::epic_sheet::head(&tickets[0], &tickets, None);
+        assert_eq!(head.progress, "2 merged \u{b7} 1 closed");
+        tickets[1].status = Status::Working;
+        let vm = EpicViewModel::from(&tickets[0], &tickets, None);
+        assert_eq!(vm.progress, "1 of 2 merged \u{b7} 1 closed");
     }
 
     #[test]

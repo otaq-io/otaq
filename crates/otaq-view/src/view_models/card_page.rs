@@ -40,6 +40,8 @@ pub struct TicketCardView {
     pub key_label: String,
     /// The epic's name on the key's row, for an epic child ("Wishlist").
     pub epic: Option<String>,
+    /// The priority chip after the key: P1, P2 and P4, none for Normal (d0065; #36), in every column.
+    pub priority: Option<PriorityView>,
     pub title: String,
     /// The one status line; `null` on a calm Backlog card.
     pub status: Option<StatusLine>,
@@ -73,11 +75,12 @@ impl TicketCardView {
     }
 
     /// From a view model already built (the board's, with its queue facts and signal).
-    pub fn from_vm(vm: CardViewModel, _ticket: &Ticket) -> Self {
+    pub fn from_vm(vm: CardViewModel, ticket: &Ticket) -> Self {
         Self {
             key: vm.key.to_string(),
             key_label: vm.key_label,
             epic: vm.sleeve.map(|s| s.name),
+            priority: priority::on_card(ticket.priority).map(priority::view),
             title: vm.title,
             status: vm.one_line.line,
             blocks: vm.one_line.blocks,
@@ -348,7 +351,6 @@ mod tests {
             "footer",
             "options",
             "sleeve",
-            "priority",
             "pinned",
             "outline",
         ] {

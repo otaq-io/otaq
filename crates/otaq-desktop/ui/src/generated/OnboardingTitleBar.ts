@@ -2,6 +2,6 @@
 import type { OnboardingDot } from "./OnboardingDot";
 
 /**
- * The window's title bar during onboarding: the product name and the six steps.
+ * The window's title bar during onboarding: the product name and the five steps.
  */
 export type OnboardingTitleBar = { product: string, steps: Array<OnboardingDot>, };
