@@ -1,7 +1,7 @@
 //! The read gate (T-0444; CMT-08; d0109, d0083): `stage next`, `stage done` and `check pass|fail` from a ticket's
 //! session are refused until that session ran `prime` (or `prime --validate`) since its stage run started or was
-//! last handed a new comment; the count names the comments posted since its last prime. Comments posted mid-run
-//! don't block; the user's moves never are. Requests go through the socket from inside sessions (an ordinary `sh`,
+//! last handed a new comment; the count names the comments posted since its last prime, the session's own left out
+//! (Q388), and own comments alone don't refuse. Comments posted mid-run don't block; the user's moves never are. Requests go through the socket from inside sessions (an ordinary `sh`,
 //! never an agent tool); every data folder is temporary.
 //!
 //! The resume marker (`stage_runs.handed_over_at`) is set by hand here; `hand_overs.rs` checks that the real Send back,
@@ -286,5 +286,110 @@ async fn a_prime_before_the_run_opens_counts_for_it() {
 
     ok(&send(&w, &dev, "ticket.stage_next", next).await);
     assert_eq!(w.status(&key).await, Status::WaitingForYou);
+    w.stop().await;
+}
+
+/// Q388's SHOP-34 case: Dev primed (comments 1–2) and ended with comment 3, Validate failed with comment 4 and
+/// resumed Dev; Dev's `stage next` before `prime` counts only comment 4, not its own comment 3.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_count_leaves_out_the_sessions_own_comments() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Export orders as CSV").await;
+    let key = t.key.to_string();
+    w.give_worktree(&t).await;
+    w.force_status(&t, Status::Working).await;
+    let dev = w.agent_shell(&t).await;
+    w.run_as_agent(&dev, "rust-dev", "Rust developer").await;
+    comment(&w, &key, "CSV only, admins only.").await;
+    comment(&w, &key, "Keep the column order.").await;
+
+    ok(&send(&w, &dev, "ticket.prime", json!({"key": key})).await);
+    tick().await;
+    let ended = send(
+        &w,
+        &dev,
+        "ticket.stage_next",
+        json!({"key": key, "summary": "Done: CSV export, admins only."}),
+    )
+    .await;
+    ok(&ended);
+
+    // Validate's checker fails the round with comment 4, which resumes Dev's live session in a new run.
+    let checker = w.shell(&t, SessionKind::Validator).await;
+    w.validating_with(&t, &checker.session).await;
+    tick().await;
+    ok(&send(&w, &checker, "ticket.prime_validate", json!({"key": key})).await);
+    let failed = send(
+        &w,
+        &checker,
+        "validation.verdict",
+        json!({"key": key, "pass": false, "report": "Fail: no row limit."}),
+    )
+    .await;
+    ok(&failed);
+    assert_eq!(w.status(&key).await, Status::Working);
+    let numbers: Vec<u32> = w
+        .board
+        .ticket_comments(&key)
+        .await
+        .unwrap()
+        .comments
+        .iter()
+        .map(|c| c.n)
+        .collect();
+    assert_eq!(numbers, [1, 2, 3, 4]);
+
+    let next = json!({"key": key, "summary": "Added the row limit."});
+    assert_eq!(
+        refused(&send(&w, &dev, "ticket.stage_next", next.clone()).await),
+        "Run `otaq prime` first: SHOP-1 has 1 comment you haven't read."
+    );
+    tick().await;
+    ok(&send(&w, &dev, "ticket.prime", json!({"key": key})).await);
+    let after = send(&w, &dev, "ticket.stage_next", next).await;
+    if let Some(message) = after["error"]["message"].as_str() {
+        assert!(!message.contains("prime"), "{after}");
+    }
+    w.stop().await;
+}
+
+/// A session whose only unread comments are its own has nothing to read: its stage end isn't refused. Anyone else's
+/// comment after them still is.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_its_own_unread_comments_dont_refuse() {
+    let (w, t, dev) = world().await;
+    w.run_as_agent(&dev, "rust-dev", "Rust developer").await;
+    let key = t.key.to_string();
+    // Posted from its open run, never primed: its own, so nothing unread.
+    ok(&send(
+        &w,
+        &dev,
+        "ticket.comment_post",
+        json!({"key": key, "body": "Found the CSV writer in export.rs."}),
+    )
+    .await);
+    assert_eq!(
+        w.board
+            .refuse_unprimed(&key, &dev.session)
+            .await
+            .map_err(|e| e.to_string()),
+        Ok(())
+    );
+
+    // The user's comment after it: refused, counting only the user's.
+    tick().await;
+    comment(&w, &key, "Also keep the column order.").await;
+    let answer = send(
+        &w,
+        &dev,
+        "ticket.stage_next",
+        json!({"key": key, "summary": "Done."}),
+    )
+    .await;
+    assert_eq!(
+        refused(&answer),
+        "Run `otaq prime` first: SHOP-1 has 1 comment you haven't read."
+    );
     w.stop().await;
 }
