@@ -179,9 +179,10 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
   links come from the web-links add-on, links programs hide behind text (OSC 8) from xterm.js's own provider (wrapped
   in place, `gateHiddenLinks`), which keeps http and https links (their address shows as a tooltip); `file:` links
   wait for T-0485, other schemes are no link. Web links open in the system browser (`terminal.open_link`).
-- **Copying from programs** (d0117 point 7, T-0484; `clipboard.ts`). An OSC 52 copy (Claude Code, vim, tmux) goes to
-  the clipboard (`navigator.clipboard.writeText`), never from the replay; a program asking for the clipboard gets no
-  answer.
+- **Copying from programs** (d0117 point 7, T-0510; `clipboard.ts`). xterm.js's clipboard add-on reads OSC 52; Otaq's
+  provider (`otaqClipboard`) puts a copy (Claude Code, vim, tmux) on the clipboard (`navigator.clipboard.writeText`),
+  never from the replay, and ignores a clear. It reads nothing: a program asking for the clipboard gets an empty
+  reply. The add-on bundles `js-base64` (BSD-3-Clause, accepted in d0117 as highlight.js was in d0078).
 
 ## Components
 

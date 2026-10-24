@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The terminal component's links and copying (d0117 points 7 and 9, T-0484): plain URLs and OSC 8 links open through
 // "open link" on ⌘-click only, the hint shows while ⌘ is held over a link, and a program's copy reaches the clipboard
-// from live output, never from the replay.
+// from live output, never from the replay (T-0510: through xterm.js's clipboard add-on).
 import type { ILink, ILinkHandler, ILinkProvider } from "@xterm/xterm";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -27,8 +27,8 @@ const requests = vi.hoisted(() => [] as [string, unknown][]);
 
 const RANGE = { start: { x: 1, y: 1 }, end: { x: 6, y: 1 } };
 
-// xterm.js needs a canvas: a stand-in that keeps its link providers (its own OSC 8 one first, as xterm.js does) and
-// runs OSC 52 sequences through the registered handler.
+// xterm.js needs a canvas: a stand-in that keeps its link providers (its own OSC 8 one first, as xterm.js does), runs
+// OSC 52 sequences through the registered handler and hands what the terminal answers (`input`) to `onData`.
 vi.mock("@xterm/xterm", () => {
   const disposable = () => ({ dispose: () => undefined });
   class Terminal {
@@ -40,6 +40,7 @@ vi.mock("@xterm/xterm", () => {
     textarea = undefined;
     buffer = { active: { baseY: 0, viewportY: 0 } };
     osc = new Map<number, (data: string) => boolean>();
+    typed: ((data: string) => void)[] = [];
     _core = {
       _linkProviderService: {
         linkProviders: [
@@ -79,7 +80,13 @@ vi.mock("@xterm/xterm", () => {
     loadAddon = (addon: { activate?: (t: unknown) => void }) => {
       addon.activate?.(this);
     };
-    onData = disposable;
+    onData = (listener: (data: string) => void) => {
+      this.typed.push(listener);
+      return disposable();
+    };
+    input = (data: string) => {
+      for (const listener of this.typed) listener(data);
+    };
     onBinary = disposable;
     onResize = disposable;
     onScroll = disposable;
@@ -153,6 +160,7 @@ vi.mock("../tauri", () => ({
 let root: Root;
 let container: HTMLElement;
 const copied: string[] = [];
+let clipboardReads = 0;
 
 beforeEach(() => {
   if (!("fonts" in document)) {
@@ -167,6 +175,10 @@ beforeEach(() => {
         copied.push(text);
         return Promise.resolve();
       },
+      readText: () => {
+        clipboardReads += 1;
+        return Promise.resolve("never this");
+      },
     },
     configurable: true,
   });
@@ -178,6 +190,7 @@ beforeEach(() => {
   feeds.length = 0;
   requests.length = 0;
   copied.length = 0;
+  clipboardReads = 0;
 });
 
 afterEach(() => {
@@ -245,21 +258,31 @@ describe("the terminal component's links", () => {
 });
 
 describe("the terminal component's copying from programs", () => {
-  const osc52 = (text: string) =>
-    encodeBase64(new TextEncoder().encode(`\x1b]52;c;${encodeBase64(new TextEncoder().encode(text))}\x07`));
+  const bytes = (text: string) => encodeBase64(new TextEncoder().encode(text));
+  const osc52 = (text: string) => bytes(`\x1b]52;c;${bytes(text)}\x07`);
+  const sentInput = () =>
+    requests
+      .filter(([name]) => name === "terminal.input")
+      .map(([, args]) => args as { data: string; reply: boolean });
 
-  it("copies from live output, never from the replay, and answers no query", () => {
+  it("copies from live output, never from the replay, and answers a query with an empty clipboard", async () => {
     mount();
     act(() => {
+      for (const f of feeds) f({ kind: "phase", phase: "live" });
       for (const f of feeds) f({ kind: "replay", data: osc52("old copy"), size: null });
     });
+    act(() => {
+      for (const f of feeds) f({ kind: "replay", data: bytes("\x1b]52;c;?\x07"), size: null });
+    });
     expect(copied).toEqual([]);
+    expect(sentInput()).toEqual([]);
     act(() => {
       for (const f of feeds) f({ kind: "live", data: osc52("new copy") });
-      for (const f of feeds)
-        f({ kind: "live", data: encodeBase64(new TextEncoder().encode("\x1b]52;c;?\x07")) });
+      for (const f of feeds) f({ kind: "live", data: bytes("\x1b]52;c;?\x07") });
     });
+    await act(() => Promise.resolve());
     expect(copied).toEqual(["new copy"]);
-    expect(requests.filter(([name]) => name === "terminal.input")).toEqual([]);
+    expect(sentInput()).toEqual([{ session: "s1", data: bytes("\x1b]52;c;\x07"), reply: true }]);
+    expect(clipboardReads).toBe(0);
   });
 });

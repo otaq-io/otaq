@@ -329,14 +329,15 @@ export function Terminal({
       }),
     );
     // Programs copy to the clipboard (OSC 52), never from a replay; they can't read it.
-    const copying = copyFromPrograms(
-      term,
-      () => replaying,
-      (text) => {
-        navigator.clipboard.writeText(text).catch((err: unknown) => {
-          console.warn("a program's copy failed", err);
-        });
-      },
+    term.loadAddon(
+      copyFromPrograms(
+        () => replaying,
+        (text) => {
+          navigator.clipboard.writeText(text).catch((err: unknown) => {
+            console.warn("a program's copy failed", err);
+          });
+        },
+      ),
     );
     xterm.current = term;
     const fitToBox = () => {
@@ -542,8 +543,7 @@ export function Terminal({
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();
       sizeWatch.disconnect();
-      for (const d of [typed, binary, resized, scrolled, lineFed, parsed, results, copying, paths, links])
-        d.dispose();
+      for (const d of [typed, binary, resized, scrolled, lineFed, parsed, results, paths, links]) d.dispose();
       term.textarea?.removeEventListener("focus", onFocus);
       term.textarea?.removeEventListener("blur", onBlur);
       term.dispose();
