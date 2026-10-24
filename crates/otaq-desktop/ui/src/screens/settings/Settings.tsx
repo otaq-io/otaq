@@ -176,7 +176,13 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     if (fresh) scrolledTo.current = fresh.n;
   });
 
-  // Esc closes Settings, unless a menu or a dialog inside it takes it.
+  // Esc closes Settings, unless a menu or a dialog inside it takes it (or a field, which stops it first). The box
+  // takes the focus once, when Settings opens: the frame hands a new `close` on each of its renders, and focusing
+  // again then took the focus from the field being typed in (T-0506).
+  const latestClose = useRef(close);
+  useEffect(() => {
+    latestClose.current = close;
+  });
   useEffect(() => {
     const box = root.current;
     if (!box) return;
@@ -184,13 +190,13 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || (e.target as Element | null)?.closest(".menu, .popover, .dialog")) return;
       e.stopPropagation();
-      close();
+      latestClose.current();
     };
     box.addEventListener("keydown", onKey);
     return () => {
       box.removeEventListener("keydown", onKey);
     };
-  }, [close]);
+  }, []);
 
   const go = (row: SettingsNavRow) => {
     scrollPending.current = null;

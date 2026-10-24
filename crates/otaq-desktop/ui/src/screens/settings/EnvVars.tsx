@@ -1,8 +1,9 @@
 // The Environment variables row (T-0300; ENV-01, ENV-03, d0082; *15 → Row · Environment variables (0082)* and *… ·
 // edit, remove, errors (0082)*): the row's text and the always-visible hint, then a full-width list of NAME = value
 // lines, Add variable and the "applies after" line. Every word and every problem comes from the Rust row
-// (`SettingsControl` "env_vars"); this keeps only what is being typed. A field saves on ↵ or blur; Esc puts back the
-// saved text. A new line is kept here until it has a name and focus leaves it (or ↵); Esc drops it.
+// (`SettingsControl` "env_vars"); this keeps only what is being typed. A field saves on ↵, blur or Esc (T-0506: Esc
+// once saves and stays in Settings, Esc again closes it). A new line is kept here until focus leaves it, ↵ or Esc, which
+// save it once anything is typed (a value with no name too: the Rust row then marks it); Esc drops only an empty one.
 import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { Tooltip, PLAIN_TEXT } from "../../components";
@@ -37,7 +38,7 @@ function useEscape(ref: RefObject<HTMLElement | null>, take: () => boolean) {
   }, [ref]);
 }
 
-/** One saved field: saves on ↵ and blur when changed; Esc puts back the saved text. */
+/** One saved field: saves on ↵, blur and Esc when changed; Esc on an unchanged field closes Settings. */
 function VarField({
   field,
   value,
@@ -55,17 +56,25 @@ function VarField({
   const input = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(value);
   const [base, setBase] = useState(value);
+  // What was last sent, until the service's answer comes back: a second Esc then closes Settings.
+  const sent = useRef<string | null>(null);
   // A fresh value from the service (a save, another window) replaces the draft.
   if (base !== value) {
     setBase(value);
     setDraft(value);
   }
+  useEffect(() => {
+    sent.current = null;
+  }, [value]);
+  const unsaved = () => draft !== value && draft !== sent.current;
   const save = () => {
-    if (draft !== value) edit(field, draft);
+    if (!unsaved()) return;
+    sent.current = draft;
+    edit(field, draft);
   };
   useEscape(input, () => {
-    if (draft === value) return false;
-    setDraft(value);
+    if (!unsaved()) return false;
+    save();
     return true;
   });
   return (
@@ -150,7 +159,8 @@ function SavedVar({ index, row, control }: { index: number; row: SettingsEnvVar;
   );
 }
 
-/** The line Add variable opens: NAME focused; ↵ or leaving it saves it once it has a name; Esc or × drops it.
+/** The line Add variable opens: NAME focused; ↵, Esc or leaving it saves it once anything is typed (a value with no
+ * name is saved too, and marked); × drops it, and Esc drops it while it is empty.
  * `onDone(refocus)`: after ↵, Esc or × the focus goes back to Add variable, since the line goes with it. */
 function NewVar({ control, onDone }: { control: EnvVarsControl; onDone: (refocus: boolean) => void }) {
   const { edit } = useSettings();
@@ -165,11 +175,11 @@ function NewVar({ control, onDone }: { control: EnvVarsControl; onDone: (refocus
   const finish = (save: boolean, refocus: boolean) => {
     if (done.current) return;
     done.current = true;
-    if (save && draft.name !== "") edit("env_vars.add", draft);
+    if (save && (draft.name !== "" || draft.value !== "")) edit("env_vars.add", draft);
     onDone(refocus);
   };
   useEscape(line, () => {
-    finish(false, true);
+    finish(true, true);
     return true;
   });
   const field = (part: "name" | "value", placeholder: string) => (

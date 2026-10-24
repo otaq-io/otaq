@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-// The Environment variables row's own logic (T-0300): what is sent when, and Esc that reverts instead of closing.
+// The Environment variables row's own logic (T-0300, T-0506): what is sent when, and Esc that saves the row first and
+// closes Settings only the second time.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -126,7 +127,35 @@ describe("the Environment variables row", () => {
     expect(document.activeElement).toBe(addButton());
   });
 
-  it("drops a new line on Esc without closing Settings, and never saves one without a name", () => {
+  it("keeps a new line on name, value, Tab and Esc (the dogfood run's CI, true), and Esc again closes Settings", () => {
+    show(envRow([]));
+    act(() => {
+      addButton().click();
+    });
+    const [name, value] = inputs();
+    const drop = box.querySelector<HTMLButtonElement>('button[aria-label="Remove variable"]');
+    if (!name || !value || !drop) throw new Error("no new line");
+    type(name, "CI");
+    act(() => {
+      value.focus();
+    });
+    type(value, "true");
+    // Tab: the focus moves to the line's ×, still inside the line, so nothing is saved yet.
+    key(value, "Tab");
+    act(() => {
+      drop.focus();
+    });
+    expect(edits).toEqual([]);
+    key(drop, "Escape");
+    expect(edits).toEqual([["env_vars.add", { name: "CI", value: "true" }]]);
+    expect(closed).toBe(0);
+    expect(inputs()).toHaveLength(0);
+    expect(document.activeElement).toBe(addButton());
+    key(addButton(), "Escape");
+    expect(closed).toBe(1);
+  });
+
+  it("drops only an empty new line on Esc; one with a value and no name is saved, for the row to mark it", () => {
     show(envRow([]));
     act(() => {
       addButton().click();
@@ -136,17 +165,36 @@ describe("the Environment variables row", () => {
     key(name, "Escape");
     expect(inputs()).toHaveLength(0);
     expect(closed).toBe(0);
-    act(() => {
-      addButton().click();
-    });
-    const [, value] = inputs();
-    if (!value) throw new Error("no new line");
-    type(value, "1");
-    key(value, "Enter");
     expect(edits).toEqual([]);
+    for (const end of ["Enter", "Escape", "blur"]) {
+      edits.length = 0;
+      act(() => {
+        addButton().click();
+      });
+      const [, value] = inputs();
+      if (!value) throw new Error("no new line");
+      act(() => {
+        value.focus();
+      });
+      type(value, "1");
+      if (end === "blur")
+        act(() => {
+          value.blur();
+        });
+      else key(value, end);
+      expect(edits, end).toEqual([["env_vars.add", { name: "", value: "1" }]]);
+      expect(closed, end).toBe(0);
+    }
   });
 
-  it("saves an edited field on ↵ and puts it back on Esc", () => {
+  it("marks a saved row with a value and no name", () => {
+    show(envRow([{ name: "", value: "1", problem: "Add a name, or remove the row" }]));
+    const [name] = inputs();
+    expect(name?.getAttribute("aria-invalid")).toBe("true");
+    expect(box.textContent).toContain("Add a name, or remove the row");
+  });
+
+  it("saves an edited field on ↵ and on Esc, which closes Settings only the second time", () => {
     show(envRow([{ name: "NODE_OPTIONS", value: "--max-old-space-size=4096" }]));
     const [, value] = inputs();
     if (!value) throw new Error("no row");
@@ -157,12 +205,16 @@ describe("the Environment variables row", () => {
     show(envRow([{ name: "NODE_OPTIONS", value: "--max-old-space-size=6144" }]));
     type(value, "--inspect");
     key(value, "Escape");
-    expect(value.value).toBe("--max-old-space-size=6144");
+    expect(edits).toEqual([["env_vars.0.value", "--inspect"]]);
     expect(closed).toBe(0);
-    // Nothing to put back: Esc closes Settings as usual.
+    // Saved (the answer may still be on its way): Esc closes Settings as usual, and sends nothing again.
     key(value, "Escape");
     expect(closed).toBe(1);
-    expect(edits).toEqual([]);
+    expect(edits).toHaveLength(1);
+    act(() => {
+      value.blur();
+    });
+    expect(edits).toHaveLength(1);
   });
 
   it("marks a row with a problem and removes a row with ×", () => {

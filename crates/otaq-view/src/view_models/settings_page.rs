@@ -248,8 +248,8 @@ pub enum Control {
         remove_label: String,
     },
     /// The project environment variables (ENV-01, d0082), drawn across the row's width under its text. "Add
-    /// variable" opens a new row (`env_vars.add` with a `{ name, value }` once it has a name); × removes one
-    /// (`env_vars.remove`).
+    /// variable" opens a new row (`env_vars.add` with a `{ name, value }` once anything is typed in it: one with a
+    /// value but no name is kept and marked, T-0506); × removes one (`env_vars.remove`).
     EnvVars {
         rows: Vec<EnvVarRow>,
         /// The always-visible example: `CI = true`, then its reason.
@@ -1677,7 +1677,8 @@ pub fn env_vars_gallery() -> EnvVarsGallery {
     }
 }
 
-/// An edit of the Environment variables row: `env_vars.add` (a new row; one without a name isn't saved),
+/// An edit of the Environment variables row: `env_vars.add` (a new row; an empty one isn't saved, and one with a value
+/// but no name is kept, marked "Add a name, or remove the row", so nothing typed is lost: T-0506),
 /// `env_vars.remove` (no confirmation: nothing on disk is deleted), `env_vars.<index>.name` / `.value`. Names and
 /// values are kept as typed: a space is allowed, and the service marks only what would break the start (ENV-03).
 fn edit_env_var(
@@ -1689,7 +1690,7 @@ fn edit_env_var(
     let rows = &mut s.env_vars;
     let result = match rest {
         "add" => match value {
-            Value::Var(v) if v.name.is_empty() => Ok(ProjectChange::Nothing),
+            Value::Var(v) if v.name.is_empty() && v.value.is_empty() => Ok(ProjectChange::Nothing),
             Value::Var(v) => {
                 rows.push(EnvVar::new(&v.name, &v.value));
                 Ok(ProjectChange::Settings)
@@ -3238,11 +3239,18 @@ mod tests {
             })
         };
         assert_eq!(
-            edit_project(&mut s, "env_vars.add", &var("", "1")).unwrap(),
+            edit_project(&mut s, "env_vars.add", &var("", "")).unwrap(),
             ProjectChange::Nothing,
-            "a row with an empty name isn't saved"
+            "an empty row isn't saved"
         );
         assert!(s.env_vars.is_empty());
+        edit_project(&mut s, "env_vars.add", &var("", "1")).unwrap();
+        assert_eq!(
+            s.env_vars,
+            [EnvVar::new("", "1")],
+            "a value with no name is kept (and marked), not dropped"
+        );
+        edit_project(&mut s, "env_vars.remove", &Value::Number(0)).unwrap();
         edit_project(&mut s, "env_vars.add", &var("CI", "true")).unwrap();
         edit_project(&mut s, "env_vars.add", &var("MY LOG ", " a b ")).unwrap();
         assert_eq!(
