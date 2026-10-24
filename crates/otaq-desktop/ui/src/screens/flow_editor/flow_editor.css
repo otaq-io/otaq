@@ -860,6 +860,69 @@
   line-height: 1.4;
 }
 
+/* A problem's fix in a step's details (Q426, FLW-04's notes): red until picked, then ok; an import clash amber. */
+.fe-fix {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--st-error-bg);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fe-fix > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-error);
+}
+
+.fe-fix[data-tone="ok"] {
+  background: var(--st-approved-bg);
+}
+
+.fe-fix[data-tone="ok"] > .icon {
+  color: var(--st-approved);
+}
+
+.fe-fix[data-tone="amber"] {
+  background: var(--st-paused-bg);
+}
+
+.fe-fix[data-tone="amber"] > .icon {
+  color: var(--st-paused);
+}
+
+.fe-fix-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fe-fix-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.fe-fix-picked {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.fe-fix-model,
+.fe-fix-clash {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
 .fe-change {
   display: flex;
   align-items: flex-start;

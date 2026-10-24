@@ -235,6 +235,7 @@ async fn key(client: &Client, caller: &Caller, bytes: &[u8]) {
             session: session_of(caller).to_owned(),
             data: encode_bytes(bytes),
             reply: false,
+            if_empty: false,
         }))
         .await
         .unwrap();

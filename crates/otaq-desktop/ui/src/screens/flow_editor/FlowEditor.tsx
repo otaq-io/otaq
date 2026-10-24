@@ -8,7 +8,9 @@
 // or clicks one, then its terminal. Everything it says is `flow_editor.view`'s; the body is its own component so
 // onboarding's Flow step and the Flow setup page (`FlowEditorPage`, FED-09) and the gallery draw the same.
 // A new stage's details start with its templates, and the Skill field offers Pick a skill… and Ask the agent to
-// write it (T-0472; FED-05, FED-06; `s26-09`, `s27-05`, `s27-06`).
+// write it (T-0472; FED-05, FED-06; `s26-09`, `s27-05`, `s27-06`), which only prefills the panel's box (Q441). A
+// problem that needs a pick shows its fix in the step's details, with FLW-04's controls (Q426); the picks stay here
+// until Apply sends them.
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { keymap } from "../../app/keyboard";
@@ -30,11 +32,15 @@ import {
   ToolAvatar,
   Tooltip,
   PLAIN_TEXT,
+  Radio,
 } from "../../components";
 import type { FlowEditorAgent } from "../../generated/FlowEditorAgent";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
+import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
+import type { FlowEditorClashPick } from "../../generated/FlowEditorClashPick";
 import type { FlowEditorDetails } from "../../generated/FlowEditorDetails";
 import type { FlowEditorEntry } from "../../generated/FlowEditorEntry";
+import type { FlowEditorFix } from "../../generated/FlowEditorFix";
 import type { FlowEditorFlow } from "../../generated/FlowEditorFlow";
 import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
 import type { FlowEditorMark } from "../../generated/FlowEditorMark";
@@ -47,14 +53,18 @@ import type { FlowEditorStartFrom } from "../../generated/FlowEditorStartFrom";
 import type { FlowEditorStep } from "../../generated/FlowEditorStep";
 import type { FlowEditorTile } from "../../generated/FlowEditorTile";
 import type { FlowEditorView } from "../../generated/FlowEditorView";
+import type { IconName } from "../../generated/IconName";
 import { useServiceView } from "../../service";
-import { pickFlowFile, request } from "../../tauri";
+import { pickFlowFile, pickFolder, request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
+import { optionItems } from "../settings/Agents";
+import { ModelPicker } from "../settings/ModelPicker";
 import {
   addOnOpening,
   applyDraft,
   askEach,
+  askToWrite,
   askTool,
   cancelDraft,
   chipPressed,
@@ -65,12 +75,17 @@ import {
   FLOW_EDITOR_EVENTS,
   importChoice,
   keyMove,
+  NO_CHOICES,
   nextTile,
   pickEntry,
   sendFirst,
+  type SkillButton,
   skillButton,
   TILE_MS,
   undo,
+  withClash,
+  withFolder,
+  withModel,
   writeSkill,
 } from "./logic";
 
@@ -86,14 +101,24 @@ export interface EditorActions {
   ask: (tool: string) => void;
   askBoth: (tools: readonly string[]) => void;
   chip: (action: FlowEditorChipAction, openChooser: () => void) => void;
-  send: (text: string) => void;
-  /** The Skill field's buttons on a stage: Ask the agent to write it, Stop, Undo, Open. */
+  /** The panel's box sent; `writeFor`: the stage whose skill it asks for (the box was prefilled for it). */
+  send: (text: string, writeFor: string | null) => void;
+  /** Ask the agent to write it, and the Write the skill chip: `prefill` goes in the agent's box, nothing is sent. */
+  write: (stage: string, prefill: string) => void;
+  /** The Skill field's other buttons on a stage: Stop, Undo, Open. */
   skill: (stage: string, button: SkillButton) => void;
+  /** A pick for a problem (Q426): the picks so far, changed. */
+  fix: (change: (choices: FlowEditorChoices) => FlowEditorChoices) => void;
   apply: () => void;
   cancel: () => void;
 }
 
-export type SkillButton = "write_skill" | "stop_writing" | "undo_skill" | "open_skill";
+/** What Ask the agent to write it put in the idle panel's box, for which stage; `seq` tells two presses apart. */
+export interface Prefill {
+  stage: string;
+  text: string;
+  seq: number;
+}
 
 // ---------------------------------------------------------------------------------------------------------- Start from
 
@@ -520,7 +545,7 @@ export function SkillField({
               icon="sparkles"
               label={state.ask}
               onClick={() => {
-                actions.skill(stage, "write_skill");
+                actions.write(stage, state.prefill);
               }}
             />
           </div>
@@ -680,6 +705,97 @@ function NameField({ details, onRename }: { details: FlowEditorDetails; onRename
   );
 }
 
+/**
+ * A problem's fix, or an import clash (Q426; FLW-04's controls): Keep mine · Take theirs · Add as; Import its folder…
+ * (the system folder picker); the model menu (the default model or a connected tool, then that tool's models).
+ */
+export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorActions }) {
+  const name = useId();
+  const control = fix.control;
+  let action: React.ReactNode = null;
+  let below: React.ReactNode = null;
+  let tone: "red" | "amber" | "ok" = fix.fixed ? "ok" : "red";
+  let icon: IconName = fix.fixed ? "circle-check" : "circle-x";
+  switch (control.kind) {
+    case "clash":
+      tone = "amber";
+      icon = "git-compare";
+      below = (
+        <div className="fe-fix-clash" role="radiogroup" aria-label={fix.text}>
+          {control.options.map((o) => (
+            <Radio
+              key={o.id}
+              name={name}
+              checked={o.selected}
+              label={o.label}
+              onChange={(checked) => {
+                if (checked) actions.fix((c) => withClash(c, control.agent, o.id as FlowEditorClashPick));
+              }}
+            />
+          ))}
+        </div>
+      );
+      break;
+    case "folder":
+      action = (
+        <Button
+          variant="secondary"
+          compact
+          icon="folder-input"
+          label={control.label}
+          onClick={() => {
+            pickFolder(control.picker_title).then((folder) => {
+              if (folder !== null) actions.fix((c) => withFolder(c, control.skill, folder));
+            }, ignore);
+          }}
+        />
+      );
+      if (control.picked !== null) below = <span className="fe-fix-picked">{control.picked}</span>;
+      break;
+    case "model": {
+      const model = control.fix;
+      const chosen = model.tools.find((t) => t.selected);
+      below = (
+        <span className="fe-fix-model">
+          <Select
+            label={model.tool_label}
+            value={chosen?.label ?? model.tool_label}
+            items={optionItems(model.tools)}
+            onChange={(id) => {
+              actions.fix((c) => withModel(c, model.agent, id));
+            }}
+          />
+          {model.picker !== null && chosen !== undefined && (
+            <ModelPicker
+              label={model.model_label}
+              picker={model.picker}
+              onPick={(picked) => {
+                actions.fix((c) => withModel(c, model.agent, chosen.id, picked));
+              }}
+              onRetry={(t) => {
+                request("settings.agents_models_retry", { tool: t }).catch(ignore);
+              }}
+            />
+          )}
+        </span>
+      );
+      break;
+    }
+  }
+  return (
+    <div className="fe-fix" data-tone={tone}>
+      <Icon name={icon} size={14} />
+      <div className="fe-fix-text">
+        <div className="fe-fix-line">
+          <span>{fix.text}</span>
+          {action}
+        </div>
+        {below}
+      </div>
+    </div>
+  );
+}
+
 function DetailsPanel({ details, actions }: { details: FlowEditorDetails; actions: EditorActions }) {
   const stage = details.stage;
   const kindIndex = details.kinds.findIndex((k) => k.kind === details.kind);
@@ -783,6 +899,9 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
           ))}
         </div>
       )}
+      {details.fixes.map((fix) => (
+        <FixLine key={fix.text} fix={fix} actions={actions} />
+      ))}
       {details.problem !== null && (
         <p className="fe-problem" role="alert">
           {details.problem}
@@ -870,6 +989,9 @@ function FlowColumn({
         <p key={p} className="fe-problem" role="alert">
           {p}
         </p>
+      ))}
+      {flow.fixes.map((fix) => (
+        <FixLine key={fix.text} fix={fix} actions={actions} />
       ))}
       {flow.change_line !== null && (
         <p className="fe-change">
@@ -961,13 +1083,32 @@ export function AgentColumn({
   actions,
   input,
   terminal,
+  prefill = null,
 }: {
   agent: FlowEditorAgent;
   actions: EditorActions;
   input: React.RefObject<HTMLInputElement | null>;
   terminal: React.Ref<TerminalHandle>;
+  /** Ask the agent to write it: the words to put in the box, the caret after them (Q441). */
+  prefill?: Prefill | null;
 }) {
   const [text, setText] = useState("");
+  // The stage whose skill the box asks for, while it holds the prefilled request (gone once emptied or sent).
+  const [writeFor, setWriteFor] = useState<string | null>(null);
+  // A new press (`seq`) puts its words in the box; the same one rendered again doesn't.
+  const [filled, setFilled] = useState<number | null>(null);
+  if (prefill !== null && prefill.seq !== filled) {
+    setFilled(prefill.seq);
+    setText(prefill.text);
+    setWriteFor(prefill.stage);
+  }
+  // Then the box takes the keyboard, the caret after the words.
+  useEffect(() => {
+    const box = input.current;
+    if (filled === null || box === null) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [filled, input]);
   const [choosing, setChoosing] = useState(false);
   // The first message was sent from here: the agent's terminal takes the keyboard once it opens (#51, d0126).
   const [sent, setSent] = useState(false);
@@ -1019,14 +1160,16 @@ export function AgentColumn({
                 aria-label={agent.title}
                 onChange={(e) => {
                   setText(e.target.value);
+                  if (e.target.value === "") setWriteFor(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
                   e.preventDefault();
                   if (text.trim() === "") return;
-                  actions.send(text);
+                  actions.send(text, writeFor);
                   setSent(true);
                   setText("");
+                  setWriteFor(null);
                 }}
               />
             </label>
@@ -1083,6 +1226,8 @@ export interface FlowEditorBodyProps {
   input?: React.RefObject<HTMLInputElement | null>;
   terminal?: React.Ref<TerminalHandle>;
   titleId?: string;
+  /** What Ask the agent to write it put in the idle panel's box. */
+  prefill?: Prefill | null;
 }
 
 /** The editor's three parts for a loaded view (also what the gallery and onboarding's Flow step draw). */
@@ -1093,6 +1238,7 @@ export function FlowEditorBody({
   input,
   terminal,
   titleId,
+  prefill = null,
 }: FlowEditorBodyProps) {
   const fallbackInput = useRef<HTMLInputElement>(null);
   const ownId = useId();
@@ -1105,6 +1251,7 @@ export function FlowEditorBody({
         actions={actions}
         input={input ?? fallbackInput}
         terminal={terminal ?? null}
+        prefill={prefill}
       />
     </div>
   );
@@ -1131,6 +1278,9 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
   const { project, from, onDone, onEscape } = open;
   const [selected, setSelected] = useState<string | null>(open.select_stage ?? null);
   const [busy, setBusy] = useState(false);
+  // The picks for the draft's problems (Q426), sent with every view and with Apply.
+  const [choices, setChoices] = useState<FlowEditorChoices>(NO_CHOICES);
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
   const agents = useStore(editorAgents);
   const agent = agents[project] ?? null;
   const input = useRef<HTMLInputElement>(null);
@@ -1151,9 +1301,10 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
       from,
       ...(selected !== null && { selected }),
       ...(agent !== null && { agent }),
+      choices,
     };
     return request("flow_editor.view", p) as Promise<FlowEditorView>;
-  }, [project, from, selected, agent]);
+  }, [project, from, selected, agent, choices]);
   const state = useServiceView(load, FLOW_EDITOR_EVENTS);
   const view = state.view;
 
@@ -1174,6 +1325,16 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
   );
   const actions = useMemo<EditorActions | null>(() => {
     if (view === undefined) return null;
+    // Ask the agent to write it (Q441): the running agent's input line gets the words and its terminal the keyboard;
+    // otherwise the idle box does. Nothing is sent.
+    const running = view.agent.session !== null ? view.agent.agent : null;
+    const write = (stage: string, text: string) => {
+      askToWrite(project, stage, text, running, (s, t) => {
+        setPrefill((p) => ({ stage: s, text: t, seq: (p?.seq ?? 0) + 1 }));
+      }).then((into) => {
+        if (into === "terminal") terminal.current?.focus();
+      }, ignore);
+    };
     return {
       select: setSelected,
       edit: (edit) => {
@@ -1199,16 +1360,17 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
         askEach(project, from, tools).catch(ignore);
       },
       chip: (action, openChooser) => {
-        chipPressed(project, from, action, openChooser).catch(ignore);
+        chipPressed(project, from, action, openChooser, write).catch(ignore);
       },
-      send: (text) => {
-        sendFirst(project, text).catch(ignore);
-      },
-      skill: (stage, button) => {
-        const sent =
-          button === "write_skill" ? writeSkill(project, stage) : skillButton(project, stage, button);
+      send: (text, writeFor) => {
+        const sent = writeFor === null ? sendFirst(project, text) : writeSkill(project, writeFor, text);
         sent.catch(ignore);
       },
+      write,
+      skill: (stage, button) => {
+        skillButton(project, stage, button).catch(ignore);
+      },
+      fix: setChoices,
       apply: () => {
         finish(applyDraft(view));
       },
@@ -1243,7 +1405,7 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
     };
   }, [box, selected, onEscape]);
 
-  return { state, view, actions, busy, input, terminal };
+  return { state, view, actions, busy, input, terminal, prefill };
 }
 
 /**
@@ -1293,6 +1455,7 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
             input={editor.input}
             terminal={editor.terminal}
             titleId={titleId}
+            prefill={editor.prefill}
           />
         )}
       </section>
@@ -1330,6 +1493,7 @@ export function FlowEditorPage({ project, onDone }: FlowEditorPageProps) {
           input={editor.input}
           terminal={editor.terminal}
           titleId={titleId}
+          prefill={editor.prefill}
         />
       )}
     </section>
@@ -1364,11 +1528,17 @@ export function recordingActions(record: (what: string) => void): EditorActions 
       if (action.kind === "choose_tool") openChooser();
       record(`chip ${action.kind}`);
     },
-    send: (text) => {
-      record(`send ${text}`);
+    send: (text, writeFor) => {
+      record(writeFor === null ? `send ${text}` : `write_skill ${writeFor}: ${text}`);
+    },
+    write: (stage, prefill) => {
+      record(`prefill ${stage}: ${prefill}`);
     },
     skill: (stage, button) => {
       record(`${button} ${stage}`);
+    },
+    fix: (change) => {
+      record(`fix ${JSON.stringify(change(NO_CHOICES))}`);
     },
     apply: () => {
       record("apply");

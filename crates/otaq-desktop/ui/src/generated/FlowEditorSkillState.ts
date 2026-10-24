@@ -3,7 +3,7 @@
 /**
  * What the Skill field shows (FED-06). `FlowEditorSkillState` on the page.
  */
-export type FlowEditorSkillState = { "state": "set", skill: string, } | { "state": "empty", text: string, pick: string, ask: string, hint: string, } | { "state": "writing", text: string, stop: string, } | { "state": "written", skill: string, note: string, 
+export type FlowEditorSkillState = { "state": "set", skill: string, } | { "state": "empty", text: string, pick: string, ask: string, hint: string, prefill: string, } | { "state": "writing", text: string, stop: string, } | { "state": "written", skill: string, note: string, 
 /**
  * "Written by Checkout slowness" (hover).
  */

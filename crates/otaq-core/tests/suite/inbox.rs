@@ -179,6 +179,7 @@ async fn changes_are_published_only_when_the_set_changes() {
             session: shell.session.clone(),
             data: encode_bytes(b"Postmark\r"),
             reply: false,
+            if_empty: false,
         }))
         .await
         .unwrap();

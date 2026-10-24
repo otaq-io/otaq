@@ -102,6 +102,7 @@ async fn attach(
                         session: session.clone(),
                         data: encode_bytes(before),
                         reply: false,
+                        if_empty: false,
                     });
                     if let Err(e) = client.request(input).await {
                         break Some(Err(client_error(e)));

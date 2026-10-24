@@ -104,6 +104,7 @@ async fn type_in(w: &TestService, session: &str, keys: &[u8]) {
             session: session.to_owned(),
             data: encode_bytes(keys),
             reply: false,
+            if_empty: false,
         }))
         .await
         .unwrap();
