@@ -7749,6 +7749,7 @@ aren't listed.
 - @types/react-dom 19.3.0 (MIT)
 - @types/unist 3.0.3 (MIT)
 - @types/use-sync-external-store 0.0.6 (MIT)
+- @xterm/addon-clipboard 0.2.0 (MIT)
 - @xterm/addon-fit 0.11.0 (MIT)
 - @xterm/addon-search 0.16.0 (MIT)
 - @xterm/addon-unicode11 0.9.0 (MIT)
@@ -7760,6 +7761,7 @@ aren't listed.
 - devlop 1.1.0 (MIT)
 - fast-equals 5.4.5 (MIT)
 - highlight.js 11.11.2 (BSD-3-Clause)
+- js-base64 3.9.4 (BSD-3-Clause)
 - linkifyjs 4.3.3 (MIT)
 - lowlight 3.3.0 (MIT)
 - marked 17.0.6 (MIT)
@@ -9081,6 +9083,32 @@ MIT, from https://github.com/DefinitelyTyped/DefinitelyTyped
     SOFTWARE
 ```
 
+### @xterm/addon-clipboard 0.2.0
+
+MIT, from https://github.com/xtermjs/xterm.js/tree/master/addons/addon-clipboard
+
+```text
+Copyright (c) 2023, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 ### @xterm/addon-fit 0.11.0
 
 MIT, from https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit
@@ -9371,6 +9399,40 @@ modification, are permitted provided that the following conditions are met:
   and/or other materials provided with the distribution.
 
 * Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### js-base64 3.9.4
+
+BSD-3-Clause, from https://github.com/dankogai/js-base64
+
+```text
+Copyright (c) 2014, Dan Kogai
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of {{{project}}} nor the names of its
   contributors may be used to endorse or promote products derived from
   this software without specific prior written permission.
 
