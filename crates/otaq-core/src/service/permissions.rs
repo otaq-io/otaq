@@ -13,15 +13,16 @@ use crate::policy::{
 };
 use crate::protocol::Request;
 
-/// Checks `request` for `caller` before it runs. The user passes without any lookup; every other caller (an
-/// agent, a validator, a Project agent, an epic lead) is judged by the policy.
+/// Checks `request` for `caller` before it runs, and returns the action it was judged as. The user passes
+/// without any lookup (`None`); every other caller (an agent, a validator, a Project agent, an epic lead) is judged
+/// by the policy.
 pub(super) async fn check(
     caller: &Caller,
     request: &Request,
     board: &Board,
-) -> Result<(), BoardError> {
+) -> Result<Option<Action>, BoardError> {
     if *caller == Caller::User {
-        return Ok(());
+        return Ok(None);
     }
     let action = action_for(caller, request, board).await?;
     let caller_name = match caller {
@@ -47,7 +48,37 @@ pub(super) async fn check(
         project: project_name.as_deref(),
     };
     let stage = stage_name(caller, board).await;
-    authorize_in_stage(caller, names, stage.as_deref(), &action)
+    authorize_in_stage(caller, names, stage.as_deref(), &action)?;
+    Ok(Some(action))
+}
+
+/// What an agent's request says about the agent (d0119, d0042, d0027).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentActivity {
+    /// A hook, or the status line's bookkeeping (`usage.record_limits`): never the agent running a command.
+    Bookkeeping,
+    /// A read-only `otaq` command the agent ran (`prime`, `diff files`, `ping`): it changes no status and moves no
+    /// last signal.
+    Reads,
+    /// A command that acts (writes): the agent is at it again. It clears Needs you and Idle and moves the last
+    /// signal; it never clears an open question.
+    Acts,
+}
+
+/// Which requests count as the agent acting (d0119): only those that act. `action` is what the policy judged
+/// `request` as ([`check`]).
+pub(crate) fn agent_activity(request: &Request, action: &Action) -> AgentActivity {
+    match request {
+        Request::Hook(_) | Request::UsageRecordLimits(_) => AgentActivity::Bookkeeping,
+        // A Project agent naming itself and asking (the handler refuses everyone else): judged as reads, they act.
+        Request::AgentName(_) | Request::AgentAsk(_) | Request::AgentAskHuman(_) => {
+            AgentActivity::Acts
+        }
+        _ => match action {
+            Action::Read | Action::ReadTerminal { .. } => AgentActivity::Reads,
+            _ => AgentActivity::Acts,
+        },
+    }
 }
 
 /// The name of the stage a ticket session's stage run is in, for its refusals (STG-10), on every flow (Q269, AGM-10):
@@ -546,4 +577,59 @@ async fn action_for(
         }
         R::AppFocus(_) => Action::UserOnly("report the app's window focus"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_tools::Tool;
+    use crate::protocol::{AgentAskHumanParams, HookParams, KeyParams, RecordLimitsParams};
+
+    /// T-0489 (d0119): only requests that act count as the agent acting; reads and the status line don't.
+    #[test]
+    fn which_requests_count_as_the_agent_acting() {
+        let key = || KeyParams {
+            key: "SHOP-1".into(),
+        };
+        let limits = Request::UsageRecordLimits(RecordLimitsParams {
+            tool: Tool::Claude,
+            windows: Vec::new(),
+        });
+        assert_eq!(
+            agent_activity(&limits, &Action::Read),
+            AgentActivity::Bookkeeping
+        );
+        let hook = Request::Hook(HookParams {
+            tool: Tool::Claude,
+            event: "Stop".into(),
+            payload: serde_json::Value::Null,
+            role: None,
+        });
+        assert_eq!(
+            agent_activity(&hook, &Action::Read),
+            AgentActivity::Bookkeeping
+        );
+        for read in [
+            Request::Ping,
+            Request::TicketPrime(key()),
+            Request::DiffFiles(key()),
+        ] {
+            assert_eq!(
+                agent_activity(&read, &Action::Read),
+                AgentActivity::Reads,
+                "{read:?}"
+            );
+        }
+        let ask = Request::AgentAskHuman(AgentAskHumanParams {
+            question: "Import closed issues too?".into(),
+            options: Vec::new(),
+            notes: Vec::new(),
+            recommended: None,
+        });
+        assert_eq!(agent_activity(&ask, &Action::Read), AgentActivity::Acts);
+        assert_eq!(
+            agent_activity(&Request::TicketNotes(key()), &Action::UserOnly("x")),
+            AgentActivity::Acts
+        );
+    }
 }

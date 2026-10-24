@@ -3,10 +3,15 @@
 //!
 //! - **Asks you** (`otaq ask human`), **Needs you** (a permission or elicitation prompt) and **Idle** (the turn
 //!   ended with nothing pending) keep their label and text: the question, the prompt, the agent's last line.
-//! - They **clear** on the user's input: Enter in the ticket's terminal, an answer from the inbox (M7), or the agent
-//!   running any `otaq` command; the ticket is Working again.
-//! - **Working in background** is neutral and counts as working; any `otaq` command or a new turn ends it.
-//! - Every hook and every command updates the **last signal**; it is **stale** after [`STALE_AFTER_MS`].
+//! - They **clear** on the user's input: Enter in the ticket's terminal, an answer from the inbox (M7); Needs you and
+//!   Idle also when the agent runs an `otaq` command that acts. The ticket is Working again.
+//! - **An open question holds Asks you** (d0119): while the ticket has an unanswered question
+//!   ([`SignalState::question`], read from the store), it shows Asks you with that question whatever hooks or
+//!   commands say. A permission prompt shows on top (Needs you) and gives way to the question again once answered.
+//!   Only closing the question (answered, replaced, closed) lets the ticket be Working.
+//! - **Working in background** is neutral and counts as working; a command that acts or a new turn ends it.
+//! - Every hook and every command that acts updates the **last signal**; it is **stale** after [`STALE_AFTER_MS`].
+//!   Reads and the status line's bookkeeping never get here (d0119).
 //!
 //! Only tickets whose agent is at work ([`super::LIVE`]) change status; the last signal moves for any ticket.
 //!
@@ -34,6 +39,8 @@ pub struct SignalState {
     pub last_signal_at: Option<i64>,
     /// The ticket validates: Validating…, or its agent waits for the user during a validation.
     pub validating: bool,
+    /// The ticket's open question to the user (d0119), read from the store; never written with the state.
+    pub question: Option<String>,
 }
 
 impl Default for SignalState {
@@ -45,6 +52,7 @@ impl Default for SignalState {
             wakeup_at: None,
             last_signal_at: None,
             validating: false,
+            question: None,
         }
     }
 }
@@ -56,7 +64,7 @@ pub enum Input {
     Hook(Signal),
     /// `otaq ask human` with this question.
     AskHuman(String),
-    /// Any other `otaq` command run by the agent.
+    /// Any other `otaq` command run by the agent that acts ([`crate::service::AgentActivity::Acts`]).
     Command,
     /// Enter pressed in the ticket's terminal (the relay, T-0051).
     Enter,
@@ -126,8 +134,9 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
         Input::AskHuman(question) => {
             set(&mut next, Status::AsksYou, Some(question.clone()), None);
         }
+        // An open question isn't the agent's to clear (d0119).
         Input::Command => {
-            if state.status.is_agent_waiting()
+            if (state.status.is_agent_waiting() && state.status != Status::AsksYou)
                 || matches!(
                     state.status,
                     Status::WorkingInBackground | Status::WaitingForLimitReset
@@ -142,6 +151,22 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
             }
         }
     }
+    // The open question holds Asks you; only a permission prompt shows on top of it (d0119).
+    if let Some(question) = &state.question
+        && !matches!(input, Input::AskHuman(_))
+        && next.status != Status::NeedsYou
+    {
+        let text = Some(question.clone());
+        // Still the same question: it keeps counting from when it was asked.
+        next.since = if state.status == Status::AsksYou && state.text == text {
+            state.since
+        } else {
+            Some(now)
+        };
+        next.status = Status::AsksYou;
+        next.text = text;
+        next.wakeup_at = None;
+    }
     next
 }
 
@@ -150,6 +175,8 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
     // The validator's own prompt shows; the agent's waits behind it.
     let open = matches!(next.status, Status::Checking) || next.status.is_agent_waiting();
     let waiting = next.status.is_agent_waiting();
+    let question = next.question.clone();
+    let asks = next.status == Status::AsksYou;
     let mut set = |status: Status, text: Option<String>| {
         if next.status != status || next.text != text {
             next.since = Some(now);
@@ -166,7 +193,13 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
         Input::Hook(Signal::Working { .. }) | Input::Enter | Input::Answered | Input::Command
             if waiting =>
         {
-            set(Status::Checking, None)
+            // An open question keeps Asks you, and a prompt on top of it gives way to it again (d0119); the
+            // agent's own command never clears a question.
+            match question {
+                Some(question) => set(Status::AsksYou, Some(question)),
+                None if asks && matches!(input, Input::Command) => {}
+                None => set(Status::Checking, None),
+            }
         }
         // Stop, background work, the usage limit: the validation stands.
         _ => {}
@@ -201,6 +234,7 @@ mod tests {
             last_signal_at: Some(10),
             wakeup_at: None,
             validating: false,
+            question: None,
         }
     }
 
@@ -314,10 +348,19 @@ mod tests {
     }
 
     #[test]
-    fn any_command_clears_needs_you_and_background() {
+    fn a_command_that_acts_clears_needs_you_idle_and_background() {
         for status in Status::AGENT_WAITS {
             let s = transition(&with(*status, "q"), &Input::Command, 500);
-            assert_eq!((s.status, s.last_signal_at), (Status::Working, Some(500)));
+            // d0119: the agent's own command never clears its question.
+            let expected = match status {
+                Status::AsksYou => Status::AsksYou,
+                _ => Status::Working,
+            };
+            assert_eq!(
+                (s.status, s.last_signal_at),
+                (expected, Some(500)),
+                "{status}"
+            );
         }
         let bg = transition(&working(), &Input::Hook(background()), 100);
         assert_eq!(
@@ -401,6 +444,134 @@ mod tests {
         assert_eq!(
             transition(&stopped, &Input::Command, 20).status,
             Status::Working
+        );
+    }
+
+    fn holding(status: Status, text: &str, question: &str) -> SignalState {
+        SignalState {
+            question: Some(question.into()),
+            ..with(status, text)
+        }
+    }
+
+    /// T-0489 (d0119): an open question holds Asks you whatever hooks and commands say; a permission prompt shows on
+    /// top of it and gives way to it again once answered.
+    #[test]
+    fn an_open_question_holds_asks_you() {
+        const Q: &str = "Which email provider?";
+        let asks = holding(Status::AsksYou, Q, Q);
+        for input in [
+            Input::Command,
+            Input::Hook(Signal::Working { prompt: None }),
+            Input::Hook(Signal::Idle {
+                last_line: Some("Waiting for your answer.".into()),
+            }),
+            Input::Hook(background()),
+            Input::Hook(Signal::TurnEnded),
+            Input::Enter,
+            Input::Answered,
+        ] {
+            let s = transition(&asks, &input, 500);
+            assert_eq!(
+                (s.status, s.text.as_deref(), s.since),
+                (Status::AsksYou, Some(Q), Some(10)),
+                "{input:?}"
+            );
+        }
+        // A Working ticket with an open question (its row outlived the status) shows it at the next signal.
+        let s = transition(
+            &holding(Status::Working, "", Q),
+            &Input::Hook(Signal::TurnEnded),
+            500,
+        );
+        assert_eq!((s.status, s.text.as_deref()), (Status::AsksYou, Some(Q)));
+
+        // A permission prompt on top, then back to the question once it's answered.
+        let prompt = Input::Hook(Signal::NeedsYou {
+            prompt: "Allow `npm test`?".into(),
+        });
+        let on_top = transition(&asks, &prompt, 600);
+        assert_eq!(
+            (on_top.status, on_top.text.as_deref()),
+            (Status::NeedsYou, Some("Allow `npm test`?"))
+        );
+        for answered in [
+            Input::Hook(Signal::Working { prompt: None }),
+            Input::Command,
+            Input::Enter,
+        ] {
+            let s = transition(&on_top, &answered, 700);
+            assert_eq!(
+                (s.status, s.text.as_deref(), s.since),
+                (Status::AsksYou, Some(Q), Some(700)),
+                "{answered:?}"
+            );
+        }
+
+        // Once the question is closed (no longer read from the store), Enter or an answer clears it as before.
+        let closed = with(Status::AsksYou, Q);
+        assert_eq!(
+            transition(&closed, &Input::Enter, 800).status,
+            Status::Working
+        );
+        assert_eq!(
+            transition(&closed, &Input::Command, 800).status,
+            Status::AsksYou,
+            "a command never clears Asks you"
+        );
+        // A new question replaces the old one.
+        let s = transition(&asks, &Input::AskHuman("Which region?".into()), 900);
+        assert_eq!(
+            (s.status, s.text.as_deref()),
+            (Status::AsksYou, Some("Which region?"))
+        );
+    }
+
+    /// T-0489 (d0119): an agent that asks during its check keeps Asks you; a prompt on top gives way to the question,
+    /// and once it's closed the ticket validates again.
+    #[test]
+    fn a_question_during_a_check_holds_too() {
+        const Q: &str = "Should I skip the flaky test?";
+        let asks = SignalState {
+            validating: true,
+            ..holding(Status::AsksYou, Q, Q)
+        };
+        for input in [
+            Input::Command,
+            Input::Hook(Signal::Working { prompt: None }),
+            Input::Hook(Signal::Idle { last_line: None }),
+            Input::Enter,
+        ] {
+            assert_eq!(
+                transition(&asks, &input, 50).status,
+                Status::AsksYou,
+                "{input:?}"
+            );
+        }
+        let on_top = transition(
+            &asks,
+            &Input::Hook(Signal::NeedsYou {
+                prompt: "Allow rm?".into(),
+            }),
+            60,
+        );
+        assert_eq!(on_top.status, Status::NeedsYou);
+        let back = transition(&on_top, &Input::Hook(Signal::Working { prompt: None }), 70);
+        assert_eq!(
+            (back.status, back.text.as_deref()),
+            (Status::AsksYou, Some(Q))
+        );
+        let closed = SignalState {
+            question: None,
+            ..asks
+        };
+        assert_eq!(
+            transition(&closed, &Input::Command, 80).status,
+            Status::AsksYou
+        );
+        assert_eq!(
+            transition(&closed, &Input::Answered, 80).status,
+            Status::Checking
         );
     }
 

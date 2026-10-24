@@ -1,5 +1,5 @@
-//! `otaq prime` from inside an agent session (T-0071): the current ticket's Markdown, `--json`, and running it
-//! counts as a `otaq` command that clears a needs-you label (T-0067).
+//! `otaq prime` from inside an agent session (T-0071): the current ticket's Markdown, `--json`. It is a read: it
+//! clears no needs-you label and moves no last signal (d0119, T-0489).
 
 use otaq_core::board::settings::WorkflowStep;
 use otaq_core::domain::Status;
@@ -10,7 +10,7 @@ use serde_json::Value;
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
 #[tokio::test(flavor = "multi_thread")]
-async fn prime_prints_the_context_and_clears_needs_you() {
+async fn prime_prints_the_context_and_changes_no_status() {
     let w = TestService::start().await;
     w.shop_sample().await;
     assert_eq!(w.status("SHOP-12").await, Status::AsksYou);
@@ -27,8 +27,8 @@ async fn prime_prints_the_context_and_clears_needs_you() {
     assert!(ran.stdout.contains("stage next --stdin"));
     assert_eq!(
         w.status("SHOP-12").await,
-        Status::Working,
-        "prime is a command"
+        Status::AsksYou,
+        "prime is a read"
     );
 
     let ran = agent.run(&format!("'{CB}' prime --json")).await;

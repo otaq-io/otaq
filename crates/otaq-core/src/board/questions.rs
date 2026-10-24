@@ -7,11 +7,32 @@
 //!
 //! Each option may carry a **note**, its pros and cons (`--note` after its `--option`, ATT-17, d0061): stored whole,
 //! never refused for its length or cut. The delivered answer doesn't name it.
+//!
+//! **An open question holds Needs you until it is closed** (d0119). A question closes ([`AnsweredVia`]) when the user
+//! answers it from the answer box, presses Enter on a line in that agent's terminal (or the Ask bar's Continue to a
+//! Project agent or lead), when the same agent asks a new question (the older one is replaced), or when its ticket is
+//! closed, parked or delivered (a trigger, migration 0058). One agent has at most one open question.
 
 use serde::{Deserialize, Serialize};
 
 use super::{Board, BoardError, Refusal};
+use crate::domain::stored_enum;
 use crate::store::{new_id, now_ms};
+
+stored_enum! {
+    /// How a question was closed (`human_questions.answered_via`, d0119). A question its epic's lead answered has
+    /// none: the lead's answer is in `lead_state` (LEAD-06).
+    pub enum AnsweredVia ("answer source") {
+        /// The user's answer from the strip, card or sheet (d0061).
+        Box = "box",
+        /// The line the user sent with Enter in that agent's terminal, or the Ask bar's Continue.
+        Terminal = "terminal",
+        /// The same agent asked a new question.
+        Replaced = "replaced",
+        /// Its ticket was closed, parked or delivered.
+        Closed = "closed",
+    }
+}
 
 /// The most options a question may carry.
 pub const MAX_OPTIONS: usize = 4;
@@ -264,6 +285,82 @@ impl Board {
         Ok(row.map(Into::into))
     }
 
+    /// The question the ticket's agent holds for the user (d0119): its open question, unless it waits for the epic's
+    /// lead ("asked lead · waiting", LEAD-06).
+    pub async fn open_user_question(
+        &self,
+        ticket_id: &str,
+    ) -> Result<Option<HumanQuestion>, BoardError> {
+        let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.ticket_id = ? AND q.answered_at IS NULL
+               AND (q.lead_state IS NULL OR q.lead_state <> ?)
+             ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
+        )))
+        .bind(ticket_id)
+        .bind(crate::epic_lead::questions::WITH_LEAD)
+        .fetch_optional(self.store().pool())
+        .await?;
+        Ok(row.map(Into::into))
+    }
+
+    /// The user sent `line` in the ticket's agent terminal while its question was open (d0119): the line is its
+    /// answer. Returns the question it answered; `None` (nothing closed) for an empty line or no open question.
+    pub async fn answer_in_terminal(
+        &self,
+        ticket_id: &str,
+        line: &str,
+    ) -> Result<Option<HumanQuestion>, BoardError> {
+        let line = line.trim();
+        if line.is_empty() {
+            return Ok(None);
+        }
+        let Some(question) = self.open_user_question(ticket_id).await? else {
+            return Ok(None);
+        };
+        self.close_question(&question.id, Some(line), AnsweredVia::Terminal)
+            .await?;
+        Ok(Some(question))
+    }
+
+    /// The same for a Project agent's or an epic lead's open question: `line` from its terminal or the Ask bar's
+    /// Continue.
+    pub async fn answer_agent_in_terminal(
+        &self,
+        agent: &str,
+        line: &str,
+    ) -> Result<Option<HumanQuestion>, BoardError> {
+        let line = line.trim();
+        if line.is_empty() {
+            return Ok(None);
+        }
+        let Some(question) = self.open_agent_question(agent).await? else {
+            return Ok(None);
+        };
+        self.close_question(&question.id, Some(line), AnsweredVia::Terminal)
+            .await?;
+        Ok(Some(question))
+    }
+
+    /// Closes an open question with how it was closed and, when there is one, its answer. Whether it was open.
+    pub async fn close_question(
+        &self,
+        question_id: &str,
+        answer: Option<&str>,
+        via: AnsweredVia,
+    ) -> Result<bool, BoardError> {
+        let done = sqlx::query(
+            "UPDATE human_questions SET answer = ?, answered_at = ?, answered_via = ?
+             WHERE id = ? AND answered_at IS NULL",
+        )
+        .bind(answer)
+        .bind(now_ms())
+        .bind(via.as_str())
+        .bind(question_id)
+        .execute(self.store().pool())
+        .await?;
+        Ok(done.rows_affected() == 1)
+    }
+
     async fn insert_question(
         &self,
         owner_column: &'static str,
@@ -284,6 +381,17 @@ impl Board {
             asked_at: now_ms(),
             via_lead: None,
         };
+        let mut tx = self.store().begin_write().await?;
+        // A new question replaces the agent's older open one (d0119).
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE human_questions SET answered_at = ?, answered_via = ?
+             WHERE {owner_column} = ? AND answered_at IS NULL"
+        )))
+        .bind(question.asked_at)
+        .bind(AnsweredVia::Replaced.as_str())
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, option_notes_json,
                                           asked_at)
@@ -296,8 +404,9 @@ impl Board {
         .bind(question.recommended.map(i64::from))
         .bind(notes_json(&question.notes))
         .bind(question.asked_at)
-        .execute(self.store().pool())
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(question)
     }
 
@@ -335,16 +444,10 @@ impl Board {
             .collect())
     }
 
-    /// Records the answer to a question (`otaq questions`, M10, reads it back).
+    /// Records the user's answer from the answer box (`otaq questions`, M10, reads it back).
     pub async fn record_answer(&self, question_id: &str, answer: &str) -> Result<(), BoardError> {
-        sqlx::query(
-            "UPDATE human_questions SET answer = ?, answered_at = ? WHERE id = ? AND answered_at IS NULL",
-        )
-        .bind(answer)
-        .bind(now_ms())
-        .bind(question_id)
-        .execute(self.store().pool())
-        .await?;
+        self.close_question(question_id, Some(answer), AnsweredVia::Box)
+            .await?;
         Ok(())
     }
 

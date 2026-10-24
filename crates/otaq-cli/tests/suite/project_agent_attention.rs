@@ -168,9 +168,17 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
         )]
     );
 
-    // Its next command means the prompt was answered: the item goes.
+    // A read is not it acting (d0119): the item stays. Its turn moving on means the prompt was answered: the item
+    // goes.
     let ran = agent.run(&format!("'{CB}' prime --project")).await;
     assert_eq!(ran.status, 0, "{ran:?}");
+    agent_items(&w, &[Status::NeedsYou]).await;
+    hook(
+        &agent,
+        "Stop",
+        json!({"last_assistant_message": "Listed them."}),
+    )
+    .await;
     agent_items(&w, &[]).await;
 
     // `ask human` after the quiet period (d0090): Asks you with the question; answered inline, typed into its

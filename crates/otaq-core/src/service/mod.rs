@@ -63,6 +63,7 @@ use crate::usage::{self, Usage};
 use access::{OsPeerCredentials, PeerCredentials};
 pub use events::EventBus;
 use lock::{LockError, ServiceLock};
+pub use permissions::AgentActivity;
 
 /// How long a stopping service waits for connections to send what they have queued.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);

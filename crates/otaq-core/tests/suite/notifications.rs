@@ -124,7 +124,7 @@ async fn blocking_items_notify_once_and_never_while_focused() {
     // Past the quiet period. Answered in the terminal, then a new question while the terminal has focus: nothing
     // until it loses focus.
     clock.advance(QUIET);
-    w.signals.enter(&t.id).await.unwrap();
+    w.signals.enter(&t.id, None).await.unwrap();
     let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     app.request(Request::SessionFocus(FocusParams {
         session: session.clone(),
@@ -153,7 +153,7 @@ async fn blocking_items_notify_once_and_never_while_focused() {
     let mut settings = w.board.global_settings().await.unwrap();
     settings.notifications = false;
     w.board.set_global_settings(&settings).await.unwrap();
-    w.signals.enter(&t.id).await.unwrap();
+    w.signals.enter(&t.id, None).await.unwrap();
     w.signals
         .ask_human(&agent, &t.id, "Third question?")
         .await

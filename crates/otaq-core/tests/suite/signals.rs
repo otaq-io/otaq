@@ -72,7 +72,8 @@ async fn labels_texts_clearing_and_last_signal() {
     .await;
     assert!(w.board.ticket("SHOP-1").await.unwrap().signal.is_none());
 
-    // Needs you, then any command of the agent (here `ping`, sent from inside the session) clears it.
+    // Needs you, then a command of the agent that acts (here `ticket.notes`, which marks its notes read, sent from
+    // inside the session) clears it. A read (`ping`) is no signal at all (d0119).
     w.signals
         .hook(
             &me,
@@ -88,6 +89,8 @@ async fn labels_texts_clearing_and_last_signal() {
         t.signal.unwrap().text.as_deref(),
         Some("Allow `rm -rf .next`?")
     );
+    let prompted_at = t.flags.last_signal_at.unwrap();
+    assert!(prompted_at >= asked_at);
     tokio::time::sleep(Duration::from_millis(5)).await;
     let ran = shell
         .send_raw(
@@ -97,9 +100,23 @@ async fn labels_texts_clearing_and_last_signal() {
         .await;
     assert!(ran.stdout.contains("pong"), "{ran:?}");
     let t = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(t.status, Status::NeedsYou, "a read clears nothing");
+    assert_eq!(
+        t.flags.last_signal_at,
+        Some(prompted_at),
+        "a read is no signal"
+    );
+    let ran = shell
+        .send_raw(
+            &w.data.socket_path(),
+            r#"{"protocol_version":1,"id":1,"request":{"method":"ticket.notes","params":{"key":"SHOP-1"}}}"#,
+        )
+        .await;
+    assert!(!ran.stdout.contains("error"), "{ran:?}");
+    let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(t.status, Status::Working);
     assert!(
-        t.flags.last_signal_at.unwrap() > asked_at,
+        t.flags.last_signal_at.unwrap() > prompted_at,
         "the command is a signal"
     );
     drop(client);
