@@ -563,6 +563,11 @@ pub enum Request {
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
     TicketLocalMerge(LocalMergeParams),
+    /// **Stop** on "Merging · running the merge check" (d0120, Q475): the Merge check of the ticket's Local merge
+    /// ends, nothing is merged and the ticket stays where it was; the Local merge request answers
+    /// [`LocalMergeOutcome::CheckStopped`]. Answered with [`Reply::Ok`]; refused when it runs none.
+    #[serde(rename = "ticket.merge_check_stop")]
+    TicketMergeCheckStop(KeyParams),
     /// The check before any approve (REV-06): new commits since the review? Answered with
     /// [`Reply::ApproveCheck`].
     #[serde(rename = "ticket.approve_check")]
@@ -1997,6 +2002,7 @@ impl Request {
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
+            Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
             Self::TicketSendBackPr(_) => "ticket.send_back_pr",

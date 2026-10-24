@@ -27,6 +27,7 @@ mod close;
 pub mod delivery;
 pub mod drag;
 pub mod finish;
+mod merge_check;
 pub mod park;
 pub mod pr_state;
 pub mod resume;
@@ -116,6 +117,17 @@ pub enum LocalMergeOutcome {
     /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
     /// (FLW-17). An epic's conflict stays on its card.
     Conflict { target: String, files: Vec<String> },
+    /// The Merge check `command` failed on the merged result (d0120; `exit` `None`: a signal ended it): nothing was
+    /// merged; the ticket went back to its nearest earlier Agent stage with a comment holding the output as its
+    /// report, whose session fixes it with `restack` (no click), or stopped there after the third conflict or
+    /// failed check in a row. An epic's stays on its card, with the comment.
+    CheckFailed {
+        target: String,
+        command: String,
+        exit: Option<i32>,
+    },
+    /// The user stopped the Merge check (Q475): nothing was merged and the ticket stays where it was.
+    CheckStopped { target: String },
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
     Changed { check: ApproveCheck },
@@ -134,7 +146,8 @@ struct Inner {
     deliveries: Deliveries,
     starter: Starter,
     scheduler: Scheduler,
-    /// One Local merge at a time: they share the scratch worktree and move base branches.
+    /// One Local merge at a time: they share the scratch worktree and move base branches, and each Merge check
+    /// sees the merges before it (d0120).
     merging: tokio::sync::Mutex<()>,
     ports: PortPool,
     /// Done releases a clean worktree's build into the stock (WRM-03), unless it was freed at Review (M19-c).
@@ -290,23 +303,44 @@ impl Review {
         approve_anyway: bool,
         actor: &Actor,
     ) -> Result<LocalMergeOutcome, BoardError> {
-        let outcome = self.merge(key, message, approve_anyway, actor).await?;
-        if let LocalMergeOutcome::Conflict { target, .. } = &outcome {
-            let ticket = self.inner.board.ticket(key).await?;
-            self.delivery_conflict(&ticket, target, actor).await?;
+        let Merge { outcome, failed } = self.merge(key, message, approve_anyway, actor).await?;
+        match (&outcome, failed) {
+            (LocalMergeOutcome::Conflict { target, .. }, _) => {
+                let ticket = self.inner.board.ticket(key).await?;
+                self.delivery_conflict(&ticket, target, actor).await?;
+            }
+            (_, Some(failed)) => {
+                let ticket = self.inner.board.ticket(key).await?;
+                self.delivery_check_failed(&ticket, &failed, actor).await?;
+            }
+            _ => {}
         }
         Ok(outcome)
     }
 
+    /// Stops the Merge check `key`'s Local merge runs now (Q475): nothing is merged and the ticket stays where it
+    /// was. Refused when it runs none.
+    pub async fn stop_merge_check(&self, key: &str) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        if board.merge_checks().stop(&ticket.id) {
+            return Ok(());
+        }
+        Err(BoardError::refused(
+            Refusal::MoveRefused,
+            format!("{} isn't running its merge check", ticket.key),
+        ))
+    }
+
     /// The Local merge itself, from a human check that offers it or from the Delivery stage (the click, or an
-    /// automatic Delivery): a conflict is only recorded on the ticket.
+    /// automatic Delivery): a conflict or a failed Merge check is only recorded on the ticket.
     async fn merge(
         &self,
         key: &str,
         message: &str,
         approve_anyway: bool,
         actor: &Actor,
-    ) -> Result<LocalMergeOutcome, BoardError> {
+    ) -> Result<Merge, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
@@ -330,7 +364,7 @@ impl Review {
         if !approve_anyway {
             let check = board.approve_check(key).await?;
             if check != ApproveCheck::Unchanged {
-                return Ok(LocalMergeOutcome::Changed { check });
+                return Ok(LocalMergeOutcome::Changed { check }.into());
             }
         }
         let target = board.merge_target(&ticket).await?;
@@ -340,7 +374,26 @@ impl Review {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| project.name.clone());
+        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
+        let git = &board.project_git(&project.key).await?;
+        let settings = board.project_settings(&project.key).await?;
+        let command = settings.merge_check().map(str::to_owned);
+        let check = command.as_deref().map(|command| {
+            merge_check::merge_check(
+                board,
+                &inner.data,
+                inner.ticket_env.seeder(),
+                git,
+                &project,
+                &settings,
+                &ticket,
+                command,
+            )
+        });
+        let recheck = board.merge_check_due(&ticket.id).await?;
         let request = MergeRequest {
+            check,
+            recheck,
             scratch: inner.data.scratch_path(&repo_name).map_err(other)?,
             repo,
             project_name: project.name.clone(),
@@ -355,8 +408,6 @@ impl Review {
             sync_target: !target.into_epic,
             message: message.trim().to_owned(),
         };
-        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
-        let git = &board.project_git(&project.key).await?;
         let branch_ref = format!("refs/heads/{}", target.branch);
         let head_before = git.resolve(&request.repo, &branch_ref).await?;
         let outcome = git.local_merge(&request).await;
@@ -368,9 +419,17 @@ impl Review {
             )
         {
             board.record_otaq_rebase(&ticket.id, before, &after).await?;
+            // Rebased onto new commits and no check passed on them: the next merge checks even so (d0120).
+            if before != after {
+                board.set_merge_check_due(&ticket.id, true).await?;
+            }
         }
-        Ok(match outcome? {
-            MergeOutcome::Merged { commit, onto } => {
+        if matches!(outcome, Ok(MergeOutcome::CheckFailed { .. })) {
+            board.set_merge_check_due(&ticket.id, true).await?;
+        }
+        let mut failed = None;
+        let outcome = match outcome? {
+            MergeOutcome::Merged { commit, onto, .. } => {
                 let merged = board
                     .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
                     .await?;
@@ -438,7 +497,36 @@ impl Review {
                     files,
                 }
             }
-        })
+            MergeOutcome::CheckFailed { exit, output } => {
+                // Recorded like a conflict, with no files: it clears when the agent moves on again.
+                board
+                    .set_conflict(
+                        &ticket.id,
+                        &Conflict {
+                            target: target.target.clone(),
+                            files: Vec::new(),
+                            reason: ConflictReason::MergeCheck,
+                        },
+                    )
+                    .await?;
+                let command = command.unwrap_or_default();
+                failed = Some(CheckFailure {
+                    target: target.target.clone(),
+                    command: command.clone(),
+                    exit,
+                    output,
+                });
+                LocalMergeOutcome::CheckFailed {
+                    target: target.target,
+                    command,
+                    exit,
+                }
+            }
+            MergeOutcome::CheckStopped => LocalMergeOutcome::CheckStopped {
+                target: target.target,
+            },
+        };
+        Ok(Merge { outcome, failed })
     }
 
     /// After a merge into `target` (GIT-04, d0038): a read-only test merge of every ticket in Ready for Review that
@@ -513,8 +601,8 @@ impl Review {
                 .record_send_back(ticket, *hand_over, to, skill, actor)
                 .await
                 .map(|sent| sent.told),
-            Return::Fix { target } => board
-                .record_conflict_fix(ticket, target, to, skill, actor)
+            Return::Fix { target, hand_over } => board
+                .record_conflict_fix(ticket, target, *hand_over, to, skill, actor)
                 .await
                 .map(|()| None),
             Return::PrComments { hand_over } => board
@@ -636,12 +724,38 @@ impl Review {
     }
 }
 
+/// A Local merge's answer, with what the hand-back of a failed Merge check needs.
+struct Merge {
+    outcome: LocalMergeOutcome,
+    failed: Option<CheckFailure>,
+}
+
+impl From<LocalMergeOutcome> for Merge {
+    fn from(outcome: LocalMergeOutcome) -> Self {
+        Self {
+            outcome,
+            failed: None,
+        }
+    }
+}
+
+/// A failed Merge check (d0120): the file holding its output.
+pub(crate) struct CheckFailure {
+    pub(crate) target: String,
+    pub(crate) command: String,
+    pub(crate) exit: Option<i32>,
+    pub(crate) output: PathBuf,
+}
+
 /// What returns a ticket to its agent.
 enum Return<'a> {
     /// The user's note as their comment, if they wrote one.
     SendBack { hand_over: Option<&'a HandOver> },
-    /// A Delivery's conflict (FLW-17).
-    Fix { target: &'a str },
+    /// A Delivery's conflict (FLW-17), or its failed Merge check with the comment to post (d0120).
+    Fix {
+        target: &'a str,
+        hand_over: Option<&'a HandOver>,
+    },
     /// Send back with PR comments (FLW-16): the agent reads them with `otaq review feedback`.
     PrComments { hand_over: Option<&'a HandOver> },
     /// A drag back to an earlier Agent stage with the user's instructions (FLW-18).
@@ -653,7 +767,7 @@ impl<'a> Return<'a> {
         match self {
             Self::SendBack { hand_over } | Self::PrComments { hand_over } => *hand_over,
             Self::DragBack(back) => back.hand_over,
-            Self::Fix { .. } => None,
+            Self::Fix { hand_over, .. } => *hand_over,
         }
     }
 

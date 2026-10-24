@@ -14,7 +14,8 @@ pub mod validation;
 
 pub use actor::Actor;
 pub use flags::{
-    AskedLead, ByLead, Flag, Flags, LeadNoteSent, SameFile, SentBack, StuckStop, UnreadNotes,
+    AskedLead, ByLead, Flag, Flags, LeadNoteSent, MergeCheckState, SameFile, SentBack, StuckStop,
+    UnreadNotes,
 };
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};

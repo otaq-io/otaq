@@ -8,12 +8,17 @@
 //!    only and skips this);
 //! 3. **free rebase** of the ticket's branch onto the target: in its worktree with the checkpoint rule, or in the
 //!    scratch worktree when the branch has no worktree (an epic's branch); a conflict merges nothing;
-//! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run), then move the
-//!    target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere.
+//! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run);
+//! 5. the project's **Merge check** (d0120), when it has one and the rebase brought in commits the branch didn't
+//!    have (or the caller asks again, [`MergeRequest::recheck`]): run on the squash commit in the scratch worktree,
+//!    then the scratch worktree is cleaned. A failure or the user's Stop merges nothing;
+//! 6. move the target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere.
 //!
 //! **Never pushes, never stashes, never commits in the user's folder.**
 
+use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use super::checkpoint::RebaseOutcome;
 use super::{BaseSync, Git, GitError};
@@ -38,15 +43,64 @@ pub struct MergeRequest {
     pub scratch: PathBuf,
     /// The confirmed squash message.
     pub message: String,
+    /// The project's Merge check, if it has one (d0120).
+    pub check: Option<MergeCheck>,
+    /// Run the check even when the rebase brings in nothing new: an earlier merge of this branch rebased it onto
+    /// new commits and ended before a check passed on them (failed, stopped, refused, or the target didn't move).
+    pub recheck: bool,
+}
+
+/// What a Merge check's command did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckRun {
+    Passed,
+    /// A non-zero exit (`None`: a signal ended it); `output` is the file holding what it printed.
+    Failed {
+        exit: Option<i32>,
+        output: PathBuf,
+    },
+    /// The user stopped it (Q475).
+    Stopped,
+}
+
+/// Runs the project's Merge check in the scratch worktree it is given, at the squash commit: the caller seeds the
+/// build, sets the environment and saves the output ([`crate::review`]).
+#[derive(Clone)]
+pub struct MergeCheck(
+    Arc<
+        dyn Fn(PathBuf) -> crate::agent_tools::BoxFuture<'static, Result<CheckRun, GitError>>
+            + Send
+            + Sync,
+    >,
+);
+
+impl MergeCheck {
+    pub fn new(
+        run: impl Fn(PathBuf) -> crate::agent_tools::BoxFuture<'static, Result<CheckRun, GitError>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self(Arc::new(run))
+    }
+}
+
+impl fmt::Debug for MergeCheck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("MergeCheck")
+    }
 }
 
 /// What a Local merge did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeOutcome {
-    /// Merged as `commit` on top of `onto` (the target's commit the branch was rebased onto).
+    /// Merged as `commit` on top of `onto` (the target's commit the branch was rebased onto). `brought_in`: the
+    /// rebase brought in commits the branch didn't have; `checked`: the Merge check ran and passed.
     Merged {
         commit: String,
         onto: String,
+        brought_in: bool,
+        checked: bool,
     },
     RefusedUncommitted {
         files: Vec<String>,
@@ -62,6 +116,13 @@ pub enum MergeOutcome {
     Conflict {
         files: Vec<String>,
     },
+    /// The Merge check failed on the merged result: nothing was merged (d0120). `output` holds what it printed.
+    CheckFailed {
+        exit: Option<i32>,
+        output: PathBuf,
+    },
+    /// The user stopped the Merge check: nothing was merged (Q475).
+    CheckStopped,
 }
 
 impl Git {
@@ -126,7 +187,12 @@ impl Git {
                 stderr: format!("the branch `{}` doesn't exist", m.target),
             })?;
 
-        // 3. The free rebase onto the target.
+        // 3. The free rebase onto the target. It brings in new commits unless the branch already has `onto`.
+        let branch_ref = format!("refs/heads/{}", m.branch);
+        let brought_in = match self.resolve(&m.repo, &branch_ref).await? {
+            Some(head) => !self.is_ancestor(&m.repo, &onto, &head).await?,
+            None => true,
+        };
         self.ensure_scratch(&m.repo, &m.scratch, &onto).await?;
         if let Some(files) = self.rebase_branch(m, &onto).await? {
             return Ok(MergeOutcome::Conflict { files });
@@ -169,6 +235,30 @@ impl Git {
             .await?
             .trim()
             .to_owned();
+
+        // 5. The Merge check on the merged result, before anything moves (d0120).
+        let checked = match &m.check {
+            Some(check) if brought_in || m.recheck => {
+                let ran = (check.0)(m.scratch.clone()).await;
+                // Cleaned whatever happened: the seeded build and anything the command wrote go.
+                let at = match &ran {
+                    Ok(CheckRun::Passed) => commit.as_str(),
+                    _ => onto.as_str(),
+                };
+                let _ = self.run(scratch, &["reset", "--quiet", "--hard", at]).await;
+                let _ = self.run(scratch, &["clean", "--quiet", "-fdx"]).await;
+                match ran? {
+                    CheckRun::Passed => true,
+                    CheckRun::Failed { exit, output } => {
+                        return Ok(MergeOutcome::CheckFailed { exit, output });
+                    }
+                    CheckRun::Stopped => return Ok(MergeOutcome::CheckStopped),
+                }
+            }
+            _ => false,
+        };
+
+        // 6. Move the target.
         match &checkout {
             Some(folder) => {
                 if self
@@ -187,7 +277,26 @@ impl Git {
                     .await?;
             }
         }
-        Ok(MergeOutcome::Merged { commit, onto })
+        Ok(MergeOutcome::Merged {
+            commit,
+            onto,
+            brought_in,
+            checked,
+        })
+    }
+
+    /// Whether `ancestor` is an ancestor of (or is) `of`.
+    async fn is_ancestor(&self, repo: &Path, ancestor: &str, of: &str) -> Result<bool, GitError> {
+        let args = ["merge-base", "--is-ancestor", ancestor, of];
+        match self.run_with_code(repo, &args).await? {
+            (0, _) => Ok(true),
+            (1, _) => Ok(false),
+            (code, _) => Err(GitError::Failed {
+                args: args.join(" "),
+                code: Some(code),
+                stderr: format!("git merge-base --is-ancestor {ancestor} {of} failed"),
+            }),
+        }
     }
 
     /// Rebases the branch onto `onto`; `Some(files)` on a conflict (everything is as before then).

@@ -944,6 +944,12 @@ fn render_conflict(c: &Conflict, restack: &str) -> String {
              with the restack skill (`{restack}`).",
             c.target, c.target
         ),
+        ConflictReason::MergeCheck => format!(
+            "The project's merge check failed on this branch rebased onto the latest `{}`; nothing was merged. \
+             Rebase it onto `{}` with the restack skill (`{restack}`), fix what failed (the latest comment's \
+             report has the output), then submit again.",
+            c.target, c.target
+        ),
     };
     let mut out = format!("\n## Resolve first\n\n{lead}\n");
     if !c.files.is_empty() {

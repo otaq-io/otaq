@@ -1024,6 +1024,10 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             let (label, full) = match ticket.auto_merge_stop {
                 Some(AutoMergeStop::BaseDiverged) => ("Diverged".to_owned(), "Base diverged"),
                 Some(AutoMergeStop::CheckoutDirty) => ("Dirty repo".to_owned(), "Checkout dirty"),
+                Some(AutoMergeStop::KeepsFailingMergeCheck) => (
+                    format!("Check failed \u{d7}{n}"),
+                    "Merge check keeps failing",
+                ),
                 _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
             };
             Part::flag(
@@ -2690,6 +2694,9 @@ pub fn lead_note_hover(note: &otaq_core::domain::LeadNoteSent) -> Hover {
     let when = match (note.stop, note.after_rounds) {
         (StuckStop::ValidationFailed, Some(n)) => format!("SENT AFTER ROUND {n}"),
         (StuckStop::KeepsConflicting, _) => "SENT AFTER IT KEPT CONFLICTING".to_owned(),
+        (StuckStop::KeepsFailingMergeCheck, _) => {
+            "SENT AFTER ITS MERGE CHECK KEPT FAILING".to_owned()
+        }
         (StuckStop::Idle, _) => "SENT WHEN IT STOPPED".to_owned(),
         (StuckStop::ValidationFailed, None) => "SENT AFTER VALIDATION FAILED".to_owned(),
     };

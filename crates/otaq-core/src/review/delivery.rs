@@ -16,6 +16,10 @@
 //!   stages again. The third conflict in a row stops it there, turquoise: "Keeps conflicting with `<target>`". A
 //!   merge in between resets the count. An epic child's first such stop goes to its live lead instead, once
 //!   (LEAD-07, [`crate::epic_lead::stuck`]).
+//! - **A failed Merge check** (d0120, [`Review::delivery_check_failed`]): the same path, with a comment "Merge check
+//!   `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit again." holding the output as
+//!   its report (d0109): "Merge check failed · fixing". It counts toward the same three in a row; when the third is a
+//!   failed check the stop says "Merge check keeps failing on `<target>`".
 //! - **Send back with PR comments** ([`Review::send_back_pr`]): a card whose PR is open goes back to its nearest
 //!   earlier Agent stage, whose session resumes with `address-review` (it reads the unresolved PR comments with `otaq
 //!   review feedback`) and the user's optional note; the later stages run again and the Delivery pushes to the same
@@ -24,12 +28,19 @@
 
 use std::ffi::OsString;
 
-use super::{LocalMergeOutcome, Return, ReturnOutcome, Review, other};
+use super::merge_check::capped_output;
+use super::{CheckFailure, LocalMergeOutcome, Merge, Return, ReturnOutcome, Review, other};
 use crate::board::BoardError;
 use crate::board::Refusal;
+use crate::board::hand_over::{HandOver, settled};
 use crate::board::merge::DELIVERY_CONFLICT_LIMIT;
+use crate::board::reports::ReportSource;
+use crate::board::ticket_comments::CommentAuthor;
 use crate::board::tickets::{NewTicketInput, Ticket};
-use crate::domain::validation::{keeps_conflicting, merged_toast};
+use crate::domain::validation::{
+    keeps_conflicting, keeps_failing_merge_check, merge_check_failed, merge_check_failed_told,
+    merged_toast,
+};
 use crate::domain::{Actor, AutoMergeStop, Status};
 use crate::epic_lead::stuck::{FirstStop, hold_in_dev};
 use crate::flow::Delivers;
@@ -46,6 +57,8 @@ pub enum Delivered {
     Merged { toast: Box<Event> },
     /// Back to the agent with restack.
     Conflict,
+    /// The Merge check failed: back to the agent with restack and the comment (d0120).
+    CheckFailed,
     /// Turquoise: kept conflicting, base diverged or checkout dirty.
     Stopped(AutoMergeStop),
     /// Kept conflicting for the first time with the epic's lead live: held at work for the lead (LEAD-07).
@@ -53,7 +66,7 @@ pub enum Delivered {
     /// The PR Delivery's agent was started with its skill, no dialog.
     PrStarted,
     /// Left waiting in the Delivery for the user's click: uncommitted files in the worktree (never auto-fixed),
-    /// or the PR couldn't start.
+    /// the user stopped the Merge check, or the PR couldn't start.
     Left,
     /// Not an automatic Delivery: the ticket isn't waiting in one, or its Delivery is click mode.
     NotAutomatic,
@@ -104,7 +117,10 @@ impl Review {
         let proposal = board.merge_proposal(key).await?;
         let actor = Actor::current_user();
         let ticket = board.ticket(key).await?;
-        let outcome = self.merge(key, &proposal.message, true, &actor).await?;
+        let Merge { outcome, failed } = self.merge(key, &proposal.message, true, &actor).await?;
+        if let Some(failed) = failed {
+            return self.delivery_check_failed(&ticket, &failed, &actor).await;
+        }
         Ok(match outcome {
             LocalMergeOutcome::Merged {
                 ticket: merged,
@@ -160,7 +176,9 @@ impl Review {
                 tracing::warn!(ticket = %ticket.key, %message, "not merged automatically");
                 Delivered::Left
             }
-            LocalMergeOutcome::Changed { .. } => Delivered::Left,
+            LocalMergeOutcome::Changed { .. }
+            | LocalMergeOutcome::CheckStopped { .. }
+            | LocalMergeOutcome::CheckFailed { .. } => Delivered::Left,
         })
     }
 
@@ -173,46 +191,108 @@ impl Review {
         target: &str,
         actor: &Actor,
     ) -> Result<Delivered, BoardError> {
+        self.hand_back(ticket, target, None, actor).await
+    }
+
+    /// The Merge check failed on the merged result (d0120), in either mode: as a conflict ([`Self::delivery_conflict`])
+    /// with the comment "Merge check `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit
+    /// again." and the output as its report (d0109), posted as the user's (the click or the flow is their go-ahead).
+    /// An epic gets the comment on its card.
+    pub(crate) async fn delivery_check_failed(
+        &self,
+        ticket: &Ticket,
+        failed: &CheckFailure,
+        actor: &Actor,
+    ) -> Result<Delivered, BoardError> {
+        let board = &self.inner.board;
+        let body = merge_check_failed(&failed.command, &failed.target, failed.exit);
+        let report = match capped_output(&failed.output) {
+            Ok(path) => Some(ReportSource::Path(path)),
+            Err(e) => {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't read the merge check's output");
+                None
+            }
+        };
+        let author = CommentAuthor::User {
+            name: actor.to_string(),
+        };
+        let hand_over = board.hand_over(ticket, author, &body, report).await?;
+        let result = self
+            .hand_back(ticket, &failed.target, hand_over.as_ref(), actor)
+            .await;
+        settled(board, hand_over.as_ref(), result).await
+    }
+
+    /// A conflict (`check` `None`) or a failed Merge check (`check`, its comment) goes back to the agent, or stops
+    /// after the third in a row: both count toward the same limit (d0120).
+    async fn hand_back(
+        &self,
+        ticket: &Ticket,
+        target: &str,
+        check: Option<&HandOver>,
+        actor: &Actor,
+    ) -> Result<Delivered, BoardError> {
         let board = &self.inner.board;
         if ticket.is_epic() {
+            if let Some(comment) = check {
+                post_now(board, ticket, comment, actor).await?;
+            }
             return Ok(Delivered::Left);
         }
         let ticket = board.ticket_by_id(&ticket.id).await?;
         if ticket.auto_merge_conflicts + 1 < DELIVERY_CONFLICT_LIMIT {
-            self.hand_conflict_to_agent(&ticket, target, actor).await?;
-            return Ok(Delivered::Conflict);
+            self.hand_conflict_to_agent(&ticket, target, check, actor)
+                .await?;
+            return Ok(match check {
+                Some(_) => Delivered::CheckFailed,
+                None => Delivered::Conflict,
+            });
         }
+        if let Some(comment) = check {
+            post_now(board, &ticket, comment, actor).await?;
+        }
+        let (stop, text, first) = match check {
+            Some(_) => (
+                AutoMergeStop::KeepsFailingMergeCheck,
+                keeps_failing_merge_check(target),
+                FirstStop::keeps_failing_merge_check(target),
+            ),
+            None => (
+                AutoMergeStop::KeepsConflicting,
+                keeps_conflicting(target),
+                FirstStop::keeps_conflicting(target),
+            ),
+        };
         // An epic child's first "Keeps conflicting" goes to its live lead once (LEAD-07): held at work, the conflict
         // counted.
         let held = board.leads().takes_stop(&ticket).await;
         if held {
             hold_in_dev(board, &ticket.id, true).await?;
-            let first = FirstStop::keeps_conflicting(target);
             if board.leads().child_stuck(&ticket, &first).await {
                 return Ok(Delivered::WithLead);
             }
         }
         board
-            .delivery_stopped(
-                &ticket.id,
-                AutoMergeStop::KeepsConflicting,
-                &keeps_conflicting(target),
-                !held,
-            )
+            .delivery_stopped(&ticket.id, stop, &text, !held)
             .await?;
-        Ok(Delivered::Stopped(AutoMergeStop::KeepsConflicting))
+        Ok(Delivered::Stopped(stop))
     }
 
     /// Back to the agent with restack, no click: queued for its input line like any automatic message, or the
-    /// conversation resumed with it.
+    /// conversation resumed with it. A failed Merge check's comment (`check`) is posted with the move, and a live
+    /// session is told where to read it.
     async fn hand_conflict_to_agent(
         &self,
         ticket: &Ticket,
         target: &str,
+        check: Option<&HandOver>,
         actor: &Actor,
     ) -> Result<(), BoardError> {
         let inner = &self.inner;
-        let action = Return::Fix { target };
+        let action = Return::Fix {
+            target,
+            hand_over: check,
+        };
         let skill = action.skill();
         let full = self.limit_full().await?;
         let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
@@ -230,9 +310,10 @@ impl Review {
                     .as_ref()
                     .and_then(|w| w.worktree.as_deref())
                     .map(std::path::Path::new);
+                let told = check.map(|_| merge_check_failed_told(&ticket.key, target));
                 let text = inner
                     .deliveries
-                    .skill_line(&inner.board, &session.id, worktree, skill, None)
+                    .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
                     .await;
                 inner
                     .deliveries
@@ -261,7 +342,7 @@ impl Review {
             }
         }
         inner.board.count_delivery_conflict(&ticket.id).await?;
-        tracing::info!(ticket = %ticket.key, %target, "conflict handed to the agent");
+        tracing::info!(ticket = %ticket.key, %target, merge_check = check.is_some(), "conflict handed to the agent");
         Ok(())
     }
 
@@ -308,6 +389,19 @@ impl Review {
         self.return_to_agent(&ticket, action, clear_first, actor)
             .await
     }
+}
+
+/// Posts a hand-over comment on its own: a failed Merge check's on an epic, or on the stop that ends the retries.
+async fn post_now(
+    board: &crate::board::Board,
+    ticket: &Ticket,
+    comment: &HandOver,
+    actor: &Actor,
+) -> Result<(), BoardError> {
+    let mut tx = board.store().begin_write().await?;
+    comment.post(&mut tx, &ticket.id, actor).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// The title of the child that holds an epic's unresolved PR comments.

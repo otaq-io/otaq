@@ -25,7 +25,7 @@ use serde_json::json;
 
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
-use crate::domain::validation::{failed_times, keeps_conflicting};
+use crate::domain::validation::{failed_times, keeps_conflicting, keeps_failing_merge_check};
 use crate::domain::{
     Actor, AutoMergeStop, LeadNoteSent, Status, StuckStop, TicketKey, stored_enum,
 };
@@ -84,6 +84,15 @@ impl FirstStop {
         }
     }
 
+    /// The third conflict or failed Merge check in a row, the last a failed check (d0120).
+    pub fn keeps_failing_merge_check(target: &str) -> Self {
+        Self {
+            stop: StuckStop::KeepsFailingMergeCheck,
+            detail: Some(target.to_owned()),
+            rounds: None,
+        }
+    }
+
     pub fn idle(last_line: Option<&str>) -> Self {
         Self {
             stop: StuckStop::Idle,
@@ -100,6 +109,9 @@ impl FirstStop {
         match self.stop {
             StuckStop::ValidationFailed => failed_times(self.rounds.unwrap_or(1)),
             StuckStop::KeepsConflicting => keeps_conflicting(self.detail.as_deref().unwrap_or("")),
+            StuckStop::KeepsFailingMergeCheck => {
+                keeps_failing_merge_check(self.detail.as_deref().unwrap_or(""))
+            }
             StuckStop::Idle => Status::Idle.label().to_owned(),
         }
     }
@@ -432,6 +444,17 @@ pub async fn hand_back(
                 )
                 .await?;
         }
+        StuckStop::KeepsFailingMergeCheck => {
+            let target = held.first.detail.clone().unwrap_or_default();
+            board
+                .delivery_stopped(
+                    child_id,
+                    AutoMergeStop::KeepsFailingMergeCheck,
+                    &keeps_failing_merge_check(&target),
+                    false,
+                )
+                .await?;
+        }
         StuckStop::Idle => {
             // An agent at work again (the user typed to it) isn't idle: nothing to stop.
             let at_work = sessions
@@ -620,7 +643,7 @@ impl Stuck {
                     .lead_answer(&key, &note.lead, &note.text)
                     .await?;
             }
-            StuckStop::KeepsConflicting => {
+            StuckStop::KeepsConflicting | StuckStop::KeepsFailingMergeCheck => {
                 with_stop = self
                     .type_in(agent.as_ref(), DeliveryKind::AgentMessage, note)
                     .await?;

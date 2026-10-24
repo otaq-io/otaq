@@ -297,6 +297,19 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             files: files.clone(),
         },
         LocalMergeOutcome::Changed { check } => changed_view(key, check),
+        // Until the dialog's own states (T-0492): the check's comment, and a stop as a refusal to retry.
+        LocalMergeOutcome::CheckFailed {
+            target,
+            command,
+            exit,
+        } => MergeView::Conflict {
+            title: format!("Merge check failed on {target}"),
+            text: otaq_core::domain::validation::merge_check_failed(command, target, *exit),
+            files: Vec::new(),
+        },
+        LocalMergeOutcome::CheckStopped { target } => MergeView::DirtyCheckout {
+            message: format!("The merge check was stopped; nothing was merged into {target}."),
+        },
     }
 }
 

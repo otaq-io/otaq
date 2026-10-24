@@ -79,6 +79,7 @@ mod limits;
 mod limits_per_tool;
 mod local_merge;
 mod mark_pr;
+mod merge_check;
 mod migrations;
 mod model_refused;
 mod moves;

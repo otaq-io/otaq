@@ -16,6 +16,7 @@ pub mod files;
 pub mod hand_over;
 pub mod human_check;
 pub mod merge;
+pub mod merge_check;
 pub mod moves;
 pub mod needs_you;
 pub mod order;
@@ -60,6 +61,8 @@ pub struct Board {
     limit_stops: LimitStops,
     /// Tickets whose Run is up, with its port: the card's `▶ :4020` (RUN-01).
     run_ports: RunPorts,
+    /// Tickets whose Merge check runs now: "Merging · running the merge check" (d0120).
+    merge_checks: merge_check::MergeChecks,
     /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
     overlaps: Overlaps,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
@@ -89,6 +92,7 @@ impl Board {
             focus: Focus::default(),
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
+            merge_checks: merge_check::MergeChecks::default(),
             overlaps: Overlaps::default(),
             project_files: Default::default(),
             leads: LeadLink::default(),
@@ -132,6 +136,11 @@ impl Board {
     /// The tickets whose Run is up; the service's Runs keep it.
     pub fn run_ports(&self) -> &RunPorts {
         &self.run_ports
+    }
+
+    /// The Merge checks running now (d0120); Local merge keeps it.
+    pub fn merge_checks(&self) -> &merge_check::MergeChecks {
+        &self.merge_checks
     }
 
     /// Running epic children's changed files; the scheduler's passes keep it.

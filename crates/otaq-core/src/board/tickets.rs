@@ -14,8 +14,8 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, BuildState, Flags, Kind, Place, Priority, ProjectKey, ResourceState, SchemaOverlap,
-    StartStep, Status, StatusSet, TicketKey, stored_enum,
+    Actor, BuildState, Flags, Kind, MergeCheckState, Place, Priority, ProjectKey, ResourceState,
+    SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -1151,6 +1151,9 @@ impl Board {
                 );
                 let counts = check_counts.get(&row.id).cloned().unwrap_or_default();
                 let counted = CountedCheck::of(&flow, &place, &counts);
+                let merge_check_failed = row.conflicts_with.is_some()
+                    && row.conflict_reason.as_deref()
+                        == Some(super::conflicts::ConflictReason::MergeCheck.as_str());
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
@@ -1166,7 +1169,15 @@ impl Board {
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && (status.is_queued() || status.at_work()),
                     submitted_by_you,
-                    conflicts_with: row.conflicts_with.clone(),
+                    // A failed Merge check isn't a conflict: the card says "Merge check failed · fixing".
+                    conflicts_with: row.conflicts_with.clone().filter(|_| !merge_check_failed),
+                    merge_check: if self.merge_checks().is_running(&row.id) {
+                        Some(MergeCheckState::Running)
+                    } else if merge_check_failed {
+                        Some(MergeCheckState::Failed)
+                    } else {
+                        None
+                    },
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),

@@ -237,6 +237,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ReviewFeedback(_)
         | Request::TicketMergeProposal(_)
         | Request::TicketLocalMerge(_)
+        | Request::TicketMergeCheckStop(_)
         | Request::TicketApproveCheck(_)
         | Request::TicketConflict(_)
         | Request::TicketSendBackPr(_)

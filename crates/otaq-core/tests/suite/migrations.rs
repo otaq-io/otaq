@@ -2237,3 +2237,55 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
             .unwrap();
     assert_eq!(session.as_deref(), Some("a1"));
 }
+
+/// T-0491 (d0120, d0083): migration 0059 adds `tickets.merge_check_due` (off) and rebuilds `lead_stuck` so a child's
+/// stop can be `keeps_failing_merge_check`, keeping every row.
+#[tokio::test]
+async fn merge_check_due_starts_off_and_a_lead_stop_can_be_a_failing_merge_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 58).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, state, created_by,
+                              created_at, updated_at)
+         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'me', 0, 0),
+                ('t402', 'p', 40, 't40', 2, 'ticket', 'Wishlist button', 'working', 'me', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO lead_stuck (child_id, epic_id, lead_id, stop, detail, rounds, state, held_at)
+         VALUES ('t402', 't40', 'l1', 'keeps_conflicting', 'otaq/SHOP-40', NULL, 'held', 4)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let due: bool = sqlx::query_scalar("SELECT merge_check_due FROM tickets WHERE id = 't402'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert!(!due);
+    let kept: (String, String) =
+        sqlx::query_as("SELECT stop, detail FROM lead_stuck WHERE child_id = 't402'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(kept, ("keeps_conflicting".into(), "otaq/SHOP-40".into()));
+    exec(
+        store.pool(),
+        "UPDATE lead_stuck SET stop = 'keeps_failing_merge_check' WHERE child_id = 't402'",
+    )
+    .await;
+    let refused = sqlx::query("UPDATE lead_stuck SET stop = 'nonsense' WHERE child_id = 't402'")
+        .execute(store.pool())
+        .await;
+    assert!(refused.is_err(), "the CHECK still holds");
+}

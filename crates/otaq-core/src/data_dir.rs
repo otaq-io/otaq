@@ -166,6 +166,15 @@ impl DataDir {
         Ok(self.logs_dir().join("setup").join(format!("{key}.log")))
     }
 
+    /// A ticket's last Merge check output (d0120): `logs/merge-check/<KEY>.log`, replaced by every check.
+    pub fn merge_check_log_path(&self, key: &str) -> Result<PathBuf, DataDirError> {
+        let key = path_component(key)?;
+        Ok(self
+            .logs_dir()
+            .join("merge-check")
+            .join(format!("{key}.log")))
+    }
+
     /// The output of a project's ticket resource Remove and Template refresh commands (d0087):
     /// `logs/resources-<repo-name>.log`, appended to.
     pub fn resource_log_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {

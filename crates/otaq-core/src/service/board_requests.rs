@@ -673,6 +673,13 @@ pub(super) async fn handle(
             .await
             .map(Reply::LocalMerge)
         }),
+        Request::TicketMergeCheckStop(p) => boxed(move || async move {
+            shared
+                .review
+                .stop_merge_check(&p.key)
+                .await
+                .map(|()| Reply::Ok)
+        }),
         Request::TicketSendBackPr(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(

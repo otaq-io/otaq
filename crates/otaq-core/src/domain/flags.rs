@@ -43,6 +43,8 @@ stored_enum! {
         ValidationFailed = "validation_failed",
         /// "Keeps conflicting with `<epic branch>`" (AMG-03, d0064).
         KeepsConflicting = "keeps_conflicting",
+        /// "Merge check keeps failing on `<epic branch>`" (d0120).
+        KeepsFailingMergeCheck = "keeps_failing_merge_check",
         /// Idle: the agent stopped and waits for input (ATT-01, d0042).
         Idle = "idle",
     }
@@ -86,6 +88,26 @@ pub struct ByLead {
     /// The parents those links added, oldest first ("now waits for SHOP-40.4"); a card names those still linked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub waits_for: Vec<TicketKey>,
+}
+
+/// Where a ticket's Merge check is (d0120): what the card and the sheet say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeCheckState {
+    /// Local merge runs it now, before the target moves; the user can stop it.
+    Running,
+    /// It failed: nothing was merged and the ticket's agent fixes it.
+    Failed,
+}
+
+impl MergeCheckState {
+    /// "Merging · running the merge check", "Merge check failed · fixing".
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Running => super::validation::MERGE_CHECK_RUNNING,
+            Self::Failed => super::validation::MERGE_CHECK_FAILED_FIXING,
+        }
+    }
 }
 
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
@@ -198,6 +220,10 @@ pub struct Flags {
     /// when it gave none). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nothing_to_merge: Option<String>,
+    /// The Merge check (d0120): "Merging · running the merge check" while Local merge runs it, "Merge check failed ·
+    /// fixing" while the agent fixes what it found. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_check: Option<MergeCheckState>,
     /// A Backlog ticket (not an epic) whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -375,6 +401,7 @@ mod tests {
             delivered_without_checks: true,
             delivering_automatically: true,
             nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
+            merge_check: Some(MergeCheckState::Failed),
             ready_to_start: true,
             your_turn: true,
             same_file: vec![SameFile {
