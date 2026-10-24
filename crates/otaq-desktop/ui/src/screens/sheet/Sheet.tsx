@@ -1,12 +1,23 @@
 // The ticket sheet (SHT-01, SHT-02; T-0464; *25 → Opening a ticket*, *Full page, and with the agent open*): 1040 px
 // over the board (920 px beside the Project agent; only the board dims), or the whole main area at full page (⤢,
 // "← Board"). The header: breadcrumb, title and status, Move… (the drag's columns), ⋯ (the ticket's menu), ⤢ and ✕;
-// the details line (Assignee, Model, Working, Priority, Branch, Epic; a value with a menu changes it); the flow
+// the details line (Assignee, Model, Working, Priority, Branch, Epic, External ID; a value with a menu changes it, the
+// External ID copies, Q416); the flow
 // path; the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
 // registered in `sheetTabs`. An epic (SHT-07, `s25-11`) shows "1 of 5 merged" and its lead's state by its title, no
 // Move…, and its tabs Overview · Tickets (with their count) · Lead · Files · Activity. It comes in as the drawer of 0095 (the frame's panel layer). Everything it says is Rust's
 // (`panel.view`'s `sheet`); it keeps open menus only. Its keys: Esc, `e`, j / k (⌘[ / ⌘]), the tab keys.
-import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { mainWidth, shellLayout, toggleExpanded } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
@@ -26,12 +37,14 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
 import { DescriptionSaveBar } from "../overview/SaveBar";
+import { COPIED_FOR } from "../editor/logic";
 import { EpicHeadPills } from "../epic/EpicSheet";
 import { ReviewBar } from "../files/ReviewBar";
 import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "./actions";
 import {
   contentOf,
   numberedSheetTab,
+  panelViewLoads,
   sheetWidth,
   shownSheetTab,
   steppedSheetTab,
@@ -121,7 +134,61 @@ function MoveButton({ view }: { view: PanelView }) {
   );
 }
 
-/** One value of the details line; with a menu (Priority, the stage's agent before it starts) or a link (Epic). */
+/**
+ * The External ID (Q416): a click copies it; as Copy as Markdown does, the icon turns into a check and the tooltip
+ * into a green check and "Copied" for a moment.
+ */
+function CopyValue({
+  label,
+  text,
+  hint,
+  copied,
+  children,
+}: {
+  label: string;
+  text: string;
+  hint: string;
+  copied: string;
+  children: ReactNode;
+}) {
+  const [done, setDone] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  return (
+    <Tooltip text={done ? copied : hint} icon={done ? "check" : undefined}>
+      <button
+        type="button"
+        className="sheet-detail-content sheet-detail-button"
+        data-copied={done || undefined}
+        aria-label={`${label}: ${text}. ${hint}`}
+        onClick={() => {
+          navigator.clipboard.writeText(text).then(() => {
+            setDone(true);
+            window.clearTimeout(timer.current);
+            timer.current = window.setTimeout(() => {
+              setDone(false);
+            }, COPIED_FOR);
+          }, ignore);
+        }}
+      >
+        {children}
+        <span className="sheet-detail-copy">
+          <Icon name={done ? "check" : "copy"} size={11} />
+        </span>
+      </button>
+    </Tooltip>
+  );
+}
+
+/**
+ * One value of the details line; with a menu (Priority, the stage's agent before it starts), a link (Epic) or a copy
+ * (External ID).
+ */
 function DetailValue({ view, detail }: { view: PanelView; detail: SheetDetail }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -139,6 +206,13 @@ function DetailValue({ view, detail }: { view: PanelView; detail: SheetDetail })
   );
   const change = detail.change;
   if (change === null) return <span className="sheet-detail-content">{content}</span>;
+  if (change.kind === "copy") {
+    return (
+      <CopyValue label={detail.label} text={change.text} hint={change.hint} copied={change.copied}>
+        {content}
+      </CopyValue>
+    );
+  }
   if (change.kind === "open") {
     return (
       <button
@@ -446,7 +520,12 @@ export function TicketSheet() {
   const layout = useStore(shellLayout);
   const main = useStore(mainWidth);
   const key = ticket ?? "";
-  const load = useCallback(() => request("panel.view", { key }) as Promise<PanelLoad>, [key]);
+  // A new load on each opening (and on j / k): its first fetch takes the Files count again (Q421).
+  const open = selected !== null;
+  const load = useMemo(() => {
+    const params = panelViewLoads(key, open);
+    return () => request("panel.view", params()) as Promise<PanelLoad>;
+  }, [key, open]);
   const { view: load_ } = useServiceView(load, PANEL_EVENTS);
   const view = load_?.view ?? null;
   useSheetKeys(view);

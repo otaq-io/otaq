@@ -97,6 +97,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // The sheet (T-0222): the view writes its header, buttons, tabs and callouts; then the requests' own types.
     crate::api::PanelLoad::export_all(&cfg)?;
     crate::api::PanelParams::export_all(&cfg)?;
+    crate::api::PanelViewParams::export_all(&cfg)?;
     crate::api::PanelActionParams::export_all(&cfg)?;
     crate::api::PanelMenuParams::export_all(&cfg)?;
     crate::api::PanelPriorityParams::export_all(&cfg)?;

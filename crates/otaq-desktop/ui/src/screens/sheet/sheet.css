@@ -248,6 +248,16 @@
   box-shadow: var(--focus-ring);
 }
 
+/* The External ID's copy icon (Q416): muted, a green check once copied (as Copy as Markdown). */
+.sheet-detail-copy {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.sheet-detail-button[data-copied] .sheet-detail-copy {
+  color: var(--st-approved);
+}
+
 .sheet-detail-value {
   overflow: hidden;
   min-width: 0;

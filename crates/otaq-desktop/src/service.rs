@@ -739,6 +739,7 @@ pub(crate) mod testing {
             switcher: Default::default(),
             drawer_tabs: Default::default(),
             review: Default::default(),
+            files_counts: Default::default(),
             terminals: crate::terminal::Terminals::default(),
             pr_dialogs: Default::default(),
             cleanup: Default::default(),

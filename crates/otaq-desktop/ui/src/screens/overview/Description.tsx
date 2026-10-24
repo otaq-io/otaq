@@ -2,7 +2,9 @@
 // "Click to edit" on hover; a click turns it into the editor (toolbar, `/` for blocks) with the caret where it was
 // clicked, and "Editing · Esc to discard, ⌘S to save" on its label row. Once the text differs from what is saved,
 // the sheet's tab row shows "Description changed · Discard · Save ⌘S" (`descriptionDraft`, `SaveBar`); switching
-// tabs, moving to another ticket or closing the sheet then asks first (`guardLeaving`). Esc steps back as in every
+// tabs, moving to another ticket or closing the sheet then asks first (`guardLeaving`): Save stores it and then goes
+// where the user was going, a failed save staying in the editor with its error; Discard changes goes at once; Keep
+// editing stays (Q415, `overview::leave_step`). Esc steps back as in every
 // description editor (d0078 D4: a popover, then the text, then it discards). Saving sends only the description
 // (`editor.save` with the target `description`); an untouched one is never saved. Its words are Rust's
 // (`OverviewView`, `EditorView`).
@@ -126,50 +128,67 @@ export function DescriptionSection({ ticket, view, overview, overviewTabs }: Des
   useEffect(() => {
     latest.current = { draft, state, saving };
   });
-  const save = useCallback(() => {
+  // Stores the description; resolves whether the editor closed saved (`overview::after_save`). A refusal stays in
+  // the editor, shown under it.
+  const store = useCallback((): Promise<boolean> => {
     const { draft: d, state: s, saving: busy } = latest.current;
-    if (d === null || busy) return;
+    if (d === null || busy) return Promise.resolve(false);
     // Untouched: nothing is saved, the editor just closes.
     if (s !== "changed") {
       setDraft(null);
-      return;
+      return Promise.resolve(true);
     }
     setSaving(true);
     setRefusal(null);
     const params = { target: { mode: "description", key: ticket }, form: { ...view.form, body: d.text } };
-    (request("editor.save", params) as Promise<EditorSaved>)
-      .then((out) => {
-        if (out.outcome === "saved") {
-          setDraft(null);
-          setNote(out.note);
-        } else if (out.outcome === "refused") {
-          setRefusal(out.refusal);
-        }
-      }, ignore)
+    return (request("editor.save", params) as Promise<EditorSaved>)
+      .then(
+        (out) => {
+          if (out.outcome === "saved") {
+            setDraft(null);
+            setNote(out.note);
+            return true;
+          }
+          if (out.outcome === "refused") setRefusal(out.refusal);
+          return false;
+        },
+        () => false,
+      )
       .finally(() => {
         setSaving(false);
       });
   }, [ticket, view.form]);
+  const save = useCallback(() => {
+    store().catch(ignore);
+  }, [store]);
 
   // Leaving with changes asks first (SHT-03).
   useEffect(() => {
     if (state !== "changed") return;
     return guardLeaving((next, go) => {
       if (!asksFirst(state, ticket, next, overviewTabs)) return false;
+      // Save · Discard changes · Keep editing (Q415): Save, the default, stores it first and only then goes on.
       openOverlay("confirm", {
         title: overview.leave.title,
         body: overview.leave.body,
-        confirmLabel: overview.leave.discard,
+        confirmLabel: overview.leave.save,
         cancelLabel: overview.leave.keep,
-        destructive: true,
-        onConfirm: () => {
-          discard();
-          go();
+        destructive: false,
+        extra: {
+          label: overview.leave.discard,
+          onClick: () => {
+            discard();
+            go();
+          },
         },
+        onConfirm: () =>
+          store().then((saved) => {
+            if (saved) go();
+          }),
       });
       return true;
     });
-  }, [state, ticket, overviewTabs, overview.leave, discard]);
+  }, [state, ticket, overviewTabs, overview.leave, discard, store]);
 
   // The tab row's bar, while the editor is open.
   useEffect(() => {

@@ -69,6 +69,7 @@ const OVERVIEW: OverviewView = {
   leave: {
     title: "Discard your description changes?",
     body: "SHOP-12’s description has changes you haven’t saved.",
+    save: "Save",
     discard: "Discard changes",
     keep: "Keep editing",
   },
@@ -260,6 +261,13 @@ describe("the description in place (s25-04)", () => {
     expect(descriptionDraft.get()).toBeNull();
   });
 
+  /** The leave question last opened. */
+  function question() {
+    const asked = overlays.store.get().at(-1);
+    if (asked?.id !== "confirm") throw new Error("no question");
+    return asked.params;
+  }
+
   it("closing the sheet or switching tabs with changes asks first; Discard changes goes on", () => {
     openTicket(KEY);
     const page = mount();
@@ -273,16 +281,75 @@ describe("the description in place (s25-04)", () => {
     showTab("agent");
     closeTicket();
     expect(selection.get()).toMatchObject({ ticket: KEY, tab: "overview" });
-    const asked = overlays.store.get().at(-1);
-    if (asked?.id !== "confirm") throw new Error("no question");
-    expect(asked.params.title).toBe("Discard your description changes?");
-    expect(asked.params.confirmLabel).toBe("Discard changes");
-    expect(asked.params.cancelLabel).toBe("Keep editing");
+    // Save · Discard changes · Keep editing (Q415).
+    const asked = question();
+    expect(asked.title).toBe("Discard your description changes?");
+    expect(asked.confirmLabel).toBe("Save");
+    expect(asked.extra?.label).toBe("Discard changes");
+    expect(asked.cancelLabel).toBe("Keep editing");
+    expect(asked.destructive).toBe(false);
     act(() => {
-      asked.params.onConfirm();
+      void asked.extra?.onClick();
     });
     expect(selection.get().ticket).toBeNull();
     expect(page.querySelector(".overview-edit")).toBeNull();
+    expect(saves()).toHaveLength(0);
+  });
+
+  it("Save in the question stores the description, then switches the tab (Q415)", async () => {
+    ipc.reply = (method) => (method === "editor.save" ? { outcome: "saved", key: KEY, note: null } : null);
+    openTicket(KEY);
+    const page = mount();
+    const editor = clickToEdit(page);
+    typeAtEnd(editor, " now");
+    showTab("activity");
+    expect(selection.get()).toMatchObject({ ticket: KEY, tab: null });
+    await act(async () => {
+      await question().onConfirm();
+    });
+    expect(saves()).toHaveLength(1);
+    const [, params] = saves()[0] ?? [];
+    expect((params as { form: typeof EDITOR.form }).form.body).toContain("now");
+    expect(selection.get()).toMatchObject({ ticket: KEY, tab: "activity" });
+    expect(page.querySelector(".overview-edit")).toBeNull();
+    expect(descriptionDraft.get()).toBeNull();
+  });
+
+  it("Save in the question that fails switches nothing: the editor stays with the error", async () => {
+    ipc.reply = (method) =>
+      method === "editor.save"
+        ? {
+            outcome: "refused",
+            created: null,
+            refusal: {
+              field: "form",
+              title: "Couldn't save",
+              message: "SHOP-12 is gone.",
+              icon: "circle-alert",
+            },
+          }
+        : null;
+    openTicket(KEY);
+    const page = mount();
+    const editor = clickToEdit(page);
+    typeAtEnd(editor, " now");
+    closeTicket();
+    await act(async () => {
+      await question().onConfirm();
+    });
+    expect(saves()).toHaveLength(1);
+    expect(selection.get()).toMatchObject({ ticket: KEY, tab: null });
+    expect(page.querySelector(".overview-edit")).not.toBeNull();
+    expect(page.querySelector(".editor-refusal")?.textContent).toContain("SHOP-12 is gone.");
+    expect(descriptionDraft.get()?.changed).toBe(true);
+    // A service that doesn't answer is a failed save too.
+    ipc.reply = (method) => (method === "editor.save" ? Promise.reject(new Error("no service")) : null);
+    showTab("activity");
+    await act(async () => {
+      await question().onConfirm();
+    });
+    expect(selection.get()).toMatchObject({ ticket: KEY, tab: null });
+    expect(page.querySelector(".overview-edit")).not.toBeNull();
   });
 });
 
