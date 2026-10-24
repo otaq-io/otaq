@@ -3,4 +3,8 @@
 /**
  * *Local merge · rebasing onto main…*: the steps while it runs.
  */
-export type LocalMergeMerging = { title: string, steps: Array<string>, label: string, note: string, };
+export type LocalMergeMerging = { title: string, steps: Array<string>, label: string, note: string, 
+/**
+ * The dialog can be closed while it runs; the merge finishes on its own (d0120).
+ */
+close: string, };

@@ -22,6 +22,34 @@
   line-height: 1.5;
 }
 
+/* "Runs `npm test` first when main has moved." / "No merge check · set one in project settings" (d0120). */
+.review-merge-check code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: 400 11px var(--font-mono);
+}
+
+.review-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.review-link:hover {
+  text-decoration: underline;
+}
+
+.review-link:focus-visible {
+  outline: none;
+  border-radius: 2px;
+  box-shadow: var(--focus-ring);
+}
+
 .review-label {
   color: var(--text-secondary);
   font-size: 12px;

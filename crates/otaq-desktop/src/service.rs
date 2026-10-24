@@ -207,13 +207,32 @@ impl ServiceLink {
         self.shared.clients.subscribe()
     }
 
-    /// Sends a request. Fails at once while there is no connection.
+    /// Sends a request. Fails at once while there is no connection. A click that can start a Local merge goes on a
+    /// connection of its own ([`Self::send_alone`], [`may_merge`]).
     pub async fn send(&self, request: Request) -> Result<Reply, RequestError> {
+        if may_merge(&request) {
+            return self.send_alone(request).await;
+        }
         let client = self.shared.lock().client.clone();
         match client {
             Some(client) => Ok(client.request(request).await?),
             None => Err(RequestError::from(ClientError::Disconnected)),
         }
+    }
+
+    /// Sends a request on a connection of its own, opened for it. The service answers one request per connection at a
+    /// time, so a request that can take minutes (a Local merge running the project's Merge check, d0120) goes here:
+    /// the shared connection stays free for the board and for Stop. Fails at once while there is no connection.
+    pub async fn send_alone(&self, request: Request) -> Result<Reply, RequestError> {
+        let client = self.shared.lock().client.clone();
+        let socket = match (&self.shared.settings, client) {
+            (_, Some(client)) if client.compatibility() == Some(Compatibility::Incompatible) => {
+                return Err(RequestError::from(ClientError::Incompatible));
+            }
+            (Ok(settings), Some(_)) => settings.client.socket.clone(),
+            _ => return Err(RequestError::from(ClientError::Disconnected)),
+        };
+        Ok(otaq_core::client::request_once(&socket, request).await?)
     }
 
     /// Restarts the service with this build, or starts it when none runs or the start at launch failed. Only
@@ -243,6 +262,23 @@ impl ServiceLink {
         self.shared.lock().restarting = false;
         outcome
     }
+}
+
+/// The clicks that can run a Local merge before they answer, Merge check included (d0120): Local merge itself, and
+/// every move that can put a ticket into an automatic Delivery (Pass, a drag or move, Submit for review, the
+/// validation buttons: Move on anyway, Skip this check, Retry merge…, and Apply now). They go on a connection of
+/// their own, so the board keeps its answers and Stop reaches the service while the check runs.
+pub fn may_merge(request: &Request) -> bool {
+    matches!(
+        request,
+        Request::TicketLocalMerge(_)
+            | Request::TicketPass(_)
+            | Request::TicketMove(_)
+            | Request::TicketDrag(_)
+            | Request::TicketSubmitByUser(_)
+            | Request::TicketValidationAction(_)
+            | Request::FlowApplyNow(_)
+    )
 }
 
 impl Shared {

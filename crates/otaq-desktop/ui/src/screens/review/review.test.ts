@@ -49,6 +49,7 @@ const VIEW: ApproveView = {
     message: "SHOP-18: Checkout API",
     note: "The worktree for SHOP-18 is removed unless it has uncommitted changes.",
     conflict: null,
+    merge_check: { text: "No merge check · ", link: "set one in project settings", project: "SHOP" },
     merge: "Squash & merge",
     cancel: "Cancel",
     hint: "cancel · ⌘↵ merge",
@@ -58,6 +59,7 @@ const VIEW: ApproveView = {
     steps: ["Rebase onto main"],
     label: "Merging…",
     note: "",
+    close: "Close",
   },
   changed: null,
 };
@@ -182,6 +184,13 @@ describe("the approve flow", () => {
       close: "Close",
     } as const;
     expect(afterMerge(refused)).toEqual({ kind: "result", result: refused });
+    const stopped = {
+      kind: "stopped",
+      title: "Merge check stopped",
+      message: "The merge check was stopped; nothing was merged into main.",
+      close: "Close",
+    } as const;
+    expect(afterMerge(stopped)).toEqual({ kind: "result", result: stopped });
   });
 
   it("merges with ⌘↵ or Ctrl+↵ in the message", () => {

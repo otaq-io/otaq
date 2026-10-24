@@ -45,7 +45,7 @@ use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, HandOffKind, Priority, Status, TicketKey};
+use otaq_core::domain::{Actor, HandOffKind, MergeCheckState, Priority, Status, TicketKey};
 use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
@@ -400,6 +400,8 @@ pub enum CardActionKind {
     Decide,
     /// An agent check held for the plan limit with no usable fallback (FLW-13, Q277).
     SkipCheck,
+    /// "Merging · running the merge check" (d0120, Q475): Stop ends the check and nothing is merged.
+    StopMergeCheck,
 }
 
 impl CardActionKind {
@@ -800,6 +802,21 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
     use otaq_core::domain::{AutoMergeStop, validation};
     let flags = &ticket.flags;
     let flag = |rank, label: &str, full: &str, legend| HeadFlag::new(rank, label, full, legend);
+    // Local merge runs the project's Merge check before the target moves (d0120): calm, with Stop
+    // ([`action`]), whatever column the ticket waits in.
+    if flags.merge_check == Some(MergeCheckState::Running) {
+        return Some(Part::flag(
+            flag(
+                R::Busy,
+                MERGING,
+                validation::MERGE_CHECK_RUNNING,
+                Legend::Validating,
+            )
+            .colored(Palette::Working),
+            Some(validation::MERGE_CHECK_RUNNING.to_owned()),
+            Tone::Muted,
+        ));
+    }
     Some(match status {
         Status::NeedsYou => {
             let text = x
@@ -1093,6 +1110,28 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         // A hand-off typed in that the agent hasn't picked up: what it waits for, not "Working" (d0118).
         Status::Working | Status::MergeConflictFixing if let Some(kind) = flags.hand_off => {
             Part::quiet(hand_off_line(kind), Tone::Muted)
+        }
+        // The Merge check failed on the rebased result (d0120): back with the agent, as after a conflict.
+        Status::MergeConflictFixing if flags.merge_check == Some(MergeCheckState::Failed) => {
+            let f = flag(
+                R::Busy,
+                CHECK_FAILED,
+                validation::MERGE_CHECK_FAILED_FIXING,
+                Legend::MergeConflictFixing,
+            );
+            Part::flag(
+                if x.custom_flow {
+                    f
+                } else {
+                    f.colored(Palette::Working)
+                },
+                Some(validation::MERGE_CHECK_FAILED_FIXING.to_owned()),
+                if x.custom_flow {
+                    Tone::Paused
+                } else {
+                    Tone::Muted
+                },
+            )
         }
         // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`).
         Status::MergeConflictFixing => Part::flag(
@@ -1778,6 +1817,8 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
             icon: None,
             primary: true,
         }),
+        // Stop is quiet, but it is all the card offers while the Merge check runs (d0120).
+        CardActionKind::StopMergeCheck => Some(action),
         _ if edge || action.primary => Some(action),
         _ => None,
     }
@@ -2483,6 +2524,13 @@ fn details(
     details
 }
 
+/// The Merge check's head flags (d0120): "Merging…" while it runs, "Check failed" while the agent fixes what it
+/// found; the line says the rest.
+pub const MERGING: &str = "Merging\u{2026}";
+pub const CHECK_FAILED: &str = "Check failed";
+/// Stop on "Merging · running the merge check" (d0120, Q475): nothing is merged.
+pub const STOP: &str = "Stop";
+
 /// "Use fallback": a held session starts on its tool's fallback (AGM-03).
 pub const USE_FALLBACK: &str = "Use fallback";
 /// "Open agent…": Settings → Agents on the agent whose model can't run (d0108 second gap review rule 7).
@@ -2509,6 +2557,9 @@ fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<Card
             primary: false,
         })
     };
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+        return None;
+    }
     if let Some(hold) = held(ticket, status, x) {
         return (hold.can_use_fallback || hold.can_skip_check)
             .then_some(())
@@ -2552,6 +2603,15 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     };
     // Answer, Reply and Open unblock the card: the frame's filled button.
     let open = |label| a(CardActionKind::Open, label, None, true);
+    // The only thing to do while the Merge check runs (d0120): the merge finishes on its own.
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+        return a(
+            CardActionKind::StopMergeCheck,
+            STOP,
+            Some(IconName::Square),
+            false,
+        );
+    }
     // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the panel.
     // A held role (M23, AGM-03): its fallback when it can take it, then Open agent… ([`second_action`]); quiet
     // buttons.
@@ -3157,6 +3217,18 @@ mod tests {
                 // FLW-17 (`s03-46`).
                 Some("Keeps conflicting with the epic’s branch"),
                 Some("[Open]"),
+            ),
+            (
+                "Merging · running the merge check (0120)",
+                Some("Merging\u{2026}"),
+                Some("Merging \u{b7} running the merge check"),
+                Some("[Stop]"),
+            ),
+            (
+                "Merge check failed · fixing (0120)",
+                Some("Check failed"),
+                Some("Merge check failed \u{b7} fixing"),
+                Some("91k 10s"),
             ),
             (
                 "Picked by the lead (0083)",
@@ -4803,6 +4875,56 @@ mod tests {
             line(&card(&t)),
             Some("Submitted by you · “Paging works, tests pending” · not validated")
         );
+    }
+
+    /// d0120: "Merging · running the merge check" with Stop (and nothing else) while Local merge runs the check, in
+    /// Review or To deliver; "Merge check failed · fixing" while the agent fixes what it found.
+    #[test]
+    fn the_merge_check_states() {
+        for (status, custom) in [
+            (Status::WaitingForYou, false),
+            (Status::WaitingForYou, true),
+            (Status::ToDeliver, true),
+        ] {
+            let mut t = ticket("SHOP-2", "Card", status);
+            t.flags.merge_check = Some(MergeCheckState::Running);
+            let x = CardExtras {
+                custom_flow: custom,
+                ..main_project()
+            };
+            let vm = CardViewModel::from(&t, &x, NOW);
+            assert_eq!(flag_of(&vm), Some("Merging\u{2026}"), "{status:?}");
+            assert_eq!(line(&vm), Some("Merging \u{b7} running the merge check"));
+            let footer = vm.footer.as_ref().unwrap();
+            let stop = footer.action.as_ref().unwrap();
+            assert_eq!(
+                (stop.kind, stop.label, stop.primary),
+                (CardActionKind::StopMergeCheck, "Stop", false)
+            );
+            assert_eq!(footer.second, None, "no Fail beside it");
+            let one = &vm.one_line;
+            assert_eq!(
+                one.line.as_ref().map(|l| l.text.as_str()),
+                Some("Merging \u{b7} running the merge check")
+            );
+            assert_eq!(
+                one.action.as_ref().map(|a| a.kind),
+                Some(CardActionKind::StopMergeCheck)
+            );
+            assert_eq!(one.edge, None, "nothing to review while it merges");
+        }
+
+        let mut t = ticket("SHOP-2", "Card", Status::MergeConflictFixing);
+        t.flags.merge_check = Some(MergeCheckState::Failed);
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Check failed"));
+        assert_eq!(line(&vm), Some("Merge check failed \u{b7} fixing"));
+        assert_eq!(
+            vm.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merge check failed \u{b7} fixing")
+        );
+        assert_eq!(vm.outline, Outline::Normal, "the agent has it");
+        assert_eq!(vm.one_line.action, None);
     }
 
     // T-0291's lead rows, on the v2 card (LEAD-06…LEAD-10).

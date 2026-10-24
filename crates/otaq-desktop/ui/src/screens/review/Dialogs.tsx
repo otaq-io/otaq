@@ -11,7 +11,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { openTicket, selection, showTab } from "../../app/selection";
-import { Button, Dialog, Kbd, TextArea, TextInput } from "../../components";
+import { Button, CodeText, Dialog, Kbd, TextArea, TextInput } from "../../components";
 import type { ApproveView } from "../../generated/ApproveView";
 import type { DecisionChangeParams } from "../../generated/DecisionChangeParams";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
@@ -350,6 +350,22 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               <span className="review-spacer" />
               {c.locked && <Icon name="lock" size={13} />}
             </div>
+            <p className="review-muted review-merge-check">
+              <CodeText text={c.merge_check.text} />
+              {c.merge_check.link !== null && (
+                <button
+                  type="button"
+                  className="review-link"
+                  onClick={() => {
+                    close();
+                    // The Merge check row is in the project's Commands, next to the setup command (d0120).
+                    openOverlay("settings", { project: c.merge_check.project, section: "commands" });
+                  }}
+                >
+                  {c.merge_check.link}
+                </button>
+              )}
+            </p>
             {c.conflict !== null && (
               <Callout icon="git-compare-arrows" tone="paused">
                 {c.conflict}
@@ -383,11 +399,17 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
     }
     case "merging":
       return (
+        // It can be closed while it runs (d0120): the merge finishes on its own and its toasts say how it ended.
         <Dialog
           title={view.merging.title}
           width={480}
-          onCancel={ignore}
-          footer={<Button label={view.merging.label} loading disabled />}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label={view.merging.close} onClick={close} />
+              <Button label={view.merging.label} loading disabled />
+            </>
+          }
         >
           <div className="review-body">
             {view.merging.steps.map((s, i) => (
@@ -478,6 +500,20 @@ export function ResultDialog({
             <Callout icon="triangle-alert" tone="paused">
               {result.message}
             </Callout>
+          </div>
+        </Dialog>
+      );
+    case "stopped":
+      return (
+        <Dialog
+          title={result.title}
+          width={480}
+          onConfirm={close}
+          onCancel={close}
+          footer={<Button label={result.close} onClick={close} />}
+        >
+          <div className="review-body">
+            <p className="review-text">{result.message}</p>
           </div>
         </Dialog>
       );

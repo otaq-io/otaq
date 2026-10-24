@@ -1094,6 +1094,7 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             validation_request(&key, ValidationAction::MoveToReview, ""),
             format!("{key} can\u{2019}t be moved to Review"),
         ),
+        Action::StopMergeCheck => return stop_merge_check(app, &key).await,
         Action::OpenPrInBrowser => {
             let url = ticket(app, &key)
                 .await?
@@ -1121,6 +1122,25 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
         Ok(_) => Ok(()),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// Stop on "Merging · running the merge check" (d0120, Q475): on a connection of its own, since the Local merge it
+/// stops may be waiting on the shared one (an automatic Delivery after a move). The merge answers that nothing was
+/// merged; a check that already ended is a toast.
+async fn stop_merge_check(app: &App, key: &str) -> Result<(), RequestError> {
+    match app
+        .service
+        .send_alone(Request::TicketMergeCheckStop(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s merge check can\u{2019}t be stopped"), &e);
             Err(e)
         }
     }
@@ -1542,6 +1562,7 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         CardActionKind::MarkMerged => {
             return action(app, panel_action(Action::MarkMerged)).await.map(|()| Sent::Done);
         }
+        CardActionKind::StopMergeCheck => return stop_merge_check(app, &params.key).await.map(|()| Sent::Done),
         CardActionKind::DeliverNow => (
             strip::deliver_now_request(
                 &key,

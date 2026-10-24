@@ -296,6 +296,16 @@ pub fn variants() -> Vec<Variant> {
     t.flags.tokens = Some(64_000);
     out.push(v("Keeps conflicting (0064)", t, sleeved()));
 
+    // d0120: Local merge runs the project's Merge check before main moves, then a failed one back with its agent.
+    let mut t = ticket("SHOP-34", "Tax display", Status::WaitingForYou);
+    t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Running);
+    out.push(v("Merging · running the merge check (0120)", t, base()));
+
+    let mut t = ticket("SHOP-34", "Tax display", Status::MergeConflictFixing);
+    t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Failed);
+    live(&mut t, 10, 91_000);
+    out.push(v("Merge check failed · fixing (0120)", t, base()));
+
     let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
     t.depends_on = keys(&["SHOP-40.2"]);
     out.push(v(

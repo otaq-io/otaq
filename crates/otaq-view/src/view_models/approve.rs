@@ -206,6 +206,24 @@ pub fn confirm_note(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> String
     note
 }
 
+/// The Approve / Local merge dialog's line without a Merge check (d0120): "No merge check · set one in project
+/// settings", the second half the link to the row.
+pub const NO_MERGE_CHECK: &str = "No merge check";
+pub const SET_ONE_IN_PROJECT_SETTINGS: &str = "set one in project settings";
+
+/// The dialog's line with a Merge check (d0120): "Runs `npm test` first when main has moved."
+pub fn merge_check_runs_first(command: &str, target: &str) -> String {
+    format!("Runs `{command}` first when {target} has moved.")
+}
+
+/// What happens after a failed Merge check (d0120, no click): the agent fixes it, as after a conflict.
+pub fn check_failed_help(key: &TicketKey, target: &str) -> String {
+    format!(
+        "Nothing was merged into {target}. {key} went back to its agent, which fixes it and moves on again; the \
+         check\u{2019}s output is attached to its comment."
+    )
+}
+
 /// The steps the "Merging…" state lists (*Local merge · rebasing onto main…*).
 pub fn merging_steps(target: &str, into_epic: bool) -> Vec<String> {
     let mut steps = Vec::new();
@@ -232,6 +250,10 @@ pub enum MergeView {
         text: String,
         files: Vec<String>,
     },
+    /// The Merge check failed on the rebased result (d0120): nothing merged, the agent fixes it with no click.
+    CheckFailed { title: String, text: String },
+    /// The user's Stop of the Merge check (Q475): nothing merged, the ticket where it was.
+    CheckStopped { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry." (Retry).
     DirtyCheckout { message: String },
     /// The base diverged from its remote (Retry).
@@ -297,17 +319,16 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             files: files.clone(),
         },
         LocalMergeOutcome::Changed { check } => changed_view(key, check),
-        // Until the dialog's own states (T-0492): the check's comment, and a stop as a refusal to retry.
+        // Nothing merged; the ticket is back with its agent, the comment's words (d0120).
         LocalMergeOutcome::CheckFailed {
             target,
             command,
             exit,
-        } => MergeView::Conflict {
+        } => MergeView::CheckFailed {
             title: format!("Merge check failed on {target}"),
             text: otaq_core::domain::validation::merge_check_failed(command, target, *exit),
-            files: Vec::new(),
         },
-        LocalMergeOutcome::CheckStopped { target } => MergeView::DirtyCheckout {
+        LocalMergeOutcome::CheckStopped { target } => MergeView::CheckStopped {
             message: format!("The merge check was stopped; nothing was merged into {target}."),
         },
     }

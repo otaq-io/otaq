@@ -13,6 +13,7 @@ export {
   type IconButtonProps,
   type ShownState,
 } from "./Button";
+export { CodeText } from "./CodeText";
 export { DecisionItem, DecisionsList, type DecisionItemProps, type DecisionsListProps } from "./DecisionItem";
 export {
   ConfirmDialog,

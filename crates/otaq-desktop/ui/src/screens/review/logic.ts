@@ -49,6 +49,7 @@ export function afterMerge(result: LocalMergeResult): Step {
       return { kind: "changed", changed: result.changed, checkedFirst: false };
     case "conflict":
     case "refused":
+    case "stopped":
     case "uncommitted":
       return { kind: "result", result };
   }

@@ -89,6 +89,11 @@ describe("where buttons and menu items go", () => {
       expect(menuRoute(item)).toEqual({ kind: "service" });
   });
 
+  it("Stop on a running merge check, in the sheet and on the card (d0120)", () => {
+    expect(actionRoute("stop_merge_check")).toEqual({ kind: "service" });
+    expect(cardRoute("stop_merge_check")).toEqual({ kind: "service" });
+  });
+
   it("the … menu's ids from the view models", () => {
     expect(menuRoute("close-ticket")).toEqual({ kind: "overlay", id: "close_ticket" });
     expect(menuRoute("submit-for-review")).toEqual({ kind: "overlay", id: "submit_for_review" });

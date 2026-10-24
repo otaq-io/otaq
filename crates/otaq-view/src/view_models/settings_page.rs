@@ -604,6 +604,25 @@ fn row(field: &str, label: &str, description: impl Into<String>, control: Contro
     }
 }
 
+/// The help under Merge check (d0120); the page shows `npm test` as code.
+pub const MERGE_CHECK_HELP: &str = "Runs on the merged result before Local merge moves the branch, when it has new commits. For example `npm test`.";
+
+/// "Merge check" (d0120), next to the setup command and built like it: a text field that saves as you type, empty by
+/// default (never guessed, d0023).
+fn merge_check_row(s: &ProjectSettings, p: &[SettingProblem]) -> Row {
+    row(
+        "merge_check",
+        "Merge check",
+        MERGE_CHECK_HELP,
+        text(
+            s.merge_check.as_deref().unwrap_or_default(),
+            "none \u{2014} e.g. npm test",
+            true,
+            problem_for(p, "merge_check"),
+        ),
+    )
+}
+
 fn text(value: &str, placeholder: &str, mono: bool, problem: Option<String>) -> Control {
     Control::Text {
         value: value.to_owned(),
@@ -1020,6 +1039,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                     problem_for(p, "setup_command"),
                 ),
             ),
+            merge_check_row(s, p),
             Row {
                 button: input.tool_connected.then(|| RowButton {
                     label: crate::view_models::run_page::ASK_LABEL.into(),
@@ -2027,6 +2047,11 @@ pub fn edit_project(
         }
         "project_notes" => s.project_notes = value.text()?.to_owned(),
         "setup_command" => s.setup_command = value.text()?.to_owned(),
+        // Kept as typed while it saves on every key; empty is no Merge check (d0120). The core reads it trimmed.
+        "merge_check" => {
+            let text = value.text()?;
+            s.merge_check = (!text.trim().is_empty()).then(|| text.to_owned());
+        }
         "run_command" => s.run_command = value.text()?.to_owned(),
         "open_url" => s.open_url = value.text()?.trim().to_owned(),
         "let_finished_tickets_answer" => s.let_finished_tickets_answer = value.flag()?,
@@ -2449,6 +2474,50 @@ mod tests {
             ]
         );
         sections.into_iter().flat_map(|s| s.rows).collect()
+    }
+
+    /// Merge check (d0120): right after Setup command, built like it (a mono text field saved as you type), empty by
+    /// default; a blank value is no Merge check.
+    #[test]
+    fn the_merge_check_row_follows_the_setup_command_and_saves_as_typed() {
+        let mut s = ProjectSettings::default();
+        let rows = project_rows(&s, &GlobalSettings::default());
+        let at = rows
+            .iter()
+            .position(|r| r.field == "setup_command")
+            .unwrap();
+        let row = &rows[at + 1];
+        assert_eq!(row.field, "merge_check");
+        assert_eq!(row.label, "Merge check");
+        assert_eq!(
+            row.description,
+            "Runs on the merged result before Local merge moves the branch, when it has new commits. For example \
+             `npm test`."
+        );
+        let Control::Text {
+            value,
+            mono,
+            multiline,
+            ..
+        } = &row.control
+        else {
+            panic!("{:?}", row.control)
+        };
+        assert_eq!((value.as_str(), *mono, *multiline), ("", true, false));
+
+        for typed in ["n", "npm", "npm test "] {
+            assert_eq!(
+                edit_project(&mut s, "merge_check", &Value::Text(typed.into())),
+                Ok(ProjectChange::Settings)
+            );
+        }
+        assert_eq!(s.merge_check.as_deref(), Some("npm test "), "as typed");
+        assert_eq!(s.merge_check(), Some("npm test"));
+        let rows = project_rows(&s, &GlobalSettings::default());
+        let row = rows.iter().find(|r| r.field == "merge_check").unwrap();
+        assert!(matches!(&row.control, Control::Text { value, .. } if value == "npm test "));
+        edit_project(&mut s, "merge_check", &Value::Text("  ".into())).unwrap();
+        assert_eq!(s.merge_check, None, "cleared");
     }
 
     /// Ticket resources (M19-d, d0087): empty by default, each field edits its setting, and the schema paths are one

@@ -87,6 +87,8 @@ pub enum Action {
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
+    /// "Merging · running the merge check" (d0120, Q475): the check ends and nothing is merged.
+    StopMergeCheck,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -145,6 +147,7 @@ impl Action {
             Self::MoveToReview => "Move to Review",
             Self::ResumeLead => "Resume lead",
             Self::OpenAgent => "Open agent\u{2026}",
+            Self::StopMergeCheck => crate::view_models::card::STOP,
         }
     }
 
@@ -173,6 +176,7 @@ impl Action {
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
+            Self::StopMergeCheck => IconName::Square,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
             Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
                 return None;
@@ -201,7 +205,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen | Self::ResumeLead => None,
-            Self::OpenAgent => None,
+            Self::OpenAgent | Self::StopMergeCheck => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveOnAnyway
@@ -266,6 +270,10 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
     let s = ticket.status;
+    // While Local merge runs the Merge check, Stop is all there is to do (d0120): the merge finishes on its own.
+    if ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Running) {
+        return vec![(A::StopMergeCheck, Secondary)];
+    }
     if ticket.kind == Kind::Epic {
         // No Start on an epic: its children start (d0059). Its review flow is T-0109.
         // By the kind of stage it is in (STG-08): its Backlog, its human check, its Delivery, Done.
@@ -499,6 +507,28 @@ mod tests {
             .into_iter()
             .map(|(a, _)| a)
             .collect()
+    }
+
+    /// d0120: while Local merge runs the Merge check, the sheet's only button is Stop (Approve can't run twice).
+    #[test]
+    fn a_running_merge_check_offers_only_stop() {
+        for status in [Status::WaitingForYou, Status::ToDeliver] {
+            let mut t = ticket("SHOP-1", "t", status);
+            t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Running);
+            assert_eq!(buttons(&t), [(A::StopMergeCheck, Look::Secondary)]);
+            assert_eq!(
+                all_buttons_in(&t, true),
+                [(A::StopMergeCheck, Look::Secondary)]
+            );
+        }
+        assert_eq!(A::StopMergeCheck.label(), "Stop");
+        let mut t = ticket("SHOP-1", "t", Status::MergeConflictFixing);
+        t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Failed);
+        assert_eq!(
+            buttons(&t),
+            [(A::OpenTerminal, Look::Secondary)],
+            "the agent fixes it"
+        );
     }
 
     fn all(status: Status) -> Vec<(Action, Look)> {

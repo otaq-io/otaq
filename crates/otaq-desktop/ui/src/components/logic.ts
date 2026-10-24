@@ -195,3 +195,13 @@ export function markStrokes(size: number): { outline: number; columns: number; f
   const columns = Math.max(MARK_COLUMNS, min);
   return { outline: Math.max(MARK_OUTLINE, min), columns, flagShift: columns / 2 - MARK_FLAG_OVERLAP };
 }
+
+/**
+ * A view model's text cut where it marks code with backticks ("For example `npm test`."): the odd pieces are code.
+ * An unclosed backtick stays text.
+ */
+export function codeSpans(text: string): { text: string; code: boolean }[] {
+  const parts = text.split("`");
+  if (parts.length % 2 === 0) return [{ text, code: false }];
+  return parts.flatMap((part, i) => (part === "" ? [] : [{ text: part, code: i % 2 === 1 }]));
+}
