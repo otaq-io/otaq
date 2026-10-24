@@ -2494,6 +2494,17 @@ pub enum Event {
         title: String,
         message: String,
     },
+    /// A ticket's agent or an epic lead created a ticket (#47; d0016: a toast, no notification): "Ticket created by
+    /// agent" · "DEMO-7 created DEMO-12 → Backlog". `by` names the creator as the toast does (the ticket's key, or
+    /// the lead's name); `status` is where the new ticket landed (Backlog, or Queued in its epic's queue). Not sent
+    /// for the user's tickets nor a Project agent's (its pane lists what it created).
+    CreatedByAgent {
+        project: String,
+        key: TicketKey,
+        title: String,
+        by: String,
+        status: Status,
+    },
     /// A question or answer between agents was typed into the other agent's session (MSG-02, MSG-06): the
     /// receiving ticket's key; both tickets' cards and Messages refetch.
     MessageDelivered {

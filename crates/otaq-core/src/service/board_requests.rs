@@ -348,6 +348,7 @@ pub(super) async fn handle(
             match created {
                 Ok(t) => {
                     lead_changed(shared, caller, &t, LeadChange::Created, &actor).await;
+                    created_by_agent(shared, caller, std::slice::from_ref(&t), &actor).await;
                     created_in(shared, origin, std::slice::from_ref(&t))
                         .await
                         .map(|()| Reply::Ticket(Box::new(t)))
@@ -390,6 +391,7 @@ pub(super) async fn handle(
                     for t in &tickets {
                         lead_changed(shared, caller, t, LeadChange::Created, &actor).await;
                     }
+                    created_by_agent(shared, caller, &tickets, &actor).await;
                     created_in(shared, origin, &tickets)
                         .await
                         .map(|()| Reply::Tickets(tickets))
@@ -2279,6 +2281,49 @@ async fn lead_changed(
         tracing::warn!(child = %child.key, error = %e, "can't record the lead's change");
     }
     publish_ticket_changed(shared, &epic.key).await;
+}
+
+/// #47: a ticket a ticket's agent (or its validator) or an epic lead created tells the app ("DEMO-7 created DEMO-12
+/// → Backlog"), and the creating ticket's History logs it. The user's tickets and a Project agent's tell nothing: its
+/// pane lists what it created (d0068, d0091).
+async fn created_by_agent(shared: &Shared, caller: &Caller, tickets: &[Ticket], actor: &Actor) {
+    let by = match caller {
+        Caller::Agent {
+            ticket, ticket_id, ..
+        }
+        | Caller::Validator {
+            ticket, ticket_id, ..
+        } => {
+            for child in tickets {
+                if let Err(e) = shared
+                    .board
+                    .record_created_ticket(ticket_id, child, actor)
+                    .await
+                {
+                    tracing::warn!(creator = %ticket, child = %child.key, error = %e,
+                                   "can't log the created ticket");
+                }
+            }
+            if !tickets.is_empty() {
+                publish_ticket_changed(shared, ticket).await;
+            }
+            ticket.to_string()
+        }
+        Caller::EpicLead { epic_id, .. } => match shared.board.ticket_by_id(epic_id).await {
+            Ok(epic) => crate::project_agents::lead::lead_name(&epic.title),
+            Err(_) => return,
+        },
+        Caller::User | Caller::ProjectAgent { .. } => return,
+    };
+    for t in tickets {
+        shared.events.publish(Event::CreatedByAgent {
+            project: t.key.project.to_string(),
+            key: t.key.clone(),
+            title: t.title.clone(),
+            by: by.clone(),
+            status: t.status,
+        });
+    }
 }
 
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and

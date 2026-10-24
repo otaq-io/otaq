@@ -2,7 +2,8 @@
 //! one [`BannerModel`] and one [`ToastModel`] for the window, fed by the link's states (service banners, the
 //! after-restart summary, "Reconnected"), the plan limit (`usage.summary` on `usage_changed`, `ticket_changed` and
 //! resyncs), the folder trust note and warning (`onboarding.state` on [`TRUST_EVENTS`] and resyncs; PRJ-08) and the
-//! service events that show a toast ([`EVENT_TOASTS`]). A one-second tick times the success toasts out and counts the
+//! service events that show a toast ([`EVENT_TOASTS`]), and one toast per burst of tickets agents created
+//! (`created_by_agent`, #47). A one-second tick times the success toasts out and counts the
 //! usage limit down. The notification ask and the blocked banner follow `notifications.state` (on connect and resyncs)
 //! and `notifications_changed` (ATT-13, ATT-14). The flow change banner (FLW-06) is the project on screen's (the page
 //! says which, `notices.project`): every project's waiting change is fetched (`flow.waiting`) on connect, resyncs and
@@ -30,6 +31,7 @@ use otaq_core::protocol::{
 };
 use otaq_core::store::now_ms;
 use otaq_view::view_models::after_restart::{ALREADY_RUNNING_MS, OnConnect, on_connect};
+use otaq_view::view_models::agent_activity::{Created, CreationBatch};
 use otaq_view::view_models::banners::{
     BannerModel, BannerView, Situation, SituationKind, TrustFailure,
 };
@@ -224,6 +226,8 @@ struct State {
     pause: Option<PauseCounts>,
     /// The service start the "… restarted; a pause never lifts on its own" toast was shown for (PAU-07).
     paused_toast_for: Option<i64>,
+    /// Tickets agents created, until a quiet moment makes their toast (#47).
+    creations: CreationBatch,
 }
 
 /// A project as the flow change banner and toasts name it, and its waiting change if one waits.
@@ -272,6 +276,7 @@ impl Notices {
                 flows: BTreeMap::new(),
                 pause: None,
                 paused_toast_for: None,
+                creations: CreationBatch::default(),
             }),
             events,
         }
@@ -540,11 +545,26 @@ impl Notices {
         self.publish();
     }
 
+    /// A ticket's agent or an epic lead created a ticket (`created_by_agent`, #47): it joins the batch the tick turns
+    /// into one toast once the burst is over.
+    pub fn on_created_by_agent(&self, created: Created, now: Instant) {
+        self.lock().creations.add(created, now);
+    }
+
+    /// The agent-created tickets' toasts, once nothing new came for a moment.
+    fn flush_creations(&self, now: Instant) {
+        let mut state = self.lock();
+        for toast in state.creations.take_if_quiet(now) {
+            state.toasts.push_toast(toast, now);
+        }
+    }
+
     pub fn take_open_at_start(&self) -> Option<OpenTarget> {
         self.lock().open_at_start.take()
     }
 
     fn tick(&self) {
+        self.flush_creations(Instant::now());
         {
             let mut state = self.lock();
             state.toasts.expire(Instant::now());
@@ -819,6 +839,12 @@ async fn follow(
                             }
                             if let Event::FlowChanged { project, change } = &event {
                                 notices.on_flow_event(project, change);
+                            }
+                            if let Event::CreatedByAgent { key, by, status, .. } = &event {
+                                notices.on_created_by_agent(
+                                    Created { by: by.clone(), key: key.clone(), status: *status },
+                                    Instant::now(),
+                                );
                             }
                             for toast in EVENT_TOASTS.iter().filter_map(|to_toast| to_toast(&event)) {
                                 notices.toast(toast);
@@ -1590,5 +1616,39 @@ mod tests {
         );
         assert_eq!(view.toasts[1].icon, Some(otaq_view::icons::IconName::Ban));
         assert_eq!(view.toasts[1].level, ToastLevel::Success);
+    }
+
+    /// #47: the tickets an agent created make one toast once the burst is over; a click opens a single one.
+    #[test]
+    fn an_agent_s_new_tickets_make_one_toast_per_burst() {
+        use otaq_core::domain::Status;
+        use otaq_view::view_models::agent_activity::BATCH_QUIET;
+        let n = notices();
+        let t0 = Instant::now();
+        for key in ["DEMO-12", "DEMO-13"] {
+            n.on_created_by_agent(
+                Created {
+                    by: "DEMO-7".into(),
+                    key: key.parse().unwrap(),
+                    status: Status::Backlog,
+                },
+                t0,
+            );
+        }
+        n.flush_creations(t0);
+        assert!(n.view().toasts.is_empty(), "not while the burst goes on");
+        n.flush_creations(t0 + BATCH_QUIET);
+        let view = n.view();
+        assert_eq!(toasts(&view), ["2 tickets created by agent"]);
+        assert_eq!(
+            view.toasts[0].text.as_deref(),
+            Some("DEMO-7 created DEMO-12, DEMO-13 \u{2192} Backlog")
+        );
+        assert_eq!(
+            view.toasts[0].icon,
+            Some(otaq_view::icons::IconName::Sparkles)
+        );
+        n.flush_creations(t0 + BATCH_QUIET * 2);
+        assert_eq!(n.view().toasts.len(), 1, "once");
     }
 }

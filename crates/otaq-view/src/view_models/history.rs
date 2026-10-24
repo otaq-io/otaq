@@ -886,6 +886,20 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             return None;
         }
         EventKind::Created => ("Created".to_owned(), Some(by(e))),
+        // The agent filed another ticket (#47): "Created DEMO-12 Fix the build" · "by DEMO-7's agent · in Backlog".
+        EventKind::CreatedTicket => (
+            format!(
+                "Created {} {}",
+                text(p, "child").unwrap_or_default(),
+                text(p, "title").unwrap_or_default()
+            )
+            .trim_end()
+            .to_owned(),
+            Some(match text(p, "to").and_then(|s| s.parse::<Status>().ok()) {
+                Some(to) => format!("{} \u{b7} in {}", who(&e.actor), to.label()),
+                None => who(&e.actor),
+            }),
+        ),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
             // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
@@ -1400,6 +1414,26 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    /// #47: the ticket whose agent filed another one says so, under All.
+    #[test]
+    fn a_ticket_s_agent_created_another() {
+        let row = event_row(&HistoryEvent {
+            actor: Actor::Agent("DEMO-7".parse().unwrap()),
+            ..event(
+                EventKind::CreatedTicket,
+                MIN,
+                json!({"child": "DEMO-12", "title": "Fix the build", "to": "backlog"}),
+            )
+        })
+        .unwrap();
+        assert_eq!(row.title, "Created DEMO-12 Fix the build");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("by DEMO-7's agent \u{b7} in Backlog")
+        );
+        assert_eq!(row.kind, Kind::Other);
+    }
 
     /// d0121: the warning's own words, git's reason under it.
     #[test]

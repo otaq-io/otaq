@@ -708,7 +708,7 @@ function Overlays({ view }: { view: GalleryView }) {
             icon="sparkles"
             iconTone="investigate"
             title="Ticket created by agent"
-            text="SHOP-29 Add cart analytics → Backlog"
+            text="SHOP-19 created SHOP-29 → Backlog"
             onClose={() => undefined}
           />
           <Toast

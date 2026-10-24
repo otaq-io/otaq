@@ -479,6 +479,10 @@ stored_enum! {
         CommentEdited = "comment_edited",
         /// A ticket comment was deleted: payload `n`, `body` (what it said), `report` and `author`; its report stays.
         CommentDeleted = "comment_deleted",
+        /// The ticket's agent created another ticket with `otaq create` (#47): logged on the creator, payload
+        /// `child` (its key), `title`, `to` (the column it landed in). History reads "Created DEMO-12 Fix the
+        /// build" · "by DEMO-7's agent · in Backlog".
+        CreatedTicket = "created_ticket",
     }
 }
 

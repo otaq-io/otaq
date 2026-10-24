@@ -35,6 +35,7 @@ mod compatibility;
 mod conflict_flag;
 mod connected_tools;
 mod created;
+mod created_by_agent;
 mod decision_card_count;
 mod decision_outcome;
 mod decisions;
