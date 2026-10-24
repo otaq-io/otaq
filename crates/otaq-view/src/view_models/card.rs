@@ -1241,6 +1241,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if flags.resuming_conversation => {
             Part::quiet("Resuming conversation\u{2026}", Tone::Muted)
         }
+        // A sibling's merge freed it; the epic lead's turn about that merge comes first (d0124).
+        Status::Queued if flags.waiting_for_lead => Part::quiet(WAITING_FOR_LEAD, Tone::Muted),
         Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
         Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
@@ -1290,6 +1292,8 @@ pub fn pr_not_watched() -> String {
 pub const PARKED: &str = "Parked \u{b7} has work \u{b7} branch, files and conversation kept";
 /// *Waiting for a free slot (0016)*.
 pub const WAITING_FOR_SLOT: &str = "waiting for a free slot";
+/// A child a sibling's merge freed, until the epic lead's turn about that merge ends (d0124).
+pub const WAITING_FOR_LEAD: &str = "Waiting for the lead\u{2019}s update";
 
 /// "round 1 of 3 · 2 min": which round the validator checks and how long it has run.
 fn validating_text(ticket: &Ticket, now_ms: i64) -> Option<String> {
@@ -4757,6 +4761,23 @@ mod tests {
         let mut own = child.clone();
         own.flags.pinned_at = Some(NOW);
         assert!(CardViewModel::from(&own, &x, NOW).pinned);
+    }
+
+    /// d0124: a child a sibling's merge freed says it waits for the lead's update, until its pass ends.
+    #[test]
+    fn a_freed_child_waits_for_the_leads_update() {
+        let mut t = ticket("SHOP-40.3", "Wishlist page", Status::Queued);
+        t.epic = Some("SHOP-40".parse().unwrap());
+        t.flags.waiting_for_lead = true;
+        assert_eq!(
+            line(&card(&t)),
+            Some("Waiting for the lead\u{2019}s update")
+        );
+        t.flags.waiting_for_lead = false;
+        assert_ne!(
+            line(&card(&t)),
+            Some("Waiting for the lead\u{2019}s update")
+        );
     }
 
     /// EPC-13: a child that joined its whole-queued epic's queue says who added it.

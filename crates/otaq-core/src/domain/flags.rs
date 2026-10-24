@@ -137,6 +137,11 @@ pub struct Flags {
     /// Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hand_off: Option<super::HandOffKind>,
+    /// A waiting epic child that a sibling's merge freed waits for the lead's turn about it: "Waiting for the lead's
+    /// update" (d0124). From the scheduler's last pass; never stored (a restart drops it, and the lead with it).
+    /// Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub waiting_for_lead: bool,
     /// Run is running, on this port: `▶ :4020` (d0035).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_port: Option<u16>,
@@ -380,6 +385,7 @@ mod tests {
             changed_since_review: true,
             messages_waiting: 2,
             hand_off: None,
+            waiting_for_lead: true,
             run_port: Some(4020),
             updated_by_agent: true,
             answering: Some("SHOP-40.2".parse().unwrap()),

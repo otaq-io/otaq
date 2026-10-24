@@ -78,6 +78,7 @@ mod lead_notes;
 mod lead_questions;
 mod lead_scope;
 mod lead_stuck;
+mod lead_turn_waits;
 mod limits;
 mod limits_per_tool;
 mod local_merge;

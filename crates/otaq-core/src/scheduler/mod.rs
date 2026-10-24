@@ -35,6 +35,12 @@
 //!
 //! **A paused project** (PAU-04, d0112) starts nothing at all: neither from Ready for Dev nor between two Agent stages
 //! ([`plan_holding`]'s `paused`). Its queued tickets wait as they are, and the project's Resume wakes the scheduler.
+//!
+//! **The epic lead's turn** (LEAD-04; d0124): while an epic's lead is live, a child that a sibling's merge (or close)
+//! made ready waits, "Waiting for the lead's update", until the lead's turn about that sibling ends or the lead ends
+//! ([`waiting_for_lead`], from [`crate::epic_lead::wake::LeadWait`]). Both publish a lead change, which runs a pass
+//! while a ticket waits for a lead.
+//! With no live lead (never opened, ended, "Ended by restart") nothing waits for it. A pause still wins.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -53,6 +59,7 @@ use crate::board::settings::AgentLimits;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
 use crate::domain::{Actor, StartStep, Status, TicketKey};
+use crate::epic_lead::wake::LeadWait;
 use crate::flow::apply::Hold;
 use crate::git::BaseSync;
 use crate::protocol::Event;
@@ -216,6 +223,41 @@ pub fn plan_holding(
     held: &HashMap<String, Hold>,
     paused: &HashSet<String>,
 ) -> Plan {
+    plan_with(
+        tickets,
+        starting,
+        gate,
+        &Holds {
+            flow: held,
+            paused,
+            lead: &HashSet::new(),
+        },
+    )
+}
+
+/// What holds starts back besides the limits ([`plan_with`]).
+#[derive(Debug, Clone, Copy)]
+pub struct Holds<'a> {
+    /// The projects whose flow change waits, by key, and the starts each holds back (FLW-06).
+    pub flow: &'a HashMap<String, Hold>,
+    /// The paused projects, by key (PAU-04).
+    pub paused: &'a HashSet<String>,
+    /// The tickets that wait for their epic lead's update, by id ([`waiting_for_lead`], d0124): they wait in Queued.
+    pub lead: &'a HashSet<String>,
+}
+
+/// [`plan_holding`], with the tickets that wait for their epic lead's update too (d0124). A pause wins over all.
+pub fn plan_with(
+    tickets: &[Ticket],
+    starting: &HashSet<String>,
+    gate: &Gate,
+    holds: &Holds<'_>,
+) -> Plan {
+    let Holds {
+        flow: held,
+        paused,
+        lead,
+    } = *holds;
     let mut plan = Plan::default();
     let mut ready: Vec<&Ticket> = Vec::new();
     for ticket in tickets {
@@ -235,6 +277,9 @@ pub fn plan_holding(
                 if held
                     .get(ticket.key.project.as_str())
                     .is_some_and(|h| h.holds(&ticket.place)) => {}
+            ReadyState::Ready if lead.contains(&ticket.id) => {
+                change(&mut plan, ticket, Status::Queued)
+            }
             ReadyState::Ready => ready.push(ticket),
         }
     }
@@ -258,6 +303,55 @@ pub fn plan_holding(
         }
     }
     plan
+}
+
+/// The tickets that wait for their epic lead's update (d0124): waiting (Queued's sub-states) children of an epic in
+/// `waits` (a live lead) that a sibling held back which finished (merged or closed) since the lead's session started
+/// and whose turn hasn't ended, or that the finished sibling held back when it finished (`freed`, so a link the lead
+/// removes in that turn doesn't start them early). Whether they are ready is the plan's to say.
+pub fn waiting_for_lead(tickets: &[Ticket], waits: &[LeadWait]) -> HashSet<String> {
+    let by_key: HashMap<&TicketKey, &Ticket> = tickets.iter().map(|t| (&t.key, t)).collect();
+    let mut waiting = HashSet::new();
+    for wait in waits {
+        let unreleased = |sibling: &Ticket| {
+            sibling.epic.as_ref() == Some(&wait.epic)
+                && matches!(sibling.status, Status::Merged | Status::ClosedNotMerged)
+                && sibling.status_since.is_some_and(|at| {
+                    at >= wait.since && wait.released.get(&sibling.id).is_none_or(|r| at > *r)
+                })
+        };
+        for ticket in tickets
+            .iter()
+            .filter(|t| t.epic.as_ref() == Some(&wait.epic) && scheduled(t))
+        {
+            let held = wait.freed.contains(&ticket.id)
+                || ticket
+                    .depends_on
+                    .iter()
+                    .filter_map(|k| by_key.get(k))
+                    .any(|s| unreleased(s));
+            if held {
+                waiting.insert(ticket.id.clone());
+            }
+        }
+    }
+    waiting
+}
+
+/// The ids of `child`'s waiting siblings that depend on it (d0124): what its merge or close frees, or would.
+pub async fn held_back_by(board: &Board, child: &Ticket) -> Result<Vec<String>, BoardError> {
+    let Some(epic) = &child.epic else {
+        return Ok(Vec::new());
+    };
+    Ok(board
+        .tickets(child.key.project.as_str())
+        .await?
+        .into_iter()
+        .filter(|t| {
+            t.epic.as_ref() == Some(epic) && t.depends_on.contains(&child.key) && scheduled(t)
+        })
+        .map(|t| t.id)
+        .collect())
 }
 
 fn change(plan: &mut Plan, ticket: &Ticket, to: Status) {
@@ -518,13 +612,33 @@ impl Scheduler {
                 .into_iter()
                 .map(|(key, _)| key)
                 .collect();
-        let plan = plan_holding(
+        // Children a sibling's merge freed wait for their lead's turn about it (d0124).
+        let lead = waiting_for_lead(&tickets, &self.inner.board.leads().lead_waits().await);
+        let plan = plan_with(
             &tickets,
             &self.busy().await?,
             &Gate { limits, needs_you },
-            &settled.held,
-            &paused,
+            &Holds {
+                flow: &settled.held,
+                paused: &paused,
+                lead: &lead,
+            },
         );
+        // The cards say so; a paused project's say it is paused.
+        let shown = tickets
+            .iter()
+            .filter(|t| lead.contains(&t.id) && !paused.contains(t.key.project.as_str()))
+            .map(|t| t.id.clone())
+            .collect();
+        for id in self.inner.board.leads().set_waiting(shown) {
+            if let Some(t) = tickets.iter().find(|t| t.id == id) {
+                self.inner.events.publish(Event::TicketChanged {
+                    project: t.key.project.to_string(),
+                    id: t.id.clone(),
+                    key: t.key.clone(),
+                });
+            }
+        }
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
                 tracing::warn!(ticket = %change.key, error = %e, "can't change the queued state");
@@ -559,7 +673,7 @@ impl Scheduler {
                 _ = tick.tick() => {}
                 _ = self.inner.wake.notified() => {}
                 event = events.recv() => match event {
-                    Ok(event) if !triggers_pass(&event) => continue,
+                    Ok(event) if !self.triggers_pass(&event) => continue,
                     Ok(_) | Err(RecvError::Lagged(_)) => {
                         // One pass covers everything that arrived meanwhile.
                         while matches!(events.try_recv(), Ok(_) | Err(TryRecvError::Lagged(_))) {}
@@ -572,6 +686,13 @@ impl Scheduler {
             }
             self.refresh_overlaps().await;
         }
+    }
+
+    /// Whether `event` calls for a pass ([`triggers_pass`]); an epic lead's change (its turn ended, it ended) does only
+    /// while a ticket waits for a lead's update (d0124).
+    fn triggers_pass(&self, event: &Event) -> bool {
+        triggers_pass(event)
+            || matches!(event, Event::LeadChanged { .. }) && self.inner.board.leads().any_waiting()
     }
 
     /// Children changing the same file (LEAD-09): their files are read again after each pass (cheap when nothing

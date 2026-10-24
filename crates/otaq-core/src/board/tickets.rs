@@ -1215,6 +1215,9 @@ impl Board {
                         crate::signals::LIVE.contains(&status)
                             || status == Status::MergeConflictFixing
                     }),
+                    // Only while it waits before an Agent stage (d0124).
+                    waiting_for_lead: self.leads().waits_for_lead(&row.id)
+                        && matches!(status, Status::Queued | Status::WaitingForSlot),
                     review_entry: review_entry_flag(&row, status, &counted),
                     validation_round: failed_round_marker(&row, status, &counted),
                     validating_round: validating_round(status, &counted),

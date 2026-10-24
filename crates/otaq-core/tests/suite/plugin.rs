@@ -748,6 +748,33 @@ fn the_commit_skill_reads_notes_first() {
     assert!(body.contains("apply it to your work before you commit"));
 }
 
+/// T-0496 (d0124): the lead reads the open children for the same scope before it adds one, sends a running child's
+/// lesson as a note instead of a sibling, and knows the children the merge freed wait for its merge turn.
+#[test]
+fn epic_lead_notes_a_running_child_instead_of_adding_a_sibling() {
+    let (_, body) = skill(otaq_core::agent_tools::EPIC_LEAD_SKILL);
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        "**Before you add a child, read the open children for the same scope:**".to_owned(),
+        format!("(`{cmd} show SHOP-40.3`)"),
+        format!("(`{cmd} comments SHOP-40.3`)"),
+        "**A lesson for a child that is already running goes to it as a note, never as a\n  new child**".to_owned(),
+        format!("{cmd} create \"Wishlist empty state\" --parent SHOP-40"),
+        "## The merge turn".to_owned(),
+        "don't start until this turn ends (\"Waiting for the lead's update\" on their cards)".to_owned(),
+        "only after reading the open children for the same scope".to_owned(),
+        "not into a new child".to_owned(),
+        format!("{cmd} note SHOP-40.4 --stdin"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("epic-lead must say {step:?} after the step before"));
+        at += found;
+    }
+}
+
 /// T-0286 (LEAD-01, LEAD-05…LEAD-10, DEC-04; d0083): the epic-lead skill is user-invoked only, reads `prime --epic`
 /// first, stays read-only and CLI-only, plans with `create --parent` and dependencies, passes on what merged, marks
 /// contradicted decisions with a source, answers or passes on questions from written sources, sends one note with
