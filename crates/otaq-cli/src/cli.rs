@@ -29,7 +29,7 @@ pub struct Cli {
 /// options.
 #[derive(Debug, Default, Args)]
 pub struct ChoiceFlags {
-    /// A stage choice, repeatable: "Dev=Quick developer", "Grill=skip", "QA=required"
+    /// A stage choice, repeatable: "Dev=Quick developer", "QA=required", or "QA=skip" where the flow lets QA be skipped
     #[arg(long = "stage", value_name = "STAGE=AGENT|skip")]
     pub stages: Vec<String>,
     /// Why you chose (agents only: "typo fix")
@@ -463,7 +463,7 @@ pub enum DepCommand {
         #[arg(value_name = "DEPENDS-ON")]
         depends_on: String,
     },
-    /// The ticket's Stack list: its chain, indented, with statuses (default: $OTAQ_TICKET)
+    /// The ticket, what it waits for and what waits for it, each once, with statuses (default: $OTAQ_TICKET)
     Tree { key: Option<String> },
     /// List dependency loops in the current project (none on a healthy project)
     Cycles,
@@ -680,6 +680,22 @@ mod tests {
             ])
             .unwrap_err(),
             "Give at most one --note per --option: \"A\" has two"
+        );
+    }
+
+    /// #62: `create --help` doesn't suggest skipping Grill (a stage only a flow can make skippable).
+    #[test]
+    fn the_help_of_create_suggests_no_grill_skip() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("create")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(!help.contains("Grill=skip"), "{help}");
+        assert!(
+            help.contains("\"QA=skip\" where the flow lets QA be skipped"),
+            "{help}"
         );
     }
 

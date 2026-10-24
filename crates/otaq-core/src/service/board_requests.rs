@@ -559,22 +559,29 @@ pub(super) async fn handle(
                 .map(|c| Reply::FilesChanges(Box::new(c)))
         }),
         Request::FilesProjectTree(p) => boxed(move || async move {
-            board
-                .files_project_tree(&p.project, &p.path, p.base_only)
-                .await
-                .map(|t| Reply::ProjectTree(Box::new(t)))
+            match &p.worktree {
+                Some(wt) => board.files_worktree_tree(&p.project, wt, &p.path).await,
+                None => {
+                    board
+                        .files_project_tree(&p.project, &p.path, p.base_only)
+                        .await
+                }
+            }
+            .map(|t| Reply::ProjectTree(Box::new(t)))
         }),
         Request::FilesProjectSearch(p) => boxed(move || async move {
-            board
-                .files_project_search(&p.project, &p.query)
-                .await
-                .map(|s| Reply::ProjectSearch(Box::new(s)))
+            match &p.worktree {
+                Some(wt) => board.files_worktree_search(&p.project, wt, &p.query).await,
+                None => board.files_project_search(&p.project, &p.query).await,
+            }
+            .map(|s| Reply::ProjectSearch(Box::new(s)))
         }),
         Request::FilesProjectRead(p) => boxed(move || async move {
-            board
-                .files_project_read(&p.project, &p.path)
-                .await
-                .map(|f| Reply::ProjectFile(Box::new(f)))
+            match &p.worktree {
+                Some(wt) => board.files_worktree_read(&p.project, wt, &p.path).await,
+                None => board.files_project_read(&p.project, &p.path).await,
+            }
+            .map(|f| Reply::ProjectFile(Box::new(f)))
         }),
         Request::FilesProjectDiff(p) => boxed(move || async move {
             board

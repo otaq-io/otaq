@@ -43,6 +43,7 @@ import {
   viewStates,
   withFile,
   withFilter,
+  withPick,
 } from "./logic";
 import "./files_view.css";
 
@@ -110,7 +111,7 @@ export function PickerBody({
           <span className="files-view-picker-title">{section.title}</span>
           {section.rows.map((row) => (
             <button
-              key={row.pick.kind === "base" ? "" : row.pick.key}
+              key={row.pick.kind === "base" ? "" : row.pick.kind === "ticket" ? row.pick.key : row.pick.path}
               type="button"
               className="files-view-picker-row"
               onClick={() => {
@@ -173,7 +174,7 @@ function SourceBar({ project, page }: { project: string; page: FilesViewPage }) 
             onQuery={setQuery}
             onPick={(row) => {
               close();
-              update((s) => ({ ...s, picked: row.pick.kind === "base" ? null : row.pick.key }));
+              update((s) => withPick(s, row.pick));
             }}
           />
         </Popover>
@@ -329,7 +330,7 @@ export function FilesViewBody({
           />
           {page.search.keys !== null && query === "" && <Kbd keys={page.search.keys} />}
         </label>
-        {found === null && <Filters page={page} onFilter={onFilter} />}
+        {found === null && page.filters.length > 0 && <Filters page={page} onFilter={onFilter} />}
         {found === null && page.loading !== null && (
           <p className="files-quiet files-view-loading">{page.loading}</p>
         )}
@@ -398,28 +399,35 @@ function newTicketFrom(path: string): void {
 }
 
 /** What the search box shows: its matches as it is typed (the answer to the latest text only). */
-function useSearch(project: string, query: string): FilesSearchView | null {
+function useSearch(project: string, worktree: string | null, query: string): FilesSearchView | null {
   const [found, setFound] = useState<FilesSearchView | null>(null);
   const searching = query.trim() !== "";
   useEffect(() => {
     if (!searching) return;
     let current = true;
-    (request("files_view.search", { project, query }) as Promise<FilesSearchView>).then((v) => {
+    (request("files_view.search", { project, query, worktree }) as Promise<FilesSearchView>).then((v) => {
       if (current) setFound(v);
     }, ignore);
     return () => {
       current = false;
     };
-  }, [project, query, searching]);
+  }, [project, worktree, query, searching]);
   return searching ? found : null;
 }
 
-/** The base branch with every ticket's changes on top. */
-function ProjectSource({ project }: { project: string }) {
+/** The base branch with every ticket's changes on top, or one of your worktrees (`worktree`, its folder; #43): its
+ * tree alone, read-only. */
+function ProjectSource({ project, worktree }: { project: string; worktree: string | null }) {
   const [state, update] = useViewState(project);
   const loadBase = useCallback(
-    () => request("files_view.view", { project, filter: "all", base_only: true }) as Promise<FilesViewLoad>,
-    [project],
+    () =>
+      request("files_view.view", {
+        project,
+        filter: "all",
+        base_only: true,
+        worktree,
+      }) as Promise<FilesViewLoad>,
+    [project, worktree],
   );
   const { view: base } = useServiceView(loadBase, []);
   // Whether the last answer had an agent working: then the view asks again every 5 s.
@@ -427,15 +435,15 @@ function ProjectSource({ project }: { project: string }) {
   const tick = usePoll(working);
   const load = useCallback(
     () =>
-      (request("files_view.view", { project, filter: state.filter }) as Promise<FilesViewLoad>).then(
-        (answer) => {
-          setWorking(answer.view?.working ?? false);
-          return answer;
-        },
-      ),
+      (
+        request("files_view.view", { project, filter: state.filter, worktree }) as Promise<FilesViewLoad>
+      ).then((answer) => {
+        setWorking(answer.view?.working ?? false);
+        return answer;
+      }),
     // `tick` asks again while an agent works (FIL-10).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is a refetch trigger, not read
-    [project, state.filter, tick],
+    [project, worktree, state.filter, tick],
   );
   const { view: full, error } = useServiceView(load, PROJECT_FILES_EVENTS);
   const fresh = full?.view?.project === project && full.view.filter === state.filter ? full.view : null;
@@ -460,14 +468,14 @@ function ProjectSource({ project }: { project: string }) {
   const askFolder = useCallback(
     (path: string, current: () => boolean = () => true) => {
       (
-        request("files_view.tree", { project, path, depth: path.split("/").length }) as Promise<
+        request("files_view.tree", { project, path, depth: path.split("/").length, worktree }) as Promise<
           FilesTreeRow[]
         >
       ).then((rows) => {
         if (current()) keep(path, rows);
       }, ignore);
     },
-    [project, keep],
+    [project, worktree, keep],
   );
   useEffect(() => {
     if (page?.filter !== "all") return;
@@ -480,7 +488,7 @@ function ProjectSource({ project }: { project: string }) {
   }, [askFolder]);
 
   const [query, setQuery] = useState("");
-  const found = useSearch(project, query);
+  const found = useSearch(project, worktree, query);
   const [moved, setMoved] = useState<{ found: FilesSearchView | null; index: number }>({
     found: null,
     index: -1,
@@ -519,6 +527,7 @@ function ProjectSource({ project }: { project: string }) {
         key={state.file}
         project={project}
         path={state.file}
+        worktree={worktree}
         mode={state.mode}
         diffOf={state.diffOf}
         line={state.line}
@@ -695,7 +704,11 @@ export function FilesView({ project }: { project: string }) {
   return (
     <div className="files-view-root" data-narrow={(main > 0 && main <= NARROW_MAIN) || undefined}>
       {state.picked === null ? (
-        <ProjectSource key={project} project={project} />
+        <ProjectSource
+          key={`${project}:${state.worktree ?? ""}`}
+          project={project}
+          worktree={state.worktree}
+        />
       ) : (
         <PickedSource key={`${project}:${state.picked}`} project={project} picked={state.picked} />
       )}

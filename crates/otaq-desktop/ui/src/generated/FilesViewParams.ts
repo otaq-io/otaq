@@ -5,4 +5,8 @@ import type { FilesViewFilter } from "./FilesViewFilter";
  * The shown project's view under a filter; `base_only` lists the bare base at once (the Loading state), the page
  * then asks again without it.
  */
-export type FilesViewParams = { project: string, filter: FilesViewFilter, base_only?: boolean, };
+export type FilesViewParams = { project: string, filter: FilesViewFilter, base_only?: boolean, 
+/**
+ * One of your own worktrees instead of the base (its folder, from the picker; #43).
+ */
+worktree?: string, };

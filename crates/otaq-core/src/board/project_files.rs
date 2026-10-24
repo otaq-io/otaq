@@ -66,6 +66,32 @@ pub struct ProjectSource {
     /// Its tip now.
     pub base_sha: String,
     pub base_short: String,
+    /// One of your own worktrees is shown instead of the base (#43): its folder. `base_branch` is then its branch
+    /// (its commit when detached), `base_sha` its HEAD, and nothing of any ticket is on top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
+}
+
+/// One of the user's own git worktrees of the project's repository, in the picker's YOUR WORKTREES (#43): every
+/// worktree `git worktree list` gives except the main checkout and Otaq's own (in its data folder, or a ticket's).
+/// It shows read-only from git objects at its HEAD, as the base does (d0087: never the checkout's files on disk).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserWorktree {
+    /// Its folder, as git lists it.
+    pub path: String,
+    /// The branch checked out there; `None` when detached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Its HEAD commit.
+    pub head: String,
+    pub head_short: String,
+}
+
+impl UserWorktree {
+    /// What its labels name: its branch, or its commit when detached.
+    pub fn label(&self) -> &str {
+        self.branch.as_deref().unwrap_or(&self.head_short)
+    }
 }
 
 /// One ticket changing a file: one chip ("SHOP-36 · release/2.3"), its mark and +/−.
@@ -330,6 +356,9 @@ pub struct ProjectSources {
     pub tickets: Vec<OwnerTicket>,
     /// Open tickets with no worktree or branch yet, by key.
     pub no_worktree: Vec<NoWorktree>,
+    /// YOUR WORKTREES: the user's own worktrees of the repository, by folder (#43).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub yours: Vec<UserWorktree>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -1057,11 +1086,225 @@ impl Board {
             .collect();
         view.owners
             .sort_by(|a, b| (a.flow_rank, &a.ticket.key).cmp(&(b.flow_rank, &b.ticket.key)));
+        let yours = self.user_worktrees(&view.project, &view.tickets).await?;
         Ok(ProjectSources {
             tickets: view.owners.into_iter().map(|o| o.ticket).collect(),
             source: view.source,
             epics,
             no_worktree,
+            yours,
+        })
+    }
+
+    /// The user's own worktrees of the project's repository (#43), by folder: `git worktree list` without the main
+    /// checkout, bare or prunable entries, folders that are gone, and Otaq's own (under its data folder, or a
+    /// ticket's worktree wherever it is).
+    async fn user_worktrees(
+        &self,
+        project: &Project,
+        tickets: &[Ticket],
+    ) -> Result<Vec<UserWorktree>, BoardError> {
+        let git = self.git()?;
+        let repo = Path::new(&project.repo_path);
+        let list = git.run(repo, &["worktree", "list", "--porcelain"]).await?;
+        let real = |p: &Path| crate::paths::canonical(p).unwrap_or_else(|_| p.to_owned());
+        let main = real(repo);
+        let ours = real(self.data.root());
+        let tickets: HashSet<PathBuf> = tickets
+            .iter()
+            .filter_map(worktree_on_disk)
+            .map(|p| real(&p))
+            .collect();
+        let mut found = Vec::new();
+        for block in list.split("\n\n") {
+            let (mut path, mut head, mut branch, mut skip) = (None, None, None, false);
+            for line in block.lines() {
+                if let Some(p) = line.strip_prefix("worktree ") {
+                    path = Some(PathBuf::from(p));
+                } else if let Some(h) = line.strip_prefix("HEAD ") {
+                    head = Some(h.to_owned());
+                } else if let Some(b) = line.strip_prefix("branch ") {
+                    branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_owned());
+                } else if line == "bare" || line.starts_with("prunable") {
+                    skip = true;
+                }
+            }
+            let (Some(path), Some(head)) = (path, head) else {
+                continue;
+            };
+            let at = real(&path);
+            if skip
+                || !path.is_dir()
+                || at == main
+                || at.starts_with(&ours)
+                || tickets.contains(&at)
+            {
+                continue;
+            }
+            found.push(UserWorktree {
+                path: path.display().to_string(),
+                branch,
+                head_short: short_sha(&head),
+                head,
+            });
+        }
+        found.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(found)
+    }
+
+    /// One of the user's worktrees as the view's source (`worktree`: its folder, as the picker gave it); refused for
+    /// any other folder.
+    async fn worktree_source(
+        &self,
+        key: &str,
+        worktree: &str,
+    ) -> Result<(Project, ProjectSource), BoardError> {
+        let project = self.project(key).await?;
+        let tickets = self.tickets(&project.key).await?;
+        let real = |p: &Path| crate::paths::canonical(p).unwrap_or_else(|_| p.to_owned());
+        let wanted = real(Path::new(worktree));
+        let found = self
+            .user_worktrees(&project, &tickets)
+            .await?
+            .into_iter()
+            .find(|w| real(Path::new(&w.path)) == wanted)
+            .ok_or_else(|| {
+                BoardError::NotFound(format!(
+                    "{worktree} isn't one of your worktrees of {}",
+                    project.name
+                ))
+            })?;
+        let source = ProjectSource {
+            project: project.key.clone(),
+            base_branch: found.label().to_owned(),
+            base_sha: found.head.clone(),
+            base_short: found.head_short.clone(),
+            worktree: Some(found.path),
+        };
+        Ok((project, source))
+    }
+
+    /// `files.project_tree` of one of your worktrees (#43): the entries of `folder` at its HEAD, from git objects,
+    /// with no ticket's changes.
+    pub async fn files_worktree_tree(
+        &self,
+        project: &str,
+        worktree: &str,
+        folder: &str,
+    ) -> Result<ProjectTree, BoardError> {
+        let folder = clean_path(folder, true)?;
+        let (project, source) = self.worktree_source(project, worktree).await?;
+        let repo = PathBuf::from(&project.repo_path);
+        let entries = list_folder(self.git()?, &repo, &source.base_sha, &folder).await?;
+        if entries.is_empty() && !folder.is_empty() {
+            return Err(not_a_folder(&folder, &source));
+        }
+        let mut list: Vec<ProjectEntry> = entries
+            .into_iter()
+            .map(|(path, kind)| entry(path, kind, Vec::new(), 0, false))
+            .collect();
+        list.sort_by(|a, b| entry_order((a.kind, &a.name), (b.kind, &b.name)));
+        Ok(ProjectTree {
+            source,
+            path: folder,
+            entries: list,
+            counts: None,
+        })
+    }
+
+    /// `files.project_search` of one of your worktrees: file names at its HEAD, ranked as `files.search` ranks them.
+    pub async fn files_worktree_search(
+        &self,
+        project: &str,
+        worktree: &str,
+        query: &str,
+    ) -> Result<ProjectSearch, BoardError> {
+        let (project, source) = self.worktree_source(project, worktree).await?;
+        let query = query.trim().to_owned();
+        let mut ranked: Vec<(u8, usize, String, [u32; 2])> = Vec::new();
+        if !query.is_empty() {
+            let repo = PathBuf::from(&project.repo_path);
+            let all = self
+                .git()?
+                .run(
+                    &repo,
+                    &["ls-tree", "-r", "--name-only", "-z", &source.base_sha],
+                )
+                .await?;
+            let needle = query.to_lowercase();
+            ranked = nul_paths(&all)
+                .filter_map(|path| {
+                    let (rank, hit) = rank(&path, &needle)?;
+                    Some((rank, path.chars().count(), path, hit))
+                })
+                .collect();
+            ranked.sort();
+        }
+        let total = count(ranked.len());
+        let matches = ranked
+            .into_iter()
+            .take(SEARCH_LIMIT)
+            .map(|(_, _, path, hit)| {
+                let (folder, name) = match path.rsplit_once('/') {
+                    Some((folder, name)) => (folder.to_owned(), name.to_owned()),
+                    None => (String::new(), path.clone()),
+                };
+                ProjectMatch {
+                    path,
+                    name,
+                    folder,
+                    hit,
+                    owners: Vec::new(),
+                    not_on_base: false,
+                }
+            })
+            .collect();
+        Ok(ProjectSearch {
+            source,
+            query,
+            matches,
+            total,
+        })
+    }
+
+    /// `files.project_read` of one of your worktrees: the file at its HEAD, from git objects, read-only.
+    pub async fn files_worktree_read(
+        &self,
+        project: &str,
+        worktree: &str,
+        path: &str,
+    ) -> Result<ProjectFile, BoardError> {
+        let path = clean_path(path, false)?;
+        let (project, source) = self.worktree_source(project, worktree).await?;
+        let git = self.git()?;
+        let repo = PathBuf::from(&project.repo_path);
+        let object = format!("{}:{path}", source.base_sha);
+        let kind = git.run(&repo, &["cat-file", "-t", &object]).await;
+        let blob = match kind.as_deref().map(str::trim) {
+            Ok("blob") => git.read_blob(&repo, &source.base_sha, &path).await?,
+            _ => None,
+        };
+        let Some((bytes, size)) = blob else {
+            return Err(BoardError::NotFound(format!(
+                "{path} isn't a file on {}",
+                source.base_branch
+            )));
+        };
+        let (binary, text, truncated) = text_of(&bytes, size);
+        Ok(ProjectFile {
+            source,
+            path,
+            on_base: true,
+            size,
+            binary,
+            text,
+            truncated,
+            owners: Vec::new(),
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: Vec::new(),
+            same_file: Vec::new(),
         })
     }
 
@@ -1088,6 +1331,7 @@ impl Board {
             base_branch: project.base_branch.clone(),
             base_short: short_sha(&sha),
             base_sha: sha,
+            worktree: None,
         };
         Ok((project, source))
     }

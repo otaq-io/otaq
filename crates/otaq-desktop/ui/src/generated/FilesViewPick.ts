@@ -3,4 +3,4 @@
 /**
  * What a picked row shows. `FilesViewPick` on the page.
  */
-export type FilesViewPick = { "kind": "base" } | { "kind": "ticket", key: string, };
+export type FilesViewPick = { "kind": "base" } | { "kind": "ticket", key: string, } | { "kind": "worktree", path: string, };

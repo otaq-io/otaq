@@ -93,36 +93,36 @@ async fn tree_and_cycles() {
     w.shop_sample().await;
 
     let tree = ok(&cb(&w, &["dep", "tree", "SHOP-20"]));
-    let keys: Vec<String> = tree
-        .lines()
-        .map(|l| {
-            let depth = (l.len() - l.trim_start().len()) / 2;
-            format!("{depth}:{}", l.split_whitespace().next().unwrap())
-        })
-        .collect();
     assert_eq!(
-        keys,
+        outline(&tree),
         [
-            "0:SHOP-18",
-            "1:SHOP-20",
-            "2:SHOP-21",
-            "0:SHOP-19",
-            "1:SHOP-20",
-            "2:SHOP-21"
+            "0:SHOP-20",
+            "0:Waits",
+            "1:SHOP-18",
+            "1:SHOP-19",
+            "0:Waited",
+            "1:SHOP-21"
         ],
         "{tree}"
     );
     assert!(
-        tree.lines()
-            .nth(1)
-            .unwrap()
-            .ends_with("Checkout page  ← this ticket"),
+        tree.lines().next().unwrap().contains("Ready for Dev"),
         "{tree}"
     );
-    assert!(tree.lines().next().unwrap().contains("Ready for Review"));
-    let rows: Value =
+    assert!(
+        tree.lines().next().unwrap().ends_with("Checkout page"),
+        "{tree}"
+    );
+    assert!(
+        tree.lines().nth(2).unwrap().contains("Ready for Review"),
+        "{tree}"
+    );
+    let json: Value =
         serde_json::from_str(&ok(&cb(&w, &["dep", "tree", "SHOP-20", "--json"]))).unwrap();
-    assert_eq!(rows[1]["current"], true);
+    assert_eq!(json["key"], "SHOP-20");
+    assert_eq!(json["parents"][0]["key"], "SHOP-18");
+    assert_eq!(json["parents"][1]["key"], "SHOP-19");
+    assert_eq!(json["children"][0]["key"], "SHOP-21");
     assert_eq!(
         ok(&cb(&w, &["dep", "tree", "SHOP-12"])),
         "No dependencies · nothing waits on SHOP-12\n"
@@ -136,6 +136,64 @@ async fn tree_and_cycles() {
         ok(&cb(&w, &["-P", "SHOP", "dep", "cycles", "--json"])).trim(),
         "[]"
     );
+    w.stop().await;
+}
+
+/// "depth:first word" of each line: two spaces per level.
+fn outline(tree: &str) -> Vec<String> {
+    tree.lines()
+        .map(|l| {
+            let depth = (l.len() - l.trim_start().len()) / 2;
+            format!("{depth}:{}", l.split_whitespace().next().unwrap())
+        })
+        .collect()
+}
+
+/// #9: a diamond (SHOP-20 waits for SHOP-18 and SHOP-19, both made to wait for SHOP-17) prints each ticket once,
+/// from either end: SHOP-17 under SHOP-18 only, SHOP-20 under SHOP-18 only.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_diamond_prints_each_ticket_once() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    ok(&cb(&w, &["dep", "add", "SHOP-18", "SHOP-17"]));
+    ok(&cb(&w, &["dep", "add", "SHOP-19", "SHOP-17"]));
+
+    let up = ok(&cb(&w, &["dep", "tree", "SHOP-20"]));
+    assert_eq!(
+        outline(&up),
+        [
+            "0:SHOP-20",
+            "0:Waits",
+            "1:SHOP-18",
+            "2:SHOP-17",
+            "1:SHOP-19",
+            "0:Waited",
+            "1:SHOP-21"
+        ],
+        "{up}"
+    );
+    let down = ok(&cb(&w, &["dep", "tree", "SHOP-17"]));
+    assert_eq!(
+        outline(&down),
+        [
+            "0:SHOP-17",
+            "0:Waited",
+            "1:SHOP-18",
+            "2:SHOP-20",
+            "3:SHOP-21",
+            "1:SHOP-19"
+        ],
+        "{down}"
+    );
+    for tree in [&up, &down] {
+        let keys: Vec<&str> = tree
+            .lines()
+            .filter_map(|l| l.split_whitespace().next())
+            .filter(|k| k.starts_with("SHOP-"))
+            .collect();
+        let once: std::collections::HashSet<&&str> = keys.iter().collect();
+        assert_eq!(once.len(), keys.len(), "{tree}");
+    }
     w.stop().await;
 }
 

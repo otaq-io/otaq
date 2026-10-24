@@ -689,7 +689,7 @@ async fn the_default_flow_has_no_choices() {
         .unwrap_err();
     assert_eq!(
         refused.to_string(),
-        "Dev has no options: every ticket runs it as the flow says"
+        "Dev has no options; add `skip` to its options in the flow to allow it."
     );
     w.stop().await;
 }

@@ -741,3 +741,119 @@ async fn three_owners_are_named_furthest_along_first_and_other_bases_are_never_c
     );
     assert!(!note.keys.contains(&hotfix.key));
 }
+
+/// #43: the user's own worktrees of the repository are in the picker's YOUR WORKTREES (not the main checkout, not a
+/// ticket's), and one picked reads from git at its HEAD, read-only: committed files, not its edits on disk; any
+/// other folder is refused.
+#[tokio::test]
+async fn your_own_worktrees_are_listed_and_read_from_git() {
+    let f = Fixture::shop().await;
+    let repo = f.repo();
+    seed_base(&repo);
+    let ticket = f.create("Price table").await;
+    let ticket_wt = f.start_worktree(&ticket).await;
+    f.force_status(&ticket, Status::Working).await;
+
+    let experiment = f.repos.root().join("habitat-experiment");
+    let bisect = f.repos.root().join("bisect");
+    let path = |p: &Path| p.display().to_string();
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "experiment/accent",
+            &path(&experiment),
+        ],
+    );
+    commit(&experiment, "accent.css", ":root { --accent: violet; }\n");
+    std::fs::write(experiment.join("accent.css"), "edited on disk\n").unwrap();
+    std::fs::write(experiment.join("scratch.txt"), "untracked\n").unwrap();
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            &path(&bisect),
+            "main",
+        ],
+    );
+    let checkout = git(&experiment, &["status", "--porcelain"]);
+    let head = git(&experiment, &["rev-parse", "HEAD"]);
+
+    let sources = f.board.files_project_sources("SHOP").await.unwrap();
+    let yours: Vec<_> = sources
+        .yours
+        .iter()
+        .map(|w| (w.label().to_owned(), w.head == head))
+        .collect();
+    let main_short = &git(&repo, &["rev-parse", "main"])[..7];
+    assert_eq!(
+        yours,
+        [
+            (main_short.to_owned(), false),
+            ("experiment/accent".to_owned(), true)
+        ],
+        "{:?}",
+        sources.yours
+    );
+    assert!(
+        sources
+            .yours
+            .iter()
+            .all(|w| Path::new(&w.path) != ticket_wt)
+    );
+    let picked = sources.yours[1].path.clone();
+
+    let tree = f
+        .board
+        .files_worktree_tree("SHOP", &picked, "")
+        .await
+        .unwrap();
+    assert_eq!(tree.source.base_branch, "experiment/accent");
+    assert_eq!(tree.source.worktree.as_deref(), Some(picked.as_str()));
+    assert_eq!(tree.source.base_sha, head);
+    let names: Vec<_> = tree.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "src",
+            "accent.css",
+            "file1.txt",
+            "hero.png",
+            "pnpm-lock.yaml"
+        ]
+    );
+    assert!(tree.entries.iter().all(|e| e.owners.is_empty()));
+
+    let file = f
+        .board
+        .files_worktree_read("SHOP", &picked, "accent.css")
+        .await
+        .unwrap();
+    assert_eq!(file.text, ":root { --accent: violet; }\n");
+    assert!(file.owners.is_empty() && file.on_base);
+    let found = f
+        .board
+        .files_worktree_search("SHOP", &picked, "accent")
+        .await
+        .unwrap();
+    assert_eq!(found.matches[0].path, "accent.css");
+    assert!(
+        f.board
+            .files_worktree_read("SHOP", &picked, "scratch.txt")
+            .await
+            .is_err()
+    );
+    // Nothing was written in the worktree.
+    assert_eq!(git(&experiment, &["status", "--porcelain"]), checkout);
+
+    for other in [path(&repo), path(&ticket_wt), path(&f.repos.root())] {
+        let refused = f.board.files_worktree_tree("SHOP", &other, "").await;
+        assert!(refused.is_err(), "{other}");
+    }
+}

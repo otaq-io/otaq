@@ -26,8 +26,9 @@ pub struct DepNode {
     pub nodes: Vec<DepNode>,
 }
 
-/// A ticket with its parents (up, transitively) and the tickets depending on it (down, transitively). A ticket
-/// with several parents appears under each.
+/// A ticket with its parents (up, transitively) and the tickets depending on it (down, transitively), each ticket
+/// once (#9): a ticket reached by several paths shows under the nearest one (fewest links away, then the first by
+/// key), so a diamond doesn't repeat its tip.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepTree {
     pub key: TicketKey,
@@ -152,10 +153,9 @@ impl Board {
         let ticket = self.ticket(key).await?;
         let tickets = self.tickets(ticket.key.project.as_str()).await?;
         let graph = Graph::new(&tickets);
-        let mut path = vec![ticket.key.clone()];
         Ok(DepTree {
-            parents: graph.nodes(&ticket.key, Direction::Up, &mut path),
-            children: graph.nodes(&ticket.key, Direction::Down, &mut path),
+            parents: graph.nodes(&ticket.key, Direction::Up),
+            children: graph.nodes(&ticket.key, Direction::Down),
             key: ticket.key,
             title: ticket.title,
             kind: ticket.kind,
@@ -312,32 +312,53 @@ impl<'a> Graph<'a> {
             .unwrap_or_default()
     }
 
-    /// The nested parents or dependents of `key`; `path` guards against loops in a damaged database.
-    fn nodes(
+    /// The nested parents or dependents of `key`, each ticket once: a breadth-first walk puts each under the
+    /// first ticket that reaches it on the nearest level; the visited set also guards against loops in a damaged
+    /// database.
+    fn nodes(&self, key: &TicketKey, direction: Direction) -> Vec<DepNode> {
+        let next = |k: &TicketKey| -> Vec<&'a TicketKey> {
+            let mut next = match direction {
+                Direction::Up => self.parents_of(k),
+                Direction::Down => self.children_of(k).collect(),
+            };
+            next.sort();
+            next
+        };
+        let mut seen: HashSet<&TicketKey> = HashSet::from([key]);
+        let mut under: HashMap<&TicketKey, Vec<&'a TicketKey>> = HashMap::new();
+        let mut level = vec![key];
+        while !level.is_empty() {
+            let mut below = Vec::new();
+            for at in level {
+                for k in next(at) {
+                    if self.by_key.contains_key(k) && seen.insert(k) {
+                        under.entry(at).or_default().push(k);
+                        below.push(k);
+                    }
+                }
+            }
+            level = below;
+        }
+        self.built(key, &under)
+    }
+
+    fn built(
         &self,
         key: &TicketKey,
-        direction: Direction,
-        path: &mut Vec<TicketKey>,
+        under: &HashMap<&TicketKey, Vec<&'a TicketKey>>,
     ) -> Vec<DepNode> {
-        let next: Vec<&TicketKey> = match direction {
-            Direction::Up => self.parents_of(key),
-            Direction::Down => self.children_of(key).collect(),
-        };
-        next.into_iter()
+        under
+            .get(key)
+            .into_iter()
+            .flatten()
             .filter_map(|k| {
-                if path.contains(k) {
-                    return None;
-                }
                 let ticket = self.by_key.get(k)?;
-                path.push(k.clone());
-                let nodes = self.nodes(k, direction, path);
-                path.pop();
                 Some(DepNode {
                     key: ticket.key.clone(),
                     title: ticket.title.clone(),
                     kind: ticket.kind,
                     status: ticket.status,
-                    nodes,
+                    nodes: self.built(k, under),
                 })
             })
             .collect()

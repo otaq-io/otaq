@@ -391,6 +391,8 @@ export function copyPath(path: string): void {
 export interface ProjectFilePaneProps {
   project: string;
   path: string;
+  /** One of your own worktrees instead of the base (its folder; #43). */
+  worktree?: string | null;
   mode: FilesFileMode | null;
   diffOf: string | null;
   /** The line to scroll to and mark (a terminal's path link). */
@@ -409,6 +411,7 @@ export interface ProjectFilePaneProps {
 export function ProjectFilePane({
   project,
   path,
+  worktree = null,
   mode,
   diffOf,
   line = null,
@@ -420,10 +423,10 @@ export function ProjectFilePane({
   onOpen,
 }: ProjectFilePaneProps) {
   const load = useCallback(
-    () => request("files_view.file", { project, path }) as Promise<FilesViewFile>,
+    () => request("files_view.file", { project, path, worktree }) as Promise<FilesViewFile>,
     // `refresh` asks again while an agent works.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a refetch trigger, not read
-    [project, path, refresh],
+    [project, path, worktree, refresh],
   );
   const { view: loaded, error } = useServiceView(load, PROJECT_FILES_EVENTS);
   const view = loaded?.path === path ? loaded : null;

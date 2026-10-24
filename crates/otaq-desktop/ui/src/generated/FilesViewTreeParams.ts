@@ -3,4 +3,8 @@
 /**
  * A folder of the base, opened at `depth`.
  */
-export type FilesViewTreeParams = { project: string, path: string, depth: number, };
+export type FilesViewTreeParams = { project: string, path: string, depth: number, 
+/**
+ * One of your own worktrees instead of the base (its folder, from the picker; #43).
+ */
+worktree?: string, };

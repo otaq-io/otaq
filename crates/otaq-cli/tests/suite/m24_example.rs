@@ -174,6 +174,7 @@ impl World {
             project: project.into(),
             path: path.into(),
             base_only: false,
+            worktree: None,
         });
         match self.ask(request).await.unwrap() {
             Reply::ProjectTree(tree) => *tree,
@@ -186,6 +187,7 @@ impl World {
             project: project.into(),
             path: path.into(),
             base_only: false,
+            worktree: None,
         });
         match self.ask(request).await.unwrap() {
             Reply::ProjectFile(file) => *file,

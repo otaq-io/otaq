@@ -1392,6 +1392,9 @@ pub struct ProjectFilesPathParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub base_only: bool,
+    /// One of your own worktrees instead of the base (its folder, from `files.project_sources`; #43).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 /// `{"project": "SHOP", "query": "pricing"}`.
@@ -1399,6 +1402,9 @@ pub struct ProjectFilesPathParams {
 pub struct ProjectFilesSearchParams {
     pub project: String,
     pub query: String,
+    /// One of your own worktrees instead of the base (#43).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
 }
 
 /// `{"project": "SHOP", "path": "src/lib/pricing.ts", "ticket": "SHOP-29"}`.

@@ -200,6 +200,11 @@ async fn the_users_choices_round_trip() {
         ),
         "Security has no options: every ticket runs it as the flow says"
     );
+    // #62: a skip of a stage without options says how the flow allows it, by the stage's name.
+    assert_eq!(
+        refused(&w, &["update", "SHOP-1", "--stage", "Security=skip"]),
+        "Security has no options; add `skip` to its options in the flow to allow it."
+    );
     let count = w.board.tickets("SHOP").await.unwrap().len();
     error(&cb(
         &w,
