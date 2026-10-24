@@ -209,7 +209,7 @@ impl Review {
                     .map(std::path::Path::new);
                 let text = inner
                     .deliveries
-                    .skill_line(board, &session.id, worktree, ADDRESS_REVIEW_SKILL)
+                    .skill_line(board, &session.id, worktree, ADDRESS_REVIEW_SKILL, None)
                     .await;
                 match inner
                     .deliveries

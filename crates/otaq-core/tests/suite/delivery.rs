@@ -29,6 +29,7 @@ use otaq_core::review::delivery::Delivered;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::session::deliveries::handoff_sentence;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -397,7 +398,7 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending.last().unwrap().text,
-        format!("/{}", naming::copy_name("restack"))
+        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
     );
     assert_eq!(
         after.validation_round, 0,
@@ -569,7 +570,7 @@ async fn a_conflict_handed_to_the_agent_gets_the_build_back() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending.last().unwrap().text,
-        format!("/{}", naming::copy_name("restack"))
+        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
     );
     w.stop().await;
 }
@@ -636,7 +637,11 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let skill = &pending.last().unwrap().text;
     assert!(
-        skill.starts_with(&format!("/{} automatic:", naming::copy_name("my-pr"))),
+        skill.starts_with(&handoff_sentence(
+            w.adapters.of_session(None).skill_root(),
+            "my-pr",
+            Some("automatic:")
+        )),
         "{skill}"
     );
 
@@ -716,10 +721,13 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let out = w
         .wait_for_output(
             &agent.session,
-            &format!(
-                "/{} SHOP-1 was sent back to Dev with PR comments and a comment. Run `otaq prime`, then `otaq \
-                 review feedback`.",
-                naming::copy_name("address-review")
+            &handoff_sentence(
+                w.adapters.of_session(None).skill_root(),
+                "address-review",
+                Some(
+                    "SHOP-1 was sent back to Dev with PR comments and a comment. Run `otaq prime`, then `otaq \
+                     review feedback`.",
+                ),
             ),
         )
         .await;
@@ -748,7 +756,11 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let skill = &pending.last().unwrap().text;
     assert!(
-        skill.starts_with(&format!("/{} automatic:", naming::copy_name("push"))),
+        skill.starts_with(&handoff_sentence(
+            w.adapters.of_session(None).skill_root(),
+            "push",
+            Some("automatic:")
+        )),
         "{skill}"
     );
     let new = commits(&repo, "origin/feature/SHOP-1-login..feature/SHOP-1-login");

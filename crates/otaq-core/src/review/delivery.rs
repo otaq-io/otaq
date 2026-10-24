@@ -232,7 +232,7 @@ impl Review {
                     .map(std::path::Path::new);
                 let text = inner
                     .deliveries
-                    .skill_line(&inner.board, &session.id, worktree, skill)
+                    .skill_line(&inner.board, &session.id, worktree, skill, None)
                     .await;
                 inner
                     .deliveries

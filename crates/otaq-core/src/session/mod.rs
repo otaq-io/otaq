@@ -527,6 +527,9 @@ struct Live {
     project_agent: Mutex<Option<String>>,
     /// The epic it leads (id and key), once [`Sessions::set_epic_lead`] said so (d0083).
     lead_epic: Mutex<Option<(String, TicketKey)>>,
+    /// The skill copies in its folder when it started (`otaq-address-review`…), once
+    /// [`Sessions::set_started_skills`] said so (d0118): its tool read those, and only those, at its start.
+    started_skills: Mutex<Vec<String>>,
     pid: Option<u32>,
     /// The program and what it started, stopped together.
     group: crate::process::Group,
@@ -796,6 +799,7 @@ impl Sessions {
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
             project_agent: Mutex::new(None),
             lead_epic: Mutex::new(None),
+            started_skills: Mutex::new(Vec::new()),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
             killer: Mutex::new(child.clone_killer()),
@@ -1130,6 +1134,29 @@ impl Sessions {
         *self.live(id)?.lead_epic.lock().expect("session lead epic") =
             Some((epic_id.to_owned(), key.clone()));
         Ok(())
+    }
+
+    /// Records the skill copies (`otaq-work-ticket`, `otaq-address-review`…) written into the session's folder right
+    /// before it started (d0118). In memory only: a restart relaunches the session, which copies them again.
+    pub fn set_started_skills(&self, id: &str, copies: Vec<String>) -> Result<(), SessionError> {
+        *self
+            .live(id)?
+            .started_skills
+            .lock()
+            .expect("session skills") = copies;
+        Ok(())
+    }
+
+    /// Whether the session started with the skill copy `copy` (`otaq-restack`) in its folder: only then can its
+    /// tool run it by name (d0118). A session nothing was recorded for started with none.
+    pub fn started_with_skill(&self, id: &str, copy: &str) -> bool {
+        self.live(id).is_ok_and(|live| {
+            live.started_skills
+                .lock()
+                .expect("session skills")
+                .iter()
+                .any(|c| c == copy)
+        })
     }
 
     /// The root processes of every running Project agent session.

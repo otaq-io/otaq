@@ -75,7 +75,6 @@ use crate::session::{
     END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
     StoredConversation, TerminalSize,
 };
-use crate::skills::Marker;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::ticket_env::TicketEnv;
@@ -799,29 +798,17 @@ impl Starter {
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
             ) {
-                // The skill is copied into the worktree first, by one name (AGM-07).
-                let written = board
-                    .copy_skills(
-                        &worktree.path,
-                        inner.adapters.shipped_skills(),
-                        None,
-                        Some(skill),
-                        Marker::Worktree,
+                // By its name when the session started with it, else by its file, copied now (d0118); what came
+                // back follows the skill (CMT-05), never a note's text.
+                let text = deliveries
+                    .skill_line(
+                        board,
+                        &running.id,
+                        Some(&worktree.path),
+                        skill,
+                        returning.as_ref().and_then(|r| r.prompt.as_deref()),
                     )
                     .await;
-                let skill_line = inner
-                    .adapters
-                    .of_session(running.tool)
-                    .skill_reference(written.runs.as_deref().unwrap_or(skill));
-                // What came back follows the skill (CMT-05), never a note's text.
-                let text = match returning
-                    .as_ref()
-                    .and_then(|r| r.prompt.as_deref())
-                    .filter(|p| !p.trim().is_empty())
-                {
-                    Some(told) => format!("{skill_line} {told}"),
-                    None => skill_line,
-                };
                 deliveries
                     .queue_delivery(&running.id, DeliveryKind::Skill, &text)
                     .await
@@ -938,23 +925,22 @@ impl Starter {
         start: Start,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
-        // Every skill of the running agent, and the one it runs first, written into the worktree by one name
-        // (AGM-07); a copy that can't be written is logged.
+        // Every skill of the running agent, the one it runs first and every hand-off skill (d0118), written into the
+        // worktree by one name (AGM-07); a copy that can't be written is logged.
         let stored = match (agent, &runs_on.agent) {
             (None, Some(stored)) => inner.board.store().agent(&stored.id).await?,
             _ => None,
         };
-        let first_prompt = inner
+        let (first_prompt, written) = inner
             .board
-            .copy_for_session(
+            .copy_for_ticket_session(
                 cwd,
                 inner.adapters.shipped_skills(),
                 agent.or(stored.as_ref()),
                 first_prompt,
-                Marker::Worktree,
+                &project.key,
             )
-            .await
-            .0;
+            .await;
         let launched = inner
             .adapters
             .launch(
@@ -975,7 +961,7 @@ impl Starter {
                 },
             )
             .map_err(|e| StartError::Other(e.to_string()))?;
-        inner
+        let session = inner
             .sessions
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
@@ -1001,7 +987,14 @@ impl Starter {
                 theme: Some(launched.theme),
             })
             .await
-            .map_err(|e| StartError::Other(e.to_string()))
+            .map_err(|e| StartError::Other(e.to_string()))?;
+        if let Err(e) = inner
+            .sessions
+            .set_started_skills(&session.id, written.names)
+        {
+            tracing::warn!(ticket = %ticket.key, error = %e, "the session's skills weren't recorded");
+        }
+        Ok(session)
     }
 
     /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the

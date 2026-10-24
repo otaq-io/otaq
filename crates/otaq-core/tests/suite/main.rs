@@ -65,6 +65,7 @@ mod folder_trust;
 mod free;
 mod git;
 mod hand_overs;
+mod handoffs;
 mod human_answers;
 mod human_checks;
 mod inbox;

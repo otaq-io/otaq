@@ -331,17 +331,23 @@ impl Deliveries {
         self.sessions.write(session, b"\r")
     }
 
-    /// A skill typed into a live session (Send back's `address-review`, a Delivery conflict's `restack`): copied
-    /// into the session's `worktree` first by one name (AGM-07), then named as the session's agent tool names it:
-    /// `/otaq-address-review` for Claude Code.
+    /// The line typed into a live session for a hand-off skill (Send back's `address-review`, a Delivery
+    /// conflict's `restack`), followed by `told` (what came back, CMT-05). A skill the session started with
+    /// ([`crate::session::Sessions::started_with_skill`]) is named as its agent tool names it:
+    /// `/otaq-address-review SHOP-18 was sent back…` for Claude Code. Any other is copied into the session's
+    /// `worktree` now (AGM-07) and named by its file, since the tool read its skills at its start (d0118):
+    /// [`handoff_sentence`].
     pub async fn skill_line(
         &self,
         board: &crate::board::Board,
         session: &str,
         worktree: Option<&std::path::Path>,
         skill: &str,
+        told: Option<&str>,
     ) -> String {
-        if let Some(worktree) = worktree {
+        if !self.started_with(session, skill)
+            && let Some(worktree) = worktree
+        {
             board
                 .copy_skills(
                     worktree,
@@ -352,8 +358,29 @@ impl Deliveries {
                 )
                 .await;
         }
+        self.skill_text(session, skill, told)
+    }
+
+    /// Whether the session started with the copy of `skill` (its own name, `address-review`) in its folder (d0118).
+    pub fn started_with(&self, session: &str, skill: &str) -> bool {
+        self.sessions
+            .started_with_skill(session, &crate::naming::copy_name(skill))
+    }
+
+    /// [`Self::skill_line`]'s text, for a skill already copied: its tool's reference when the session started with
+    /// it, else [`handoff_sentence`] naming the copy the tool reads.
+    pub fn skill_text(&self, session: &str, skill: &str, told: Option<&str>) -> String {
         let tool = self.sessions.info(session).ok().and_then(|info| info.tool);
-        self.adapters.of_session(tool).skill_reference(skill)
+        let adapter = self.adapters.of_session(tool);
+        let told = told.map(str::trim).filter(|t| !t.is_empty());
+        if !self.started_with(session, skill) {
+            return handoff_sentence(adapter.skill_root(), skill, told);
+        }
+        let reference = adapter.skill_reference(skill);
+        match told {
+            Some(told) => format!("{reference} {told}"),
+            None => reference,
+        }
     }
 
     /// How the session's agent tool takes typed text (ADP-06).
@@ -394,6 +421,17 @@ impl Deliveries {
             count: u32::try_from(count).unwrap_or(u32::MAX),
         });
         Ok(())
+    }
+}
+
+/// A hand-off for a skill the session didn't start with, never typed as a command (d0118): "Follow the skill in
+/// `.claude/skills/otaq-address-review/SKILL.md`: SHOP-18 was sent back with a comment. Run `otaq prime`." `root` is
+/// the copy the session's tool reads ([`crate::agent_tools::AgentTool::skill_root`]).
+pub fn handoff_sentence(root: &str, skill: &str, told: Option<&str>) -> String {
+    let file = format!("{root}/{}/SKILL.md", crate::naming::copy_name(skill));
+    match told {
+        Some(told) => format!("Follow the skill in `{file}`: {told}"),
+        None => format!("Follow the skill in `{file}`."),
     }
 }
 

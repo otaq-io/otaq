@@ -9,6 +9,7 @@
 //! one holding the repository's shipped skills. Skill folders, repos, `OTAQ_HOME` and the tools' home are temporary:
 //! no test starts a real tool.
 
+use crate::common::stand_in::plugin;
 use otaq_core::service::testing::said;
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
@@ -29,6 +30,7 @@ use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::session::deliveries::handoff_sentence;
 use otaq_core::skills::copy::{Marker, SKILL_ROOTS, is_marked, marked_copies};
 use otaq_core::skills::testing::skill_folder;
 use otaq_core::skills::{Source, write_session};
@@ -43,34 +45,6 @@ const SCRIPT: &str = "printf 'ARGS %s\\n' \"$*\"; \
 
 fn me() -> Actor {
     Actor::User("me".into())
-}
-
-/// Copies the folder `from` into `to`, files and modes.
-fn copy_dir(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        let dest = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir(&entry.path(), &dest);
-        } else {
-            std::fs::copy(entry.path(), dest).unwrap();
-        }
-    }
-}
-
-/// A plugin folder as the installed app has it, under `root`: Claude Code's and Copilot's hooks plugins (their
-/// manifests) and the repository's shipped skills.
-fn plugin(root: &Path) -> PathBuf {
-    let plugin = root.join("plugin");
-    for tool in ["claude", "copilot"] {
-        let manifest = plugin.join(tool).join(".claude-plugin");
-        std::fs::create_dir_all(&manifest).unwrap();
-        std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
-    }
-    let repo = find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin");
-    copy_dir(&repo.join("skills"), &plugin.join("skills"));
-    plugin
 }
 
 /// An executable `name` in `bin` running [`SCRIPT`]; OpenCode's also answers the conversation it is asked to make
@@ -338,7 +312,8 @@ fn the_copies_in_a_linked_worktree() {
 }
 
 /// AGM-07 on every tool: a Dev session finds its agent's `otaq-work-ticket` and `otaq-commit` in its worktree, once
-/// in each root, and its first prompt runs the stage's skill as the tool names a project skill: Claude Code
+/// in each root, with every hand-off skill (`otaq-address-review`, `otaq-restack`, the Delivery's `otaq-open-pr` and
+/// `otaq-push`, d0118), and its first prompt runs the stage's skill as the tool names a project skill: Claude Code
 /// `/otaq-work-ticket`, Codex `$otaq-work-ticket`, Copilot `-i /otaq-work-ticket`, OpenCode `--prompt
 /// otaq-work-ticket`. No `--plugin-dir` carries skills (Claude Code's and Copilot's point at their hooks plugins),
 /// OpenCode's config names no skills folder, and git sees nothing.
@@ -364,14 +339,9 @@ async fn a_dev_session_on_each_tool_gets_its_agents_skills() {
             !args.contains("/otaq:") && !args.contains("$otaq:"),
             "{args}"
         );
-        assert!(
-            out.contains("AGENTS otaq-commit otaq-work-ticket ."),
-            "{tool:?}: {out}"
-        );
-        assert!(
-            out.contains("CLAUDE otaq-commit otaq-work-ticket ."),
-            "{tool:?}: {out}"
-        );
+        // Its agent's own skills and every hand-off skill, from its first launch (d0118).
+        assert!(out.contains("AGENTS otaq-address-review otaq-commit otaq-open-pr otaq-push otaq-restack otaq-work-ticket ."), "{tool:?}: {out}");
+        assert!(out.contains("CLAUDE otaq-address-review otaq-commit otaq-open-pr otaq-push otaq-restack otaq-work-ticket ."), "{tool:?}: {out}");
         match tool {
             Tool::Claude | Tool::Copilot => {
                 let plugin = args
@@ -387,7 +357,16 @@ async fn a_dev_session_on_each_tool_gets_its_agents_skills() {
             _ => assert!(!args.contains("--plugin-dir"), "{args}"),
         }
         let worktree = worktree_of(&w.board.ticket(&t.key.to_string()).await.unwrap());
-        assert!(copied(&worktree, "otaq-work-ticket") && copied(&worktree, "otaq-commit"));
+        for copy in [
+            "otaq-work-ticket",
+            "otaq-commit",
+            "otaq-address-review",
+            "otaq-restack",
+            "otaq-open-pr",
+            "otaq-push",
+        ] {
+            assert!(copied(&worktree, copy), "{tool:?}: {copy}");
+        }
         assert_eq!(
             git(
                 &worktree,
@@ -413,10 +392,7 @@ async fn an_imported_skill_keeps_its_own_files() {
     w.import_step_skill(WorkflowStep::Commit, &folder).await;
     let t = w.create("SHOP", "Sort notes by date").await;
     let out = started(&w, &t).await;
-    assert!(
-        out.contains("AGENTS otaq-commit otaq-work-ticket ."),
-        "{out}"
-    );
+    assert!(out.contains("AGENTS otaq-address-review otaq-commit otaq-open-pr otaq-push otaq-restack otaq-work-ticket ."), "{out}");
     let worktree = worktree_of(&w.board.ticket("SHOP-1").await.unwrap());
     for root in SKILL_ROOTS {
         let copy = worktree.join(root).join("otaq-commit");
@@ -452,7 +428,10 @@ async fn the_grill_stage_starts_with_otaq_grill() {
     let out = started(&w, &t).await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
     assert!(args.ends_with("/otaq-grill"), "{args}");
-    assert!(out.contains("AGENTS otaq-grill ."), "{out}");
+    assert!(
+        out.contains("AGENTS otaq-address-review otaq-grill otaq-open-pr otaq-push otaq-restack ."),
+        "{out}"
+    );
     w.stop().await;
 }
 
@@ -566,10 +545,11 @@ async fn submit_and_local_merge_ignore_the_copies() {
     w.stop().await;
 }
 
-/// Open PR typed into the live session: the Delivery stage's agent's Open PR skill is copied first and typed by its
-/// copy's name; Push to PR likewise. The flow shows the imported skill's own name (WSK-08).
+/// Open PR typed into a live session that didn't start with the skill (an `sh` Otaq didn't launch): the Delivery
+/// stage's agent's Open PR skill is copied first and named by its file, never as a command (d0118); Push to PR
+/// likewise. The flow shows the imported skill's own name (WSK-08).
 #[tokio::test(flavor = "multi_thread")]
-async fn open_pr_and_push_type_the_copy_into_the_live_session() {
+async fn open_pr_and_push_name_the_copy_in_a_session_that_didnt_start_with_it() {
     let World { w, _dir } = world().await;
     let folder = skill_folder(w.data.root(), "my-pr");
     w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
@@ -577,7 +557,9 @@ async fn open_pr_and_push_type_the_copy_into_the_live_session() {
     let agent = w.agent_shell(&t).await;
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&agent.session, "/otaq-my-pr").await;
+    let root = w.adapters.of_session(None).skill_root();
+    w.wait_for_output(&agent.session, &handoff_sentence(root, "my-pr", None))
+        .await;
     assert!(copied(&worktree, "otaq-my-pr"));
     assert_eq!(w.board.pr_flow_view("SHOP-1").await.unwrap().skill, "my-pr");
     w.prs.cancel("SHOP-1", &me()).await.unwrap();
@@ -589,7 +571,8 @@ async fn open_pr_and_push_type_the_copy_into_the_live_session() {
         .unwrap();
     let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&agent.session, "/otaq-push").await;
+    w.wait_for_output(&agent.session, &handoff_sentence(root, "push", None))
+        .await;
     assert!(copied(&worktree, "otaq-push"));
     assert_eq!(w.board.pr_flow_view("SHOP-1").await.unwrap().skill, "push");
     w.stop().await;

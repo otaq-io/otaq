@@ -2,6 +2,7 @@
 
 pub mod freed;
 pub mod resources;
+pub mod stand_in;
 
 use std::path::{Path, PathBuf};
 

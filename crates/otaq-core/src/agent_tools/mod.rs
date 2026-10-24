@@ -758,6 +758,13 @@ pub trait AgentTool: Send + Sync {
     /// the tools' plugins carry only Otaq's hooks.
     fn skill_reference(&self, skill: &str) -> String;
 
+    /// Of the two folders Otaq writes a copy into ([`crate::skills::copy::SKILL_ROOTS`]), the one this tool reads:
+    /// `.agents/skills` (Codex, Copilot, OpenCode), `.claude/skills` for Claude Code. A hand-off names the copy's
+    /// SKILL.md in it when the session didn't start with that skill (d0118).
+    fn skill_root(&self) -> &'static str {
+        crate::skills::copy::SKILL_ROOTS[0]
+    }
+
     // Model families (AGT-02, d0086).
 
     /// Where the tool's "newest in a family" choices take their families and release dates from

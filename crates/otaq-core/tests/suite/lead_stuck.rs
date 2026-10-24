@@ -22,6 +22,7 @@ use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
+use otaq_core::session::deliveries::handoff_sentence;
 use otaq_core::store::now_ms;
 use serde_json::{Value, json};
 
@@ -593,7 +594,7 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
         delivered[before..],
         [
             format!("Note from Wishlist lead: {NOTE}"),
-            format!("/{}", naming::copy_name("restack"))
+            handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
         ]
     );
     assert_eq!(

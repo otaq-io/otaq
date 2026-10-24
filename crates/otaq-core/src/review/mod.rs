@@ -8,8 +8,8 @@
 //! earlier Agent stage with the round's line comments and the note, the note posted first as the user's comment
 //! (d0034, d0108 rule 6, d0109); it then walks every later stage again. The click is the go-ahead (d0018), so it is
 //! never held, except by the optional agent limit:
-//! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), with
-//!   what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
+//! - the session is **live**: `/otaq-address-review` is typed into it (a copy it started with, d0118; one it didn't
+//!   is named by its file, [`crate::session::deliveries::handoff_sentence`]), with what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
 //!   prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
 //!   line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
@@ -594,15 +594,11 @@ impl Review {
                     .as_ref()
                     .and_then(|w| w.worktree.as_deref())
                     .map(std::path::Path::new);
-                let skill_line = inner
-                    .deliveries
-                    .skill_line(&inner.board, &session.id, worktree, skill)
-                    .await;
                 // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05).
-                let text = match told {
-                    Some(told) => format!("{skill_line} {told}"),
-                    None => skill_line,
-                };
+                let text = inner
+                    .deliveries
+                    .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
+                    .await;
                 let typed = if clear_first {
                     inner
                         .deliveries

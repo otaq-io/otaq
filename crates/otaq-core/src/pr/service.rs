@@ -681,10 +681,7 @@ impl Prs {
         let runs_on = self.delivery_runs_on(epic).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(epic)?;
-        let first_prompt = match step {
-            PrStep::Skill(step) => self.copy_skill(epic, &worktree, step).await?,
-            PrStep::Words(text) => FirstPrompt::Text(text.to_owned()),
-        };
+        let (first_prompt, copies) = self.copy_skills(epic, &worktree, step).await?;
         let launched = self.inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -702,8 +699,15 @@ impl Prs {
                 theme: self.inner.board.theme_in_use().await,
             },
         )?;
-        self.spawn(epic, SessionKind::Delivery, launched, &runs_on, start)
-            .await
+        self.spawn(
+            epic,
+            SessionKind::Delivery,
+            launched,
+            &runs_on,
+            start,
+            copies,
+        )
+        .await
     }
 
     /// What the epic's delivery session runs on: the Delivery stage's agent (AGM-05; Q-D: an epic has no Agent stage
@@ -800,13 +804,15 @@ impl Prs {
         launched: Launched,
         runs_on: &RunsOn,
         start: Start,
+        copies: Vec<String>,
     ) -> Result<SessionInfo, BoardError> {
         let project = self
             .inner
             .board
             .project(ticket.key.project.as_str())
             .await?;
-        self.inner
+        let session = self
+            .inner
             .sessions
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
@@ -832,7 +838,12 @@ impl Prs {
                 theme: Some(launched.theme),
             })
             .await
-            .map_err(other)
+            .map_err(other)?;
+        // What its tool read at its start: a later hand-off names any other skill by its file (d0118).
+        if let Err(e) = self.inner.sessions.set_started_skills(&session.id, copies) {
+            tracing::warn!(key = %ticket.key, error = %e, "the session's skills weren't recorded");
+        }
+        Ok(session)
     }
 
     /// "Needs confirmation" when the live session's input line has unsent text and the click didn't say to clear
@@ -865,40 +876,49 @@ impl Prs {
         Ok(None)
     }
 
-    /// Writes the Delivery stage's agent's skills and the skill it runs for `step` into `worktree` (AGM-07): the
-    /// prompt that runs it.
-    async fn copy_skill(
+    /// Writes the Delivery stage's agent's skills, the skill it runs for a skill `step` and every hand-off skill
+    /// (d0118) into `worktree` (AGM-07), before a session starts or resumes there: the prompt it starts with and the
+    /// copies written.
+    async fn copy_skills(
         &self,
         ticket: &Ticket,
         worktree: &std::path::Path,
-        step: WorkflowStep,
-    ) -> Result<FirstPrompt, BoardError> {
+        step: PrStep<'_>,
+    ) -> Result<(FirstPrompt, Vec<String>), BoardError> {
         let board = &self.inner.board;
         let agent = resolve::delivery_agent(board, ticket.key.project.as_str())
             .await
             .ok();
-        // An automatic Delivery's skill is told so (FLW-15).
-        let automatic = board
-            .pr_flow(&ticket.id)
-            .await?
-            .is_some_and(|f| f.automatic);
-        let prompt = FirstPrompt::Skill {
-            name: board
-                .delivery_skill_name(ticket.key.project.as_str(), step)
-                .await?,
-            message: automatic.then(automatic_message),
+        let prompt = match step {
+            PrStep::Skill(step) => FirstPrompt::Skill {
+                name: board
+                    .delivery_skill_name(ticket.key.project.as_str(), step)
+                    .await?,
+                message: self.told(ticket).await?,
+            },
+            PrStep::Words(text) => FirstPrompt::Text(text.to_owned()),
         };
-        Ok(board
-            .copy_for_session(
+        let (copied, written) = board
+            .copy_for_ticket_session(
                 worktree,
                 self.inner.adapters.shipped_skills(),
                 agent.as_ref(),
                 Some(prompt.clone()),
-                crate::skills::Marker::Worktree,
+                ticket.key.project.as_str(),
             )
-            .await
-            .0
-            .unwrap_or(prompt))
+            .await;
+        Ok((copied.unwrap_or(prompt), written.names))
+    }
+
+    /// What follows the PR step's skill: an automatic Delivery's skill is told so (FLW-15).
+    async fn told(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+        let automatic = self
+            .inner
+            .board
+            .pr_flow(&ticket.id)
+            .await?
+            .is_some_and(|f| f.automatic);
+        Ok(automatic.then(automatic_message))
     }
 
     /// Types `step` into the live session (through the user-click path, or queued for an automatic Delivery), or
@@ -914,10 +934,23 @@ impl Prs {
         match live {
             Some(session) => {
                 let text = match step {
-                    PrStep::Skill(skill_step) => self
-                        .copy_skill(ticket, &worktree_of(ticket)?, skill_step)
-                        .await?
-                        .text(self.inner.adapters.of_session(session.tool)),
+                    // By its name when the session started with it, else copied now and named by its file (d0118).
+                    PrStep::Skill(skill_step) => {
+                        let skill = self
+                            .inner
+                            .board
+                            .delivery_skill(ticket.key.project.as_str(), skill_step)
+                            .await?;
+                        if !deliveries.started_with(&session.id, &skill) {
+                            self.copy_skills(ticket, &worktree_of(ticket)?, step)
+                                .await?;
+                        }
+                        deliveries.skill_text(
+                            &session.id,
+                            &skill,
+                            self.told(ticket).await?.as_deref(),
+                        )
+                    }
                     PrStep::Words(text) => text.to_owned(),
                 };
                 let typed = match typing {
@@ -986,10 +1019,7 @@ impl Prs {
         let runs_on = RunsOn::resumed(&conversation);
         inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(ticket)?;
-        let first_prompt = match step {
-            PrStep::Skill(step) => self.copy_skill(ticket, &worktree, step).await?,
-            PrStep::Words(text) => FirstPrompt::Text(text.to_owned()),
-        };
+        let (first_prompt, copies) = self.copy_skills(ticket, &worktree, step).await?;
         let port = ticket.work.as_ref().and_then(|w| w.agent_port).unwrap_or(0);
         let role = match kind {
             SessionKind::Delivery => LaunchRole::Delivery,
@@ -1012,7 +1042,8 @@ impl Prs {
                 theme: self.inner.board.theme_in_use().await,
             },
         )?;
-        self.spawn(ticket, kind, launched, &runs_on, start).await
+        self.spawn(ticket, kind, launched, &runs_on, start, copies)
+            .await
     }
 }
 

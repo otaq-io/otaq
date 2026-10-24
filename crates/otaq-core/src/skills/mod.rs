@@ -3,6 +3,12 @@
 //! Before a session starts, **every skill of its agent** is copied into its working folder as
 //! `otaq-<the skill's own name>` ([`copy`]), shipped and imported alike, for all four tools; the skill the session
 //! is told to run first (the stage's own skill, Q261, or Otaq's `address-review`, `open-pr`…) is copied with them.
+//! A ticket's agent session also gets **every hand-off skill** ([`Board::handoff_sources`]: `address-review`,
+//! `restack` and the flow's Delivery skills) at each launch or resume (d0118): a tool reads its skill folders when it
+//! starts, so a skill copied while it runs isn't one it can run by name. The copies a session started with are
+//! recorded with it ([`crate::session::Sessions::set_started_skills`]); a hand-off names any other skill by its file
+//! ([`crate::session::deliveries::Deliveries::skill_line`]).
+//!
 //! Shipped skills are read from the installed app's bundle (`<plugin>/skills/<name>/`, [`SHIPPED_FOLDER`]), so they
 //! update with Otaq; an imported skill from Otaq's own copy (`$OTAQ_HOME/skills/<id>/`, [`folder`]), with its own
 //! folder's contents. The tools' plugins carry only Otaq's hooks, so a skill appears once, under its copy's name.
@@ -155,12 +161,30 @@ impl Board {
         runs: Option<&str>,
         marker: Marker,
     ) -> Written {
+        self.copy_with(root, shipped, agent, runs, None, marker)
+            .await
+    }
+
+    /// [`Self::copy_skills`], with the hand-off skills of `handoffs_of`'s flow after the agent's own when it names a
+    /// project (d0118).
+    async fn copy_with(
+        &self,
+        root: &Path,
+        shipped: Option<&Path>,
+        agent: Option<&Agent>,
+        runs: Option<&str>,
+        handoffs_of: Option<&str>,
+        marker: Marker,
+    ) -> Written {
         let sources = Sources {
             shipped,
             data: self.data(),
         };
         let runs = runs.map(|name| sources.runs(agent, name));
-        let skills = agent.map(|a| sources.of_agent(a)).unwrap_or_default();
+        let mut skills = agent.map(|a| sources.of_agent(a)).unwrap_or_default();
+        if let Some(project) = handoffs_of {
+            skills.extend(self.handoff_sources(project, &sources).await);
+        }
         let at = root.to_owned();
         let written = tokio::task::spawn_blocking(move || write_session(&at, runs, skills, marker))
             .await
@@ -187,11 +211,49 @@ impl Board {
         first_prompt: Option<FirstPrompt>,
         marker: Marker,
     ) -> (Option<FirstPrompt>, Written) {
+        self.copy_prompted(root, shipped, agent, first_prompt, None, marker)
+            .await
+    }
+
+    /// [`Self::copy_for_session`] for a ticket's agent session in its worktree (a launch or a resume, the Dev
+    /// stage's or the Delivery's, d0118): every hand-off skill of `project`'s flow is copied too
+    /// ([`Self::handoff_sources`]), so a later hand-off types one the session started with. The caller records
+    /// [`Written::names`] with the session once it runs ([`crate::session::Sessions::set_started_skills`]).
+    pub async fn copy_for_ticket_session(
+        &self,
+        root: &Path,
+        shipped: Option<&Path>,
+        agent: Option<&Agent>,
+        first_prompt: Option<FirstPrompt>,
+        project: &str,
+    ) -> (Option<FirstPrompt>, Written) {
+        self.copy_prompted(
+            root,
+            shipped,
+            agent,
+            first_prompt,
+            Some(project),
+            Marker::Worktree,
+        )
+        .await
+    }
+
+    async fn copy_prompted(
+        &self,
+        root: &Path,
+        shipped: Option<&Path>,
+        agent: Option<&Agent>,
+        first_prompt: Option<FirstPrompt>,
+        handoffs_of: Option<&str>,
+        marker: Marker,
+    ) -> (Option<FirstPrompt>, Written) {
         let runs = match &first_prompt {
             Some(FirstPrompt::Skill { name, .. }) => Some(name.as_str()),
             _ => None,
         };
-        let written = self.copy_skills(root, shipped, agent, runs, marker).await;
+        let written = self
+            .copy_with(root, shipped, agent, runs, handoffs_of, marker)
+            .await;
         let prompt = match (first_prompt, &written.runs) {
             (Some(FirstPrompt::Skill { message, .. }), Some(name)) => Some(FirstPrompt::Skill {
                 name: name.clone(),
@@ -200,6 +262,35 @@ impl Board {
             (prompt, _) => prompt,
         };
         (prompt, written)
+    }
+
+    /// The skills Otaq may hand a ticket's running agent session later (d0118): Otaq's `address-review` (Send back,
+    /// a decision's Change…, a drag back, Apply now) and `restack` (a merge conflict at Delivery), and the flow's
+    /// Delivery skills for Open PR and Push as the Delivery stage's agent has them ([`Self::delivery_skill`]: an
+    /// imported skill standing for `open-pr` or the one the flow names, else Otaq's `open-pr` and `push`). Settings →
+    /// Agents doesn't list them: they aren't the agent's own.
+    pub async fn handoff_sources(&self, project: &str, sources: &Sources<'_>) -> Vec<Source> {
+        let mut list = vec![
+            sources.shipped(crate::review::ADDRESS_REVIEW_SKILL),
+            sources.shipped(crate::review::RESTACK_SKILL),
+        ];
+        let agent = crate::agents::resolve::delivery_agent(self, project)
+            .await
+            .ok();
+        for step in [
+            crate::board::settings::WorkflowStep::OpenPr,
+            crate::board::settings::WorkflowStep::Push,
+        ] {
+            let name = match self.delivery_skill_name(project, step).await {
+                Ok(name) => name,
+                Err(e) => {
+                    tracing::warn!(%project, error = %e, "the flow's Delivery skill isn't known; the built-in one is copied");
+                    step.own_skill().to_owned()
+                }
+            };
+            list.push(sources.runs(agent.as_ref(), &name));
+        }
+        list
     }
 
     /// The skill the PR path runs for `step` (Open PR, Push), by its own name: for Open PR the skill the flow's

@@ -17,6 +17,7 @@ use otaq_core::review::ReturnOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::session::deliveries::handoff_sentence;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -349,7 +350,11 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     let pending = world.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending.last().unwrap().text,
-        format!("/{}", naming::copy_name("restack"))
+        handoff_sentence(
+            world.adapters.of_session(None).skill_root(),
+            "restack",
+            None
+        )
     );
     let prime = otaq_core::prime::render(
         &world
@@ -539,7 +544,7 @@ async fn a_merge_conflict_brings_the_build_back() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending.last().unwrap().text,
-        format!("/{}", naming::copy_name("restack"))
+        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
     );
     w.stop().await;
 }
