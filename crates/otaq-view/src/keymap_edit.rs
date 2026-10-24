@@ -723,14 +723,14 @@ mod tests {
             answer(MAC, &fresh, edit.clone()),
             KeyEditAnswer::Taken {
                 key: "⌘J".into(),
-                by: KeyAction::NextInboxItem,
+                by: KeyAction::NextNeedsYouItem,
                 question: "⌘J is used by Next item that needs you. Use it here instead?".into(),
             }
         );
         let moved = ok(MAC, &fresh, confirmed(edit));
         assert_eq!(texts(MAC, &moved, KeyAction::OpenActivity), ["⌘J", "g a"]);
         assert!(
-            texts(MAC, &moved, KeyAction::NextInboxItem).is_empty(),
+            texts(MAC, &moved, KeyAction::NextNeedsYouItem).is_empty(),
             "no key"
         );
         assert_eq!(changed_count(&moved), 2);
@@ -746,7 +746,7 @@ mod tests {
                     works_in_terminals: false,
                 },
                 KeyboardChange {
-                    action: "next_inbox_item".into(),
+                    action: "next_needs_you_item".into(),
                     number: None,
                     slot: 0,
                     key: None,
@@ -756,7 +756,7 @@ mod tests {
         );
         // Its reset gives ⌘J back, which Activity has now: the same question.
         let reset = KeyEdit::Reset {
-            action: KeyAction::NextInboxItem,
+            action: KeyAction::NextNeedsYouItem,
             slot: 0,
             confirmed: false,
         };
@@ -768,7 +768,7 @@ mod tests {
             }
         ));
         let back = ok(MAC, &moved, confirmed(reset));
-        assert_eq!(texts(MAC, &back, KeyAction::NextInboxItem), ["⌘J"]);
+        assert_eq!(texts(MAC, &back, KeyAction::NextNeedsYouItem), ["⌘J"]);
         assert_eq!(texts(MAC, &back, KeyAction::OpenActivity), ["g a"]);
 
         // A taken letter or sequence counts the same.
@@ -911,7 +911,7 @@ mod tests {
         let all = edited.store.unwrap();
         assert_eq!(all.changes, []);
         assert!(!all.letters, "the switch isn't a shortcut");
-        assert_eq!(texts(MAC, &all, KeyAction::NextInboxItem), ["⌘J"]);
+        assert_eq!(texts(MAC, &all, KeyAction::NextNeedsYouItem), ["⌘J"]);
         let on = ok(MAC, &all, KeyEdit::Letters { on: true });
         assert!(on.letters);
     }
@@ -1052,13 +1052,17 @@ mod tests {
             answer(
                 WIN,
                 &fresh,
-                inside(KeyAction::NextInboxItem, 0, true, false)
+                inside(KeyAction::NextNeedsYouItem, 0, true, false)
             ),
             KeyEditAnswer::Warn { .. }
         ));
-        let j = ok(WIN, &fresh, inside(KeyAction::NextInboxItem, 0, true, true));
+        let j = ok(
+            WIN,
+            &fresh,
+            inside(KeyAction::NextNeedsYouItem, 0, true, true),
+        );
         assert_eq!(
-            keys(WIN, &j, KeyAction::NextInboxItem),
+            keys(WIN, &j, KeyAction::NextNeedsYouItem),
             [k(0, "Ctrl+J", KeyPlace::Everywhere)]
         );
         assert_eq!(
@@ -1125,14 +1129,14 @@ mod tests {
         );
         // A ⌘ key has no such option (it works in terminals anyway).
         assert_eq!(
-            works_in_terminals(MAC, &fresh, KeyAction::NextInboxItem, 0),
+            works_in_terminals(MAC, &fresh, KeyAction::NextNeedsYouItem, 0),
             None
         );
         assert!(
             edit(
                 MAC,
                 &fresh,
-                &inside(KeyAction::NextInboxItem, 0, true, true)
+                &inside(KeyAction::NextNeedsYouItem, 0, true, true)
             )
             .is_err()
         );

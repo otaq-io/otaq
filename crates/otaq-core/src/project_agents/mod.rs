@@ -8,13 +8,13 @@
 //!   no empty "New agent" session. The check before every launch runs first (SCH-04 `[M23]`,
 //!   [`crate::agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
 //!   refuses the message with the reason and holds the Project agent (no fallback, Q-B); the message stays in the
-//!   pane for the user to send again. A Resume is refused while the usage limit holds. They never count toward the
+//!   agent panel for the user to send again. A Resume is refused while the usage limit holds. They never count toward the
 //!   agent limit, which counts tickets (SCH-03).
 //! - **Naming** (PAG-04): "New agent" until named. The agent names itself once with `otaq agent name`; a second
 //!   call needs `--rename` (the user asked for it). If it hasn't by the end of its first turn after the first request
 //!   (the message it opened with), the request's first words become its name. The user's rename always wins: the
 //!   agent can't change it.
-//! - **Close** ("End agent" in the pane's menu) ends it and it stays in Recently ended; one that is mid-turn asks
+//! - **Close** ("End agent" in the agent panel's menu) ends it and it stays in Recently ended; one that is mid-turn asks
 //!   first (`needs_confirmation`, "Stop and close"). **Close ended agents** closes every ended one of a project.
 //! - **After a restart** (REC-01) running agents are "Ended by restart" and resume on the user's click. The **10
 //!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
@@ -190,7 +190,7 @@ pub struct ProjectAgentList {
     pub open: Vec<ProjectAgent>,
     /// The [`RECENT`] most recently ended ones that got a request, newest first.
     pub recent: Vec<ProjectAgent>,
-    /// A first message held before its start (SCH-04 `[M23]`, §7.2): the pane's notice.
+    /// A first message held before its start (SCH-04 `[M23]`, §7.2): the agent panel's notice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub holds: Vec<crate::agents::AgentHold>,
 }
@@ -209,7 +209,7 @@ pub struct StartupAgents {
     pub leads_ended: Vec<String>,
 }
 
-/// A Project agent waiting for the user (PAG-07): an inbox item of group 1, labelled with the project and its
+/// A Project agent waiting for the user (PAG-07): a needs-you item of group 1, labelled with the project and its
 /// name instead of a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentNeedsYou {
@@ -432,7 +432,7 @@ impl ProjectAgents {
         self.open_on(project, message, None).await
     }
 
-    /// [`Self::open`] on the agent `agent` instead of the agent with the Project agent role (the pane's "New agent on
+    /// [`Self::open`] on the agent `agent` instead of the agent with the Project agent role (the agent panel's "New agent on
     /// Sonnet", M23).
     pub async fn open_on(
         &self,
@@ -678,7 +678,7 @@ impl ProjectAgents {
         Ok(())
     }
 
-    /// Closes a Project agent (PAG-06; "End agent" in the pane's menu, d0087): a running one mid-turn needs
+    /// Closes a Project agent (PAG-06; "End agent" in the agent panel's menu, d0087): a running one mid-turn needs
     /// `confirm` ("Stop and close"); otherwise it ends and leaves the switcher (it stays in Recently ended).
     pub async fn close(&self, id: &str, confirm: bool) -> Result<(), BoardError> {
         let agent = self.get(id).await?;
@@ -931,7 +931,7 @@ impl ProjectAgents {
                 format!("{} isn't waiting for an answer", agent.name),
             )
         })?;
-        let text = crate::attention::inbox::answer_text(Some(question), choice)?;
+        let text = crate::attention::needs_you::answer_text(Some(question), choice)?;
         let session = agent
             .session
             .as_ref()

@@ -112,7 +112,7 @@ pub struct Ticket {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_problem: Option<StartProblem>,
     /// Interrupted only: the needs-you status it had when its session ended (REC-01, d0045). The label, its text
-    /// (`signal`) and the question stay with the ticket, so answering from the inbox resumes and delivers.
+    /// (`signal`) and the question stay with the ticket, so answering from Needs you resumes and delivers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupted_from: Option<Status>,
     /// What the agent waits for or runs in the background (needs-you family and Working in background, d0042).
@@ -225,7 +225,7 @@ impl Ticket {
     }
 
     /// Whether the ticket waits for the user where they can see it: turquoise (unless its terminal has focus) or
-    /// the inbox's second group. Such cards float to the top of Dev and count in the project's needs-you number.
+    /// Needs you's second group. Such cards float to the top of Dev and count in the project's needs-you number.
     pub fn needs_user(&self) -> bool {
         super::order::needs_user(self.status) && !self.flags.your_turn
     }

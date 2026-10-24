@@ -1,9 +1,9 @@
-//! Agents stopped by a tool's usage limit raise no inbox items while that tool's limit line is up (ATT-09, d0046;
+//! Agents stopped by a tool's usage limit raise no needs-you items while that tool's limit line is up (ATT-09, d0046;
 //! per tool from M23, USG-10): one banner line for the situation, not one item per agent (P6).
 //!
 //! The switches and the marks live in the service's memory. The plan-limit work turns a tool's switch on while its
 //! limit is active and marks the agents that limit stopped, with the tool; a ticket in **Waiting for limit reset**
-//! that isn't marked counts as stopped by any active limit. The needs-you items (and so the inbox, its counts and
+//! that isn't marked counts as stopped by any active limit. The needs-you items (and so Needs you, its counts and
 //! back-pressure) leave those tickets out; another tool's limit-stopped agents still raise theirs.
 
 use std::collections::{HashMap, HashSet};

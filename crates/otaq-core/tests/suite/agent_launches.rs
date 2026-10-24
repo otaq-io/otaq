@@ -867,7 +867,7 @@ async fn a_resume_passes_the_sessions_own_effort() {
 }
 
 /// The exact model the tool reports is written once on the session (the first value only), from Claude Code's
-/// `SessionStart` hook; a later different report (a `/model` typed into the pane) is only logged.
+/// `SessionStart` hook; a later different report (a `/model` typed into the agent panel) is only logged.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_model_that_ran_is_written_once() {
     let world = world().await;
@@ -924,7 +924,7 @@ async fn the_model_that_ran_is_written_once() {
         Some("claude-opus-5-5"),
         "the first value wins"
     );
-    // An agent's model is never read back from the pane: Developer stays on `opus`.
+    // An agent's model is never read back from the agent panel: Developer stays on `opus`.
     assert_eq!(
         model_of(&world.agent("Developer").await).as_deref(),
         Some("opus")

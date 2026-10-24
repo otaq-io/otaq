@@ -63,7 +63,7 @@ export function addOnOpening(after: string | null): FlowEditorStageEdit {
   return after === null ? { edit: "add" } : { edit: "add", after };
 }
 
-/** The agent each project's editor panel shows, once one was asked (the page's own state, like the pane's). */
+/** The agent each project's editor panel shows, once one was asked (the page's own state, like the agent panel's). */
 export const editorAgents: Store<Readonly<Record<string, string>>> = createStore<
   Readonly<Record<string, string>>
 >({});

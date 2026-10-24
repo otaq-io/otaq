@@ -5,8 +5,8 @@
 // External ID copies, Q416); the flow
 // path; the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
 // registered in `sheetTabs`. An epic (SHT-07, `s25-11`) shows "1 of 5 merged" and its lead's state by its title, no
-// Move…, and its tabs Overview · Tickets (with their count) · Lead · Files · Activity. It comes in as the drawer of 0095 (the frame's panel layer). Everything it says is Rust's
-// (`panel.view`'s `sheet`); it keeps open menus only. Its keys: Esc, `e`, j / k (⌘[ / ⌘]), the tab keys.
+// Move…, and its tabs Overview · Tickets (with their count) · Lead · Files · Activity. It comes in as the drawer of 0095 (the frame's sheet layer). Everything it says is Rust's
+// (`sheet.view`'s `sheet`); it keeps open menus only. Its keys: Esc, `e`, j / k (⌘[ / ⌘]), the tab keys.
 import {
   createContext,
   Fragment,
@@ -26,9 +26,9 @@ import { closeTicket, openTicket, selection, showTab, stepTicket, useSelection }
 import { useStore } from "../../app/store";
 import { AnchoredMenu, IconButton, StatusPill, Tabs, ToolAvatar, Tooltip } from "../../components";
 import type { MenuItem } from "../../generated/MenuItem";
-import type { PanelHint } from "../../generated/PanelHint";
-import type { PanelLoad } from "../../generated/PanelLoad";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetHint } from "../../generated/SheetHint";
+import type { SheetLoad } from "../../generated/SheetLoad";
+import type { SheetView } from "../../generated/SheetView";
 import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetDetail } from "../../generated/SheetDetail";
 import type { SheetStep } from "../../generated/SheetStep";
@@ -40,11 +40,11 @@ import { DescriptionSaveBar } from "../overview/SaveBar";
 import { COPIED_FOR } from "../editor/logic";
 import { EpicHeadPills } from "../epic/EpicSheet";
 import { ReviewBar } from "../files/ReviewBar";
-import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "./actions";
+import { MoreMenu, SHEET_EVENTS, type SheetActions, useSheetActions } from "./actions";
 import {
   contentOf,
   numberedSheetTab,
-  panelViewLoads,
+  sheetViewLoads,
   sheetWidth,
   shownSheetTab,
   steppedSheetTab,
@@ -58,8 +58,8 @@ const ignore = () => undefined;
  * to show (Session's Agent, the check, Run or Shell).
  */
 export interface SheetState {
-  view: PanelView;
-  actions: PanelActions;
+  view: SheetView;
+  actions: SheetActions;
   selected: SheetContent | null;
 }
 
@@ -77,7 +77,7 @@ function HintButton({
   onClick,
 }: {
   icon: Parameters<typeof IconButton>[0]["icon"];
-  hint: PanelHint;
+  hint: SheetHint;
   onClick: () => void;
 }) {
   return (
@@ -87,8 +87,8 @@ function HintButton({
   );
 }
 
-/** Move… (SHT-01): the board's columns with the drag's verdicts (`panel.move_menu`); a pick is the drag's drop. */
-function MoveButton({ view }: { view: PanelView }) {
+/** Move… (SHT-01): the board's columns with the drag's verdicts (`sheet.move_menu`); a pick is the drag's drop. */
+function MoveButton({ view }: { view: SheetView }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [items, setItems] = useState<MenuItem[] | null>(null);
   const key = view.key;
@@ -105,7 +105,7 @@ function MoveButton({ view }: { view: PanelView }) {
             setItems(null);
             return;
           }
-          (request("panel.move_menu", { key }) as Promise<MenuItem[]>).then(setItems, ignore);
+          (request("sheet.move_menu", { key }) as Promise<MenuItem[]>).then(setItems, ignore);
         }}
       >
         <Icon name="arrow-right" size={14} />
@@ -120,7 +120,7 @@ function MoveButton({ view }: { view: PanelView }) {
           width={240}
           onChoose={(target) => {
             setItems(null);
-            // The Approve choice a drop on Approved asks for opens as the panel's ▾ did.
+            // The Approve choice a drop on Approved asks for opens as the sheet's ▾ did.
             void dropCard(key, target, () => {
               openOverlay("local_merge", { ticket: key, menu: true });
             });
@@ -189,7 +189,7 @@ function CopyValue({
  * One value of the details line; with a menu (Priority, the stage's agent before it starts), a link (Epic) or a copy
  * (External ID).
  */
-function DetailValue({ view, detail }: { view: PanelView; detail: SheetDetail }) {
+function DetailValue({ view, detail }: { view: SheetView; detail: SheetDetail }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const content = (
@@ -251,9 +251,9 @@ function DetailValue({ view, detail }: { view: PanelView; detail: SheetDetail })
           onChoose={(item) => {
             setOpen(false);
             if (change.kind === "priority") {
-              request("panel.priority", { key: view.key, item }).catch(ignore);
+              request("sheet.priority", { key: view.key, item }).catch(ignore);
             } else {
-              request("panel.set_choice", { key: view.key, stage: change.stage, choice: item }).catch(ignore);
+              request("sheet.set_choice", { key: view.key, stage: change.stage, choice: item }).catch(ignore);
             }
           }}
           onClose={() => {
@@ -265,7 +265,7 @@ function DetailValue({ view, detail }: { view: PanelView; detail: SheetDetail })
   );
 }
 
-function Details({ view }: { view: PanelView }) {
+function Details({ view }: { view: SheetView }) {
   return (
     <div className="sheet-details">
       {view.sheet.details.map((detail) => (
@@ -312,7 +312,7 @@ function FlowPath({ steps }: { steps: readonly SheetStep[] }) {
 }
 
 export interface SheetBodyProps {
-  view: PanelView;
+  view: SheetView;
   /** What the selection asks the sheet to show (`null`: the tab it opens on). */
   tab: SheetContent | null;
   fullPage: boolean;
@@ -323,7 +323,7 @@ export interface SheetBodyProps {
 /** The sheet for a loaded view (also what the markup tests render). */
 export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
   const app = useRegistries();
-  const actions = usePanelActions(view);
+  const actions = useSheetActions(view);
   const sheet = view.sheet;
   const shown = shownSheetTab(sheet.tabs, tab, sheet.opens_on);
   const Body = shown ? app.sheetTabs.get(shown.tab)?.Component : undefined;
@@ -430,7 +430,7 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
   );
 }
 
-/** Whether the keyboard is in the Project agent's panel (the frame's `pane` slot). */
+/** Whether the keyboard is in the Project agent's panel (the frame's `agent_panel` slot). */
 function inAgentPanel(): boolean {
   return (
     typeof document !== "undefined" && document.activeElement?.closest('[data-slot="agent_panel"]') != null
@@ -442,22 +442,22 @@ function inAgentPanel(): boolean {
  * previous ticket of its column keeping the tab, `1`–`4` and `g o` / `s` / `f` / `a` a tab (`g a` is Activity's
  * popover while no sheet takes it), ⌃Tab / ⌃⇧Tab the next and previous tab, Open diff Files.
  */
-export function useSheetKeys(view: PanelView | null): void {
-  const current = useRef<PanelView | null>(view);
+export function useSheetKeys(view: SheetView | null): void {
+  const current = useRef<SheetView | null>(view);
   useEffect(() => {
     current.current = view;
   }, [view]);
-  // Esc in the Project agent's panel is the panel's (it folds): the sheet stays open (T-0458's Q-D). So is Esc while
-  // the panel lies expanded over the sheet (T-0502).
+  // Esc in the Project agent's panel is the agent panel's (it folds): the sheet stays open (T-0458's Q-D). So is Esc while
+  // the agent panel lies expanded over the sheet (T-0502).
   useShortcut(
-    "close_panel",
+    "close_sheet",
     useCallback(() => {
       if (inAgentPanel() || shellLayout.get().agentExpanded) return false;
       closeTicket();
       return true;
     }, []),
   );
-  useShortcut("expand_panel", toggleExpanded);
+  useShortcut("expand_sheet", toggleExpanded);
   useShortcut(
     "previous_ticket",
     useCallback(() => {
@@ -510,7 +510,7 @@ export function useSheetKeys(view: PanelView | null): void {
   );
 }
 
-/** The panel slot's component: the open ticket's sheet, with its keys while it shows. */
+/** The sheet slot's component: the open ticket's sheet, with its keys while it shows. */
 export function TicketSheet() {
   const { ticket: selected, tab } = useSelection();
   // While the sheet slides out (the frame keeps it mounted, OT-6) it goes on showing the ticket that was open.
@@ -523,10 +523,10 @@ export function TicketSheet() {
   // A new load on each opening (and on j / k): its first fetch takes the Files count again (Q421).
   const open = selected !== null;
   const load = useMemo(() => {
-    const params = panelViewLoads(key, open);
-    return () => request("panel.view", params()) as Promise<PanelLoad>;
+    const params = sheetViewLoads(key, open);
+    return () => request("sheet.view", params()) as Promise<SheetLoad>;
   }, [key, open]);
-  const { view: load_ } = useServiceView(load, PANEL_EVENTS);
+  const { view: load_ } = useServiceView(load, SHEET_EVENTS);
   const view = load_?.view ?? null;
   useSheetKeys(view);
 
@@ -546,7 +546,7 @@ export function TicketSheet() {
     <SheetBody
       view={view}
       tab={tab}
-      fullPage={layout.panelExpanded}
+      fullPage={layout.sheetExpanded}
       width={sheetWidth(view.sheet, besideAgent, main)}
     />
   );

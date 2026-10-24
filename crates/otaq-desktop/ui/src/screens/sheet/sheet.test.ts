@@ -7,13 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { shellLayout, INITIAL_LAYOUT } from "../../app/layout";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
 import { NOTHING_SELECTED, openTicket, selection } from "../../app/selection";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetView } from "../../generated/SheetView";
 import type { SheetTabView } from "../../generated/SheetTabView";
 import { sheet } from ".";
 import {
   contentOf,
   numberedSheetTab,
-  panelViewLoads,
+  sheetViewLoads,
   sheetWidth,
   shownSheetTab,
   steppedSheetTab,
@@ -148,12 +148,12 @@ describe("the sheet", () => {
   });
 
   it("only the first load of an opening takes the Files count again (Q421)", () => {
-    const loads = panelViewLoads("SHOP-19", true);
+    const loads = sheetViewLoads("SHOP-19", true);
     expect(loads()).toEqual({ key: "SHOP-19", opened: true });
     expect(loads()).toEqual({ key: "SHOP-19", opened: false });
     expect(loads()).toEqual({ key: "SHOP-19", opened: false });
     // Sliding out: nothing is taken.
-    expect(panelViewLoads("SHOP-19", false)()).toEqual({ key: "SHOP-19", opened: false });
+    expect(sheetViewLoads("SHOP-19", false)()).toEqual({ key: "SHOP-19", opened: false });
   });
 
   it("an epic child's crumb opens the epic", () => {
@@ -171,7 +171,7 @@ describe("the sheet", () => {
     expect(html).toContain('<button type="button" class="sheet-crumb sheet-crumb-link">Wishlist</button>');
   });
 
-  it("fills the panel slot and registers the ticket's dialogs; each tab's body is its own screen's", () => {
+  it("fills the sheet slot and registers the ticket's dialogs; each tab's body is its own screen's", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["sheet"],
@@ -182,7 +182,7 @@ describe("the sheet", () => {
 });
 
 describe("the sheet's keys (0097, SHT-02)", () => {
-  function mount(view: PanelView) {
+  function mount(view: SheetView) {
     const app = createRegistries();
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
@@ -218,25 +218,25 @@ describe("the sheet's keys (0097, SHT-02)", () => {
     expect(selection.get()).toMatchObject({ ticket: "SHOP-20", tab: "overview" });
     expect(app.shortcuts.run({ action: "open_diff" })).toBe(true);
     expect(selection.get().tab).toBe("files");
-    app.shortcuts.run({ action: "expand_panel" });
-    expect(shellLayout.get().panelExpanded).toBe(true);
-    app.shortcuts.run({ action: "close_panel" });
+    app.shortcuts.run({ action: "expand_sheet" });
+    expect(shellLayout.get().sheetExpanded).toBe(true);
+    app.shortcuts.run({ action: "close_sheet" });
     expect(selection.get().ticket).toBeNull();
     done();
   });
 
-  it("Esc in the Project agent's panel is left to the panel; the sheet stays open", () => {
+  it("Esc in the Project agent's panel is left to the agent panel; the sheet stays open", () => {
     openTicket("SHOP-19");
     const { app, done } = mount(VIEW);
-    const pane = document.body.appendChild(document.createElement("div"));
-    pane.dataset.slot = "agent_panel";
-    const input = pane.appendChild(document.createElement("textarea"));
+    const panel = document.body.appendChild(document.createElement("div"));
+    panel.dataset.slot = "agent_panel";
+    const input = panel.appendChild(document.createElement("textarea"));
     input.focus();
-    expect(app.shortcuts.run({ action: "close_panel" })).toBe(false);
+    expect(app.shortcuts.run({ action: "close_sheet" })).toBe(false);
     expect(selection.get().ticket).toBe("SHOP-19");
     input.blur();
-    pane.remove();
-    expect(app.shortcuts.run({ action: "close_panel" })).toBe(true);
+    panel.remove();
+    expect(app.shortcuts.run({ action: "close_sheet" })).toBe(true);
     expect(selection.get().ticket).toBeNull();
     done();
   });

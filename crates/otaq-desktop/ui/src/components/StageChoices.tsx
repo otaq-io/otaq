@@ -1,7 +1,7 @@
 // A ticket's stage choices and its path (AGM-09; d0108, d0077; *08 → Row · Stage choices (update AG §9)*, *05 → Row
 // · Stage choices and path*), as `stage_choices.rs` words them. Choices: a select per stage with options ("Dev: Rust
 // developer ▾"), a lock once the stage started, and the line of a change someone made (an agent's violet with its
-// reason, yours neutral). The form look keeps the picks made before the ticket exists (`picks`); the panel's are sent
+// reason, yours neutral). The form look keeps the picks made before the ticket exists (`picks`); the sheet's are sent
 // at once. The path: the one-line summary, then a row per stage with its state's icon, its agent and model, a lock on
 // a stage that ran. Never turquoise (d0077).
 import type { MenuItem } from "../generated/MenuItem";
@@ -14,7 +14,7 @@ import { Select } from "./Select";
 import { Tooltip } from "./Tooltip";
 import "./StageChoices.css";
 
-export type StageChoicesLook = "form" | "panel";
+export type StageChoicesLook = "form" | "sheet";
 
 /** A row as shown with the form's pick on it (the picked word, checked in the menu); the row as the view gave it
  * without one. */
@@ -88,7 +88,7 @@ export interface StageChoicesProps {
   onPick: (stage: string, choice: string) => void;
 }
 
-/** The ⌘N form's "Stage choices" field, or the panel's Choices. */
+/** The ⌘N form's "Stage choices" field, or the sheet's Choices. */
 export function StageChoices({ view, look, picks, onPick }: StageChoicesProps) {
   return (
     <div className="stage-choices" data-look={look}>

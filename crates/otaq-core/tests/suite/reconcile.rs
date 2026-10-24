@@ -143,7 +143,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
     );
     let question = t.question.unwrap();
     assert_eq!((question.options.len(), question.recommended), (2, Some(1)));
-    // Review: not Interrupted, no inbox item of its own beyond Ready for Review, a History note.
+    // Review: not Interrupted, no needs-you item of its own beyond Ready for Review, a History note.
     assert_eq!(w.status("SHOP-3").await, Status::WaitingForYou);
     assert_eq!(
         events_of(&w, "SHOP-3", EventKind::SessionEnded).await.len(),
@@ -154,7 +154,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
     assert_eq!(interrupted[0]["reason"], "restart");
     assert_eq!(interrupted[0]["from"], "working");
 
-    // Interrupted tickets are inbox items in the second group; nothing was started again.
+    // Interrupted tickets are needs-you items in the second group; nothing was started again.
     let items = w.board.needs_you_items(now_ms()).await.unwrap();
     for key in ["SHOP-1", "SHOP-5"] {
         let item = items.iter().find(|i| i.key.to_string() == key).unwrap();

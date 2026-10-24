@@ -20,7 +20,7 @@ pub struct ProjectInfo {
     pub base_branch: String,
     /// Agents working right now (live agent sessions).
     pub agents_working: u32,
-    /// The project's needs-you items, the inbox count of the project switcher (ATT-10): needs-you family,
+    /// The project's needs-you items, the needs-you count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
     pub needs_you: u32,
     /// Since when it is in Flow setup (ASK-04): it shows no board ("pocket-api · Flow setup"); `None` once its flow
@@ -117,7 +117,7 @@ impl Board {
         .bind(&project.id)
         .fetch_one(self.store.pool())
         .await?;
-        // The project's inbox count (ATT-10): the same items the inbox lists for it.
+        // The project's needs-you count (ATT-10): the same items Needs you lists for it.
         let flow = self.effective_flow(&project.key).await?;
         let needs_you = needs_you_items_with(
             &[ProjectTickets {

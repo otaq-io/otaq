@@ -1,4 +1,4 @@
-//! Interrupted, "Before the restart" and Resume failed in the panel (REC-02, REC-03; d0045, d0018; *06 → Interrupted ·
+//! Interrupted, "Before the restart" and Resume failed in the sheet (REC-02, REC-03; d0045, d0018; *06 → Interrupted ·
 //! Before the restart; 16 → Resume failed · Start from scratch*).
 //!
 //! An Interrupted ticket's Terminal tab can't replay its grid (the session is gone), so it shows the agent's last

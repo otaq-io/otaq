@@ -2,21 +2,21 @@
 //!
 //! - **The first stop** ([`hold`]): a child of an epic with a **live** lead that has never had its lead attempt
 //!   reaches "Validation failed N times" (the validation's last round), "Keeps conflicting with `<epic branch>`"
-//!   (Auto-merge's third conflict) or Idle (its agent's Stop). The stop is **held**: no inbox item, no notification,
+//!   (Auto-merge's third conflict) or Idle (its agent's Stop). The stop is **held**: no needs-you item, no notification,
 //!   no turquoise; the child keeps its working card (Working). The lead is woken ([`wake_text`]; its status reads
 //!   "re-planning") and a handover is registered. The attempt is stored on the child (`lead_stuck`, one row per
 //!   child), so it is used once, also across restarts. With no live lead, or on any later stop, the stop goes to the
-//!   inbox as today. The board reaches this through [`crate::epic_lead::wake::LeadLink`].
+//!   Needs you as today. The board reaches this through [`crate::epic_lead::wake::LeadLink`].
 //! - **The lead's note** ([`Stuck::answer`], `otaq note <KEY> [--view "…"] --stdin`): counts as **Answer the agent**.
 //!   Validation failed: the round counter restarts at 0 and the note goes to the agent with the findings. Keeps
 //!   conflicting: the conflict counter restarts and the merge is retried, the note going to the agent first. Idle:
 //!   the note is typed in (§9.3). The note is stored read `with_stop`, and the card shows "Lead's note sent"
 //!   ([`crate::domain::LeadNoteSent`]); its `--view` is kept for the second stop. Otaq itself never nudges (d0063):
 //!   only the lead's note does.
-//! - **The second stop** goes to the inbox as today; its item carries the lead's note and view
+//! - **The second stop** goes to Needs you as today; its item carries the lead's note and view
 //!   ([`crate::board::needs_you::NeedsYouItem::lead_note`]). The lead isn't woken again for this child.
 //! - **Hand-back** ([`hand_back`]): the lead's turn ended without a note to that child, or the lead ended: the held
-//!   stop is applied as if no lead were live (its own inbox item, no lead's note). Handovers live in memory, so on
+//!   stop is applied as if no lead were live (its own needs-you item, no lead's note). Handovers live in memory, so on
 //!   startup every held stop is handed back ([`hand_back_after_restart`]) before the reconcile.
 
 use std::collections::HashMap;
@@ -394,7 +394,7 @@ async fn log(
 }
 
 /// Hands one held stop back to the user (the lead's turn ended without a note to the child, or the lead ended, or
-/// the service restarted): the stop is applied as if no lead were live, with its own inbox item. False when it no
+/// the service restarted): the stop is applied as if no lead were live, with its own needs-you item. False when it no
 /// longer waited for the lead.
 pub async fn hand_back(
     board: &Board,
@@ -538,7 +538,7 @@ pub(crate) async fn note_flags(
         .collect())
 }
 
-/// The statuses of a child's own stops, whose inbox item carries the lead's note once it was sent.
+/// The statuses of a child's own stops, whose needs-you item carries the lead's note once it was sent.
 pub fn is_stop(status: Status) -> bool {
     matches!(
         status,
@@ -698,7 +698,7 @@ impl Stuck {
         Ok(())
     }
 
-    /// Clients refetch these tickets (cards, History, inbox).
+    /// Clients refetch these tickets (cards, History, Needs you).
     async fn changed(&self, keys: &[&TicketKey]) {
         for key in keys {
             if let Ok(t) = self.board.ticket(&key.to_string()).await {

@@ -1,7 +1,7 @@
 // The Terminals drawer (SHL-04, UI-09, RUN-06; d0068, d0019, d0087; *17 · Project terminals*): a bottom drawer across
 // the window with one tab per Project terminal of the shown project, + (a new terminal straight away), and the shown
 // tab's terminal (T-0216's component) with its hint until the first keystroke. Closing a terminal's tab ends its shell;
-// hiding the drawer keeps them running. Project terminals only: agents live in the pane (d0087, T-0330). Everything it
+// hiding the drawer keeps them running. Project terminals only: agents live in the agent panel (d0087, T-0330). Everything it
 // says comes from `drawer.view`.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -18,7 +18,7 @@ import type { TerminalState } from "../../terminal/state";
 import { Icon } from "../../theme/Icon";
 import { requestTab, shownTab, showsHint, tabRequests } from "./logic";
 
-/** The service events that change the drawer's tabs (`settings_changed`: the hint's key for the pane, KEY-08). */
+/** The service events that change the drawer's tabs (`settings_changed`: the hint's key for the agent panel, KEY-08). */
 export const DRAWER_EVENTS = ["session_state", "projects_changed", "settings_changed"] as const;
 
 const ignore = () => undefined;

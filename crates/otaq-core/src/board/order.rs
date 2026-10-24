@@ -6,8 +6,8 @@
 //! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): pinned (most
 //! recently pinned first; a pinned epic's children count as pinned, EPC-17) → priority 1→4 → ready the longest.
 //! Inside a group of the other columns, tickets that block more tickets come first (direct and indirect
-//! dependents, as in the inbox, d0016); ties go to the oldest ticket (created first, then the lower key), so the
-//! order is stable. Pinning changes board and start order only: never the column, the priority, the inbox or the
+//! dependents, as in Needs you, d0016); ties go to the oldest ticket (created first, then the lower key), so the
+//! order is stable. Pinning changes board and start order only: never the column, the priority, Needs you or the
 //! agent (d0047, d0065).
 
 use std::cmp::Reverse;
@@ -29,7 +29,7 @@ pub struct ColumnOrder {
     pub cards: Vec<TicketKey>,
 }
 
-/// Does this status need the user (needs-you family or the inbox's second group)? Such cards float to the top
+/// Does this status need the user (needs-you family or Needs you's second group)? Such cards float to the top
 /// of their column and are never folded.
 pub fn needs_user(status: Status) -> bool {
     status.is_needs_you_family()

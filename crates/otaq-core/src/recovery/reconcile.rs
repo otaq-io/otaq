@@ -4,7 +4,7 @@
 //!
 //! | The stage the ticket is in | Its session alive | Its session gone (reboot, crash, service restart, the tool exited) |
 //! |---|---|---|
-//! | Agent stage · working, in background, waiting for limit reset, a `restack` fix | reattach silently | **Interrupted** (inbox item, Resume / Resume all) |
+//! | Agent stage · working, in background, waiting for limit reset, a `restack` fix | reattach silently | **Interrupted** (needs-you item, Resume / Resume all) |
 //! | Agent stage · turquoise (Asks you, Needs you, Idle) | reattach silently | **Interrupted, keeping the label and question** |
 //! | Agent check · Checking, Needs you · validator, waiting for limit reset (**the checker's** session) | reattach silently | **Interrupted** from Checking: Resume starts a fresh check (d0063) |
 //! | Agent check · Asks you (**the checker's** session) | reattach silently | **Interrupted, keeping the label and question**; Resume starts a fresh check |
@@ -26,9 +26,9 @@ use crate::flow::{Delivers, DeliveryMode, Flow, Stage, StageKind};
 pub enum Outcome {
     /// Nothing to do: the session is alive (reattach silently), or the state doesn't depend on a session.
     Unchanged,
-    /// Interrupted, with an inbox item and Resume. `keep_label`: a needs-you ticket keeps its label and question.
+    /// Interrupted, with a needs-you item and Resume. `keep_label`: a needs-you ticket keeps its label and question.
     Interrupt { keep_label: bool },
-    /// A human check or a click Delivery: not Interrupted, no inbox item, not in Resume all; History notes that
+    /// A human check or a click Delivery: not Interrupted, no needs-you item, not in Resume all; History notes that
     /// the session ended. Only a Fail (Send back) resumes it.
     NoteSessionEnded,
     /// The checker is gone: Interrupted from Checking; Resume starts a fresh check, the round doesn't count, the

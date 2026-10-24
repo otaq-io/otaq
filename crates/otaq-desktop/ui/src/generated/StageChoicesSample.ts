@@ -4,7 +4,7 @@ import type { TicketPathView } from "./TicketPathView";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
- * One sample: its caption, the form's or the panel's choices, the path and the header's token line.
+ * One sample: its caption, the form's or the sheet's choices, the path and the header's token line.
  */
 export type StageChoicesSample = { caption: string, choices: StageChoicesView | null, path: TicketPathView | null, token_line: string | null, 
 /**

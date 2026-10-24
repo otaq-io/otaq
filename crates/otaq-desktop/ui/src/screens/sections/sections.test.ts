@@ -85,7 +85,7 @@ describe("the sections' interaction state", () => {
     expect(canMove({ ...MOVE, choices: [] }, null)).toBe(false);
   });
 
-  it("the panel follows a moved ticket to its new key", () => {
+  it("the sheet follows a moved ticket to its new key", () => {
     expect(followMove("SHOP-51", "SHOP-51", "SHOP-40.4")).toBe("SHOP-40.4");
     expect(followMove("SHOP-12", "SHOP-51", "SHOP-40.4")).toBeNull();
   });
@@ -246,7 +246,7 @@ describe("the sections", () => {
 
   it("registers the sections and the epic dialogs from its folder", () => {
     expect(registered(registerScreens({ sections }))).toMatchObject({
-      panelSections: [],
+      sheetSections: [],
       sheetTabs: [],
       overlays: ["move_to_epic", "close_epic"],
     });

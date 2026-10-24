@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The dispatcher in a page (T-0391, KEY-02): the `g` hint shows after `g` with the user's sequences and goes on the
 // letter, after the wait and on Esc, never while typing or with letters off; the description editor keeps ⌘B (Bold)
-// and ⌘K (Link) from the app's Hide / show pane and palette.
+// and ⌘K (Link) from the app's Hide / show agent panel and palette.
 import type { Editor } from "@tiptap/core";
 import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";

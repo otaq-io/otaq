@@ -236,7 +236,7 @@ pub fn merging_steps(target: &str, into_epic: bool) -> Vec<String> {
     steps
 }
 
-/// What the panel shows after the click.
+/// What the sheet shows after the click.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeView {
     /// Done: the toast's title and text, and the started-tickets toast if any.
@@ -360,7 +360,7 @@ pub fn changed_view(key: &TicketKey, check: &ApproveCheck) -> MergeView {
     }
 }
 
-/// The panel header's strip: "Conflicts with main · 2 files (src/lib/stripe/session.ts, package.json)".
+/// The sheet header's strip: "Conflicts with main · 2 files (src/lib/stripe/session.ts, package.json)".
 pub fn conflict_line(conflict: &otaq_core::board::conflicts::Conflict) -> String {
     let mut line = format!("Conflicts with {}", conflict.target);
     match conflict.files.len() {

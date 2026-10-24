@@ -20,7 +20,7 @@ body_markdown: string,
  */
 body_empty: boolean, priority: PriorityView, 
 /**
- * The Priority dropdown: `panel.priority` items.
+ * The Priority dropdown: `sheet.priority` items.
  */
 priority_menu: Array<MenuItem>, 
 /**

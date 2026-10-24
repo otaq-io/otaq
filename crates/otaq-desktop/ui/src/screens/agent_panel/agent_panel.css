@@ -1,0 +1,652 @@
+/*
+ * The Project agent panel (T-0330, T-0458; *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More
+ * agent panel states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent*): header 44 px, the agent line 30 px on the app
+ * background, Created and changed, the terminal in an 8 px well, the footer 30 px. The empty agent panel's body sits at the
+ * bottom, above the first-message box. Turquoise only for waiting (d0077), which the state pill carries.
+ */
+.agent-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+.agent-panel-spacer {
+  flex: 1;
+}
+
+.agent-panel-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-panel-bot {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.agent-panel-bot[data-running] {
+  color: var(--st-investigate);
+}
+
+/* "Project agent", then the conversation's switcher as a pill (`s24-05`). */
+.agent-panel-label {
+  flex: none;
+  font: 600 13.5px/18px var(--font-ui);
+  white-space: nowrap;
+}
+
+.agent-panel-title {
+  overflow: hidden;
+  font: 400 12px/16px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-title[data-empty] {
+  color: var(--text-secondary);
+}
+
+.agent-panel-switch > .agent-panel-title {
+  color: var(--text-secondary);
+}
+
+.agent-panel-title[data-unnamed] {
+  color: var(--text-muted);
+}
+
+.agent-panel-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-column);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.agent-panel-switch > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.agent-panel-switch:hover,
+.agent-panel-switch[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.agent-panel-name-input {
+  min-width: 0;
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: 600 13px/17px var(--font-ui);
+  outline: none;
+}
+
+.agent-panel-header .status-pill {
+  flex: none;
+}
+
+.agent-panel-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.agent-panel-icon-button:hover,
+.agent-panel-icon-button[data-open] {
+  background: var(--bg-hover);
+}
+
+.agent-panel-line {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.agent-panel-line-tool {
+  color: var(--text-secondary);
+}
+
+.agent-panel-line-note {
+  color: var(--text-muted);
+}
+
+.agent-panel-line-note[data-tokens] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.agent-panel-rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: 400 11px/14px var(--font-ui);
+  cursor: pointer;
+}
+
+.agent-panel-rename:hover {
+  color: var(--text-primary);
+}
+
+.agent-panel-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 12px/16px var(--font-ui);
+  cursor: pointer;
+}
+
+.agent-panel-link:hover {
+  text-decoration: underline;
+}
+
+.agent-panel-caps {
+  color: var(--text-muted);
+  font: 400 10px/13px var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+/* Created and changed: one line folded (`QvWaw`), the rows below it open (`NhsGp`). */
+.agent-panel-created {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-panel-created[data-open] {
+  padding: 8px 12px;
+}
+
+.agent-panel-created-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-panel-created-head .agent-panel-link {
+  font-size: 11px;
+}
+
+.agent-panel-created-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: 400 10px/13px var(--font-mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.agent-panel-created-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  white-space: nowrap;
+}
+
+.agent-panel-created-row > .icon {
+  flex: none;
+  color: var(--st-approved);
+}
+
+.agent-panel-created-row[data-edited] > .icon {
+  color: var(--text-muted);
+}
+
+.agent-panel-created-key {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 11px/14px var(--font-mono);
+  cursor: pointer;
+}
+
+.agent-panel-created-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+.agent-panel-created-place {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.agent-panel-created-delete {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.agent-panel-created-delete:hover {
+  color: var(--st-error);
+}
+
+.agent-panel-well {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px;
+}
+
+.agent-panel-terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--term-bg);
+}
+
+.agent-panel-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agent-panel-footer-text {
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
+}
+
+.agent-panel-footer[data-ended] .agent-panel-footer-text {
+  color: var(--text-secondary);
+}
+
+.agent-panel-resume {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-panel-resume-note {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* The empty agent panel (`SbFln`). */
+.agent-panel-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 20px;
+}
+
+.agent-panel-hello {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-panel-hello-title {
+  margin: 0;
+  font: 600 17px/22px var(--font-ui);
+}
+
+.agent-panel-hello-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.agent-panel-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-panel-example {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: 400 12px/17px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-panel-example > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.agent-panel-example:hover {
+  background: var(--bg-hover);
+}
+
+.agent-panel-ended-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-panel-ended-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  white-space: nowrap;
+}
+
+.agent-panel-ended-row > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.agent-panel-ended-name {
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+.agent-panel-ended-when {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.agent-panel-composer {
+  flex: none;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-panel-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.agent-panel-input:focus-within {
+  border-color: var(--accent);
+}
+
+.agent-panel-box {
+  min-height: 19px;
+  max-height: 160px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 13px/19px var(--font-ui);
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.agent-panel-box::placeholder {
+  color: var(--text-muted);
+}
+
+.agent-panel-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-panel-input-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.agent-panel-send {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+
+.agent-panel-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The switcher (`h038v`): each agent's bot and state in its state's colour. */
+.agent-panel-switcher {
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+  padding: 4px;
+}
+
+.agent-panel-switcher-row {
+  --row-fg: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font: 400 13px/17px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-panel-switcher-row:hover,
+.agent-panel-switcher-row[data-selected] {
+  background: var(--accent-soft);
+}
+
+.agent-panel-switcher-row > .icon {
+  flex: none;
+  color: var(--row-fg);
+}
+
+.agent-panel-switcher-row[data-palette="working"] {
+  --row-fg: var(--st-investigate);
+}
+
+.agent-panel-switcher-row[data-palette="attn"] {
+  --row-fg: var(--st-attn);
+}
+
+.agent-panel-switcher-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-switcher-name[data-unnamed] {
+  color: var(--text-muted);
+}
+
+.agent-panel-switcher-state {
+  flex: none;
+  color: var(--row-fg);
+  font-size: 12px;
+}
+
+.agent-panel-switcher-row[data-palette="working"] .agent-panel-switcher-state {
+  color: var(--st-working);
+}
+
+.agent-panel-switcher-new {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  color: var(--text-secondary);
+}
+
+.agent-panel-switcher-new > .icon {
+  color: var(--text-muted);
+}
+
+/* Recently ended (the history icon's popover) and End agent's mid-turn line. */
+.agent-panel-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 12px;
+}
+
+.agent-panel-recent-title {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.agent-panel-recent-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-panel-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-panel-recent-row > .icon {
+  color: var(--text-secondary);
+}
+
+.agent-panel-recent-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-panel-recent-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.agent-panel-recent-when {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Mid-turn is "not you, but soon": amber, never the needs-you turquoise (0077). */
+.agent-panel-close-turn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--st-paused-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.agent-panel-close-turn .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-paused);
+}
+
+/* A tool problem's notice under the agent line (M23; *18 → Its tool isn't available / Its tool is at its limit*): the
+ * band runs the agent panel's width, amber or neutral, never turquoise (d0077). */
+.agent-panel-notice {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-panel-notice > .tool-problem[data-look="band"] {
+  padding: 10px 14px;
+  border-radius: 0;
+}

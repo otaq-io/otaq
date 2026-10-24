@@ -433,7 +433,7 @@ struct View {
     source: ProjectSource,
     flow: Flow,
     tickets: Vec<Ticket>,
-    /// In group order: needs you first (inbox order), then flow order, other bases after the project's.
+    /// In group order: needs you first (needs-you order), then flow order, other bases after the project's.
     owners: Vec<Owner>,
 }
 
@@ -1413,7 +1413,7 @@ impl Board {
                 },
             ));
         }
-        // Needs you first, in inbox order; then flow order, other bases after the project's.
+        // Needs you first, in needs-you order; then flow order, other bases after the project's.
         owners.sort_by(|(a_needs, a), (b_needs, b)| {
             (a_needs.is_none(), a_needs, a.flow_rank, &a.ticket.key).cmp(&(
                 b_needs.is_none(),

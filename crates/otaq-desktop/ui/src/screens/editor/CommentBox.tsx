@@ -148,7 +148,7 @@ export function CommentBox({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!isSaveKey(e)) return;
     e.preventDefault();
-    // The dialog around it or the panel acts on none of it.
+    // The dialog around it or the sheet acts on none of it.
     e.stopPropagation();
     submit();
   };

@@ -1,6 +1,6 @@
-//! A Project agent's parts the pane uses (T-0243, T-0330; PAG-04, PAG-05, PAG-06; d0068, d0060, d0019; *18 · Project
+//! A Project agent's parts the agent panel uses (T-0243, T-0330; PAG-04, PAG-05, PAG-06; d0068, d0060, d0019; *18 · Project
 //! agents & terminals → Row · states, Row · lifecycle*): the state pill, Resume once it ended, Close mid-turn's
-//! confirmation and Recently ended. The pane itself is `agent_pane.rs`.
+//! confirmation and Recently ended. The agent panel itself is `agent_panel.rs`.
 
 use otaq_core::domain::Status;
 use otaq_core::domain::StatusSet;
@@ -72,7 +72,7 @@ pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
     }
 }
 
-/// What a column is called in the close confirmation and the pane's Created and changed.
+/// What a column is called in the close confirmation and the agent panel's Created and changed.
 pub fn column_name(status: Status) -> &'static str {
     // The default flow's names, by the status's set (an agent check's cards are in Dev).
     match status.set() {
@@ -156,7 +156,7 @@ pub struct RecentRow {
     pub name: String,
     /// "yesterday · ended normally".
     pub when: String,
-    /// "yesterday": the empty pane's short form.
+    /// "yesterday": the empty agent panel's short form.
     pub ended: String,
     pub resume: &'static str,
 }

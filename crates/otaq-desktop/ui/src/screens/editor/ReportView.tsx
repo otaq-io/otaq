@@ -1,5 +1,5 @@
 // The report view (CMT-12, d0109; *05 → Row · Ticket comments and a report*, "Opening a report", `s05-41`/`s05-42`):
-// a comment's report, or a paste not posted yet, read-only over the panel: "Report · 48 KB · 2,310 lines ·
+// a comment's report, or a paste not posted yet, read-only over the sheet: "Report · 48 KB · 2,310 lines ·
 // read-only", who posted it and on which comment, Copy, Download, search (⌘F) with "2 of 6" and next / previous,
 // line numbers, the match highlighted. Open on a report chip lands here (`setReportOpener`).
 //
@@ -36,7 +36,7 @@ import {
 
 const ignore = () => undefined;
 
-/** Open on a chip shows the view over the panel. */
+/** Open on a chip shows the view over the sheet. */
 export function registerReportOpener(): void {
   setReportOpener((target) => {
     const params: ReportOpenParams =

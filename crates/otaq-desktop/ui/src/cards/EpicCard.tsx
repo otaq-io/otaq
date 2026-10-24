@@ -37,7 +37,7 @@ export interface EpicCardProps {
   onLead?: (epic: string) => void;
   /** Open lead or Resume (the default asks the service). */
   onLeadAction?: (kind: LeadActionKind, epic: string) => void;
-  /** Split with the Project agent (the default sends the Project agent pane its first message). */
+  /** Split with the Project agent (the default sends the Project agent panel its first message). */
   onSplit?: (split: LeadSplit) => void;
 }
 

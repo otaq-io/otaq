@@ -291,7 +291,7 @@ async fn grill_first_from_the_question_to_a_click_local_merge() {
     };
     w.signals.ask_human(&caller, &t.id, question).await.unwrap();
     assert_eq!(w.status(&key).await, Status::AsksYou);
-    w.inbox
+    w.needs_you
         .answer(&key, &Choice::Other("Title and date".into()), false, &me())
         .await
         .unwrap();

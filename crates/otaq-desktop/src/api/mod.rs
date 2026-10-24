@@ -9,6 +9,12 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
+pub use agent_panel::{
+    EndParams as AgentPanelEndParams, Ended as AgentPanelEnded, Params as AgentPanelParams,
+    ProjectOnly as AgentPanelProjectParams, RenameParams as AgentPanelRenameParams,
+    ResumeParams as AgentPanelResumeParams, SendParams as AgentPanelSendParams,
+};
+#[cfg(test)]
 pub use agent_tools::{
     DisconnectOutcome as AgentToolDisconnectOutcome, HiddenParams as AgentToolHiddenParams,
     MaybeToolParams as AgentToolsRecheckParams, OneTool as AgentToolParams,
@@ -73,26 +79,6 @@ pub use overview::export_types as export_overview_types;
 #[cfg(test)]
 pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
 #[cfg(test)]
-pub use pane::{
-    EndParams as PaneEndParams, Ended as PaneEnded, Params as PaneParams,
-    ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
-    ResumeParams as PaneResumeParams, SendParams as PaneSendParams,
-};
-#[cfg(test)]
-pub use panel::AnswerAgentParams as PanelAnswerAgentParams;
-#[cfg(test)]
-pub use panel::NotesGallery as OptionNotesGallery;
-#[cfg(test)]
-pub use panel::{
-    ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
-    CardParams as PanelCardParams, ChoiceParams as PanelChoiceParams,
-    CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
-    Params as PanelParams, ParentParams as PanelParentParams,
-    PriorityParams as PanelPriorityParams, SendAgainParams as PanelSendAgainParams,
-    Sent as PanelSent, SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
-    ViewParams as PanelViewParams,
-};
-#[cfg(test)]
 pub use pause::export_types as export_pause_types;
 #[cfg(test)]
 pub use pr::{
@@ -133,6 +119,20 @@ pub use sections::{
 pub use settings::{
     AgentsOpen, SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
     export_agent_types, export_flow_types,
+};
+#[cfg(test)]
+pub use sheet::AnswerAgentParams as SheetAnswerAgentParams;
+#[cfg(test)]
+pub use sheet::NotesGallery as OptionNotesGallery;
+#[cfg(test)]
+pub use sheet::{
+    ActionParams as SheetActionParams, AnswerParams as SheetAnswerParams,
+    CardParams as SheetCardParams, ChoiceParams as SheetChoiceParams,
+    CloseDialog as SheetCloseDialog, Load as SheetLoad, MenuParams as SheetMenuParams,
+    Params as SheetParams, ParentParams as SheetParentParams,
+    PriorityParams as SheetPriorityParams, SendAgainParams as SheetSendAgainParams,
+    Sent as SheetSent, SubmitDialog as SheetSubmitDialog, SubmitParams as SheetSubmitParams,
+    ViewParams as SheetViewParams,
 };
 #[cfg(test)]
 pub use shell::{
@@ -193,7 +193,7 @@ areas! {
     gallery,
     shell,
     notices,
-    panel,
+    sheet,
     board,
     settings,
     drawer,
@@ -211,7 +211,7 @@ areas! {
     run,
     lead,
     usage,
-    pane,
+    agent_panel,
     ask_bar,
     agent_tools,
     limits,

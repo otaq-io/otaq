@@ -498,7 +498,7 @@ pub struct Params {
     /// The header's search and filter (T-0221): cards that don't match hide, and each column says how many.
     #[serde(default)]
     pub filter: FilterState,
-    /// A Project agent's id: only the tickets it created or changed show (d0087, "Show on board" in the pane). It
+    /// A Project agent's id: only the tickets it created or changed show (d0087, "Show on board" in the agent panel). It
     /// combines with `filter`; ✕ on its chip or Esc sets it back to `None`.
     #[serde(default)]
     pub agent: Option<String>,
@@ -3595,7 +3595,7 @@ flow:
         c.cards.iter().chain(dev).chain(sections).collect()
     }
 
-    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no pane) the seven columns fit and share
+    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no agent panel) the seven columns fit and share
     /// the width, Done is its "Done 4 →" line, Ready says "Starts in priority order", and each card reads as drawn.
     #[test]
     fn the_example_board_fits_at_1440_with_one_line_cards() {

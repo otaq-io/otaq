@@ -97,7 +97,7 @@ impl Messages {
     }
 
     /// Takes the questions that wait for a target without a live session: typed into a target that is live again,
-    /// put in the inbox when finished tickets don't answer (MSG-05), or answered by resuming the target (MSG-03).
+    /// put in Needs you when finished tickets don't answer (MSG-05), or answered by resuming the target (MSG-03).
     pub async fn route_waiting(&self) -> Result<(), BoardError> {
         let _one = self.inner.routing.lock().await;
         let board = &self.inner.board;
@@ -133,7 +133,7 @@ impl Messages {
             }
             let settings = board.project_settings(target.key.project.as_str()).await?;
             if !settings.let_finished_tickets_answer {
-                self.set_route(&id, Route::Inbox).await?;
+                self.set_route(&id, Route::NeedsYou).await?;
                 self.changed_message(&message).await;
                 continue;
             }

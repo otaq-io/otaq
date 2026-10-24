@@ -1,7 +1,7 @@
 //! Ask the agent for the run command (RUN-02; d0026, d0035, d0023, d0086): on the user's click only, the Project
 //! agent's named agent (T-0334's resolution of the Project agent role for the project) answers a one-off read-only
 //! question in the project's folder: it takes a short look at the repository and suggests a run command, an Open URL
-//! and a short why. The question is not shown in the pane and keeps no conversation. The user confirms or edits the
+//! and a short why. The question is not shown in the agent panel and keeps no conversation. The user confirms or edits the
 //! answer; nothing is saved without their Save. There are no detection rules.
 //!
 //! Implementation choices (SDD §26): the command is the tool adapter's one-off question

@@ -3,8 +3,8 @@
 // short form (icon + state) on the lead's own line in the track label. Working states are violet, idle is quiet,
 // "asks you" turquoise (a pill of its own, except inside a label that is already turquoise), ended is quiet with
 // Resume where Rust offers it; an epic with no lead shows only the labelled "Open lead" button ("Split with the
-// Project agent" while it has no children either, LEAD-13: it sends the Project agent pane Rust's first message and
-// shows the pane, d0091). Hovering shows the
+// Project agent" while it has no children either, LEAD-13: it sends the Project agent panel Rust's first message and
+// shows the agent panel, d0091). Hovering shows the
 // tooltip Rust wrote (*03 → Interactions (0083)*); a click, ↵ or a double click on the status opens the epic sheet
 // on its Lead tab. The status is never a drag handle: a press on it doesn't reach the card or the track.
 import type { PointerEvent, SyntheticEvent } from "react";
@@ -13,7 +13,7 @@ import type { LeadActionKind } from "../generated/LeadActionKind";
 import type { LeadSplit } from "../generated/LeadSplit";
 import type { LeadStatusView } from "../generated/LeadStatusView";
 import { openTicket } from "../app/selection";
-import { splitWithProjectAgent } from "../screens/pane/logic";
+import { splitWithProjectAgent } from "../screens/agent_panel/logic";
 import { asRequestError } from "../service";
 import { request } from "../tauri";
 import { Icon } from "../theme/Icon";

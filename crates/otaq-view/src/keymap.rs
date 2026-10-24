@@ -82,7 +82,7 @@ pub enum KeyAction {
     /// Project 1–9.
     Project(u8),
     /// The next item that needs you (d0114): the strip's Next, on to other projects after the open one's.
-    NextInboxItem,
+    NextNeedsYouItem,
     NextTicket,
     PreviousTicket,
     /// Focus the header's board filter (KEY-09).
@@ -102,14 +102,14 @@ pub enum KeyAction {
     OpenActivity,
     Settings,
     /// Open the Project agent panel and focus it, or close it when it has the keyboard (d0113).
-    FocusPane,
+    FocusAgentPanel,
     /// A new Project agent conversation: the panel's empty state; nothing starts until the first message is sent
     /// (d0068, d0087, d0113, PAG-01).
     NewProjectAgent,
     NewTicket,
-    OpenPanel,
-    ClosePanel,
-    ExpandPanel,
+    OpenSheet,
+    CloseSheet,
+    ExpandSheet,
     /// The ticket sheet's tabs 1–4: Overview, Session (an epic's Lead), Files, Activity (SHT-02); `1`–`4` and `g o` /
     /// `g s` / `g f` / `g a`.
     SwitchTab(u8),
@@ -140,7 +140,7 @@ impl KeyAction {
         let mut all = vec![Self::CommandPalette, Self::SwitchProject];
         all.extend((1..=9).map(Self::Project));
         all.extend([
-            Self::NextInboxItem,
+            Self::NextNeedsYouItem,
             Self::NextTicket,
             Self::PreviousTicket,
             Self::FilterBoard,
@@ -152,12 +152,12 @@ impl KeyAction {
             Self::Pause,
             Self::OpenActivity,
             Self::Settings,
-            Self::FocusPane,
+            Self::FocusAgentPanel,
             Self::NewProjectAgent,
             Self::NewTicket,
-            Self::OpenPanel,
-            Self::ClosePanel,
-            Self::ExpandPanel,
+            Self::OpenSheet,
+            Self::CloseSheet,
+            Self::ExpandSheet,
         ]);
         all.extend((1..=SHEET_TABS).map(Self::SwitchTab));
         all.extend([
@@ -193,7 +193,7 @@ impl KeyAction {
             Self::CommandPalette => "Command palette",
             Self::SwitchProject => "Switch project",
             Self::Project(_) => "Project 1–9",
-            Self::NextInboxItem => "Next item that needs you",
+            Self::NextNeedsYouItem => "Next item that needs you",
             Self::NextTicket | Self::PreviousTicket => "Next / previous ticket",
             Self::FilterBoard => "Filter the board",
             Self::FocusEpic => "Focus the epic of the selected card",
@@ -203,11 +203,11 @@ impl KeyAction {
             Self::Pause => "Pause / Resume agents",
             Self::OpenActivity => "Activity",
             Self::Settings => "Settings",
-            Self::FocusPane => "Open / close the Project agent",
+            Self::FocusAgentPanel => "Open / close the Project agent",
             Self::NewProjectAgent => "New Project agent conversation",
             Self::NewTicket => "New ticket",
-            Self::OpenPanel | Self::ClosePanel => "Open / close the ticket",
-            Self::ExpandPanel => "Full page / back to the sheet",
+            Self::OpenSheet | Self::CloseSheet => "Open / close the ticket",
+            Self::ExpandSheet => "Full page / back to the sheet",
             Self::SwitchTab(_) => "Ticket tabs",
             Self::NextTab | Self::PreviousTab => "Next / previous ticket tab",
             Self::Approve => "Approve ▾",
@@ -241,7 +241,7 @@ impl KeyAction {
             Self::CommandPalette
             | Self::SwitchProject
             | Self::Project(_)
-            | Self::NextInboxItem
+            | Self::NextNeedsYouItem
             | Self::NextTicket
             | Self::PreviousTicket
             | Self::FilterBoard
@@ -252,13 +252,13 @@ impl KeyAction {
             | Self::Pause
             | Self::OpenActivity
             | Self::Settings
-            | Self::FocusPane
+            | Self::FocusAgentPanel
             | Self::NewProjectAgent
             | Self::ShowFiles => KeyGroup::Views,
             Self::NewTicket
-            | Self::OpenPanel
-            | Self::ClosePanel
-            | Self::ExpandPanel
+            | Self::OpenSheet
+            | Self::CloseSheet
+            | Self::ExpandSheet
             | Self::SwitchTab(_)
             | Self::GoToFile
             | Self::NextTab
@@ -297,7 +297,7 @@ impl KeyAction {
                     &format!("Ctrl+{n}"),
                 )]
             }
-            Self::NextInboxItem => vec![k("⌘J", "Ctrl+J", "Ctrl+Shift+J")],
+            Self::NextNeedsYouItem => vec![k("⌘J", "Ctrl+J", "Ctrl+Shift+J")],
             Self::NextTicket => vec![k("⌘]", "Ctrl+]", "Ctrl+Shift+]"), letter("j")],
             Self::PreviousTicket => vec![k("⌘[", "Ctrl+[", "Ctrl+Shift+["), letter("k")],
             Self::FilterBoard => vec![letter("/")],
@@ -309,12 +309,12 @@ impl KeyAction {
             Self::Pause => vec![k("⇧⌘.", "Ctrl+Shift+.", "Ctrl+Shift+.")],
             Self::OpenActivity => vec![k("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"), letter("g a")],
             Self::Settings => vec![k("⌘,", "Ctrl+,", "Ctrl+,")],
-            Self::FocusPane => vec![k("⌘L", "Ctrl+L", "Ctrl+Shift+L")],
+            Self::FocusAgentPanel => vec![k("⌘L", "Ctrl+L", "Ctrl+Shift+L")],
             Self::NewProjectAgent => vec![k("⇧⌘L", "Ctrl+Shift+L", "")],
             Self::NewTicket => vec![k("⌘N", "Ctrl+N", "Ctrl+Shift+N"), letter("c")],
-            Self::OpenPanel => vec![k("↵", "↵", "")],
-            Self::ClosePanel => vec![k("Esc", "Esc", "")],
-            Self::ExpandPanel => vec![letter("e")],
+            Self::OpenSheet => vec![k("↵", "↵", "")],
+            Self::CloseSheet => vec![k("Esc", "Esc", "")],
+            Self::ExpandSheet => vec![letter("e")],
             Self::SwitchTab(n) => {
                 let n = n.clamp(1, SHEET_TABS);
                 vec![
@@ -1149,7 +1149,7 @@ mod tests {
                 &["Ctrl+K", "Ctrl+Shift+P"],
             ),
             row(SwitchProject, &["⌘P"], &["Ctrl+P"], &["Ctrl+P"]),
-            row(NextInboxItem, &["⌘J"], &["Ctrl+J"], &["Ctrl+Shift+J"]),
+            row(NextNeedsYouItem, &["⌘J"], &["Ctrl+J"], &["Ctrl+Shift+J"]),
             row(
                 NextTicket,
                 &["⌘]", "j"],
@@ -1176,12 +1176,12 @@ mod tests {
                 &["Ctrl+Shift+U"],
             ),
             row(Settings, &["⌘,"], &["Ctrl+,"], &["Ctrl+,"]),
-            row(FocusPane, &["⌘L"], &["Ctrl+L"], &["Ctrl+Shift+L"]),
+            row(FocusAgentPanel, &["⌘L"], &["Ctrl+L"], &["Ctrl+Shift+L"]),
             row(NewProjectAgent, &["⇧⌘L"], &["Ctrl+Shift+L"], &[]),
             row(NewTicket, &["⌘N", "c"], &["Ctrl+N", "c"], &["Ctrl+Shift+N"]),
-            row(OpenPanel, &["↵"], &["↵"], &[]),
-            row(ClosePanel, &["Esc"], &["Esc"], &[]),
-            row(ExpandPanel, &["e"], &["e"], &[]),
+            row(OpenSheet, &["↵"], &["↵"], &[]),
+            row(CloseSheet, &["Esc"], &["Esc"], &[]),
+            row(ExpandSheet, &["e"], &["e"], &[]),
             row(NextTab, &["⌃Tab"], &["Ctrl+Tab"], &["Ctrl+Tab"]),
             row(
                 PreviousTab,
@@ -1397,9 +1397,12 @@ mod tests {
         assert_eq!(in_terminal("Ctrl+D"), None);
         assert_eq!(in_terminal("Ctrl+L"), None);
         // Ctrl+Shift+L belongs to the Project agent, so New conversation has no key there; Board has none either, and
-        // Ctrl+Shift+B is free since the pane's hide / show key went (d0113).
+        // Ctrl+Shift+B is free since the agent panel's hide / show key went (d0113).
         assert_eq!(in_terminal("Ctrl+Shift+B"), None);
-        assert_eq!(in_terminal("Ctrl+Shift+L"), Some(KeyAction::FocusPane));
+        assert_eq!(
+            in_terminal("Ctrl+Shift+L"),
+            Some(KeyAction::FocusAgentPanel)
+        );
         for action in [KeyAction::ShowBoard, KeyAction::NewProjectAgent] {
             assert!(
                 win.iter()
@@ -1570,7 +1573,7 @@ mod tests {
     }
 
     /// 0097, d0078, d0113: the description editor's toolbar keys share only ⌘K (Link) with the map, which the editor
-    /// keeps while its text has the focus (⌘B is Bold alone since the pane's key went). ⇧⌘B is the editor's
+    /// keeps while its text has the focus (⌘B is Bold alone since the agent panel's key went). ⇧⌘B is the editor's
     /// Blockquote too: Board takes it first, as under 0058 (a deferred question of T-0389).
     #[test]
     fn only_link_and_bold_share_a_key_with_the_description_editor() {
@@ -1612,7 +1615,7 @@ mod tests {
             runs(Platform::Mac, false, "⌘K", &mac),
             Some(KeyAction::CommandPalette)
         );
-        // ⌘B is Bold in the editor only: the app has no ⌘B since the pane went (d0113).
+        // ⌘B is Bold in the editor only: the app has no ⌘B since the agent panel went (d0113).
         assert_eq!(runs(Platform::Mac, false, "⌘B", &mac), None);
     }
 
@@ -1891,7 +1894,7 @@ mod tests {
         // ticket's `c` → `n`, Park → `g` `p`.
         let custom = CustomKeys(vec![
             change(KeyAction::OpenActivity, 0, Some("⌘J"), false),
-            change(KeyAction::NextInboxItem, 0, None, false),
+            change(KeyAction::NextNeedsYouItem, 0, None, false),
             change(KeyAction::NewTicket, 1, Some("n"), false),
             change(KeyAction::Park, 0, Some("g p"), false),
         ]);
@@ -1910,11 +1913,11 @@ mod tests {
             keys_of(KeyAction::OpenActivity),
             [(0, "⌘J".to_owned(), true), (1, "g a".to_owned(), false)]
         );
-        assert_eq!(keys_of(KeyAction::NextInboxItem), []);
+        assert_eq!(keys_of(KeyAction::NextNeedsYouItem), []);
         assert!(
             action_infos()
                 .iter()
-                .any(|a| a.action == KeyAction::NextInboxItem),
+                .any(|a| a.action == KeyAction::NextNeedsYouItem),
             "it stays listed"
         );
         assert_eq!(keys_of(KeyAction::Park), [(0, "g p".to_owned(), true)]);
@@ -1938,7 +1941,7 @@ mod tests {
                 .filter(|b| {
                     ![
                         KeyAction::OpenActivity,
-                        KeyAction::NextInboxItem,
+                        KeyAction::NextNeedsYouItem,
                         KeyAction::NewTicket,
                         KeyAction::Park,
                     ]
@@ -2018,7 +2021,7 @@ mod tests {
                 works_in_terminals: false,
             },
             CustomKey {
-                action: KeyAction::NextInboxItem,
+                action: KeyAction::NextNeedsYouItem,
                 slot: 0,
                 change: KeyChange::Removed,
                 works_in_terminals: false,
@@ -2160,7 +2163,7 @@ mod tests {
             Some("⌘N")
         );
         assert_eq!(
-            KeyAction::ExpandPanel.keys(Platform::Mac).as_deref(),
+            KeyAction::ExpandSheet.keys(Platform::Mac).as_deref(),
             Some("e")
         );
         assert_eq!(

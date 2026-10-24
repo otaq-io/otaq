@@ -164,7 +164,7 @@ fn items(shop: &[Ticket], bill: &[Ticket]) -> Vec<(String, NeedsYouGroup, String
 }
 
 #[test]
-fn groups_in_inbox_order_across_projects() {
+fn groups_in_needs_you_order_across_projects() {
     let list = items(&shop_web(), &billing_api());
     let keys: Vec<&str> = list.iter().map(|(k, ..)| k.as_str()).collect();
     assert_eq!(

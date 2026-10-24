@@ -6,7 +6,7 @@
  */
 
 /*
- * The frame's panel layer (`.frame-sheet`, the drawer of 0095) holds the sheet: it covers the main area and only the
+ * The frame's sheet layer (`.frame-sheet`, the drawer of 0095) holds the sheet: it covers the main area and only the
  * sheet takes clicks, so the board under the scrim stays usable (a card click opens its ticket in the sheet). A hook
  * on the frame's layer, kept here until the frame takes it (T-0458's `Frame.tsx` / `frame.css`).
  */

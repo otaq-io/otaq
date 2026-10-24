@@ -95,36 +95,36 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Also writes the Ticket Card and Epic Card shapes it is made of.
     otaq_view::view_models::card_page::CardGallery::export_all(&cfg)?;
     // The sheet (T-0222): the view writes its header, buttons, tabs and callouts; then the requests' own types.
-    crate::api::PanelLoad::export_all(&cfg)?;
-    crate::api::PanelParams::export_all(&cfg)?;
-    crate::api::PanelViewParams::export_all(&cfg)?;
-    crate::api::PanelActionParams::export_all(&cfg)?;
-    crate::api::PanelMenuParams::export_all(&cfg)?;
-    crate::api::PanelPriorityParams::export_all(&cfg)?;
-    crate::api::PanelCloseDialog::export_all(&cfg)?;
-    crate::api::PanelSubmitDialog::export_all(&cfg)?;
-    crate::api::PanelSubmitParams::export_all(&cfg)?;
-    crate::api::PanelAnswerParams::export_all(&cfg)?;
-    crate::api::PanelSent::export_all(&cfg)?;
-    crate::api::PanelParentParams::export_all(&cfg)?;
-    crate::api::PanelCardParams::export_all(&cfg)?;
-    crate::api::PanelSendAgainParams::export_all(&cfg)?;
-    crate::api::PanelAnswerAgentParams::export_all(&cfg)?;
-    crate::api::PanelChoiceParams::export_all(&cfg)?;
+    crate::api::SheetLoad::export_all(&cfg)?;
+    crate::api::SheetParams::export_all(&cfg)?;
+    crate::api::SheetViewParams::export_all(&cfg)?;
+    crate::api::SheetActionParams::export_all(&cfg)?;
+    crate::api::SheetMenuParams::export_all(&cfg)?;
+    crate::api::SheetPriorityParams::export_all(&cfg)?;
+    crate::api::SheetCloseDialog::export_all(&cfg)?;
+    crate::api::SheetSubmitDialog::export_all(&cfg)?;
+    crate::api::SheetSubmitParams::export_all(&cfg)?;
+    crate::api::SheetAnswerParams::export_all(&cfg)?;
+    crate::api::SheetSent::export_all(&cfg)?;
+    crate::api::SheetParentParams::export_all(&cfg)?;
+    crate::api::SheetCardParams::export_all(&cfg)?;
+    crate::api::SheetSendAgainParams::export_all(&cfg)?;
+    crate::api::SheetAnswerAgentParams::export_all(&cfg)?;
+    crate::api::SheetChoiceParams::export_all(&cfg)?;
     // The Terminals drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
     crate::api::DrawerView::export_all(&cfg)?;
     crate::api::DrawerTabParams::export_all(&cfg)?;
     crate::api::DrawerGallery::export_all(&cfg)?;
-    // The Project agent pane (T-0326): its view, and the requests' params and answers.
-    otaq_view::view_models::agent_pane::PaneView::export_all(&cfg)?;
-    crate::api::PaneParams::export_all(&cfg)?;
-    crate::api::PaneSendParams::export_all(&cfg)?;
-    crate::api::PaneRenameParams::export_all(&cfg)?;
-    crate::api::PaneEndParams::export_all(&cfg)?;
-    crate::api::PaneEnded::export_all(&cfg)?;
-    crate::api::PaneProjectParams::export_all(&cfg)?;
-    crate::api::PaneResumeParams::export_all(&cfg)?;
+    // The Project agent panel (T-0326): its view, and the requests' params and answers.
+    otaq_view::view_models::agent_panel::AgentPanelView::export_all(&cfg)?;
+    crate::api::AgentPanelParams::export_all(&cfg)?;
+    crate::api::AgentPanelSendParams::export_all(&cfg)?;
+    crate::api::AgentPanelRenameParams::export_all(&cfg)?;
+    crate::api::AgentPanelEndParams::export_all(&cfg)?;
+    crate::api::AgentPanelEnded::export_all(&cfg)?;
+    crate::api::AgentPanelProjectParams::export_all(&cfg)?;
+    crate::api::AgentPanelResumeParams::export_all(&cfg)?;
     // The Ask bar and the rail's Project agent button (T-0458): its view, gallery and requests.
     crate::api::export_ask_bar_types(&cfg)?;
     // Pause in the title bar (T-0457, PAU-08).
@@ -202,7 +202,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorCompareParams::export_all(&cfg)?;
     crate::api::EditorCompareEntry::export_all(&cfg)?;
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
-    // The stage choices' and the path's gallery (T-0411); their views come with the editor and panel views.
+    // The stage choices' and the path's gallery (T-0411); their views come with the editor and sheet views.
     otaq_view::view_models::stage_choices::Gallery::export_all(&cfg)?;
     // The Files tab (T-0468): the tab, the tree, the search, All changes, a file, its diff's lines, the review notes,
     // the comments and the review bar; then the requests' own types.
@@ -304,8 +304,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Activity's popover and gallery (T-0325); the header writes the button.
     otaq_view::view_models::activity::Popover::export_all(&cfg)?;
     otaq_view::view_models::activity::Gallery::export_all(&cfg)?;
-    // The pane's gallery section (T-0330): the pane in each state.
-    otaq_view::view_models::agent_pane::Gallery::export_all(&cfg)?;
+    // The agent panel's gallery section (T-0330): the agent panel in each state.
+    otaq_view::view_models::agent_panel::Gallery::export_all(&cfg)?;
     // Settings → Agent tools and its gallery (T-0360): the page, Disconnect's dialog, the requests and answers.
     otaq_view::view_models::agent_tools_page::Page::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::DisconnectDialog::export_all(&cfg)?;

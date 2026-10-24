@@ -1,6 +1,6 @@
 //! A Project agent waiting for the user (T-0201; PAG-07, ATT-03, ATT-06, ATT-10, ATT-11, USG-01; d0068, d0016,
 //! d0042, d0020): real-shaped hook JSON fed to `otaq hook` inside its session (an ordinary `sh` started with the
-//! Project agent role and no ticket). A permission prompt and `ask human` become group 1 inbox items with its name,
+//! Project agent role and no ticket). A permission prompt and `ask human` become group 1 needs-you items with its name,
 //! counted and notified once; never Idle; focus hides them; answering inline types into its session (tokens:
 //! `otaq-core/tests/suite/project_agents.rs`). A recording notifier stands in for the OS.
 
@@ -75,11 +75,14 @@ async fn hook(agent: &AgentShell, event: &str, fields: Value) {
     assert_eq!(ran.status, 0, "{ran:?}");
 }
 
-/// Waits until the inbox's Project agent items match `want` (statuses), 5 s at most.
-async fn agent_items(w: &TestService, want: &[Status]) -> otaq_core::attention::inbox::InboxList {
+/// Waits until Needs you's Project agent items match `want` (statuses), 5 s at most.
+async fn agent_items(
+    w: &TestService,
+    want: &[Status],
+) -> otaq_core::attention::needs_you::NeedsYouList {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let list = w.inbox.list().await.unwrap();
+            let list = w.needs_you.list().await.unwrap();
             let got: Vec<Status> = list.project_agents.iter().map(|i| i.status).collect();
             if got == want {
                 return list;
@@ -88,7 +91,7 @@ async fn agent_items(w: &TestService, want: &[Status]) -> otaq_core::attention::
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("the inbox never showed {want:?}"))
+    .unwrap_or_else(|_| panic!("the needs_you never showed {want:?}"))
 }
 
 async fn titles(recorder: &Recorder, n: usize) -> Vec<(String, String, String)> {

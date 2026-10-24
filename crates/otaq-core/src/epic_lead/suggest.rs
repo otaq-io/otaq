@@ -1,6 +1,6 @@
 //! The lead's suggestions (LEAD-08; d0083): an epic lead never closes or deletes a child itself. It suggests it with
 //! `otaq suggest close|delete <KEY> --stdin`, the reason on stdin, and the user decides from Needs you:
-//! - the suggestion is an inbox item in its own group right after group 1 ([`NeedsYouGroup::Suggestions`]): "Wishlist
+//! - the suggestion is a needs-you item in its own group right after group 1 ([`NeedsYouGroup::Suggestions`]): "Wishlist
 //!   lead suggests closing SHOP-40.6 Wishlist export (CSV)", with the reason;
 //! - it blocks no agent, so it sends no OS notification, doesn't change the lead's status and doesn't turn its track
 //!   turquoise;
@@ -55,7 +55,7 @@ impl SuggestionKind {
 stored_enum! {
     /// Where a suggestion stands (`lead_suggestions.state`).
     pub enum SuggestionState ("suggestion state") {
-        /// Waits for the user in the inbox.
+        /// Waits for the user in Needs you.
         Open = "open",
         /// The user closed or deleted the child.
         Confirmed = "confirmed",
@@ -246,12 +246,12 @@ pub async fn list_for_epic(board: &Board, epic: &str) -> Result<Vec<Suggestion>,
     select(board, "WHERE s.epic_id = ?", Some(&epic_id)).await
 }
 
-/// Every open suggestion, oldest first; the inbox keeps those still [`shown`].
+/// Every open suggestion, oldest first; Needs you keeps those still [`shown`].
 pub async fn open(board: &Board) -> Result<Vec<Suggestion>, BoardError> {
     select(board, "WHERE s.state = 'open'", None).await
 }
 
-/// Whether an open suggestion is still an inbox item: its child hasn't started or closed meanwhile.
+/// Whether an open suggestion is still a needs-you item: its child hasn't started or closed meanwhile.
 pub fn shown(suggestion: &Suggestion, child: &Ticket) -> bool {
     suggestion.state == SuggestionState::Open && is_never_started(child)
 }

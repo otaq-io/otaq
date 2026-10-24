@@ -258,7 +258,7 @@ pub fn feature(method: &str, params: &Value) -> Option<Key> {
     let name: &'static str = FEATURES.iter().find(|f| **f == method)?;
     let prop = match method {
         "board.drop" => word(params, "column").map(|v| ("column", v)),
-        "panel.action" => word(params, "action").map(|v| ("action", v)),
+        "sheet.action" => word(params, "action").map(|v| ("action", v)),
         "settings.edit" => word(params, "field").map(|v| ("field", v)),
         "theme.pick" => word(params, "key").map(|v| ("theme", v)),
         _ => None,
@@ -294,15 +294,15 @@ const FEATURES: &[&str] = &[
     "editor.link",
     "editor.source_mode",
     // The ticket sheet.
-    "panel.action",
-    "panel.answer",
-    "panel.answer_agent",
-    "panel.send_again",
-    "panel.submit",
-    "panel.priority",
-    "panel.close",
-    "panel.mark_closed",
-    "panel.remove_dependency",
+    "sheet.action",
+    "sheet.answer",
+    "sheet.answer_agent",
+    "sheet.send_again",
+    "sheet.submit",
+    "sheet.priority",
+    "sheet.close",
+    "sheet.mark_closed",
+    "sheet.remove_dependency",
     // Review and the Files tab.
     "review.approve",
     "review.local_merge",

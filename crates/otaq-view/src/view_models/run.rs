@@ -1,4 +1,4 @@
-//! The Run tab, the card's `▶ :4020` chip and the panel header's running pill (RUN-01, RUN-03; *13 · Run & Shell*):
+//! The Run tab, the card's `▶ :4020` chip and the sheet header's running pill (RUN-01, RUN-03; *13 · Run & Shell*):
 //! what each Run state shows and which buttons it offers. Open appears only when the project sets an Open URL, with
 //! `$PORT` replaced by the Run port, and is enabled once the port answers.
 
@@ -186,7 +186,7 @@ pub fn chip_menu(run: &RunInfo) -> Vec<MenuItem> {
     items
 }
 
-/// The panel header's running pill: the port and, when the project has one, the Open URL.
+/// The sheet header's running pill: the port and, when the project has one, the Open URL.
 pub fn header_pill(run: Option<&RunInfo>) -> Option<(u16, Option<String>)> {
     let run = run.filter(|r| r.state.is_live())?;
     Some((run.port?, run.url()))

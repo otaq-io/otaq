@@ -1,7 +1,7 @@
 //! The card's right-click menu (TKT-06, d0047; *03 · Board & columns → Pinned tickets*): Pin / Unpin for any
 //! ticket or epic, then the Priority group (TKT-09, d0065: the four values, the current one checked; a pick is a
 //! `ticket.update`); Move to epic… for tickets that never went to Dev and Close epic… on epics (T-0043). The
-//! menu grows with later tickets (Delete… T-0162; panel, terminal, diff, Send back, Close ticket with their
+//! menu grows with later tickets (Delete… T-0162; sheet, terminal, diff, Send back, Close ticket with their
 //! milestones).
 //!
 //! On an epic, its card or its track (EPC-12, EPC-14, EPC-17, EPC-18; d0080; *03 → Note · Interactions (0080) →

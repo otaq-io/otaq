@@ -124,7 +124,7 @@ pub mod fixtures {
         KeyboardSettings {
             letters: true,
             changes: vec![
-                change("next_inbox_item", None, 0, None),
+                change("next_needs_you_item", None, 0, None),
                 change("open_activity", None, 0, Some("⌘J")),
             ],
         }
@@ -186,14 +186,17 @@ mod tests {
         let mac = base();
         assert_eq!(mac.label(KeyAction::NewTicket).as_deref(), Some("⌘N"));
         assert_eq!(mac.label(KeyAction::Terminals).as_deref(), Some("⌃`"));
-        assert_eq!(mac.label(KeyAction::ExpandPanel).as_deref(), Some("e"));
+        assert_eq!(mac.label(KeyAction::ExpandSheet).as_deref(), Some("e"));
         assert_eq!(mac.label(KeyAction::FocusEpic).as_deref(), Some("g e"));
         assert_eq!(mac.label(KeyAction::FilterBoard).as_deref(), Some("/"));
         assert_eq!(mac.label(KeyAction::SwitchTab(3)).as_deref(), Some("3"));
         assert_eq!(mac.label(KeyAction::Project(2)).as_deref(), Some("⌘2"));
         assert_eq!(mac.label(KeyAction::Park), None);
         let win = KeyLabels::base(Platform::WinLinux);
-        assert_eq!(win.label(KeyAction::FocusPane).as_deref(), Some("Ctrl+L"));
+        assert_eq!(
+            win.label(KeyAction::FocusAgentPanel).as_deref(),
+            Some("Ctrl+L")
+        );
         assert_eq!(win.label(KeyAction::FindInTerminal), None);
     }
 
@@ -202,7 +205,7 @@ mod tests {
     fn a_label_follows_the_users_keys() {
         let keys = mac(&activity_on_cmd_j());
         assert_eq!(keys.label(KeyAction::OpenActivity).as_deref(), Some("⌘J"));
-        assert_eq!(keys.label(KeyAction::NextInboxItem), None);
+        assert_eq!(keys.label(KeyAction::NextNeedsYouItem), None);
         // Its other key stays: Board's `g` `b` shows once its ⇧⌘B is removed.
         let board = removed("show_board", None, 0);
         assert_eq!(board.label(KeyAction::ShowBoard).as_deref(), Some("g b"));
@@ -211,7 +214,7 @@ mod tests {
     #[test]
     fn with_letters_off_a_letter_only_action_shows_none() {
         let off = letters_off();
-        assert_eq!(off.label(KeyAction::ExpandPanel), None);
+        assert_eq!(off.label(KeyAction::ExpandSheet), None);
         assert_eq!(off.label(KeyAction::FocusEpic), None);
         assert_eq!(off.label(KeyAction::SwitchTab(1)), None);
         assert_eq!(off.label(KeyAction::Terminals).as_deref(), Some("⌃`"));
@@ -226,7 +229,7 @@ mod tests {
             Some("Ctrl+Shift+F")
         );
         assert_eq!(
-            win.in_terminal(KeyAction::FocusPane).as_deref(),
+            win.in_terminal(KeyAction::FocusAgentPanel).as_deref(),
             Some("Ctrl+Shift+L")
         );
         assert_eq!(
@@ -240,7 +243,7 @@ mod tests {
             Some("⌘F")
         );
         assert_eq!(mac.in_terminal(KeyAction::Terminals).as_deref(), Some("⌃`"));
-        assert_eq!(mac.in_terminal(KeyAction::ExpandPanel), None);
+        assert_eq!(mac.in_terminal(KeyAction::ExpandSheet), None);
     }
 
     #[test]

@@ -14,7 +14,7 @@ import type { FlowSettings } from "../../generated/FlowSettings";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { PresetDialog as PresetDialogView } from "../../generated/PresetDialog";
 import { request } from "../../tauri";
-import { type PaneFocusRequest, paneFocusRequests, shownAgents } from "../pane/logic";
+import { type AgentPanelFocusRequest, agentPanelFocusRequests, shownAgents } from "../agent_panel/logic";
 import { FlowSectionBody, PresetDialog } from "./Flow";
 import { changeFlow, exportFlow, type FlowRoutes, importFlow, menuChoice, proposeFrom } from "./flowActions";
 
@@ -101,11 +101,11 @@ function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { closed: () => nu
     editors,
     pickFile: vi.fn(() => Promise.resolve(null)),
     saveFile: vi.fn(() => Promise.resolve(null)),
-    pane: {
+    agentPanel: {
       selection: createStore(NOTHING_SELECTED),
       layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
       shown: createStore<Record<string, string | null>>({}),
-      focus: createStore<PaneFocusRequest | null>(null),
+      focus: createStore<AgentPanelFocusRequest | null>(null),
     },
     closed: () => closed,
     ...over,
@@ -125,7 +125,7 @@ afterEach(() => {
   });
   document.body.replaceChildren();
   shownAgents.set({});
-  paneFocusRequests.set(null);
+  agentPanelFocusRequests.set(null);
   shellLayout.set(INITIAL_LAYOUT);
   selection.set(NOTHING_SELECTED);
 });
@@ -280,7 +280,7 @@ describe("the Flow actions", () => {
     changeFlow(SECTION, r);
     expect(r.closed()).toBe(1);
     expect(r.editors).toEqual(["SHOP"]);
-    expect(r.pane.selection.get().project).toBe("SHOP");
+    expect(r.agentPanel.selection.get().project).toBe("SHOP");
     expect(ask).not.toHaveBeenCalled();
   });
 });

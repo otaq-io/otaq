@@ -67,8 +67,8 @@ const MAC: Keymap = {
     bind({ action: "terminals" }, "⌃`", "`", "Backquote", CTRL, EVERYWHERE),
     bind({ action: "next_tab" }, "⌃Tab", "Tab", "Tab", CTRL, EVERYWHERE),
     bind({ action: "project", number: 1 }, "⌘1", "1", "Digit1", CMD, EVERYWHERE),
-    bind({ action: "open_panel" }, "↵", "Enter", "Enter", NONE),
-    bind({ action: "close_panel" }, "Esc", "Escape", "Escape", NONE),
+    bind({ action: "open_sheet" }, "↵", "Enter", "Enter", NONE),
+    bind({ action: "close_sheet" }, "Esc", "Escape", "Escape", NONE),
     bind({ action: "send_back" }, "⌘⌫", "Backspace", "Backspace", CMD, EVERYWHERE),
     bind({ action: "find_in_terminal" }, "⌘F", "f", "KeyF", CMD, EVERYWHERE),
     {
@@ -229,7 +229,7 @@ describe("the key dispatcher on the board", () => {
   });
 
   it("lets a text field keep Enter, Backspace and Esc", () => {
-    const { d, ran } = setup(MAC, ["open_panel", "close_panel", "send_back", "command_palette"]);
+    const { d, ran } = setup(MAC, ["open_sheet", "close_sheet", "send_back", "command_palette"]);
     const field = {
       ...BOARD,
       focusKeeps: keysKeptBy({ tagName: "INPUT", isContentEditable: false, getAttribute: () => null }),
@@ -239,7 +239,7 @@ describe("the key dispatcher on the board", () => {
     expect(dispatchKey(d, key("Backspace", "Backspace", { metaKey: true }), field).kind).toBe("passed");
     expect(dispatchKey(d, key("k", "KeyK", { metaKey: true }), field).kind).toBe("ran");
     expect(dispatchKey(d, key("Enter", "Enter"), BOARD).kind).toBe("ran");
-    expect(ran).toEqual(["command_palette", "open_panel"]);
+    expect(ran).toEqual(["command_palette", "open_sheet"]);
   });
 
   it("leaves ⌘K / Ctrl+K to the description editor while it has the focus (d0078 D2)", () => {
@@ -310,7 +310,7 @@ describe("the key dispatcher on the board", () => {
     });
   });
 
-  it("lets Esc on the description field go to the form, not Close panel (T-0259, d0078 D4)", () => {
+  it("lets Esc on the description field go to the form, not Close sheet (T-0259, d0078 D4)", () => {
     const field = {
       tagName: "DIV",
       isContentEditable: false,
@@ -319,15 +319,15 @@ describe("the key dispatcher on the board", () => {
         return selector === ".md-editor" ? this : null;
       },
     };
-    const { d, ran } = setup(MAC, ["close_panel"]);
+    const { d, ran } = setup(MAC, ["close_sheet"]);
     const focused = { ...BOARD, focusKeeps: keysKeptBy(field) };
     expect(dispatchKey(d, key("Escape", "Escape"), focused)).toEqual({ kind: "passed" });
     expect(ran).toEqual([]);
   });
 
   it("turns ↵ / Esc (Open / close the ticket) off with the letters, leaving them to the page (KEY-02, T-0394)", () => {
-    const { d, ran } = setup({ ...MAC, letters: false }, ["open_panel", "close_panel", "send_back"]);
-    // NOTE-1's panel is open: Esc on the board runs nothing and isn't stopped, nor is ↵.
+    const { d, ran } = setup({ ...MAC, letters: false }, ["open_sheet", "close_sheet", "send_back"]);
+    // NOTE-1's sheet is open: Esc on the board runs nothing and isn't stopped, nor is ↵.
     const esc = dispatchKey(d, key("Escape", "Escape"), BOARD);
     expect(esc).toEqual({ kind: "passed" });
     expect(stopsEvent(esc)).toBe(false);
@@ -335,9 +335,9 @@ describe("the key dispatcher on the board", () => {
     // A key with a modifier still runs.
     dispatchKey(d, key("Backspace", "Backspace", { metaKey: true }), BOARD);
     expect(ran).toEqual(["send_back"]);
-    const on = setup(MAC, ["close_panel"]);
+    const on = setup(MAC, ["close_sheet"]);
     expect(dispatchKey(on.d, key("Escape", "Escape"), BOARD).kind).toBe("ran");
-    expect(on.ran).toEqual(["close_panel"]);
+    expect(on.ran).toEqual(["close_sheet"]);
   });
 
   it("holds the shortcuts back while a modal is open", () => {
@@ -357,7 +357,7 @@ describe("the key dispatcher on the board", () => {
 
 describe("the key dispatcher in a focused terminal", () => {
   it("gives a Mac terminal every key without ⌘, Esc included", () => {
-    const { d, ran } = setup(MAC, ["close_panel", "open_panel"]);
+    const { d, ran } = setup(MAC, ["close_sheet", "open_sheet"]);
     for (const k of [
       key("Escape", "Escape"),
       key("Enter", "Enter"),
@@ -504,7 +504,7 @@ const BASE: [KeyAction, Slot[]][] = [
   ],
   [{ action: "switch_project" }, [["⌘P", "Ctrl+P", "Ctrl+P"]]],
   [{ action: "project", number: 1 }, [["⌘1", "Ctrl+1", "Ctrl+1"]]],
-  [{ action: "next_inbox_item" }, [["⌘J", "Ctrl+J", "Ctrl+Shift+J"]]],
+  [{ action: "next_needs_you_item" }, [["⌘J", "Ctrl+J", "Ctrl+Shift+J"]]],
   [{ action: "next_ticket" }, [["⌘]", "Ctrl+]", "Ctrl+Shift+]"], letter("j")]],
   [{ action: "previous_ticket" }, [["⌘[", "Ctrl+[", "Ctrl+Shift+["], letter("k")]],
   [{ action: "filter_board" }, [letter("/")]],
@@ -515,12 +515,12 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "pause" }, [["⇧⌘.", "Ctrl+Shift+.", "Ctrl+Shift+."]]],
   [{ action: "open_activity" }, [["⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"], letter("g a")]],
   [{ action: "settings" }, [["⌘,", "Ctrl+,", "Ctrl+,"]]],
-  [{ action: "focus_pane" }, [["⌘L", "Ctrl+L", "Ctrl+Shift+L"]]],
+  [{ action: "focus_agent_panel" }, [["⌘L", "Ctrl+L", "Ctrl+Shift+L"]]],
   [{ action: "new_project_agent" }, [["⇧⌘L", "Ctrl+Shift+L", ""]]],
   [{ action: "new_ticket" }, [["⌘N", "Ctrl+N", "Ctrl+Shift+N"], letter("c")]],
-  [{ action: "open_panel" }, [["↵", "↵", ""]]],
-  [{ action: "close_panel" }, [["Esc", "Esc", ""]]],
-  [{ action: "expand_panel" }, [letter("e")]],
+  [{ action: "open_sheet" }, [["↵", "↵", ""]]],
+  [{ action: "close_sheet" }, [["Esc", "Esc", ""]]],
+  [{ action: "expand_sheet" }, [letter("e")]],
   ...(["o", "s", "f", "a"] as const).map((then, i): [KeyAction, Slot[]] => [
     { action: "switch_tab", number: i + 1 },
     [letter(String(i + 1)), letter(`g ${then}`)],
@@ -676,22 +676,22 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["⇧⌘P"], "command_palette"],
       [["?"], "show_shortcuts"],
       [["/"], "filter_board"],
-      [["⌘L"], "focus_pane"],
+      [["⌘L"], "focus_agent_panel"],
       [["⇧⌘L"], "new_project_agent"],
       [["⌃`"], "terminals"],
       [["⌃Tab"], "next_tab"],
       [["⌃⇧Tab"], "previous_tab"],
       [["j"], "next_ticket"],
       [["k"], "previous_ticket"],
-      [["e"], "expand_panel"],
+      [["e"], "expand_sheet"],
       [["c"], "new_ticket"],
       [["g", "b"], "show_board"],
       [["g", "a"], "switch_tab 4"],
       [["g", "t"], "terminals"],
       [["g", "e"], "focus_epic"],
       [["⌘D"], "start_dev"],
-      [["↵"], "open_panel"],
-      [["Esc"], "close_panel"],
+      [["↵"], "open_sheet"],
+      [["Esc"], "close_sheet"],
       [["⇧⌘B"], "show_board"],
     ];
     for (const [texts, action] of cases) {
@@ -737,14 +737,14 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["Ctrl+Shift+P"], "command_palette"],
       [["?"], "show_shortcuts"],
       [["/"], "filter_board"],
-      [["Ctrl+L"], "focus_pane"],
+      [["Ctrl+L"], "focus_agent_panel"],
       [["Ctrl+Shift+L"], "new_project_agent"],
       [["Ctrl+`"], "terminals"],
       [["Ctrl+Tab"], "next_tab"],
       [["Ctrl+Shift+Tab"], "previous_tab"],
       [["j"], "next_ticket"],
       [["k"], "previous_ticket"],
-      [["e"], "expand_panel"],
+      [["e"], "expand_sheet"],
       [["c"], "new_ticket"],
       [["g", "b"], "show_board"],
       [["g", "t"], "terminals"],
@@ -874,10 +874,10 @@ describe("0097's terminal rule (KEY-03)", () => {
     expect(t(["Ctrl+`"]).left()).toBe(1);
     expect(t(["Ctrl+Shift+D"]).ran).toEqual(["start_dev"]);
     expect(t(["Ctrl+D"]).outcomes).toEqual([{ kind: "terminal" }]);
-    // Ctrl+Shift+B is nothing there (never Board; the pane's hide / show key went, d0113); Ctrl+Shift+L opens or
+    // Ctrl+Shift+B is nothing there (never Board; the agent panel's hide / show key went, d0113); Ctrl+Shift+L opens or
     // closes the Project agent, never New conversation.
     expect(t(["Ctrl+Shift+B"]).ran).toEqual([]);
-    expect(t(["Ctrl+Shift+L"]).ran).toEqual(["focus_pane"]);
+    expect(t(["Ctrl+Shift+L"]).ran).toEqual(["focus_agent_panel"]);
     expect(t(["Ctrl+Tab"]).ran).toEqual(["next_tab"]);
     expect(t(["Ctrl+1"]).ran).toEqual(["project 1"]);
     // Letters and sequences are the terminal's.
@@ -902,7 +902,7 @@ describe("0097's terminal rule (KEY-03)", () => {
       "terminal",
       "terminal",
     ]);
-    expect(t(["⌘K", "⌘D", "⌘L"]).ran).toEqual(["command_palette", "start_dev", "focus_pane"]);
+    expect(t(["⌘K", "⌘D", "⌘L"]).ran).toEqual(["command_palette", "start_dev", "focus_agent_panel"]);
   });
 });
 

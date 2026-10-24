@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-// The command palette (T-0393, KEY-06): ⌘K opens it from the board, the panel and a focused terminal; ↑ ↓ skip a
+// The command palette (T-0393, KEY-06): ⌘K opens it from the board, the sheet and a focused terminal; ↑ ↓ skip a
 // greyed row, ↵ runs or opens, Esc closes and gives the keyboard back; picking another project's ticket switches
-// there and opens its panel; uses from anywhere go to the recent items.
+// there and opens its sheet; uses from anywhere go to the recent items.
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -180,12 +180,12 @@ function Overlays(): ReactNode {
   });
 }
 
-/** The page: a board card, a panel button and a terminal's textarea, each focusable, and the overlays. */
+/** The page: a board card, a sheet button and a terminal's textarea, each focusable, and the overlays. */
 function page() {
   host = document.body.appendChild(document.createElement("div"));
   host.innerHTML = `
     <div class="board"><div class="card" tabindex="0">NOTE-2</div></div>
-    <div class="panel"><button>Edit</button></div>
+    <div class="sheet"><button>Edit</button></div>
     <div class="xterm"><textarea class="xterm-helper-textarea"></textarea></div>
     <div id="layer"></div>`;
   root = createRoot(host.querySelector("#layer") as HTMLElement);
@@ -248,9 +248,9 @@ afterEach(() => {
   stop();
 });
 
-test("⌘K opens it from the board, the panel and a focused terminal", async () => {
+test("⌘K opens it from the board, the sheet and a focused terminal", async () => {
   answers([action("Park", "park")]);
-  for (const place of [".card", ".panel button"]) {
+  for (const place of [".card", ".sheet button"]) {
     (host.querySelector(place) as HTMLElement).focus();
     commandK();
     expect(isOpen(), place).toBe(true);
@@ -307,7 +307,7 @@ test("↑ ↓ skip a greyed row, ↵ runs the highlighted action and records it,
   expect(ask).toHaveBeenCalledWith("palette.record", { kind: "action", action: { action: "park" } });
 });
 
-test("picking API-1 from NOTE switches project and opens the panel", async () => {
+test("picking API-1 from NOTE switches project and opens the sheet", async () => {
   answers([ticketRow("NOTE-2", "NOTE"), DIVIDER, ticketRow("API-1", "API")]);
   commandK();
   await settle();

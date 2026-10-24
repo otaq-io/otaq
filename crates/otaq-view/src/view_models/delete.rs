@@ -28,7 +28,7 @@ pub fn menu_item(ticket: &Ticket) -> MenuItem {
     }
 }
 
-/// The confirmation's texts; `DeleteDialogView` on the page, where the board's card menu, the panel's "…" menu and
+/// The confirmation's texts; `DeleteDialogView` on the page, where the board's card menu, the sheet's "…" menu and
 /// the Project agent's summary all open the same `delete_ticket` dialog (T-0221).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DeleteDialogView")]

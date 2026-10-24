@@ -791,7 +791,7 @@ async fn close_ended_closes_only_the_projects_ended_agents() {
     assert_eq!(resumed.state, AgentState::Running);
     assert!(!resumed.closed);
 
-    // Over the socket, as the pane's menu sends it: nothing more to close.
+    // Over the socket, as the agent panel's menu sends it: nothing more to close.
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     match client
         .request(Request::ProjectAgentCloseEnded(
@@ -808,7 +808,7 @@ async fn close_ended_closes_only_the_projects_ended_agents() {
     w.stop().await;
 }
 
-/// M23 (T-0363): a first message held before its start comes with the project's list, for the pane's notice.
+/// M23 (T-0363): a first message held before its start comes with the project's list, for the agent panel's notice.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_list_carries_a_held_first_message() {
     use otaq_core::agents::{AgentHold, HoldReason, SessionRole};

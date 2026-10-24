@@ -3,7 +3,7 @@
 //! Stage choices and path, finished and set by you*), from the facts of `ticket.choices` ([`TicketChoices`]) and
 //! `ticket.agents` ([`TicketAgents`]). They replace the Developer, Validator and Epic lead rows.
 //!
-//! - **Choices** ([`form_choices`], [`panel_choices`]): a picker only for the stages with options ("Dev: Rust
+//! - **Choices** ([`form_choices`], [`sheet_choices`]): a picker only for the stages with options ("Dev: Rust
 //!   developer ▾", "Review: required ▾"); the ⌘N form preselects each stage's own agent. A stage that started is
 //!   locked. Who set them: "set by the Project agent" (or "the Epic lead") above the rows; a change by a ticket's
 //!   agent says who and why in violet ("Dev: Quick developer → Rust developer · by Griller · touches session
@@ -12,7 +12,7 @@
 //!   the exact model and a lock, failed rounds kept with what they found, skipped stages marked ("Skipped Grill (this
 //!   ticket's choice)"), and a one-line summary ("Grill skipped · Dev · Quick developer · haiku · … · Review
 //!   skipped · Done"; "Back in Dev after Security failed · then Validate · Security (round 2 of 3) · Review · Done").
-//! - **The token line** in the panel's header (VAL-14, Q-G): "Strong 61k · Light 23k (1 round)"; with several tools
+//! - **The token line** in the sheet's header (VAL-14, Q-G): "Strong 61k · Light 23k (1 round)"; with several tools
 //!   "Strong · Claude Code 58k · Verifier · Copilot 9k (1 round)".
 //! - **History lines**: session starts and ends with the agent and the exact model, M31's row changes and moves as
 //!   they were recorded, and a Done ticket's "Developer: Light (deleted) · claude-haiku-5-5 · 48k".
@@ -39,8 +39,8 @@ use crate::view_models::tool_problems::{self, Callout, Tools, tool_word};
 
 /// The ⌘N form's field label.
 pub const FORM_HEADING: &str = "Stage choices";
-/// The panel's block.
-pub const PANEL_HEADING: &str = "Choices";
+/// The sheet's block.
+pub const SHEET_HEADING: &str = "Choices";
 pub const PATH_HEADING: &str = "Path";
 /// A row's value when nothing is known.
 const DASH: &str = "\u{2014}";
@@ -121,7 +121,7 @@ pub struct ChoiceRow {
     pub change: Option<ChoiceChange>,
 }
 
-/// The ⌘N form's "Stage choices" field, or the panel's Choices. `StageChoicesView` on the page.
+/// The ⌘N form's "Stage choices" field, or the sheet's Choices. `StageChoicesView` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "StageChoicesView")]
 pub struct ChoicesView {
@@ -229,14 +229,14 @@ pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesVie
     })
 }
 
-/// The panel's Choices (`s05-36`, `s05-38`): the ticket's choices with who set them; `None` on a flow without
+/// The sheet's Choices (`s05-36`, `s05-38`): the ticket's choices with who set them; `None` on a flow without
 /// options and for an epic.
-pub fn panel_choices(t: &TicketAgents) -> Option<ChoicesView> {
+pub fn sheet_choices(t: &TicketAgents) -> Option<ChoicesView> {
     if t.kind == Kind::Epic || t.choices.is_empty() {
         return None;
     }
     Some(ChoicesView {
-        heading: PANEL_HEADING,
+        heading: SHEET_HEADING,
         set_by: set_by_line(&t.choices),
         rows: rows(&t.choices, true),
         note: None,
@@ -875,7 +875,7 @@ fn agent_part(t: &TicketAgents, role: SessionRole, tools: &Tools) -> Option<Stri
     (!parts.is_empty()).then(|| parts.join(" \u{2192} "))
 }
 
-/// The panel header's tokens by agent (VAL-14, d0086, Q-G): "Strong 182k · no validation yet", "Strong 61k · Light
+/// The sheet header's tokens by agent (VAL-14, d0086, Q-G): "Strong 182k · no validation yet", "Strong 61k · Light
 /// 23k (1 round)", "Strong 61k · Fable test 1k (no result)"; an epic's lead "Strong 48k". `None` before any agent
 /// session. The tool is never named while one tool is connected; with several, "Strong · Claude Code 58k ·
 /// Verifier · Copilot 9k (1 round)" (USG-10, d0086), the tool left out where it is the agent's name.
@@ -1111,7 +1111,7 @@ pub fn row_change_line(p: &serde_json::Value) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------------------------------------------
 // The gallery's "05/08 · Stage choices and the path"
 
-/// One sample: its caption, the form's or the panel's choices, the path and the header's token line.
+/// One sample: its caption, the form's or the sheet's choices, the path and the header's token line.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "StageChoicesSample")]
 pub struct GallerySample {
@@ -1133,9 +1133,9 @@ pub struct Gallery {
 pub fn gallery() -> Gallery {
     use fixtures::*;
     let tools = tools();
-    let panel = |caption, t: TicketAgents| GallerySample {
+    let sheet = |caption, t: TicketAgents| GallerySample {
         caption,
-        choices: panel_choices(&t),
+        choices: sheet_choices(&t),
         path: path(&t, &tools),
         token_line: token_line(&t, &tools),
         callouts: callouts(&t, &tools),
@@ -1149,11 +1149,11 @@ pub fn gallery() -> Gallery {
                 token_line: None,
                 callouts: Vec::new(),
             },
-            panel("Mid-flow (SHOP-29)", shop_29()),
-            panel("After a Fail (SHOP-29)", shop_29_after_fail()),
-            panel("Finished (SHOP-41)", shop_41()),
-            panel("A choice you set (SHOP-31)", shop_31()),
-            panel("The default flow (NOTE-2)", note_2()),
+            sheet("Mid-flow (SHOP-29)", shop_29()),
+            sheet("After a Fail (SHOP-29)", shop_29_after_fail()),
+            sheet("Finished (SHOP-41)", shop_41()),
+            sheet("A choice you set (SHOP-31)", shop_31()),
+            sheet("The default flow (NOTE-2)", note_2()),
         ],
     }
 }
@@ -1793,7 +1793,7 @@ mod tests {
     #[test]
     fn mid_flow_the_panel_shows_the_choices_and_the_path() {
         let t = shop_29();
-        let choices = panel_choices(&t).expect("choices");
+        let choices = sheet_choices(&t).expect("choices");
         assert_eq!(choices.heading, "Choices");
         assert_eq!(choices.set_by.as_deref(), Some("set by the Project agent"));
         let locks: Vec<_> = choices.rows.iter().map(|r| r.lock.as_deref()).collect();
@@ -1908,7 +1908,7 @@ mod tests {
         assert_eq!(p.rows[3].state, PathState::Failed);
         assert_eq!(p.rows[3].icon, IconName::CircleX);
         // The Project agent's choices: no change line.
-        let choices = panel_choices(&t).expect("choices");
+        let choices = sheet_choices(&t).expect("choices");
         assert!(choices.rows.iter().all(|r| r.change.is_none()));
     }
 
@@ -1917,7 +1917,7 @@ mod tests {
     #[test]
     fn a_finished_ticket_shows_what_ran() {
         let t = shop_41();
-        let choices = panel_choices(&t).expect("choices");
+        let choices = sheet_choices(&t).expect("choices");
         let shown: Vec<_> = choices
             .rows
             .iter()
@@ -1975,7 +1975,7 @@ mod tests {
     #[test]
     fn a_choice_you_set_says_its_yours() {
         let t = shop_31();
-        let choices = panel_choices(&t).expect("choices");
+        let choices = sheet_choices(&t).expect("choices");
         assert_eq!(choices.set_by, None);
         assert_eq!(
             choices.rows[1].change,
@@ -2011,7 +2011,7 @@ mod tests {
     #[test]
     fn the_default_flow_shows_only_the_path() {
         let t = note_2();
-        assert_eq!(panel_choices(&t), None);
+        assert_eq!(sheet_choices(&t), None);
         let none = TicketChoices {
             key: None,
             stages: Vec::new(),
@@ -2043,7 +2043,7 @@ mod tests {
     fn an_epic_has_no_choices_and_no_path() {
         let mut t = shop_29();
         t.kind = Kind::Epic;
-        assert_eq!(panel_choices(&t), None);
+        assert_eq!(sheet_choices(&t), None);
         assert_eq!(path(&t, &tools()), None);
     }
 

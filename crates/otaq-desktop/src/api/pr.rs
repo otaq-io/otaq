@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use super::panel::Unsent;
+use super::sheet::Unsent;
 use super::{RequestError, reply, unknown};
 use crate::App;
 
@@ -455,7 +455,7 @@ pub async fn cancel(app: &App, params: Params) -> Result<Answer, RequestError> {
     Ok(Answer::Closed)
 }
 
-/// The panel's PR box while the PR is open (*05 → SHOP-26 · Approved, PR open*).
+/// The sheet's PR box while the PR is open (*05 → SHOP-26 · Approved, PR open*).
 pub async fn open_box(app: &App, params: Params) -> Result<Option<OpenBox>, RequestError> {
     let t = ticket(app, &params.key).await?;
     Ok(page::open_box(&t, now_ms()))

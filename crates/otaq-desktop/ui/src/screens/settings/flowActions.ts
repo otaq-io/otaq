@@ -8,7 +8,7 @@ import type { FlowSettings } from "../../generated/FlowSettings";
 import type { FlowSource } from "../../generated/FlowSource";
 import { pickFlowFile, request, saveFlowFile } from "../../tauri";
 import { changeFlowOpen, openFlowEditor } from "../flow_editor/logic";
-import { PANE_ROUTES, type PaneRoutes } from "../pane/logic";
+import { AGENT_PANEL_ROUTES, type AgentPanelRoutes } from "../agent_panel/logic";
 import { selectProject } from "../../app/selection";
 
 export interface FlowRoutes {
@@ -19,7 +19,7 @@ export interface FlowRoutes {
   openEditor: (project: string) => void;
   pickFile: typeof pickFlowFile;
   saveFile: typeof saveFlowFile;
-  pane: PaneRoutes;
+  agentPanel: AgentPanelRoutes;
 }
 
 export const FLOW_ROUTES: FlowRoutes = {
@@ -32,7 +32,7 @@ export const FLOW_ROUTES: FlowRoutes = {
   },
   pickFile: (title) => pickFlowFile(title),
   saveFile: (title, fileName) => saveFlowFile(title, fileName),
-  pane: PANE_ROUTES,
+  agentPanel: AGENT_PANEL_ROUTES,
 };
 
 /** The draft from `source` (a preset, another project, the previous flow, the default, the shipped agents file), then
@@ -68,7 +68,7 @@ export async function exportFlow(section: FlowSettings, routes: FlowRoutes = FLO
 /** Change flow…: Settings closes and the flow editor opens on the project; nothing starts. */
 export function changeFlow(section: FlowSettings, routes: FlowRoutes = FLOW_ROUTES): void {
   routes.closeSettings();
-  selectProject(section.project, routes.pane.selection);
+  selectProject(section.project, routes.agentPanel.selection);
   routes.openEditor(section.project);
 }
 

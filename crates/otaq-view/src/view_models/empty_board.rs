@@ -1,6 +1,6 @@
 //! The empty board of a project with no tickets yet (UI-08, SHL-06; *14 · First run → 4 · Done · empty board*,
 //! *03 → Empty column & empty board*): when it shows, its button and what it asks of the shell. Since d0087 the
-//! Project agent pane is always beside the board, so the card points at it (and at ⌘L) instead of offering a button.
+//! Project agent panel is always beside the board, so the card points at it (and at ⌘L) instead of offering a button.
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -60,7 +60,7 @@ pub struct Hint {
 }
 
 /// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket, the
-/// text and a hint pointing at the pane's Project agent (d0068, d0087).
+/// text and a hint pointing at the agent panel's Project agent (d0068, d0087).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EmptyBoardView")]
 pub struct View {
@@ -88,7 +88,7 @@ pub fn view(name: &str, keys: &KeyLabels) -> View {
             .collect(),
         hints: [
             (KeyAction::NewTicket, "new ticket"),
-            (KeyAction::FocusPane, "ask the Project agent"),
+            (KeyAction::FocusAgentPanel, "ask the Project agent"),
         ]
         .into_iter()
         .filter_map(|(action, label)| {
@@ -125,7 +125,7 @@ mod tests {
     }
 
     /// *03 → Empty column & empty board* (`kItEl`), *14 → 4 · Done · empty board → Board empty* (`ugHTD`), d0087: the
-    /// text and the ⌘L hint point at the pane; New ticket is the only button.
+    /// text and the ⌘L hint point at the agent panel; New ticket is the only button.
     #[test]
     fn the_page_view_names_the_project_and_runs_the_shortcuts() {
         let v = view("shop-web", &fixtures::base());
@@ -156,7 +156,7 @@ mod tests {
             .iter()
             .map(|h| h.action)
             .collect();
-        assert_eq!(actions, [KeyAction::NewTicket, KeyAction::FocusPane]);
+        assert_eq!(actions, [KeyAction::NewTicket, KeyAction::FocusAgentPanel]);
     }
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn the_hints_use_the_users_keys() {
         assert_eq!(
-            hints(&fixtures::replaced("focus_pane", None, 0, "⌥L")),
+            hints(&fixtures::replaced("focus_agent_panel", None, 0, "⌥L")),
             [
                 ("⌘N".to_owned(), "new ticket"),
                 ("⌥L".to_owned(), "ask the Project agent")
@@ -195,7 +195,7 @@ mod tests {
             [("⌘L".to_owned(), "ask the Project agent")]
         );
         assert_eq!(
-            hints(&fixtures::removed("focus_pane", None, 0)),
+            hints(&fixtures::removed("focus_agent_panel", None, 0)),
             [("⌘N".to_owned(), "new ticket")]
         );
     }

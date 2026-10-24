@@ -19,14 +19,19 @@ import type { StripParams } from "../../generated/StripParams";
 import type { StripSuggestionParams } from "../../generated/StripSuggestionParams";
 import type { StripTarget } from "../../generated/StripTarget";
 import { request } from "../../tauri";
-import { chosenAgent, PANE_ROUTES, type PaneRoutes, showAgentInPane } from "../pane/logic";
+import {
+  chosenAgent,
+  AGENT_PANEL_ROUTES,
+  type AgentPanelRoutes,
+  showAgentInPanel,
+} from "../agent_panel/logic";
 
 /** Where opening an item lands: the selection, the terminal focus requests, the Project agent panel (its `selection`
  * is the same store), the last item the strip opened, and taking the keyboard out of the focused terminal. */
 export interface StripRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
-  pane: PaneRoutes;
+  agentPanel: AgentPanelRoutes;
   last: Store<StripTarget | null>;
   /** Takes the keyboard from the element that has it (the focused terminal's). */
   blur: () => void;
@@ -38,7 +43,7 @@ export const lastOpened: Store<StripTarget | null> = createStore<StripTarget | n
 export const STRIP_ROUTES: StripRoutes = {
   selection,
   focus: terminalFocusRequests,
-  pane: PANE_ROUTES,
+  agentPanel: AGENT_PANEL_ROUTES,
   last: lastOpened,
   blur: () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -51,8 +56,8 @@ export const STRIP_ROUTES: StripRoutes = {
  */
 export function openOf(routes: StripRoutes = STRIP_ROUTES): StripOpen | null {
   const { project, ticket } = routes.selection.get();
-  const agentOpen = routes.pane.layout.get().agentOpen;
-  const shown = project === null ? null : chosenAgent(routes.pane.shown.get(), project);
+  const agentOpen = routes.agentPanel.layout.get().agentOpen;
+  const shown = project === null ? null : chosenAgent(routes.agentPanel.shown.get(), project);
   const last = routes.last.get();
   if (last?.kind === "agent" && agentOpen && shown === last.agent)
     return { kind: "agent", agent: last.agent };
@@ -86,7 +91,7 @@ export function openTarget(target: StripTarget, routes: StripRoutes = STRIP_ROUT
         requestTerminalFocus(target.key, routes.focus);
       break;
     case "agent":
-      showAgentInPane(target.project, target.agent, routes.pane);
+      showAgentInPanel(target.project, target.agent, routes.agentPanel);
       break;
   }
 }

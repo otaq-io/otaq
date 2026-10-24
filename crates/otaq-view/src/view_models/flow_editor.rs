@@ -2221,7 +2221,7 @@ fn panel_pill(agent: &ProjectAgent) -> PillView {
 }
 
 fn agent_panel(f: &Facts) -> AgentPanel {
-    let keys = f.keys.label(KeyAction::FocusPane);
+    let keys = f.keys.label(KeyAction::FocusAgentPanel);
     // An agent that ended leaves the panel as before anything was asked: the next words start a new one.
     let running = f.agent.filter(|a| a.state == AgentState::Running);
     if let Some(agent) = running {

@@ -46,7 +46,7 @@ describe("the report view's scrolling (CMT-12)", () => {
 });
 
 describe("Open on a report chip (CMT-12)", () => {
-  it("opens the report view over the panel with what to read", () => {
+  it("opens the report view over the sheet with what to read", () => {
     registerReportOpener();
     overlays.store.set([]);
     openReport({ kind: "comment", ticket: "SHOP-34", n: 4 });

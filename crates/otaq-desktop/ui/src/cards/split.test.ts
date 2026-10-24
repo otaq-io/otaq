@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Split with the Project agent on an epic with no children (T-0377; LEAD-13, d0091): the click sends the Project
-// agent pane Rust's first message (`pane.send` → `project_agent.open`) and the pane, shown again if hidden, shows
+// agent panel Rust's first message (`agent_panel.send` → `project_agent.open`) and the agent panel, shown again if hidden, shows
 // the new agent. The click doesn't select the card.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +10,7 @@ import { INITIAL_LAYOUT, shellLayout } from "../app/layout";
 import { NOTHING_SELECTED, selection } from "../app/selection";
 import type { EpicCardView } from "../generated/EpicCardView";
 import { request } from "../tauri";
-import { paneFocusRequests, shownAgents } from "../screens/pane/logic";
+import { agentPanelFocusRequests, shownAgents } from "../screens/agent_panel/logic";
 import { EpicCard } from ".";
 
 vi.mock("../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), windowAction: vi.fn() }));
@@ -74,13 +74,13 @@ afterEach(() => {
   });
   document.body.replaceChildren();
   shownAgents.set({});
-  paneFocusRequests.set(null);
+  agentPanelFocusRequests.set(null);
   shellLayout.set(INITIAL_LAYOUT);
   selection.set(NOTHING_SELECTED);
 });
 
 describe("Split with the Project agent (T-0377)", () => {
-  it("sends the pane's first message and shows the pane with the new agent", async () => {
+  it("sends the agent panel's first message and shows the agent panel with the new agent", async () => {
     ask.mockResolvedValue("a1");
     const onSelect = vi.fn();
     const onLeadAction = vi.fn();
@@ -97,13 +97,13 @@ describe("Split with the Project agent (T-0377)", () => {
       await Promise.resolve();
     });
     expect(ask).toHaveBeenCalledTimes(1);
-    expect(ask).toHaveBeenCalledWith("pane.send", {
+    expect(ask).toHaveBeenCalledWith("agent_panel.send", {
       project: "NOTE",
       message: "Split NOTE-10 into tickets",
     });
     expect(shellLayout.get().agentOpen).toBe(true);
     expect(shownAgents.get()).toEqual({ NOTE: "a1" });
-    expect(paneFocusRequests.get()).toMatchObject({ agent: "a1" });
+    expect(agentPanelFocusRequests.get()).toMatchObject({ agent: "a1" });
     expect(onLeadAction).not.toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -117,7 +117,7 @@ describe("Split with the Project agent (T-0377)", () => {
       box.querySelector<HTMLButtonElement>(".lead-status-action")?.click();
       await Promise.resolve();
     });
-    expect(ask).toHaveBeenCalledWith("pane.send", {
+    expect(ask).toHaveBeenCalledWith("agent_panel.send", {
       project: "NOTE",
       message: "Split NOTE-10 into tickets",
     });

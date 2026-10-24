@@ -1,6 +1,6 @@
 /*
  * Stage choices and the path (*08 → Row · Stage choices (update AG §9)*, *05 → Row · Stage choices and path*). Form
- * look: "Stage choices" over rows of a 70 px label and a 190 px select, the note under them. Panel look: "Choices"
+ * look: "Stage choices" over rows of a 70 px label and a 190 px select, the note under them. Sheet look: "Choices"
  * with who set them, the same rows (a locked one is its value and a lock), a change's line under its row (an agent's
  * violet, --st-investigate; yours neutral, d0077). The path: its summary, then rows of the state's icon, the stage
  * (bold where the ticket is, muted when skipped), its agent, and the model in mono with a lock once it ran.

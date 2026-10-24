@@ -70,7 +70,7 @@ mod tests {
 
     async fn until_looking(h: &Harness, want: bool) {
         tokio::time::timeout(Duration::from_secs(10), async {
-            while h.service.inbox().looking() != want {
+            while h.service.needs_you().looking() != want {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })

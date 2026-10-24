@@ -19,7 +19,7 @@ pub struct ChildRow {
     pub status: Status,
 }
 
-/// What the panel shows above an epic's tabs.
+/// What the sheet shows above an epic's tabs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EpicHeader {
     pub external_id: Option<String>,

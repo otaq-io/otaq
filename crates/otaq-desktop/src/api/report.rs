@@ -1,4 +1,4 @@
-//! `report.*`: the report view over the panel (CMT-12; d0109; `s05-41` / `s05-42`), for a comment's report (by its
+//! `report.*`: the report view over the sheet (CMT-12; d0109; `s05-41` / `s05-42`), for a comment's report (by its
 //! number, also a deleted comment's from History, CMT-14) or the text pasted into a comment box. The page never
 //! holds a report whole: `report.open` indexes the file's lines here (`otaq-view`'s `report_view.rs`) and answers its
 //! words and size; `report.page` sends a page of lines, `report.search` / `report.step` search the file here and

@@ -64,4 +64,4 @@ hover: CardStatusHover, faded: number | null,
 /**
  * A Project agent just created it: the page plays the fading highlight once.
  */
-fresh: boolean, open_panel: string, open_panel_keys: string, open_terminal: string, };
+fresh: boolean, open_sheet: string, open_sheet_keys: string, open_terminal: string, };

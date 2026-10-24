@@ -5,7 +5,7 @@
 //! ended Closed, makes the ticket "parent closed" until the user reopens the parent or removes the link.
 //!
 //! [`readiness`] is pure: the scheduler (T-0079), `otaq ready` / `blocked`, the cards, the Stack list and
-//! the panel all derive the same state and the same waiting text from it ("waits for SHOP-18, SHOP-19 to merge
+//! the sheet all derive the same state and the same waiting text from it ("waits for SHOP-18, SHOP-19 to merge
 //! (SHOP-18 in Review)", "waits for SHOP-18 · PR #482 open", "parent SHOP-26 closed"). Nothing is stored (SDD §8).
 //!
 //! Linked tickets always share a base (DEP-02, enforced when the link is made), so a Merged parent is merged

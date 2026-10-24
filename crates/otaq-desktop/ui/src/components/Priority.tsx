@@ -13,7 +13,7 @@ export function PriorityChip({ priority }: { priority: PriorityView }) {
   );
 }
 
-/** The chip and its word, as in the panel and the legend: full ink for P1 and P2, muted for P3 and P4. */
+/** The chip and its word, as in the sheet and the legend: full ink for P1 and P2, muted for P3 and P4. */
 export function PriorityLabel({ priority }: { priority: PriorityView }) {
   return (
     <span className="priority-label" data-ink={priority.ink}>

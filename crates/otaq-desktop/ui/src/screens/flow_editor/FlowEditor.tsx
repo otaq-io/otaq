@@ -1386,7 +1386,7 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
     if (!el) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       const map = keymap.get();
-      if (map !== undefined && bindingFor(map, e, false)?.action.action === "focus_pane") {
+      if (map !== undefined && bindingFor(map, e, false)?.action.action === "focus_agent_panel") {
         e.preventDefault();
         if (input.current !== null) input.current.focus();
         else terminal.current?.focus();

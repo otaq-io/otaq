@@ -31,8 +31,8 @@ const SHOP_32: TicketCardView = {
   hover: { status: "Security failed 3 times", details: ["Tokens: 312k"] },
   faded: null,
   fresh: false,
-  open_panel: "Open panel",
-  open_panel_keys: "↵",
+  open_sheet: "Open panel",
+  open_sheet_keys: "↵",
   open_terminal: "Open terminal",
 };
 

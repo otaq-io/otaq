@@ -18,9 +18,9 @@ use crate::view_models::priority::{self, PriorityView};
 use crate::view_models::status::PillView;
 use crate::view_models::tool_avatar::ToolAvatarView;
 
-/// The hover quick actions' tooltips and key (*Interaction states → Hover*: open terminal, open panel).
-pub const OPEN_PANEL: &str = "Open panel";
-pub const OPEN_PANEL_KEYS: &str = "\u{21b5}";
+/// The hover quick actions' tooltips and key (*Interaction states → Hover*: open terminal, open sheet).
+pub const OPEN_SHEET: &str = "Open panel";
+pub const OPEN_SHEET_KEYS: &str = "\u{21b5}";
 pub const OPEN_TERMINAL: &str = "Open terminal";
 /// The epic card's last row.
 pub const ADD_TO_EPIC: &str = "Add ticket to epic";
@@ -64,8 +64,8 @@ pub struct TicketCardView {
     pub faded: Option<f32>,
     /// A Project agent just created it: the page plays the fading highlight once.
     pub fresh: bool,
-    pub open_panel: String,
-    pub open_panel_keys: String,
+    pub open_sheet: String,
+    pub open_sheet_keys: String,
     pub open_terminal: String,
 }
 
@@ -93,8 +93,8 @@ impl TicketCardView {
             hover: vm.hover,
             faded: vm.faded,
             fresh: vm.fresh,
-            open_panel: OPEN_PANEL.to_owned(),
-            open_panel_keys: OPEN_PANEL_KEYS.to_owned(),
+            open_sheet: OPEN_SHEET.to_owned(),
+            open_sheet_keys: OPEN_SHEET_KEYS.to_owned(),
             open_terminal: OPEN_TERMINAL.to_owned(),
         }
     }

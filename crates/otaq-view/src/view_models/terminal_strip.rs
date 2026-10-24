@@ -37,7 +37,7 @@ pub fn state(phase: &Phase, status: Status, your_turn: bool) -> (&'static str, T
 }
 
 /// The terminal's focus as the service is told it (ATT-03): the keyboard is in the terminal and the Terminal tab is
-/// on screen. Panel close, a tab switch, a click outside and ⌃` all make it false.
+/// on screen. Sheet close, a tab switch, a click outside and ⌃` all make it false.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TerminalFocus {
     pub has_focus: bool,
@@ -392,7 +392,7 @@ pub enum Click {
     PrRetry,
     /// Send again: the hand-off the agent hasn't picked up (d0118).
     SendAgain,
-    /// An answer to the agent's question from Needs you, card or panel (ATT-08, ATT-12).
+    /// An answer to the agent's question from Needs you, card or sheet (ATT-08, ATT-12).
     Answer {
         choice: otaq_core::board::questions::Choice,
     },

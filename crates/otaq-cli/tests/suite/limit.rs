@@ -98,8 +98,8 @@ async fn the_session_limit_waits_for_its_reset_from_the_status_line() {
     assert_eq!(active.tool, Tool::Claude);
     // The hit leaves the windows as they were.
     assert!(state.windows.iter().all(|w| w.observed_at <= active.hit_at));
-    // Neutral: no inbox item for it.
-    assert!(w.inbox.list().await.unwrap().items.is_empty());
+    // Neutral: no needs-you item for it.
+    assert!(w.needs_you.list().await.unwrap().items.is_empty());
 
     // The window passes its reset and the status line shows room again: marked as reset, nothing resumes.
     assert!(!w.plan_limit.check_reset(resets - 1).await.unwrap());

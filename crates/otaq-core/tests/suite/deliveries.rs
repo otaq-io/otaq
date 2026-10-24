@@ -252,7 +252,7 @@ async fn clicks_are_never_held_but_never_clear_silently() {
     s.sessions.input(&s.session, b"wip").unwrap();
     let answer = s
         .deliveries
-        .deliver_from_click(&s.session, "inbox answer")
+        .deliver_from_click(&s.session, "needs-you answer")
         .await
         .unwrap();
     assert!(matches!(answer, Delivery::NeedsConfirmation { .. }));
@@ -260,14 +260,14 @@ async fn clicks_are_never_held_but_never_clear_silently() {
     assert_eq!(s.deliveries.keep(&s.session), Delivery::Sent { count: 0 });
     assert!(s.sessions.has_unsent_input(&s.session).unwrap());
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!s.output().contains("inbox answer"));
+    assert!(!s.output().contains("needs-you answer"));
 
     // "Clear it and send".
     s.deliveries
-        .clear_and_send(&s.session, Some("inbox answer"))
+        .clear_and_send(&s.session, Some("needs-you answer"))
         .await
         .unwrap();
-    s.output_with("inbox answer\r\n").await;
+    s.output_with("needs-you answer\r\n").await;
 
     // Multi-line text arrives as one message.
     s.deliveries

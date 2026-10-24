@@ -1,5 +1,5 @@
 //! What the sessions say about a ticket's agents (T-0336, T-0405; ADP-04, AGM-05; d0086, d0088): the "moved on"
-//! query (the panel's "Sonnet → claude-sonnet-5-6") and the tokens by session role and agent ("Strong 61k · Light
+//! query (the sheet's "Sonnet → claude-sonnet-5-6") and the tokens by session role and agent ("Strong 61k · Light
 //! 23k (1 round)"). Sessions are stored rows; nothing runs.
 
 use otaq_core::agent_tools::{Adapters, Tool};

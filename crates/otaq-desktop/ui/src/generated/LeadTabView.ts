@@ -17,7 +17,7 @@ tokens: string | null,
  */
 changes: LeadChanges | null, body: LeadTabBody, 
 /**
- * The lead asks you: the panel header shows its question bar (as for a ticket's Asks you).
+ * The lead asks you: the sheet header shows its question bar (as for a ticket's Asks you).
  */
 asks_you: boolean, 
 /**

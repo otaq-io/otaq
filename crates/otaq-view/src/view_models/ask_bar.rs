@@ -2,11 +2,11 @@
 //! Project agent* `s24-05`, *Row · The two views* `s24-03`): closed, the Project agent is a bar floating at the
 //! bottom centre of the board and the List, "Ask the project agent… ("why is checkout slow?")" with ⌘L. Typing shows
 //! what to ask about ("ASK ABOUT": the selected ticket, Continue "<last conversation>", New conversation); Return
-//! sends and opens the panel on the left (`agent_pane.rs`). A conversation that answered while the user wasn't
+//! sends and opens the panel on the left (`agent_panel.rs`). A conversation that answered while the user wasn't
 //! looking shows "New reply" on the bar and a dot on the rail button; a click on either opens it.
 //!
 //! **No agent starts before the first message** (d0068, d0087): New conversation and the selected ticket start one
-//! with the typed words (`pane.send`'s rule), Continue types them into a running conversation, and nothing is sent
+//! with the typed words (`agent_panel.send`'s rule), Continue types them into a running conversation, and nothing is sent
 //! without words.
 //!
 //! **A reply waiting** is per conversation: its last turn ended ([`ProjectAgent::turn_ended_at`]) after the user last
@@ -22,7 +22,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
-use crate::view_models::agent_pane::agent_waits;
+use crate::view_models::agent_panel::agent_waits;
 
 /// The closed bar's text (`s24-05` "Idle").
 pub const PLACEHOLDER: &str =
@@ -185,7 +185,7 @@ pub fn button(open: bool, dot: bool, keys: &KeyLabels) -> AgentButton {
     AgentButton {
         icon: IconName::Bot,
         label: "Project agent",
-        hint: match keys.label(KeyAction::FocusPane) {
+        hint: match keys.label(KeyAction::FocusAgentPanel) {
             Some(keys) => format!("Open or close \u{b7} {keys}"),
             None => "Open or close".to_owned(),
         },
@@ -237,7 +237,7 @@ pub fn view(f: &Facts) -> AskBarView {
         icon: IconName::Bot,
         placeholder: PLACEHOLDER,
         short_placeholder: SHORT_PLACEHOLDER,
-        keys: f.keys.label(KeyAction::FocusPane),
+        keys: f.keys.label(KeyAction::FocusAgentPanel),
         send_keys: "\u{21b5}",
         send: "Send",
         title: "ASK ABOUT",
@@ -533,11 +533,16 @@ mod tests {
             );
         }
         assert_eq!(
-            button(false, false, &keys::replaced("focus_pane", None, 0, "⌥L")).hint,
+            button(
+                false,
+                false,
+                &keys::replaced("focus_agent_panel", None, 0, "⌥L")
+            )
+            .hint,
             "Open or close \u{b7} ⌥L"
         );
         assert_eq!(
-            button(false, false, &keys::removed("focus_pane", None, 0)).hint,
+            button(false, false, &keys::removed("focus_agent_panel", None, 0)).hint,
             "Open or close"
         );
     }

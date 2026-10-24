@@ -104,7 +104,7 @@
   border-color: var(--card-outline);
 }
 
-/* Selected (panel open): a 2 px accent border on the selection tint. */
+/* Selected (sheet open): a 2 px accent border on the selection tint. */
 .ticket-card[data-selected] {
   --card-ring-color: var(--accent);
   border-color: var(--accent);

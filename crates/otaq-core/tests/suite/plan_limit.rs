@@ -1,5 +1,5 @@
 //! The usage limit and Resume (T-0129, USG-06, ATT-09; d0020, d0046, d0048; per tool since T-0358): limit-stopped
-//! agents raise no inbox items, and Resume queues one "continue" per waiting agent as an automatic delivery (an ordinary `sh`
+//! agents raise no needs-you items, and Resume queues one "continue" per waiting agent as an automatic delivery (an ordinary `sh`
 //! stands in for `claude`). Which starts a limit holds is the check before every launch's (`launch_gate.rs`).
 
 use std::time::Duration;
@@ -54,10 +54,10 @@ async fn limit_stopped_agents_raise_no_items_and_resume_continues_them() {
     }
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForLimitReset);
     // Neither raises an item, and they count as working for the optional agent limit.
-    assert!(w.inbox.list().await.unwrap().items.is_empty());
-    // An agent the limit stopped stays out of the inbox even if it ends up Idle while the banner is up.
+    assert!(w.needs_you.list().await.unwrap().items.is_empty());
+    // An agent the limit stopped stays out of Needs you even if it ends up Idle while the banner is up.
     w.force_status(&shop2, Status::Idle).await;
-    assert!(w.inbox.list().await.unwrap().items.is_empty());
+    assert!(w.needs_you.list().await.unwrap().items.is_empty());
     w.force_status(&shop2, Status::WaitingForLimitReset).await;
 
     // The user has half-typed something into SHOP-1's terminal: its "continue" waits for the empty line.
@@ -94,7 +94,7 @@ async fn limit_stopped_agents_raise_no_items_and_resume_continues_them() {
             .is_some_and(|s| s.limit_active())
     );
     w.force_status(&shop2, Status::Idle).await;
-    assert_eq!(w.inbox.list().await.unwrap().items.len(), 1);
+    assert_eq!(w.needs_you.list().await.unwrap().items.len(), 1);
     w.stop().await;
 }
 
@@ -126,7 +126,7 @@ async fn this_is_the_usage_limit_folds_every_idle_agent_into_the_banner() {
         w.force_status(t, Status::Idle).await;
     }
     w.force_status(&asks, Status::AsksYou).await;
-    assert_eq!(w.inbox.list().await.unwrap().items.len(), 4);
+    assert_eq!(w.needs_you.list().await.unwrap().items.len(), 4);
 
     let client = otaq_core::client::Client::connect(otaq_core::client::ClientConfig::new(&w.data))
         .await
@@ -154,7 +154,7 @@ async fn this_is_the_usage_limit_folds_every_idle_agent_into_the_banner() {
         );
     }
     // Asks you keeps its item; the Idle ones are gone.
-    let items = w.inbox.list().await.unwrap().items;
+    let items = w.needs_you.list().await.unwrap().items;
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].key.to_string(), "SHOP-3");
     assert_eq!(w.status("SHOP-3").await, Status::AsksYou);

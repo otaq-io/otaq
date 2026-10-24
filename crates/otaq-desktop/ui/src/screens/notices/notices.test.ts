@@ -17,7 +17,7 @@ import type { Toast } from "../../generated/Toast";
 import type { ToastAction } from "../../generated/ToastAction";
 import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { createPageEvents } from "../../service";
-import type { PaneFocusRequest, ShownAgents } from "../pane/logic";
+import type { AgentPanelFocusRequest, ShownAgents } from "../agent_panel/logic";
 import {
   followNotifications,
   limitLinesOf,
@@ -166,11 +166,11 @@ describe("notification clicks", () => {
       selection,
       focus: createStore<TerminalFocusRequest | null>(null),
       next: vi.fn(),
-      pane: {
+      agentPanel: {
         selection,
         layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
         shown: createStore<ShownAgents>({}),
-        focus: createStore<PaneFocusRequest | null>(null),
+        focus: createStore<AgentPanelFocusRequest | null>(null),
       },
     };
   };
@@ -192,13 +192,13 @@ describe("notification clicks", () => {
     expect(r.focus.get()).toEqual({ ticket: "NOTE-3", seq: 1 });
   });
 
-  it("a Project agent: its project, the agent in the pane (shown if hidden), focused", () => {
+  it("a Project agent: its project, the agent in the agent panel (shown if hidden), focused", () => {
     const r = routes();
     openTarget({ kind: "project_agent", project: "NOTE", agent: "pa7" }, r);
     expect(r.selection.get().project).toBe("NOTE");
-    expect(r.pane.shown.get()).toEqual({ NOTE: "pa7" });
-    expect(r.pane.layout.get().agentOpen).toBe(true);
-    expect(r.pane.focus.get()).toEqual({ seq: 1, agent: "pa7" });
+    expect(r.agentPanel.shown.get()).toEqual({ NOTE: "pa7" });
+    expect(r.agentPanel.layout.get().agentOpen).toBe(true);
+    expect(r.agentPanel.focus.get()).toEqual({ seq: 1, agent: "pa7" });
     expect(r.focus.get()).toBeNull();
   });
 
@@ -250,7 +250,7 @@ describe("notification clicks", () => {
     stream.send({
       kind: "service",
       name: "open_from_notification",
-      event: { kind: "open_from_notification", target: { kind: "inbox" } },
+      event: { kind: "open_from_notification", target: { kind: "needs_you" } },
     });
     stream.send({ kind: "service", name: "ticket_changed", event: { kind: "ticket_changed" } });
     await settle();

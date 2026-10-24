@@ -107,6 +107,6 @@ describe("the Dependencies section (DPV-04)", () => {
   });
 
   it("registers the section where Overview draws it", () => {
-    expect(registered(registerScreens({ dependencies })).panelSections).toEqual(["dependencies"]);
+    expect(registered(registerScreens({ dependencies })).sheetSections).toEqual(["dependencies"]);
   });
 });

@@ -89,7 +89,7 @@ function OverlayHost() {
  * closes, staying mounted until the slide ends (OT-6, 0095). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
  * changes only its width, so the drag stays instant.
  */
-function PanelLayer({ open, onWidth }: { open: boolean; onWidth: (width: number) => void }) {
+function SheetLayer({ open, onWidth }: { open: boolean; onWidth: (width: number) => void }) {
   const layer = useRef<HTMLDivElement>(null);
   const { mounted, leaving, done } = usePresence(open);
   useLayoutEffect(
@@ -253,7 +253,7 @@ export function FrameBody({
   mainRef,
   windowWidth = 0,
 }: FrameBodyProps) {
-  const expanded = layout.panelExpanded && ticketOpen;
+  const expanded = layout.sheetExpanded && ticketOpen;
   const [sheetWidth, setSheetWidth] = useState(0);
   const askRight = askBarRight(ticketOpen, expanded, sheetWidth);
   return (
@@ -284,7 +284,7 @@ export function FrameBody({
         <div className="frame-board" data-slot="board">
           <Slot id="board" placeholder={<Placeholder name="Board" />} />
         </div>
-        <PanelLayer open={ticketOpen} onWidth={setSheetWidth} />
+        <SheetLayer open={ticketOpen} onWidth={setSheetWidth} />
         {/* Over the board and the List, at the bottom centre of what the ticket sheet leaves of them; it hides
             itself while the Project agent panel is open. */}
         {askRight !== null && (

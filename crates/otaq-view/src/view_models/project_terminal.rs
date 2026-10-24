@@ -1,7 +1,7 @@
 //! The Terminals drawer (RUN-06, SHL-04, UI-09; d0068, d0019, d0087; *17 · Project terminals*): one tab per Project
 //! terminal of the project, by number, a terminal's header state, the path line, the hint in a new terminal's empty
 //! scrollback, the line under an ended one and which tab Terminals (⌃`) shows. Each terminal is a plain shell in the project's
-//! folder, owned by the service. Project agents live in the pane since d0087 (`agent_pane.rs`), never here.
+//! folder, owned by the service. Project agents live in the agent panel since d0087 (`agent_panel.rs`), never here.
 
 use otaq_core::session::{END_STOPPED_BY_RESTART, SessionInfo};
 use otaq_core::terminals::shell::ProjectTerminal;
@@ -61,7 +61,7 @@ pub fn path_line(short_repo: &str) -> String {
 
 /// The hint in a new terminal's empty scrollback, until the first keystroke (*17 → Empty · shell prompt*):
 /// "Terminal 1 · shop-web · a shell in ~/code/shop-web", how to make tickets yourself, and where the agent is.
-/// `focus_keys` is the pane's ⌘L on this platform.
+/// `focus_keys` is the agent panel's ⌘L on this platform.
 pub fn hint(
     terminal: &str,
     project_name: &str,
@@ -118,7 +118,7 @@ pub fn ended_line(ended_at: Option<i64>) -> String {
     )
 }
 
-/// What the hint names besides the terminal: the project, its folder and the pane's focus keys.
+/// What the hint names besides the terminal: the project, its folder and the agent panel's focus keys.
 pub struct HintFacts<'a> {
     pub project_name: &'a str,
     pub short_repo: &'a str,
@@ -181,7 +181,7 @@ pub fn last_used(terminals: &[ProjectTerminal], remembered: Option<&str>) -> Las
         })
 }
 
-/// + in the strip: a new terminal straight away (d0087: no New Project agent here; that is the pane's +).
+/// + in the strip: a new terminal straight away (d0087: no New Project agent here; that is the agent panel's +).
 pub const NEW_TERMINAL: &str = "New terminal";
 
 /// The empty drawer (no tab open, for example after a restart closed every terminal, *17 → After a restart*).
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn the_hint_makes_tickets_yourself_and_points_at_the_pane() {
+    fn the_hint_makes_tickets_yourself_and_points_at_the_agent_panel() {
         assert!(shows_hint(State::Live, false));
         assert!(!shows_hint(State::Live, true));
         assert!(!shows_hint(State::Ended, false));

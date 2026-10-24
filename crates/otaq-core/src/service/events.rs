@@ -1,4 +1,4 @@
-//! The live event stream (d0055, SDD §5.4). Later tickets publish ticket, session, inbox, banner and usage
+//! The live event stream (d0055, SDD §5.4). Later tickets publish ticket, session, Needs you, banner and usage
 //! events here; every subscribed connection forwards them to its client in order.
 //!
 //! Publishing never waits: a subscriber that falls too far behind (its connection's queue is full, or it

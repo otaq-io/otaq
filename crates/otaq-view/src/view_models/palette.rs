@@ -14,9 +14,9 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::keymap::{Binding, KeyAction, KeyPlace};
 use crate::view_models::flow_columns::Columns;
-use crate::view_models::panel_actions::{self, Action as PanelAction};
 use crate::view_models::pause;
 use crate::view_models::sheet::{self, SheetTab};
+use crate::view_models::sheet_actions::{self, Action as SheetAction};
 use crate::view_models::{close, send_back};
 
 pub const PLACEHOLDER: &str = "Search tickets, projects and actions…";
@@ -43,7 +43,7 @@ pub const NO_TERMINAL: &str = "no terminal focused";
 /// The rows a palette lists at most while typing.
 const MOST: usize = 50;
 
-/// What the palette knows about the ticket open in the panel: enough to say which actions run now.
+/// What the palette knows about the ticket open in the sheet: enough to say which actions run now.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct OpenTicket {
     /// Approve ▾ and Open PR take it (Ready for Review).
@@ -73,9 +73,9 @@ impl OpenTicket {
             } else {
                 Some(AN_EPIC)
             },
-            retry_validation: panel_actions::buttons(ticket)
+            retry_validation: sheet_actions::buttons(ticket)
                 .iter()
-                .any(|(a, _)| *a == PanelAction::RetryValidation),
+                .any(|(a, _)| *a == SheetAction::RetryValidation),
             diff: sheet::tabs(ticket).contains(&SheetTab::Files),
             in_epic: ticket.is_epic() || ticket.epic.is_some(),
         }
@@ -85,7 +85,7 @@ impl OpenTicket {
 /// Where the palette was opened from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Context {
-    /// The ticket open in the panel, if any.
+    /// The ticket open in the sheet, if any.
     pub open: Option<OpenTicket>,
     /// A terminal had the keyboard (Find in terminal scrollback runs there).
     pub terminal: bool,
@@ -119,15 +119,15 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::Park
         | A::NextTicket
         | A::PreviousTicket
-        | A::ClosePanel
-        | A::ExpandPanel
+        | A::CloseSheet
+        | A::ExpandSheet
         | A::NextTab
         | A::PreviousTab
         | A::SwitchTab(_) => needs_open(),
         A::CommandPalette
         | A::SwitchProject
         | A::Project(_)
-        | A::NextInboxItem
+        | A::NextNeedsYouItem
         | A::FilterBoard
         | A::ShowShortcuts
         | A::ShowBoard
@@ -135,10 +135,10 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::Pause
         | A::OpenActivity
         | A::Settings
-        | A::FocusPane
+        | A::FocusAgentPanel
         | A::NewProjectAgent
         | A::NewTicket
-        | A::OpenPanel
+        | A::OpenSheet
         | A::Terminals
         | A::ShowFiles => None,
     }
@@ -153,13 +153,13 @@ pub fn listed(action: KeyAction) -> bool {
         KeyAction::CommandPalette
             | KeyAction::Project(_)
             | KeyAction::SwitchTab(_)
-            | KeyAction::OpenPanel
+            | KeyAction::OpenSheet
             | KeyAction::Pause
     )
 }
 
 /// Whether running `action` goes into the recent items: what the palette lists, except moving between tickets and
-/// tabs and closing the panel, which would push everything else out.
+/// tabs and closing the sheet, which would push everything else out.
 pub fn recorded(action: KeyAction) -> bool {
     listed(action)
         && !matches!(
@@ -168,7 +168,7 @@ pub fn recorded(action: KeyAction) -> bool {
                 | KeyAction::PreviousTicket
                 | KeyAction::NextTab
                 | KeyAction::PreviousTab
-                | KeyAction::ClosePanel
+                | KeyAction::CloseSheet
         )
 }
 
@@ -178,8 +178,8 @@ pub fn title(action: KeyAction) -> &'static str {
     match action {
         KeyAction::NextTicket => "Next ticket",
         KeyAction::PreviousTicket => "Previous ticket",
-        KeyAction::OpenPanel => "Open the ticket",
-        KeyAction::ClosePanel => "Close the ticket",
+        KeyAction::OpenSheet => "Open the ticket",
+        KeyAction::CloseSheet => "Close the ticket",
         KeyAction::NextTab => "Next panel tab",
         KeyAction::PreviousTab => "Previous panel tab",
         // As `s02-20` draws it.
@@ -195,7 +195,7 @@ pub fn icon(action: KeyAction) -> IconName {
     match action {
         A::CommandPalette | A::FilterBoard => I::Search,
         A::SwitchProject | A::Project(_) => I::FolderGit2,
-        A::NextInboxItem => I::Hand,
+        A::NextNeedsYouItem => I::Hand,
         A::NextTicket => I::ArrowDown,
         A::PreviousTicket => I::ArrowUp,
         A::FocusEpic => I::Layers,
@@ -205,11 +205,11 @@ pub fn icon(action: KeyAction) -> IconName {
         A::Pause => I::Pause,
         A::OpenActivity => I::Activity,
         A::Settings => I::Settings,
-        A::FocusPane => I::Bot,
+        A::FocusAgentPanel => I::Bot,
         A::NewProjectAgent => I::SquarePlus,
         A::NewTicket => I::Plus,
-        A::OpenPanel | A::ExpandPanel => I::Maximize2,
-        A::ClosePanel => I::X,
+        A::OpenSheet | A::ExpandSheet => I::Maximize2,
+        A::CloseSheet => I::X,
         A::SwitchTab(_) | A::NextTab => I::ChevronRight,
         A::PreviousTab => I::ChevronLeft,
         A::Approve => I::Check,
@@ -670,7 +670,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
         action: serde_json::to_value(a).unwrap_or_default(),
     };
     let recent: Vec<RecentItem> = [
-        action(KeyAction::NextInboxItem),
+        action(KeyAction::NextNeedsYouItem),
         RecentUse::Ticket {
             key: "SHOP-22".into(),
         },
@@ -1130,12 +1130,12 @@ mod tests {
     #[test]
     fn what_goes_into_the_recent_items() {
         assert!(recorded(KeyAction::Park));
-        assert!(recorded(KeyAction::NextInboxItem));
+        assert!(recorded(KeyAction::NextNeedsYouItem));
         for not in [
             KeyAction::CommandPalette,
             KeyAction::Project(2),
             KeyAction::NextTicket,
-            KeyAction::ClosePanel,
+            KeyAction::CloseSheet,
             KeyAction::SwitchTab(1),
         ] {
             assert!(!recorded(not), "{not:?}");

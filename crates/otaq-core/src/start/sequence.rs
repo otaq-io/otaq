@@ -20,7 +20,7 @@
 //! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
 //! worktree is there, and step 7 continues the stored conversation (its tool's resume) instead of starting
 //! a new one, with the skill still to run (`resume_skill`, followed by what came back in `resume_prompt`: "SHOP-18 was
-//! sent back to Dev with a comment. Run `otaq prime`.", CMT-05; or an inbox answer in `resume_prompt`) as its first
+//! sent back to Dev with a comment. Run `otaq prime`.", CMT-05; or a needs-you answer in `resume_prompt`) as its first
 //! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
 //! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048). A returning
 //! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
@@ -470,7 +470,7 @@ impl Starter {
                 )
                 .await?;
                 // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
-                // ticket is no longer parked. Its first prompt (a Send back's skill, an inbox answer) stays until
+                // ticket is no longer parked. Its first prompt (a Send back's skill, a needs-you answer) stays until
                 // the agent shows it got it ([`Board::first_prompt_delivered`]): a resume that can't find its
                 // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112). A child
                 // that joined its epic's queue isn't "new" any more once it started (EPC-13).
@@ -1236,7 +1236,7 @@ enum Done {
 struct Returning {
     /// The skill to run once the agent is live (`address-review`, `restack`); `None` for a parked ticket.
     skill: Option<String>,
-    /// The user's answer from the inbox to an Interrupted question (ATT-08), sent as the resumed
+    /// The user's answer from Needs you to an Interrupted question (ATT-08), sent as the resumed
     /// conversation's first prompt; with a skill, what follows it (a Send back's "SHOP-18 was sent back to Dev with
     /// a comment. Run `otaq prime`.", CMT-05).
     prompt: Option<String>,
@@ -1247,7 +1247,7 @@ struct Returning {
 }
 
 impl Returning {
-    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer, else (a
+    /// What the resumed conversation gets first: the skill followed by its text, else the needs-you answer, else (a
     /// Resume with nothing waiting) "Carry on where you left off" (d0122).
     fn first_prompt(&self) -> Option<FirstPrompt> {
         match (&self.skill, &self.prompt) {

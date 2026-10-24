@@ -1,4 +1,4 @@
-//! The panel's Messages section (MSG-01, MSG-03, MSG-06; d0030; *05 → Messages · agent-to-agent (SHOP-40.2),
+//! The sheet's Messages section (MSG-01, MSG-03, MSG-06; d0030; *05 → Messages · agent-to-agent (SHOP-40.2),
 //! Message states*): every question between this ticket and its directly linked tickets, oldest first, each with
 //! its answer and one status line. Read-only, except answering a question that was sent to the user (Needs you).
 //!
@@ -345,7 +345,7 @@ pub fn lead_threads(entries: &[LeadEntry], lead: &str) -> Vec<Thread> {
 fn thread(m: &Message, now: i64) -> Thread {
     let state = m.state();
     let (status, icon, tone) = match (state, m.route) {
-        (MessageState::InInbox, _) => (
+        (MessageState::NeedsYou, _) => (
             format!(
                 "Sent to you \u{b7} {} doesn\u{2019}t answer while it\u{2019}s finished",
                 m.to
@@ -366,7 +366,7 @@ fn thread(m: &Message, now: i64) -> Thread {
             IconName::MessageCircleReply,
             Tone::Delivered,
         ),
-        (_, Some(Route::Inbox)) => (
+        (_, Some(Route::NeedsYou)) => (
             "Answered by you".to_owned(),
             IconName::Inbox,
             Tone::Delivered,
@@ -383,7 +383,7 @@ fn thread(m: &Message, now: i64) -> Thread {
                     m.to
                 )
             }
-            (Some(Route::Inbox), _) => format!("Answered by you \u{b7} {ago}"),
+            (Some(Route::NeedsYou), _) => format!("Answered by you \u{b7} {ago}"),
             (_, MessageState::Answered) => {
                 format!("Answered \u{b7} waiting to reach {}", m.asker())
             }
@@ -416,7 +416,7 @@ fn thread(m: &Message, now: i64) -> Thread {
             tone,
         },
         answer,
-        answerable: state == MessageState::InInbox,
+        answerable: state == MessageState::NeedsYou,
     }
 }
 
@@ -480,8 +480,8 @@ mod tests {
                 .starts_with("Answered by resuming SHOP-40.1\u{2019}s session")
         );
 
-        let inbox = message(Some(Route::Inbox));
-        let t = &threads(&[inbox], 0)[0];
+        let needs_you = message(Some(Route::NeedsYou));
+        let t = &threads(&[needs_you], 0)[0];
         assert!(t.question.status.starts_with("Sent to you \u{b7}"));
         assert_eq!(t.question.tone, Tone::Attention);
         assert_eq!(t.question.icon, IconName::Inbox);

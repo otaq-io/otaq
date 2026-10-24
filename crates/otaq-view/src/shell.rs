@@ -17,7 +17,7 @@ pub enum ShellRequest {
         project: String,
         run: Option<Box<otaq_core::terminals::run::RunInfo>>,
     },
-    /// A needs-you item: switch to its project if needed and open its panel on this tab (UI-06).
+    /// A needs-you item: switch to its project if needed and open its sheet on this tab (UI-06).
     OpenTicket {
         project: String,
         key: otaq_core::domain::TicketKey,

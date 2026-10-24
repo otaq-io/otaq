@@ -18,7 +18,7 @@
 //! T-0221 (UI-02, EPC-01, TKT-06, TKT-08, TKT-09, CLS-01; d0047, d0060, d0065, d0033): `board.search` is the header's
 //! search and filter field (the board takes the same filter with `board.view`); `board.menu` and `board.menu_choose`
 //! are the card's right-click menu; `board.delete_dialog` and `board.delete` are the one delete confirmation of a
-//! never-started ticket, which the card menu, the panel's "…" menu and the Project agent's summary all open.
+//! never-started ticket, which the card menu, the sheet's "…" menu and the Project agent's summary all open.
 //!
 //! T-0270 (EPC-12, EPC-14, EPC-15; d0080): an epic's drag answer counts what it queues ("Queue 2 children"), and a
 //! drop of the epic card, one of its rows or a "not queued" chip (or ⌘D on the epic) sends `epic.queue`, then
@@ -70,7 +70,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
 
-use super::panel::{Sent, Unsent};
+use super::sheet::{Sent, Unsent};
 use super::{RequestError, reply, unknown};
 use crate::App;
 

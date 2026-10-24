@@ -1,6 +1,6 @@
 //! `palette.*`: the command palette (KEY-06, d0097; *02 · Command palette*). `palette.view` answers the list for what
 //! is typed, from every project's tickets, the user's keys and the recent items the service keeps; which actions can
-//! run is decided from the ticket open in the panel. `palette.record` keeps a use for the recent items: the page sends
+//! run is decided from the ticket open in the sheet. `palette.record` keeps a use for the recent items: the page sends
 //! every action run (palette or keys), ticket opened and project switched to, from anywhere.
 
 use otaq_core::board::snapshot::ProjectInfo;
@@ -43,7 +43,7 @@ pub struct ViewParams {
     pub query: String,
     /// The project on screen.
     pub project: Option<String>,
-    /// The ticket open in the panel.
+    /// The ticket open in the sheet.
     pub ticket: Option<String>,
     /// A terminal had the keyboard when the palette opened.
     #[serde(default)]

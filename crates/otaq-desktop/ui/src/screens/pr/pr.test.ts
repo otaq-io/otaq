@@ -56,7 +56,7 @@ describe("the PR screen", () => {
     pr(app);
     const r = registered(app);
     expect(r.overlays).toEqual(["open_pr"]);
-    expect(r.panelSections).toEqual(["pr_open"]);
+    expect(r.sheetSections).toEqual(["pr_open"]);
   });
 
   it("draws the confirmation like *Open PR · confirmation*", () => {

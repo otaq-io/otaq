@@ -1,5 +1,5 @@
 //! The focused-terminal rule (T-0110, ATT-03, d0042): while a ticket's terminal has focus, its agent's waiting is
-//! recorded but raises no turquoise, no inbox item (and so no notification); "your turn" is shown instead. Leaving the
+//! recorded but raises no turquoise, no needs-you item (and so no notification); "your turn" is shown instead. Leaving the
 //! terminal brings the turquoise and the item back at once. An ordinary `sh` stands in for `claude`.
 
 use std::time::Duration;
@@ -45,7 +45,7 @@ async fn eventually(what: &str, mut check: impl AsyncFnMut() -> bool) {
 }
 
 /// Whether SHOP-1 is a needs-you item, and the project's needs-you count.
-async fn in_inbox(w: &TestService) -> (bool, u32) {
+async fn in_needs_you(w: &TestService) -> (bool, u32) {
     let items = w.board.needs_you_items(now_ms()).await.unwrap();
     let info = w.board.project_info_of("SHOP").await.unwrap();
     (
@@ -82,9 +82,9 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     assert!(t.flags.your_turn, "your turn instead of turquoise");
     assert!(!t.shows_needs_you() && !t.needs_user());
     assert_eq!(
-        in_inbox(&w).await,
+        in_needs_you(&w).await,
         (false, 0),
-        "no inbox item while focused"
+        "no needs_you item while focused"
     );
     let dev = w.board.board_snapshot("SHOP").await.unwrap();
     let dev = dev
@@ -107,7 +107,7 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
         .unwrap();
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!((t.status, t.flags.your_turn), (Status::NeedsYou, true));
-    assert_eq!(in_inbox(&w).await, (false, 0));
+    assert_eq!(in_needs_you(&w).await, (false, 0));
 
     // Leaving the terminal with the agent still waiting: turquoise and the item appear at that moment.
     while events.try_recv().is_ok() {}
@@ -115,7 +115,7 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!((t.status, t.flags.your_turn), (Status::NeedsYou, false));
     assert!(t.shows_needs_you());
-    assert_eq!(in_inbox(&w).await, (true, 1));
+    assert_eq!(in_needs_you(&w).await, (true, 1));
     let changed = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Ok(Event::TicketChanged { key, .. }) = events.recv().await
@@ -158,7 +158,7 @@ async fn the_ticket_stays_calm_while_any_client_looks_and_a_disconnect_lets_go()
     focus(&app, &shell.session, false).await;
     assert!(w.board.ticket("SHOP-1").await.unwrap().flags.your_turn);
     assert!(w.sessions.is_focused(&shell.session).unwrap());
-    assert_eq!(in_inbox(&w).await, (false, 0));
+    assert_eq!(in_needs_you(&w).await, (false, 0));
 
     // attach goes away without a word (Ctrl+C, a closed terminal): its connection closing counts as focus lost.
     drop(attach);
@@ -168,7 +168,7 @@ async fn the_ticket_stays_calm_while_any_client_looks_and_a_disconnect_lets_go()
     .await;
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(t.status, Status::AsksYou);
-    assert_eq!(in_inbox(&w).await, (true, 1));
+    assert_eq!(in_needs_you(&w).await, (true, 1));
 
     w.stop().await;
 }
@@ -201,7 +201,7 @@ async fn an_ended_session_holds_no_focus() {
 }
 
 /// T-0194 (ATT-03, d0063): the rule applies per session. While the validator's terminal has focus (the app's
-/// Validator side, or `otaq attach SHOP-1 --stage validate`), its permission prompt raises no turquoise and no inbox
+/// Validator side, or `otaq attach SHOP-1 --stage validate`), its permission prompt raises no turquoise and no Needs you
 /// item; looking at the agent's terminal doesn't calm it.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_validators_terminal_calms_only_the_validator() {
@@ -233,7 +233,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
     );
     assert!(t.shows_needs_you());
     assert_eq!(
-        in_inbox(&w).await,
+        in_needs_you(&w).await,
         (true, 1),
         "the agent's terminal doesn't calm it"
     );
@@ -247,7 +247,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
         (t.status, t.flags.your_turn),
         (Status::CheckerNeedsYou, true)
     );
-    assert_eq!(in_inbox(&w).await, (false, 0));
+    assert_eq!(in_needs_you(&w).await, (false, 0));
 
     // Detaching brings the turquoise and the item back.
     drop(attach);
@@ -255,7 +255,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
         !w.board.ticket("SHOP-1").await.unwrap().flags.your_turn
     })
     .await;
-    assert_eq!(in_inbox(&w).await, (true, 1));
+    assert_eq!(in_needs_you(&w).await, (true, 1));
 
     w.stop().await;
 }

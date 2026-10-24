@@ -1,4 +1,4 @@
-//! The agent tools as the panel, the pane, the epic lead and recovery see them, and what they say about a tool that
+//! The agent tools as the sheet, the agent panel, the epic lead and recovery see them, and what they say about a tool that
 //! can't start or continue an agent (AGT-04, AGT-05, AGT-08, SHL-04, USG-10, §7.2; d0086, d0087, d0088, d0077;
 //! *05 → Column 3 · several tools (M23)*, *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *08 → Row ·
 //! Epic lead in the epic form and panel (0086 · V)*, *16 → Row · Recovery per tool (0086)*).
@@ -10,7 +10,7 @@
 //!   limit reached · resets 3:45 pm"; "Model unavailable" with Change agent (Change validator for the Validator).
 //!   The fallback is the tool's (AGM-03, d0108): it takes a held start only when you ask.
 //! - **A running or ended agent** whose tool isn't available or is at its limit ([`agent_notice`], [`lead_notice`]):
-//!   it waits, since a conversation never moves tools; the pane offers Sign in… and "New agent on Sonnet".
+//!   it waits, since a conversation never moves tools; the agent panel offers Sign in… and "New agent on Sonnet".
 //!
 //! Unavailable, a model no longer listed and moves are amber; limits are neutral; nothing here is turquoise (d0077).
 
@@ -184,7 +184,7 @@ pub enum Action {
     /// Open agent…: Settings → Agents on `agent`'s page (AGM-03, d0108 second gap review rule 7; replaces Change
     /// agent, Q280); the list when the agent isn't known.
     OpenAgent { agent: Option<String> },
-    /// The pane's empty state on `agent` (a named agent's id); it starts when you send (CHANGES-v §4).
+    /// The agent panel's empty state on `agent` (a named agent's id); it starts when you send (CHANGES-v §4).
     NewAgent { agent: String },
     /// Settings → Agents at the project's Project agent default, `agent` (Q-O).
     AgentSettings {
@@ -279,7 +279,7 @@ fn model_text(hold: &AgentHold, tools: &Tools) -> String {
 }
 
 /// "its fallback Claude Code can't start either": a held role whose tool's fallback is blocked too, on the card
-/// ("Griller's model can't run: Codex isn't available · its fallback Claude Code can't start either") and in the panel
+/// ("Griller's model can't run: Codex isn't available · its fallback Claude Code can't start either") and in the sheet
 /// (Q155: one wording).
 pub fn fallback_blocked_too(fallback: &str) -> String {
     format!("its fallback {fallback} can\u{2019}t start either")
@@ -440,7 +440,7 @@ pub fn new_agent_on<'a>(
         .or_else(|| agents.iter().find(runs))
 }
 
-/// The pane's notice for a running or ended Project agent whose tool isn't available or is at its limit (18
+/// The agent panel's notice for a running or ended Project agent whose tool isn't available or is at its limit (18
 /// `VDJkG`): it waits, since its conversation can't move tools; `new_agent` is where "New agent on …" starts.
 pub fn agent_notice(tool: Tool, tools: &Tools, new_agent: Option<&Agent>) -> Option<Callout> {
     let problem = tools.problem(tool)?;
@@ -496,7 +496,7 @@ pub fn agent_notice(tool: Tool, tools: &Tools, new_agent: Option<&Agent>) -> Opt
     })
 }
 
-/// The empty pane's notice for a held first message (Q-O): Model unavailable opens Settings → Agents at the
+/// The empty agent panel's notice for a held first message (Q-O): Model unavailable opens Settings → Agents at the
 /// project's Project agent default; a tool that can't run waits like a running agent, with "New agent on …".
 pub fn first_message_notice(
     hold: &AgentHold,
@@ -972,7 +972,7 @@ mod tests {
 
     /// 18 `VDJkG`: the notice for unavailable (Sign in…, New agent on Strong) and for a limit (Resume after reset).
     #[test]
-    fn the_panes_notice_for_unavailable_and_limit() {
+    fn the_agent_panels_notice_for_unavailable_and_limit() {
         let all = agents();
         let tools = codex_logged_out();
         let on = new_agent_on(CODEX, Some(&all[1]), &all, &tools);

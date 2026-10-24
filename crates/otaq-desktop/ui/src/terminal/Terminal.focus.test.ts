@@ -201,7 +201,7 @@ describe("a terminal that was asked for the keyboard", () => {
     expect(selection.get().focusedTerminal).toBe("s1");
   });
 
-  it("takes it after it opens when focus() came before (the drawer's +, the Pane, the sheet)", async () => {
+  it("takes it after it opens when focus() came before (the drawer's +, the AgentPanel, the sheet)", async () => {
     const { term, ref } = mount();
     act(() => {
       ref.current?.focus();

@@ -33,7 +33,7 @@ pub struct RailButton {
 }
 
 /// The rail's bottom after Cleanup (which keeps its own view, `shell.cleanup`): Terminals (⌃`, the drawer on the
-/// last-used Project terminal; no dot: agents that wait show in the pane and Needs you) and Settings (⌘,).
+/// last-used Project terminal; no dot: agents that wait show in the agent panel and Needs you) and Settings (⌘,).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RailBottom")]
 pub struct RailBottom {

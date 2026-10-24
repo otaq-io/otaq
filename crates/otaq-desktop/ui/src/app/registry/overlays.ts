@@ -121,7 +121,7 @@ export interface OverlayParams {
    * ⋯ or Settings → Flow; a stage to select (Edit <stage>…) or to add a new one after (Add a stage after <stage>;
    * `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page embed its body. */
   flow_editor: { project: string; from: FlowEditorFrom; select_stage?: string; add_after?: string | null };
-  /** A comment's report, or a paste not posted yet, read-only over the panel (CMT-12, T-0447). */
+  /** A comment's report, or a paste not posted yet, read-only over the sheet (CMT-12, T-0447). */
   report: ReportOpenParams;
 }
 

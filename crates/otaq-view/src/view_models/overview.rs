@@ -1,5 +1,5 @@
 //! The sheet's Overview (SHT-03, RPT-02; d0109, d0078, d0061, d0099; canvas `s25-03` Overview, `s25-04` editing in
-//! place, `s25-05` attachments). Top to bottom on the left: what the ticket needs from you (the panel's answer box and
+//! place, `s25-05` attachments). Top to bottom on the left: what the ticket needs from you (the sheet's answer box and
 //! action bar, T-0464's), the **description** shown as it reads, the sections not yet moved elsewhere (Epic, Stack,
 //! Messages), and the comments; on the right the **Attachments** column.
 //!

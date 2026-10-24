@@ -269,7 +269,7 @@ describe("the delete confirmation", () => {
     expect(refused).toContain("SHOP-19 has started; close it instead");
   });
 
-  it("deletes and closes the panel that showed the ticket", async () => {
+  it("deletes and closes the sheet that showed the ticket", async () => {
     selection.set({ ...NOTHING_SELECTED, project: "SHOP", ticket: "SHOP-21" });
     const calls: unknown[] = [];
     await deleteTicket("SHOP-21", (method, params) => {

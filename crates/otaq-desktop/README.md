@@ -56,8 +56,8 @@ screens. A screen touches only its own folders plus **one line in the screens in
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | `app.slots`                       | `slots.ts`: title bar ends, header, header search, header pause, rail, banners, agent panel, board, Ask bar, sheet, toasts | the component that fills the slot                  |
 | `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                                               | its overlay's component (gets `params`, `close`)   |
-| `app.sheetTabs`                   | the generated `SheetTab` (Rust `sheet::SheetTab`), in the order of `panel.ts`                                              | its tab's body (gets the open `ticket`)            |
-| `app.panelSections`               | `panel.ts`: Overview's sections (Stack) and the open PR's box under its top                                                | its section (gets the open `ticket`)               |
+| `app.sheetTabs`                   | the generated `SheetTab` (Rust `sheet::SheetTab`), in the order of `sheet.ts`                                              | its tab's body (gets the open `ticket`)            |
+| `app.sheetSections`               | `sheet.ts`: Overview's sections (Stack) and the open PR's box under its top                                                | its section (gets the open `ticket`)               |
 | `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order                                                           | its section (a project section gets the `project`) |
 | `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                                                                    | a handler per action, `app.shortcuts.on(...)`      |
 
@@ -73,7 +73,7 @@ import type { Screen } from "../../app/registry";
 
 export const strip: Screen = (app) => {
   app.overlays.register("resume_all", { Component: ResumeAll });
-  app.shortcuts.on("next_inbox_item", next);
+  app.shortcuts.on("next_needs_you_item", next);
 };
 ```
 
@@ -240,20 +240,20 @@ child state, gallery look) into theme colours with an exhaustive switch; a varia
 ## The ticket sheet
 
 The ticket opens as a sheet (_25 · The ticket view_, SHT-01, SHT-02, T-0464): `ui/src/screens/sheet/` fills the sheet
-slot, served by `src/api/panel.rs`, whose `panel.view` carries the sheet's header, details line, flow path and tabs
+slot, served by `src/api/sheet.rs`, whose `sheet.view` carries the sheet's header, details line, flow path and tabs
 (`sheet`, worded by `otaq-view`'s `sheet.rs`) beside the ticket's action bar, "…" menu, answer options, queued notice,
 conflict strip and Start interrupted callout (Overview's top, `ui/src/screens/overview/NeedsYou.tsx`). The ticket's
-actions are the sheet's (`sheet/actions.tsx`): buttons that talk to the service go back through `panel.action` (Start,
+actions are the sheet's (`sheet/actions.tsx`): buttons that talk to the service go back through `sheet.action` (Start,
 Retry start, Resume, Reopen, Mark merged, Open PR in browser), which shows a refusal as a toast; the rest open a tab
-or an overlay (`sheet/actionRoutes.ts`, `actionRoute` / `menuRoute`). Move… asks `panel.move_menu` (the drag's
-columns) and drops like a drag. The sheet keeps only its full page state (`panelExpanded`), open menus and the picked
+or an overlay (`sheet/actionRoutes.ts`, `actionRoute` / `menuRoute`). Move… asks `sheet.move_menu` (the drag's
+columns) and drops like a drag. The sheet keeps only its full page state (`sheetExpanded`), open menus and the picked
 answer. The selection's `tab` names what the sheet shows, the generated `SheetContent` (Rust `sheet::Content`): a tab
 (`overview`, `files`, `activity`, `lead`) or a side of Session's switch (`agent`, `check`, `run`, `shell`); `null` is
 the tab it opens on. Each sheet tab lists the contents it holds and the one it lands on.
 
 - **A sheet tab:** register its body (`app.sheetTabs.register("session", …)`) from its own screen; it gets
   `{ ticket }`, and `useSheet()` gives the open view, its actions and the selected content.
-- **An Overview section:** register it (`app.panelSections.register("stack", …)`); it gets `{ ticket }` and draws in
+- **An Overview section:** register it (`app.sheetSections.register("stack", …)`); it gets `{ ticket }` and draws in
   Overview.
 - **Edit:** the menu's Edit ticket shows Overview and adds a `ticketEditRequests` entry (`ui/src/app/selection.ts`)
   Overview answers by opening its form.
@@ -264,7 +264,7 @@ the tab it opens on. Each sheet tab lists the contents it holds and the one it l
 ## Session
 
 The sheet's Session (canvas `s25-06`, SHT-04, T-0466) is `ui/src/screens/session/`: the switch **Agent · <check's agent>
-· Run · Shell** (`PanelView.sheet`'s Session `parts`, worded by `otaq-view`'s `session_tab.rs`; the check's side shows
+· Run · Shell** (`SheetView.sheet`'s Session `parts`, worded by `otaq-view`'s `session_tab.rs`; the check's side shows
 once a check stage ran, named after its agent) leads the line of the side shown. The agent's and the check's terminal
 are served by `src/api/terminal_tab.rs`: `terminal_tab.view` gives the agent session to attach (the running one, else
 the newest) and the check's (`check`), the line ("Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22",
@@ -273,7 +273,7 @@ font size and find tooltips), the "Instructions: shop-web" link, the end marker 
 Interrupted ticket whose session is gone, "Before the restart" (REC-02). The state label and the hint line depend on
 the terminal's phase and focus, which only the page knows, so the view carries one `strips` entry per phase and focus,
 worded by `otaq-view`'s `terminal_strip.rs`, and the terminal picks the one it reports (`terminalLogic.ts`). Deliver
-now goes through `terminal_tab.deliver_now`, which answers like `panel.answer` (done, or the unsent-text question).
+now goes through `terminal_tab.deliver_now`, which answers like `sheet.answer` (done, or the unsent-text question).
 Run (`run.tab`) leads with "pnpm dev · in SHOP-22’s worktree · :4022" and Open URL; Shell is `run.shell`'s.
 
 - **Focus requests:** a `terminalFocusRequests` entry for the shown ticket (a notification click, the bar's Open
@@ -288,14 +288,14 @@ kind, under the filters All · Comments · Stages · Description (`history.rs`).
 The Needs you strip (_24 · The board_, NYS-01…NYS-03, d0114, T-0459) is `ui/src/screens/strip/`, served by
 `src/api/strip.rs` and worded by `otaq-view`'s `needs_you_strip.rs`. The Board and the List each render
 `<NeedsYouStrip />` under their toolbar; it shows only the open project's items, one chip each, in the order of the
-service's queue (`inbox.list`, d0016's groups, unchanged). Requests: `strip.view` (the chips, the count, Next),
+service's queue (`needs_you.list`, d0016's groups, unchanged). Requests: `strip.view` (the chips, the count, Next),
 `strip.next` (where ⌘J goes: the next item here, else the next project with items), `strip.resume_all_confirm` and
 `strip.resume_all` (Resume all's confirmation and run), `strip.suggestion` (an epic lead's suggestion confirmed or
 dismissed).
 
 - **Overlays:** `resume_all` (Resume all's confirmation with its tickets, also opened by the "sessions were
   interrupted" banner).
-- **⌘J** (`next_inbox_item`) works from anywhere, a focused terminal included: the next item opens with its terminal
+- **⌘J** (`next_needs_you_item`) works from anywhere, a focused terminal included: the next item opens with its terminal
   focused (`requestTerminalFocus`); after the open project's last item it switches to the next project with items. It
   never moves on by itself (ATT-07).
 

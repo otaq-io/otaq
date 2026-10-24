@@ -279,7 +279,7 @@ pub enum ModelRan {
     Written,
     /// The session already has this model.
     Same,
-    /// The session already has another one (`/model` typed into its pane, say): kept; the later one is only logged.
+    /// The session already has another one (`/model` typed into its agent panel, say): kept; the later one is only logged.
     Different { first: String },
     /// No such session.
     NoSession,
@@ -977,7 +977,7 @@ impl Sessions {
     /// A client reports that its terminal for this session gained or lost keyboard focus (SES-10). Focus is kept
     /// per client: the session counts as focused while any client holds it, and `otaq attach` holds it while
     /// attached (ATT-03). Publishes `session_focus` when the session's focus changes, and `ticket_changed` when
-    /// the ticket's does on the session's side (a validator is a side of its own, d0063; its card, inbox item and
+    /// the ticket's does on the session's side (a validator is a side of its own, d0063; its card, needs-you item and
     /// notification depend on it). An ended session takes no focus.
     pub fn set_focused(
         &self,
@@ -1523,7 +1523,7 @@ impl Inner {
         }
     }
 
-    /// A ticket's focus changed: its card, inbox item and notification may change with it.
+    /// A ticket's focus changed: its card, needs-you item and notification may change with it.
     fn ticket_focus_changed(&self, ticket_id: &str, key: Option<TicketKey>) {
         if let Some(key) = key {
             self.events.publish(Event::TicketChanged {

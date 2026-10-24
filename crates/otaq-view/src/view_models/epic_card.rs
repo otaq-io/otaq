@@ -203,7 +203,7 @@ impl EpicViewModel {
     }
 
     /// On the board (FLW-16, `s03-46`): an open PR reads "PR #77 open" and its comments become a child (Add a child
-    /// from PR comments · Mark merged; Mark closed stays in the panel).
+    /// from PR comments · Mark merged; Mark closed stays in the sheet).
     pub fn with_pr_comments(mut self, epic: &Ticket) -> Self {
         if epic.status != Status::PrOpen {
             return self;

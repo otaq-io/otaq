@@ -3,7 +3,7 @@
 // Overview, what the lead asks you with its options as buttons (`LeadAsks`; a click sends that option, Other… opens a
 // field); under the description, TICKETS as a stage grid (`EpicGrid`: each child where it is now and what it is doing,
 // a row opens it); the Tickets tab (`TicketsTab`: every child as a List row, then Add ticket to epic). Everything it
-// says is Rust's (`panel.view`'s `sheet.epic` and `answer`, `epic.overview`, `epic.tickets`).
+// says is Rust's (`sheet.view`'s `sheet.epic` and `answer`, `epic.overview`, `epic.tickets`).
 import { type KeyboardEvent, type PointerEvent, useCallback, useState } from "react";
 
 import { requestCardAction } from "../../app/cardActions";
@@ -16,9 +16,9 @@ import type { EpicGrid as Grid } from "../../generated/EpicGrid";
 import type { EpicHead } from "../../generated/EpicHead";
 import type { EpicOverviewView } from "../../generated/EpicOverviewView";
 import type { EpicTicketsView } from "../../generated/EpicTicketsView";
-import type { PanelAnswer } from "../../generated/PanelAnswer";
-import type { PanelSent } from "../../generated/PanelSent";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetAnswer } from "../../generated/SheetAnswer";
+import type { SheetSent } from "../../generated/SheetSent";
+import type { SheetView } from "../../generated/SheetView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -26,7 +26,7 @@ import { dropCard } from "../board/Board";
 import { Row, type ListHandlers } from "../list/List";
 import { askUnsent } from "../sheet/actions";
 import { canSend } from "../sheet/actionRoutes";
-import { PANEL_EVENTS } from "../sheet/actions";
+import { SHEET_EVENTS } from "../sheet/actions";
 import "./epic.css";
 
 const ignore = () => undefined;
@@ -51,10 +51,10 @@ export function EpicHeadPills({ head }: { head: EpicHead }) {
 
 /**
  * What the lead asks you (`s25-11`): "Wishlist lead asks", its question and its options as buttons, the recommended
- * one (else the first) filled. A click sends that option (`panel.answer`, typed into the lead's session; unsent text
+ * one (else the first) filled. A click sends that option (`sheet.answer`, typed into the lead's session; unsent text
  * there asks first); Other… opens a field for your own answer.
  */
-export function LeadAsks({ view, answer }: { view: PanelView; answer: PanelAnswer }) {
+export function LeadAsks({ view, answer }: { view: SheetView; answer: SheetAnswer }) {
   const [other, setOther] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState<number | null>(null);
@@ -62,7 +62,7 @@ export function LeadAsks({ view, answer }: { view: PanelView; answer: PanelAnswe
     if (sending !== null || !canSend(pick, typed, answer.rows)) return Promise.resolve();
     setSending(pick);
     const params = { key: view.key, question: answer.question, pick, other: typed, clear };
-    return (request("panel.answer", params) as Promise<PanelSent>)
+    return (request("sheet.answer", params) as Promise<SheetSent>)
       .then((sent) => {
         askUnsent(sent, () => send(pick, typed, true));
       })
@@ -190,7 +190,7 @@ export function useEpicOverview(ticket: string, epic: boolean): EpicOverviewView
       epic ? (request("epic.overview", { key: ticket }) as Promise<EpicOverviewView>) : Promise.resolve(null),
     [ticket, epic],
   );
-  const { view } = useServiceView(load, PANEL_EVENTS);
+  const { view } = useServiceView(load, SHEET_EVENTS);
   return view?.key === ticket ? view : null;
 }
 
@@ -272,6 +272,6 @@ export function TicketsTab({ ticket }: TicketProps) {
     () => request("epic.tickets", { key: ticket }) as Promise<EpicTicketsView>,
     [ticket],
   );
-  const { view } = useServiceView(load, PANEL_EVENTS);
+  const { view } = useServiceView(load, SHEET_EVENTS);
   return view?.key === ticket ? <TicketsBody view={view} /> : null;
 }

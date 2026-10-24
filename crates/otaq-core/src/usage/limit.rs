@@ -8,7 +8,7 @@
 //! error), if it lies ahead; the tool's window for that limit ([`AgentTool::limit_window_key`]) if its reset lies
 //! ahead; the time in the limit message ([`AgentTool::limit_reset_from_text`]); else unknown.
 //!
-//! Everything is per tool (USG-10): a hit, the reset, the agents it stopped (kept out of the inbox, ATT-09) and
+//! Everything is per tool (USG-10): a hit, the reset, the agents it stopped (kept out of Needs you, ATT-09) and
 //! **Resume** ([`PlanLimit::resume_tool`]): only that tool's agents continue and only its holds lift (the check
 //! before every launch reads the tool's active limit, [`crate::agents::gate`]). Resume is per tool only.
 
@@ -20,7 +20,7 @@ use tokio::sync::watch;
 
 use super::plan::{self, ActiveLimit, ToolWindow};
 use crate::agent_tools::{Adapters, AgentTool, LimitWindow, Tool};
-use crate::attention::Inbox;
+use crate::attention::NeedsYouQueue;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Status, TicketKey, stored_enum};
 use crate::protocol::Event;
@@ -122,7 +122,7 @@ fn observed_at(windows: &[ToolWindow]) -> Option<i64> {
 }
 
 /// The usage limits in the service, per tool: the hit, the reset time, the reset bookkeeping and Resume. While a
-/// tool's limit is active the inbox leaves out the agents it stopped (ATT-09, d0046) and the check before every
+/// tool's limit is active Needs you leaves out the agents it stopped (ATT-09, d0046) and the check before every
 /// launch holds only that tool's agents (SCH-04 `[M23]`). Cheap to clone.
 #[derive(Clone)]
 pub struct PlanLimit {
@@ -133,7 +133,7 @@ struct Inner {
     board: Board,
     store: Store,
     events: EventBus,
-    inbox: Inbox,
+    needs_you: NeedsYouQueue,
     sessions: Sessions,
     deliveries: Deliveries,
     /// Which window a limit belongs to, and the reset time in a limit message (USG-04).
@@ -148,7 +148,7 @@ impl PlanLimit {
     pub fn new(
         board: Board,
         events: EventBus,
-        inbox: Inbox,
+        needs_you: NeedsYouQueue,
         sessions: Sessions,
         deliveries: Deliveries,
         adapters: Adapters,
@@ -158,7 +158,7 @@ impl PlanLimit {
                 store: board.store().clone(),
                 board,
                 events,
-                inbox,
+                needs_you,
                 sessions,
                 deliveries,
                 adapters,
@@ -173,13 +173,13 @@ impl PlanLimit {
         *self.inner.project_agents.lock().expect("project agents") = Some(agents);
     }
 
-    /// At service start: a limit still active keeps its agents out of the inbox, each agent waiting for a reset
+    /// At service start: a limit still active keeps its agents out of Needs you, each agent waiting for a reset
     /// marked with its tool.
     pub async fn restore(&self) -> Result<(), StoreError> {
         let limits = plan::limits(&self.inner.store).await?;
         for limit in &limits {
             self.inner
-                .inbox
+                .needs_you
                 .set_suppress_limit_stopped(limit.tool, true);
         }
         if limits.is_empty() {
@@ -187,7 +187,7 @@ impl PlanLimit {
         }
         for id in self.waiting_ids(true).await? {
             let tool = self.tool_of(&id).await?;
-            self.inner.inbox.mark_limit_stopped(&id, Some(tool));
+            self.inner.needs_you.mark_limit_stopped(&id, Some(tool));
         }
         Ok(())
     }
@@ -279,7 +279,7 @@ impl PlanLimit {
         plan::latest(&self.inner.store).await
     }
 
-    /// `ticket_id`'s agent hit `tool`'s usage limit (USG-03): it is marked as stopped by that tool's limit (no inbox
+    /// `ticket_id`'s agent hit `tool`'s usage limit (USG-03): it is marked as stopped by that tool's limit (no Needs you
     /// item, no notification), and the tool's limit becomes active with its kind and reset time (`resets_at`, the
     /// reset the signal carried, else the tool's window, else the limit message, else unknown). A limit of the tool
     /// that is already active stays as it is, unless it had already reset (a new hit after the reset starts a new
@@ -293,7 +293,9 @@ impl PlanLimit {
         now: i64,
     ) -> Result<bool, StoreError> {
         let _one = self.inner.lock.lock().await;
-        self.inner.inbox.mark_limit_stopped(ticket_id, Some(tool));
+        self.inner
+            .needs_you
+            .mark_limit_stopped(ticket_id, Some(tool));
         self.record_locked(tool, hit, resets_at, now).await
     }
 
@@ -328,7 +330,7 @@ impl PlanLimit {
         now: i64,
     ) -> Result<bool, StoreError> {
         let store = &self.inner.store;
-        self.inner.inbox.set_suppress_limit_stopped(tool, true);
+        self.inner.needs_you.set_suppress_limit_stopped(tool, true);
         if plan::limit_of(store, tool)
             .await?
             .is_some_and(|l| l.reset_seen_at.is_none())
@@ -406,7 +408,7 @@ impl PlanLimit {
 
     /// **Resume `tool`** (USG-06, USG-10; the user's click, d0020): queues one "continue" for every agent still
     /// waiting for `tool`'s limit reset, as an automatic delivery (typed once the agent is idle and its input line
-    /// empty, d0048), and clears that tool's limit, its banner line and the inbox's hiding of its agents. Its
+    /// empty, d0048), and clears that tool's limit, its banner line and Needs you's hiding of its agents. Its
     /// holds lift as the limit goes (the gate reads the tool's limit). Agents of other tools, and agents the tool
     /// already continued by itself (working again, Q27), get nothing. Returns the tickets that got a "continue".
     pub async fn resume_tool(&self, tool: Tool) -> Result<Vec<TicketKey>, BoardError> {
@@ -448,9 +450,9 @@ impl PlanLimit {
             }
         }
         plan::clear_limit(&inner.store, tool).await?;
-        inner.inbox.set_suppress_limit_stopped(tool, false);
+        inner.needs_you.set_suppress_limit_stopped(tool, false);
         for id in inner.board.limit_stops().marked_by(tool) {
-            inner.inbox.mark_limit_stopped(&id, None);
+            inner.needs_you.mark_limit_stopped(&id, None);
         }
         // The leads' wake-ups held during the limit are typed now (d0083).
         if let Some(agents) = agents {
@@ -461,9 +463,9 @@ impl PlanLimit {
         Ok(continued)
     }
 
-    /// **"This is the usage limit"** (USG-07, per tool: USG-10; d0020), the user's click on `key`'s Idle inbox item
+    /// **"This is the usage limit"** (USG-07, per tool: USG-10; d0020), the user's click on `key`'s Idle needs-you item
     /// when detection missed: every Idle agent **on that agent's tool** becomes Waiting for limit reset (logged in
-    /// its History) and stops raising an inbox item, and that tool's limit becomes active, reset time unknown
+    /// its History) and stops raising a needs-you item, and that tool's limit becomes active, reset time unknown
     /// unless the tool's windows show a full one with its reset. Other tools' Idle agents keep their items.
     /// Returns the tickets it folded into the tool's banner line.
     pub async fn mark_idle(
@@ -522,7 +524,7 @@ impl PlanLimit {
             )
             .await?;
             tx.commit().await?;
-            inner.inbox.mark_limit_stopped(&id, Some(tool));
+            inner.needs_you.mark_limit_stopped(&id, Some(tool));
             let ticket = inner.board.ticket_by_id(&id).await?;
             let project = ticket.key.project.to_string();
             inner.events.publish(Event::TicketChanged {
@@ -554,7 +556,7 @@ impl PlanLimit {
             (None, None) => (LimitKind::Other, full(LimitKind::Other)),
         };
         let _one = inner.lock.lock().await;
-        inner.inbox.set_suppress_limit_stopped(tool, true);
+        inner.needs_you.set_suppress_limit_stopped(tool, true);
         let active = plan::limit_of(&inner.store, tool)
             .await?
             .is_some_and(|l| l.reset_seen_at.is_none());

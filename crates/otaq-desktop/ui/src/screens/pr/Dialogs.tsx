@@ -537,7 +537,7 @@ export function PrOpenSection({ ticket }: TicketProps) {
     <OpenBox
       view={view}
       onOpen={() => {
-        request("panel.action", { key: ticket, action: "open_pr_in_browser" }).catch(ignore);
+        request("sheet.action", { key: ticket, action: "open_pr_in_browser" }).catch(ignore);
       }}
     />
   );

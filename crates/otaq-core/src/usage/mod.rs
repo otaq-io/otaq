@@ -61,7 +61,7 @@ pub struct Tokens {
 }
 
 impl Tokens {
-    /// The one number shown on cards, in the panel and in the header: input (cache writes included), output and
+    /// The one number shown on cards, in the sheet and in the header: input (cache writes included), output and
     /// reasoning. Cached input (the conversation re-read on every request) is stored but not shown (Q26, deferred:
     /// built as option 1).
     pub fn shown(&self) -> u64 {

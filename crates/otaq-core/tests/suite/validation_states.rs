@@ -1,5 +1,5 @@
 //! The M12 states and flags (T-0182; SDD §7.2, §12.2, §13; d0063, d0064, d0042, d0016): needs-you ones group like
-//! the needs-you family, Validating holds one slot and makes no inbox item, and the ticket columns become the
+//! the needs-you family, Validating holds one slot and makes no needs-you item, and the ticket columns become the
 //! card's flags.
 
 use std::collections::HashSet;
@@ -20,7 +20,7 @@ const M12_DEV: [Status; 6] = [
 ];
 
 #[test]
-fn needs_you_states_are_inbox_group_one_and_validating_makes_no_item() {
+fn needs_you_states_are_needs_you_group_one_and_validating_makes_no_item() {
     for status in M12_DEV {
         let expected = status
             .is_needs_you_family()

@@ -6,7 +6,7 @@ import type { AddProjectParams } from "../../generated/AddProjectParams";
 import type { AddProjectView } from "../../generated/AddProjectView";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
-import { PANE_ROUTES, type PaneRoutes, showAgent, showPane } from "../pane/logic";
+import { AGENT_PANEL_ROUTES, type AgentPanelRoutes, showAgent, showAgentPanel } from "../agent_panel/logic";
 
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
@@ -84,7 +84,7 @@ export async function finishOnboarding(warningShown: boolean, ask: Ask): Promise
 }
 
 /** A project added later (Add project): it is selected, so its Flow setup page (the flow editor) shows. */
-export function addedLater(project: string, routes: PaneRoutes = PANE_ROUTES): void {
+export function addedLater(project: string, routes: AgentPanelRoutes = AGENT_PANEL_ROUTES): void {
   selectProject(project, routes.selection);
 }
 
@@ -92,10 +92,14 @@ export function addedLater(project: string, routes: PaneRoutes = PANE_ROUTES): v
  * The Flow step is over (Use this flow, Skip, use the default): the project's board shows, with the agent the editor's
  * panel showed (the flow agent whose flow was used stays) open in the Project agent panel.
  */
-export function afterFlowStep(project: string, agent: string | null, routes: PaneRoutes = PANE_ROUTES): void {
+export function afterFlowStep(
+  project: string,
+  agent: string | null,
+  routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
+): void {
   selectProject(project, routes.selection);
   if (agent !== null) {
     showAgent(project, agent, routes.shown);
-    showPane(routes);
+    showAgentPanel(routes);
   }
 }

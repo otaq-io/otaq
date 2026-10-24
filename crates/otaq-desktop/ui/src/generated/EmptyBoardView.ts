@@ -4,6 +4,6 @@ import type { EmptyBoardHint } from "./EmptyBoardHint";
 
 /**
  * The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket, the
- * text and a hint pointing at the pane's Project agent (d0068, d0087).
+ * text and a hint pointing at the agent panel's Project agent (d0068, d0087).
  */
 export type EmptyBoardView = { title: string, text: string, buttons: Array<EmptyBoardButton>, hints: Array<EmptyBoardHint>, };

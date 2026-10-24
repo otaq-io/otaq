@@ -1,4 +1,4 @@
-//! `lead.*`: the epic sheet's Lead tab (LEAD-11, LEAD-12; d0083, d0045; *05 → Row · Epic panel · Lead tab (0083)*,
+//! `lead.*`: the epic sheet's Lead tab (LEAD-11, LEAD-12; d0083, d0045; *05 → Row · Epic sheet · Lead tab (0083)*,
 //! *Row · Lead tab · ended*, *16 → Before the restart*). `lead.view` gathers the epic, its project's tickets, its
 //! lead (`lead.list`), the epic's History (the lead's changes) and, after a restart, the lead's saved conversation
 //! (`session.before_restart` on the epic's key reads its lead's), and `lead_tab.rs` says what the tab shows. Open
@@ -189,7 +189,7 @@ mod tests {
             Reply::Ticket(t) => t.key.to_string(),
             other => panic!("{other:?}"),
         };
-        // No children (LEAD-13, d0091): Split with the Project agent, with the pane's first message.
+        // No children (LEAD-13, d0091): Split with the Project agent, with the agent panel's first message.
         let load = request(&h.app, "lead.view", json!({ "key": epic }))
             .await
             .unwrap();

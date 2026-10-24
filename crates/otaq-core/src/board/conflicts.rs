@@ -1,5 +1,5 @@
 //! "conflicts with `main`" (GIT-03, GIT-04, GIT-06; d0038, d0044, d0051): a fact about a ticket's branch and the
-//! branch it merges into, shown on the card and in the panel, and named by `otaq prime`.
+//! branch it merges into, shown on the card and in the sheet, and named by `otaq prime`.
 //!
 //! It comes from a Delivery's free rebase (the ticket goes to its agent with `restack`, no click, FLW-17),
 //! from the read-only test merge after another ticket merged (T-0096; the ticket goes to its agent the same way,

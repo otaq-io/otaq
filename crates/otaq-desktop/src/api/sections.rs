@@ -1,5 +1,5 @@
 //! `sections.*`: the ticket's sections and its Activity (UI-04, REC-03, MSG-01, MSG-03, MSG-06, EPC-01, EPC-04,
-//! EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The Dependencies section is
+//! EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side sheet*). The Dependencies section is
 //! `dependencies.rs`'s (DPV-04). The **Messages** between linked agents
 //! with their states (`messages.rs`), answerable when one went to the user (Needs you); the sheet's **Activity** (SHT-05), sessions
 //! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
@@ -68,7 +68,7 @@ fn toast(app: &App, level: ToastLevel, title: String, text: Option<String>) {
     app.notices.toast(NewToast::new(level, title, text));
 }
 
-/// What every `sections.*` view takes: the ticket the panel shows.
+/// What every `sections.*` view takes: the ticket the sheet shows.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "SectionParams")]
 pub struct Params {
@@ -522,7 +522,7 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
     let records = validations(app, &params.key).await;
     let ticket = ticket(app, &params.key).await?;
     let rounds = match &ticket {
-        Some(t) if !records.is_empty() => super::panel::check_rounds(app, t).await,
+        Some(t) if !records.is_empty() => super::sheet::check_rounds(app, t).await,
         _ => otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
     };
     // A comment's author names its stage by id; History shows its name in the flow now (CMT-14).

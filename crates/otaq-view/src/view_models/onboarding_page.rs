@@ -125,7 +125,7 @@ pub struct Welcome {
 pub fn welcome(keys: &KeyLabels) -> Welcome {
     // Without a key for Next item that needs you the sentence about it is left out.
     let next_key = keys
-        .label(KeyAction::NextInboxItem)
+        .label(KeyAction::NextNeedsYouItem)
         .map(|k| format!(" {k} opens the next."))
         .unwrap_or_default();
     Welcome {
@@ -1014,7 +1014,7 @@ mod tests {
                 .ends_with("above the board. ⌘J opens the next.")
         );
         // KEY-08: the user's key for Next item that needs you, and no sentence about it without one.
-        let custom = fixtures::replaced("next_inbox_item", None, 0, "⇧⌘J");
+        let custom = fixtures::replaced("next_needs_you_item", None, 0, "⇧⌘J");
         assert!(
             welcome(&custom).points[1]
                 .text

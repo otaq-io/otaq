@@ -592,9 +592,9 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             // The warm build switch (T-0301): whether the disk can clone, and the project's warm build.
             let warm = super::recovery::warm_list(app).await.ok();
             // Run command's Ask the agent names the project's Project agent (T-0342).
-            let project_agent = otaq_view::view_models::agent_pane::new_agent_name(
-                super::pane::project_agent(app).await?.as_ref(),
-                &super::pane::tools(app).await,
+            let project_agent = otaq_view::view_models::agent_panel::new_agent_name(
+                super::agent_panel::project_agent(app).await?.as_ref(),
+                &super::agent_panel::tools(app).await,
             );
             // Ask the agent is hidden only when no agent tool is connected (RUN-02, d0086).
             let tool_connected = match super::agent_tools::list(app, Request::AgentToolsList).await {

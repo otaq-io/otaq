@@ -309,7 +309,7 @@ pub async fn new_ticket_agents(
     })
 }
 
-/// Everything the panel shows of `key`'s agents ([`TicketAgents`]).
+/// Everything the sheet shows of `key`'s agents ([`TicketAgents`]).
 pub async fn ticket_agents(board: &Board, key: &str) -> Result<TicketAgents, BoardError> {
     let ticket = board.ticket(key).await?;
     let mut agents = new_ticket_agents(board, ticket.key.project.as_str(), ticket.kind).await?;

@@ -17,7 +17,7 @@ import type { SheetContent } from "../../generated/SheetContent";
 import type { StripTarget } from "../../generated/StripTarget";
 import type { StripView } from "../../generated/StripView";
 import { request } from "../../tauri";
-import type { PaneFocusRequest, ShownAgents } from "../pane/logic";
+import type { AgentPanelFocusRequest, ShownAgents } from "../agent_panel/logic";
 import { strip } from ".";
 import { confirmSuggestion, dismissSuggestion, openOf, openTarget, runNext, type StripRoutes } from "./logic";
 import { resumeAll, ResumeAllBody } from "./ResumeAll";
@@ -133,11 +133,11 @@ function routes(project: string | null = "SHOP"): StripRoutes {
   return {
     selection,
     focus: createStore<TerminalFocusRequest | null>(null),
-    pane: {
+    agentPanel: {
       selection,
       layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
       shown: createStore<ShownAgents>({}),
-      focus: createStore<PaneFocusRequest | null>(null),
+      focus: createStore<AgentPanelFocusRequest | null>(null),
     },
     last: createStore<StripTarget | null>(null),
     blur: vi.fn(),
@@ -185,7 +185,7 @@ describe("the strip's markup", () => {
   it("registers Resume all's confirmation and ⌘J", () => {
     const r = registered(registerScreens({ strip }));
     expect(r.overlays).toEqual(["resume_all"]);
-    expect(r.shortcuts).toEqual(["next_inbox_item"]);
+    expect(r.shortcuts).toEqual(["next_needs_you_item"]);
   });
 
   it("draws every group's head and chips in order, with dividers, Resume all and Next with its key", () => {
@@ -329,9 +329,9 @@ describe("opening and Next", () => {
   it("a Project agent opens in the panel, focused", () => {
     const r = routes("SHOP");
     openTarget({ kind: "agent", project: "SHOP", agent: "pa3" }, r);
-    expect(r.pane.shown.get()).toEqual({ SHOP: "pa3" });
-    expect(r.pane.layout.get().agentOpen).toBe(true);
-    expect(r.pane.focus.get()).toEqual({ seq: 1, agent: "pa3" });
+    expect(r.agentPanel.shown.get()).toEqual({ SHOP: "pa3" });
+    expect(r.agentPanel.layout.get().agentOpen).toBe(true);
+    expect(r.agentPanel.focus.get()).toEqual({ seq: 1, agent: "pa3" });
     expect(openOf(r)).toEqual({ kind: "agent", agent: "pa3" });
   });
 
@@ -341,8 +341,8 @@ describe("opening and Next", () => {
     r.selection.update((s) => ({ ...s, ticket: "SHOP-12" }));
     expect(openOf(r)).toEqual({ kind: "ticket", key: "SHOP-12" });
     r.selection.update((s) => ({ ...s, ticket: null }));
-    r.pane.shown.set({ SHOP: "pa1" });
-    r.pane.layout.set({ ...INITIAL_LAYOUT, agentOpen: true });
+    r.agentPanel.shown.set({ SHOP: "pa1" });
+    r.agentPanel.layout.set({ ...INITIAL_LAYOUT, agentOpen: true });
     expect(openOf(r)).toEqual({ kind: "agent", agent: "pa1" });
   });
 

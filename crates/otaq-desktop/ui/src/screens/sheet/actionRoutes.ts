@@ -1,17 +1,17 @@
 // Where the ticket's buttons go (T-0222), in its sheet (T-0464). What the buttons and menus say is Rust's
-// (`src/api/panel.rs`); this file keeps only the moment of interaction: the picked answer, and which buttons open a
+// (`src/api/sheet.rs`); this file keeps only the moment of interaction: the picked answer, and which buttons open a
 // tab or a dialog on the page instead of calling the service.
 import type { CardActionKind } from "../../generated/CardActionKind";
-import type { PanelAction } from "../../generated/PanelAction";
-import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
+import type { SheetAction } from "../../generated/SheetAction";
+import type { SheetAnswerRow } from "../../generated/SheetAnswerRow";
 
-/** Where a button goes: the service (`panel.action`), a tab, or a dialog. */
+/** Where a button goes: the service (`sheet.action`), a tab, or a dialog. */
 export type ActionRoute =
   | { kind: "service" }
   // Start (DPV-03): `board.start`, whose answer may be the blocked ticket's dialog.
   | { kind: "start" }
   | { kind: "terminal" }
-  // Send again (d0118): `panel.send_again`, whose answer may be the unsent-text question.
+  // Send again (d0118): `sheet.send_again`, whose answer may be the unsent-text question.
   | { kind: "send_again" }
   | { kind: "check" }
   | { kind: "answer_agent" }
@@ -23,11 +23,11 @@ export type ActionRoute =
   | { kind: "pass" }
   | { kind: "mark_closed" }
   | { kind: "run" }
-  // Open agent… (AGM-03, d0108 second gap review rule 7): Settings → Agents on the panel's `open_agent`.
+  // Open agent… (AGM-03, d0108 second gap review rule 7): Settings → Agents on the sheet's `open_agent`.
   | { kind: "open_agent" };
 
 // No `default`: a new action fails ESLint's switch-exhaustiveness-check until it gets its route.
-export function actionRoute(action: PanelAction): ActionRoute {
+export function actionRoute(action: SheetAction): ActionRoute {
   switch (action) {
     case "start":
       return { kind: "start" };
@@ -50,7 +50,7 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "open_validator":
     case "answer_validator":
       return { kind: "check" };
-    // Opens the note box under the bar; Send to agent calls `panel.answer_agent`.
+    // Opens the note box under the bar; Send to agent calls `sheet.answer_agent`.
     case "answer_agent":
       return { kind: "answer_agent" };
     case "open_terminal":
@@ -90,7 +90,7 @@ export function agentSettings(agent: string | null): { section: "agents"; agent?
   return agent === null ? { section: "agents" } : { section: "agents", agent };
 }
 
-/** Where a "…" menu item goes; ids are `panel_actions.rs`'s, `close.rs`'s, `card_menu.rs`'s and `delete.rs`'s. */
+/** Where a "…" menu item goes; ids are `sheet_actions.rs`'s, `close.rs`'s, `card_menu.rs`'s and `delete.rs`'s. */
 export type MenuRoute =
   | { kind: "edit" }
   | { kind: "service" }
@@ -135,9 +135,9 @@ export function menuRoute(item: string): MenuRoute {
 }
 
 /**
- * Where a board card's button goes once the panel shows its ticket (T-0220 leaves it in `cardActions`), as the
- * GPUI app's card buttons did: the service (`panel.card`), the answer list (an option picked, or Send answer with
- * the recommended one), or a dialog. Review only opens the panel; the Run chip shows the Run tab.
+ * Where a board card's button goes once the sheet shows its ticket (T-0220 leaves it in `cardActions`), as the
+ * GPUI app's card buttons did: the service (`sheet.card`), the answer list (an option picked, or Send answer with
+ * the recommended one), or a dialog. Review only opens the sheet; the Run chip shows the Run tab.
  */
 export type CardRoute =
   | { kind: "service" }
@@ -194,10 +194,10 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     // RUN-01: the `▶ :4020` chip shows the Run tab (its Open and Stop).
     case "run_chip":
       return { kind: "run_tab" };
-    // AGM-03: Open agent… opens Settings → Agents on the agent that can't run (the panel's `open_agent`).
+    // AGM-03: Open agent… opens Settings → Agents on the agent that can't run (the sheet's `open_agent`).
     case "open_agent":
       return { kind: "open_agent" };
-    // Answer, Reply and Open (Ticket Card v2): the panel the click opens is where it is dealt with.
+    // Answer, Reply and Open (Ticket Card v2): the sheet the click opens is where it is dealt with.
     case "open":
     case "review":
     case "decide": // BRD-03: a check out of rounds; the choices are in the ticket (T-0460).
@@ -206,23 +206,23 @@ export function cardRoute(kind: CardActionKind): CardRoute {
 }
 
 /** The answer picked when the list opens: the recommended option (Rust marks it picked), else nothing. */
-export function initialPick(rows: readonly PanelAnswerRow[]): number | null {
+export function initialPick(rows: readonly SheetAnswerRow[]): number | null {
   return rows.find((r) => r.picked)?.number ?? null;
 }
 
 /** A number key on the list: the option with that number, if there is one. */
-export function pickByKey(key: string, rows: readonly PanelAnswerRow[]): number | null {
+export function pickByKey(key: string, rows: readonly SheetAnswerRow[]): number | null {
   const n = Number(key);
   return Number.isInteger(n) && rows.some((r) => r.number === n) ? n : null;
 }
 
 /** Whether the picked row is Other…, which needs typed text before Send is enabled. */
-export function picksOther(pick: number | null, rows: readonly PanelAnswerRow[]): boolean {
+export function picksOther(pick: number | null, rows: readonly SheetAnswerRow[]): boolean {
   return rows.some((r) => r.other && r.number === pick);
 }
 
 /** Send is enabled once something is picked, and Other… has text (Rust checks it again: `answer_options.rs`). */
-export function canSend(pick: number | null, other: string, rows: readonly PanelAnswerRow[]): boolean {
+export function canSend(pick: number | null, other: string, rows: readonly SheetAnswerRow[]): boolean {
   if (pick === null) return false;
   return !picksOther(pick, rows) || other.trim() !== "";
 }

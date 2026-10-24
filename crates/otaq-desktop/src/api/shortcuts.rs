@@ -68,7 +68,7 @@ mod tests {
                 works_in_terminals: false,
             },
             KeyboardChange {
-                action: "next_inbox_item".into(),
+                action: "next_needs_you_item".into(),
                 number: None,
                 slot: 0,
                 key: None,

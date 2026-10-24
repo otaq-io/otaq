@@ -9,7 +9,7 @@ import { openOverlay } from "../../app/overlays";
 import type { OverlayParams } from "../../app/registry/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { Button, Dialog } from "../../components";
-import type { PanelSent } from "../../generated/PanelSent";
+import type { SheetSent } from "../../generated/SheetSent";
 import type { ReviewPassed } from "../../generated/ReviewPassed";
 import type { SendBackParams } from "../../generated/SendBackParams";
 import type { SendBackPrParams } from "../../generated/SendBackPrParams";
@@ -90,7 +90,7 @@ export function FailDialog({ params, close }: OverlayProps<"fail">) {
         report: comment.pasted?.text,
         clear,
         comments: 0,
-      } satisfies SendBackParams) as Promise<PanelSent>
+      } satisfies SendBackParams) as Promise<SheetSent>
     ).then((sent) => {
       afterSend(ticket, sent, () => send(true));
     });
@@ -145,7 +145,7 @@ export function SendBackPrDialog({ params, close }: OverlayProps<"send_back_pr">
         note: comment.text,
         report: comment.pasted?.text,
         clear,
-      } satisfies SendBackPrParams) as Promise<PanelSent>
+      } satisfies SendBackPrParams) as Promise<SheetSent>
     ).then((sent) => {
       afterSend(ticket, sent, () => send(true));
     });

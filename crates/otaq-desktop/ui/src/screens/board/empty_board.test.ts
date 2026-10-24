@@ -17,7 +17,7 @@ const VIEW: EmptyBoardView = {
   buttons: [{ label: "New ticket", icon: "plus", primary: true, action: { action: "new_ticket" } }],
   hints: [
     { keys: "⌘N", label: "new ticket", action: { action: "new_ticket" } },
-    { keys: "⌘L", label: "ask the Project agent", action: { action: "focus_pane" } },
+    { keys: "⌘L", label: "ask the Project agent", action: { action: "focus_agent_panel" } },
   ],
 };
 
@@ -29,7 +29,7 @@ let ran: string[];
 beforeEach(() => {
   app = createRegistries();
   ran = [];
-  for (const name of ["new_ticket", "focus_pane"] as const)
+  for (const name of ["new_ticket", "focus_agent_panel"] as const)
     app.shortcuts.on(name, () => {
       ran.push(name);
     });
@@ -53,9 +53,9 @@ it("each hint is a button that runs its key's action", () => {
   act(() => {
     hints[1]?.click();
   });
-  expect(ran).toEqual(["focus_pane"]);
+  expect(ran).toEqual(["focus_agent_panel"]);
   act(() => {
     hints[0]?.click();
   });
-  expect(ran).toEqual(["focus_pane", "new_ticket"]);
+  expect(ran).toEqual(["focus_agent_panel", "new_ticket"]);
 });

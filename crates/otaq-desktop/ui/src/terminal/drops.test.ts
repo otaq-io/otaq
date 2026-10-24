@@ -75,19 +75,19 @@ describe("where a dropped file goes", () => {
 
   it("only the terminal under the pointer gets the paste, which carries every path", () => {
     const targets = new DropTargets();
-    const pane = well();
+    const panel = well();
     const tab = well();
-    const [inPane, inTab] = [target(true), target(true)];
-    targets.register(pane.well, inPane);
+    const [inAgentPanel, inTab] = [target(true), target(true)];
+    targets.register(panel.well, inAgentPanel);
     targets.register(tab.well, inTab);
     const elsewhere: string[] = [];
-    const at = (x: number) => (x < 100 ? pane.screen : tab.screen);
+    const at = (x: number) => (x < 100 ? panel.screen : tab.screen);
 
     expect(filesDropped({ ...DROP, x: 150 }, (p) => elsewhere.push(p), targets, at)).toBe("paste");
     expect(inTab.pasted).toEqual(["/tmp/a\\ b.png /tmp/c "]);
-    expect(inPane.pasted).toEqual([]);
+    expect(inAgentPanel.pasted).toEqual([]);
     expect(filesDropped({ ...DROP, x: 50 }, (p) => elsewhere.push(p), targets, at)).toBe("paste");
-    expect(inPane.pasted).toEqual(["/tmp/a\\ b.png /tmp/c "]);
+    expect(inAgentPanel.pasted).toEqual(["/tmp/a\\ b.png /tmp/c "]);
     expect(elsewhere).toEqual([]);
   });
 

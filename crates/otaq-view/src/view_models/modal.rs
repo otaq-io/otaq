@@ -32,15 +32,15 @@ mod tests {
             KeyAction::NewTicket,
             KeyAction::Approve,
             KeyAction::SendBack,
-            KeyAction::OpenPanel,
-            KeyAction::ClosePanel,
+            KeyAction::OpenSheet,
+            KeyAction::CloseSheet,
             KeyAction::CommandPalette,
             KeyAction::FilterBoard,
             KeyAction::SwitchProject,
             KeyAction::Project(1),
             KeyAction::SwitchTab(2),
             KeyAction::Settings,
-            KeyAction::NextInboxItem,
+            KeyAction::NextNeedsYouItem,
             KeyAction::Park,
         ] {
             assert!(

@@ -112,10 +112,10 @@ async fn a_running_merge_check_leaves_the_app_free_and_stop_merges_nothing() {
         let shown = w.board.ticket("SHOP-1").await.unwrap();
         assert_eq!(shown.flags.merge_check, Some(MergeCheckState::Running));
         // The sheet: Stop is its only button.
-        let panel = quick(&app, "panel.view", json!({ "key": "SHOP-1" })).await;
-        let buttons: Vec<&Value> = panel["view"]["buttons"]
+        let sheet = quick(&app, "sheet.view", json!({ "key": "SHOP-1" })).await;
+        let buttons: Vec<&Value> = sheet["view"]["buttons"]
             .as_array()
-            .unwrap_or_else(|| panic!("{panel}"))
+            .unwrap_or_else(|| panic!("{sheet}"))
             .iter()
             .map(|b| &b["action"])
             .collect();
@@ -123,7 +123,7 @@ async fn a_running_merge_check_leaves_the_app_free_and_stop_merges_nothing() {
         // The card's Stop.
         let sent = quick(
             &app,
-            "panel.card",
+            "sheet.card",
             json!({ "key": "SHOP-1", "kind": "stop_merge_check" }),
         )
         .await;
@@ -152,7 +152,7 @@ async fn a_running_merge_check_leaves_the_app_free_and_stop_merges_nothing() {
     assert!(
         request(
             &app,
-            "panel.card",
+            "sheet.card",
             json!({ "key": "SHOP-1", "kind": "stop_merge_check" }),
         )
         .await
@@ -212,7 +212,7 @@ async fn a_click_that_starts_an_automatic_delivery_leaves_the_app_free() {
         until("the check started", || started.exists()).await;
         let shown = w.board.ticket("SHOP-1").await.unwrap();
         assert_eq!(shown.flags.merge_check, Some(MergeCheckState::Running));
-        quick(&app, "panel.view", json!({ "key": "SHOP-1" })).await;
+        quick(&app, "sheet.view", json!({ "key": "SHOP-1" })).await;
         quick(&app, "review.available", json!({ "key": "SHOP-1" })).await;
         std::fs::write(&release, "").unwrap();
     };

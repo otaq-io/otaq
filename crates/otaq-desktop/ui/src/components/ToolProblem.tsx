@@ -3,7 +3,7 @@
 // "Model unavailable", "Codex isn't available · logged out", "Claude Code limit reached · resets 3:45 pm", the line
 // under it and its buttons (Use fallback, Change agent, Sign in…, New agent on Sonnet, Resume after reset). Amber for a
 // tool that isn't available or a model no longer listed, neutral for a limit; never turquoise (d0077). The edge look is
-// the panel's (a 2 px edge above the rows); the band look is the pane's and the lead's (a soft band with the avatar).
+// the sheet's (a 2 px edge above the rows); the band look is the agent panel's and the lead's (a soft band with the avatar).
 // Everything it says is `tool_problems.rs`'s; what a button does is the caller's (`onAction`).
 import type { ToolProblemAction } from "../generated/ToolProblemAction";
 import type { ToolProblemCallout as CalloutView } from "../generated/ToolProblemCallout";

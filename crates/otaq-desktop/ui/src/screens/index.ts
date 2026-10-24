@@ -15,7 +15,7 @@ export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { overview } from "./overview";
 export { palette } from "./palette";
-export { pane } from "./pane";
+export { agentPanel } from "./agent_panel";
 export { pause } from "./pause";
 export { pr } from "./pr";
 export { recovery } from "./recovery";

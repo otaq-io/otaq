@@ -9,7 +9,13 @@ import type { AskSendParams } from "../../generated/AskSendParams";
 import type { AskSent } from "../../generated/AskSent";
 import type { AskSuggestion } from "../../generated/AskSuggestion";
 import { request } from "../../tauri";
-import { PANE_ROUTES, type PaneRoutes, requestPaneFocus, showAgent, showPane } from "../pane/logic";
+import {
+  AGENT_PANEL_ROUTES,
+  type AgentPanelRoutes,
+  requestAgentPanelFocus,
+  showAgent,
+  showAgentPanel,
+} from "../agent_panel/logic";
 
 /** The open project's bar, for the rail's Project agent button (its tint and dot); `undefined` before it loads. */
 export const askBar: Store<AskBarView | undefined> = createStore<AskBarView | undefined>(undefined);
@@ -38,10 +44,10 @@ export function nextChoice(index: number, count: number, delta: number): number 
 }
 
 /** The panel open on `agent` with its terminal focused: after Return, and for "New reply". */
-export function openOn(project: string, agent: string, routes: PaneRoutes = PANE_ROUTES): void {
+export function openOn(project: string, agent: string, routes: AgentPanelRoutes = AGENT_PANEL_ROUTES): void {
   showAgent(project, agent, routes.shown);
-  showPane(routes);
-  requestPaneFocus(agent, routes.focus);
+  showAgentPanel(routes);
+  requestAgentPanelFocus(agent, routes.focus);
 }
 
 /** The words on their way, by project: a second Return while one is sending sends nothing. */
@@ -56,7 +62,7 @@ export async function sendFromBar(
   text: string,
   suggestion: AskSuggestion,
   ask: typeof request = request,
-  routes: PaneRoutes = PANE_ROUTES,
+  routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
 ): Promise<boolean> {
   if (text.trim() === "" || sending.has(project)) return false;
   sending.add(project);

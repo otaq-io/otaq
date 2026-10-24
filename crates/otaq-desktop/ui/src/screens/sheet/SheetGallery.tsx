@@ -4,13 +4,13 @@
 import { useCallback, useState } from "react";
 
 import { createRegistries, RegistriesContext } from "../../app/registry";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetView } from "../../generated/SheetView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { SheetBody } from "./Sheet";
 
 export function SheetGallery() {
-  const load = useCallback(() => request("gallery.sheet") as Promise<PanelView[]>, []);
+  const load = useCallback(() => request("gallery.sheet") as Promise<SheetView[]>, []);
   const { view, error } = useServiceView(load, []);
   // Registries of their own: no tab bodies, and their keys don't reach the page's.
   const [app] = useState(createRegistries);

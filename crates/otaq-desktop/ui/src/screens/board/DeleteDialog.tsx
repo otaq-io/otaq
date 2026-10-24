@@ -1,6 +1,6 @@
 // The delete confirmation of a never-started ticket (*05 · Ticket side panel → Delete ticket · confirm*, *Epic dialogs
 // → Delete epic · confirm*; TKT-08, d0060, d0018): the `delete_ticket` overlay, one dialog for every place that
-// deletes (the card menu, the panel's "…" menu, the Project agent's summary): `openOverlay("delete_ticket", { ticket
+// deletes (the card menu, the sheet's "…" menu, the Project agent's summary): `openOverlay("delete_ticket", { ticket
 // })`. Its texts are the service's preview worded by `delete.rs` (`board.delete_dialog`): the ticket, that it never
 // started, the links that go and an epic's children. Cancel is the default; nothing is deleted without the confirm
 // click (`board.delete`, which toasts what went). A refusal (the ticket started) shows in the dialog. Opened from a
@@ -42,7 +42,7 @@ export function DeleteBody({ view, error, suggested }: DeleteBodyProps) {
   );
 }
 
-/** Deletes `ticket`; the open panel closes if it showed it. */
+/** Deletes `ticket`; the open sheet closes if it showed it. */
 export function deleteTicket(ticket: string, ask: typeof request = request): Promise<void> {
   const params: BoardTicketParams = { key: ticket };
   return ask("board.delete", params).then(() => {

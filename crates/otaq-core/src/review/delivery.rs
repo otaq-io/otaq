@@ -3,7 +3,7 @@
 //!
 //! - **Automatic mode** ([`run_automatic`], called through [`crate::board::merge::DeliveryLink`] after every move that
 //!   can enter the Delivery): `delivers: local` Local-merges without the confirmation, with the squash message the
-//!   confirmation would propose: Done · "Merged automatically", a History line, no inbox item and no notification;
+//!   confirmation would propose: Done · "Merged automatically", a History line, no needs-you item and no notification;
 //!   the Done cleanup and the waiting tickets follow as after any Local merge (the flow is the user's standing
 //!   go-ahead). `delivers: pr` runs the Delivery's agent with its PR skill and no dialog ([`crate::pr::service`]).
 //!   With no check passed before it, the ticket records "Delivered without checks". A base that diverged or the

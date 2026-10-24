@@ -446,7 +446,7 @@ impl Store {
             .collect())
     }
 
-    /// The ticket's agent sessions with the agent each ran on (the panel and History), with what `SessionInfo` doesn't
+    /// The ticket's agent sessions with the agent each ran on (the sheet and History), with what `SessionInfo` doesn't
     /// carry: the session role, each session's tokens and round outcome, and an epic's lead sessions (the agent kept
     /// on the lead's `project_agents` row when the session has none). Oldest first.
     pub async fn session_agents(
@@ -752,7 +752,7 @@ pub struct SessionAgentRun {
     pub running: bool,
     pub started_at: i64,
     pub ended_at: Option<i64>,
-    /// The tool it ran on (M23: the panel names it once several tools are connected).
+    /// The tool it ran on (M23: the sheet names it once several tools are connected).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<Tool>,
     /// The agent at start: its id (the agent may be gone since) and its name then.

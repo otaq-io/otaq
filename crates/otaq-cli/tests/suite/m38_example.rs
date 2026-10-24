@@ -33,8 +33,8 @@ use otaq_core::flow::proposal::ApplyChoices;
 use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::naming;
 use otaq_core::protocol::{
-    DepParams, DragParams, ErrorBody, Event, InboxAnswerParams, MoveParams, ProjectAgentOpenParams,
-    ProjectParams, Reply, Request,
+    DepParams, DragParams, ErrorBody, Event, MoveParams, NeedsYouAnswerParams,
+    ProjectAgentOpenParams, ProjectParams, Reply, Request,
 };
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
@@ -406,7 +406,7 @@ async fn pause_answer_restart_and_resume() {
 
     // Answering SHOP-12 starts only its Griller, with the answer; the pause stays.
     let reply = world
-        .ask(Request::InboxAnswer(InboxAnswerParams {
+        .ask(Request::NeedsYouAnswer(NeedsYouAnswerParams {
             key: "SHOP-12".into(),
             choice: Choice::Option(1),
             clear: false,

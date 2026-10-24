@@ -20,7 +20,7 @@ import type { Notices } from "../../generated/Notices";
 import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
 import { request, windowAction } from "../../tauri";
-import { PANE_ROUTES, type PaneRoutes, showAgentInPane } from "../pane/logic";
+import { AGENT_PANEL_ROUTES, type AgentPanelRoutes, showAgentInPanel } from "../agent_panel/logic";
 import { next } from "../strip/logic";
 
 /** The banner rows and toasts as last heard; `undefined` until the first answer. */
@@ -142,20 +142,25 @@ export function limitLinesOf(banner: Banner): readonly LimitLine[] {
   return several || more ? banner.lines : [];
 }
 
-/** Where opening a notification's target lands: the selection, the terminal focus requests, the Project agent pane
+/** Where opening a notification's target lands: the selection, the terminal focus requests, the Project agent panel
  * (its `selection` is the same store) and the Needs you strip's Next. */
 export interface OpenRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
-  pane: PaneRoutes;
+  agentPanel: AgentPanelRoutes;
   next: () => void;
 }
 
-const OPEN_ROUTES: OpenRoutes = { selection, focus: terminalFocusRequests, pane: PANE_ROUTES, next };
+const OPEN_ROUTES: OpenRoutes = {
+  selection,
+  focus: terminalFocusRequests,
+  agentPanel: AGENT_PANEL_ROUTES,
+  next,
+};
 
 /**
  * Opens what a notification names (d0090 "What a click opens"), its project on screen: a ticket on Session with the
- * terminal focused (the check's side for a validator's prompt), a Project agent in the pane, an epic's lead
+ * terminal focused (the check's side for a validator's prompt), a Project agent in the agent panel, an epic's lead
  * on its Lead tab with the lead's terminal focused, the item the Needs you strip's Next opens (a grouped notification
  * or a summary, NYS-03), or the board. An item answered meanwhile opens the same place.
  */
@@ -169,7 +174,7 @@ export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN
       requestTerminalFocus(target.ticket, routes.focus);
       break;
     case "project_agent":
-      showAgentInPane(target.project, target.agent, routes.pane);
+      showAgentInPanel(target.project, target.agent, routes.agentPanel);
       break;
     case "lead":
       selectProject(target.project, routes.selection);

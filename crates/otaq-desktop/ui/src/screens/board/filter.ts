@@ -123,7 +123,7 @@ export function clearAgentFilter(project: string, store: Store<AgentFilter | nul
 
 /**
  * What Esc on the board undoes first: a drag in progress (the card flies back), then a focused epic (it was put on
- * top of the rest), then the agent filter; `null` leaves Esc to the next taker (the panel's Close).
+ * top of the rest), then the agent filter; `null` leaves Esc to the next taker (the sheet's Close).
  */
 export function escapeStep(
   dragging: boolean,

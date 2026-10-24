@@ -89,7 +89,7 @@ async fn the_status_line_and_hooks_keep_the_question() {
     let card = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(card.status, Status::AsksYou);
     assert_eq!(card.signal.and_then(|s| s.text).as_deref(), Some(QUESTION));
-    let strip = w.inbox.list().await.unwrap().items;
+    let strip = w.needs_you.list().await.unwrap().items;
     assert_eq!(
         strip.iter().map(|i| i.reason.as_str()).collect::<Vec<_>>(),
         [format!("asks: {QUESTION}")]

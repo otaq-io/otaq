@@ -595,7 +595,7 @@ pub fn marked_closed_toast(key: &str) -> (String, &'static str) {
     )
 }
 
-/// The panel's note under an open PR (*05 → SHOP-26 · Approved, PR open*): Otaq doesn't watch PRs.
+/// The sheet's note under an open PR (*05 → SHOP-26 · Approved, PR open*): Otaq doesn't watch PRs.
 pub fn pr_open_note(provider: Option<&str>, target: &str) -> String {
     let on = provider.map(|p| format!(" on {p}")).unwrap_or_default();
     format!(

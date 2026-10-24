@@ -7,7 +7,7 @@
 use otaq_core::board::needs_you::NeedsYouItem;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::protocol::{InboxAnswerParams, Request};
+use otaq_core::protocol::{NeedsYouAnswerParams, Request};
 use otaq_core::session::deliveries::Delivery;
 
 use crate::icons::IconName;
@@ -66,9 +66,9 @@ pub fn free_text(text: &str) -> Option<Choice> {
     (!text.is_empty()).then(|| Choice::Other(text.to_owned()))
 }
 
-/// The `inbox.answer` request; `clear` is "Clear it and send".
+/// The `needs_you.answer` request; `clear` is "Clear it and send".
 pub fn request(key: &TicketKey, choice: &Choice, clear: bool) -> Request {
-    Request::InboxAnswer(InboxAnswerParams {
+    Request::NeedsYouAnswer(NeedsYouAnswerParams {
         key: key.to_string(),
         choice: choice.clone(),
         clear,
@@ -193,7 +193,7 @@ mod tests {
         };
         assert_eq!(
             request(&key, &again, true),
-            Request::InboxAnswer(InboxAnswerParams {
+            Request::NeedsYouAnswer(NeedsYouAnswerParams {
                 key: "SHOP-23".into(),
                 choice,
                 clear: true,

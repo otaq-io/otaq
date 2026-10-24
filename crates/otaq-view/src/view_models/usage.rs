@@ -1,4 +1,4 @@
-//! Tokens on cards, in the panel and in History (USG-01; d0020, d0086; *15 · Settings → Global · Usage*). The counts
+//! Tokens on cards, in the sheet and in History (USG-01; d0020, d0086; *15 · Settings → Global · Usage*). The counts
 //! come from the service's `usage.summary`; the shown number is [`Tokens::shown`]. Today's tokens per tool are
 //! Activity's ([`super::activity`]).
 

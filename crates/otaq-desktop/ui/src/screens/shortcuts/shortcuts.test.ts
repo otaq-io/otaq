@@ -81,7 +81,7 @@ const MAP: Keymap = {
   bindings: [
     binding({ action: "show_shortcuts" }, { kind: "letter", letter: "?" }, "?"),
     binding(
-      { action: "close_panel" },
+      { action: "close_sheet" },
       {
         kind: "stroke",
         stroke: {
@@ -108,8 +108,8 @@ beforeEach(() => {
   app = createRegistries();
   shortcuts(app);
   ran = [];
-  app.shortcuts.on("close_panel", () => {
-    ran.push("close_panel");
+  app.shortcuts.on("close_sheet", () => {
+    ran.push("close_sheet");
   });
   stop = installKeys(app);
   keymap.set(MAP);
