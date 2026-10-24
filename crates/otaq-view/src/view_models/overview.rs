@@ -509,6 +509,7 @@ mod tests {
                 Mark::Tool { avatar } => avatar.letters.clone(),
                 Mark::You => "you".into(),
                 Mark::Agent => "agent".into(),
+                Mark::Otaq => "app".into(),
             })
             .collect();
         assert_eq!(marks, ["CX", "CC", "you"]);

@@ -2,30 +2,35 @@
 import type { ActivityKind } from "./ActivityKind";
 import type { CommentMark } from "./CommentMark";
 import type { HistoryOpens } from "./HistoryOpens";
-import type { IconName } from "./IconName";
-import type { PillPalette } from "./PillPalette";
 
-export type HistoryRowView = { title: string, detail: string | null, 
+/**
+ * One row of Activity's timeline (Q432, `s25-07`): the time, who, a plain sentence and what it opens.
+ */
+export type HistoryRowView = { 
+/**
+ * "You created the ticket", "Grill started · Griller".
+ */
+title: string, 
+/**
+ * "Claude Code · sonnet", "“Don’t touch the auth middleware…”".
+ */
+detail: string | null, 
 /**
  * "09:42".
  */
-when: string, duration: string, tokens: string, 
+when: string, 
+/**
+ * "· 18 min · 64k tokens" after the sentence, only where an agent ran (never a dollar figure, d0086).
+ */
+cost: string | null, 
 /**
  * The full tool session id, for the copy button (`claude --resume <id>`).
  */
-tool_session_id: string | null, is_session: boolean, 
+tool_session_id: string | null, 
 /**
- * The row's icon: a session's terminal, an event's clock, a validation round's outcome.
+ * Who: you, the agent (its tool avatar), Otaq.
  */
-icon: IconName, 
-/**
- * A validation round's outcome colours.
- */
-palette: PillPalette | null, 
-/**
- * A description or comment row's author mark, drawn in place of the icon (CMT-14).
- */
-mark: CommentMark | null, 
+mark: CommentMark, 
 /**
  * What the row opens: a before / after, or what a comment said and its report (CMT-14).
  */

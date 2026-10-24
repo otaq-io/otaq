@@ -2,11 +2,7 @@
 import type { IconName } from "./IconName";
 import type { RunButtonKind } from "./RunButtonKind";
 
-export type RunButtonView = { kind: RunButtonKind, label: string, icon: IconName, primary: boolean, enabled: boolean, 
-/**
- * Open's substituted URL.
- */
-url: string | null, 
+export type RunButtonView = { kind: RunButtonKind, label: string, icon: IconName, primary: boolean, 
 /**
  * Copy lsof command's text.
  */

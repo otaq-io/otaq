@@ -78,17 +78,15 @@ const row = (
   title: string,
   kind: HistoryView["rows"][number]["kind"],
   detail: string | null = null,
+  mark: HistoryView["rows"][number]["mark"] = { kind: "agent" },
+  cost: string | null = null,
 ): HistoryView["rows"][number] => ({
   title,
   detail,
   when,
-  duration: "—",
-  tokens: "—",
+  cost,
   tool_session_id: null,
-  is_session: false,
-  icon: "history",
-  palette: null,
-  mark: kind === "comment" || kind === "description" ? { kind: "agent" } : null,
+  mark,
   opens:
     kind === "description"
       ? {
@@ -110,7 +108,6 @@ const row = (
 });
 
 const ACTIVITY: HistoryView = {
-  columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
   filters: [
     { filter: "all", label: "All", kind: null },
     { filter: "comments", label: "Comments", kind: "comment" },
@@ -124,12 +121,16 @@ const ACTIVITY: HistoryView = {
   total: null,
   key: "SHOP-22",
   rows: [
-    row("14:02", "Created", "other", "by you"),
-    row("14:05", "Session started on Griller · Claude Code · sonnet", "stage"),
-    row("14:14", "Griller · Grill edited the description · added 2 lines", "description"),
-    row("14:14", "Griller · Grill commented", "comment", "“Repro: 18 of 20 pass on Safari…”"),
-    row("14:16", "Moved to Dev", "stage", "Grill passed"),
-    row("14:20", "You commented", "comment", "“Don’t touch the auth middleware’s public API.”"),
+    row("2:02 pm", "You created the ticket", "other", null, { kind: "you" }),
+    row("2:05 pm", "Grill started · Griller", "stage", "Claude Code · sonnet"),
+    row("2:14 pm", "Griller · Grill edited the description · added 2 lines", "description"),
+    row("2:14 pm", "Griller · Grill commented", "comment", "“Repro: 18 of 20 pass on Safari…”"),
+    row("2:16 pm", "Grill finished · Griller", "stage", null, { kind: "agent" }, "· 11 min · 38k tokens"),
+    row("2:16 pm", "Moved to Dev", "stage", "Grill passed", { kind: "you" }),
+    row("2:20 pm", "You commented", "comment", "“Don’t touch the auth middleware’s public API.”", {
+      kind: "you",
+    }),
+    row("2:23 pm", "Interrupted by restart", "stage", "conversation saved", { kind: "otaq" }),
   ],
 };
 

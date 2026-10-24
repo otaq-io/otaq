@@ -196,7 +196,8 @@
   flex: 1;
 }
 
-/* History: EVENT · WHEN 52 · DURATION 72 · TOKENS 52, rows 8/4 padding with a bottom border. */
+/* Activity's timeline (Q432, `s25-07`): the time 64, who, the sentence and its quiet cost; rows 8/4 padding with a
+   bottom border. */
 .history {
   display: flex;
   flex-direction: column;
@@ -214,10 +215,12 @@
   border-bottom: 1px solid var(--border);
 }
 
-.history-head {
-  padding: 0 4px 4px;
+.history-when {
+  flex: none;
+  width: 64px;
+  padding-top: 1px;
   color: var(--text-muted);
-  font: 400 10px var(--font-mono);
+  font: 400 12px var(--font-mono);
 }
 
 .history-icon {
@@ -237,7 +240,13 @@
 
 .history-title {
   color: var(--text-primary);
-  font: 500 12px var(--font-ui);
+  font: 400 13px var(--font-ui);
+}
+
+/* "· 18 min · 64k tokens": only where an agent ran. */
+.history-cost {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .history-detail {
@@ -250,12 +259,8 @@
 .history-detail-text {
   min-width: 0;
   color: var(--text-muted);
-  font: 400 11px var(--font-ui);
+  font: 400 12px var(--font-ui);
   overflow-wrap: anywhere;
-}
-
-.history-detail-text[data-mono] {
-  font-family: var(--font-mono);
 }
 
 .history-copy {
@@ -272,21 +277,6 @@
 .history-copy:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-.history-cell {
-  flex: none;
-  width: 52px;
-  color: var(--text-muted);
-  font: 400 11px var(--font-mono);
-}
-
-.history-head .history-cell {
-  font-size: 10px;
-}
-
-.history-duration {
-  width: 72px;
 }
 
 .history-empty {
@@ -406,21 +396,7 @@
   font-family: var(--font-ui);
 }
 
-/* Validation rounds (T-0238; *05 → History · validation rounds*): the outcome's colour, the round opening its
-   report, and the total under the rows. */
-.history-icon[data-palette="review"] {
-  color: var(--st-review);
-}
-.history-icon[data-palette="attn"] {
-  color: var(--st-attn);
-}
-.history-icon[data-palette="error"] {
-  color: var(--st-error);
-}
-.history-icon[data-palette="working"] {
-  color: var(--st-working);
-}
-
+/* A row that opens (a description change, a comment), and the validation total under the rows (T-0238). */
 .history-round {
   display: inline-flex;
   align-items: center;
@@ -443,7 +419,7 @@
 }
 
 .history-report {
-  padding: 4px 4px 10px 25px;
+  padding: 4px 4px 10px 98px;
   border-bottom: 1px solid var(--border);
 }
 

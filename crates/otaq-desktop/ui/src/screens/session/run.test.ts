@@ -6,15 +6,15 @@ import { overlays } from "../../app/overlays";
 import { createRegistries, registered } from "../../app/registry";
 import type { ProcessesView } from "../../generated/ProcessesView";
 import type { RunButtonView } from "../../generated/RunButtonView";
-import type { RunCardView } from "../../generated/RunCardView";
 import type { RunCommandView } from "../../generated/RunCommandView";
+import type { RunTabView } from "../../generated/RunTabView";
 import type { ShellTabView } from "../../generated/ShellTabView";
 import { INITIAL_STATE } from "../../terminal/state";
 import { session } from ".";
 import { afterStart, pressOf, suggestionFor } from "./logic";
 import { ProcessesBody } from "./Processes";
 import { RunCommandBody } from "./RunCommand";
-import { RunCard, RunTabBody } from "./RunTab";
+import { RunTabBody } from "./RunTab";
 import { ShellTabBody } from "./ShellTab";
 
 afterEach(() => {
@@ -26,24 +26,37 @@ const button = (kind: RunButtonView["kind"], extra: Partial<RunButtonView> = {})
   label: kind,
   icon: "play",
   primary: true,
-  enabled: true,
-  url: null,
   copy: null,
   ...extra,
 });
 
-const RUNNING: RunCardView = {
-  title: "Serving",
-  tone: "success",
-  icon: "dot",
-  port: ":4020",
-  command: "pnpm dev --port $PORT",
+/** `run_page::tab_view` while the Run serves. */
+const RUNNING: RunTabView = {
+  key: "SHOP-22",
+  project: "SHOP",
+  line: "pnpm dev · in SHOP-22’s worktree · :4022",
+  state: { text: "Serving", tone: "success", icon: "dot" },
   message: null,
-  buttons: [
-    button("open", { label: "Open localhost:4020", url: "http://localhost:4020", icon: "external-link" }),
-    button("stop", { label: "Stop", primary: false, icon: "square" }),
-  ],
+  open_url: { label: "Open http://localhost:4022", url: "http://localhost:4022" },
+  buttons: [button("stop", { label: "Stop", primary: false, icon: "square" })],
   note: null,
+  menu: [
+    {
+      id: "edit_command",
+      label: "Edit command",
+      icon: "pencil",
+      shortcut: null,
+      danger: false,
+      disabled: false,
+      hint: null,
+      separated: false,
+      checked: false,
+      header: false,
+    },
+  ],
+  menu_label: "Run options",
+  session: null,
+  idle: "(not running)",
 };
 
 const COMMAND: RunCommandView = {
@@ -97,48 +110,66 @@ describe("the Run & Shell screen", () => {
     expect(r.overlays).toEqual(["processes", "run_command"]);
   });
 
-  it("Session's Run leads with its line and Open URL (SHT-04, `s25-06`)", () => {
+  it("Session's Run is one line: what runs, its state, Open URL, Stop and ⋯; no state card (SHT-04, Q433)", () => {
     const html = renderToStaticMarkup(
       createElement(RunTabBody, {
         ticket: "SHOP-22",
         head: createElement("span", null, "the switch"),
-        view: {
-          key: "SHOP-22",
-          project: "SHOP",
-          line: "pnpm dev · in SHOP-22’s worktree · :4022",
-          open_url: { label: "Open http://localhost:4022", url: "http://localhost:4022" },
-          card: { ...RUNNING, buttons: [RUNNING.buttons[1] ?? button("stop")] },
-          output_label: "OUTPUT",
-          session: null,
-          idle: "(not running)",
-        },
+        view: RUNNING,
       }),
     );
     expect(html).toMatch(
-      /the switch.*pnpm dev · in SHOP-22’s worktree · :4022.*Open http:\/\/localhost:4022/,
+      /the switch.*pnpm dev · in SHOP-22’s worktree · :4022.*Serving.*Open http:\/\/localhost:4022.*Stop.*Run options/,
     );
-    expect(html).not.toContain("Open localhost:4020");
+    expect(html).toContain('data-tone="success"');
+    expect(html).not.toContain("run-card");
+    expect(html).not.toContain("OUTPUT");
   });
 
-  it("draws the Running card with Open and Stop", () => {
-    const html = renderToStaticMarkup(createElement(RunCard, { card: RUNNING, busy: false, onPress: noop }));
-    for (const text of ["Serving", ":4020", "pnpm dev --port $PORT", "Open localhost:4020", "Stop"]) {
-      expect(html).toContain(text);
-    }
-    expect(html).toContain('data-tone="success"');
-    const backend = renderToStaticMarkup(
-      createElement(RunCard, {
-        card: {
+  it("says each state in the line's words: Run when stopped, the reason under the line, the backend's note", () => {
+    const stopped = renderToStaticMarkup(
+      createElement(RunTabBody, {
+        ticket: "SHOP-22",
+        view: {
           ...RUNNING,
-          buttons: [RUNNING.buttons[1] ?? button("stop")],
-          note: "No Open URL set for billing-api.",
+          state: { text: "Stopped by you at 11:48", tone: "neutral", icon: "square" },
+          open_url: null,
+          buttons: [button("run", { label: "Run" })],
         },
-        busy: false,
-        onPress: noop,
       }),
     );
-    expect(backend).toContain("No Open URL set for billing-api.");
-    expect(backend).not.toContain("Open localhost");
+    expect(stopped).toContain("Stopped by you at 11:48");
+    expect(stopped).toContain(">Run<");
+    expect(stopped).not.toContain("Stop<");
+    const failed = renderToStaticMarkup(
+      createElement(RunTabBody, {
+        ticket: "SHOP-22",
+        view: {
+          ...RUNNING,
+          state: { text: "Failed to start · exit 1", tone: "danger", icon: "triangle-alert" },
+          message: "pnpm exited after 3s. The command may be wrong for this project, or setup didn’t finish.",
+          open_url: null,
+          buttons: [button("retry", { label: "Retry", primary: false })],
+        },
+      }),
+    );
+    expect(failed).toMatch(/Failed to start · exit 1.*Retry.*pnpm exited after 3s/);
+    expect(failed).toContain('class="run-message" data-tone="danger"');
+    const unset = renderToStaticMarkup(
+      createElement(RunTabBody, {
+        ticket: "SHOP-22",
+        view: {
+          ...RUNNING,
+          line: null,
+          state: { text: "Not running", tone: "neutral", icon: "play" },
+          message: "No run command yet. Run asks for the command that starts this project.",
+          open_url: null,
+          buttons: [button("run", { label: "Run" })],
+        },
+      }),
+    );
+    expect(unset).toContain("No run command yet.");
+    expect(unset).not.toContain("session-line-text");
   });
 
   it("draws the run-command dialog's steps", () => {
@@ -249,18 +280,11 @@ describe("Run's interaction rules", () => {
     expect(pressOf(button("run"))).toEqual({ kind: "request", method: "run.start" });
     expect(pressOf(button("retry"))).toEqual({ kind: "request", method: "run.start" });
     expect(pressOf(button("stop"))).toEqual({ kind: "request", method: "run.stop" });
-    expect(pressOf(button("open", { url: "http://localhost:4020" }))).toEqual({
-      kind: "open",
-      url: "http://localhost:4020",
-    });
-    expect(pressOf(button("open", { url: "http://localhost:4020", enabled: false }))).toEqual({
-      kind: "none",
-    });
     expect(pressOf(button("copy_lsof", { copy: "lsof -i :4020" }))).toEqual({
       kind: "copy",
       text: "lsof -i :4020",
     });
-    expect(pressOf(button("edit_command"))).toEqual({ kind: "edit_command" });
+    expect(pressOf(button("copy_lsof"))).toEqual({ kind: "none" });
 
     afterStart({ outcome: "needs_command", project: "SHOP" }, "SHOP-19");
     expect(overlays.store.get()).toEqual([

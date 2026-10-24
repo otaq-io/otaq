@@ -1,11 +1,12 @@
-// The sheet's Activity (SHT-05, T-0466; canvas `s25-07`; History: UI-04, REC-03, CMT-14; d0045, d0109): the
-// ticket's story oldest first under the filters All · Comments · Stages · Description: every session with its time,
-// duration, tokens and full tool session ID (copyable, so `claude --resume <id>` finds the conversation), the ticket's
-// events, one entry per validation round (VAL-12) and the validation total. Description changes and comments carry
-// their author's mark and open under the row: a before / after ("DESCRIPTION", "COMMENT"; a description edit opens
-// by itself), or what a comment said with its report, which opens in the report view (a deleted comment's too). The
-// rows, their kinds and the filters are Rust's (`sections.history`, `history.rs`); the page keeps the filter picked
-// and the rows opened. Above them, the Messages between the ticket and its linked tickets or its epic's lead (MSG-01;
+// The sheet's Activity (SHT-05, T-0466; canvas `s25-07`; History: UI-04, REC-03, CMT-14; d0045, d0109; Q432): the
+// ticket's story oldest first as a timeline under the filters All · Comments · Stages · Description. Each row: the
+// time, who (you, the agent's avatar, Otaq), a plain sentence ("You created the ticket", "Grill started · Griller")
+// and, where an agent ran, its duration and tokens as quiet text after it ("· 18 min · 64k tokens"). A session's start
+// copies its full tool session ID (so `claude --resume <id>` finds the conversation); one entry per validation round
+// (VAL-12) and the validation total. Description changes and comments open under the row: a before / after
+// ("DESCRIPTION", "COMMENT"; a description edit opens by itself), or what a comment said with its report, which opens
+// in the report view (a deleted comment's too). The rows, their kinds and the filters are Rust's (`sections.history`,
+// `history.rs`); the page keeps the filter picked and the rows opened. Above them, the Messages between the ticket and its linked tickets or its epic's lead (MSG-01;
 // the old panel's section, SHT-01, T-0469), when there are any.
 import { Fragment, useCallback, useState } from "react";
 
@@ -120,7 +121,6 @@ export function HistoryBody({
   opened?: readonly number[];
   filter?: ActivityFilter;
 }) {
-  const [event, when, duration, tokens] = view.columns;
   const [filter, setFilter] = useState<ActivityFilter>(initial);
   // The rows that are open (by row).
   const [open, setOpen] = useState<ReadonlySet<number>>(
@@ -135,39 +135,25 @@ export function HistoryBody({
   return (
     <div className="activity-tab">
       <Filters view={view} filter={filter} onFilter={setFilter} />
-      <div className="history" role="table" aria-label="Activity">
-        <div className="history-row history-head" role="row">
-          <span className="history-icon" />
-          <span className="history-event" role="columnheader">
-            {event}
-          </span>
-          <span className="history-cell" role="columnheader">
-            {when}
-          </span>
-          <span className="history-cell history-duration" role="columnheader">
-            {duration}
-          </span>
-          <span className="history-cell" role="columnheader">
-            {tokens}
-          </span>
-        </div>
+      <div className="history" role="list" aria-label="Activity">
         {shown.length === 0 && <p className="history-empty">{view.empty}</p>}
         {shown.map((i) => {
           const row = view.rows[i];
           if (row === undefined) return null;
+          const sentence = (
+            <>
+              {row.title}
+              {row.cost !== null && <span className="history-cost"> {row.cost}</span>}
+            </>
+          );
           return (
             <Fragment key={`${row.when}-${row.title}-${String(i)}`}>
-              <div className="history-row" role="row" data-opens={row.opens !== null || undefined}>
-                {row.mark !== null ? (
-                  <span className="history-icon history-mark">
-                    <Mark row={{ mark: row.mark }} />
-                  </span>
-                ) : (
-                  <span className="history-icon" data-palette={row.palette ?? undefined}>
-                    <Icon name={row.icon} size={13} />
-                  </span>
-                )}
-                <span className="history-event" role="cell">
+              <div className="history-row" role="listitem" data-opens={row.opens !== null || undefined}>
+                <span className="history-when">{row.when}</span>
+                <span className="history-icon history-mark">
+                  <Mark row={{ mark: row.mark }} />
+                </span>
+                <span className="history-event">
                   {row.opens !== null ? (
                     <button
                       type="button"
@@ -177,34 +163,20 @@ export function HistoryBody({
                         toggle(i);
                       }}
                     >
-                      {row.title}
+                      <span>{sentence}</span>
                       <Icon name={open.has(i) ? "chevron-down" : "chevron-right"} size={11} />
                     </button>
                   ) : (
-                    <span className="history-title">{row.title}</span>
+                    <span className="history-title">{sentence}</span>
                   )}
                   {row.detail !== null && (
                     <span className="history-detail">
-                      <span
-                        className="history-detail-text"
-                        data-mono={row.tool_session_id !== null || undefined}
-                      >
-                        {row.detail}
-                      </span>
+                      <span className="history-detail-text">{row.detail}</span>
                       {row.tool_session_id !== null && (
                         <CopyId id={row.tool_session_id} hint={view.copy_hint} copied={view.copied} />
                       )}
                     </span>
                   )}
-                </span>
-                <span className="history-cell" role="cell">
-                  {row.when}
-                </span>
-                <span className="history-cell history-duration" role="cell">
-                  {row.duration}
-                </span>
-                <span className="history-cell" role="cell">
-                  {row.tokens}
                 </span>
               </div>
               {row.opens !== null && open.has(i) && (
