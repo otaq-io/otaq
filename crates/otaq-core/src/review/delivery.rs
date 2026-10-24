@@ -46,7 +46,7 @@ use crate::epic_lead::stuck::{FirstStop, hold_in_dev};
 use crate::flow::Delivers;
 use crate::pr::service::Prs;
 use crate::protocol::Event;
-use crate::session::deliveries::DeliveryKind;
+use crate::session::hand_offs::HandOff;
 use crate::session::{SessionKind, Start};
 use crate::start::StartOutcome;
 
@@ -317,7 +317,7 @@ impl Review {
                     .await;
                 inner
                     .deliveries
-                    .queue_delivery(&session.id, DeliveryKind::Skill, &text)
+                    .queue_hand_off(&session.id, HandOff::new(action.hand_off(), text))
                     .await
                     .map_err(other)?;
             }

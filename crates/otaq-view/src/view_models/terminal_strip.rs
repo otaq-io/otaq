@@ -390,6 +390,8 @@ pub enum Click {
     PrConfirm,
     /// The PR dialog's Retry after the skill reported a problem.
     PrRetry,
+    /// Send again: the hand-off the agent hasn't picked up (d0118).
+    SendAgain,
     /// An answer to the agent's question from Needs you, card or panel (ATT-08, ATT-12).
     Answer {
         choice: otaq_core::board::questions::Choice,

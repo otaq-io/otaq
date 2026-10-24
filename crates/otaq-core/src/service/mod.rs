@@ -288,6 +288,7 @@ impl Shared {
         if events.is_empty() {
             return;
         }
+        self.signals.tool_reported(&caller, &events);
         match self.signals.apply_events(&caller, tool, &events).await {
             Ok(signals) => self.after_signals(&caller, tool, &signals).await,
             Err(e) => tracing::warn!(%tool, error = %e, "can't apply the watched file's events"),
@@ -629,7 +630,8 @@ impl Service {
             events.clone(),
             Arc::new(signals.clone()),
             adapters.clone(),
-        );
+        )
+        .with_hand_offs(board.hand_offs().clone());
         starter.set_deliveries(deliveries.clone());
         starter.set_gate(gate.clone());
         signals.set_models(models.clone());

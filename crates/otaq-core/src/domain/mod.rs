@@ -6,6 +6,7 @@
 
 pub mod actor;
 pub mod flags;
+pub mod hand_off;
 pub mod key;
 pub mod priority;
 pub mod status;
@@ -17,6 +18,7 @@ pub use flags::{
     AskedLead, ByLead, Flag, Flags, LeadNoteSent, MergeCheckState, SameFile, SentBack, StuckStop,
     UnreadNotes,
 };
+pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Kind, Place, StartStep, Status, StatusSet};

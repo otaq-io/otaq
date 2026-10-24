@@ -128,6 +128,11 @@ pub struct Flags {
     /// N messages waiting to be typed into the session (d0048).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub messages_waiting: u32,
+    /// A hand-off typed into the live session that its agent hasn't picked up yet: "Sent back · waiting for the agent
+    /// to pick it up" (d0118). Cleared by the session's next hook or `otaq` command; never stored (a restart drops it).
+    /// Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hand_off: Option<super::HandOffKind>,
     /// Run is running, on this port: `▶ :4020` (d0035).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_port: Option<u16>,
@@ -369,6 +374,7 @@ mod tests {
             conflicts_with: Some("main".into()),
             changed_since_review: true,
             messages_waiting: 2,
+            hand_off: None,
             run_port: Some(4020),
             updated_by_agent: true,
             answering: Some("SHOP-40.2".parse().unwrap()),

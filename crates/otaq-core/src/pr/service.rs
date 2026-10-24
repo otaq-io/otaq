@@ -33,12 +33,13 @@ use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, HandOffKind, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
-use crate::session::deliveries::{Deliveries, Delivery, DeliveryKind};
+use crate::session::deliveries::{Deliveries, Delivery};
+use crate::session::hand_offs::HandOff;
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start, StoredConversation,
     TerminalSize,
@@ -921,6 +922,28 @@ impl Prs {
         Ok(automatic.then(automatic_message))
     }
 
+    /// Open PR or Push, by the step's skill or, for Otaq's own words, by the PR flow under way.
+    async fn hand_off_kind(
+        &self,
+        ticket: &Ticket,
+        step: PrStep<'_>,
+    ) -> Result<HandOffKind, BoardError> {
+        let push = match step {
+            PrStep::Skill(step) => step == WorkflowStep::Push,
+            PrStep::Words(_) => self
+                .inner
+                .board
+                .pr_flow(&ticket.id)
+                .await?
+                .is_some_and(|f| f.kind == FlowKind::Push),
+        };
+        Ok(if push {
+            HandOffKind::Push
+        } else {
+            HandOffKind::OpenPr
+        })
+    }
+
     /// Types `step` into the live session (through the user-click path, or queued for an automatic Delivery), or
     /// resumes the stored conversation with it as the first prompt. A skill is written into the worktree first.
     async fn run_in_session(
@@ -953,15 +976,16 @@ impl Prs {
                     }
                     PrStep::Words(text) => text.to_owned(),
                 };
+                // Pending for the agent once typed (d0118): "Open PR · waiting for the agent to pick it up".
+                let hand_off = HandOff::new(self.hand_off_kind(ticket, step).await?, text);
                 let typed = match typing {
-                    Typing::Click { clear_first: true } => {
-                        deliveries.clear_and_send(&session.id, Some(&text)).await
-                    }
-                    Typing::Click { clear_first: false } => {
-                        deliveries.deliver_from_click(&session.id, &text).await
+                    Typing::Click { clear_first } => {
+                        deliveries
+                            .hand_off(&session.id, hand_off, clear_first)
+                            .await
                     }
                     Typing::Queued => deliveries
-                        .queue_delivery(&session.id, DeliveryKind::Skill, &text)
+                        .queue_hand_off(&session.id, hand_off)
                         .await
                         .map(|()| Delivery::Sent { count: 0 }),
                 };

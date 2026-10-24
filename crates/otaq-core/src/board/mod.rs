@@ -46,6 +46,7 @@ use crate::domain::stored_enum;
 use crate::epic_lead::overlap::Overlaps;
 use crate::epic_lead::wake::LeadLink;
 use crate::git::{Git, GitError};
+use crate::session::hand_offs::HandOffs;
 use crate::store::{Store, StoreError};
 use crate::terminals::run::RunPorts;
 
@@ -65,6 +66,8 @@ pub struct Board {
     merge_checks: merge_check::MergeChecks,
     /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
     overlaps: Overlaps,
+    /// Hand-offs typed into live sessions that their agents haven't picked up yet (d0118).
+    hand_offs: HandOffs,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
     project_files: project_files::ProjectFilesCache,
     /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
@@ -94,6 +97,7 @@ impl Board {
             run_ports: RunPorts::default(),
             merge_checks: merge_check::MergeChecks::default(),
             overlaps: Overlaps::default(),
+            hand_offs: HandOffs::default(),
             project_files: Default::default(),
             leads: LeadLink::default(),
             trust: Trust::default(),
@@ -146,6 +150,11 @@ impl Board {
     /// Running epic children's changed files; the scheduler's passes keep it.
     pub fn overlaps(&self) -> &Overlaps {
         &self.overlaps
+    }
+
+    /// The hand-offs waiting for their agents to pick them up (d0118); the deliveries and the signals share it.
+    pub fn hand_offs(&self) -> &HandOffs {
+        &self.hand_offs
     }
 
     /// The epic leads' side of board changes (d0083); the Project agents set it.

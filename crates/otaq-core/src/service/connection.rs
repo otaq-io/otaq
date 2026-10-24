@@ -331,10 +331,8 @@ async fn respond(
     shared: &Shared,
 ) -> (Message, Then) {
     // The agent permission scope (CLI-02): checked once here, for every request.
-    let acts = match permissions::check(who, &request, &shared.board).await {
-        Ok(action) => action.is_some_and(|action| {
-            permissions::agent_activity(&request, &action) == permissions::AgentActivity::Acts
-        }),
+    let activity = match permissions::check(who, &request, &shared.board).await {
+        Ok(action) => action.map(|action| permissions::agent_activity(&request, &action)),
         Err(e) => {
             return (
                 Message::error(id, board_requests::error_body(&e)),
@@ -342,6 +340,12 @@ async fn respond(
             );
         }
     };
+    let acts = activity == Some(permissions::AgentActivity::Acts);
+    // Any `otaq` command of the agent's own, a read too (`prime`), means it picked up a hand-off typed into its session;
+    // the status line's bookkeeping and hooks don't (hooks count in `signals.hook`, d0118).
+    if activity.is_some_and(|a| a != permissions::AgentActivity::Bookkeeping) {
+        shared.signals.agent_active(who);
+    }
     // A Project agent's command that acts means it is at it again: a permission prompt it waited on was answered
     // (ATT-02). Reads and the status line's bookkeeping aren't it acting (d0119).
     if acts
@@ -423,6 +427,7 @@ async fn respond(
         | Request::SessionResize(_)
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
+        | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)) => {
             match session_requests::handle(request, client, shared).await {
                 Ok(answer) => answer,

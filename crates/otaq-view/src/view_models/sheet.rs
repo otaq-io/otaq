@@ -410,7 +410,8 @@ fn assignee(f: &DetailFacts) -> (Detail, Detail) {
     }
 }
 
-/// Working: "3 min · 64k tokens" while its agent runs, "waiting for you · 12 min" in your check; nothing otherwise.
+/// Working: "3 min · 64k tokens" while its agent runs, "Sent back · waiting for the agent to pick it up" while it hasn't
+/// picked up a hand-off (d0118), "waiting for you · 12 min" in your check; nothing otherwise.
 fn working(f: &DetailFacts) -> Option<Detail> {
     let ticket = f.ticket;
     if ticket.status.set() == StatusSet::HumanCheck {
@@ -419,6 +420,10 @@ fn working(f: &DetailFacts) -> Option<Detail> {
             "Working",
             format!("waiting for you \u{b7} {}", minutes_label(f.now - since)),
         ));
+    }
+    // A hand-off the agent hasn't picked up: the card's words, without the working dot (d0118).
+    if let Some(kind) = super::card::pending_hand_off(ticket, ticket.status) {
+        return Some(Detail::new("Working", super::card::hand_off_line(kind)));
     }
     let session = f.agents.and_then(running)?;
     let time = minutes_label(f.now - session.started_at);
@@ -796,6 +801,29 @@ mod tests {
             Some("from the epic\u{2019}s branch")
         );
         assert_eq!(details[0].value, DASH, "agents unread");
+    }
+
+    /// While a hand-off waits for the agent (d0118) the Working detail says so, without the working dot.
+    #[test]
+    fn working_says_a_hand_off_waits_for_the_agent() {
+        let mut t = ticket("SHOP-18", "Login redirect", Status::Working);
+        t.flags.hand_off = Some(otaq_core::domain::HandOffKind::SendBack);
+        let tools = tools();
+        let details = details(&DetailFacts {
+            ticket: &t,
+            agents: None,
+            tools: &tools,
+            epic_title: None,
+            lead: None,
+            tickets: &[],
+            now: 0,
+        });
+        let working = details.iter().find(|d| d.label == "Working").unwrap();
+        assert_eq!(
+            working.value,
+            "Sent back \u{b7} waiting for the agent to pick it up"
+        );
+        assert!(!working.working);
     }
 
     /// The Wishlist epic (`s25-11`): `shop-web / PAY-123`; Lead "Wishlist lead" on Claude Code · opus, Tickets "5 · 1

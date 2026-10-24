@@ -1196,6 +1196,11 @@ impl Board {
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
+                    // Only while its agent is at it: a ticket that moved on has nothing to pick up.
+                    hand_off: self.hand_offs().kind_of(&row.id).filter(|_| {
+                        crate::signals::LIVE.contains(&status)
+                            || status == Status::MergeConflictFixing
+                    }),
                     review_entry: review_entry_flag(&row, status, &counted),
                     validation_round: failed_round_marker(&row, status, &counted),
                     validating_round: validating_round(status, &counted),

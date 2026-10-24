@@ -767,6 +767,11 @@ pub enum Request {
     /// [`Reply::Delivery`].
     #[serde(rename = "session.deliver_now")]
     SessionDeliverNow(DeliverNowParams),
+    /// **Send again** (d0118): types the session's hand-off that its agent hasn't picked up yet once more, as the
+    /// user's click (d0048: unsent text answers `needs_confirmation`; `clear_first` is "Clear it and send"). Nothing is
+    /// typed when it has none. Answered with [`Reply::Delivery`].
+    #[serde(rename = "session.send_again")]
+    SessionSendAgain(DeliverNowParams),
     /// A client's terminal for the session gained or lost keyboard focus (SES-10). Answered with
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
@@ -2084,6 +2089,7 @@ impl Request {
             Self::SessionResize(_) => "session.resize",
             Self::SessionInput(_) => "session.input",
             Self::SessionDeliverNow(_) => "session.deliver_now",
+            Self::SessionSendAgain(_) => "session.send_again",
             Self::SessionFocus(_) => "session.focus",
             Self::AppFocus(_) => "app.focus",
             Self::SessionBeforeRestart(_) => "session.before_restart",

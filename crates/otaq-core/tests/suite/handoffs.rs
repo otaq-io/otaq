@@ -288,5 +288,7 @@ async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     assert!(args.contains("/otaq-address-review "), "{args}");
     assert!(out.contains(LOADED), "{out}");
     assert!(!output(&w, &resumed.id).contains("Unknown command"));
+    // A first prompt isn't typed in: nothing waits for the agent to pick it up (d0118).
+    assert_eq!(w.board.ticket(&key).await.unwrap().flags.hand_off, None);
     w.stop().await;
 }

@@ -45,13 +45,14 @@ use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, Status, TicketKey, ValidationTrigger};
+use crate::domain::{Actor, HandOffKind, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
 use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
+use crate::session::hand_offs::HandOff;
 use crate::session::{SessionKind, Sessions, Start};
 use crate::start::{StartOutcome, Starter};
 use crate::ticket_env::TicketEnv;
@@ -687,17 +688,15 @@ impl Review {
                     .deliveries
                     .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
                     .await;
-                let typed = if clear_first {
-                    inner
-                        .deliveries
-                        .clear_and_send(&session.id, Some(&text))
-                        .await
-                } else {
-                    inner
-                        .deliveries
-                        .deliver_from_click(&session.id, &text)
-                        .await
-                };
+                // Pending for the agent once typed (d0118).
+                let typed = inner
+                    .deliveries
+                    .hand_off(
+                        &session.id,
+                        HandOff::new(action.hand_off(), text),
+                        clear_first,
+                    )
+                    .await;
                 match typed.map_err(other)? {
                     Delivery::Sent { .. } => {}
                     // Text was typed in the moment between the check and the send: it stays as the user typed it.
@@ -777,6 +776,20 @@ impl<'a> Return<'a> {
                 ADDRESS_REVIEW_SKILL
             }
             Self::Fix { .. } => RESTACK_SKILL,
+        }
+    }
+
+    /// What the card says while the agent hasn't picked it up (d0118).
+    fn hand_off(&self) -> HandOffKind {
+        match self {
+            Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
+                HandOffKind::SendBack
+            }
+            // A failed Merge check comes back with its comment (d0120).
+            Self::Fix {
+                hand_over: Some(_), ..
+            } => HandOffKind::MergeCheck,
+            Self::Fix { .. } => HandOffKind::MergeConflict,
         }
     }
 

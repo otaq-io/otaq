@@ -106,6 +106,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSent::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
     crate::api::PanelCardParams::export_all(&cfg)?;
+    crate::api::PanelSendAgainParams::export_all(&cfg)?;
     crate::api::PanelAnswerAgentParams::export_all(&cfg)?;
     crate::api::PanelChoiceParams::export_all(&cfg)?;
     // The Terminals drawer and its header button (T-0242); the view also writes its tabs.

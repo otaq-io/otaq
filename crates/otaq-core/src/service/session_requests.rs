@@ -116,6 +116,15 @@ pub(super) async fn handle(
             }
             Ok((Reply::Ok, Then::Continue))
         }
+        Request::SessionSendAgain(p) => {
+            let id = session_id(shared, p.target).await?;
+            let delivery = shared
+                .deliveries
+                .send_again(&id, p.clear_first)
+                .await
+                .map_err(session_error)?;
+            Ok((Reply::Delivery(delivery), Then::Continue))
+        }
         Request::SessionFocus(p) => {
             sessions
                 .set_focused(&p.session, client, p.focused)

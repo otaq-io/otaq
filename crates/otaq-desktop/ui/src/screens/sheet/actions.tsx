@@ -12,6 +12,7 @@ import { useStore } from "../../app/store";
 import { AnchoredMenu, IconButton } from "../../components";
 import type { PanelButton } from "../../generated/PanelButton";
 import type { PanelCardParams } from "../../generated/PanelCardParams";
+import type { PanelSendAgainParams } from "../../generated/PanelSendAgainParams";
 import type { PanelSent } from "../../generated/PanelSent";
 import type { PanelView } from "../../generated/PanelView";
 import { request } from "../../tauri";
@@ -143,6 +144,24 @@ export function usePanelActions(view: PanelView): PanelActions {
         showTab("agent");
         requestTerminalFocus(view.key);
         return;
+      case "send_again": {
+        const send = (clear: boolean): Promise<unknown> =>
+          (
+            request("panel.send_again", {
+              key: view.key,
+              clear,
+            } satisfies PanelSendAgainParams) as Promise<PanelSent>
+          )
+            .then((sent) => {
+              askUnsent(sent, () => send(true));
+            })
+            .catch(ignore);
+        setBusy(button.action);
+        void send(false).finally(() => {
+          setBusy(null);
+        });
+        return;
+      }
       case "check":
         showTab("check");
         requestTerminalFocus(view.key);

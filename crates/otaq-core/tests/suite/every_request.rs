@@ -329,6 +329,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SessionResize(_)
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
+        | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
         | Request::AppFocus(_)
         | Request::SessionBeforeRestart(_)

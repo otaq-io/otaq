@@ -11,6 +11,8 @@ export type ActionRoute =
   // Start (DPV-03): `board.start`, whose answer may be the blocked ticket's dialog.
   | { kind: "start" }
   | { kind: "terminal" }
+  // Send again (d0118): `panel.send_again`, whose answer may be the unsent-text question.
+  | { kind: "send_again" }
   | { kind: "check" }
   | { kind: "answer_agent" }
   | { kind: "diff" }
@@ -53,6 +55,8 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "open_terminal":
     case "answer_in_terminal":
       return { kind: "terminal" };
+    case "send_again":
+      return { kind: "send_again" };
     case "view_diff":
       return { kind: "diff" };
     case "edit":

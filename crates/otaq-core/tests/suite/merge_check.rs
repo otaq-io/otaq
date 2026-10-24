@@ -130,6 +130,14 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
         )),
         "{typed}"
     );
+    // Waiting as "1 message waiting" it isn't pending yet; typed (Deliver now), the card says it waits for the agent
+    // to pick it up (d0118).
+    assert_eq!(back.flags.hand_off, None);
+    w.deliveries.deliver_now(&agent.session).await.unwrap();
+    assert_eq!(
+        w.board.ticket("SHOP-2").await.unwrap().flags.hand_off,
+        Some(otaq_core::domain::HandOffKind::MergeCheck)
+    );
     // `prime` tells it what to resolve first.
     let prime = otaq_core::prime::render(
         &w.board

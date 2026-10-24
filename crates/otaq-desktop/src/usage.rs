@@ -297,6 +297,7 @@ const FEATURES: &[&str] = &[
     "panel.action",
     "panel.answer",
     "panel.answer_agent",
+    "panel.send_again",
     "panel.submit",
     "panel.priority",
     "panel.close",

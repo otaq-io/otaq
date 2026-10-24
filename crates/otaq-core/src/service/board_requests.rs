@@ -1590,6 +1590,7 @@ pub(super) async fn handle(
         | Request::SessionResize(_)
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
+        | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
         | Request::AppFocus(_)
         | Request::Hook(_)

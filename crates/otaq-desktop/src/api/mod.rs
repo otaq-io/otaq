@@ -86,8 +86,8 @@ pub use panel::{
     CardParams as PanelCardParams, ChoiceParams as PanelChoiceParams,
     CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
     Params as PanelParams, ParentParams as PanelParentParams,
-    PriorityParams as PanelPriorityParams, Sent as PanelSent, SubmitDialog as PanelSubmitDialog,
-    SubmitParams as PanelSubmitParams,
+    PriorityParams as PanelPriorityParams, SendAgainParams as PanelSendAgainParams,
+    Sent as PanelSent, SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
 pub use pause::export_types as export_pause_types;

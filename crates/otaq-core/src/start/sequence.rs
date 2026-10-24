@@ -61,7 +61,7 @@ use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, Place, StartStep, Status};
+use crate::domain::{Actor, BuildState, HandOffKind, Place, StartStep, Status};
 use crate::flow::engine::{Move, RunResult, first_stage};
 use crate::git::BaseSync;
 use crate::naming;
@@ -71,6 +71,7 @@ use crate::recovery::Recovery;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::env::applied;
+use crate::session::hand_offs::HandOff;
 use crate::session::{
     END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
     StoredConversation, TerminalSize,
@@ -809,10 +810,20 @@ impl Starter {
                         returning.as_ref().and_then(|r| r.prompt.as_deref()),
                     )
                     .await;
-                deliveries
-                    .queue_delivery(&running.id, DeliveryKind::Skill, &text)
-                    .await
-                    .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
+                // A Send back or a conflict waiting for the agent's slot: pending for it once typed (d0118).
+                let queued = match HandOffKind::of_skill(skill) {
+                    Some(kind) => {
+                        deliveries
+                            .queue_hand_off(&running.id, HandOff::new(kind, text))
+                            .await
+                    }
+                    None => {
+                        deliveries
+                            .queue_delivery(&running.id, DeliveryKind::Skill, &text)
+                            .await
+                    }
+                };
+                queued.map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
             }
             return Ok(Done::Started(Box::new(running)));
         }

@@ -28,6 +28,8 @@ pub enum Action {
     Edit,
     /// Shows the Terminal tab.
     OpenTerminal,
+    /// A hand-off the agent hasn't picked up (d0118): types it again, as the user's click (d0048).
+    SendAgain,
     /// Run (M9, T-0134).
     Run,
     /// Needs-you family: the Terminal tab, focused.
@@ -114,6 +116,7 @@ impl Action {
             Self::Start => "Start",
             Self::Edit => "Edit",
             Self::OpenTerminal => "Open terminal",
+            Self::SendAgain => "Send again",
             Self::Run => "Run",
             Self::AnswerInTerminal => "Answer in terminal",
             Self::ViewParent => "View parent",
@@ -157,6 +160,7 @@ impl Action {
             Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
             Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
             Self::AnswerAgent => IconName::MessageSquare,
+            Self::SendAgain => IconName::Send,
             Self::Run => IconName::Play,
             Self::ViewParent => IconName::Link2,
             Self::Resume => IconName::Play,
@@ -182,6 +186,7 @@ impl Action {
             Self::Start
             | Self::Edit
             | Self::OpenTerminal
+            | Self::SendAgain
             | Self::AnswerInTerminal
             | Self::ViewParent
             | Self::RetryStart
@@ -207,6 +212,11 @@ impl Action {
             | Self::MoveToReview => None,
         }
     }
+}
+
+/// What Send again types, as the unsent-text question names it: "The hand-off again (Sent back)".
+pub fn send_again_sending(kind: otaq_core::domain::HandOffKind) -> String {
+    format!("The hand-off again ({})", card::hand_off_label(kind))
 }
 
 /// The Approve button's label (DEC-05, d0084): "Approve · keeps 1 decision" / "Approve · keeps 3 decisions" while
@@ -274,6 +284,14 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
             StatusSet::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
             _ => Vec::new(),
         };
+    }
+    // A hand-off typed in that the agent hasn't picked up (d0118): Send again first.
+    if card::pending_hand_off(ticket, s).is_some() {
+        let mut bar = vec![(A::SendAgain, Primary), (A::OpenTerminal, Secondary)];
+        if s == Status::Working {
+            bar.push((A::Run, Secondary));
+        }
+        return bar;
     }
     match s {
         Status::Backlog => vec![(A::Start, Primary), (A::Edit, Secondary)],
@@ -850,6 +868,33 @@ mod tests {
         assert_eq!(
             refusal(&ticket("SHOP-28", "t", Status::StartInterrupted), None),
             None
+        );
+    }
+
+    /// Send again leads the bar while a hand-off waits for the agent (d0118), for each kind; gone once picked up.
+    #[test]
+    fn send_again_while_a_hand_off_waits_for_the_agent() {
+        use otaq_core::domain::HandOffKind;
+        for kind in HandOffKind::ALL {
+            let status = match kind {
+                HandOffKind::MergeConflict | HandOffKind::MergeCheck => Status::MergeConflictFixing,
+                _ => Status::Working,
+            };
+            let mut t = ticket("SHOP-18", "t", status);
+            t.flags.hand_off = Some(kind);
+            let bar = buttons(&t);
+            assert_eq!(bar[0], (A::SendAgain, Look::Primary), "{kind:?}");
+            assert!(bar.iter().any(|(a, _)| *a == A::OpenTerminal), "{kind:?}");
+            t.flags.hand_off = None;
+            assert!(
+                !buttons(&t).iter().any(|(a, _)| *a == A::SendAgain),
+                "{kind:?}"
+            );
+        }
+        assert_eq!(A::SendAgain.label(), "Send again");
+        assert_eq!(
+            send_again_sending(HandOffKind::SendBack),
+            "The hand-off again (Sent back)"
         );
     }
 }

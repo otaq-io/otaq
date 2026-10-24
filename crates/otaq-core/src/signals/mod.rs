@@ -43,7 +43,7 @@ use crate::session::deliveries::IdleSignal;
 use crate::session::{ModelRan, SessionError, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
-pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, signal};
+pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, reports_activity, signal};
 pub use model_refused::Refusals;
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
@@ -195,6 +195,7 @@ impl Signals {
             .adapters
             .get(tool)
             .map_hook(event, payload, context);
+        self.tool_reported(caller, &events);
         if events.is_empty() {
             return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
         }
@@ -488,6 +489,30 @@ impl Signals {
             tool_id: tool_id.filter(|id| !id.is_empty()),
             cwd,
         })
+    }
+
+    /// `caller`'s tool reported `events` (a hook, or a read of its watched file): when one says where the agent's turn
+    /// is ([`reports_activity`]), the ticket's hand-off is picked up (d0118). The status line's model never is.
+    pub fn tool_reported(&self, caller: &Caller, events: &[crate::agent_tools::ToolEvent]) {
+        if events.iter().any(reports_activity) {
+            self.agent_active(caller);
+        }
+    }
+
+    /// The ticket's agent did something of its own (its tool reported its turn, or it ran an `otaq` command that isn't
+    /// the status line's bookkeeping): a hand-off typed into its session is picked up (d0118).
+    pub fn agent_active(&self, caller: &Caller) {
+        if let Caller::Agent {
+            ticket, ticket_id, ..
+        } = caller
+            && self.inner.board.hand_offs().picked_up(ticket_id)
+        {
+            self.inner.events.publish(Event::TicketChanged {
+                project: ticket.project.to_string(),
+                id: ticket_id.clone(),
+                key: ticket.clone(),
+            });
+        }
     }
 
     /// The agent ran an `otaq` command that acts ([`crate::service::AgentActivity::Acts`]): it is active, so Needs

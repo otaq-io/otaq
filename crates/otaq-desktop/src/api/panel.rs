@@ -25,8 +25,8 @@ use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
-    CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
-    ProjectParams, Reply, Request, SessionListParams, SetChoiceParams, SubmitByUserParams, UsageParams,
+    CloseParams, CommentsParams, DeliverNowParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
+    ProjectParams, Reply, Request, SessionListParams, SessionTarget, SetChoiceParams, SubmitByUserParams, UsageParams,
     ValidationActionParams,
 };
 use otaq_core::session::deliveries::Delivery;
@@ -78,6 +78,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.mark_closed" => reply(&mark_closed(app, parse(params)?).await?),
         "panel.answer" => reply(&answer(app, parse(params)?).await?),
         "panel.card" => reply(&card(app, parse(params)?).await?),
+        "panel.send_again" => reply(&send_again(app, parse(params)?).await?),
         "panel.reopen_parent" => reply(&reopen_parent(app, parse(params)?).await?),
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
@@ -1593,6 +1594,50 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// What `panel.send_again` takes: the ticket, and whether the terminal's typed line is cleared first.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelSendAgainParams")]
+pub struct SendAgainParams {
+    pub key: String,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+/// `panel.send_again` (d0118): the hand-off its agent hasn't picked up, typed again as the user's click; unsent text in
+/// its terminal asks first (d0048).
+pub async fn send_again(app: &App, params: SendAgainParams) -> Result<Sent, RequestError> {
+    let key = key_of(&params.key)?;
+    let request = Request::SessionSendAgain(DeliverNowParams {
+        target: SessionTarget {
+            key: Some(params.key.clone()),
+            ..Default::default()
+        },
+        clear_first: params.clear,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
+            let kind = ticket(app, &params.key)
+                .await?
+                .and_then(|t| t.flags.hand_off)
+                .unwrap_or(otaq_core::domain::HandOffKind::SendBack);
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    key,
+                    None,
+                    actions::send_again_sending(kind),
+                    strip::Click::SendAgain,
+                )
+                .unclearable_by(unclearable_by),
+            )))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s hand-off wasn\u{2019}t sent again"), &e);
             Err(e)
         }
     }

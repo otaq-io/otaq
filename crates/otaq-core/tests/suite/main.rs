@@ -64,6 +64,7 @@ mod focus;
 mod folder_trust;
 mod free;
 mod git;
+mod hand_off_pending;
 mod hand_overs;
 mod handoffs;
 mod human_answers;

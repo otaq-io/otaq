@@ -45,7 +45,7 @@ use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Priority, Status, TicketKey};
+use otaq_core::domain::{Actor, HandOffKind, Priority, Status, TicketKey};
 use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
@@ -1090,6 +1090,10 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             validating_text(ticket, now_ms),
             Tone::Muted,
         ),
+        // A hand-off typed in that the agent hasn't picked up: what it waits for, not "Working" (d0118).
+        Status::Working | Status::MergeConflictFixing if let Some(kind) = flags.hand_off => {
+            Part::quiet(hand_off_line(kind), Tone::Muted)
+        }
         // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`).
         Status::MergeConflictFixing => Part::flag(
             {
@@ -1202,6 +1206,34 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
         Status::Backlog | Status::Merged => return None,
     })
+}
+
+/// The line of a hand-off typed into the live session that its agent hasn't picked up yet (d0118).
+pub const WAITING_FOR_PICK_UP: &str = "waiting for the agent to pick it up";
+
+/// What the hand-off was, as the card names it: "Sent back", "Merge conflict", "Open PR".
+pub fn hand_off_label(kind: HandOffKind) -> &'static str {
+    match kind {
+        HandOffKind::SendBack => "Sent back",
+        HandOffKind::MergeConflict => "Merge conflict",
+        HandOffKind::MergeCheck => "Merge check failed",
+        HandOffKind::OpenPr => "Open PR",
+        HandOffKind::Push => "Push to PR",
+    }
+}
+
+/// "Sent back · waiting for the agent to pick it up" (d0118): the card's and the sheet's line in place of the working
+/// one, until the agent's tool reports activity.
+pub fn hand_off_line(kind: HandOffKind) -> String {
+    format!("{} \u{b7} {WAITING_FOR_PICK_UP}", hand_off_label(kind))
+}
+
+/// The hand-off the ticket's agent hasn't picked up, while it is at work (Working, Merge conflict · fixing).
+pub fn pending_hand_off(ticket: &Ticket, status: Status) -> Option<HandOffKind> {
+    ticket
+        .flags
+        .hand_off
+        .filter(|_| matches!(status, Status::Working | Status::MergeConflictFixing))
 }
 
 /// The situation line of a No result on the validator's model (update Y §3).
@@ -1769,6 +1801,15 @@ pub fn status_line(
     situation: Option<&Situation>,
     edge: Option<Tone>,
 ) -> Option<StatusLine> {
+    // Waiting for the agent to pick up a hand-off: that alone, in the neutral tone (d0118).
+    if let Some(kind) = pending_hand_off(ticket, status) {
+        return Some(StatusLine {
+            text: hand_off_line(kind),
+            dot: Palette::Queued,
+            tone: Tone::Secondary,
+            icon: None,
+        });
+    }
     let mut words = situation.map(|s| s.text.clone());
     if words.as_deref() == Some(READY_TO_START) {
         words = Some(STARTS_NEXT.to_owned());
@@ -5614,6 +5655,54 @@ mod tests {
                 .with_agents(&board(vec![Tool::Claude]), &other)
                 .agents,
             AgentFacts::default()
+        );
+    }
+
+    /// A hand-off typed in that the agent hasn't picked up (d0118): the one line says what it waits for, in the
+    /// neutral tone, in place of the working line; once picked up the card reads as before.
+    #[test]
+    fn a_hand_off_waiting_for_the_agent_replaces_the_working_line() {
+        let words = [
+            (HandOffKind::SendBack, "Sent back"),
+            (HandOffKind::MergeConflict, "Merge conflict"),
+            (HandOffKind::MergeCheck, "Merge check failed"),
+            (HandOffKind::OpenPr, "Open PR"),
+            (HandOffKind::Push, "Push to PR"),
+        ];
+        for (kind, label) in words {
+            let status = match kind {
+                HandOffKind::MergeConflict | HandOffKind::MergeCheck => Status::MergeConflictFixing,
+                _ => Status::Working,
+            };
+            let mut t = ticket("SHOP-18", "Login redirect", status);
+            t.flags.hand_off = Some(kind);
+            let vm = card(&t);
+            let one = vm.one_line.line.as_ref().unwrap();
+            assert_eq!(
+                one.text,
+                format!("{label} \u{b7} waiting for the agent to pick it up"),
+                "{kind:?}"
+            );
+            assert_eq!(one.tone, Tone::Secondary, "{kind:?}");
+            assert_eq!(one.dot, Palette::Queued, "{kind:?}");
+            assert_eq!(vm.one_line.edge, None, "{kind:?}: not the user's turn");
+
+            t.flags.hand_off = None;
+            let one = card(&t).one_line.line.unwrap();
+            assert!(
+                !one.text.contains("waiting for the agent"),
+                "{kind:?}: {}",
+                one.text
+            );
+        }
+        // Only while its agent is at it.
+        let mut t = ticket("SHOP-18", "Login redirect", Status::WaitingForYou);
+        t.flags.hand_off = Some(HandOffKind::SendBack);
+        assert!(
+            !card(&t)
+                .one_line
+                .line
+                .is_some_and(|l| l.text.contains("waiting for the agent"))
         );
     }
 }

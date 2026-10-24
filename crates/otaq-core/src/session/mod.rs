@@ -18,6 +18,7 @@
 pub mod colors;
 pub mod deliveries;
 pub mod env;
+pub mod hand_offs;
 pub mod input;
 pub mod screen;
 pub mod scrollback;
@@ -1044,6 +1045,11 @@ impl Sessions {
     /// The session as it is now (running, or ended and still in memory).
     pub fn info(&self, id: &str) -> Result<SessionInfo, SessionError> {
         Ok(self.live(id)?.info.lock().expect("session info").clone())
+    }
+
+    /// The id of the ticket the session runs for (in memory), if any.
+    pub fn ticket_id_of(&self, id: &str) -> Option<String> {
+        self.live(id).ok()?.ticket_id.clone()
     }
 
     /// Every session in memory: the running ones and the last ended one per ticket and kind.
