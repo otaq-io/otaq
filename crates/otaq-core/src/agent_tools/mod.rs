@@ -114,7 +114,7 @@ impl Tool {
     }
 
     /// [`AgentTool::swaps_refused_model`]: the tool runs another model quietly when it can't run the one asked for
-    /// (the panel's "asked for gpt-5.5, ran on auto").
+    /// (the sheet's "asked for gpt-5.5, ran on auto").
     pub fn swaps_refused_model(self) -> bool {
         match self {
             Self::Claude | Self::Codex => false,
@@ -609,7 +609,7 @@ pub trait AgentTool: Send + Sync {
     ///   most.
     fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>>;
 
-    /// The command of a one-off read-only question, not shown in the pane and kept for no Resume ("Ask the agent"
+    /// The command of a one-off read-only question, not shown in the agent panel and kept for no Resume ("Ask the agent"
     /// for the run command, RUN-02, d0086): only the tool's reading tools; the answer is the final result. Run by
     /// [`crate::terminals::suggest`], which reads its output.
     /// - Claude Code: `claude -p --output-format stream-json --verbose --tools Read,Glob,Grep [--model <m>]

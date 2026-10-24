@@ -1,6 +1,6 @@
 // Start from scratch after a failed resume (*16 → Resume failed · Start from scratch*; REC-03, d0018): starting over
 // spends tokens and drops the old conversation, so it asks first and says what is kept and what is lost. Opened by
-// the Terminal tab's and the panel's Start from scratch… and the after-restart sheet:
+// the Terminal tab's and the sheet's Start from scratch… and the after-restart sheet:
 // `openOverlay("start_from_scratch", { ticket })`. Only the confirm starts a new `claude` (`recovery.start_from_scratch`).
 import { useEffect, useState } from "react";
 

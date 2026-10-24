@@ -310,7 +310,7 @@ pub fn keeps_default_look(flow: &Flow) -> bool {
 
 /// The kind of place `ticket` is in, as the set of statuses it allows (STG-04): Backlog, waiting, Done, or the
 /// kind of its stage. The stage is looked up in the default flow, whose ids every project's flow uses in M31 (the
-/// derived flow only drops Validate); a stage it doesn't know goes by the status's own set. Cards and panels decide
+/// derived flow only drops Validate); a stage it doesn't know goes by the status's own set. Cards and sheets decide
 /// by it rather than by a column (STG-08): an epic in its human check is "in review" whatever its status.
 pub fn place_set(ticket: &Ticket) -> StatusSet {
     match &ticket.place {

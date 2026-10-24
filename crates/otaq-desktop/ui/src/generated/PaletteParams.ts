@@ -9,7 +9,7 @@ export type PaletteParams = { query: string,
  */
 project: string | null, 
 /**
- * The ticket open in the panel.
+ * The ticket open in the sheet.
  */
 ticket: string | null, 
 /**

@@ -1,6 +1,6 @@
 //! `ask_bar.*`: the Ask bar and the rail's Project agent button (T-0458; SHB-02, SHB-03; d0113, d0068, d0087;
 //! `ask_bar.rs` in `otaq-view`). `ask_bar.view` answers what the bar and the button draw for a project; `ask_bar.send`
-//! is Return (a new conversation through `pane.send`, or Continue into a running one); `ask_bar.looked` says the
+//! is Return (a new conversation through `agent_panel.send`, or Continue into a running one); `ask_bar.looked` says the
 //! panel shows a conversation, which clears its "New reply". Whether the panel is open and what it shows are the
 //! page's own state, passed in; nothing here starts an agent without the user's words.
 
@@ -66,7 +66,7 @@ async fn ticket_title(app: &App, key: &str) -> Option<String> {
 }
 
 pub async fn view(app: &App, params: ViewParams) -> Result<AskBarView, RequestError> {
-    let agents = super::pane::agents(app, &params.project).await?;
+    let agents = super::agent_panel::agents(app, &params.project).await?;
     let title = match &params.ticket {
         Some(key) => ticket_title(app, key).await,
         None => None,
@@ -115,7 +115,7 @@ pub struct Sent {
 /// Return: a new conversation starts with the words (about the ticket, named first), or Continue types them into
 /// the running one. Its input line holding unsent text: nothing is typed, a toast says why, and the panel opens on it.
 pub async fn send(app: &App, params: SendParams) -> Result<Sent, RequestError> {
-    let new = |message: String| super::pane::SendParams {
+    let new = |message: String| super::agent_panel::SendParams {
         project: params.project.clone(),
         message,
         agent: None,
@@ -149,12 +149,12 @@ pub async fn send(app: &App, params: SendParams) -> Result<Sent, RequestError> {
         (About::Ticket, Some(key), _) => {
             let message = vm::about_ticket(key, &params.text);
             Ok(Sent {
-                agent: super::pane::send(app, new(message)).await?,
+                agent: super::agent_panel::send(app, new(message)).await?,
                 sent: true,
             })
         }
         _ => Ok(Sent {
-            agent: super::pane::send(app, new(params.text.clone())).await?,
+            agent: super::agent_panel::send(app, new(params.text.clone())).await?,
             sent: true,
         }),
     }
@@ -237,7 +237,7 @@ mod tests {
             .await
             .is_err()
         );
-        let list = super::super::pane::agents(&h.app, &project).await.unwrap();
+        let list = super::super::agent_panel::agents(&h.app, &project).await.unwrap();
         assert!(list.open.is_empty());
         table(&h.app, "ask_bar.looked", json!({ "agent": "a1" }))
             .await

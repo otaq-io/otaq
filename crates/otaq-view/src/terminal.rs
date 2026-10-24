@@ -1,4 +1,4 @@
-//! The terminal's state as the panel shows it; the emulator itself stays in the app.
+//! The terminal's state as the sheet shows it; the emulator itself stays in the app.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

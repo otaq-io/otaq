@@ -6,14 +6,14 @@
 //!   the same worktree; in an agent check it starts a fresh check ([`crate::recovery::resume_as`]).
 //!   It goes through the start sequence like a parked ticket (worktree kept, no base sync or setup); with the
 //!   agent limit full, the ticket waits in Queued for a slot like a Send back. Its first prompt is what was
-//!   waiting (a Send back's skill, an inbox answer), else "You were interrupted by a restart. Carry on…"
+//!   waiting (a Send back's skill, a needs-you answer), else "You were interrupted by a restart. Carry on…"
 //!   ([`crate::recovery::carry_on_text`], d0122), passed when the tool starts.
 //! - **Resume all** resumes exactly the Interrupted Dev tickets ([`crate::recovery::resume_all_eligible`]).
 //! - When the tool can't find the conversation to resume the ticket becomes **Resume failed**
 //!   ([`crate::recovery::Recovery`]); **Retry** runs the same resume again, **Start from scratch** (after a
 //!   confirmation) starts a new conversation in the same worktree. Branch, commits and files are kept; every
 //!   session and its tool id stay in History.
-//! - **While the project is paused** (PAU-05, d0112) Resume, an inbox answer, Retry and Start from scratch are the
+//! - **While the project is paused** (PAU-05, d0112) Resume, a needs-you answer, Retry and Start from scratch are the
 //!   user's click on this one ticket: its agent starts and the pause stays. Resume all leaves paused projects alone
 //!   (their Resume is the pause's).
 
@@ -92,7 +92,7 @@ impl Review {
         .await
     }
 
-    /// Resume an Interrupted ticket with `answer` as the resumed conversation's first prompt: the inbox answer
+    /// Resume an Interrupted ticket with `answer` as the resumed conversation's first prompt: the needs-you answer
     /// to a question asked before the restart, in one click (ATT-08, d0045).
     /// Resumes the agent's conversation of a ticket whose session is gone with `prompt` as its first prompt: a
     /// validation's findings or "cancelled" for an agent that a restart ended (VAL-07, d0063). Its ports and the
@@ -215,7 +215,7 @@ impl Review {
         .await
     }
 
-    /// **Resume all**: every Interrupted ticket, of one project or of all (the inbox is global), except a paused
+    /// **Resume all**: every Interrupted ticket, of one project or of all (Needs you is global), except a paused
     /// project's (PAU-04: its Resume is the pause's). Returns the tickets resumed, in key order.
     pub async fn resume_all(
         &self,
@@ -304,7 +304,7 @@ impl Review {
         let full = self.limit_full().await?;
         let waits_before = self.waits_before(ticket).await?;
         let now = now_ms();
-        // Resume and Retry keep the first prompt that never arrived (a Send back's skill, an inbox answer) and send
+        // Resume and Retry keep the first prompt that never arrived (a Send back's skill, a needs-you answer) and send
         // it with the resumed conversation; Start from scratch begins with the ticket prompt (d0018), so it drops
         // them (Q25).
         let scratch = mode == RETURN_SCRATCH;

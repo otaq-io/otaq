@@ -3,7 +3,7 @@
 //! them.
 //!
 //! Texts with a number or a branch ("Validation failed 3 times", "Keeps conflicting with `main`") are built
-//! here, so the card, the panel, the inbox and the CLI read the same.
+//! here, so the card, the sheet, Needs you and the CLI read the same.
 
 use std::fmt;
 
@@ -267,7 +267,7 @@ stored_enum! {
 }
 
 stored_enum! {
-    /// The user's actions on a validation (VAL-06, VAL-07, VAL-09): the panel's buttons and "…" menu items.
+    /// The user's actions on a validation (VAL-06, VAL-07, VAL-09): the sheet's buttons and "…" menu items.
     pub enum ValidationAction ("validation action") {
         /// While validating: the validator stops, the round doesn't count, back to Agent Working.
         Stop = "stop",

@@ -1,7 +1,7 @@
 //! Human checks (T-0418; FLW-14, FLW-15, STG-06; d0108 rule 6, "After a Fail", smaller rule 13): a Pass on any human
 //! check moves the card on, or, directly before a click Delivery, offers the delivery choices; a Fail resumes the
 //! nearest earlier Agent stage's session with the comments, every agent check's counter restarts and the card walks
-//! every later stage again; a card in a human check says how it got there; inbox group 3 holds human checks and
+//! every later stage again; a card in a human check says how it got there; needs-you group 3 holds human checks and
 //! click-mode Deliveries only, closest to Done first by the stage's position in the flow. On the test flow
 //! (`tests/flows/every-kind.yaml`) and the default flow; `claude` is stood in for by ordinary commands.
 
@@ -460,7 +460,7 @@ async fn on_the_default_flow_reviews_pass_offers_the_delivery_choices() {
     w.stop().await;
 }
 
-/// Inbox group 3 (FLW-15, Q265): a card that a Pass moved into an automatic Delivery delivers by itself (its
+/// Needs-you group 3 (FLW-15, Q265): a card that a Pass moved into an automatic Delivery delivers by itself (its
 /// delivery session opens the PR) and isn't in group 3; in QA it was, naming its stage. A card whose Security check
 /// failed and was moved on reaches the same Delivery in click mode and waits in group 3 (T-0419).
 #[tokio::test(flavor = "multi_thread")]
@@ -523,7 +523,7 @@ async fn an_automatic_deliverys_card_is_not_in_group_three() {
     w.stop().await;
 }
 
-/// Inbox group 3's order (Q264): closest to Done by the stage's position in the flow. With QA after Review, a QA
+/// Needs-you group 3's order (Q264): closest to Done by the stage's position in the flow. With QA after Review, a QA
 /// row comes before an older Review row, and a card at the click Delivery before both.
 #[tokio::test(flavor = "multi_thread")]
 async fn qa_rows_sort_before_review_rows_when_qa_is_later() {

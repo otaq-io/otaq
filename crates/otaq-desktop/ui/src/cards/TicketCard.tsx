@@ -6,7 +6,7 @@
 // the tokens and the answer options are the ticket's sheet's. Everything it says comes from a `TicketCardView`
 // (`card_page.rs`); the board (or the gallery) decides the moment of interaction: hovered, selected, chain, dragging
 // (*Interaction states*). Resting on the key row shows the full status and what the card has no room for; the quick
-// actions (open terminal, open panel) show on hover.
+// actions (open terminal, open sheet) show on hover.
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
 import { Button, PriorityChip, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
@@ -26,7 +26,7 @@ export interface TicketCardProps {
   /** The card's one action. */
   onAction?: (kind: CardActionKind) => void;
   /** The quick action "Open panel". */
-  onOpenPanel?: () => void;
+  onOpenSheet?: () => void;
 }
 
 /** The key row's hover (BRD-03): the full status ("Needs you · permission"), then the facts the card has no room for
@@ -175,7 +175,7 @@ function WhoRow({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) 
   );
 }
 
-function QuickActions({ card, onOpenPanel }: { card: TicketCardView; onOpenPanel?: () => void }) {
+function QuickActions({ card, onOpenSheet }: { card: TicketCardView; onOpenSheet?: () => void }) {
   return (
     <div className="card-quick">
       <Tooltip text={card.open_terminal}>
@@ -183,14 +183,14 @@ function QuickActions({ card, onOpenPanel }: { card: TicketCardView; onOpenPanel
           <Icon name="square-terminal" size={13} />
         </span>
       </Tooltip>
-      <Tooltip text={card.open_panel} keys={card.open_panel_keys}>
+      <Tooltip text={card.open_sheet} keys={card.open_sheet_keys}>
         <button
           type="button"
           className="card-quick-button"
-          aria-label={card.open_panel}
+          aria-label={card.open_sheet}
           onClick={(e) => {
             e.stopPropagation();
-            onOpenPanel?.();
+            onOpenSheet?.();
           }}
         >
           <Icon name="panel-right" size={13} />
@@ -237,7 +237,7 @@ function Body({
   );
 }
 
-export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPanel }: TicketCardProps) {
+export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenSheet }: TicketCardProps) {
   const chain = state.chain === "none" ? undefined : state.chain;
   return (
     // The card is a pointer target; the board's keyboard moves the selection (T-0220), so it isn't a tab stop.
@@ -261,8 +261,8 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPa
       onClick={onSelect}
     >
       <Body card={card} selected={state.selected} {...(onAction ? { onAction } : {})} />
-      {(onOpenPanel !== undefined || state.hovered) && (
-        <QuickActions card={card} {...(onOpenPanel ? { onOpenPanel } : {})} />
+      {(onOpenSheet !== undefined || state.hovered) && (
+        <QuickActions card={card} {...(onOpenSheet ? { onOpenSheet } : {})} />
       )}
     </article>
   );

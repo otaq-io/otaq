@@ -11,7 +11,7 @@ export type BoardParams = { project: string, width: number, height: number,
  */
 filter: BoardFilter, 
 /**
- * A Project agent's id: only the tickets it created or changed show (d0087, "Show on board" in the pane). It
+ * A Project agent's id: only the tickets it created or changed show (d0087, "Show on board" in the agent panel). It
  * combines with `filter`; ✕ on its chip or Esc sets it back to `None`.
  */
 agent: string | null, };

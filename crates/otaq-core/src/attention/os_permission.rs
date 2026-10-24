@@ -7,18 +7,18 @@
 //!   epic lead) while macOS hasn't been asked, once: after `notifications.ask_answered` (Allow, Not now, or Settings'
 //!   Allow notifications) it is never set again. The request to macOS itself happens in the app's process; the
 //!   service only reads the answer. Outside the bundle the permission is never "not asked", so nothing is pending.
-//! - **The blocked banner** shows while Otaq's switch is on, macOS has notifications turned off and the inbox left out
+//! - **The blocked banner** shows while Otaq's switch is on, macOS has notifications turned off and Needs you left out
 //!   a notification for it, unless the user closed it for this permission. The permission becoming allowed forgets
 //!   both the closing and the blocked notification, so a later turn-off shows it once more, at the next one.
 //! - The permission is read again at start, when an app window gains focus (the user may have changed System
-//!   Settings), before posting ([`super::Inbox`]) and after the ask was answered; a read never waits.
+//!   Settings), before posting ([`super::NeedsYouQueue`]) and after the ask was answered; a read never waits.
 
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, watch};
 
-use super::Inbox;
+use super::NeedsYouQueue;
 use super::notify::{Notifier, PermissionState};
 use crate::board::{Board, BoardError};
 use crate::protocol::Event;
@@ -49,10 +49,10 @@ pub struct OsPermission {
 struct Inner {
     store: Store,
     board: Board,
-    inbox: Inbox,
+    needs_you: NeedsYouQueue,
     notifier: Arc<dyn Notifier>,
     events: EventBus,
-    /// Woken by a permission read that found a change and by the inbox's first blocked notification.
+    /// Woken by a permission read that found a change and by Needs you's first blocked notification.
     wake: Arc<Notify>,
     /// The state last published.
     last: Mutex<Option<NotificationsState>>,
@@ -64,12 +64,12 @@ impl OsPermission {
     pub fn new(
         store: Store,
         board: Board,
-        inbox: Inbox,
+        needs_you: NeedsYouQueue,
         notifier: Arc<dyn Notifier>,
         events: EventBus,
     ) -> Self {
         let wake = Arc::new(Notify::new());
-        inbox.on_notification_blocked(wake.clone());
+        needs_you.on_notification_blocked(wake.clone());
         {
             let wake = wake.clone();
             notifier.on_permission(Arc::new(move || wake.notify_one()));
@@ -78,7 +78,7 @@ impl OsPermission {
             inner: Arc::new(Inner {
                 store,
                 board,
-                inbox,
+                needs_you,
                 notifier,
                 events,
                 wake,
@@ -105,7 +105,7 @@ impl OsPermission {
             .await?
             .and_then(|v| serde_json::from_str::<PermissionState>(&v).ok());
         let blocked_banner = permission == PermissionState::TurnedOff
-            && self.inner.inbox.notification_blocked()
+            && self.inner.needs_you.notification_blocked()
             && dismissed_for != Some(permission)
             && self.inner.board.global_settings().await?.notifications;
         Ok(NotificationsState {
@@ -122,7 +122,7 @@ impl OsPermission {
         let before = std::mem::replace(&mut *self.inner.seen.lock().expect("permission seen"), now);
         if now == PermissionState::Allowed && before != PermissionState::Allowed {
             // Before any wait, so a state read meanwhile already sees it.
-            self.inner.inbox.clear_notification_blocked();
+            self.inner.needs_you.clear_notification_blocked();
             self.inner
                 .store
                 .remove_setting(NOTIFICATIONS_BLOCKED_DISMISSED)

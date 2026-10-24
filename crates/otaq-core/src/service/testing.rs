@@ -17,7 +17,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use super::{Service, ServiceConfig, Stopper};
-use crate::attention::Inbox;
+use crate::attention::NeedsYouQueue;
 use crate::board::Board;
 use crate::board::projects::AddProject;
 use crate::board::tickets::{NewTicketInput, Ticket};
@@ -49,7 +49,7 @@ pub struct TestService {
     pub starter: Starter,
     pub recovery: Recovery,
     pub pause: crate::agents::pause::Pause,
-    pub inbox: Inbox,
+    pub needs_you: NeedsYouQueue,
     pub cleanup: Cleanup,
     pub usage: Usage,
     pub plan_limit: crate::usage::limit::PlanLimit,
@@ -603,7 +603,7 @@ impl TestService {
         let service = Service::bind(configure(config))
             .await
             .expect("service starts");
-        let inbox = service.inbox();
+        let needs_you = service.needs_you();
         let pause = service.pause();
         let cleanup = service.cleanup();
         let usage = service.usage();
@@ -644,7 +644,7 @@ impl TestService {
             starter,
             recovery,
             pause,
-            inbox,
+            needs_you,
             cleanup,
             usage,
             plan_limit,

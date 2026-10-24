@@ -1,6 +1,6 @@
 //! Limits per tool (T-0358, T-0405; USG-10, USG-06, USG-07, AGM-03, ATT-09; d0086, d0108, d0020, d0046, d0018): one
 //! banner line per tool, Resume per tool (only that tool's agents continue, only its holds lift), "This is the usage
-//! limit" per tool, a tool that isn't available (its line and one notification, no inbox item per ticket), Use
+//! limit" per tool, a tool that isn't available (its line and one notification, no needs-you item per ticket), Use
 //! fallback now (the tool's fallback, only on the click), the limit signal's own reset, and epic delivery sessions
 //! through the check before every launch.
 //!
@@ -491,8 +491,8 @@ async fn two_tools_at_their_limits_get_two_lines_and_resume_is_per_tool() {
     );
     assert!(!claude.fallback_can_start && !codex.fallback_can_start);
 
-    // Only the tool's own limit-stopped agents are out of the inbox (ATT-09): both are, for now.
-    assert!(w.inbox.list().await.unwrap().items.is_empty());
+    // Only the tool's own limit-stopped agents are out of Needs you (ATT-09): both are, for now.
+    assert!(w.needs_you.list().await.unwrap().items.is_empty());
 
     // Resume Claude Code: only its agent continues, only its holds lift.
     let Reply::Resumed(keys) = world
@@ -524,11 +524,11 @@ async fn two_tools_at_their_limits_get_two_lines_and_resume_is_per_tool() {
     );
     assert!(codex.fallback_can_start);
 
-    // The inbox: Claude Code's agent raises its item again; Codex's still doesn't.
+    // Needs you: Claude Code's agent raises its item again; Codex's still doesn't.
     w.force_status(&order_email, Status::Idle).await;
     w.force_status(&coupon_field, Status::Idle).await;
     let items: Vec<String> = w
-        .inbox
+        .needs_you
         .list()
         .await
         .unwrap()
@@ -573,7 +573,7 @@ async fn this_is_the_usage_limit_folds_only_the_clicked_agents_tool() {
     assert_eq!(keys, ["SHOP-1", "SHOP-3"]);
     assert_eq!(w.status("SHOP-2").await, Status::Idle);
     let items: Vec<String> = w
-        .inbox
+        .needs_you
         .list()
         .await
         .unwrap()
@@ -595,7 +595,7 @@ async fn this_is_the_usage_limit_folds_only_the_clicked_agents_tool() {
         panic!("marked")
     };
     assert_eq!(keys, std::slice::from_ref(&shop2.key));
-    assert!(w.inbox.list().await.unwrap().items.is_empty());
+    assert!(w.needs_you.list().await.unwrap().items.is_empty());
     assert!(
         otaq_core::usage::plan::limit_of(w.board.store(), other)
             .await
@@ -650,13 +650,13 @@ async fn a_tool_that_isnt_available_gets_its_line_and_one_notification() {
     assert_eq!(line.fallback, None);
     assert!(!world.lines().await.several_tools);
 
-    // A second held ticket: the line counts it, no second notification, no inbox item for either.
+    // A second held ticket: the line counts it, no second notification, no needs-you item for either.
     queue(w, &second).await;
     until_status(w, &second, Status::Held).await;
     until("two waiting", || async { world.line(B).await.waiting == 2 }).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(world.recorder.unavailable().len(), 1);
-    assert!(w.inbox.list().await.unwrap().items.is_empty());
+    assert!(w.needs_you.list().await.unwrap().items.is_empty());
 
     // Shown again: the holds lift, the line goes.
     world.hide(B, false).await;

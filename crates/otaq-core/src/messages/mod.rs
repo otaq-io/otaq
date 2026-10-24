@@ -6,7 +6,7 @@
 //!   its input line is empty (d0048); it answers with `otaq answer <ID> --stdin`.
 //! - The target **never had a session**: the ask is refused ("SHOP-18 hasn't started yet …", MSG-04).
 //! - The target has only a **stored conversation** (normally a merged parent): the question waits here until the
-//!   answer-only resume (MSG-03) or the inbox (MSG-05) takes it.
+//!   answer-only resume (MSG-03) or Needs you (MSG-05) takes it.
 //!
 //! The answer goes back to the asker the same way, and "asked SHOP-40.1 · waiting" lasts until it was typed
 //! there (MSG-06).
@@ -34,8 +34,8 @@ stored_enum! {
         Live = "live",
         /// The target's stored conversation was resumed answer-only (MSG-03).
         Resumed = "resumed",
-        /// The user answers from the inbox (MSG-05).
-        Inbox = "inbox",
+        /// The user answers from Needs you (MSG-05). Stored as `inbox`, its name before d0114 (migrations 0001, 0029).
+        NeedsYou = "inbox",
     }
 }
 
@@ -47,8 +47,8 @@ pub enum MessageState {
     Asked,
     /// Typed into the target's session; no answer yet.
     Delivered,
-    /// In the user's inbox (the target has no live session and finished tickets don't answer).
-    InInbox,
+    /// In the user's Needs you (the target has no live session and finished tickets don't answer).
+    NeedsYou,
     /// Answered; the answer waits to be typed into the asker's session.
     Answered,
     /// The answer reached the asker.
@@ -103,8 +103,8 @@ impl Message {
             MessageState::AnswerDelivered
         } else if self.answer.is_some() {
             MessageState::Answered
-        } else if self.route == Some(Route::Inbox) {
-            MessageState::InInbox
+        } else if self.route == Some(Route::NeedsYou) {
+            MessageState::NeedsYou
         } else if self.delivered_at.is_some() {
             MessageState::Delivered
         } else {
@@ -643,9 +643,9 @@ mod tests {
         assert_eq!(m.state(), MessageState::Answered);
         m.answer_delivered_at = Some(3);
         assert_eq!(m.state(), MessageState::AnswerDelivered);
-        let mut inbox = message();
-        inbox.route = Some(Route::Inbox);
-        assert_eq!(inbox.state(), MessageState::InInbox);
+        let mut needs_you = message();
+        needs_you.route = Some(Route::NeedsYou);
+        assert_eq!(needs_you.state(), MessageState::NeedsYou);
     }
 
     #[test]

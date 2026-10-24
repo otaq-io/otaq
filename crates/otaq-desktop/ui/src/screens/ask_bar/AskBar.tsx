@@ -15,7 +15,7 @@ import type { AskSuggestion } from "../../generated/AskSuggestion";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { chosenAgent, shownAgents } from "../pane/logic";
+import { chosenAgent, shownAgents } from "../agent_panel/logic";
 import { askBar, lookedCount, nextChoice, openOn, sendFromBar } from "./logic";
 
 /** The service events that change what the bar says or suggests. */

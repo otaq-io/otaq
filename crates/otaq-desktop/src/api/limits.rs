@@ -1,5 +1,5 @@
 //! `limits.*`: a tool's usage limit (USG-10, AGT-08, d0086). `limits.resume_tool { tool }` is Resume on a tool's
-//! banner line, its strip item and a tool problem's notice (the pane's, the lead's): that tool's waiting agents
+//! banner line, its strip item and a tool problem's notice (the agent panel's, the lead's): that tool's waiting agents
 //! continue, with the same toast everywhere. `limits.use_fallback_now { tool }` is Use fallback now on the tool's
 //! banner line: its waiting tickets start on its fallback (AGM-03; "4 tickets started on Codex").
 

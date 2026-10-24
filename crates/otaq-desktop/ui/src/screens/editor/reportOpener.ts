@@ -1,5 +1,5 @@
 // Open on a report chip (CMT-10, CMT-12): one door for the thread's "Report · 48 KB" chips and the box's "Pasted text"
-// chip. The report view over the panel is T-0447's (`ReportView.tsx`); it registers itself here with
+// chip. The report view over the sheet is T-0447's (`ReportView.tsx`); it registers itself here with
 // `setReportOpener`. Until it does, Open does nothing.
 
 /** What Open shows: a posted comment's report (by its number), or the text pasted into a box, not posted yet. */

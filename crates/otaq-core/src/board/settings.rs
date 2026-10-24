@@ -329,7 +329,7 @@ impl Default for GlobalSettings {
 }
 
 /// Which kinds of OS notification go out (d0090, one Settings checkbox each). An unticked kind still turns turquoise
-/// and lands in the inbox; only the OS notification is left out. All on by default, also for settings stored before
+/// and lands in Needs you; only the OS notification is left out. All on by default, also for settings stored before
 /// the checkboxes existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -1322,7 +1322,7 @@ mod tests {
                 {"action": "open_activity", "slot": 0, "key": "⌘J"},
                 {"action": "new_ticket", "slot": "one", "key": "n"},
                 "nonsense",
-                {"action": "next_inbox_item", "slot": 0, "key": null, "works_in_terminals": false},
+                {"action": "next_needs_you_item", "slot": 0, "key": null, "works_in_terminals": false},
                 {"action": "project", "number": 3, "slot": 0, "key": "⌃3", "works_in_terminals": true},
             ],
         }}));
@@ -1339,7 +1339,7 @@ mod tests {
                     works_in_terminals: false,
                 },
                 KeyboardChange {
-                    action: "next_inbox_item".into(),
+                    action: "next_needs_you_item".into(),
                     number: None,
                     slot: 0,
                     key: None,

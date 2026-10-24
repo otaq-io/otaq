@@ -36,7 +36,7 @@ stored_enum! {
 
 /// The most options a question may carry.
 pub const MAX_OPTIONS: usize = 4;
-/// The longest option label, in characters: labels are short so they fit the inbox, card and panel.
+/// The longest option label, in characters: labels are short so they fit Needs you, card and sheet.
 pub const MAX_OPTION_LABEL: usize = 40;
 
 /// A question an agent asked the user.

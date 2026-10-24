@@ -1,5 +1,5 @@
-//! Inbox, Delivery, cleanup and epics on stages (T-0403; STG-11; d0108, d0016, d0018, d0038, d0059, d0064, d0080,
-//! d0079): inbox group 3 is "waiting in a human check or a click Delivery" (a ticket in the test flow's QA is in
+//! Needs you, Delivery, cleanup and epics on stages (T-0403; STG-11; d0108, d0016, d0018, d0038, d0059, d0064, d0080,
+//! d0079): needs-you group 3 is "waiting in a human check or a click Delivery" (a ticket in the test flow's QA is in
 //! it), builds are freed in human checks and Delivery stages, a ticket keeps its worktree in its Delivery stage
 //! until Merged or Closed, a Delivery's conflict is fixed in the Agent stage, and an epic stops at its flow's last
 //! human check, or at the implicit Review epic when the flow has none, where it counts as quiet. A child's Delivery
@@ -102,10 +102,10 @@ fn epic_at(place: Place, status: Status) -> Ticket {
     }
 }
 
-// ---- The inbox ----
+// ---- Needs you ----
 
 /// Group 3 is every human check's wait and a click Delivery's To deliver; PR open waits for nobody's click in the
-/// inbox, as today. A ticket in the test flow's QA is in group 3 (its Delivery in click mode here); one waiting at
+/// Needs you, as today. A ticket in the test flow's QA is in group 3 (its Delivery in click mode here); one waiting at
 /// its Delivery comes first (closest to Done), whatever its age; inside the human checks the older comes first, as
 /// today.
 #[test]

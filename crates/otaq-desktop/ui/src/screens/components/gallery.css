@@ -348,7 +348,7 @@
   gap: 6px;
 }
 
-/* The Lead tab cells (T-0290): the panel's default width, a fixed height so the terminal well has room. */
+/* The Lead tab cells (T-0290): the sheet's default width, a fixed height so the terminal well has room. */
 .gallery-lead-tab {
   width: 660px;
   height: 420px;
@@ -363,8 +363,8 @@
   width: fit-content;
 }
 
-/* T-0375: the panel's question bar at the panel's default width, and a card's hover card drawn open in place. */
-.gallery-option-notes-panel {
+/* T-0375: the sheet's question bar at the sheet's default width, and a card's hover card drawn open in place. */
+.gallery-option-notes-sheet {
   width: 480px;
 }
 
@@ -392,8 +392,8 @@
   transform-origin: 0 0;
 }
 
-/* The pane's states (T-0330): each at 400 px, as tall as the 1440 window's pane. */
-.gallery-pane {
+/* The agent panel's states (T-0330): each at 400 px, as tall as the 1440 window's agent panel. */
+.gallery-agent-panel {
   display: flex;
   width: 420px;
   height: 640px;
@@ -423,7 +423,7 @@
   background: var(--bg-panel);
 }
 
-/* 05/08 · Agent rows (T-0344): each sample at the panel's 620 px, the panel look over the form look. */
+/* 05/08 · Agent rows (T-0344): each sample at the sheet's 620 px, the sheet look over the form look. */
 .gallery-agent-rows {
   box-sizing: border-box;
   width: 620px;

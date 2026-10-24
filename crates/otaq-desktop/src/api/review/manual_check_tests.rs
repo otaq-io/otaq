@@ -1,6 +1,6 @@
 //! "Manual checks for you" through the window (T-0499, d0125): SHOP-1's agent ends Dev with two `--manual-check`
 //! items, so SHOP-1 waits in Review; the Overview lists them above Approve, the Local merge dialog says "2 manual
-//! checks not ticked", and a tick from the Overview leaves one. The panel offers Run next to Approve.
+//! checks not ticked", and a tick from the Overview leaves one. The sheet offers Run next to Approve.
 //!
 //! The app talks to a core `TestService` (temporary `OTAQ_HOME` and repositories); the agent's session is a plain
 //! `sh` sending requests through the socket. No agent tool runs.
@@ -99,10 +99,10 @@ async fn manual_checks_on_the_overview_and_in_the_merge_dialog() {
     assert_eq!(dialog["confirm"]["manual_checks"], "1 manual check not ticked");
 
     // Run next to Approve, as during Dev.
-    let panel = request(&app, "panel.view", json!({ "key": "SHOP-1" }))
+    let sheet = request(&app, "sheet.view", json!({ "key": "SHOP-1" }))
         .await
         .unwrap();
-    let actions: Vec<&str> = panel["view"]["buttons"]
+    let actions: Vec<&str> = sheet["view"]["buttons"]
         .as_array()
         .unwrap()
         .iter()

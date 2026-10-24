@@ -1,7 +1,7 @@
 //! A ticket an agent created (T-0500, #47; d0016, d0083, d0091): `otaq create` from a ticket's agent or an epic lead
 //! (sent from inside its session, an ordinary `sh` running `nc`) tells the app with `created_by_agent`, naming the
 //! creator and where the ticket landed, and the creating ticket's History logs it. The user's and a Project agent's
-//! creations tell nothing (its pane lists them).
+//! creations tell nothing (its agent panel lists them).
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
@@ -120,7 +120,7 @@ async fn an_agent_s_and_a_lead_s_new_tickets_tell_the_app_the_user_s_and_a_proje
         [(child, "Wishlist lead".to_owned(), Status::Backlog)]
     );
 
-    // A Project agent's: its pane's "Created" list has it, no toast.
+    // A Project agent's: its agent panel's "Created" list has it, no toast.
     let agent = w
         .project_agents
         .open("SHOP", "Audit the footer")

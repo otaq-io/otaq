@@ -251,7 +251,7 @@ async fn waiting_one(w: &TestService, epic: &str) -> LeadQuestion {
     waiting.remove(0)
 }
 
-async fn inbox_has(w: &TestService, key: &str) -> bool {
+async fn needs_you_has(w: &TestService, key: &str) -> bool {
     w.board
         .needs_you_items(now_ms())
         .await
@@ -298,14 +298,14 @@ async fn lead_takes_the_wake_up(w: &TestService, lead: &Lead, wake: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_routed_question_makes_no_inbox_item_and_the_leads_answer_reaches_the_child() {
+async fn a_routed_question_makes_no_needs_you_item_and_the_leads_answer_reaches_the_child() {
     let w = world().await;
     let (lead, lead_shell) = open_lead(&w, "SHOP-40").await;
     lead_prompt(&w, &lead, "Plan it").await;
     let button = running_child(&w, "SHOP-40.2").await;
 
     ask(&w, &button, HEART, &[]).await;
-    // Not turquoise, no inbox item: "asked lead · waiting".
+    // Not turquoise, no needs-you item: "asked lead · waiting".
     let asked = ticket(&w, "SHOP-40.2").await;
     assert_eq!(asked.status, Status::Working);
     assert_eq!(
@@ -316,7 +316,7 @@ async fn a_routed_question_makes_no_inbox_item_and_the_leads_answer_reaches_the_
         })
     );
     assert_eq!(asked.flags.via_lead, None);
-    assert!(!inbox_has(&w, "SHOP-40.2").await);
+    assert!(!needs_you_has(&w, "SHOP-40.2").await);
     // Its turn ends: waiting, not Idle.
     child_stops(&w, &button).await;
     assert_eq!(w.status("SHOP-40.2").await, Status::Working);
@@ -352,7 +352,7 @@ async fn a_routed_question_makes_no_inbox_item_and_the_leads_answer_reaches_the_
     )
     .await;
     assert_eq!(ok(&answered)["lead_question"]["state"], "answered");
-    // Typed into the child; the card is back to working; still no inbox item.
+    // Typed into the child; the card is back to working; still no needs-you item.
     w.wait_for_output(
         &button.shell.session,
         &format!("Answer from Wishlist lead: {ANSWER}"),
@@ -361,7 +361,7 @@ async fn a_routed_question_makes_no_inbox_item_and_the_leads_answer_reaches_the_
     let after = ticket(&w, "SHOP-40.2").await;
     assert_eq!(after.status, Status::Working);
     assert_eq!(after.flags.asked_lead, None);
-    assert!(!inbox_has(&w, "SHOP-40.2").await);
+    assert!(!needs_you_has(&w, "SHOP-40.2").await);
     assert!(leads.handovers_of("SHOP-40").await.unwrap().is_empty());
     // A second answer is refused.
     let again = send(
@@ -498,7 +498,7 @@ async fn a_passed_on_question_asks_you_with_the_leads_option_and_reason() {
     assert_eq!(w.status("SHOP-40.2").await, Status::AsksYou);
 
     // The user's answer reaches the child as today, naming the choice; logged on both.
-    w.inbox
+    w.needs_you
         .answer("SHOP-40.2", &Choice::Option(1), false, &me())
         .await
         .unwrap();
@@ -584,7 +584,7 @@ async fn a_question_the_lead_leaves_is_handed_back_at_turn_end_and_when_the_lead
             .to_string()
             .contains("already went to the user")
     );
-    w.inbox
+    w.needs_you
         .answer("SHOP-40.2", &Choice::Other("Filled".into()), false, &me())
         .await
         .unwrap();
@@ -598,7 +598,7 @@ async fn a_question_the_lead_leaves_is_handed_back_at_turn_end_and_when_the_lead
         w.status("SHOP-40.2").await == Status::AsksYou
     })
     .await;
-    assert!(inbox_has(&w, "SHOP-40.2").await);
+    assert!(needs_you_has(&w, "SHOP-40.2").await);
     assert_eq!(
         steps(&w, "SHOP-40.2").await,
         ["asked", "handed_back", "asked", "handed_back"]
@@ -613,7 +613,7 @@ async fn with_no_live_lead_the_question_asks_you_and_a_permission_prompt_never_r
     ask(&w, &button, HEART, &[]).await;
     let asks = ticket(&w, "SHOP-40.2").await;
     assert_eq!(asks.status, Status::AsksYou);
-    assert!(inbox_has(&w, "SHOP-40.2").await);
+    assert!(needs_you_has(&w, "SHOP-40.2").await);
     let id = asks.question.unwrap().id;
     assert!(questions::find(&w.board, &id).await.unwrap().is_none());
     assert!(steps(&w, "SHOP-40").await.is_empty());
@@ -631,7 +631,7 @@ async fn with_no_live_lead_the_question_asks_you_and_a_permission_prompt_never_r
         .await
         .unwrap();
     assert_eq!(w.status("SHOP-40.4").await, Status::NeedsYou);
-    assert!(inbox_has(&w, "SHOP-40.4").await);
+    assert!(needs_you_has(&w, "SHOP-40.4").await);
     assert!(pending(&w, &lead).await.is_empty());
     assert!(
         w.project_agents
@@ -693,7 +693,7 @@ async fn only_the_lead_of_that_epic_answers_or_passes_on() {
     );
     let listed = send(&w, &search_shell, "lead.questions", json!(null)).await;
     assert_eq!(ok(&listed)["lead_questions"], json!([]));
-    // The user answers from the inbox once it is passed on, not for the lead.
+    // The user answers from Needs you once it is passed on, not for the lead.
     let user = send_as_user(
         &w,
         Request::MessageAnswer(otaq_core::protocol::AnswerParams {
@@ -755,7 +755,7 @@ async fn after_a_restart_a_question_that_waited_for_the_lead_asks_you() {
         Some(HEART)
     );
     assert_eq!(after.flags.asked_lead, None);
-    assert!(inbox_has(&w, "SHOP-40.2").await);
+    assert!(needs_you_has(&w, "SHOP-40.2").await);
     let q = questions::find(&w.board, &id).await.unwrap().unwrap();
     assert_eq!(q.state, LeadQuestionState::HandedBack);
     let epic: TicketKey = "SHOP-40".parse().unwrap();

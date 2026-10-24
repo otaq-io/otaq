@@ -501,7 +501,7 @@ pub(crate) mod testing {
     pub struct Running {
         pub bus: EventBus,
         pub sessions: Sessions,
-        pub inbox: otaq_core::attention::Inbox,
+        pub needs_you: otaq_core::attention::NeedsYouQueue,
         /// For tests that feed an agent's hooks and limits as the service would (T-0430).
         pub project_agents: otaq_core::project_agents::ProjectAgents,
         pub signals: otaq_core::signals::Signals,
@@ -548,7 +548,7 @@ pub(crate) mod testing {
             let service = Service::bind(config).await?;
             let (bus, sessions, stopper) =
                 (service.events(), service.sessions(), service.stopper());
-            let inbox = service.inbox();
+            let needs_you = service.needs_you();
             let (project_agents, signals, plan_limit) = (
                 service.project_agents(),
                 service.signals(),
@@ -558,7 +558,7 @@ pub(crate) mod testing {
             self.started.lock().unwrap().push(Running {
                 bus,
                 sessions,
-                inbox,
+                needs_you,
                 project_agents,
                 signals,
                 plan_limit,
@@ -580,13 +580,13 @@ pub(crate) mod testing {
         }
 
         /// The needs-you queue of the service started last.
-        pub fn inbox(&self) -> otaq_core::attention::Inbox {
+        pub fn needs_you(&self) -> otaq_core::attention::NeedsYouQueue {
             self.started
                 .lock()
                 .unwrap()
                 .last()
                 .expect("a running service")
-                .inbox
+                .needs_you
                 .clone()
         }
 

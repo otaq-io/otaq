@@ -434,7 +434,7 @@ pub fn variants() -> Vec<Variant> {
 
     for (name, look) in [
         ("Hover", Look::Hovered),
-        ("Selected (panel open)", Look::Selected),
+        ("Selected (sheet open)", Look::Selected),
         ("Dragging", Look::Dragging),
         ("Chain-highlighted", Look::Chain),
         ("Dimmed", Look::Dimmed),

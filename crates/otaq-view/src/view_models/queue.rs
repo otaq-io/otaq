@@ -3,7 +3,7 @@
 //! dependencies → 2 · The chain runs, 3 · One parent merged, 4 · All parents merged*).
 //!
 //! Every Queued card says what it waits for, from the core's readiness (the same text as `otaq blocked`,
-//! the Stack list and the panel): "waits for SHOP-20 to merge" in the meta row while its parents are still at
+//! the Stack list and the sheet): "waits for SHOP-20 to merge" in the meta row while its parents are still at
 //! work; a callout when a parent only waits for the user's merge ("waits for SHOP-18, SHOP-19 to merge (SHOP-18
 //! in Review)"); "Starting…" once every parent is merged; "Waiting for a slot" when the agent limit is full.
 //! When a ticket that waited for its dependencies starts, a toast says so.
@@ -57,9 +57,9 @@ fn merge_pending(parent: &WaitingParent) -> bool {
     matches!(parent.status, Status::WaitingForYou | Status::PrOpen)
 }
 
-/// The panel's notice for a Queued ticket: the card's text as a sentence ("Waits for SHOP-18, SHOP-19 to merge
+/// The sheet's notice for a Queued ticket: the card's text as a sentence ("Waits for SHOP-18, SHOP-19 to merge
 /// (SHOP-18 in Review).").
-pub fn panel_notice(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
+pub fn sheet_notice(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     let reason = queue_reason(ticket, all)?;
     let mut chars = reason.chars();
     let first = chars.next()?;
@@ -196,7 +196,7 @@ mod tests {
             "the pill says it"
         );
         assert_eq!(
-            panel_notice(&all[3], &all).as_deref(),
+            sheet_notice(&all[3], &all).as_deref(),
             Some("Waiting for a slot.")
         );
     }
@@ -205,10 +205,10 @@ mod tests {
     fn panel_notice_reuses_the_card_text() {
         let all = chain(Status::WaitingForYou, Status::Working);
         assert_eq!(
-            panel_notice(&all[3], &all).as_deref(),
+            sheet_notice(&all[3], &all).as_deref(),
             Some("Waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review).")
         );
-        assert_eq!(panel_notice(&all[1], &all), None, "not queued");
+        assert_eq!(sheet_notice(&all[1], &all), None, "not queued");
     }
 
     #[test]

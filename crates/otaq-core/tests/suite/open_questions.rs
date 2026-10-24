@@ -134,7 +134,7 @@ async fn rows(
 
 /// The strip's line for the ticket, if it is listed.
 async fn strip_line(w: &TestService, key: &str) -> Option<String> {
-    w.inbox
+    w.needs_you
         .list()
         .await
         .unwrap()
@@ -358,7 +358,7 @@ async fn an_answer_to_a_closed_question_is_refused() {
     w.force_status(&t, Status::AsksYou).await;
     let me = Actor::User("me".into());
     let refused = w
-        .inbox
+        .needs_you
         .answer("SHOP-1", &Choice::Option(1), false, &me)
         .await
         .unwrap_err();
@@ -368,7 +368,7 @@ async fn an_answer_to_a_closed_question_is_refused() {
     // Idle: the old question's options don't apply.
     w.force_status(&t, Status::Idle).await;
     let refused = w
-        .inbox
+        .needs_you
         .answer("SHOP-1", &Choice::Option(1), false, &me)
         .await
         .unwrap_err();
@@ -421,7 +421,7 @@ async fn a_project_agents_question_closes_from_its_terminal_or_continue() {
     let ask = async |question: &str| {
         ok(&send(&w, &shell, "agent.ask_human", json!({"question": question})).await);
     };
-    let waiting = async || w.inbox.list().await.unwrap().project_agents;
+    let waiting = async || w.needs_you.list().await.unwrap().project_agents;
 
     ask("Import closed issues too?").await;
     assert_eq!(waiting().await[0].status, Status::AsksYou);
@@ -483,18 +483,18 @@ async fn the_leads_question_clears_once_answered() {
 
     ask("Should 40.4 wait for 40.2?").await;
     assert_eq!(status().await, LeadStatus::AsksYou);
-    assert_eq!(w.inbox.list().await.unwrap().project_agents.len(), 1);
+    assert_eq!(w.needs_you.list().await.unwrap().project_agents.len(), 1);
     type_in(&w, &session(&lead), b"Yes, both touch routes.ts\r").await;
     eventually("the lane clearing", async || {
         status().await != LeadStatus::AsksYou
     })
     .await;
-    assert!(w.inbox.list().await.unwrap().project_agents.is_empty());
+    assert!(w.needs_you.list().await.unwrap().project_agents.is_empty());
 
     ask("Add a child for the export?").await;
     assert_eq!(status().await, LeadStatus::AsksYou);
     w.project_agents.send(&id, "Not yet").await.unwrap();
     assert_ne!(status().await, LeadStatus::AsksYou);
-    assert!(w.inbox.list().await.unwrap().project_agents.is_empty());
+    assert!(w.needs_you.list().await.unwrap().project_agents.is_empty());
     w.stop().await;
 }

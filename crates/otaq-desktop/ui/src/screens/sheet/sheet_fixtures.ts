@@ -1,13 +1,13 @@
-// SHOP-19 "Price table" working in Dev, as Rust words its sheet (`panel.view`), for the sheet's and its actions' tests,
+// SHOP-19 "Price table" working in Dev, as Rust words its sheet (`sheet.view`), for the sheet's and its actions' tests,
 // and the sheet drawn to a string with Overview, Session and an Activity and a Stack stand-in registered.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { createRegistries, RegistriesContext, type Registries } from "../../app/registry";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetView } from "../../generated/SheetView";
 import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetTabView } from "../../generated/SheetTabView";
-import type { SheetView } from "../../generated/SheetView";
+import type { SheetFrame } from "../../generated/SheetFrame";
 import { overview as overviewScreen } from "../overview";
 import { session as sessionScreen } from "../session";
 import { sheet as sheetScreen } from ".";
@@ -33,7 +33,7 @@ const tab = (
   parts: [],
 });
 
-export const SHEET: SheetView = {
+export const SHEET: SheetFrame = {
   crumbs: [
     { text: "shop-web", opens: null, key: false },
     { text: "SHOP-19", opens: null, key: true },
@@ -115,7 +115,7 @@ export const SHEET: SheetView = {
   margin: 18,
 };
 
-export const VIEW: PanelView = {
+export const VIEW: SheetView = {
   key: "SHOP-19",
   title: "Price table",
   epic: false,
@@ -182,7 +182,7 @@ export function sheetRegistries(): Registries {
   app.sheetTabs.register("activity", {
     Component: ({ ticket }) => createElement("p", null, `activity of ${ticket}`),
   });
-  app.panelSections.register("dependencies", {
+  app.sheetSections.register("dependencies", {
     Component: () => createElement("p", null, "the dependencies"),
   });
   return app;
@@ -190,7 +190,7 @@ export function sheetRegistries(): Registries {
 
 /** The sheet for `view` drawn to a string, on `tab` (`null`: the tab it opens on). */
 export function renderSheet(
-  view: PanelView,
+  view: SheetView,
   opts: { tab?: SheetContent | null; fullPage?: boolean; width?: number } = {},
 ): string {
   return renderToStaticMarkup(

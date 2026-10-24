@@ -13,7 +13,7 @@ import type { OverlayProps } from "../../app/registry";
 import { Button, Dialog } from "../../components";
 import type { BoardDragBackParams } from "../../generated/BoardDragBackParams";
 import type { DragBackDialog as DragBackView } from "../../generated/DragBackDialog";
-import type { PanelSent } from "../../generated/PanelSent";
+import type { SheetSent } from "../../generated/SheetSent";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -30,7 +30,7 @@ export function sendDragBack(
 ): Promise<void> {
   const params: BoardDragBackParams = { key: view.key, target: view.target, note: comment.text, clear };
   if (comment.pasted !== null) params.report = comment.pasted.text;
-  return (ask("board.drag_back", params) as Promise<PanelSent>).then((sent) => {
+  return (ask("board.drag_back", params) as Promise<SheetSent>).then((sent) => {
     if (sent.outcome === "done") return;
     openOverlay("confirm", {
       title: sent.title,

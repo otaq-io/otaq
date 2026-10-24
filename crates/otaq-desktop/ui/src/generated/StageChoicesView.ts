@@ -2,7 +2,7 @@
 import type { StageChoiceRow } from "./StageChoiceRow";
 
 /**
- * The ⌘N form's "Stage choices" field, or the panel's Choices. `StageChoicesView` on the page.
+ * The ⌘N form's "Stage choices" field, or the sheet's Choices. `StageChoicesView` on the page.
  */
 export type StageChoicesView = { heading: string, 
 /**

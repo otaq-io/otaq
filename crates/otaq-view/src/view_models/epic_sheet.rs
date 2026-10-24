@@ -3,7 +3,7 @@
 //! state ("Lead asks you", [`head`]); its details line Lead, Model, Tickets "5 · 1 merged · 1 working", Priority and the
 //! epic's branch (`sheet::epic_details`); its tabs Overview · Tickets · Lead · Files · Activity.
 //!
-//! - **Overview** ([`overview`]): what the lead asks you with its options (`panel.view`'s answer, drawn as buttons),
+//! - **Overview** ([`overview`]): what the lead asks you with its options (`sheet.view`'s answer, drawn as buttons),
 //!   the description, **TICKETS** as a stage grid ([`grid`]: each child where it is now, Ready and every stage of the
 //!   flow, and what it is doing) and the epic's own attachments.
 //! - **Tickets** ([`tickets_view`]): every child as a List row (LST-01, `list_view::row`), with Add ticket to epic and the

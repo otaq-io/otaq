@@ -259,10 +259,10 @@ async fn a_paused_projects_finished_ticket_answers_once_it_resumes() {
     w.stop().await;
 }
 
-/// T-0153 (MSG-05): with "Let finished tickets answer questions" off, the question goes to the user's inbox, first
+/// T-0153 (MSG-05): with "Let finished tickets answer questions" off, the question goes to the user's Needs you, first
 /// group; answering there records it; "Resume SHOP-1" lets the finished ticket answer instead.
 #[tokio::test(flavor = "multi_thread")]
-async fn with_the_setting_off_the_question_goes_to_the_inbox() {
+async fn with_the_setting_off_the_question_goes_to_needs_you() {
     let World {
         w,
         parent,
@@ -287,14 +287,14 @@ async fn with_the_setting_off_the_question_goes_to_the_inbox() {
         )
         .await
         .unwrap();
-    assert_eq!(asked.route, Some(Route::Inbox));
-    assert_eq!(asked.state(), MessageState::InInbox);
+    assert_eq!(asked.route, Some(Route::NeedsYou));
+    assert_eq!(asked.state(), MessageState::NeedsYou);
     assert!(answer_session(&w, &parent).is_none(), "no automatic resume");
     let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
     let item = items
         .iter()
         .find(|i| i.message.is_some())
-        .expect("an inbox item");
+        .expect("an needs_you item");
     assert_eq!(item.key.to_string(), "SHOP-2");
     assert_eq!(
         item.reason,
@@ -306,7 +306,7 @@ async fn with_the_setting_off_the_question_goes_to_the_inbox() {
     );
     assert_eq!(item.id, asked.id);
 
-    // Answered from the inbox (free text, by the user): recorded, the item is gone.
+    // Answered from Needs you (free text, by the user): recorded, the item is gone.
     let answered = w
         .messages
         .answer(&asked.id, "2024-06-20.", &Actor::User("me".into()))
@@ -327,7 +327,7 @@ async fn with_the_setting_off_the_question_goes_to_the_inbox() {
         )
         .await
         .unwrap();
-    assert_eq!(again.route, Some(Route::Inbox));
+    assert_eq!(again.route, Some(Route::NeedsYou));
     let resumed = w.messages.resume_target(&again.id).await.unwrap();
     assert_eq!(resumed.route, Some(Route::Resumed));
     assert!(answer_session(&w, &parent).is_some());

@@ -76,7 +76,7 @@ pub enum RunState {
 }
 
 impl RunState {
-    /// The process is up: the card's chip, the panel's pill and the header's count show it.
+    /// The process is up: the card's chip, the sheet's pill and the header's count show it.
     pub fn is_live(self) -> bool {
         matches!(self, Self::Starting | Self::Running)
     }

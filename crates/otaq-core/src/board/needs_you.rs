@@ -1,10 +1,10 @@
 //! Needs-you items (ATT-06, SCH-03; d0016, d0042, d0024): everything that waits for the user, **across all
-//! projects**, in the inbox order. Back-pressure (T-0080) counts them; the inbox (M7) lists them. Derived from
+//! projects**, in the needs-you order. Back-pressure (T-0080) counts them; Needs you (M7) lists them. Derived from
 //! the tickets every time, never stored (SDD §8).
 //!
 //! Groups, in order:
 //! 1. the needs-you family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
-//!    (d0045; M10 adds agent-to-agent questions routed to the inbox). An epic child's question that went to its live
+//!    (d0045; M10 adds agent-to-agent questions routed to Needs you). An epic child's question that went to its live
 //!    lead is no item until the lead passes it on or hands it back (LEAD-06). Nor is a child's first stop that went
 //!    to its live lead (LEAD-07); its second stop's item carries the lead's note and view;
 //!
@@ -42,7 +42,7 @@ use crate::domain::{AutoMergeStop, StartStep, Status, StatusSet, TicketKey};
 use crate::flow::Flow;
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
-/// The inbox groups of ATT-06, in order.
+/// Needs you groups of ATT-06, in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NeedsYouGroup {
@@ -138,9 +138,9 @@ fn closest_to_done(item: &NeedsYouItem) -> std::cmp::Reverse<Option<u32>> {
     )
 }
 
-/// The inbox order: by group, then (group 3) closest to Done, then the tickets that block more, the oldest, and key
+/// The needs-you order: by group, then (group 3) closest to Done, then the tickets that block more, the oldest, and key
 /// order.
-fn inbox_order(a: &NeedsYouItem, b: &NeedsYouItem) -> std::cmp::Ordering {
+fn needs_you_order(a: &NeedsYouItem, b: &NeedsYouItem) -> std::cmp::Ordering {
     a.group
         .cmp(&b.group)
         .then(closest_to_done(a).cmp(&closest_to_done(b)))
@@ -226,7 +226,7 @@ pub struct ProjectTickets<'a> {
     pub flow: &'a Flow,
 }
 
-/// The needs-you items of every project, in inbox order.
+/// The needs-you items of every project, in needs-you order.
 pub fn needs_you_items(projects: &[ProjectTickets<'_>], now: i64) -> Vec<NeedsYouItem> {
     needs_you_items_with(projects, now, &Suppression::default())
 }
@@ -285,12 +285,12 @@ pub fn needs_you_items_with(
             })
         })
         .collect();
-    items.sort_by(inbox_order);
+    items.sort_by(needs_you_order);
     items
 }
 
 /// The number back-pressure compares with its threshold (SCH-03, T-0080): **every** needs-you item, all three
-/// groups of ATT-06 across all projects, the same count the inbox shows.
+/// groups of ATT-06 across all projects, the same count Needs you shows.
 pub fn needs_you_count(items: &[NeedsYouItem]) -> usize {
     items.len()
 }
@@ -330,9 +330,9 @@ fn since(ticket: &Ticket) -> i64 {
     signal.or(ticket.status_since).unwrap_or(ticket.updated_at)
 }
 
-/// The item's line in the inbox (brief 10); `waiting_in` names a group 3 ticket's human check.
+/// The item's line in Needs you (brief 10); `waiting_in` names a group 3 ticket's human check.
 fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -> String {
-    // Interrupted with its label kept: the label's own line (the inbox adds "session ended by restart").
+    // Interrupted with its label kept: the label's own line (Needs you adds "session ended by restart").
     if let Some(label) = kept_label(ticket) {
         let kept = Ticket {
             status: label,
@@ -442,7 +442,7 @@ fn lower_name(name: &str) -> String {
     }
 }
 
-/// "Keeps conflicting" → "keeps conflicting"; the inbox line reads on after a "·".
+/// "Keeps conflicting" → "keeps conflicting"; Needs you line reads on after a "·".
 fn lower_first(text: &str) -> String {
     let mut chars = text.chars();
     chars
@@ -452,7 +452,7 @@ fn lower_first(text: &str) -> String {
 }
 
 impl Board {
-    /// The needs-you items of every project, in inbox order.
+    /// The needs-you items of every project, in needs-you order.
     pub async fn needs_you_items(&self, now: i64) -> Result<Vec<NeedsYouItem>, BoardError> {
         let projects = self.projects().await?;
         let mut loaded = Vec::with_capacity(projects.len());
@@ -568,7 +568,7 @@ impl Board {
                 m.id = item.id.clone();
             }
         }
-        items.sort_by(inbox_order);
+        items.sort_by(needs_you_order);
         Ok(items)
     }
 }

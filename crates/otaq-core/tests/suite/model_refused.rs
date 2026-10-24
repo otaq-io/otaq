@@ -254,10 +254,10 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
         Some("Claude Code couldn't run fable on SHOP-1")
     );
 
-    // The inbox item is Start interrupted's (group 2), offering Open agent…; like Start interrupted it posts no OS
+    // The needs-you item is Start interrupted's (group 2), offering Open agent…; like Start interrupted it posts no OS
     // notification (ATT-11: only items that block an agent).
-    until("the inbox item", || async {
-        w.w.inbox
+    until("the needs_you item", || async {
+        w.w.needs_you
             .list()
             .await
             .unwrap()
@@ -266,7 +266,7 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
             .any(|i| i.key == ticket.key)
     })
     .await;
-    let items = w.w.inbox.list().await.unwrap().items;
+    let items = w.w.needs_you.list().await.unwrap().items;
     let item = items.iter().find(|i| i.key == ticket.key).unwrap();
     assert_eq!(
         (item.group, item.status, item.change_agent),
@@ -400,8 +400,8 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
         mark_text(&w, &w.fable).await.as_deref(),
         Some("Claude Code couldn't run claude-fable-5-1 on SHOP-1")
     );
-    until("the inbox item", || async {
-        w.w.inbox
+    until("the needs_you item", || async {
+        w.w.needs_you
             .list()
             .await
             .unwrap()
@@ -410,7 +410,7 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
             .any(|i| i.key == ticket.key)
     })
     .await;
-    let items = w.w.inbox.list().await.unwrap().items;
+    let items = w.w.needs_you.list().await.unwrap().items;
     let item = items.iter().find(|i| i.key == ticket.key).unwrap();
     assert_eq!(
         (item.group, item.change_agent),

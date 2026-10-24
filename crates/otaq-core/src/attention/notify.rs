@@ -100,7 +100,7 @@ pub enum Target {
     /// The epic's lead terminal, focused.
     Lead { epic: TicketKey },
     /// Needs you, the strip (grouped notifications and summaries).
-    Inbox,
+    NeedsYou,
     /// The board (a tool that isn't available: its limit banner explains it), of `project` when one is named.
     Board {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -108,8 +108,8 @@ pub enum Target {
     },
 }
 
-/// The value of [`open_env_var`] that opens the inbox.
-pub const OPEN_INBOX: &str = "inbox";
+/// The value of [`open_env_var`] that opens Needs you.
+pub const OPEN_NEEDS_YOU: &str = "needs_you";
 const OPEN_VALIDATOR: &str = "validator:";
 const OPEN_AGENT: &str = "agent:";
 const OPEN_LEAD: &str = "lead:";
@@ -117,14 +117,14 @@ const OPEN_BOARD: &str = "board";
 
 impl Target {
     /// The target as one string, for [`open_env_var`] and a notification's `userInfo`: `SHOP-22` (a ticket, as
-    /// before M25), `validator:SHOP-22`, `agent:SHOP:pa7`, `lead:SHOP-40`, `inbox`, `board` or `board:SHOP`.
+    /// before M25), `validator:SHOP-22`, `agent:SHOP:pa7`, `lead:SHOP-40`, `needs_you`, `board` or `board:SHOP`.
     pub fn to_open_value(&self) -> String {
         match self {
             Self::Ticket { key } => key.to_string(),
             Self::Validator { key } => format!("{OPEN_VALIDATOR}{key}"),
             Self::ProjectAgent { project, agent } => format!("{OPEN_AGENT}{project}:{agent}"),
             Self::Lead { epic } => format!("{OPEN_LEAD}{epic}"),
-            Self::Inbox => OPEN_INBOX.to_owned(),
+            Self::NeedsYou => OPEN_NEEDS_YOU.to_owned(),
             Self::Board { project: None } => OPEN_BOARD.to_owned(),
             Self::Board {
                 project: Some(project),
@@ -135,8 +135,8 @@ impl Target {
     /// Reads [`Self::to_open_value`]'s string back; anything else opens nothing.
     pub fn parse_open_value(value: &str) -> Option<Self> {
         let value = value.trim();
-        if value == OPEN_INBOX {
-            return Some(Self::Inbox);
+        if value == OPEN_NEEDS_YOU {
+            return Some(Self::NeedsYou);
         }
         if value == OPEN_BOARD {
             return Some(Self::Board { project: None });
@@ -504,7 +504,7 @@ fn grouped(project: &str, list: &[Planned]) -> OsNotification {
         subtitle: name.to_owned(),
         body: keys.join(", "),
         kind: None,
-        target: Target::Inbox,
+        target: Target::NeedsYou,
         thread: Some(project.to_owned()),
         sound: list[0].notification.sound,
     }
@@ -512,7 +512,7 @@ fn grouped(project: &str, list: &[Planned]) -> OsNotification {
 
 /// The notification for the items held in a quiet period (d0090): "<N> more agents need you", the keys per project
 /// as the body ("shop-web: SHOP-12, SHOP-33 · billing-api: BILL-6"; a Project agent or lead by its name, a tool that
-/// isn't available by the tool's name, last), opening the inbox, in no project's thread.
+/// isn't available by the tool's name, last), opening Needs you, in no project's thread.
 pub fn summary(held: &[Held], sound: bool) -> OsNotification {
     let mut projects: Vec<(&str, Vec<&str>)> = Vec::new();
     let mut others: Vec<&str> = Vec::new();
@@ -535,7 +535,7 @@ pub fn summary(held: &[Held], sound: bool) -> OsNotification {
         subtitle: String::new(),
         body: parts.join(" \u{b7} "),
         kind: None,
-        target: Target::Inbox,
+        target: Target::NeedsYou,
         thread: None,
         sound,
     }
@@ -1072,7 +1072,7 @@ mod tests {
     }
 
     /// T-0201 (PAG-07, ATT-11), T-0371 (d0090): a waiting Project agent notifies once per wait: "Project agent needs
-    /// permission" · "shop-web · <agent name>" · the prompt; a click opens it in the pane. The switch off posts
+    /// permission" · "shop-web · <agent name>" · the prompt; a click opens it in the agent panel. The switch off posts
     /// nothing.
     #[test]
     fn project_agents_notify_once_per_wait() {
@@ -1544,7 +1544,7 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(out[0].target, Target::Inbox);
+        assert_eq!(out[0].target, Target::NeedsYou);
         assert_eq!(out[0].thread.as_deref(), Some("SHOP"));
         assert_eq!(out[0].kind, None);
         assert_eq!(out[1].thread.as_deref(), Some("BILL"));
@@ -1561,7 +1561,7 @@ mod tests {
         assert_eq!(group(planned).len(), 4);
     }
 
-    /// T-0371 (d0090): the quiet period's summary names the keys per project, opens the inbox and sits in no
+    /// T-0371 (d0090): the quiet period's summary names the keys per project, opens Needs you and sits in no
     /// project's thread.
     #[test]
     fn the_summary_names_the_keys_per_project() {
@@ -1588,7 +1588,7 @@ mod tests {
             "shop-web: SHOP-12, SHOP-33 · billing-api: BILL-6 · Codex"
         );
         assert_eq!(n.subtitle, "");
-        assert_eq!(n.target, Target::Inbox);
+        assert_eq!(n.target, Target::NeedsYou);
         assert_eq!(n.thread, None);
     }
 
@@ -1604,7 +1604,7 @@ mod tests {
     }
 
     /// T-0371 (d0090): every target travels as one string (`OTAQ_OPEN`, `userInfo`); the values from before M25 (a
-    /// key, `inbox`) read as before.
+    /// key, `needs_you`) read as before.
     #[test]
     fn every_target_travels_as_one_string() {
         let targets = [
@@ -1624,7 +1624,7 @@ mod tests {
             Target::Lead {
                 epic: "SHOP-40".parse().unwrap(),
             },
-            Target::Inbox,
+            Target::NeedsYou,
             Target::Board { project: None },
             Target::Board {
                 project: Some("SHOP".into()),
@@ -1639,7 +1639,7 @@ mod tests {
                 "validator:SHOP-33",
                 "agent:SHOP:pa7",
                 "lead:SHOP-40",
-                "inbox",
+                "needs_you",
                 "board",
                 "board:SHOP"
             ]
@@ -1647,7 +1647,10 @@ mod tests {
         for (target, value) in targets.iter().zip(&values) {
             assert_eq!(Target::parse_open_value(value).as_ref(), Some(target));
         }
-        assert_eq!(Target::parse_open_value(OPEN_INBOX), Some(Target::Inbox));
+        assert_eq!(
+            Target::parse_open_value(OPEN_NEEDS_YOU),
+            Some(Target::NeedsYou)
+        );
         for bad in [
             "not a key",
             "validator:",

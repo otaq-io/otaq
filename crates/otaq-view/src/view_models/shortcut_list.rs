@@ -422,7 +422,7 @@ mod tests {
         let list = mac(
             &CustomKeys(vec![
                 replaced(KeyAction::OpenActivity, 0, "⌘J"),
-                removed(KeyAction::NextInboxItem, 0),
+                removed(KeyAction::NextNeedsYouItem, 0),
             ]),
             true,
         );

@@ -1,5 +1,5 @@
 // Where a tool problem's buttons go (T-0367, T-0411): Use fallback calls its request, Open agent… opens Settings →
-// Agents on the agent, Sign in… opens the tool's login in the drawer, New agent on … opens the empty pane on that
+// Agents on the agent, Sign in… opens the tool's login in the drawer, New agent on … opens the empty agent panel on that
 // agent, Show in Agent tools opens Settings. Nothing starts by itself (d0018, d0087).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -38,7 +38,7 @@ describe("Use fallback", () => {
   it("asks the service to move the developer row, as the card's button does", () => {
     const run = runner();
     runToolProblemAction({ kind: "use_fallback", role: "developer" }, { ticket: "SHOP-18" }, run);
-    expect(run.request).toHaveBeenCalledWith("panel.card", {
+    expect(run.request).toHaveBeenCalledWith("sheet.card", {
       key: "SHOP-18",
       kind: "use_fallback",
       clear: false,
@@ -49,7 +49,7 @@ describe("Use fallback", () => {
   it("the validator's moves the validator row", () => {
     const run = runner();
     runToolProblemAction({ kind: "use_fallback", role: "validator" }, { ticket: "SHOP-30" }, run);
-    expect(run.request).toHaveBeenCalledWith("panel.card", {
+    expect(run.request).toHaveBeenCalledWith("sheet.card", {
       key: "SHOP-30",
       kind: "use_validator_fallback",
       clear: false,
@@ -92,7 +92,7 @@ describe("the notice's other buttons", () => {
     expect(await pending).toBe("t9");
   });
 
-  it("New agent on Sonnet opens the empty pane on Sonnet and starts nothing", () => {
+  it("New agent on Sonnet opens the empty agent panel on Sonnet and starts nothing", () => {
     const run = runner();
     runToolProblemAction({ kind: "new_agent", agent: "sonnet" }, { project: "SHOP" }, run);
     expect(run.newAgentOn).toHaveBeenCalledWith("SHOP", "sonnet");

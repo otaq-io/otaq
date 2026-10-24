@@ -1,6 +1,6 @@
 // The sheet's Session (SHT-04; d0022, d0035, d0048, d0063; canvas `s25-06`): the switch Agent · <check's agent> · Run
 // · Shell, its dots turquoise while a side waits for you and green while it runs, leading the line of the side shown:
-// the agent's or the check's terminal, the Run, or the Shell. The switch and what it shows are Rust's (`PanelView.sheet`,
+// the agent's or the check's terminal, the Run, or the Shell. The switch and what it shows are Rust's (`SheetView.sheet`,
 // `session_tab.rs`); the side shown is the selection's (`agent`, `check`, `run`, `shell`).
 import type { TicketProps } from "../../app/registry";
 import { showTab } from "../../app/selection";

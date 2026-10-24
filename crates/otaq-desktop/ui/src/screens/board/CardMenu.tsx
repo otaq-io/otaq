@@ -2,7 +2,7 @@
 // d0060, d0033): only the items `card_menu.rs` allows for the ticket, worded there (`board.menu`). Pin / Unpin and the
 // priorities are sent at once (`board.menu_choose`); Delete… and Close ticket… open their confirmations by overlay
 // id, as do the epic dialogs (T-0223). A disabled item (Delete… on a started ticket) can't be chosen. An epic's own
-// items (its card's or its track's menu; T-0274, d0080) do what the board does: Open epic opens its panel, Queue and
+// items (its card's or its track's menu; T-0274, d0080) do what the board does: Open epic opens its sheet, Queue and
 // Unqueue are the drops they stand for (on Ready for Dev, on Backlog: the queue toast, the Park-all confirmation),
 // Add ticket to epic opens New ticket under it, Focus is `g` `e`.
 import { openTicket } from "../../app/selection";

@@ -263,7 +263,7 @@ fn shown(bindings: &[Binding], action: KeyAction, slot: u8) -> Option<&Binding> 
 }
 
 /// A key the letters switch turns off: a single letter, a sequence, or a key with no modifier (↵ / Esc, Open / close
-/// the panel), as the dispatcher and the `?` list treat them (KEY-02).
+/// the sheet), as the dispatcher and the `?` list treat them (KEY-02).
 fn plain(key: &Key) -> bool {
     key.stroke()
         .is_none_or(|s| s.modifiers == Modifiers::default())
@@ -875,11 +875,11 @@ pub fn gallery() -> Gallery {
     };
     let activity_j = done(MAC, &none, record_edit(OpenActivity, 0, "⌘J", true));
     let n_only = done(MAC, &none, record_edit(NewTicket, 1, "n", false));
-    let inbox_removed = done(
+    let needs_you_removed = done(
         MAC,
         &none,
         KeyEdit::Remove {
-            action: NextInboxItem,
+            action: NextNeedsYouItem,
             slot: 0,
         },
     );
@@ -966,7 +966,7 @@ pub fn gallery() -> Gallery {
                 "s15-48 · Reset all opens the question, with how many and which",
                 MAC,
                 &changed,
-                &["next_inbox_item", "open_activity", "new_ticket"],
+                &["next_needs_you_item", "open_activity", "new_ticket"],
                 idle.clone(),
             )
         },
@@ -991,15 +991,15 @@ pub fn gallery() -> Gallery {
             "s15-50 · recording Next item that needs you's ⌘J",
             MAC,
             &none,
-            &["next_inbox_item"],
-            moment(Some(at(NextInboxItem, 0)), false, None),
+            &["next_needs_you_item"],
+            moment(Some(at(NextNeedsYouItem, 0)), false, None),
         ),
         cell(
             "After Remove key",
             "s15-50 · no key, with its reset",
             MAC,
-            &inbox_removed,
-            &["next_inbox_item"],
+            &needs_you_removed,
+            &["next_needs_you_item"],
             idle.clone(),
         ),
         cell(
@@ -1015,7 +1015,7 @@ pub fn gallery() -> Gallery {
             "s15-50 · Activity is given ⌘J: the question in place",
             MAC,
             &none,
-            &["open_activity", "next_inbox_item"],
+            &["open_activity", "next_needs_you_item"],
             moment(
                 None,
                 false,
@@ -1032,7 +1032,7 @@ pub fn gallery() -> Gallery {
             "s15-50 · Activity ⌘J, Next item that needs you no key",
             MAC,
             &activity_j,
-            &["open_activity", "next_inbox_item"],
+            &["open_activity", "next_needs_you_item"],
             idle.clone(),
         ),
         cell(
@@ -1080,7 +1080,7 @@ pub fn gallery() -> Gallery {
             &none,
             &[
                 "command_palette",
-                "next_inbox_item",
+                "next_needs_you_item",
                 "new_ticket",
                 "open_activity",
                 "terminals",
@@ -1337,12 +1337,12 @@ mod tests {
         assert!(keys(&activity.cells[0])[0].changed);
         assert!(!keys(&activity.cells[1])[0].changed);
         assert_eq!(activity.reset, Some(vec![at(OpenActivity, 0)]));
-        let inbox = row(&p, "next_inbox_item");
-        assert!(inbox.changed);
-        assert_eq!(drawn(inbox), ["no key"]);
-        assert_eq!(inbox.default_line, "Default: ⌘J");
-        assert_eq!(keys(&inbox.cells[0])[0].slot, at(NextInboxItem, 0));
-        assert_eq!(inbox.reset, Some(vec![at(NextInboxItem, 0)]));
+        let needs_you = row(&p, "next_needs_you_item");
+        assert!(needs_you.changed);
+        assert_eq!(drawn(needs_you), ["no key"]);
+        assert_eq!(needs_you.default_line, "Default: ⌘J");
+        assert_eq!(keys(&needs_you.cells[0])[0].slot, at(NextNeedsYouItem, 0));
+        assert_eq!(needs_you.reset, Some(vec![at(NextNeedsYouItem, 0)]));
         let new = row(&p, "new_ticket");
         assert_eq!(drawn(new), ["⌘N", "n"]);
         assert_eq!(new.default_line, "Default: ⌘N or c");
@@ -1377,7 +1377,7 @@ mod tests {
         assert!(keys(&board.cells[1])[0].dimmed);
         assert!(keys(&row(&p, "filter_board").cells[0])[0].dimmed);
         assert!(row(&p, "filter_board").dimmed);
-        assert!(row(&p, "open_panel").dimmed, "↵ / Esc are off too");
+        assert!(row(&p, "open_sheet").dimmed, "↵ / Esc are off too");
         assert!(!board.dimmed, "a row with a modifier key isn't");
         assert!(!row(&p, "park").dimmed, "no key isn't a letter");
         let tabs = &row(&p, "switch_tab").cells[0];
@@ -1510,11 +1510,11 @@ mod tests {
             question,
             "⌘J is used by Next item that needs you. Use it here instead?"
         );
-        assert_eq!(by, NextInboxItem);
+        assert_eq!(by, NextNeedsYouItem);
         let s = ok(MAC, &none, rec(OpenActivity, 0, &key, true));
         let p = page(MAC, &s);
         assert_eq!(drawn(row(&p, "open_activity")), ["⌘J", "g then a"]);
-        assert_eq!(drawn(row(&p, "next_inbox_item")), ["no key"]);
+        assert_eq!(drawn(row(&p, "next_needs_you_item")), ["no key"]);
 
         // A recorded sequence for an action with no key (Park → g p) and a letter in one slot (c → n).
         let (a, store) = record(MAC, &none, at(Park, 0), &press("p", "KeyP", NONE), true).unwrap();
@@ -1541,15 +1541,15 @@ mod tests {
             MAC,
             &none,
             KeyEdit::Remove {
-                action: NextInboxItem,
+                action: NextNeedsYouItem,
                 slot: 0,
             },
         );
         let p = page(MAC, &s);
-        let inbox = row(&p, "next_inbox_item");
-        assert_eq!(drawn(inbox), ["no key"]);
-        assert_eq!(keys(&inbox.cells[0])[0].slot, at(NextInboxItem, 0));
-        let back = reset_row(MAC, &s, inbox.reset.as_ref().unwrap(), false).unwrap();
+        let needs_you = row(&p, "next_needs_you_item");
+        assert_eq!(drawn(needs_you), ["no key"]);
+        assert_eq!(keys(&needs_you.cells[0])[0].slot, at(NextNeedsYouItem, 0));
+        let back = reset_row(MAC, &s, needs_you.reset.as_ref().unwrap(), false).unwrap();
         assert_eq!(back.answer, KeyEditAnswer::Done { changed: 0 });
         assert_eq!(back.store, Some(none.clone()));
 
@@ -1565,7 +1565,7 @@ mod tests {
 
         // A row's reset whose default another action took since asks first, then takes it back.
         let s = ok(MAC, &none, rec(OpenActivity, 0, "⌘J", true));
-        let taken = reset_row(MAC, &s, &[at(NextInboxItem, 0)], false).unwrap();
+        let taken = reset_row(MAC, &s, &[at(NextNeedsYouItem, 0)], false).unwrap();
         assert_eq!(taken.store, None);
         assert!(matches!(
             taken.answer,
@@ -1574,9 +1574,9 @@ mod tests {
                 ..
             }
         ));
-        let moved = reset_row(MAC, &s, &[at(NextInboxItem, 0)], true).unwrap();
+        let moved = reset_row(MAC, &s, &[at(NextNeedsYouItem, 0)], true).unwrap();
         let p = page(MAC, &moved.store.unwrap());
-        assert_eq!(drawn(row(&p, "next_inbox_item")), ["⌘J"]);
+        assert_eq!(drawn(row(&p, "next_needs_you_item")), ["⌘J"]);
         assert_eq!(drawn(row(&p, "open_activity")), ["g then a"]);
         assert!(reset_row(MAC, &none, &[], false).is_err());
     }
@@ -1618,10 +1618,10 @@ mod tests {
         let check = |id: &str| row(&p, id).terminals.clone();
         let palette = check("command_palette").unwrap();
         assert!(palette.on && !palette.fixed && palette.in_terminals.is_none());
-        let inbox = check("next_inbox_item").unwrap();
-        assert!(!inbox.on);
+        let needs_you = check("next_needs_you_item").unwrap();
+        assert!(!needs_you.on);
         assert_eq!(
-            inbox.in_terminals.as_deref(),
+            needs_you.in_terminals.as_deref(),
             Some("· in terminals Ctrl+Shift+J")
         );
         assert_eq!(

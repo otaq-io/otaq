@@ -14,7 +14,7 @@ body {
   grid-template-columns: auto auto minmax(0, 1fr);
   /*
    * Header 44 px (`density::HEADER`); banners only take room while there are some (36 px each, at most 2). They span
-   * the window and push the rail, pane and main area down (*Usage limit banner active* and the anatomy's annotation).
+   * the window and push the rail, agent panel and main area down (*Usage limit banner active* and the anatomy's annotation).
    */
   grid-template-rows: var(--header-height) auto minmax(0, 1fr);
   grid-template-areas:

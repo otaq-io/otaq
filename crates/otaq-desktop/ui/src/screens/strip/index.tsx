@@ -9,5 +9,5 @@ import "./strip.css";
 export const strip: Screen = (app) => {
   app.overlays.register("resume_all", { Component: ResumeAll });
   // From anywhere, a focused terminal included (keys.ts passes the app's keys).
-  app.shortcuts.on("next_inbox_item", next);
+  app.shortcuts.on("next_needs_you_item", next);
 };

@@ -17,7 +17,7 @@ pub fn can_close(ticket: &Ticket) -> bool {
     !ticket.is_epic() && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
 }
 
-/// "Close ticket…" in the panel's "…" menu and the card's right-click menu.
+/// "Close ticket…" in the sheet's "…" menu and the card's right-click menu.
 pub fn close_item(ticket: &Ticket) -> Option<MenuItem> {
     can_close(ticket).then(|| {
         MenuItem::new(CLOSE_TICKET, "Close ticket…")
@@ -189,7 +189,7 @@ pub fn park_text(ticket: &Ticket) -> ParkText {
     }
 }
 
-/// The panel's choices for a child of a closed parent (CLS-04): one pair per closed parent. Otaq picks
+/// The sheet's choices for a child of a closed parent (CLS-04): one pair per closed parent. Otaq picks
 /// neither.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParentChoice {

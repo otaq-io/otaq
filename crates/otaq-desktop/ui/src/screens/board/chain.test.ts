@@ -106,8 +106,8 @@ const card = (key: string): BoardCard => {
     hover: { status: "Ready for Dev", details: [] },
     faded: null,
     fresh: false,
-    open_panel: "Open panel",
-    open_panel_keys: "↵",
+    open_sheet: "Open panel",
+    open_sheet_keys: "↵",
     open_terminal: "Open terminal",
   };
   return { kind: "ticket", card: view, needs_you: false };

@@ -1,7 +1,7 @@
 //! `drawer.*`: the Terminals drawer (SHL-04, RUN-06, UI-09; d0068, d0058, d0019, d0087; *17 · Project terminals*). The
 //! drawer holds the shown project's Project terminals only, one tab each, and + for a new one. The last-used tab of
 //! each project is kept here, so the rail's Terminals and its key (⌃`) find the last-used terminal (or open one). Project agents
-//! live in the pane since d0087 (`pane.*`): nothing here answers about them.
+//! live in the agent panel since d0087 (`agent_panel.*`): nothing here answers about them.
 
 use otaq_core::protocol::{ProjectParams, ProjectTerminalParams, Reply, Request, SessionIdParams};
 use otaq_core::session::{SessionInfo, SessionKind, SessionState};
@@ -83,12 +83,12 @@ pub struct Facts<'a> {
     pub remembered: Option<&'a str>,
     pub project_name: &'a str,
     pub short_repo: &'a str,
-    /// The user's keys: the hint names the pane's focus key as it works inside a terminal (KEY-08).
+    /// The user's keys: the hint names the agent panel's focus key as it works inside a terminal (KEY-08).
     pub keys: KeyLabels,
 }
 
 pub fn view_of(f: &Facts) -> View {
-    let focus_keys = f.keys.in_terminal(KeyAction::FocusPane);
+    let focus_keys = f.keys.in_terminal(KeyAction::FocusAgentPanel);
     let tabs = vm::tabs(
         f.terminals,
         &HintFacts {
@@ -329,10 +329,10 @@ mod tests {
         assert_eq!(empty.height, 380.);
     }
 
-    /// KEY-08: the hint names the user's key for focusing the pane as it works inside a terminal (⌘L; Ctrl+Shift+L in
+    /// KEY-08: the hint names the user's key for focusing the agent panel as it works inside a terminal (⌘L; Ctrl+Shift+L in
     /// a Windows/Linux terminal), a recorded key that works there, and no key once removed.
     #[test]
-    fn the_hint_names_the_users_pane_key() {
+    fn the_hint_names_the_users_agent_panel_key() {
         use otaq_view::key_labels::fixtures as keys;
         use otaq_view::keymap::Platform;
         let fresh = [gallery_terminal(1, true)];
@@ -353,15 +353,15 @@ mod tests {
             format!("{ask} (Ctrl+Shift+L).")
         );
         assert_eq!(
-            last(keys::replaced("focus_pane", None, 0, "⌥⌘L")),
+            last(keys::replaced("focus_agent_panel", None, 0, "⌥⌘L")),
             format!("{ask} (⌥⌘L).")
         );
         // A recorded ⌥ key stays the terminal's there (d0097), so the hint names none.
         assert_eq!(
-            last(keys::replaced("focus_pane", None, 0, "⌥L")),
+            last(keys::replaced("focus_agent_panel", None, 0, "⌥L")),
             format!("{ask}.")
         );
-        assert_eq!(last(keys::removed("focus_pane", None, 0)), format!("{ask}."));
+        assert_eq!(last(keys::removed("focus_agent_panel", None, 0)), format!("{ask}."));
     }
 
     #[test]

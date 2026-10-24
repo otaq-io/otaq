@@ -71,7 +71,7 @@ export function ResumeAll({ params, close }: OverlayProps<"resume_all">) {
     const ask: StripResumeAllParams = project === undefined ? {} : { project };
     return request("strip.resume_all_confirm", ask) as Promise<ResumeAllDialog | null>;
   }, [project]);
-  const { view } = useServiceView(load, ["inbox_changed"]);
+  const { view } = useServiceView(load, ["needs_you_changed"]);
   useEffect(() => {
     if (view === null) close();
   }, [view, close]);

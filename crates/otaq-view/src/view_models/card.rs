@@ -17,7 +17,7 @@
 //!   Its **agent part** (M22, AGT-04, AGM-09; [`footer_agent`]): while an agent runs, the agent of whoever has the
 //!   turn and its model ("Rust developer · sonnet"); a ticket waiting before an Agent stage says where it starts
 //!   ("Grill · Griller · sonnet"); a held role names the agent it would start on. No choice line before the start
-//!   (the panel and the form show the choices), and nothing names an agent while there is only one (d0086).
+//!   (the sheet and the form show the choices), and nothing names an agent while there is only one (d0086).
 //! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
 //! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you (also via lead) / Idle
@@ -35,7 +35,7 @@
 //! longer listed) says **Can't start** ("Griller's model can't run: Claude Code isn't available"); the card offers
 //! **Use fallback** (when the tool's fallback can take it) and **Open agent…** (AGM-03, d0108 second gap review rule
 //! 7). A session on its tool's fallback says so while it runs, amber ("On Codex · Claude Code limit", AGM-03). A
-//! swapped model changes nothing on the card (the panel says it).
+//! swapped model changes nothing on the card (the sheet says it).
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
@@ -345,7 +345,7 @@ pub struct HoverSection {
 pub enum CardActionKind {
     /// "Deliver now": a message waits to be typed (SES-06).
     DeliverNow,
-    /// A click on an answer option (ATT-12): the panel opens with it picked (the last number is Other…).
+    /// A click on an answer option (ATT-12): the sheet opens with it picked (the last number is Other…).
     PickOption(u32),
     /// "Send answer" with the preselected (recommended) option.
     SendAnswer,
@@ -355,7 +355,7 @@ pub enum CardActionKind {
     Resume,
     /// Resume failed: the same resume again.
     RetryResume,
-    /// Resume failed: a new session in the same worktree, after the panel's confirmation.
+    /// Resume failed: a new session in the same worktree, after the sheet's confirmation.
     StartFromScratch,
     RetryStart,
     Review,
@@ -2476,7 +2476,7 @@ pub fn validator_refusal(ticket: &Ticket) -> Option<(Option<String>, String)> {
     )
 }
 
-/// "Claude Code couldn't run claude-fable-5-1" (the panel's callout heading, the model from the refused session), or
+/// "Claude Code couldn't run claude-fable-5-1" (the sheet's callout heading, the model from the refused session), or
 /// "… the model" (the card's line and hover title, whose message names it).
 pub fn couldnt_run(model: Option<&str>) -> String {
     couldnt_run_on(tool_name(), model)
@@ -2626,7 +2626,7 @@ pub fn open_agent(ticket: &Ticket, x: &CardExtras) -> Option<String> {
 }
 
 /// The card's one action (*Ticket Card v2 → footer*): Answer, Reply, Open, Resume, Review, Mark merged, Retry
-/// start…; the others stay in the panel.
+/// start…; the others stay in the sheet.
 fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
     let has_pr = ticket.flags.pr_number.is_some();
     let a = |kind, label, icon, primary| {
@@ -2648,7 +2648,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             false,
         );
     }
-    // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the panel.
+    // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the sheet.
     // A held role (M23, AGM-03): its fallback when it can take it, then Open agent… ([`second_action`]); quiet
     // buttons.
     if let Some(hold) = held(ticket, status, x) {
@@ -2671,7 +2671,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         return a(CardActionKind::OpenAgent, OPEN_AGENT, None, true);
     }
     if kept {
-        // Answered from the panel: that answer resumes it.
+        // Answered from the sheet: that answer resumes it.
         return match status {
             Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
             _ => open("Reply"),
@@ -2682,10 +2682,10 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         Status::AsksYou | Status::Idle => open("Reply"),
         Status::ParentClosed | Status::DeliveryStopped => open("Open"),
         Status::CheckFailed if !x.custom_flow => open("Open"),
-        // Only Move on anyway (FLW-13, `s03-44`); another round and Answer the agent stay in the panel.
+        // Only Move on anyway (FLW-13, `s03-44`); another round and Answer the agent stay in the sheet.
         Status::CheckFailed => a(CardActionKind::MoveOnAnyway, MOVE_ON_ANYWAY, None, false),
         Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
-        // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the panel.
+        // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the sheet.
         Status::ResumeFailed => a(
             CardActionKind::StartFromScratch,
             "Start from scratch",
@@ -2717,7 +2717,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             a(CardActionKind::OpenPr, "Open PR", None, true)
         }
         Status::ToDeliver => a(CardActionKind::LocalMerge, "Local merge", None, true),
-        // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the panel and the card's menu.
+        // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the sheet and the card's menu.
         // An epic child never has a PR.
         Status::PrOpen if has_pr && ticket.epic.is_none() => a(
             CardActionKind::SendBackPr,
@@ -2738,7 +2738,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             Some(IconName::RotateCcw),
             false,
         ),
-        // VAL-07: a fresh validator; Move on anyway stays in the panel.
+        // VAL-07: a fresh validator; Move on anyway stays in the sheet.
         Status::CheckNoResult => a(
             CardActionKind::RetryValidation,
             "Retry validation",
@@ -4507,7 +4507,7 @@ mod tests {
         assert_eq!(rows.len(), 4);
         assert!(rows[0].recommended && rows[0].picked);
         assert_eq!(foot(&vm).as_deref(), Some("[Send answer]"));
-        // Without a recommendation: Reply, which opens the panel.
+        // Without a recommendation: Reply, which opens the sheet.
         t.question.as_mut().unwrap().recommended = None;
         assert_eq!(foot(&card(&t)).as_deref(), Some("[Reply]"));
         t.question.as_mut().unwrap().options.clear();

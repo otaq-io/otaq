@@ -19,24 +19,24 @@
   min-width: 0;
 }
 
-/* Today's panel parts at the top ("what it needs from you") take Overview's gutter, not their own. */
-.overview-main .panel-overview {
+/* Today's sheet parts at the top ("what it needs from you") take Overview's gutter, not their own. */
+.overview-main .sheet-overview {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.overview-main .panel-overview:empty {
+.overview-main .sheet-overview:empty {
   display: none;
 }
 
-.overview-main .panel-header,
-.overview-main .panel-agents,
-.overview-main .panel-start-problem {
+.overview-main .sheet-overview-header,
+.overview-main .sheet-agents,
+.overview-main .sheet-start-problem {
   padding: 0;
 }
 
-.overview-main .panel-notice {
+.overview-main .sheet-notice {
   margin: 0;
 }
 

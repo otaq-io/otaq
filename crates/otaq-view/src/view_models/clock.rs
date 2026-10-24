@@ -1,4 +1,4 @@
-//! Times and durations as the panel shows them: "11:02" in local time, "41 min", "2 h 5 min"; and as the usage
+//! Times and durations as the sheet shows them: "11:02" in local time, "41 min", "2 h 5 min"; and as the usage
 //! limits show them: "3:45 pm", "Mon", "Nov 1", "in 1 h 20 min".
 
 /// The local time of day of a Unix-milliseconds timestamp, as `HH:MM`.

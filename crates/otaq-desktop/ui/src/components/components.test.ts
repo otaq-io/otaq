@@ -203,7 +203,7 @@ describe("the components screen", () => {
       slots: [],
       overlays: ["confirm", "gallery"],
       sheetTabs: [],
-      panelSections: [],
+      sheetSections: [],
       globalSettings: [],
       projectSettings: [],
       shortcuts: [],

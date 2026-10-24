@@ -39,8 +39,8 @@ const SHOP_22: TicketCardView = {
   hover: { status: "Needs you · permission", details: ["Tokens: 64k"] },
   faded: null,
   fresh: false,
-  open_panel: "Open panel",
-  open_panel_keys: "↵",
+  open_sheet: "Open panel",
+  open_sheet_keys: "↵",
   open_terminal: "Open terminal",
 };
 

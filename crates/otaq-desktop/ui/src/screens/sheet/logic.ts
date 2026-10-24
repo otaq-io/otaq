@@ -1,13 +1,13 @@
 // The ticket sheet's moment of interaction (SHT-01, SHT-02; T-0464): which of Rust's tabs shows for the selection,
-// what a tab key or ⌃Tab selects, the sheet's width now, a tab's dot, and which load of `panel.view` is the one on
-// open. The tabs, their keys and the widths are Rust's (`view_models/sheet.rs`, sent as `PanelView.sheet`).
+// what a tab key or ⌃Tab selects, the sheet's width now, a tab's dot, and which load of `sheet.view` is the one on
+// open. The tabs, their keys and the widths are Rust's (`view_models/sheet.rs`, sent as `SheetView.sheet`).
 import type { TabIndicator } from "../../components";
-import type { PanelViewParams } from "../../generated/PanelViewParams";
+import type { SheetViewParams } from "../../generated/SheetViewParams";
 import type { SheetTabMark } from "../../generated/SheetTabMark";
 import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetTab } from "../../generated/SheetTab";
 import type { SheetTabView } from "../../generated/SheetTabView";
-import type { SheetView } from "../../generated/SheetView";
+import type { SheetFrame } from "../../generated/SheetFrame";
 
 /**
  * The tab shown for the selection: the one holding the selected content (`run` is Session's), else the tab the
@@ -54,7 +54,7 @@ export function steppedSheetTab(
  * The sheet's width over a main area `mainWidth` px wide (`sheet::width`): 1040 px, 920 px beside the Project agent,
  * never wider than the main area less its margins.
  */
-export function sheetWidth(view: SheetView, besideAgent: boolean, mainWidth: number): number {
+export function sheetWidth(view: SheetFrame, besideAgent: boolean, mainWidth: number): number {
   const wanted = besideAgent ? view.width_beside_agent : view.width;
   return Math.max(Math.min(wanted, mainWidth - 2 * view.margin), 0);
 }
@@ -69,10 +69,10 @@ export function tabIndicator(
 }
 
 /**
- * `panel.view`'s loads for one opening of the sheet on `key`: the first says `opened` (the Files count is taken again
+ * `sheet.view`'s loads for one opening of the sheet on `key`: the first says `opened` (the Files count is taken again
  * then, Q421), the refreshes after it don't. `open` is `false` while the sheet slides out: nothing is taken then.
  */
-export function panelViewLoads(key: string, open: boolean): () => PanelViewParams {
+export function sheetViewLoads(key: string, open: boolean): () => SheetViewParams {
   let opened = open;
   return () => {
     const params = { key, opened };

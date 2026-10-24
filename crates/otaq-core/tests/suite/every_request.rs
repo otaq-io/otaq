@@ -206,9 +206,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketRetryResume(_)
         | Request::TicketStartFromScratch(_)
         | Request::TicketsResumeAll(_)
-        | Request::InboxAnswer(_)
-        | Request::InboxList
-        | Request::InboxCounts
+        | Request::NeedsYouAnswer(_)
+        | Request::NeedsYouList
+        | Request::NeedsYouCounts
         | Request::CleanupScan
         | Request::CleanupDelete(_)
         | Request::WarmList

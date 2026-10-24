@@ -4,9 +4,9 @@
 //! answers where to go; the page opens it, so nothing moves on by itself (d0016). `strip.resume_all_confirm` words
 //! Resume all's confirmation and `strip.resume_all` is its confirm (a project's, or every project's for the banner);
 //! `strip.suggestion` confirms or dismisses an epic lead's suggestion (LEAD-08). The items, their order and the
-//! back-pressure count are the service's (`inbox.list`).
+//! back-pressure count are the service's (`needs_you.list`).
 
-use otaq_core::attention::inbox::InboxList;
+use otaq_core::attention::needs_you::NeedsYouList;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{IdParams, Reply, Request, ResumeAllParams};
 use otaq_view::keymap::KeyAction;
@@ -50,11 +50,11 @@ pub struct Params {
     pub open: Option<Open>,
 }
 
-async fn list(app: &App) -> Result<InboxList, RequestError> {
-    match app.service.send(Request::InboxList).await? {
-        Reply::Inbox(list) => Ok(*list),
+async fn list(app: &App) -> Result<NeedsYouList, RequestError> {
+    match app.service.send(Request::NeedsYouList).await? {
+        Reply::NeedsYou(list) => Ok(*list),
         other => Err(RequestError::plain(format!(
-            "unexpected answer to inbox.list: {other:?}"
+            "unexpected answer to needs_you.list: {other:?}"
         ))),
     }
 }
@@ -90,7 +90,7 @@ pub async fn view(app: &App, params: Params) -> Result<View, RequestError> {
         .map_or(params.project.as_str(), |p| p.name.as_str());
     let keys = super::keymap::labels(app)
         .await
-        .label(KeyAction::NextInboxItem);
+        .label(KeyAction::NextNeedsYouItem);
     Ok(vm::view(
         &items,
         &params.project,

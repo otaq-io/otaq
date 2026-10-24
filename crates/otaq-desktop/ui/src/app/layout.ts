@@ -2,7 +2,7 @@
 // expanded, the dragged ticket sheet widths per window size class, and whether the ticket sheet is expanded. All of it
 // is page state, so each window keeps its own, for the app's life; only the Project agent panel's dragged width is
 // kept in the settings (`layout.agent_panel_width`). The sizes, their bounds and the size classes are Rust's
-// (`layout.view`, `panel.rs`); this file keeps only the moment of interaction: the drags and the switches.
+// (`layout.view`, `sheet.rs`); this file keeps only the moment of interaction: the drags and the switches.
 import { useEffect, useState } from "react";
 
 import type { LayoutAgentPanelWidthParams } from "../generated/LayoutAgentPanelWidthParams";
@@ -18,17 +18,17 @@ export type ClassDrags = Partial<Record<SizeClass, number>>;
 export interface ShellLayout {
   /** The Project agent panel is open between the rail and the main area (⌘L, the rail's button, the Ask bar; d0113). */
   agentOpen: boolean;
-  panelWidths: ClassDrags;
+  sheetWidths: ClassDrags;
   /** Expand (`e`): the ticket sheet takes the main area. */
-  panelExpanded: boolean;
+  sheetExpanded: boolean;
   /** Expand in the Project agent panel's header: the open panel lies over the board, full width (T-0502). */
   agentExpanded: boolean;
 }
 
 export const INITIAL_LAYOUT: ShellLayout = {
   agentOpen: false,
-  panelWidths: {},
-  panelExpanded: false,
+  sheetWidths: {},
+  sheetExpanded: false,
   agentExpanded: false,
 };
 
@@ -108,7 +108,7 @@ export function keepAgentPanelWidth(width: number | null): Promise<void> {
 }
 
 export function toggleExpanded(): void {
-  shellLayout.update((l) => ({ ...l, panelExpanded: !l.panelExpanded }));
+  shellLayout.update((l) => ({ ...l, sheetExpanded: !l.sheetExpanded }));
 }
 
 export function useWindowWidth(): number {

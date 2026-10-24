@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use super::panel::{Sent, Unsent};
+use super::sheet::{Sent, Unsent};
 use super::{RequestError, reply, unknown};
 use crate::App;
 

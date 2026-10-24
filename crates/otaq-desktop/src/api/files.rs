@@ -110,7 +110,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
             );
             // An epic's is its branch, with the key to its children's tags (FTB-06).
             if ticket.is_epic() {
-                let all = super::panel::tickets(app, ticket.key.project.as_str()).await?;
+                let all = super::sheet::tickets(app, ticket.key.project.as_str()).await?;
                 view.source = vm::epic_source(&ticket, &tree.source, &all);
             }
             Load {
@@ -324,7 +324,7 @@ pub async fn review(app: &App, params: Params) -> Result<ReviewNotes, RequestErr
     let review = match ticket.flags.review_entry {
         Some(flag) => {
             let records = super::sections::validations(app, &params.key).await;
-            let rounds = super::panel::check_rounds(app, &ticket).await;
+            let rounds = super::sheet::check_rounds(app, &ticket).await;
             // When the user moved it to Review (for "Moved by you at 11:12").
             let moved_at = events
                 .iter()

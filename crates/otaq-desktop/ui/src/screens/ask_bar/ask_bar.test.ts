@@ -11,7 +11,7 @@ import { registered, registerScreens } from "../../app/registry";
 import type { AskBarView } from "../../generated/AskBarView";
 import type { AskSuggestion } from "../../generated/AskSuggestion";
 import { request } from "../../tauri";
-import { paneFocusRequests, shownAgents } from "../pane/logic";
+import { agentPanelFocusRequests, shownAgents } from "../agent_panel/logic";
 import { askBar } from ".";
 import { AskBarBody, type AskBarBodyProps } from "./AskBar";
 import { lookedAt, lookedCount, nextChoice, sendFromBar } from "./logic";
@@ -91,7 +91,7 @@ afterEach(() => {
   });
   document.body.replaceChildren();
   shownAgents.set({});
-  paneFocusRequests.set(null);
+  agentPanelFocusRequests.set(null);
   shellLayout.set(INITIAL_LAYOUT);
   lookedCount.set(0);
 });
@@ -184,7 +184,7 @@ describe("sending", () => {
     expect(await first).toBe(true);
     expect(shownAgents.get()).toEqual({ SHOP: "a2" });
     expect(shellLayout.get().agentOpen).toBe(true);
-    expect(paneFocusRequests.get()).toMatchObject({ agent: "a2" });
+    expect(agentPanelFocusRequests.get()).toMatchObject({ agent: "a2" });
   });
 
   it("Continue names its conversation; words that didn't go stay (the panel opens anyway)", async () => {

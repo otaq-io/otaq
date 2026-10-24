@@ -3,7 +3,7 @@
 //!
 //! - **Asks you** (`otaq ask human`), **Needs you** (a permission or elicitation prompt) and **Idle** (the turn
 //!   ended with nothing pending) keep their label and text: the question, the prompt, the agent's last line.
-//! - They **clear** on the user's input: Enter in the ticket's terminal, an answer from the inbox (M7); Needs you and
+//! - They **clear** on the user's input: Enter in the ticket's terminal, an answer from Needs you (M7); Needs you and
 //!   Idle also when the agent runs an `otaq` command that acts. The ticket is Working again.
 //! - **An open question holds Asks you** (d0119): while the ticket has an unanswered question
 //!   ([`SignalState::question`], read from the store), it shows Asks you with that question whatever hooks or
@@ -68,7 +68,7 @@ pub enum Input {
     Command,
     /// Enter pressed in the ticket's terminal (the relay, T-0051).
     Enter,
-    /// The user answered from the inbox, the card or the panel (ATT-02, ATT-08): clears like Enter.
+    /// The user answered from Needs you, the card or the sheet (ATT-02, ATT-08): clears like Enter.
     Answered,
 }
 

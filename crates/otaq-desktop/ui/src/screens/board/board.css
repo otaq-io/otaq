@@ -3,8 +3,8 @@
  * the main area's width (BRD-02), each at least `--column-width` (the view's `min_column_width`, 180 px), 16 px around
  * and 12 px between them; each column scrolls by itself under its pinned header. With Lanes: Epic (`.board-lanes`,
  * EPL-01) the headers sit once on top and the lanes scroll under them. When they don't fit, the board scrolls
- * sideways and the "7 more stages" pill sits at its right edge. While the panel is open over the
- * board, `.board-under-panel` adds its width of room after the columns, so any column can scroll to the uncovered
+ * sideways and the "7 more stages" pill sits at its right edge. While the sheet is open over the
+ * board, `.board-under-sheet` adds its width of room after the columns, so any column can scroll to the uncovered
  * left part (*x9qiI*) without the columns changing width. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
  * column*) and the lifted card follows the pointer.
  */
@@ -91,7 +91,7 @@
   background: var(--bg-hover);
 }
 
-.board-under-panel {
+.board-under-sheet {
   position: absolute;
   top: 0;
   left: 100%;

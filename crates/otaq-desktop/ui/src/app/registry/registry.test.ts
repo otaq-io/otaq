@@ -6,7 +6,7 @@ import { sample } from "../../screens/_sample";
 import { overlays } from "../overlays";
 import { createRegistries, registered, registerScreens } from ".";
 import { OVERLAY_IDS, OVERLAY_MODAL, type OverlayId } from "./overlays";
-import { SHEET_TABS } from "./panel";
+import { SHEET_TABS } from "./sheet";
 import { createRegistry } from "./registry";
 import { createShortcuts } from "./shortcuts";
 
@@ -31,7 +31,7 @@ describe("a screen plugs in", () => {
       slots: [],
       overlays: [],
       sheetTabs: [],
-      panelSections: [],
+      sheetSections: [],
       globalSettings: [],
       projectSettings: [],
       shortcuts: ["switch_tab"],
@@ -162,13 +162,13 @@ describe("shortcut handlers", () => {
   it("the newest handler that takes the key wins; removing it hands the key back", () => {
     const shortcuts = createShortcuts();
     const calls: string[] = [];
-    shortcuts.on("close_panel", () => calls.push("panel"));
-    const stop = shortcuts.on("close_panel", () => {
+    shortcuts.on("close_sheet", () => calls.push("sheet"));
+    const stop = shortcuts.on("close_sheet", () => {
       calls.push("overlay");
       return false;
     });
-    expect(shortcuts.run({ action: "close_panel" })).toBe(true);
-    expect(calls).toEqual(["overlay", "panel"]);
+    expect(shortcuts.run({ action: "close_sheet" })).toBe(true);
+    expect(calls).toEqual(["overlay", "sheet"]);
 
     const project = shortcuts.on("project", ({ number }) => calls.push(`project ${String(number)}`));
     expect(shortcuts.run({ action: "project", number: 3 })).toBe(true);
@@ -176,7 +176,7 @@ describe("shortcut handlers", () => {
 
     stop();
     project();
-    expect(shortcuts.names()).toEqual(["close_panel"]);
+    expect(shortcuts.names()).toEqual(["close_sheet"]);
     expect(shortcuts.run({ action: "project", number: 3 })).toBe(false);
   });
 

@@ -303,7 +303,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_inbox_answer_whose_resume_failed_is_delivered_on_retry() {
+async fn a_needs_you_answer_whose_resume_failed_is_delivered_on_retry() {
     let w = interrupted(CONVERSATION_GONE).await;
     let t = w.board.ticket("SHOP-1").await.unwrap();
     let conversation = sessions(&w, "SHOP-1").await[0]
@@ -320,7 +320,7 @@ async fn an_inbox_answer_whose_resume_failed_is_delivered_on_retry() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    w.inbox
+    w.needs_you
         .answer(
             "SHOP-1",
             &otaq_core::board::questions::Choice::Other("Only the profile form".into()),

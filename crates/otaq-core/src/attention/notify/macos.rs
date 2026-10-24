@@ -43,7 +43,7 @@ impl NativeNotifier {
                 .target
                 .as_deref()
                 .and_then(Target::parse_open_value)
-                .unwrap_or(Target::Inbox);
+                .unwrap_or(Target::NeedsYou);
             tracing::info!(id = clicked.id, ?target, "notification clicked");
             let open = on_click.lock().expect("click handler").clone();
             match open {

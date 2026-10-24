@@ -146,7 +146,7 @@ pub struct LeadTabView {
     /// `None` without a lead.
     pub changes: Option<Changes>,
     pub body: Body,
-    /// The lead asks you: the panel header shows its question bar (as for a ticket's Asks you).
+    /// The lead asks you: the sheet header shows its question bar (as for a ticket's Asks you).
     pub asks_you: bool,
     /// The lead waits on its tool or its model (M23): the notice above the body.
     pub waiting: Option<Callout>,
@@ -686,7 +686,7 @@ pub mod fixtures {
     }
 }
 
-/// The gallery's Lead tabs (*05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended*, *16 → Before the
+/// The gallery's Lead tabs (*05 → Row · Epic sheet · Lead tab (0083)*, *Row · Lead tab · ended*, *16 → Before the
 /// restart*).
 pub fn gallery() -> Gallery {
     use fixtures::*;

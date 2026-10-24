@@ -1,13 +1,13 @@
 //! A child's question goes to its epic's lead first (LEAD-06, LEAD-04; d0083, d0030, d0061, d0011, d0016, d0048).
 //!
 //! - **Routing** ([`LeadQuestions::route`]): `otaq ask human` from a child whose epic has a **live** lead stores the
-//!   question as always, marked as waiting for that lead. No inbox item, no notification, and the child isn't
+//!   question as always, marked as waiting for that lead. No needs-you item, no notification, and the child isn't
 //!   turquoise: its card shows "asked lead · waiting" ([`crate::domain::Flags::asked_lead`]). The lead is woken
 //!   ([`wake_text`]; its status reads "answering SHOP-40.2") and a handover is registered. With no live lead (also
 //!   after a restart, until Resume) the question is a plain "Asks you" as before. Permission prompts never come here:
 //!   the hook path doesn't change (d0011).
 //! - **`otaq answer <QUESTION-ID> --stdin`** by the lead ([`LeadQuestions::answer`]): recorded as the answer and typed
-//!   into the child as an automatic message ([`answer_text`], §9.3). The inbox never saw it.
+//!   into the child as an automatic message ([`answer_text`], §9.3). Needs you never saw it.
 //! - **`otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin`** by the lead
 //!   ([`LeadQuestions::pass_on`]): the question becomes the child's "Asks you" item "SHOP-40.2 asks · passed on by
 //!   Wishlist lead", with the lead's options (the child's by default), its recommended option (d0061) and its reason

@@ -4,7 +4,7 @@
 //! limit reset) are stored in `pending_deliveries` and typed only when the agent is **idle between turns and
 //! the input line is empty**. Until then the card and the terminal strip show "1 message waiting · Deliver now".
 //!
-//! **The user's own clicks** (Deliver now, Send back, an inbox answer) are never held: if the input line has
+//! **The user's own clicks** (Deliver now, Send back, a needs-you answer) are never held: if the input line has
 //! unsent text the request answers [`Delivery::NeedsConfirmation`] instead, and the client asks *"SHOP-23 has
 //! unsent text in its terminal"* → **Keep it and cancel** (nothing is sent) / **Clear it and send**
 //! ([`Deliveries::clear_and_send`]). Otaq never clears the user's text silently. A tool whose clear-line keys
@@ -338,7 +338,7 @@ impl Deliveries {
         Ok(Delivery::Sent { count })
     }
 
-    /// Text from a user's click (Send back, an inbox answer): never held; asks first if the input line has
+    /// Text from a user's click (Send back, a needs-you answer): never held; asks first if the input line has
     /// unsent text.
     pub async fn deliver_from_click(
         &self,

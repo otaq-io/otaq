@@ -10,9 +10,9 @@
 //! by itself (d0016): only the user's press opens anything. Waiting plain Project agents are items too (NYS-02).
 //!
 //! It replaces the Inbox overlay (d0114): the items, their order and the back-pressure count are the service's
-//! (`attention::inbox`), unchanged.
+//! (`attention::needs_you`), unchanged.
 
-use otaq_core::attention::inbox::InboxList;
+use otaq_core::attention::needs_you::NeedsYouList;
 use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem};
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::epic_lead::suggest::SuggestionKind;
@@ -98,7 +98,7 @@ impl Item {
 /// Every item of every project, in the strip's order: the service's queue order (by group, then the tickets that
 /// block more, the oldest first; d0016), with the waiting Project agents and epic leads after the tickets of the
 /// first group (LEAD-11, NYS-02).
-pub fn items(list: &InboxList) -> Vec<Item> {
+pub fn items(list: &NeedsYouList) -> Vec<Item> {
     let at = list
         .items
         .iter()
@@ -118,7 +118,7 @@ pub fn items(list: &InboxList) -> Vec<Item> {
 }
 
 /// The projects in the rail's order, by key (the service lists every project in its counts).
-pub fn project_order(list: &InboxList) -> Vec<String> {
+pub fn project_order(list: &NeedsYouList) -> Vec<String> {
     list.counts
         .projects
         .iter()
@@ -839,7 +839,7 @@ pub mod samples {
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::attention::inbox::{InboxCounts, InboxList};
+    use otaq_core::attention::needs_you::{NeedsYouCounts, NeedsYouList};
 
     use super::samples::*;
     use super::*;
@@ -1238,7 +1238,7 @@ mod tests {
     }
 
     /// The service's list as it arrives: tickets in queue order, the agents apart.
-    fn list(items: Vec<Item>) -> InboxList {
+    fn list(items: Vec<Item>) -> NeedsYouList {
         let mut tickets = Vec::new();
         let mut agents = Vec::new();
         for i in items {
@@ -1248,8 +1248,8 @@ mod tests {
             }
         }
         tickets.sort_by_key(|t| t.group);
-        InboxList {
-            counts: InboxCounts::of(&tickets, &order()),
+        NeedsYouList {
+            counts: NeedsYouCounts::of(&tickets, &order()),
             items: tickets,
             project_agents: agents,
         }

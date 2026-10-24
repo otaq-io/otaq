@@ -2,7 +2,7 @@
 
 /**
  * What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
- * opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the pane, an
+ * opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the agent panel, an
  * epic's lead terminal, the next item that needs you (the Needs you strip's Next, d0114), or the board.
  */
 export type NotificationTarget = { "kind": "ticket", project: string, ticket: string, } | { "kind": "validator", project: string, ticket: string, } | { "kind": "project_agent", project: string, agent: string, } | { "kind": "lead", project: string, epic: string, } | { "kind": "needs_you" } | { "kind": "board", project: string | null, };

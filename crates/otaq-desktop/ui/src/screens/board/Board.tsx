@@ -13,10 +13,10 @@
 // verdicts (Review's Approved section is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
 // `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
 // moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket sheet is open over the
-// board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
-// card's column into the part the panel leaves; a click on the open card closes the panel, and so does a plain click on
+// board (SHL-05) the board keeps its width, gets the sheet's width of room after the columns and scrolls the selected
+// card's column into the part the sheet leaves; a click on the open card closes the sheet, and so does a plain click on
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
-// unless that click closes an open menu or popover. "Show on board" in a Project agent's pane filters the board to its tickets
+// unless that click closes an open menu or popover. "Show on board" in a Project agent panel filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain, with its tooltip, and Dependencies: Always keeps every
 // link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02); a blocked ticket started or dragged past Ready for Dev
@@ -121,7 +121,7 @@ export const BOARD_EVENTS = [
   "projects_changed",
   "session_state",
   "messages_waiting",
-  "inbox_changed",
+  "needs_you_changed",
   "usage_changed",
   "run_changed",
   "run_stopped",
@@ -365,28 +365,28 @@ function Lifted({ card }: { card: BoardCard }) {
   );
 }
 
-/** The part of the board an element covers on its right (the panel over the board), in px; 0 when it doesn't. */
+/** The part of the board an element covers on its right (the sheet over the board), in px; 0 when it doesn't. */
 export function coveredWidth(board: { right: number }, cover: { left: number } | null): number {
   return cover === null ? 0 : Math.max(0, Math.round(board.right - cover.left));
 }
 
-/** How much of the board the open panel covers, followed as either resizes; 0 while no ticket is open. */
+/** How much of the board the open sheet covers, followed as either resizes; 0 while no ticket is open. */
 function useCovered(board: HTMLElement | null, open: boolean): number {
   const [covered, setCovered] = useState(0);
   useLayoutEffect(() => {
-    // The frame's panel over the main area (T-0327); the gallery and the tests have none.
-    const panel = open
+    // The frame's sheet over the main area (T-0327); the gallery and the tests have none.
+    const layer = open
       ? board?.closest(".frame-main")?.querySelector<HTMLElement>(":scope > .frame-sheet")
       : null;
     // The ticket sheet floats over the board, which stays as it was under it (SHT-01, T-0464).
-    if (!board || !panel || panel.querySelector(":scope > .sheet")) return;
+    if (!board || !layer || layer.querySelector(":scope > .sheet")) return;
     const measure = () => {
-      setCovered(coveredWidth(board.getBoundingClientRect(), panel.getBoundingClientRect()));
+      setCovered(coveredWidth(board.getBoundingClientRect(), layer.getBoundingClientRect()));
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(board);
-    observer.observe(panel);
+    observer.observe(layer);
     return () => {
       observer.disconnect();
       setCovered(0);
@@ -577,7 +577,7 @@ export function Board() {
     [],
   );
 
-  // A click on a card opens it; on the open card it closes the panel (SHL-05).
+  // A click on a card opens it; on the open card it closes the sheet (SHL-05).
   const selectedRef = useRef(selected);
   useLayoutEffect(() => {
     selectedRef.current = selected;
@@ -590,7 +590,7 @@ export function Board() {
     }
     if (done.kind === "drop") void dropCard(done.key, done.target, showApprove);
   }, [controller, showApprove]);
-  // A plain click on the board's background closes the panel too (OT-3).
+  // A plain click on the board's background closes the sheet too (OT-3).
   const background = useMemo(
     () =>
       createBackgroundClick(() => {
@@ -642,7 +642,7 @@ export function Board() {
     [project],
   );
 
-  // Esc while dragging: the card flies back (before the panel's Close takes the key). Otherwise Esc leaves a
+  // Esc while dragging: the card flies back (before the sheet's Close takes the key). Otherwise Esc leaves a
   // focused epic (its token leaves the filter), then clears the agent filter (`escapeStep`).
   const agentRef = useRef(agent);
   useLayoutEffect(() => {
@@ -663,7 +663,7 @@ export function Board() {
         return false;
     }
   }, [controller, focusOn, project]);
-  useShortcut("close_panel", cancelDrag);
+  useShortcut("close_sheet", cancelDrag);
 
   // `g` `e`: focus the epic of the lane head with the keyboard, else of the selected card. A standalone ticket has
   // none: Rust answers nothing and the filter stays.
@@ -939,8 +939,8 @@ export function Board() {
   // target*).
   const ghostHint = drag?.over != null && sectionOwners.has(drag.over) ? undefined : overVerdict;
 
-  // The panel over the board (SHL-05): room after the columns to scroll into, and the selected card's column
-  // scrolled into the part the panel leaves (*x9qiI*), when it opens, moves to another card or is resized.
+  // The sheet over the board (SHL-05): room after the columns to scroll into, and the selected card's column
+  // scrolled into the part the sheet leaves (*x9qiI*), when it opens, moves to another card or is resized.
   const covered = useCovered(element, selected !== null);
   const selectedColumn = view && selected !== null ? columnOfCard(view.columns, selected) : null;
   useLayoutEffect(() => {
@@ -1126,7 +1126,7 @@ export function Board() {
                 element={element$}
               />
             ))}
-            {covered > 0 && <div className="board-under-panel" style={{ width: covered }} />}
+            {covered > 0 && <div className="board-under-sheet" style={{ width: covered }} />}
           </div>
         )}
         {view?.empty && <EmptyBoard view={view.empty} />}

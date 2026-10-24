@@ -1,7 +1,7 @@
 //! Recorded decisions (DEC-01, DEC-02; d0084). An agent that meets a product question the code and documents don't
 //! settle, and can go on without the answer, builds one option and records the choice on its own ticket with
 //! `otaq decision record --stdin`: the question, what it built, the other options and why. Nothing waits, nothing
-//! is written into the user's repo (d0023), and recording changes no state, makes no inbox item and notifies
+//! is written into the user's repo (d0023), and recording changes no state, makes no needs-you item and notifies
 //! nobody: it is information, listed in the review (T-0287), `otaq show` and `otaq prime`.
 //!
 //! Decisions are numbered per ticket from 1; the ID people and agents see is `<KEY>#<n>` (`SHOP-40.1#1`), built

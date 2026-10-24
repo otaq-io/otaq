@@ -131,7 +131,7 @@ const CardItem = memo(function CardItem({
           onAction={(kind) => {
             handlers.action(key, kind);
           }}
-          onOpenPanel={() => {
+          onOpenSheet={() => {
             handlers.open(key);
           }}
         />

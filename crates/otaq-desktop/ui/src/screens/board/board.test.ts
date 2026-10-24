@@ -108,8 +108,8 @@ const cardOf = (key: string): BoardCard => ({
     hover: { status: "", details: [] },
     faded: null,
     fresh: false,
-    open_panel: "Open panel",
-    open_panel_keys: "↵",
+    open_sheet: "Open panel",
+    open_sheet_keys: "↵",
     open_terminal: "Open terminal",
   },
 });
@@ -261,7 +261,7 @@ describe("board helpers", () => {
     expect(scrollPlace("DOCS").columns.dev).toBeUndefined();
   });
 
-  it("leaves a card's button press for the panel", () => {
+  it("leaves a card's button press for the sheet", () => {
     requestCardAction("SHOP-25", "resume");
     requestCardAction("SHOP-25", "resume");
     expect(cardActions.get()).toEqual({ ticket: "SHOP-25", kind: "resume", seq: 2 });
@@ -839,8 +839,8 @@ describe("the board screen", () => {
       hover: { status: "Merged", details: [] },
       faded: null,
       fresh: false,
-      open_panel: "Open panel",
-      open_panel_keys: "↵",
+      open_sheet: "Open panel",
+      open_sheet_keys: "↵",
       open_terminal: "Open terminal",
     },
   });
@@ -979,8 +979,8 @@ describe("the Review column (T-0328, d0087)", () => {
       hover: { status: "Ready for Review", details: [] },
       faded: null,
       fresh: false,
-      open_panel: "Open panel",
-      open_panel_keys: "↵",
+      open_sheet: "Open panel",
+      open_sheet_keys: "↵",
       open_terminal: "Open terminal",
     },
   });
@@ -1240,7 +1240,7 @@ describe("the toolbar (BRD-01)", () => {
   });
 });
 
-describe("the panel over the board (SHL-05)", () => {
+describe("the sheet over the board (SHL-05)", () => {
   it("scrolls to the selected card's column", () => {
     const columns: BoardColumn[] = (["backlog", "dev", "review"] as const).map((id) => ({
       id,
@@ -1267,7 +1267,7 @@ describe("the panel over the board (SHL-05)", () => {
     expect(columnOfCard(columns, "NOTE-6")).toBe("dev");
     expect(columnOfCard(columns, "NOTE-7")).toBe("review");
     expect(columnOfCard(columns, "NOTE-10.1")).toBeNull();
-    // x9qiI at 1280: the board shows 10…306 left of the 600 px panel; Dev (463…687 in the board) goes to its left.
+    // x9qiI at 1280: the board shows 10…306 left of the 600 px sheet; Dev (463…687 in the board) goes to its left.
     const view = { left: 394, right: 680 };
     expect(revealScroll({ left: 857, right: 1081 }, view, 0)).toBe(463);
     expect(revealScroll({ left: 400, right: 620 }, view, 120), "already in view").toBeNull();

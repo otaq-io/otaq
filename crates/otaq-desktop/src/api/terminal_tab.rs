@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use super::panel::{Hint as Tooltip, Sent, Unsent};
+use super::sheet::{Hint as Tooltip, Sent, Unsent};
 use super::{RequestError, reply, unknown};
 use crate::App;
 
@@ -167,7 +167,7 @@ pub struct View {
     pub path: Option<String>,
     /// `agent :4019`.
     pub port: Option<String>,
-    /// `otaq attach SHOP-19`, and its short form in a narrow panel.
+    /// `otaq attach SHOP-19`, and its short form in a narrow sheet.
     pub attach_command: String,
     pub attach_short: &'static str,
     pub copy_attach: &'static str,
@@ -180,7 +180,7 @@ pub struct View {
     pub find: Tooltip,
     /// Working in background: what runs, on hover of the state label.
     pub background: Option<String>,
-    /// Under this width the strip drops the path and port (*Narrow panel · 480 px*).
+    /// Under this width the strip drops the path and port (*Narrow sheet · 480 px*).
     pub narrow_below: f32,
     pub ended: Option<EndMarker>,
     pub recovery: Option<Recovery>,

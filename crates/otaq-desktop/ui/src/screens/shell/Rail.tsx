@@ -23,7 +23,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { askBar } from "../ask_bar/logic";
-import { toggleAgentPanel } from "../pane/logic";
+import { toggleAgentPanel } from "../agent_panel/logic";
 import { cleanupScans } from "../recovery/logic";
 import { railMenuChoice } from "./projectMenu";
 
@@ -33,7 +33,7 @@ export const RAIL_EVENTS = [
   "ticket_changed",
   "ticket_deleted",
   "session_state",
-  "inbox_changed",
+  "needs_you_changed",
   // The user's keys in its tooltips (KEY-08).
   "settings_changed",
 ] as const;

@@ -1241,7 +1241,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             "Joined the queue".to_owned(),
             text(p, "epic").map(|epic| format!("{epic} is queued as a whole")),
         ),
-        // *05 · Ticket side panel → Row · Recorded decisions (0084)*.
+        // *05 · Ticket side sheet → Row · Recorded decisions (0084)*.
         EventKind::DecisionRecorded => (
             format!(
                 "Recorded a decision: {}",
@@ -1964,7 +1964,7 @@ mod tests {
         );
     }
 
-    /// A recorded decision (DEC-02; *05 · Ticket side panel → Row · Recorded decisions (0084)*).
+    /// A recorded decision (DEC-02; *05 · Ticket side sheet → Row · Recorded decisions (0084)*).
     #[test]
     fn a_recorded_decision_reads_as_the_frame() {
         let rows = rows(

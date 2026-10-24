@@ -153,7 +153,7 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
     drop(answering);
     // A client that went away isn't looking at any terminal (ATT-03) or window (d0090) any more.
     shared.sessions.client_gone(client);
-    shared.inbox.client_gone(client);
+    shared.needs_you.client_gone(client);
     for task in attached.into_values().chain(forwarder) {
         task.abort();
         let _ = task.await;
@@ -402,7 +402,7 @@ async fn respond(
         },
         // The app window's focus (d0090), per connection like a terminal's.
         Request::AppFocus(p) => {
-            shared.inbox.set_looking(client, p.focused);
+            shared.needs_you.set_looking(client, p.focused);
             // The user may have changed System Settings meanwhile: read macOS's permission again (T-0372).
             if p.focused {
                 shared.notifications.refresh();

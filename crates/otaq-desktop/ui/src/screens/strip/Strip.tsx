@@ -20,12 +20,12 @@ import type { StripView } from "../../generated/StripView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { shownAgents } from "../pane/logic";
+import { shownAgents } from "../agent_panel/logic";
 import { dismissSuggestion, lastOpened, next, openOf, openTarget, stripParams } from "./logic";
 
 /** The service events that change the strip: its items, the projects' names and order, the user's key for Next. */
 export const STRIP_EVENTS = [
-  "inbox_changed",
+  "needs_you_changed",
   "projects_changed",
   "project_agent_changed",
   "ticket_changed",

@@ -1,5 +1,5 @@
 // A button pressed on a board card (T-0220): the board opens the sheet on that ticket and leaves the action
-// here, where the panel (T-0222 and the tickets after it) picks it up and runs it (Resume, Retry start, an answer
+// here, where the sheet (T-0222 and the tickets after it) picks it up and runs it (Resume, Retry start, an answer
 // option, Deliver now, Mark merged…), as the GPUI app's panel did. The newest request only.
 import type { CardActionKind } from "../generated/CardActionKind";
 import { createStore, type Store } from "./store";
@@ -21,7 +21,7 @@ export function requestCardAction(
   store.update((last) => ({ ticket, kind, seq: (last?.seq ?? 0) + 1 }));
 }
 
-/** The panel showing `ticket` takes the request meant for it, once: it is cleared so a later panel doesn't run it again. */
+/** The sheet showing `ticket` takes the request meant for it, once: it is cleared so a later sheet doesn't run it again. */
 export function takeCardAction(
   ticket: string,
   store: Store<CardActionRequest | null> = cardActions,

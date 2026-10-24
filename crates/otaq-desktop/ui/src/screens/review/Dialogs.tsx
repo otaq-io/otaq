@@ -20,7 +20,7 @@ import type { DecisionMarkView } from "../../generated/DecisionMarkView";
 import type { DecisionSendBackView } from "../../generated/DecisionSendBackView";
 import type { DiffFileView } from "../../generated/DiffFileView";
 import type { LocalMergeResult } from "../../generated/LocalMergeResult";
-import type { PanelSent } from "../../generated/PanelSent";
+import type { SheetSent } from "../../generated/SheetSent";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
 import type { SendBackParams } from "../../generated/SendBackParams";
 import type { SendBackView } from "../../generated/SendBackView";
@@ -45,7 +45,7 @@ function copy(text: string) {
 }
 
 /** Done: the agent has it; its terminal shows if the ticket is open. Asked: the unsent-text question (d0048). */
-export function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) {
+export function afterSend(key: string, sent: SheetSent, again: () => Promise<unknown>) {
   if (sent.outcome === "done") {
     if (selection.get().ticket === key) showTab("agent");
     return;
@@ -582,7 +582,7 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
         report: comment.pasted?.text,
         clear,
         comments: view.comments.length,
-      } satisfies SendBackParams) as Promise<PanelSent>
+      } satisfies SendBackParams) as Promise<SheetSent>
     ).then((sent) => {
       afterSend(ticket, sent, () => send(true));
     });
@@ -663,7 +663,7 @@ function sendChange(
   params: Omit<DecisionChangeParams, "clear">,
   clear = false,
 ): Promise<unknown> {
-  return (request("review.change", { ...params, clear }) as Promise<PanelSent>).then((sent) => {
+  return (request("review.change", { ...params, clear }) as Promise<SheetSent>).then((sent) => {
     afterSend(ticket, sent, () => sendChange(ticket, params, true));
   });
 }

@@ -81,7 +81,7 @@ import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
-import type { PaneGallery } from "../../generated/PaneGallery";
+import type { AgentPanelGallery } from "../../generated/AgentPanelGallery";
 import type { AskBarGallery } from "../../generated/AskBarGallery";
 import type { DrawerGallery } from "../../generated/DrawerGallery";
 import type { PillView } from "../../generated/PillView";
@@ -111,7 +111,7 @@ import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Toolbar } from "../board/Toolbar";
 import { LaneHeadRow } from "../board/Lanes";
-import { AnswerBox as PanelAnswerBox } from "../overview/NeedsYou";
+import { AnswerBox as SheetAnswerBox } from "../overview/NeedsYou";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
 import { OverviewGallery } from "../overview/OverviewGallery";
@@ -124,8 +124,8 @@ import { ListGallery } from "../list/ListGallery";
 import { EpicGallery } from "../epic/EpicGallery";
 import { DependenciesGallery } from "../dependencies/DependenciesGallery";
 import "../files/files.css";
-import { PaneBody, SwitcherList } from "../pane/Pane";
-import "../pane/pane.css";
+import { AgentPanelBody, SwitcherList } from "../agent_panel/AgentPanel";
+import "../agent_panel/agent_panel.css";
 import { DrawerBody } from "../terminals/Drawer";
 import "../terminals/terminals.css";
 import { CleanupBody } from "../recovery/Cleanup";
@@ -475,9 +475,9 @@ function TabsAndToggles() {
   return (
     <div className="gallery-stack">
       <Caption>TABS</Caption>
-      <Tabs label="Panel tabs" items={tabs} active={tab} onSelect={setTab} />
-      <Caption>TABS · ICONS ONLY (narrow panel)</Caption>
-      <Tabs label="Panel tabs, narrow" items={tabs} active={narrow} onSelect={setNarrow} iconsOnly />
+      <Tabs label="Sheet tabs" items={tabs} active={tab} onSelect={setTab} />
+      <Caption>TABS · ICONS ONLY (narrow sheet)</Caption>
+      <Tabs label="Sheet tabs, narrow" items={tabs} active={narrow} onSelect={setNarrow} iconsOnly />
       <Caption>SEGMENTED</Caption>
       <Segmented
         label="Diff layout"
@@ -927,8 +927,8 @@ function CardGrid({
             onAction={(kind) => {
               onPick(`${cell.card.key}: ${JSON.stringify(kind)}`);
             }}
-            onOpenPanel={() => {
-              onPick(`${cell.card.key}: open panel`);
+            onOpenSheet={() => {
+              onPick(`${cell.card.key}: open sheet`);
             }}
           />
         </div>
@@ -1205,7 +1205,7 @@ function Leads() {
   const onAction = (kind: string, epic: string) => {
     setPicked(`${epic}: ${kind}`);
   };
-  // Split with the Project agent (T-0377): what it would send the Project agent pane.
+  // Split with the Project agent (T-0377): what it would send the Project agent panel.
   const onSplit = (split: LeadSplit) => {
     setPicked(`${split.project}: ${split.message}`);
   };
@@ -1271,7 +1271,7 @@ function Leads() {
 const loadLeadTabs = () => request("gallery.lead_tabs") as Promise<LeadTabGallery>;
 
 /** *05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended (0083)* and *16 → Before the restart*
- * (T-0290): the Lead tab in each state from `lead_tab.rs`, at the panel's default width; buttons are only recorded. */
+ * (T-0290): the Lead tab in each state from `lead_tab.rs`, at the sheet's default width; buttons are only recorded. */
 function LeadTabs() {
   const { view, error } = useServiceView(loadLeadTabs, []);
   const [picked, setPicked] = useState<string | null>(null);
@@ -1308,7 +1308,7 @@ function LeadTabs() {
 const loadStageChoices = () => request("gallery.stage_choices") as Promise<StageChoicesGallery>;
 
 /** *08 → Row · Stage choices (update AG §9)*, *05 → Row · Stage choices and path* (T-0411): the ⌘N form's pickers,
- * the panel's choices and path mid-flow, after a Fail, finished, a choice you set and the default flow, from
+ * the sheet's choices and path mid-flow, after a Fail, finished, a choice you set and the default flow, from
  * `gallery.stage_choices`; picks are only recorded. */
 function StageChoicesSection() {
   const { view, error } = useServiceView(loadStageChoices, []);
@@ -1323,7 +1323,7 @@ function StageChoicesSection() {
           <div key={sample.caption} className="gallery-stack-tight gallery-agent-rows">
             <Caption>{sample.caption}</Caption>
             {sample.token_line !== null && (
-              <div className="panel-split">
+              <div className="sheet-split">
                 <Icon name="coins" size={11} />
                 <span>{sample.token_line}</span>
               </div>
@@ -1341,7 +1341,7 @@ function StageChoicesSection() {
             {sample.choices !== null && (
               <StageChoices
                 view={sample.choices}
-                look={n === 0 ? "form" : "panel"}
+                look={n === 0 ? "form" : "sheet"}
                 onPick={(stage, choice) => {
                   setPicked(`${sample.caption}: ${stage} → ${choice}`);
                 }}
@@ -1768,13 +1768,13 @@ function DrawerSection() {
   );
 }
 
-const loadPane = () => request("gallery.pane") as Promise<PaneGallery>;
+const loadAgentPanel = () => request("gallery.agent_panel") as Promise<AgentPanelGallery>;
 
 /** *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states (0086 · V)* and *Row ·
- * Switching agents, attention (0086 · V)* (T-0330): the panel in each state, the switcher and the … menu open.
+ * Switching agents, attention (0086 · V)* (T-0330): the sheet in each state, the switcher and the … menu open.
  * Clicks talk to the service as in the app. */
-function PaneSection() {
-  const { view, error } = useServiceView(loadPane, []);
+function AgentPanelSection() {
+  const { view, error } = useServiceView(loadAgentPanel, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   const running = view.states.find((s) => s.view.agent !== null)?.view;
@@ -1784,8 +1784,8 @@ function PaneSection() {
         {view.states.map((state) => (
           <div key={state.name} className="gallery-stack-tight">
             <Caption>{state.name.toUpperCase()}</Caption>
-            <div className="gallery-pane">
-              <PaneBody view={state.view} project="NOTE" />
+            <div className="gallery-agent-panel">
+              <AgentPanelBody view={state.view} project="NOTE" />
             </div>
           </div>
         ))}
@@ -1798,7 +1798,7 @@ function PaneSection() {
               </div>
             </div>
             <div className="gallery-stack-tight">
-              <Caption>THE PANE&apos;S … MENU</Caption>
+              <Caption>THE AGENT PANEL&apos;S … MENU</Caption>
               <Menu
                 label={running.header.more.label}
                 items={running.menu}
@@ -2345,7 +2345,7 @@ function PauseSection() {
 const loadOptionNotes = () => request("gallery.option_notes") as Promise<OptionNotesGallery>;
 
 /** ATT-17, d0061 (T-0375): answer options with notes, from `gallery.option_notes`: NOTE-1's four options (one note
- * about 300 characters long, one option without a note) and a question the lead passed on, in the panel and the
+ * about 300 characters long, one option without a note) and a question the lead passed on, in the sheet and the
  * card. The card's hover card shows on hover or Tab; each one is also drawn open beside its card. Nothing is
  * sent. */
 function OptionNotes() {
@@ -2353,13 +2353,13 @@ function OptionNotes() {
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="05 · 04 · Answer options with notes (0061) · panel, card hover (T-0375)">
+    <Section title="05 · 04 · Answer options with notes (0061) · sheet, card hover (T-0375)">
       <div className="gallery-wrap gallery-wrap-wide">
-        {view.panels.map(
-          (panel) =>
-            panel.answer && (
-              <div key={panel.key} className="gallery-option-notes-panel">
-                <PanelAnswerBox view={panel} answer={panel.answer} more={null} fromCard={null} />
+        {view.sheets.map(
+          (sheet) =>
+            sheet.answer && (
+              <div key={sheet.key} className="gallery-option-notes-sheet">
+                <SheetAnswerBox view={sheet} answer={sheet.answer} more={null} fromCard={null} />
               </div>
             ),
         )}
@@ -2525,7 +2525,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Section title="02 · The shell at 1280, 1440 and 1920 (T-0327)">
           <ShellFrames />
         </Section>
-        <PaneSection />
+        <AgentPanelSection />
         <AskBarSection />
         <DrawerSection />
         <Section title="02 · Header v2, Activity states and popover (T-0329)">

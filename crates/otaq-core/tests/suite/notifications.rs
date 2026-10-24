@@ -117,7 +117,7 @@ async fn blocking_items_notify_once_and_never_while_focused() {
         .pin("SHOP-1", &otaq_core::domain::Actor::User("me".into()))
         .await
         .unwrap();
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert_eq!(recorder.titles().len(), 1);
 
@@ -136,7 +136,7 @@ async fn blocking_items_notify_once_and_never_while_focused() {
         .ask_human(&agent, &t.id, "And the sender address?")
         .await
         .unwrap();
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert_eq!(recorder.titles().len(), 1, "never for the focused ticket");
     app.request(Request::SessionFocus(FocusParams {
@@ -158,7 +158,7 @@ async fn blocking_items_notify_once_and_never_while_focused() {
         .ask_human(&agent, &t.id, "Third question?")
         .await
         .unwrap();
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert_eq!(recorder.titles().len(), 2);
     let _: GlobalSettings = settings;
@@ -208,12 +208,12 @@ async fn nothing_is_posted_while_an_app_window_is_focused() {
     app.request(Request::AppFocus(AppFocusParams { focused: true }))
         .await
         .unwrap();
-    assert!(w.inbox.looking());
+    assert!(w.needs_you.looking());
     w.signals
         .ask_human(&first, &one.id, "Fuzzy search?")
         .await
         .unwrap();
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert!(recorder.titles().is_empty(), "looking at Otaq");
 
@@ -221,9 +221,9 @@ async fn nothing_is_posted_while_an_app_window_is_focused() {
     app.request(Request::AppFocus(AppFocusParams { focused: false }))
         .await
         .unwrap();
-    assert!(!w.inbox.looking());
+    assert!(!w.needs_you.looking());
     clock.advance(QUIET);
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert!(recorder.titles().is_empty(), "never later");
 
@@ -233,7 +233,7 @@ async fn nothing_is_posted_while_an_app_window_is_focused() {
         .unwrap();
     drop(app);
     tokio::time::timeout(Duration::from_secs(5), async {
-        while w.inbox.looking() {
+        while w.needs_you.looking() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
@@ -248,7 +248,7 @@ async fn nothing_is_posted_while_an_app_window_is_focused() {
 }
 
 /// T-0371 (d0090): the first pop-up goes out at once; the next item is held and goes out by itself when the quiet
-/// period ends (the inbox wakes for it); one held while the service stops is never posted.
+/// period ends (Needs you wakes for it); one held while the service stops is never posted.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_quiet_period_holds_and_the_service_posts_at_its_end() {
     let (w, recorder, clock) = world().await;
@@ -267,7 +267,7 @@ async fn the_quiet_period_holds_and_the_service_posts_at_its_end() {
         .ask_human(&second, &two.id, "Which date format?")
         .await
         .unwrap();
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert_eq!(recorder.titles().len(), 1, "held");
 
@@ -283,7 +283,7 @@ async fn the_quiet_period_holds_and_the_service_posts_at_its_end() {
         .ask_human(&third, &three.id, "Newest first?")
         .await
         .unwrap();
-    w.inbox.refresh().await.unwrap();
+    w.needs_you.refresh().await.unwrap();
     settle().await;
     assert_eq!(recorder.titles().len(), 2, "held");
     w.stop().await;
@@ -445,7 +445,7 @@ async fn the_blocked_banner_shows_once_per_turn_off() {
         .await
         .unwrap();
     until_state(&app, |s| s.blocked_banner).await;
-    assert!(w.inbox.notification_blocked());
+    assert!(w.needs_you.notification_blocked());
 
     // Closed: hidden, also after the next blocked notification while still off.
     app.request(Request::NotificationsDismissBlocked)
@@ -478,7 +478,7 @@ async fn the_blocked_banner_shows_once_per_turn_off() {
         .unwrap();
     permissions.set(PermissionState::Allowed);
     until_state(&app, |s| s.permission == PermissionState::Allowed).await;
-    assert!(!w.inbox.notification_blocked());
+    assert!(!w.needs_you.notification_blocked());
 
     // Off again: nothing until a notification is blocked, then the banner once more.
     permissions.set(PermissionState::TurnedOff);

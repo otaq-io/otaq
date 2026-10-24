@@ -48,7 +48,7 @@ export function EditForm({ view, onDone }: { view: EditorView; onDone: (note: st
       onDone(saved.note);
     });
   };
-  // Esc in a field discards (the panel's Esc waits while a field has the keyboard). In the description it steps back
+  // Esc in a field discards (the sheet's Esc waits while a field has the keyboard). In the description it steps back
   // first (d0078 D4): an open popover or menu closes, then the text gives up focus, then the form discards.
   useFormKeys(root, save, () => {
     onDone(null);

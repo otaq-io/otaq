@@ -136,7 +136,7 @@ impl Pace {
         !self.held.is_empty()
     }
 
-    /// When the inbox must look again: the end of the period, while something is held.
+    /// When Needs you must look again: the end of the period, while something is held.
     pub fn wake_at(&self) -> Option<Instant> {
         self.quiet_until.filter(|_| self.holds())
     }

@@ -1,7 +1,7 @@
 //! Ticket priorities in the app (TKT-09, d0065; *01 · Components → Primitives → Priority*, *01 · Foundations →
 //! Status Legend → 5 · Priority*). Not a status: an ink-only scale, never turquoise or red, and never colour alone
 //! (an icon and the number always go with it). Icon + number on cards, where Normal (P3) is hidden; number + word
-//! in the panel and forms. Every change is a `ticket.update` with `priority`, wherever it is made.
+//! in the sheet and forms. Every change is a `ticket.update` with `priority`, wherever it is made.
 
 use otaq_core::board::tickets::TicketUpdate;
 use otaq_core::domain::{Priority, TicketKey};

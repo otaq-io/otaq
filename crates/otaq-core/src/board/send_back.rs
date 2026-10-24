@@ -317,7 +317,7 @@ pub(crate) async fn return_to_dev(
 
 impl Board {
     /// The agent of `ticket_id` is alive in its conversation (a hook or a `otaq` command came from it): the
-    /// first prompt it was started or resumed with (a Send back's skill, an inbox answer) has reached it, so it is
+    /// first prompt it was started or resumed with (a Send back's skill, a needs-you answer) has reached it, so it is
     /// not sent again by a later Retry or Resume (T-0086, T-0112).
     pub async fn first_prompt_delivered(&self, ticket_id: &str) -> Result<(), BoardError> {
         sqlx::query(

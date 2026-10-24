@@ -339,8 +339,8 @@ pub struct Rail {
 pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
     let mut projects = projects(app).await?;
     // Waiting Project agents count in their project's badge too (PAG-07); without the queue, tickets only.
-    if let Some(agents) = optional(app, Request::InboxList, |r| match r {
-        Reply::Inbox(list) => Some(list.project_agents),
+    if let Some(agents) = optional(app, Request::NeedsYouList, |r| match r {
+        Reply::NeedsYou(list) => Some(list.project_agents),
         _ => None,
     })
     .await
@@ -595,11 +595,11 @@ mod tests {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let mac = Platform::current() == Platform::Mac;
-        let (inbox, terminals) = if mac { ("⌘J", "⌘T") } else { ("Ctrl+J", "Ctrl+T") };
+        let (needs_you, terminals) = if mac { ("⌘J", "⌘T") } else { ("Ctrl+J", "Ctrl+T") };
         let record = |action: &str, key: &str| {
             json!({ "edit": "record", "action": { "action": action }, "slot": 0, "key": key, "confirmed": true })
         };
-        for edit in [record("open_activity", inbox), record("terminals", terminals)] {
+        for edit in [record("open_activity", needs_you), record("terminals", terminals)] {
             let done = request(&h.app, "keyboard.edit", edit).await.unwrap();
             assert_eq!(done["outcome"], "done");
         }
@@ -608,7 +608,7 @@ mod tests {
         })
         .await;
         let header = request(&h.app, "shell.header", json!({})).await.unwrap();
-        assert_eq!(header["activity"]["keys"], inbox);
+        assert_eq!(header["activity"]["keys"], needs_you);
         let popover = request(&h.app, "shell.activity", Value::Null).await.unwrap();
         assert_eq!(popover["open_terminals"]["keys"], terminals);
         let rail = request(&h.app, "shell.rail", json!({})).await.unwrap();

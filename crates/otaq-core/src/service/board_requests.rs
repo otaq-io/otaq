@@ -135,7 +135,7 @@ pub(super) async fn handle(
                     gate: &shared.gate,
                     plan_limit: &shared.plan_limit,
                     connected: &shared.connected,
-                    inbox: &shared.inbox,
+                    needs_you: &shared.needs_you,
                 })
                 .await?;
             Ok(Reply::Usage(Box::new(summary)))
@@ -1216,13 +1216,15 @@ pub(super) async fn handle(
         Request::TicketsResumeAll(p) => {
             boxed(move || async move { resume_all(shared, p.project.as_deref(), &actor).await })
         }
-        Request::InboxList => {
-            boxed(
-                move || async move { shared.inbox.list().await.map(|l| Reply::Inbox(Box::new(l))) },
-            )
-        }
-        Request::InboxCounts => {
-            boxed(move || async move { shared.inbox.counts().await.map(Reply::InboxCounts) })
+        Request::NeedsYouList => boxed(move || async move {
+            shared
+                .needs_you
+                .list()
+                .await
+                .map(|l| Reply::NeedsYou(Box::new(l)))
+        }),
+        Request::NeedsYouCounts => {
+            boxed(move || async move { shared.needs_you.counts().await.map(Reply::NeedsYouCounts) })
         }
         Request::CleanupScan => {
             boxed(move || async move { shared.cleanup.scan().await.map(Reply::CleanupScan) })
@@ -1260,12 +1262,12 @@ pub(super) async fn handle(
                 shared.warm.start_clear(project.as_ref(), &repo).await,
             ))
         }),
-        Request::InboxAnswer(p) => boxed(move || async move {
+        Request::NeedsYouAnswer(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
                 shared,
                 &project,
-                shared.inbox.answer(&p.key, &p.choice, p.clear, &actor),
+                shared.needs_you.answer(&p.key, &p.choice, p.clear, &actor),
             )
             .await
             .map(Reply::Delivery)
@@ -2184,7 +2186,7 @@ async fn mark_decision(
     Ok(Reply::Decision(Box::new(decision)))
 }
 
-/// `otaq suggest close|delete` (LEAD-08): stores the suggestion; the inbox picks it up (no notification, no status
+/// `otaq suggest close|delete` (LEAD-08): stores the suggestion; Needs you picks it up (no notification, no status
 /// change). The child's card doesn't change.
 async fn lead_suggest(
     shared: &Shared,
@@ -2203,7 +2205,7 @@ async fn lead_suggest(
         actor,
     )
     .await?;
-    // The inbox derives its items again on the child's change event.
+    // Needs you derives its items again on the child's change event.
     publish_ticket_changed(shared, &suggestion.child).await;
     Ok(Reply::Suggestion(Box::new(suggestion)))
 }
@@ -2308,7 +2310,7 @@ async fn lead_changed(
 
 /// #47: a ticket a ticket's agent (or its validator) or an epic lead created tells the app ("DEMO-7 created DEMO-12
 /// → Backlog"), and the creating ticket's History logs it. The user's tickets and a Project agent's tell nothing: its
-/// pane lists what it created (d0068, d0091).
+/// agent panel lists what it created (d0068, d0091).
 async fn created_by_agent(shared: &Shared, caller: &Caller, tickets: &[Ticket], actor: &Actor) {
     let by = match caller {
         Caller::Agent {

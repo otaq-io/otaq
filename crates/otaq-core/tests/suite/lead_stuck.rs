@@ -258,8 +258,8 @@ where
     .unwrap_or_else(|_| panic!("timed out waiting: {what}"));
 }
 
-/// Validation failed: the first stop wakes the lead with no inbox item; its note restarts the counter and goes to the
-/// agent with the findings; the second stop goes to the inbox with the note and the view, and the lead isn't woken.
+/// Validation failed: the first stop wakes the lead with no needs-you item; its note restarts the counter and goes to the
+/// agent with the findings; the second stop goes to Needs you with the note and the view, and the lead isn't woken.
 #[tokio::test(flavor = "multi_thread")]
 async fn validation_failed_goes_to_the_lead_once_and_its_note_counts_as_answer_the_agent() {
     let w = world().await;
@@ -269,7 +269,7 @@ async fn validation_failed_goes_to_the_lead_once_and_its_note_counts_as_answer_t
     let held = submit_and_fail(&w, "SHOP-40.2").await;
     assert_eq!(held.status, Status::Working, "held at work, not turquoise");
     assert_eq!(held.validation_round, 1, "the round counted");
-    assert!(item(&w, "SHOP-40.2").await.is_none(), "no inbox item");
+    assert!(item(&w, "SHOP-40.2").await.is_none(), "no needs_you item");
     assert_eq!(state(&w, "SHOP-40.2").await, Some(StuckState::Held));
     let wake = lead_takes_the_wake_up(&w, &lead).await;
     assert_eq!(
@@ -333,11 +333,11 @@ async fn validation_failed_goes_to_the_lead_once_and_its_note_counts_as_answer_t
     assert_eq!(w.status("SHOP-40.2").await, Status::Working);
     assert_eq!(state(&w, "SHOP-40.2").await, Some(StuckState::Noted));
 
-    // The second stop: the inbox, with the lead's note and view; the lead isn't woken.
+    // The second stop: Needs you, with the lead's note and view; the lead isn't woken.
     let second = submit_and_fail(&w, "SHOP-40.2").await;
     assert_eq!(second.status, Status::CheckFailed);
-    let inbox = item(&w, "SHOP-40.2").await.expect("an inbox item");
-    assert_eq!(inbox.lead_note, Some(sent));
+    let needs_you = item(&w, "SHOP-40.2").await.expect("an needs_you item");
+    assert_eq!(needs_you.lead_note, Some(sent));
     assert!(
         pending(&w, &session(&lead)).await.is_empty(),
         "not woken again"
@@ -348,7 +348,7 @@ async fn validation_failed_goes_to_the_lead_once_and_its_note_counts_as_answer_t
     w.stop().await;
 }
 
-/// Hand-back: the lead's turn ends without a note to the child; the held stop goes to the inbox as today, with no
+/// Hand-back: the lead's turn ends without a note to the child; the held stop goes to Needs you as today, with no
 /// lead's note. A later note to the child is an ordinary unread note.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_turn_without_a_note_hands_the_stop_back() {
@@ -361,8 +361,8 @@ async fn a_turn_without_a_note_hands_the_stop_back() {
 
     let back = ticket(&w, "SHOP-40.2").await;
     assert_eq!(back.status, Status::CheckFailed);
-    let inbox = item(&w, "SHOP-40.2").await.expect("an inbox item");
-    assert_eq!(inbox.lead_note, None);
+    let needs_you = item(&w, "SHOP-40.2").await.expect("an needs_you item");
+    assert_eq!(needs_you.lead_note, None);
     assert_eq!(back.flags.lead_note_sent, None);
     assert_eq!(state(&w, "SHOP-40.2").await, Some(StuckState::HandedBack));
     assert_eq!(steps(&w, "SHOP-40").await, ["held", "handed_back"]);
@@ -375,7 +375,7 @@ async fn a_turn_without_a_note_hands_the_stop_back() {
             .is_empty()
     );
 
-    // The attempt is used: the next failure goes straight to the inbox.
+    // The attempt is used: the next failure goes straight to Needs you.
     w.validation
         .user_action(
             "SHOP-40.2",
@@ -394,9 +394,9 @@ async fn a_turn_without_a_note_hands_the_stop_back() {
     w.stop().await;
 }
 
-/// No live lead: the stop goes to the inbox at once and the attempt isn't used.
+/// No live lead: the stop goes to Needs you at once and the attempt isn't used.
 #[tokio::test(flavor = "multi_thread")]
-async fn without_a_live_lead_the_stop_goes_to_the_inbox_at_once() {
+async fn without_a_live_lead_the_stop_goes_to_needs_you_at_once() {
     let w = world().await;
     button(&w).await;
     let failed = submit_and_fail(&w, "SHOP-40.2").await;
@@ -449,7 +449,7 @@ async fn idle_goes_to_the_lead_once_and_its_note_is_typed_in() {
     let read = notes::list_for_epic(&w.board, "SHOP-40").await.unwrap();
     assert_eq!(read[0].read_how, Some(ReadHow::WithStop));
 
-    // Its next Idle goes to the inbox, with the note; the lead isn't woken.
+    // Its next Idle goes to Needs you, with the note; the lead isn't woken.
     w.signals
         .hook(
             &agent_caller(&t, &agent),
@@ -461,8 +461,8 @@ async fn idle_goes_to_the_lead_once_and_its_note_is_typed_in() {
         .unwrap();
     stop("Done; anything else?").await;
     assert_eq!(w.status("SHOP-40.2").await, Status::Idle);
-    let inbox = item(&w, "SHOP-40.2").await.expect("an Idle item");
-    assert_eq!(inbox.lead_note.map(|n| n.text), Some(NOTE.to_owned()));
+    let needs_you = item(&w, "SHOP-40.2").await.expect("an Idle item");
+    assert_eq!(needs_you.lead_note.map(|n| n.text), Some(NOTE.to_owned()));
     assert!(pending(&w, &session(&lead)).await.is_empty());
     w.stop().await;
 }
@@ -548,7 +548,7 @@ async fn pass(w: &TestService, key: &str) -> Ticket {
     ticket(w, key).await
 }
 
-/// Keeps conflicting: the third conflict wakes the lead with no inbox item; the note restarts the conflict counter,
+/// Keeps conflicting: the third conflict wakes the lead with no needs-you item; the note restarts the conflict counter,
 /// the merge is retried, and the conflict goes back to the agent with the note before restack.
 #[tokio::test(flavor = "multi_thread")]
 async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge() {
@@ -612,15 +612,18 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
         stopped.auto_merge_stop,
         Some(AutoMergeStop::KeepsConflicting)
     );
-    let inbox = item(&w, "SHOP-40.2").await.expect("an inbox item");
-    assert_eq!(inbox.lead_note.and_then(|n| n.view), Some(VIEW.to_owned()));
+    let needs_you = item(&w, "SHOP-40.2").await.expect("an needs_you item");
+    assert_eq!(
+        needs_you.lead_note.and_then(|n| n.view),
+        Some(VIEW.to_owned())
+    );
     lead_stop(&w, &lead).await;
     assert!(pending(&w, &session(&lead)).await.is_empty());
     w.stop().await;
 }
 
 /// A child whose Merge check keeps failing (d0120): conflicts and failed checks count together, and its first stop
-/// goes to the lead, "Merge check keeps failing on `<epic branch>`", with no inbox item.
+/// goes to the lead, "Merge check keeps failing on `<epic branch>`", with no needs-you item.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_check_that_keeps_failing_goes_to_the_lead_once() {
     let w = world().await;

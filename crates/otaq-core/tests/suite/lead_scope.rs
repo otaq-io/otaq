@@ -2,7 +2,7 @@
 //! d0060, d0016): requests sent from inside its session (an ordinary `sh` started as the lead, running `nc`) are
 //! judged as that lead. It edits, links and prioritises its epic's never-started children and creates children,
 //! with History on the child and the epic; everything else is refused with the one text. `suggest close|delete`
-//! is an inbox item after group 1 that the user confirms (the usual close or delete) or dismisses. `decision mark`
+//! is a needs-you item after group 1 that the user confirms (the usual close or delete) or dismisses. `decision mark`
 //! is the lead's alone.
 
 use otaq_core::agent_tools::LaunchContext;
@@ -392,7 +392,7 @@ async fn suggestions_wait_after_group_one_and_the_user_confirms_or_dismisses_the
         ONLY_A_LEAD_SUGGESTS
     );
 
-    // The inbox: their own group right after group 1, with the headline and the reason; no status change.
+    // Needs you: their own group right after group 1, with the headline and the reason; no status change.
     let items = w.board.needs_you_items(now_ms()).await.unwrap();
     let groups: Vec<NeedsYouGroup> = items.iter().map(|i| i.group).collect();
     let first = groups

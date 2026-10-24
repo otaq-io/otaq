@@ -145,7 +145,7 @@ fn priority_tier() -> LegendPriority {
     LegendPriority {
         title: "5 · Priority (0065)".into(),
         note: "Not a status: an ink-only scale, never turquoise or red. Icon + number on cards; number + word in the \
-               panel and forms. P3 Normal is hidden on cards."
+               sheet and forms. P3 Normal is hidden on cards."
             .into(),
         chips: Priority::ALL.into_iter().map(priority::view).collect(),
         order: "Start order in Ready for Dev: pinned → P1 … P4 → ready the longest".into(),

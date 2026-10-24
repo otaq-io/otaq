@@ -3,7 +3,7 @@
  * the question and its options, the callouts, the choices and the path, 10 px between the header's rows. Colors are
  * the theme's tokens.
  */
-.panel-header {
+.sheet-overview-header {
   display: flex;
   flex-direction: column;
   flex: none;
@@ -11,7 +11,7 @@
   padding: 12px 12px 12px 16px;
 }
 
-.panel-meta {
+.sheet-meta {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -20,7 +20,7 @@
   white-space: nowrap;
 }
 
-.panel-meta-item {
+.sheet-meta-item {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -28,11 +28,11 @@
   font: 400 11px/normal var(--font-mono);
 }
 
-.panel-meta-item[data-stale] {
+.sheet-meta-item[data-stale] {
   color: var(--st-paused);
 }
 
-.panel-bar {
+.sheet-bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -40,14 +40,14 @@
 }
 
 /* Approve with its "▾" (the approve choices, *Action bar · every state → Ready for Review*). */
-.panel-action-group {
+.sheet-action-group {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
 /* "agent 58k · validation 9k (1 round)" (*Row · validation (0063)*, VAL-14). */
-.panel-split {
+.sheet-split {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -56,7 +56,7 @@
 }
 
 /* The Agents rows under the action bar (*05 → Agents (0086)*): a top hairline, 4 / 16 / 8 padding. */
-.panel-agents {
+.sheet-agents {
   flex: none;
   padding: 4px 16px 8px;
   border-top: 1px solid var(--border);
@@ -64,7 +64,7 @@
 
 /* Why Auto-merge stopped (*Auto-merge stop · messages*). */
 /* The held roles' callouts above the bar (M23; *05 → Column 3 · several tools*): one under another. */
-.panel-holds {
+.sheet-holds {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -73,7 +73,7 @@
 
 /* A refused model (AGT-05, T-0345; *05 → Start failed on the model*, *No result: the validator's model*): a 2 px
  * edge, red for Start failed and turquoise for No result (d0077), the tool's message in mono. */
-.panel-refusal {
+.sheet-refusal {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -82,26 +82,26 @@
   border-left: 2px solid var(--st-attn);
 }
 
-.panel-refusal[data-error] {
+.sheet-refusal[data-error] {
   border-left-color: var(--st-error);
 }
 
-.panel-refusal-heading {
+.sheet-refusal-heading {
   color: var(--text-primary);
   font: 500 12px var(--font-ui);
 }
 
-.panel-refusal[data-error] .panel-refusal-heading {
+.sheet-refusal[data-error] .sheet-refusal-heading {
   color: var(--st-error);
 }
 
-.panel-refusal-message {
+.sheet-refusal-message {
   color: var(--text-secondary);
   font: 400 11px/1.45 var(--font-mono);
   overflow-wrap: anywhere;
 }
 
-.panel-stop-message {
+.sheet-stop-message {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -110,7 +110,7 @@
   font-size: 12px;
 }
 
-.panel-stop-message .icon {
+.sheet-stop-message .icon {
   flex: none;
   color: var(--st-attn);
 }
@@ -140,7 +140,7 @@
 }
 
 /* Answer the agent (*SHOP-32 · Validation failed 3 times*). */
-.panel-answer-agent {
+.sheet-answer-agent {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -150,32 +150,32 @@
   background: var(--bg-raised);
 }
 
-.panel-answer-agent-heading {
+.sheet-answer-agent-heading {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
 }
 
-.panel-answer-agent-footer {
+.sheet-answer-agent-footer {
   margin: 0;
   color: var(--text-muted);
   font-size: 11px;
 }
 
-.panel-answer-agent-buttons {
+.sheet-answer-agent-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
 }
 
 /* The turquoise "Answer in terminal" (*Action bar · every state*). */
-.panel-action[data-look="attention"] .button {
+.sheet-action[data-look="attention"] .button {
   border-color: var(--st-attn);
   background: var(--st-attn);
   color: var(--on-attn);
 }
 
-.panel-conflict {
+.sheet-conflict {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -185,7 +185,7 @@
   color: var(--st-paused);
 }
 
-.panel-conflict-line {
+.sheet-conflict-line {
   flex: 1;
   min-width: 0;
   color: var(--text-primary);
@@ -193,7 +193,7 @@
 }
 
 /* *SHOP-21 · Asks you · answer options*. */
-.panel-answer {
+.sheet-answer {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -202,25 +202,25 @@
   background: var(--st-attn-bg);
 }
 
-.panel-answer-question {
+.sheet-answer-question {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--st-attn);
 }
 
-.panel-answer-question > span:last-child {
+.sheet-answer-question > span:last-child {
   color: var(--text-primary);
   font: 600 13px/18px var(--font-ui);
 }
 
-.panel-answer-options {
+.sheet-answer-options {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.panel-answer-option {
+.sheet-answer-option {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -234,22 +234,22 @@
   cursor: pointer;
 }
 
-.panel-answer-option[data-picked] {
+.sheet-answer-option[data-picked] {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.panel-answer-option[data-other] {
+.sheet-answer-option[data-other] {
   color: var(--text-muted);
   font-weight: 400;
 }
 
-.panel-answer-option:focus-visible {
+.sheet-answer-option:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 
-.panel-answer-radio {
+.sheet-answer-radio {
   flex: none;
   box-sizing: border-box;
   width: 16px;
@@ -259,11 +259,11 @@
   background: var(--bg-raised);
 }
 
-.panel-answer-option[data-picked] .panel-answer-radio {
+.sheet-answer-option[data-picked] .sheet-answer-radio {
   border: 5px solid var(--accent);
 }
 
-.panel-answer-label {
+.sheet-answer-label {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -271,7 +271,7 @@
   min-width: 0;
 }
 
-.panel-answer-note {
+.sheet-answer-note {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 400;
@@ -279,7 +279,7 @@
   white-space: normal;
 }
 
-.panel-answer-rec {
+.sheet-answer-rec {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -290,7 +290,7 @@
   font: 500 10.5px/normal var(--font-ui);
 }
 
-.panel-answer-number {
+.sheet-answer-number {
   min-width: 16px;
   padding: 0 4px;
   border: 1px solid var(--border);
@@ -300,13 +300,13 @@
   text-align: center;
 }
 
-.panel-answer-hint {
+.sheet-answer-hint {
   flex: 1;
   color: var(--text-muted);
   font: var(--text-meta);
 }
 
-.panel-notice {
+.sheet-notice {
   display: flex;
   gap: 8px;
   margin: 0 16px 8px;
@@ -316,37 +316,37 @@
   color: var(--st-queued);
 }
 
-.panel-notice[data-closed] {
+.sheet-notice[data-closed] {
   background: var(--st-error-bg);
   color: var(--st-error);
 }
 
-.panel-notice > .icon {
+.sheet-notice > .icon {
   margin-top: 2px;
 }
 
-.panel-notice-body {
+.sheet-notice-body {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 6px;
 }
 
-.panel-notice-body p {
+.sheet-notice-body p {
   margin: 0;
   color: var(--text-primary);
   font-size: 12px;
   line-height: 1.45;
 }
 
-.panel-notice-choices,
-.panel-notice-pair {
+.sheet-notice-choices,
+.sheet-notice-pair {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.panel-start-problem {
+.sheet-start-problem {
   display: flex;
   flex: none;
   flex-direction: column;
@@ -354,7 +354,7 @@
   padding: 16px;
 }
 
-.panel-start-callout {
+.sheet-start-callout {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -364,7 +364,7 @@
   background: var(--st-error-bg);
 }
 
-.panel-start-heading {
+.sheet-start-heading {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -372,13 +372,13 @@
   font: 600 13px/normal var(--font-ui);
 }
 
-.panel-start-message {
+.sheet-start-message {
   margin: 0;
   color: var(--text-primary);
   font: 400 12px/1.5 var(--font-mono);
 }
 
-.panel-link {
+.sheet-link {
   align-self: flex-start;
   padding: 0;
   border: none;
@@ -388,7 +388,7 @@
   cursor: pointer;
 }
 
-.panel-setup-log {
+.sheet-setup-log {
   max-height: 240px;
   margin: 0;
   padding: 10px;
@@ -401,7 +401,7 @@
   white-space: pre-wrap;
 }
 
-.panel-start-does {
+.sheet-start-does {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -410,12 +410,12 @@
   background: var(--bg-column);
 }
 
-.panel-start-does-heading {
+.sheet-start-does-heading {
   color: var(--text-muted);
   font: 400 10px/normal var(--font-mono);
 }
 
-.panel-start-does ul {
+.sheet-start-does ul {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -426,18 +426,18 @@
 }
 
 /* The dialogs (*Close ticket · confirm*, *Submit for review · dialog*). */
-.panel-dialog-body {
+.sheet-dialog-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.panel-dialog-body p {
+.sheet-dialog-body p {
   margin: 0;
 }
 
-.panel-dialog-line,
-.panel-dialog-intro {
+.sheet-dialog-line,
+.sheet-dialog-intro {
   display: flex;
   gap: 8px;
   padding: 8px 10px;
@@ -447,35 +447,35 @@
   font-size: 12px;
 }
 
-.panel-dialog-line > .icon,
-.panel-dialog-intro > .icon {
+.sheet-dialog-line > .icon,
+.sheet-dialog-intro > .icon {
   flex: none;
   margin-top: 2px;
   color: var(--st-error);
 }
 
-.panel-dialog-line[data-agent] {
+.sheet-dialog-line[data-agent] {
   background: var(--st-paused-bg);
 }
 
-.panel-dialog-line[data-agent] > .icon {
+.sheet-dialog-line[data-agent] > .icon {
   color: var(--st-paused);
 }
 
-.panel-dialog-intro {
+.sheet-dialog-intro {
   background: var(--accent-soft);
 }
 
-.panel-dialog-intro > .icon {
+.sheet-dialog-intro > .icon {
   color: var(--accent);
 }
 
-.panel-dialog-label {
+.sheet-dialog-label {
   color: var(--text-secondary);
   font: var(--text-meta);
 }
 
-.panel-dialog-error {
+.sheet-dialog-error {
   padding: 8px;
   border-radius: var(--r-md);
   background: var(--st-error-bg);
@@ -483,8 +483,8 @@
   font-size: 12px;
 }
 
-/* *13 → Card & panel-header controls*: the compact running pill next to the tokens (T-0232). */
-.panel-run {
+/* *13 → Card & sheet-overview-header controls*: the compact running pill next to the tokens (T-0232). */
+.sheet-run {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -495,15 +495,15 @@
   color: var(--st-approved);
 }
 
-.panel-run-dot {
+.sheet-run-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
 }
 
-.panel-run-port,
-.panel-run-icon {
+.sheet-run-port,
+.sheet-run-icon {
   display: inline-flex;
   padding: 0;
   border: none;
@@ -513,8 +513,8 @@
   cursor: pointer;
 }
 
-.panel-run-port:focus-visible,
-.panel-run-icon:focus-visible {
+.sheet-run-port:focus-visible,
+.sheet-run-icon:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }

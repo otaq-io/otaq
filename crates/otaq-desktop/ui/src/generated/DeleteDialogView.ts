@@ -2,7 +2,7 @@
 import type { IconName } from "./IconName";
 
 /**
- * The confirmation's texts; `DeleteDialogView` on the page, where the board's card menu, the panel's "…" menu and
+ * The confirmation's texts; `DeleteDialogView` on the page, where the board's card menu, the sheet's "…" menu and
  * the Project agent's summary all open the same `delete_ticket` dialog (T-0221).
  */
 export type DeleteDialogView = { title: string, 

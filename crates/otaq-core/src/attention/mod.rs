@@ -3,8 +3,8 @@
 
 pub mod bundle;
 pub mod focus;
-pub mod inbox;
 pub mod limit_stops;
+pub mod needs_you;
 #[cfg(target_os = "macos")]
 pub mod notification_center;
 pub mod notify;
@@ -12,5 +12,5 @@ pub mod notify_check;
 pub mod os_permission;
 
 pub use focus::{ClientId, Focus, FocusChange, Looking, Released, Side};
-pub use inbox::Inbox;
 pub use limit_stops::{LimitStops, Suppression};
+pub use needs_you::NeedsYouQueue;

@@ -5,5 +5,5 @@ import { DependenciesSection } from "./Dependencies";
 import "./dependencies.css";
 
 export const dependencies: Screen = (app) => {
-  app.panelSections.register("dependencies", { Component: DependenciesSection });
+  app.sheetSections.register("dependencies", { Component: DependenciesSection });
 };

@@ -1,5 +1,5 @@
 //! The window's layout (SHB-01, d0113, *24 → Row · The Project agent*): project rail | the **Project agent panel**,
-//! only while it is open, pushing the board | the main area. There is no always-visible pane, no strip and no Board |
+//! only while it is open, pushing the board | the main area. There is no always-visible agent panel, no strip and no Board |
 //! Files tab row: the project Files view is the toolbar's third view (FIL-01). The page asks at start (`layout.view`);
 //! whether the panel is open or expanded stays on the page, per window.
 //!
@@ -8,7 +8,7 @@
 //! restart (Otaq has one window), and a double-click on the edge goes back to 420. **Expand** in its header lays the
 //! panel over the board at the window's full width after the rail; the board keeps its place under it.
 //!
-//! The ticket sheet's sizes are `panel.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
+//! The ticket sheet's sizes are `sheet.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -194,10 +194,10 @@ mod tests {
         }
     }
 
-    /// SHB-01 (d0113): without a pane the main area takes the width after the 64 px rail; the open panel takes its
+    /// SHB-01 (d0113): without an agent panel the main area takes the width after the 64 px rail; the open panel takes its
     /// 420 px from it at every window size until it is dragged.
     #[test]
-    fn the_main_area_takes_the_width_the_pane_had() {
+    fn the_main_area_takes_the_width_the_agent_panel_had() {
         for (window, closed, open) in [
             (1280., 1216., 796.),
             (1440., 1376., 956.),

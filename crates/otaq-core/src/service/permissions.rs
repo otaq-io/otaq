@@ -302,8 +302,8 @@ async fn action_for(
         | R::FlowWaiting(_)
         | R::SessionList(_)
         | R::SessionBeforeRestart(_)
-        | R::InboxList
-        | R::InboxCounts
+        | R::NeedsYouList
+        | R::NeedsYouCounts
         | R::CleanupScan
         | R::WarmList
         | R::SessionAttach(_)
@@ -495,7 +495,7 @@ async fn action_for(
             Action::UserOnly("resume agents")
         }
         R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
-        R::InboxAnswer(_) => Action::UserOnly("answer agents"),
+        R::NeedsYouAnswer(_) => Action::UserOnly("answer agents"),
         R::UsageMarkLimit(_) => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
         R::WarmClear(_) => Action::UserOnly("clear warm builds"),

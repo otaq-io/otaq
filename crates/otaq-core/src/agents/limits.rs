@@ -18,7 +18,7 @@ use super::gate::{self, LaunchGate, still_waits};
 use super::{HoldReason, ModelRef};
 use crate::agent_tools::Tool;
 use crate::agent_tools::connected::{AgentToolState, ConnectedTools};
-use crate::attention::Inbox;
+use crate::attention::NeedsYouQueue;
 use crate::board::{Board, BoardError};
 use crate::domain::TicketKey;
 use crate::usage::limit::{LimitKind, PlanLimit, matching_window};
@@ -169,7 +169,7 @@ pub struct LineSources<'a> {
     pub gate: &'a LaunchGate,
     pub plan_limit: &'a PlanLimit,
     pub connected: &'a ConnectedTools,
-    pub inbox: &'a Inbox,
+    pub needs_you: &'a NeedsYouQueue,
 }
 
 /// The banner's lines now (USG-10).
@@ -181,7 +181,7 @@ pub async fn tool_lines(src: LineSources<'_>) -> Result<ToolLines, BoardError> {
     let limits = plan::limits(store).await?;
     let held_limit = waiting_for(src.board, HoldReason::ToolLimit).await?;
     let unavailable = unavailable_situations(src.board, &facts.unavailable, |tool| {
-        src.inbox.available_floor(tool)
+        src.needs_you.available_floor(tool)
     })
     .await?;
     // The tool's fallback, with several tools connected, and whether it can start now.
@@ -229,7 +229,10 @@ pub async fn tool_lines(src: LineSources<'_>) -> Result<ToolLines, BoardError> {
                 .cloned()
                 .or_else(|| status.state.unavailable_reason().map(str::to_owned))
                 .unwrap_or_else(|| "not available".to_owned());
-            let since = src.inbox.unavailable_since(tool).unwrap_or(situation.since);
+            let since = src
+                .needs_you
+                .unavailable_since(tool)
+                .unwrap_or(situation.since);
             lines.push(ToolLine {
                 tool,
                 situation: Situation::Unavailable {

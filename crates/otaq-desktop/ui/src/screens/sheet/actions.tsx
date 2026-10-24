@@ -1,6 +1,6 @@
 // The ticket's actions (UI-04, T-0222; the sheet of SHT-01, T-0464): what its buttons, its "…" menu (`MoreMenu`) and
-// a board card's button do (`usePanelActions`), held by the sheet and handed to Overview's bar (`overview/NeedsYou`).
-// Everything it says comes from `panel.view`; it keeps only the open menu and the request on its way. A board card's
+// a board card's button do (`useSheetActions`), held by the sheet and handed to Overview's bar (`overview/NeedsYou`).
+// Everything it says comes from `sheet.view`; it keeps only the open menu and the request on its way. A board card's
 // button lands here too (`cardActions`): the sheet runs it once it shows that ticket.
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
@@ -10,11 +10,11 @@ import { useShortcut } from "../../app/registry";
 import { openTicket, requestTerminalFocus, requestTicketEdit, showTab } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { AnchoredMenu, IconButton } from "../../components";
-import type { PanelButton } from "../../generated/PanelButton";
-import type { PanelCardParams } from "../../generated/PanelCardParams";
-import type { PanelSendAgainParams } from "../../generated/PanelSendAgainParams";
-import type { PanelSent } from "../../generated/PanelSent";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetButton } from "../../generated/SheetButton";
+import type { SheetCardParams } from "../../generated/SheetCardParams";
+import type { SheetSendAgainParams } from "../../generated/SheetSendAgainParams";
+import type { SheetSent } from "../../generated/SheetSent";
+import type { SheetView } from "../../generated/SheetView";
 import { request } from "../../tauri";
 import { startTicket } from "../board/Board";
 import { passTicket } from "../review/CheckDialogs";
@@ -22,11 +22,11 @@ import { startRun } from "../session/logic";
 import { actionRoute, agentSettings, cardRoute, CLOSE_TICKET, menuRoute } from "./actionRoutes";
 
 /** The service events that change what the sheet shows. */
-export const PANEL_EVENTS = [
+export const SHEET_EVENTS = [
   "ticket_changed",
   "ticket_deleted",
   "session_state",
-  "inbox_changed",
+  "needs_you_changed",
   "usage_changed",
   "validation_cancelled",
   "lead_changed",
@@ -42,7 +42,7 @@ function copy(text: string) {
 }
 
 /** The unsent-text question before a send clears the terminal's typed line (SES-07, d0048). */
-export function askUnsent(sent: PanelSent, again: () => Promise<unknown>) {
+export function askUnsent(sent: SheetSent, again: () => Promise<unknown>) {
   if (sent.outcome !== "ask") return;
   openOverlay("confirm", {
     title: sent.title,
@@ -55,7 +55,7 @@ export function askUnsent(sent: PanelSent, again: () => Promise<unknown>) {
 }
 
 /** The "…" menu (the sheet's header): the ticket's menu of its state, Edit ticket… first. */
-export function MoreMenu({ view, onChoose }: { view: PanelView; onChoose: (item: string) => void }) {
+export function MoreMenu({ view, onChoose }: { view: SheetView; onChoose: (item: string) => void }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   return (
@@ -93,8 +93,8 @@ export function MoreMenu({ view, onChoose }: { view: PanelView; onChoose: (item:
 export type CardAnswer = { question: string } & ({ kind: "pick"; number: number } | { kind: "send_answer" });
 
 /** What the ticket's buttons, its "…" menu and a board card's button do, shared by the sheet's header and Overview. */
-export interface PanelActions {
-  press: (button: PanelButton) => void;
+export interface SheetActions {
+  press: (button: SheetButton) => void;
   choose: (item: string) => void;
   /** The button whose request is on its way. */
   busy: string | null;
@@ -110,7 +110,7 @@ export interface PanelActions {
  * Re-run validation as keys while it offers them (0097: palette only unless the user gives them a key), and a board
  * card's button for this ticket (T-0220), run once the sheet shows it.
  */
-export function usePanelActions(view: PanelView): PanelActions {
+export function useSheetActions(view: SheetView): SheetActions {
   const [busy, setBusy] = useState<string | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
   const askMarkClosed = () => {
@@ -120,15 +120,15 @@ export function usePanelActions(view: PanelView): PanelActions {
       body: view.mark_closed.body,
       confirmLabel: view.mark_closed.confirm,
       destructive: true,
-      onConfirm: () => request("panel.mark_closed", { key: view.key }),
+      onConfirm: () => request("sheet.mark_closed", { key: view.key }),
     });
   };
-  const press = (button: PanelButton) => {
+  const press = (button: SheetButton) => {
     const route = actionRoute(button.action);
     switch (route.kind) {
       case "service":
         setBusy(button.action);
-        request("panel.action", { key: view.key, action: button.action })
+        request("sheet.action", { key: view.key, action: button.action })
           .catch(ignore)
           .finally(() => {
             setBusy(null);
@@ -147,10 +147,10 @@ export function usePanelActions(view: PanelView): PanelActions {
       case "send_again": {
         const send = (clear: boolean): Promise<unknown> =>
           (
-            request("panel.send_again", {
+            request("sheet.send_again", {
               key: view.key,
               clear,
-            } satisfies PanelSendAgainParams) as Promise<PanelSent>
+            } satisfies SheetSendAgainParams) as Promise<SheetSent>
           )
             .then((sent) => {
               askUnsent(sent, () => send(true));
@@ -213,7 +213,7 @@ export function usePanelActions(view: PanelView): PanelActions {
         requestTicketEdit(view.key);
         return;
       case "service":
-        request("panel.menu", { key: view.key, item }).catch(ignore);
+        request("sheet.menu", { key: view.key, item }).catch(ignore);
         return;
       case "copy":
         copy(route.what === "branch" ? (view.branch?.full ?? "") : view.attach_command);
@@ -252,17 +252,17 @@ export function usePanelActions(view: PanelView): PanelActions {
   );
   const [cardAnswer, setCardAnswer] = useState<CardAnswer | null>(null);
   const pendingCard = useStore(cardActions);
-  const runCard = useEffectEvent((kind: PanelCardParams["kind"]) => {
+  const runCard = useEffectEvent((kind: SheetCardParams["kind"]) => {
     const route = cardRoute(kind);
     switch (route.kind) {
       case "service": {
         const send = (clear: boolean): Promise<unknown> =>
           (
-            request("panel.card", {
+            request("sheet.card", {
               key: view.key,
               kind,
               clear,
-            } satisfies PanelCardParams) as Promise<PanelSent>
+            } satisfies SheetCardParams) as Promise<SheetSent>
           )
             .then((sent) => {
               askUnsent(sent, () => send(true));

@@ -57,11 +57,11 @@ pub enum ActionKind {
     Open,
     /// `lead.resume`: the same conversation.
     Resume,
-    /// `project_agent.open` with the button's [`Split`] (`pane.send`), then the Project agent pane shows the new agent.
+    /// `project_agent.open` with the button's [`Split`] (`agent_panel.send`), then the Project agent panel shows the new agent.
     Split,
 }
 
-/// What Split with the Project agent sends: the project and the pane's first message. `LeadSplit` on the page.
+/// What Split with the Project agent sends: the project and the agent panel's first message. `LeadSplit` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LeadSplit")]
 pub struct Split {
@@ -70,7 +70,7 @@ pub struct Split {
     pub message: String,
 }
 
-/// The Project agent pane's first message for an epic with no children (LEAD-13): "Split SHOP-40 into tickets".
+/// The Project agent panel's first message for an epic with no children (LEAD-13): "Split SHOP-40 into tickets".
 pub fn split_message(epic: &TicketKey) -> String {
     format!("Split {epic} into tickets")
 }

@@ -2,15 +2,15 @@
 // · ended by restart · Before the restart*; LEAD-11, LEAD-12; d0083, d0045, d0048). The header holds the Lead Status,
 // "read-only" and the tokens today; "Changes by the lead" lists the lead's changes by turn, each line opening its
 // ticket; the body is the live terminal (typing as in a ticket's Terminal tab), Open lead (Split with the Project
-// agent while the epic has no children, LEAD-13, d0091: the Project agent pane gets its first message), "Before the restart" with
-// Resume, or the last terminal read-only with the ended bar. The lead's own question is the panel header's question
-// bar (`panel.view`). A lead that waits on its tool or its model (M23) says so above the body, amber (neutral for a
+// agent while the epic has no children, LEAD-13, d0091: the Project agent panel gets its first message), "Before the restart" with
+// Resume, or the last terminal read-only with the ended bar. The lead's own question is the sheet header's question
+// bar (`sheet.view`). A lead that waits on its tool or its model (M23) says so above the body, amber (neutral for a
 // limit), with Sign in… or Change agent (*08 → Epic lead · its tool isn't available / at its limit*). Everything it
 // says comes from `lead.view`; it keeps only which button is busy.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { openTicket, terminalFocusRequests } from "../../app/selection";
-import type { TicketProps } from "../../app/registry/panel";
+import type { TicketProps } from "../../app/registry/sheet";
 import { useStore } from "../../app/store";
 import { Button, LeadStatus, leadAction, ToolProblemCallout } from "../../components";
 import type { LeadActionKind } from "../../generated/LeadActionKind";
@@ -24,7 +24,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
-import { splitWithProjectAgent } from "../pane/logic";
+import { splitWithProjectAgent } from "../agent_panel/logic";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { BeforeRestart } from "../session/TerminalTab";
 
@@ -259,7 +259,7 @@ export function LeadTabBody({ view, terminal, onAction, onSplit, onToolProblem }
   );
 }
 
-/** The tab registered in the panel: the open epic's view, and focus requests (Answer in terminal on its question). */
+/** The tab registered in the sheet: the open epic's view, and focus requests (Answer in terminal on its question). */
 export function LeadTab({ ticket }: TicketProps) {
   const load = useCallback(() => request("lead.view", { key: ticket }) as Promise<LeadTabLoad>, [ticket]);
   const { view: loaded } = useServiceView(load, LEAD_TAB_EVENTS);

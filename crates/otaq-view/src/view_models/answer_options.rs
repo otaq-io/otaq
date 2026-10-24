@@ -1,11 +1,11 @@
 //! Answer options (ATT-12; d0061, d0048, d0016; *10 → Answer · inline, Answer · options, no recommendation*): when an
-//! `ask human` question carries 2–4 options, Needs you, the card and the panel list them numbered, the recommended one
+//! `ask human` question carries 2–4 options, Needs you, the card and the sheet list them numbered, the recommended one
 //! marked and **preselected**; **1–4** pick (the last number is **Other…**, a free-text field), **Enter** sends. Without a
 //! recommendation nothing is preselected and Send stays disabled until the user picks. The answer is typed as
 //! [`otaq_core::board::questions::format_answer`] words it. One model for all three places.
 //!
 //! Each option's note (ATT-17, d0061), its pros and cons, rides on its row whole ([`OptionRow::note`]): never cut,
-//! shown under the label in Needs you and the panel, in the light hover card on the card.
+//! shown under the label in Needs you and the sheet, in the light hover card on the card.
 //!
 //! A question an epic's lead passed on (LEAD-06, d0083; *10 → Row · Epic lead items (0083)*): the lead's option is the
 //! recommended one, marked "Recommended by the lead" with the lead's reason under it, after the option's own note.

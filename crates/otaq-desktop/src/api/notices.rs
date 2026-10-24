@@ -470,7 +470,7 @@ mod tests {
             request(
                 &h.app,
                 "notices.open_target",
-                json!({"target": {"kind": "inbox"}})
+                json!({"target": {"kind": "needs_you"}})
             )
             .await
             .unwrap(),

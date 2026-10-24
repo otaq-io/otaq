@@ -36,7 +36,7 @@ use otaq_view::view_models::editor_fields::{
 };
 use otaq_view::view_models::menu::{MenuItem, MenuSearch};
 use otaq_view::view_models::priority::{self, FORM_HINT, PriorityView};
-use otaq_view::view_models::validation_panel;
+use otaq_view::view_models::validation_texts;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -231,7 +231,7 @@ pub struct ReadView {
     /// Nothing but whitespace: the page shows `nothing_written` instead.
     pub body_empty: bool,
     pub priority: PriorityView,
-    /// The Priority dropdown: `panel.priority` items.
+    /// The Priority dropdown: `sheet.priority` items.
     pub priority_menu: Vec<MenuItem>,
     /// "follows SHOP-40" for an epic child without its own priority.
     pub follows: Option<String>,
@@ -492,9 +492,9 @@ pub fn edit_view(
         base: base_view(fields.base),
         external_id_shown: fields.external_id,
         save_hint: agent_activity::save_hint(ticket, live_agent),
-        save_warning: validation_panel::editor_warning(ticket),
-        unsaved_warning: validation_panel::editor_warning(ticket)
-            .map(|_| validation_panel::UNSAVED_CANCELS),
+        save_warning: validation_texts::editor_warning(ticket),
+        unsaved_warning: validation_texts::editor_warning(ticket)
+            .map(|_| validation_texts::UNSAVED_CANCELS),
         read: Some(ReadView {
             origin: origin_line(ticket, edits, now),
             origin_agent: matches!(ticket.created_by, Actor::Agent(_)),
@@ -919,7 +919,7 @@ async fn model_list(app: &App, tool: Tool) -> Option<ModelList> {
     }
 }
 
-/// The agent tools as the rows, the panel, the pane and recovery read them (M23): every tool's state
+/// The agent tools as the rows, the panel, the agent panel and recovery read them (M23): every tool's state
 /// (`agent_tools.list`), every tool's active limit (`usage.activity`), each connected tool's cached model list, and
 /// each tool's fallback and the default model (`agents.list`, AGM-03). When the service can't list the tools, the
 /// first tool counts as the one connected, as before M23.
@@ -1432,7 +1432,7 @@ mod tests {
     }
 
     /// AGM-09 through a real service, on the default flow: no stage has options, so the form shows no Stage choices
-    /// and the panel only the ticket's path (no Choices); a stage choice the flow doesn't offer is refused on save.
+    /// and the sheet only the ticket's path (no Choices); a stage choice the flow doesn't offer is refused on save.
     #[tokio::test]
     async fn the_default_flow_shows_only_the_path() {
         let h = Harness::new(None);
@@ -1464,7 +1464,7 @@ mod tests {
         let key = saved["key"].as_str().unwrap().to_owned();
         let edit = json!({ "mode": "edit", "key": key });
         assert_eq!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
-        let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
+        let load = table(&h.app, "sheet.view", json!({ "key": key })).await.unwrap();
         assert_eq!(load["view"]["choices"], Value::Null);
         let summary = load["view"]["path"]["summary"].as_str().unwrap();
         assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
@@ -1477,10 +1477,10 @@ mod tests {
             .collect();
         assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
         assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
-        // The panel's pick on a stage without options is refused, with nothing changed.
+        // The sheet's pick on a stage without options is refused, with nothing changed.
         let refused = table(
             &h.app,
-            "panel.set_choice",
+            "sheet.set_choice",
             json!({ "key": key, "stage": "dev", "choice": "Developer" }),
         )
         .await;

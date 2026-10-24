@@ -128,7 +128,7 @@ pub struct NoticesView {
     pub toasts: Vec<ToastView>,
     /// "Restart required": everything else that talks to the service is disabled.
     pub only_restart_allowed: bool,
-    /// Whether the board, rail and panel take input: not while connecting, reconnecting or stopped (SVC-04), nor
+    /// Whether the board, rail and sheet take input: not while connecting, reconnecting or stopped (SVC-04), nor
     /// while only Restart works. The page dims them and swallows their clicks meanwhile.
     pub input_enabled: bool,
     /// The service start the after-restart summary was raised for: the page opens the summary sheet once per
@@ -143,7 +143,7 @@ pub struct NoticesView {
 }
 
 /// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
-/// opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the pane, an
+/// opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the agent panel, an
 /// epic's lead terminal, the next item that needs you (the Needs you strip's Next, d0114), or the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -153,7 +153,7 @@ pub enum OpenTarget {
     Ticket { project: String, ticket: String },
     /// The ticket's sheet on Session's check, its validator's terminal focused.
     Validator { project: String, ticket: String },
-    /// The agent in the Project agent pane, focused.
+    /// The agent in the Project agent panel, focused.
     ProjectAgent { project: String, agent: String },
     /// The epic's sheet on its Lead tab, the lead's terminal focused.
     Lead { project: String, epic: String },
@@ -176,14 +176,14 @@ impl From<Target> for OpenTarget {
                 project: epic.project.to_string(),
                 epic: epic.to_string(),
             },
-            Target::Inbox => Self::NeedsYou,
+            Target::NeedsYou => Self::NeedsYou,
             Target::Board { project } => Self::Board { project },
         }
     }
 }
 
 impl OpenTarget {
-    /// From a notification's value ([`Target::to_open_value`]): a ticket key, `inbox`, `validator:<key>`… Anything
+    /// From a notification's value ([`Target::to_open_value`]): a ticket key, `needs_you`, `validator:<key>`… Anything
     /// else opens nothing.
     pub fn parse(value: &str) -> Option<Self> {
         Target::parse_open_value(value).map(Self::from)
@@ -1513,7 +1513,7 @@ mod tests {
     }
 
     /// T-0371 (d0090): every target a notification can carry, from `OTAQ_OPEN`; the values from before M25 (a key,
-    /// `inbox`) read as before.
+    /// `needs_you`) read as before.
     #[test]
     fn notification_targets() {
         assert_eq!(
@@ -1530,7 +1530,7 @@ mod tests {
                 ticket: "SHOP-40.1".into()
             })
         );
-        assert_eq!(OpenTarget::parse("inbox"), Some(OpenTarget::NeedsYou));
+        assert_eq!(OpenTarget::parse("needs_you"), Some(OpenTarget::NeedsYou));
         assert_eq!(
             OpenTarget::parse("validator:SHOP-33"),
             Some(OpenTarget::Validator {
@@ -1594,7 +1594,7 @@ mod tests {
             title,
             message,
         };
-        let other = Event::InboxChanged {
+        let other = Event::NeedsYouChanged {
             counts: Default::default(),
         };
         for event in [&merged, &cancelled, &other] {

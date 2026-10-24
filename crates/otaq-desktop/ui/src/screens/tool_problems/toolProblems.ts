@@ -1,28 +1,28 @@
-// Where a tool problem's buttons go (§7.2, SHL-04; d0086; T-0367): the panel's hold callouts, the pane's notice, the
+// Where a tool problem's buttons go (§7.2, SHL-04; d0086; T-0367): the sheet's hold callouts, the agent panel's notice, the
 // lead's waiting notice and the after-restart sheet's Sign in… all send a `ToolProblemAction` (`tool_problems.rs`).
 // `toolProblemStep` says what one does in a place, without doing it (the tests read it); `runToolProblemAction` does
 // it. Nothing here starts an agent by itself: Use fallback is the user's click (d0086), New agent on … opens the empty
-// pane, which starts only when the user sends (d0087).
+// agent panel, which starts only when the user sends (d0087).
 import type { OverlayParams } from "../../app/registry/overlays";
 import type { AgentRole } from "../../generated/AgentRole";
 import type { AgentToolSignIn } from "../../generated/AgentToolSignIn";
 import type { CardActionKind } from "../../generated/CardActionKind";
-import type { PanelCardParams } from "../../generated/PanelCardParams";
+import type { SheetCardParams } from "../../generated/SheetCardParams";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 
-/** Where the callout shows: the panel's ticket (or the epic of a lead), the pane's project. */
+/** Where the callout shows: the sheet's ticket (or the epic of a lead), the agent panel's project. */
 export interface ToolProblemPlace {
   ticket?: string;
   project?: string;
 }
 
 export type ToolProblemStep =
-  /** A request to the service (Use fallback goes through `panel.card`, as the card's button does). */
+  /** A request to the service (Use fallback goes through `sheet.card`, as the card's button does). */
   | { kind: "request"; method: string; params: unknown }
   /** The tool's own login in a terminal of the Terminals drawer (`agent_tools.sign_in`). */
   | { kind: "sign_in"; tool: string }
   | { kind: "settings"; params: NonNullable<OverlayParams["settings"]> }
-  /** The pane's empty state on `agent`; it starts when the user sends. */
+  /** The agent panel's empty state on `agent`; it starts when the user sends. */
   | { kind: "new_agent"; project: string; agent: string }
   | { kind: "none" };
 
@@ -54,8 +54,8 @@ export function toolProblemStep(action: ToolProblemAction, place: ToolProblemPla
     case "use_fallback": {
       const kind = fallbackKind(action.role);
       if (kind === null || place.ticket === undefined) return { kind: "none" };
-      const params: PanelCardParams = { key: place.ticket, kind, clear: false };
-      return { kind: "request", method: "panel.card", params };
+      const params: SheetCardParams = { key: place.ticket, kind, clear: false };
+      return { kind: "request", method: "sheet.card", params };
     }
     // Open agent… (AGM-03): Settings → Agents on that agent's page.
     case "open_agent":

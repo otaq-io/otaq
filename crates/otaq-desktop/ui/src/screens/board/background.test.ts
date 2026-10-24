@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 describe("a click on the board's background (OT-3)", () => {
-  it("closes the panel", () => {
+  it("closes the sheet", () => {
     const el = board();
     const store = createSelection();
     openTicket("SHOP-24", undefined, store);
@@ -75,7 +75,7 @@ describe("a click on the board's background (OT-3)", () => {
     expect(isBoardBackground(null)).toBe(false);
   });
 
-  it("a click on another card switches the panel, not closes it", () => {
+  it("a click on another card switches the sheet, not closes it", () => {
     const el = board();
     const close = vi.fn();
     const click = createBackgroundClick(close);
@@ -87,7 +87,7 @@ describe("a click on the board's background (OT-3)", () => {
     expect(close).not.toHaveBeenCalled();
   });
 
-  it("leaves the panel open on a column's button, a drag, a right click or a cancelled press", () => {
+  it("leaves the sheet open on a column's button, a drag, a right click or a cancelled press", () => {
     const el = board();
     const close = vi.fn();
     const click = createBackgroundClick(close);
@@ -113,7 +113,7 @@ describe("a click on the board's background (OT-3)", () => {
     expect(close).not.toHaveBeenCalled();
   });
 
-  it("leaves the panel open when the click closes an open menu or popover", () => {
+  it("leaves the sheet open when the click closes an open menu or popover", () => {
     const el = board();
     const close = vi.fn();
     const click = createBackgroundClick(close);

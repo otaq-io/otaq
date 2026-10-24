@@ -475,7 +475,7 @@ async fn after_a_restart_counts_are_rebuilt_not_doubled() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn validators_count_in_the_ticket_and_today_and_are_split_from_the_agent() {
-    // VAL-14 (d0063): the card shows agent + validation; the panel splits them and counts the rounds. A cancelled
+    // VAL-14 (d0063): the card shows agent + validation; the sheet splits them and counts the rounds. A cancelled
     // round's validator still counts its tokens but not as a round.
     let world = World::new().await;
     let w = &world.w;

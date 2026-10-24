@@ -34,7 +34,7 @@ use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
 use crate::agent_tools::connected::ConnectedTools;
 use crate::agent_tools::{Adapters, Tool, ToolContext, ToolEvent};
 use crate::agents::Agents;
-use crate::attention::Inbox;
+use crate::attention::NeedsYouQueue;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
 use crate::caller::Caller;
@@ -195,7 +195,7 @@ struct Shared {
     review: Review,
     signals: Signals,
     recovery: Recovery,
-    inbox: Inbox,
+    needs_you: NeedsYouQueue,
     /// What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14).
     notifications: crate::attention::os_permission::OsPermission,
     cleanup: Cleanup,
@@ -752,7 +752,7 @@ impl Service {
                 .notifier
                 .on_clicks(Arc::new(move |target| opener.open(target)));
         }
-        let inbox = Inbox::new(
+        let needs_you = NeedsYouQueue::new(
             board.clone(),
             sessions.clone(),
             deliveries.clone(),
@@ -768,7 +768,7 @@ impl Service {
         let notifications = crate::attention::os_permission::OsPermission::new(
             store.clone(),
             board.clone(),
-            inbox.clone(),
+            needs_you.clone(),
             config.notifier.clone(),
             events.clone(),
         );
@@ -781,7 +781,7 @@ impl Service {
         let plan_limit = PlanLimit::new(
             board.clone(),
             events.clone(),
-            inbox.clone(),
+            needs_you.clone(),
             sessions.clone(),
             deliveries.clone(),
             adapters.clone(),
@@ -866,7 +866,7 @@ impl Service {
         validation.set_gate(gate.clone());
         validation.set_recovery(recovery.clone());
         prs.set_gate(gate.clone());
-        inbox.set_tools(gate.clone(), connected.clone());
+        needs_you.set_tools(gate.clone(), connected.clone());
         // A model the tool refused (AGT-05): back to not started, No result, or a failed turn.
         signals.set_refusals(crate::signals::Refusals {
             starter: starter.clone(),
@@ -994,7 +994,7 @@ impl Service {
             },
         );
         plan_limit.set_project_agents(project_agents.clone());
-        inbox.set_project_agents(project_agents.clone());
+        needs_you.set_project_agents(project_agents.clone());
         project_agents.set_gate(gate.clone());
         gate.set_restarts(crate::agents::gate::Restarts {
             validation: validation.clone(),
@@ -1044,7 +1044,7 @@ impl Service {
             plan_limit,
             usage,
             cleanup,
-            inbox,
+            needs_you,
             notifications,
             recovery,
             run,
@@ -1161,9 +1161,9 @@ impl Service {
         self.shared.runs.clone()
     }
 
-    /// The inbox's actions (answers).
-    pub fn inbox(&self) -> Inbox {
-        self.shared.inbox.clone()
+    /// Needs you's actions (answers).
+    pub fn needs_you(&self) -> NeedsYouQueue {
+        self.shared.needs_you.clone()
     }
 
     /// Startup reconcile and agent exits.
@@ -1226,7 +1226,7 @@ impl Service {
         let mut stopped = shared.stop.subscribe();
         let scheduler = tokio::spawn(shared.scheduler.clone().run(shared.stop.subscribe()));
         let recovery = tokio::spawn(shared.recovery.clone().run(shared.stop.subscribe()));
-        let inbox = tokio::spawn(shared.inbox.clone().run(shared.stop.subscribe()));
+        let needs_you = tokio::spawn(shared.needs_you.clone().run(shared.stop.subscribe()));
         let notifications = tokio::spawn(shared.notifications.clone().run(shared.stop.subscribe()));
         let usage = tokio::spawn(shared.usage.clone().run(shared.stop.subscribe()));
         let plan_limit = tokio::spawn(shared.plan_limit.clone().run(shared.stop.subscribe()));
@@ -1264,7 +1264,7 @@ impl Service {
         drop(listener);
         let _ = scheduler.await;
         let _ = recovery.await;
-        let _ = inbox.await;
+        let _ = needs_you.await;
         let _ = notifications.await;
         let _ = usage.await;
         let _ = plan_limit.await;

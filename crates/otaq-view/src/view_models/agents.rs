@@ -56,7 +56,7 @@ fn tool_name(tool: Tool) -> &'static str {
     AvatarTool::from(tool).name()
 }
 
-/// The tool's name in a sentence ("Copilot", "Claude Code"), as the panel's lines say it.
+/// The tool's name in a sentence ("Copilot", "Claude Code"), as the sheet's lines say it.
 pub use super::tool_problems::tool_word;
 
 /// The tool a new agent's model gets before the service said which tools are connected: the first.

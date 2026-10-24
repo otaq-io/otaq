@@ -51,7 +51,7 @@ stored_enum! {
 }
 
 /// "Lead's note sent · validation round 0 of 3: “…”" (LEAD-07, d0083): the one note the epic's lead sent this child
-/// at its first stop, which counted as Answer the agent. The second stop's inbox item and the card's hover show it
+/// at its first stop, which counted as Answer the agent. The second stop's needs-you item and the card's hover show it
 /// with the lead's view ("LEAD'S NOTE · SENT AFTER ROUND 3").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeadNoteSent {
@@ -227,7 +227,7 @@ pub struct Flags {
     #[serde(default, skip_serializing_if = "is_false")]
     pub delivered_without_checks: bool,
     /// An automatic Delivery is under way (FLW-15): its agent opens or pushes the PR with no dialog. The card waits
-    /// for nobody, so it isn't in the inbox's group 3. Not a flag of its own.
+    /// for nobody, so it isn't in Needs you's group 3. Not a flag of its own.
     #[serde(default, skip_serializing_if = "is_false")]
     pub delivering_automatically: bool,
     /// Closed by an agent's `otaq stage done` (AGM-10): "Closed · nothing to merge", with the agent's reason (empty
@@ -243,7 +243,7 @@ pub struct Flags {
     #[serde(default, skip_serializing_if = "is_false")]
     pub ready_to_start: bool,
     /// A needs-you status while the user's terminal for the waiting session has focus (ATT-03, d0042; per session,
-    /// so the validator's prompt calms only with the validator's terminal, d0063): the card stays calm, no inbox
+    /// so the validator's prompt calms only with the validator's terminal, d0063): the card stays calm, no Needs you
     /// item, no notification; the terminal strip shows "your turn".
     #[serde(default, skip_serializing_if = "is_false")]
     pub your_turn: bool,

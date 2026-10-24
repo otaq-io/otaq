@@ -53,7 +53,7 @@ stored_enum! {
         NeedsYou = "needs_you",
         /// Needs-you family: the agent stopped and waits for input (d0042).
         Idle = "idle",
-        /// Stopped by the plan limit (neutral, no inbox item, d0046).
+        /// Stopped by the plan limit (neutral, no needs-you item, d0046).
         WaitingForLimitReset = "waiting_for_limit_reset",
         /// The session died; Resume (d0018, d0045).
         Interrupted = "interrupted",

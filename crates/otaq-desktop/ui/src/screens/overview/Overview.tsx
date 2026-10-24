@@ -13,7 +13,7 @@ import { type ClipboardEvent, useCallback, useEffect, useRef, useState } from "r
 
 import { useRegistries } from "../../app/registry";
 import type { TicketProps } from "../../app/registry";
-import { PANEL_SECTIONS } from "../../app/registry/panel";
+import { SHEET_SECTIONS } from "../../app/registry/sheet";
 import { ticketEditRequests } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Button } from "../../components";
@@ -246,8 +246,8 @@ export function OverviewTab({ ticket }: TicketProps) {
         )}
         <TicketDecisions ticket={ticket} />
         {epic && <EpicGrid grid={epic.grid} />}
-        {PANEL_SECTIONS.map((id) => {
-          const Section = app.panelSections.get(id)?.Component;
+        {SHEET_SECTIONS.map((id) => {
+          const Section = app.sheetSections.get(id)?.Component;
           return Section ? <Section key={id} ticket={ticket} /> : null;
         })}
         <CommentThread ticket={ticket} />

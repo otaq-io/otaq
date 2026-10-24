@@ -61,8 +61,8 @@ function page(changed = 0): ShortcutsPage {
       {
         title: "Moving around",
         rows: [
-          row("next_inbox_item", "Next item that needs you", [
-            key(slot({ action: "next_inbox_item" }, 0), ["⌘J"]),
+          row("next_needs_you_item", "Next item that needs you", [
+            key(slot({ action: "next_needs_you_item" }, 0), ["⌘J"]),
           ]),
         ],
       },
@@ -237,9 +237,9 @@ describe("recording a key", () => {
 
   it("Remove key takes the recording key away", async () => {
     show();
-    await click(cells("next_inbox_item")[0] as HTMLElement);
+    await click(cells("next_needs_you_item")[0] as HTMLElement);
     await click(buttonNamed("Remove key"));
-    expect(sent).toEqual([{ edit: "remove", action: { action: "next_inbox_item" }, slot: 0 }]);
+    expect(sent).toEqual([{ edit: "remove", action: { action: "next_needs_you_item" }, slot: 0 }]);
     expect(recorder()).toBeNull();
   });
 
@@ -269,7 +269,7 @@ describe("a key another action has", () => {
       answer: {
         outcome: "taken",
         key: "⌘J",
-        by: { action: "next_inbox_item" },
+        by: { action: "next_needs_you_item" },
         question: "⌘J is used by Next item that needs you. Use it here instead?",
       },
     });
@@ -297,7 +297,7 @@ describe("a key another action has", () => {
     recordAnswers.push({
       outcome: "edited",
       key: "⌘J",
-      answer: { outcome: "taken", key: "⌘J", by: { action: "next_inbox_item" }, question: "⌘J is used…" },
+      answer: { outcome: "taken", key: "⌘J", by: { action: "next_needs_you_item" }, question: "⌘J is used…" },
     });
     await pressKey({ key: "j", code: "KeyJ", metaKey: true });
     await click(buttonNamed("Cancel"));
@@ -325,13 +325,13 @@ describe("the page", () => {
 
   it("a row's reset resets its changed keys without asking", async () => {
     const p = page(1);
-    const inbox = p.groups[0]?.rows[0];
-    if (!inbox) throw new Error("no row");
-    inbox.changed = true;
-    inbox.reset = [slot({ action: "next_inbox_item" }, 0)];
+    const needsYou = p.groups[0]?.rows[0];
+    if (!needsYou) throw new Error("no row");
+    needsYou.changed = true;
+    needsYou.reset = [slot({ action: "next_needs_you_item" }, 0)];
     show(p);
     await click(buttonNamed("Reset to default"));
-    expect(sent).toEqual([{ reset: [slot({ action: "next_inbox_item" }, 0)], confirmed: false }]);
+    expect(sent).toEqual([{ reset: [slot({ action: "next_needs_you_item" }, 0)], confirmed: false }]);
   });
 
   it("the switch turns single letters off", async () => {

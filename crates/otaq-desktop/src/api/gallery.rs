@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_tools_page, ask_bar, board_page, card_page, cleanup, decision_change, decision_item, gallery, lead_status, lead_tab, needs_you_strip,
+    activity, agent_panel, agent_tools_page, ask_bar, board_page, card_page, cleanup, decision_change, decision_item, gallery, lead_status, lead_tab, needs_you_strip,
     limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
@@ -54,8 +54,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.board_review" => reply(&board_page::gallery()),
         // Activity's button and popover in each state (T-0325).
         "gallery.activity" => reply(&activity::gallery()),
-        // The Project agent pane in each state (T-0330).
-        "gallery.pane" => reply(&agent_pane::gallery()),
+        // The Project agent panel in each state (T-0330).
+        "gallery.agent_panel" => reply(&agent_panel::gallery()),
         // The Ask bar and the rail's Project agent button (T-0458).
         "gallery.ask_bar" => reply(&ask_bar::gallery()),
         // The Terminals drawer: terminals only (T-0331).
@@ -79,11 +79,11 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.notifications" => reply(&settings_page::notifications_gallery()),
         // Settings → Keyboard shortcuts in every frame of update AF, macOS and Windows / Linux (T-0395).
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
-        // The answer options' notes in the panel and the card's hover card (T-0375).
-        "gallery.option_notes" => reply(&super::panel::notes_gallery()),
+        // The answer options' notes in the sheet and the card's hover card (T-0375).
+        "gallery.option_notes" => reply(&super::sheet::notes_gallery()),
         // 25 · The ticket sheet's header, details line and path: needs you, your check, an epic's child, Backlog
         // (T-0464).
-        "gallery.sheet" => reply(&super::panel::sheet_gallery()),
+        "gallery.sheet" => reply(&super::sheet::sheet_gallery()),
         // 25 · Overview's attachments and description words for SHOP-22 (T-0465).
         "gallery.overview" => reply(&otaq_view::view_models::overview::gallery()),
         "gallery.epic_sheet" => reply(&otaq_view::view_models::epic_sheet::gallery()),

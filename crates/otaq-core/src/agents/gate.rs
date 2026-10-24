@@ -142,7 +142,7 @@ pub struct Held {
 
 impl Held {
     /// The line stored with the hold: "Codex isn't available · logged out", "Claude Code limit reached", "Model
-    /// unavailable · Codex no longer lists gpt-5.4". The cards and panes word it from the hold.
+    /// unavailable · Codex no longer lists gpt-5.4". The cards and agent panels word it from the hold.
     pub fn message(&self) -> String {
         let tool = self.on.tool;
         match &self.blocked {
@@ -642,7 +642,7 @@ impl LaunchGate {
 
     /// Runs the check once more for every hold (a lift): a hold whose cause is gone (or whose fallback the user asked
     /// for and can start) starts as it was asked to (the Developer back to Queued for the scheduler, a validator, a
-    /// lead; a Project agent's hold just goes: its message waits in the pane for the user's send), one still blocked
+    /// lead; a Project agent's hold just goes: its message waits in the agent panel for the user's send), one still blocked
     /// is written again, one whose work went away goes. Also clears the "no longer lists" marks whose model is listed
     /// again. The number of holds that started again.
     pub async fn lift(&self) -> Result<usize, BoardError> {

@@ -346,14 +346,14 @@ pub enum Request {
     /// `otaq answer <ID> --stdin`. Answered with [`Reply::Message`].
     #[serde(rename = "message.answer")]
     MessageAnswer(AnswerParams),
-    /// The inbox's **Resume SHOP-17** on a question sent to the user (MSG-05): the finished ticket answers it.
+    /// Needs you's **Resume SHOP-17** on a question sent to the user (MSG-05): the finished ticket answers it.
     /// Answered with [`Reply::Message`].
     #[serde(rename = "message.resume")]
     MessageResume(IdParams),
     /// `otaq questions`: the questions waiting for the ticket's answer. Answered with [`Reply::Messages`].
     #[serde(rename = "ticket.questions")]
     TicketQuestions(KeyParams),
-    /// Every question to or from the ticket, oldest first (the panel's Messages). Answered with
+    /// Every question to or from the ticket, oldest first (the sheet's Messages). Answered with
     /// [`Reply::Messages`].
     #[serde(rename = "ticket.messages")]
     TicketMessages(KeyParams),
@@ -425,19 +425,19 @@ pub enum Request {
     #[serde(rename = "tickets.resume_all")]
     TicketsResumeAll(ResumeAllParams),
 
-    // The inbox (ATT-06…ATT-10).
+    // Needs you (ATT-06…ATT-10).
     /// **Answer** an Asks you / Idle item (ATT-08): typed into the session as the user's click; with unsent text
     /// and no `clear`, answered `needs_confirmation`. An Interrupted ticket that waited for an answer is resumed
     /// with it in one step. Answered with [`Reply::Delivery`].
-    #[serde(rename = "inbox.answer")]
-    InboxAnswer(InboxAnswerParams),
-    /// Every needs-you item across all projects in inbox order, with the counts (ATT-06, ATT-10). Answered with
-    /// [`Reply::Inbox`].
-    #[serde(rename = "inbox.list")]
-    InboxList,
-    /// The inbox count in total and per project (ATT-10). Answered with [`Reply::InboxCounts`].
-    #[serde(rename = "inbox.counts")]
-    InboxCounts,
+    #[serde(rename = "needs_you.answer")]
+    NeedsYouAnswer(NeedsYouAnswerParams),
+    /// Every needs-you item across all projects in needs-you order, with the counts (ATT-06, ATT-10). Answered with
+    /// [`Reply::NeedsYou`].
+    #[serde(rename = "needs_you.list")]
+    NeedsYouList,
+    /// The needs-you count in total and per project (ATT-10). Answered with [`Reply::NeedsYouCounts`].
+    #[serde(rename = "needs_you.counts")]
+    NeedsYouCounts,
 
     // Cleanup (REC-04).
     /// The leftovers no ticket owns, grouped; changes nothing. Answered with [`Reply::CleanupScan`].
@@ -648,7 +648,7 @@ pub enum Request {
     /// A tool's usage windows (USG-04, USG-09; Claude Code's from `otaq statusline`): they replace the tool's set.
     #[serde(rename = "usage.record_limits")]
     UsageRecordLimits(RecordLimitsParams),
-    /// `{"key": "SHOP-12"}`: "This is the usage limit" on that Idle inbox item (USG-07, per tool: USG-10): every Idle
+    /// `{"key": "SHOP-12"}`: "This is the usage limit" on that Idle needs-you item (USG-07, per tool: USG-10): every Idle
     /// agent on its agent's tool waits for that tool's limit reset. Replies with the tickets it folded into the
     /// tool's banner line.
     #[serde(rename = "usage.mark_limit")]
@@ -900,7 +900,7 @@ pub enum Request {
     #[serde(rename = "lead.resume")]
     LeadResume(LeadParams),
     /// `otaq suggest close|delete <KEY> --stdin` (LEAD-08): an epic lead suggests closing or deleting a never-started
-    /// child of its epic; an inbox item the user confirms or dismisses. Lead only. Answered with
+    /// child of its epic; a needs-you item the user confirms or dismisses. Lead only. Answered with
     /// [`Reply::Suggestion`].
     #[serde(rename = "lead.suggest")]
     LeadSuggest(SuggestParams),
@@ -1263,7 +1263,7 @@ pub struct ProjectAgentSendParams {
 pub struct ProjectAgentOpenParams {
     pub project: String,
     pub message: String,
-    /// The named agent to start on instead of the project's Project agent default: the pane's "New agent on
+    /// The named agent to start on instead of the project's Project agent default: the agent panel's "New agent on
     /// Sonnet" when the default's tool can't run (M23, CHANGES-v §4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -1441,7 +1441,7 @@ pub struct BeforeRestartParams {
 /// `{"key": "SHOP-23", "choice": {"option": 1}}` or `{"key": "SHOP-23", "choice": {"other": "Mailgun"}}`;
 /// `clear` is the user's "Clear it and send".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InboxAnswerParams {
+pub struct NeedsYouAnswerParams {
     pub key: String,
     pub choice: crate::board::questions::Choice,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2006,9 +2006,9 @@ impl Request {
             Self::TicketRetryResume(_) => "ticket.retry_resume",
             Self::TicketStartFromScratch(_) => "ticket.start_from_scratch",
             Self::TicketsResumeAll(_) => "tickets.resume_all",
-            Self::InboxAnswer(_) => "inbox.answer",
-            Self::InboxList => "inbox.list",
-            Self::InboxCounts => "inbox.counts",
+            Self::NeedsYouAnswer(_) => "needs_you.answer",
+            Self::NeedsYouList => "needs_you.list",
+            Self::NeedsYouCounts => "needs_you.counts",
             Self::CleanupScan => "cleanup.scan",
             Self::CleanupDelete(_) => "cleanup.delete",
             Self::WarmList => "warm.list",
@@ -2312,8 +2312,8 @@ pub enum Reply {
     /// The tickets Use fallback now started on the tool's fallback, in key order.
     StartedOnFallback(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
-    Inbox(Box<crate::attention::inbox::InboxList>),
-    InboxCounts(crate::attention::inbox::InboxCounts),
+    NeedsYou(Box<crate::attention::needs_you::NeedsYouList>),
+    NeedsYouCounts(crate::attention::needs_you::NeedsYouCounts),
     CleanupScan(Vec<crate::recovery::cleanup::CleanupItem>),
     CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
     WarmList(Box<crate::warm::store::WarmList>),
@@ -2480,13 +2480,13 @@ pub enum Event {
         ticket: Option<TicketKey>,
         focused: bool,
     },
-    /// The needs-you items changed (an item came, went or changed group or reason): refetch `inbox.list`. Carries
+    /// The needs-you items changed (an item came, went or changed group or reason): refetch `needs_you.list`. Carries
     /// the new counts for the header and the project switcher (ATT-10). Not sent when only ages grew.
-    InboxChanged {
-        counts: crate::attention::inbox::InboxCounts,
+    NeedsYouChanged {
+        counts: crate::attention::needs_you::NeedsYouCounts,
     },
     /// An OS notification was clicked (ATT-11, d0090): bring the app forward on its target (a ticket's or a
-    /// validator's terminal, a Project agent, a lead, the inbox, the board).
+    /// validator's terminal, a Project agent, a lead, Needs you, the board).
     OpenFromNotification {
         target: crate::attention::notify::Target,
     },
@@ -2531,7 +2531,7 @@ pub enum Event {
     /// A ticket's agent or an epic lead created a ticket (#47; d0016: a toast, no notification): "Ticket created by
     /// agent" · "DEMO-7 created DEMO-12 → Backlog". `by` names the creator as the toast does (the ticket's key, or
     /// the lead's name); `status` is where the new ticket landed (Backlog, or Queued in its epic's queue). Not sent
-    /// for the user's tickets nor a Project agent's (its pane lists what it created).
+    /// for the user's tickets nor a Project agent's (its agent panel lists what it created).
     CreatedByAgent {
         project: String,
         key: TicketKey,

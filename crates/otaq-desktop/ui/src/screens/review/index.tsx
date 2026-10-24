@@ -1,5 +1,5 @@
 // Area 07 · Review (T-0226): the `local_merge` overlay (Approve ▾, changed since review, the Local merge
-// confirmation and its results) and the `send_back` overlay, and ⌘↵ / ⌘⌫ on the open ticket. The panel's Approve and
+// confirmation and its results) and the `send_back` overlay, and ⌘↵ / ⌘⌫ on the open ticket. The sheet's Approve and
 // Send back buttons and the board's approve choice open the same overlays. `change_decision` is Change… on a
 // recorded decision (T-0288). What they say is Rust's
 // (`src/api/review.rs`, `otaq-view`'s `review_page.rs`).

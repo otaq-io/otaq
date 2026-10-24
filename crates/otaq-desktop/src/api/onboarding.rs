@@ -558,7 +558,7 @@ mod tests {
         // Stop: the agent ends into Recently ended; its row offers Ask again.
         let ended = request(
             &h.app,
-            "pane.end",
+            "agent_panel.end",
             json!({ "project": "SHOP", "id": id, "confirm": true }),
         )
         .await
@@ -606,7 +606,7 @@ mod tests {
         let row = row_says(&h, "Ended without a proposal").await;
         assert_eq!(row["ask"], "Ask");
 
-        let resumed = request(&h.app, "pane.resume", json!({ "id": id }))
+        let resumed = request(&h.app, "agent_panel.resume", json!({ "id": id }))
             .await
             .unwrap();
         assert_eq!(resumed, json!(id));

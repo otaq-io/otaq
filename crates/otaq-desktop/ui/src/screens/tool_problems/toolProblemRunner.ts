@@ -1,9 +1,9 @@
 // The app's own way of carrying out a tool problem's button (`toolProblems.ts`): the service, Settings, the Terminals
-// drawer, the agent row's picker and the pane.
+// drawer, the agent row's picker and the agent panel.
 import { openOverlay } from "../../app/overlays";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 import { request } from "../../tauri";
-import { startNewAgentOn } from "../pane/logic";
+import { startNewAgentOn } from "../agent_panel/logic";
 import { showDrawerTab } from "../terminals";
 import { runToolProblemAction, type ToolProblemPlace, type ToolProblemRunner } from "./toolProblems";
 

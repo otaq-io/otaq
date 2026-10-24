@@ -5,12 +5,12 @@ import { createContext, useContext, useEffect } from "react";
 
 import { OVERLAY_IDS, type OverlayEntries } from "./overlays";
 import {
-  PANEL_SECTIONS,
-  PANEL_UNDER_TABS,
-  type PanelSectionEntries,
+  SHEET_SECTIONS,
+  SHEET_UNDER_TABS,
+  type SheetSectionEntries,
   SHEET_TABS,
   type SheetTabEntries,
-} from "./panel";
+} from "./sheet";
 import { createRegistry, type Registry } from "./registry";
 import {
   GLOBAL_SECTIONS,
@@ -25,7 +25,7 @@ export interface Registries {
   slots: Registry<SlotEntries>;
   overlays: Registry<OverlayEntries>;
   sheetTabs: Registry<SheetTabEntries>;
-  panelSections: Registry<PanelSectionEntries>;
+  sheetSections: Registry<SheetSectionEntries>;
   settings: { global: Registry<GlobalSectionEntries>; project: Registry<ProjectSectionEntries> };
   shortcuts: Shortcuts;
 }
@@ -38,7 +38,7 @@ export function createRegistries(): Registries {
     slots: createRegistry("slots", SLOT_IDS),
     overlays: createRegistry("overlays", OVERLAY_IDS),
     sheetTabs: createRegistry("sheet tabs", SHEET_TABS),
-    panelSections: createRegistry("panel sections", [...PANEL_SECTIONS, PANEL_UNDER_TABS]),
+    sheetSections: createRegistry("sheet sections", [...SHEET_SECTIONS, SHEET_UNDER_TABS]),
     settings: {
       global: createRegistry("global settings sections", GLOBAL_SECTIONS),
       project: createRegistry("project settings sections", PROJECT_SECTIONS),
@@ -60,7 +60,7 @@ export function registered(app: Registries): Record<string, string[]> {
     slots: app.slots.ids(),
     overlays: app.overlays.ids(),
     sheetTabs: app.sheetTabs.ids(),
-    panelSections: app.panelSections.ids(),
+    sheetSections: app.sheetSections.ids(),
     globalSettings: app.settings.global.ids(),
     projectSettings: app.settings.project.ids(),
     shortcuts: app.shortcuts.names().toSorted(),
@@ -87,7 +87,7 @@ export function useShortcut<N extends KeyActionName>(name: N, handler: ShortcutH
 
 export type { Registry } from "./registry";
 export type { OverlayId, OverlayParams, OverlayProps, Confirmation, SuggestionConfirm } from "./overlays";
-export type { PanelSection, TicketProps } from "./panel";
+export type { SheetSection, TicketProps } from "./sheet";
 export type { GlobalSection, ProjectSection } from "./settings";
 export type { ActionNamed, KeyActionName, ShortcutHandler } from "./shortcuts";
 export type { SlotId } from "./slots";

@@ -11,7 +11,7 @@ import { openOverlay } from "../../app/overlays";
 import { terminalFocusRequests } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Button, IconButton, Kbd, Tooltip } from "../../components";
-import type { PanelSent } from "../../generated/PanelSent";
+import type { SheetSent } from "../../generated/SheetSent";
 import type { TerminalTabLoad } from "../../generated/TerminalTabLoad";
 import type { TerminalTabRecovery } from "../../generated/TerminalTabRecovery";
 import type { TerminalTabView } from "../../generated/TerminalTabView";
@@ -37,7 +37,7 @@ export const TERMINAL_TAB_EVENTS = [
   "ticket_deleted",
   "session_state",
   "projects_changed",
-  "inbox_changed",
+  "needs_you_changed",
   // The user's keys in its tooltips (KEY-08).
   "settings_changed",
 ] as const;
@@ -72,7 +72,7 @@ function useWidth(element: React.RefObject<HTMLElement | null>): number {
 
 /** Deliver now; with unsent text in the terminal the user is asked first (SES-07, d0048). */
 function deliverNow(key: string, clear = false): Promise<unknown> {
-  return (request("terminal_tab.deliver_now", { key, clear }) as Promise<PanelSent>).then((sent) => {
+  return (request("terminal_tab.deliver_now", { key, clear }) as Promise<SheetSent>).then((sent) => {
     if (sent.outcome !== "ask") return;
     openOverlay("confirm", {
       title: sent.title,
@@ -323,7 +323,7 @@ function RecoveryBody({ view, recovery }: { view: TerminalTabView; recovery: Ter
   const [busy, setBusy] = useState(false);
   const act = (action: "resume" | "retry_resume") => {
     setBusy(true);
-    request("panel.action", { key: view.key, action })
+    request("sheet.action", { key: view.key, action })
       .catch(ignore)
       .finally(() => {
         setBusy(false);

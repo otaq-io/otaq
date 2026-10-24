@@ -7,7 +7,7 @@
 //! (a file). `flow_editor.apply` and `flow_editor.cancel` are the footer's buttons (Apply · Cancel in the project, Use
 //! this flow · Skip, use the default in onboarding). `flow_editor.send` and `flow_editor.ask` are the agent panel's:
 //! **nothing starts before the user's words, a chip or an Ask** (d0087); the first message starts the project's
-//! Project agent on the `flow` skill (`/flow …`, through `pane.send`).
+//! Project agent on the `flow` skill (`/flow …`, through `agent_panel.send`).
 //!
 //! The Skill field (T-0472; FED-05, FED-06): a template and Pick a skill… are edits (`flow_editor.edit`). Ask the
 //! agent to write it (and the Write the skill chip) **sends nothing** (Q441): the page puts "Write a skill for the
@@ -343,19 +343,19 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
     let in_use = in_use(app, &params.project).await;
     let setup = setup(app, &params.project).await?;
     let stored = super::settings::agent_list(app).await?.agents;
-    let tools = super::pane::tools(app).await;
+    let tools = super::agent_panel::tools(app).await;
     let others: Vec<(String, String)> = projects(app)
         .await?
         .into_iter()
         .filter(|(key, _)| *key != params.project)
         .collect();
     let captions = captions(app, &stored).await;
-    let agents = super::pane::agents(app, &params.project).await?;
+    let agents = super::agent_panel::agents(app, &params.project).await?;
     let agent = params
         .agent
         .as_deref()
         .and_then(|id| agents.open.iter().find(|a| a.id == id));
-    let new_agent = super::pane::project_agent(app).await?;
+    let new_agent = super::agent_panel::project_agent(app).await?;
     let keys = super::keymap::labels(app).await;
     Ok(vm::view(&vm::Facts {
         project: &params.project,
@@ -507,9 +507,9 @@ async fn send(app: &App, params: SendParams) -> Result<Started, RequestError> {
             otaq_core::project_agents::EMPTY_MESSAGE,
         ));
     }
-    let agent = super::pane::send(
+    let agent = super::agent_panel::send(
         app,
-        super::pane::SendParams {
+        super::agent_panel::SendParams {
             project: params.project,
             message: flow_message(&params.text),
             agent: None,
@@ -546,10 +546,10 @@ async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
             }
         };
     }
-    let tools = super::pane::tools(app).await;
+    let tools = super::agent_panel::tools(app).await;
     let default = tools.default_model.as_ref();
     let runs_on = |a: &Agent| a.model.on(default).is_some_and(|on| on.tool == params.tool);
-    let role = super::pane::project_agent(app).await?;
+    let role = super::agent_panel::project_agent(app).await?;
     let agents = super::settings::agent_list(app).await?.agents;
     let on = match role.filter(|a| runs_on(a)) {
         Some(_) => None,
@@ -563,9 +563,9 @@ async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
         })?),
     };
     let name = setup(app, &params.project).await?.project_name;
-    let agent = super::pane::send(
+    let agent = super::agent_panel::send(
         app,
-        super::pane::SendParams {
+        super::agent_panel::SendParams {
             project: params.project,
             message: make_one_message(&name, params.tool),
             agent: on.map(|a| a.id.clone()),
@@ -584,9 +584,9 @@ async fn write_skill(app: &App, params: WriteParams) -> Result<Started, RequestE
             otaq_core::project_agents::EMPTY_MESSAGE,
         ));
     }
-    let agent = super::pane::send(
+    let agent = super::agent_panel::send(
         app,
-        super::pane::SendParams {
+        super::agent_panel::SendParams {
             project: params.project.clone(),
             message: flow_message(&params.text),
             agent: None,
@@ -613,7 +613,7 @@ async fn prefill(app: &App, params: SkillParams) -> Result<(), RequestError> {
     let draft = draft(app, &params.project).await?;
     let file = yaml::read(&draft.proposal.yaml)
         .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let open = super::pane::agents(app, &params.project).await?.open;
+    let open = super::agent_panel::agents(app, &params.project).await?.open;
     let session = params
         .agent
         .and_then(|id| open.into_iter().find(|a| a.id == id))
@@ -659,7 +659,7 @@ async fn stop_writing(app: &App, params: SkillParams) -> Result<(), RequestError
         },
     )
     .await?;
-    let open = super::pane::agents(app, &params.project).await?.open;
+    let open = super::agent_panel::agents(app, &params.project).await?.open;
     let working = writer
         .and_then(|id| open.into_iter().find(|a| a.id == id))
         .filter(|a| a.state == AgentState::Running && a.mid_turn)
@@ -785,7 +785,7 @@ mod tests {
         assert_eq!(v["proposal"], 0);
         assert_eq!(v["agent"]["pill"]["label"], "Not started");
         assert_eq!(v["footer"]["apply"], "No changes");
-        let agents = super::super::pane::agents(&h.app, "SHOP").await.unwrap();
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP").await.unwrap();
         assert!(agents.open.is_empty(), "no agent starts when the editor opens");
 
         // Add a stage after Dev: the draft holds it, selected.
@@ -1046,7 +1046,7 @@ mod tests {
         )
         .await;
         assert!(refused.is_err());
-        let agents = super::super::pane::agents(&h.app, "SHOP").await.unwrap();
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP").await.unwrap();
         assert!(agents.open.is_empty(), "nothing started");
         let v = load(&h, None).await;
         assert_eq!(v.proposal, 0, "the field isn't marked as being written");
@@ -1109,7 +1109,7 @@ mod tests {
         )
         .await;
         assert!(refused.is_err());
-        let agents = super::super::pane::agents(&h.app, "SHOP").await.unwrap();
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP").await.unwrap();
         assert!(agents.open.is_empty());
     }
 }

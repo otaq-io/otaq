@@ -11,7 +11,7 @@ export const SECTION_EVENTS = [
   "usage_changed",
   "messages_waiting",
   "message_delivered",
-  "inbox_changed",
+  "needs_you_changed",
   // The epic lead's answers, pass-ons and notes (T-0290).
   "lead_changed",
 ] as const;
@@ -26,7 +26,7 @@ export function canMove(view: MoveDialogView, picked: string | null): boolean {
   return view.refusal === null && pickedChoice(view, picked) !== undefined;
 }
 
-/** After a move, the panel follows the ticket to its new key if it showed the old one. */
+/** After a move, the sheet follows the ticket to its new key if it showed the old one. */
 export function followMove(shown: string | null, oldKey: string, newKey: string): string | null {
   return shown === oldKey ? newKey : null;
 }

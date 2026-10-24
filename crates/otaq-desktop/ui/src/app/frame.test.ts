@@ -180,7 +180,7 @@ describe("the frame", () => {
   });
 
   it("the expanded ticket sheet fills the main area while a ticket is open; the agent panel stays", () => {
-    const expanded = { ...INITIAL_LAYOUT, panelExpanded: true, agentOpen: true };
+    const expanded = { ...INITIAL_LAYOUT, sheetExpanded: true, agentOpen: true };
     const html = body(expanded, true);
     expect(html).toContain('<div class="frame-main" data-expanded="true">');
     expect(html).toContain('data-slot="agent_panel" data-open="true"');
@@ -227,7 +227,7 @@ describe("the layout's state", () => {
   it("the switches flip the page state", () => {
     setAgentOpen(true);
     toggleExpanded();
-    expect(shellLayout.get()).toMatchObject({ agentOpen: true, panelExpanded: true });
+    expect(shellLayout.get()).toMatchObject({ agentOpen: true, sheetExpanded: true });
     setAgentOpen(false);
     expect(shellLayout.get().agentOpen).toBe(false);
   });
@@ -238,7 +238,7 @@ describe("the Ask bar beside the ticket sheet (#21)", () => {
     expect(askBarRight(false, false, 0)).toBe(0);
     expect(askBarRight(true, false, 640)).toBe(640);
     expect(askBarRight(true, true, 1200)).toBeNull();
-    expect(slots(body({ ...INITIAL_LAYOUT, panelExpanded: true }, true))).not.toContain("ask_bar");
+    expect(slots(body({ ...INITIAL_LAYOUT, sheetExpanded: true }, true))).not.toContain("ask_bar");
     expect(slots(body(INITIAL_LAYOUT, true))).toContain("ask_bar");
   });
 });

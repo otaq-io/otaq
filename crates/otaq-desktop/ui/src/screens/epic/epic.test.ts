@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { registered, registerScreens } from "../../app/registry";
 import type { EpicGrid as Grid } from "../../generated/EpicGrid";
 import type { EpicTicketsView } from "../../generated/EpicTicketsView";
-import type { PanelAnswer } from "../../generated/PanelAnswer";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetAnswer } from "../../generated/SheetAnswer";
+import type { SheetView } from "../../generated/SheetView";
 import { request } from "../../tauri";
 import { renderSheet, SHEET, VIEW } from "../sheet/sheet_fixtures";
 import { epic } from ".";
@@ -29,7 +29,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const ASKS: PanelAnswer = {
+const ASKS: SheetAnswer = {
   asker: "Wishlist lead asks",
   question: "q-lead",
   text: "40.4 Share link conflicts with 40.2 in WishlistButton.tsx. I’ll start it after 40.2 merges unless you say otherwise.",
@@ -44,8 +44,8 @@ const ASKS: PanelAnswer = {
   send: "Send answer",
 };
 
-/** The Wishlist epic's sheet as Rust words it (`panel.view`), its lead asking. */
-const WISHLIST: PanelView = {
+/** The Wishlist epic's sheet as Rust words it (`sheet.view`), its lead asking. */
+const WISHLIST: SheetView = {
   ...VIEW,
   key: "SHOP-40",
   title: "Wishlist",
@@ -143,7 +143,7 @@ describe("the epic's sheet (SHT-07)", () => {
       start?.click();
       await Promise.resolve();
     });
-    expect(request).toHaveBeenCalledWith("panel.answer", {
+    expect(request).toHaveBeenCalledWith("sheet.answer", {
       key: "SHOP-40",
       question: "q-lead",
       pick: 2,

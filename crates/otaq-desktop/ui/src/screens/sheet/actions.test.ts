@@ -10,9 +10,9 @@ import { overlays } from "../../app/overlays";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
 import type { CardActionKind } from "../../generated/CardActionKind";
-import type { PanelAction } from "../../generated/PanelAction";
-import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetAction } from "../../generated/SheetAction";
+import type { SheetAnswerRow } from "../../generated/SheetAnswerRow";
+import type { SheetView } from "../../generated/SheetView";
 import type { StageChoicesView } from "../../generated/StageChoicesView";
 import type { TicketPathView } from "../../generated/TicketPathView";
 import { request } from "../../tauri";
@@ -43,8 +43,8 @@ afterEach(() => {
 });
 
 describe("where buttons and menu items go", () => {
-  it("service buttons call panel.action; the rest open a tab or a dialog", () => {
-    const service: PanelAction[] = [
+  it("service buttons call sheet.action; the rest open a tab or a dialog", () => {
+    const service: SheetAction[] = [
       "retry_start",
       "resume",
       "retry_resume",
@@ -56,7 +56,7 @@ describe("where buttons and menu items go", () => {
     // Start opens DPV-03's dialog for a blocked ticket (`board.start`).
     expect(actionRoute("start")).toEqual({ kind: "start" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
-    // Send again (d0118): `panel.send_again`, which may ask about unsent text first.
+    // Send again (d0118): `sheet.send_again`, which may ask about unsent text first.
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
@@ -74,7 +74,7 @@ describe("where buttons and menu items go", () => {
   });
 
   it("the validation buttons (d0063, d0064)", () => {
-    const service: PanelAction[] = [
+    const service: SheetAction[] = [
       "move_on_anyway",
       "another_round",
       "retry_validation",
@@ -113,7 +113,7 @@ describe("where buttons and menu items go", () => {
 });
 
 describe("a board card's button", () => {
-  it("is taken once, by the panel showing its ticket", () => {
+  it("is taken once, by the sheet showing its ticket", () => {
     requestCardAction("SHOP-25", "resume");
     expect(takeCardAction("SHOP-18")).toBeNull();
     expect(takeCardAction("SHOP-25")).toMatchObject({ ticket: "SHOP-25", kind: "resume" });
@@ -158,7 +158,7 @@ describe("a board card's button", () => {
 });
 
 describe("answer options", () => {
-  const rows: PanelAnswerRow[] = [
+  const rows: SheetAnswerRow[] = [
     { number: 1, label: "Postmark", recommended: true, picked: true, other: false, note: null },
     { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null },
     {
@@ -223,10 +223,10 @@ describe("answer options", () => {
       },
     });
     expect(html).toContain(`>${long}</span>`);
-    expect(html.match(/class="panel-answer-note"/g)).toHaveLength(1);
+    expect(html.match(/class="sheet-answer-note"/g)).toHaveLength(1);
     const described = [...html.matchAll(/aria-describedby="([^"]+)"/g)].map((m) => m[1]);
     expect(described).toHaveLength(1);
-    expect(html).toContain(`id="${described[0] ?? ""}" class="panel-answer-note"`);
+    expect(html).toContain(`id="${described[0] ?? ""}" class="sheet-answer-note"`);
   });
 });
 
@@ -238,7 +238,7 @@ describe("what it needs from you, at the top of Overview", () => {
     }
     expect(html).toContain("Open agent session");
     expect(html).toContain("the dependencies");
-    expect(html.indexOf("sheet-tabs")).toBeLessThan(html.indexOf("panel-bar"));
+    expect(html.indexOf("sheet-tabs")).toBeLessThan(html.indexOf("sheet-bar"));
   });
 
   it("the queued notice, the conflict strip and the start callout", () => {
@@ -287,7 +287,7 @@ describe("what it needs from you, at the top of Overview", () => {
   });
 });
 
-describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
+describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
   const item = (id: string, checked: boolean) => ({
     id,
     label: id,
@@ -379,8 +379,8 @@ describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
     });
     expect(out).toContain("Rust developer 61k · no validation yet");
     const at = (text: string) => out.indexOf(text);
-    expect(at("sheet-tabs")).toBeLessThan(at("panel-bar"));
-    expect(at("panel-bar")).toBeLessThan(at("panel-agents"));
+    expect(at("sheet-tabs")).toBeLessThan(at("sheet-bar"));
+    expect(at("sheet-bar")).toBeLessThan(at("sheet-agents"));
     expect(out).toContain("set by the Project agent");
     expect(out).toContain('aria-label="Locked: Dev has started"');
     expect(out).toContain('data-agent="true"');
@@ -391,10 +391,10 @@ describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
     const only = render({ ...VIEW, path: PATH });
     expect(only).not.toContain('class="stage-choices"');
     expect(only).toContain("ticket-path");
-    expect(render(VIEW)).not.toContain("panel-agents");
+    expect(render(VIEW)).not.toContain("sheet-agents");
   });
 
-  it("a pick goes to the service at once (panel.set_choice)", () => {
+  it("a pick goes to the service at once (sheet.set_choice)", () => {
     const ask = vi.mocked(request);
     ask.mockReset();
     ask.mockResolvedValue(null);
@@ -424,7 +424,7 @@ describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
     press(
       [...document.querySelectorAll('[role="menuitemradio"]')].find((i) => i.textContent.includes("skip")),
     );
-    expect(ask).toHaveBeenCalledWith("panel.set_choice", { key: VIEW.key, stage: "review", choice: "skip" });
+    expect(ask).toHaveBeenCalledWith("sheet.set_choice", { key: VIEW.key, stage: "review", choice: "skip" });
     act(() => {
       root.unmount();
     });
@@ -450,25 +450,25 @@ describe("the held roles' callouts (M23)", () => {
         },
       ],
     });
-    const holds = html.indexOf("panel-holds");
+    const holds = html.indexOf("sheet-holds");
     expect(holds).toBeGreaterThan(0);
-    expect(holds).toBeLessThan(html.indexOf("panel-bar"));
+    expect(holds).toBeLessThan(html.indexOf("sheet-bar"));
     expect(html).toContain('data-tone="amber"');
     expect(html).toContain("Codex no longer lists gpt-5.4");
     expect(html).toContain("Open agent…");
   });
 
   it("nothing held: no callouts", () => {
-    expect(render(VIEW)).not.toContain("panel-holds");
+    expect(render(VIEW)).not.toContain("sheet-holds");
   });
 });
 
 describe("the ticket's keys (0097)", () => {
-  it("Close ticket and Re-run validation do what the panel's menu item and button do, while it offers them", () => {
+  it("Close ticket and Re-run validation do what the sheet's menu item and button do, while it offers them", () => {
     const app = createRegistries();
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
-    const show = (view: PanelView) => {
+    const show = (view: SheetView) => {
       act(() => {
         root.render(
           createElement(
@@ -511,7 +511,7 @@ describe("the ticket's keys (0097)", () => {
     expect(app.shortcuts.run({ action: "close_ticket" })).toBe(true);
     expect(overlays.store.get().map((o) => o.id)).toEqual(["close_ticket"]);
     expect(app.shortcuts.run({ action: "rerun_validation" })).toBe(true);
-    expect(vi.mocked(request)).toHaveBeenCalledWith("panel.action", {
+    expect(vi.mocked(request)).toHaveBeenCalledWith("sheet.action", {
       key: "SHOP-19",
       action: "retry_validation",
     });

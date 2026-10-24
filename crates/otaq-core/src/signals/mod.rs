@@ -354,7 +354,7 @@ impl Signals {
 
     /// The tool reported the exact model the session runs on (ADP-04, AGT-04): the first value is saved on the
     /// session (and on its Project agent's or lead's row) and its ticket or agent is redrawn; a later different one
-    /// (`/model` typed into the pane, the user's own business) is only logged, and the next launch passes the named
+    /// (`/model` typed into the agent panel, the user's own business) is only logged, and the next launch passes the named
     /// agent's model again. Whether the value was the first (and saved).
     async fn model_known(
         &self,
@@ -566,7 +566,7 @@ impl Signals {
         Ok(state.and_then(|s| s.parse().ok()))
     }
 
-    /// The user answered the agent from the inbox (or the card or panel): the needs-you label clears (ATT-02).
+    /// The user answered the agent from Needs you (or the card or sheet): the needs-you label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
     }
@@ -654,7 +654,7 @@ impl Signals {
             return Ok(());
         }
         // An agent the plan limit stopped is at work again (Claude Code continued it, or the user did): it is no
-        // longer the limit's to hide from the inbox (ATT-09).
+        // longer the limit's to hide from Needs you (ATT-09).
         if before.status == Status::WaitingForLimitReset && after.status != before.status {
             self.inner.board.limit_stops().mark(ticket_id, None);
         }

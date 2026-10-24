@@ -255,7 +255,7 @@ export interface Span {
 }
 
 /**
- * The board's `scrollLeft` that shows `column` in `view`, the part of the board the panel leaves uncovered (SHL-05):
+ * The board's `scrollLeft` that shows `column` in `view`, the part of the board the sheet leaves uncovered (SHL-05):
  * a column that is already wholly in view stays (`null`); otherwise it goes to the view's left edge, which also
  * shows as much as fits of a column wider than the view.
  */

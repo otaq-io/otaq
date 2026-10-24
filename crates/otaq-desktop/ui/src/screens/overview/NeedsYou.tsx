@@ -2,14 +2,14 @@
 // bar of the ticket's state, or the answer options of an Asks-you question; the held roles' callouts, the refusal, the
 // queued notice, the conflict strip and the Start interrupted callout; the choices and the path. The M12 rows (d0063,
 // d0064): the validation buttons, the token split, the Auto-merge stop message and Answer the agent's note box. The
-// actions are the sheet's (`sheet/actions`); everything it says comes from `panel.view`; it keeps only the picked
+// actions are the sheet's (`sheet/actions`); everything it says comes from `sheet.view`; it keeps only the picked
 // answer. At Review, "Manual checks for you" (the Overview's, `aboveBar`) sits above Approve, and a build set aside to
 // save disk says so under the bar (d0125, `BuildAside`; the Run and Shell show the same line).
 import { type ReactNode, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
-import { PANEL_UNDER_TABS } from "../../app/registry/panel";
+import { SHEET_UNDER_TABS } from "../../app/registry/sheet";
 import { requestTerminalFocus, showTab } from "../../app/selection";
 import {
   Button,
@@ -21,22 +21,22 @@ import {
   PLAIN_TEXT,
 } from "../../components";
 import type { BuildAsideLine } from "../../generated/BuildAsideLine";
-import type { PanelAnswer } from "../../generated/PanelAnswer";
-import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
-import type { PanelButton } from "../../generated/PanelButton";
-import type { PanelButtonLook } from "../../generated/PanelButtonLook";
-import type { PanelChoiceParams } from "../../generated/PanelChoiceParams";
-import type { PanelNotice } from "../../generated/PanelNotice";
-import type { PanelSent } from "../../generated/PanelSent";
-import type { PanelRefusal } from "../../generated/PanelRefusal";
-import type { PanelStartProblem } from "../../generated/PanelStartProblem";
-import type { PanelRunPill } from "../../generated/PanelRunPill";
-import type { PanelView } from "../../generated/PanelView";
+import type { SheetAnswer } from "../../generated/SheetAnswer";
+import type { SheetAnswerAgent } from "../../generated/SheetAnswerAgent";
+import type { SheetButton } from "../../generated/SheetButton";
+import type { SheetButtonLook } from "../../generated/SheetButtonLook";
+import type { SheetChoiceParams } from "../../generated/SheetChoiceParams";
+import type { SheetNotice } from "../../generated/SheetNotice";
+import type { SheetSent } from "../../generated/SheetSent";
+import type { SheetRefusal } from "../../generated/SheetRefusal";
+import type { SheetStartProblem } from "../../generated/SheetStartProblem";
+import type { SheetRunPill } from "../../generated/SheetRunPill";
+import type { SheetView } from "../../generated/SheetView";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { LeadAsks } from "../epic/EpicSheet";
-import { askUnsent, type CardAnswer, type PanelActions } from "../sheet/actions";
+import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions";
 import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 
@@ -47,16 +47,16 @@ const LOOK_VARIANT = {
   secondary: "secondary",
   attention: "primary",
   danger: "destructive",
-} as const satisfies Record<PanelButtonLook, string>;
+} as const satisfies Record<SheetButtonLook, string>;
 
 function ActionButton({
   button,
   busy,
   onPress,
 }: {
-  button: PanelButton;
+  button: SheetButton;
   busy: boolean;
-  onPress: (button: PanelButton) => void;
+  onPress: (button: SheetButton) => void;
 }) {
   const attention = button.look === "attention";
   const pressable = (
@@ -71,7 +71,7 @@ function ActionButton({
     />
   );
   return (
-    <span className="panel-action" data-look={button.look}>
+    <span className="sheet-action" data-look={button.look}>
       {button.tooltip === null ? pressable : <Tooltip text={button.tooltip}>{pressable}</Tooltip>}
     </span>
   );
@@ -84,8 +84,8 @@ export function AnswerBox({
   more,
   fromCard,
 }: {
-  view: PanelView;
-  answer: PanelAnswer;
+  view: SheetView;
+  answer: SheetAnswer;
   more: ReactNode;
   fromCard: CardAnswer | null;
 }) {
@@ -98,7 +98,7 @@ export function AnswerBox({
     if (pick === null || !canSend(pick, other, answer.rows) || sending) return Promise.resolve();
     setSending(true);
     const params = { key: view.key, question: answer.question, pick, other, clear };
-    return (request("panel.answer", params) as Promise<PanelSent>)
+    return (request("sheet.answer", params) as Promise<SheetSent>)
       .then((sent) => {
         askUnsent(sent, () => send(true));
       })
@@ -124,14 +124,14 @@ export function AnswerBox({
   }, [fromCard]);
   return (
     <>
-      <div className="panel-answer">
-        <div className="panel-answer-question">
+      <div className="sheet-answer">
+        <div className="sheet-answer-question">
           <Icon name="message-circle-question-mark" size={14} />
           <span>{answer.text}</span>
         </div>
         <div
           ref={options}
-          className="panel-answer-options"
+          className="sheet-answer-options"
           role="radiogroup"
           aria-label={answer.text}
           tabIndex={-1}
@@ -153,36 +153,36 @@ export function AnswerBox({
               role="radio"
               aria-checked={pick === row.number}
               aria-describedby={row.note === null ? undefined : `${noteId}-${String(row.number)}`}
-              className="panel-answer-option"
+              className="sheet-answer-option"
               data-picked={pick === row.number || undefined}
               data-other={row.other || undefined}
               onClick={() => {
                 setPick(row.number);
               }}
             >
-              <span className="panel-answer-radio" />
-              <span className="panel-answer-label">
+              <span className="sheet-answer-radio" />
+              <span className="sheet-answer-label">
                 {row.label}
                 {/* The option's note (ATT-17), whole and wrapped: its description. */}
                 {row.note !== null && (
-                  <span id={`${noteId}-${String(row.number)}`} className="panel-answer-note" aria-hidden>
+                  <span id={`${noteId}-${String(row.number)}`} className="sheet-answer-note" aria-hidden>
                     {row.note}
                   </span>
                 )}
               </span>
               {row.recommended && (
-                <span className="panel-answer-rec">
+                <span className="sheet-answer-rec">
                   <Icon name="star" size={10} />
                   {answer.recommended_label}
                 </span>
               )}
-              <span className="panel-answer-number">{row.number}</span>
+              <span className="sheet-answer-number">{row.number}</span>
             </button>
           ))}
           {picksOther(pick, answer.rows) && (
             <input
               {...PLAIN_TEXT}
-              className="field-input panel-answer-other"
+              className="field-input sheet-answer-other"
               value={other}
               placeholder={answer.other_placeholder}
               aria-label={answer.other_placeholder}
@@ -202,8 +202,8 @@ export function AnswerBox({
           )}
         </div>
       </div>
-      <div className="panel-bar">
-        <span className="panel-answer-hint">{answer.hint}</span>
+      <div className="sheet-bar">
+        <span className="sheet-answer-hint">{answer.hint}</span>
         <Button
           label={answer.in_terminal}
           variant="secondary"
@@ -229,14 +229,14 @@ export function AnswerBox({
   );
 }
 
-/** *SHOP-32 · Validation failed 3 times*: the note goes with the last findings (`panel.answer_agent`). */
+/** *SHOP-32 · Validation failed 3 times*: the note goes with the last findings (`sheet.answer_agent`). */
 function AnswerAgentBox({
   view,
   box,
   onClose,
 }: {
-  view: PanelView;
-  box: PanelAnswerAgent;
+  view: SheetView;
+  box: SheetAnswerAgent;
   onClose: () => void;
 }) {
   const [note, setNote] = useState("");
@@ -246,18 +246,18 @@ function AnswerAgentBox({
     if (sending || note.trim() === "") return;
     setSending(true);
     setError(null);
-    request("panel.answer_agent", { key: view.key, note }).then(onClose, (e: unknown) => {
+    request("sheet.answer_agent", { key: view.key, note }).then(onClose, (e: unknown) => {
       setError(asRequestError(e).message);
       setSending(false);
     });
   };
   return (
-    <div className="panel-answer-agent">
-      <span className="panel-answer-agent-heading">{box.heading}</span>
-      <TextArea id="panel-answer-agent-note" value={note} placeholder={box.placeholder} onChange={setNote} />
-      <p className="panel-answer-agent-footer">{box.footer}</p>
-      {error !== null && <p className="panel-dialog-error">{error}</p>}
-      <div className="panel-answer-agent-buttons">
+    <div className="sheet-answer-agent">
+      <span className="sheet-answer-agent-heading">{box.heading}</span>
+      <TextArea id="sheet-answer-agent-note" value={note} placeholder={box.placeholder} onChange={setNote} />
+      <p className="sheet-answer-agent-footer">{box.footer}</p>
+      {error !== null && <p className="sheet-dialog-error">{error}</p>}
+      <div className="sheet-answer-agent-buttons">
         <Button variant="ghost" icon="check" label={box.cancel} onClick={onClose} />
         <Button icon="send" label={box.send} disabled={note.trim() === ""} loading={sending} onClick={send} />
       </div>
@@ -265,23 +265,23 @@ function AnswerAgentBox({
   );
 }
 
-function Notice({ view, notice }: { view: PanelView; notice: PanelNotice }) {
+function Notice({ view, notice }: { view: SheetView; notice: SheetNotice }) {
   return (
-    <div className="panel-notice" data-closed={notice.parent_closed || undefined}>
+    <div className="sheet-notice" data-closed={notice.parent_closed || undefined}>
       <Icon name={notice.parent_closed ? "circle-slash" : "hourglass"} size={13} />
-      <div className="panel-notice-body">
+      <div className="sheet-notice-body">
         <p>{notice.text}</p>
         {notice.choices.length > 0 && (
-          <div className="panel-notice-choices">
+          <div className="sheet-notice-choices">
             {notice.choices.map((choice) => (
-              <span key={choice.parent} className="panel-notice-pair">
+              <span key={choice.parent} className="sheet-notice-pair">
                 <Button
                   compact
                   variant="secondary"
                   icon="rotate-ccw"
                   label={choice.reopen}
                   onClick={() => {
-                    request("panel.reopen_parent", { key: view.key, parent: choice.parent }).catch(ignore);
+                    request("sheet.reopen_parent", { key: view.key, parent: choice.parent }).catch(ignore);
                   }}
                 />
                 <Button
@@ -295,7 +295,7 @@ function Notice({ view, notice }: { view: PanelView; notice: PanelNotice }) {
                       confirmLabel: choice.confirm_label,
                       destructive: false,
                       onConfirm: () =>
-                        request("panel.remove_dependency", { key: view.key, parent: choice.parent }),
+                        request("sheet.remove_dependency", { key: view.key, parent: choice.parent }),
                     });
                   }}
                 />
@@ -310,33 +310,33 @@ function Notice({ view, notice }: { view: PanelView; notice: PanelNotice }) {
 
 /** A refused model above the bar (AGT-05, *05 → Start failed on the model*, *No result: the validator's model*): what
  * couldn't run (red for Start failed) and the tool's message in quotes. */
-function Refusal({ refusal }: { refusal: PanelRefusal }) {
+function Refusal({ refusal }: { refusal: SheetRefusal }) {
   return (
-    <div className="panel-refusal" data-error={refusal.error || undefined}>
-      <span className="panel-refusal-heading">{refusal.heading}</span>
-      <span className="panel-refusal-message">{refusal.message}</span>
+    <div className="sheet-refusal" data-error={refusal.error || undefined}>
+      <span className="sheet-refusal-heading">{refusal.heading}</span>
+      <span className="sheet-refusal-message">{refusal.message}</span>
     </div>
   );
 }
 
-function StartProblem({ view, problem }: { view: PanelView; problem: PanelStartProblem }) {
+function StartProblem({ view, problem }: { view: SheetView; problem: SheetStartProblem }) {
   const [log, setLog] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   return (
-    <div className="panel-start-problem">
-      <div className="panel-start-callout">
-        <div className="panel-start-heading">
+    <div className="sheet-start-problem">
+      <div className="sheet-start-callout">
+        <div className="sheet-start-heading">
           <Icon name="circle-alert" size={14} />
           <span>{problem.heading}</span>
         </div>
-        <p className="panel-start-message">{problem.message}</p>
+        <p className="sheet-start-message">{problem.message}</p>
         {problem.has_log && (
           <button
             type="button"
-            className="panel-link"
+            className="sheet-link"
             onClick={() => {
               if (!shown && log === null) {
-                (request("panel.setup_log", { key: view.key }) as Promise<string | null>).then(
+                (request("sheet.setup_log", { key: view.key }) as Promise<string | null>).then(
                   setLog,
                   ignore,
                 );
@@ -348,9 +348,9 @@ function StartProblem({ view, problem }: { view: PanelView; problem: PanelStartP
           </button>
         )}
       </div>
-      {shown && log !== null && <pre className="panel-setup-log">{log}</pre>}
-      <div className="panel-start-does">
-        <span className="panel-start-does-heading">{problem.retry_heading}</span>
+      {shown && log !== null && <pre className="sheet-setup-log">{log}</pre>}
+      <div className="sheet-start-does">
+        <span className="sheet-start-does-heading">{problem.retry_heading}</span>
         <ul>
           {problem.retry_does.map((line) => (
             <li key={line}>{line}</li>
@@ -366,10 +366,10 @@ function StartProblem({ view, problem }: { view: PanelView; problem: PanelStartP
  * unavailable", "Codex isn't available · hidden in Settings", "Claude Code limit reached · resets 3:45 pm", with Use
  * fallback, Open agent…, Sign in… and Show in Agent tools.
  */
-function Holds({ view }: { view: PanelView }) {
+function Holds({ view }: { view: SheetView }) {
   if (view.holds.length === 0) return null;
   return (
-    <div className="panel-holds">
+    <div className="sheet-holds">
       {view.holds.map((hold) => (
         <ToolProblemCallout
           key={`${hold.role ?? ""}${hold.heading}`}
@@ -385,21 +385,21 @@ function Holds({ view }: { view: PanelView }) {
 }
 
 /**
- * The ticket's choices and its path under the action bar, in every panel state (AGM-09; *05 → Row · Stage choices and
- * path (update AG §9)*): a pick goes to the service at once (`panel.set_choice`), and the panel follows the ticket's
+ * The ticket's choices and its path under the action bar, in every sheet state (AGM-09; *05 → Row · Stage choices and
+ * path (update AG §9)*): a pick goes to the service at once (`sheet.set_choice`), and the sheet follows the ticket's
  * change. None for an epic; only the path on a flow without options.
  */
-function ChoicesAndPath({ view }: { view: PanelView }) {
+function ChoicesAndPath({ view }: { view: SheetView }) {
   if (view.choices === null && view.path === null) return null;
   return (
-    <div className="panel-agents">
+    <div className="sheet-agents">
       {view.choices !== null && (
         <StageChoices
           key={view.key}
           view={view.choices}
-          look="panel"
+          look="sheet"
           onPick={(stage, choice) => {
-            request("panel.set_choice", { key: view.key, stage, choice } satisfies PanelChoiceParams).catch(
+            request("sheet.set_choice", { key: view.key, stage, choice } satisfies SheetChoiceParams).catch(
               ignore,
             );
           }}
@@ -411,18 +411,18 @@ function ChoicesAndPath({ view }: { view: PanelView }) {
 }
 
 /** The last signal, the tokens by agent and the Run's pill (the old header's meta row), when there are any. */
-function MetaLine({ view }: { view: PanelView }) {
+function MetaLine({ view }: { view: SheetView }) {
   if (view.signal === null && view.token_split === null && view.run === null) return null;
   return (
-    <div className="panel-meta">
+    <div className="sheet-meta">
       {view.signal && (
-        <span className="panel-meta-item" data-stale={view.signal.stale || undefined}>
+        <span className="sheet-meta-item" data-stale={view.signal.stale || undefined}>
           <Icon name="activity" size={11} />
           <span>{view.signal.text}</span>
         </span>
       )}
       {view.token_split !== null && (
-        <span className="panel-split">
+        <span className="sheet-split">
           <Icon name="coins" size={11} />
           <span>{view.token_split}</span>
         </span>
@@ -453,22 +453,22 @@ export function NeedsYou({
   actions,
   aboveBar,
 }: {
-  view: PanelView;
-  actions: PanelActions;
+  view: SheetView;
+  actions: SheetActions;
   /** Shown right above the action bar: the review's manual checks (d0125). */
   aboveBar?: ReactNode;
 }) {
   const app = useRegistries();
   const { press, busy, answering, setAnswering, cardAnswer } = actions;
-  const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;
+  const UnderTabs = app.sheetSections.get(SHEET_UNDER_TABS)?.Component;
   return (
-    <div className="panel-overview">
-      <div className="panel-header">
+    <div className="sheet-overview">
+      <div className="sheet-overview-header">
         <MetaLine view={view} />
         {view.conflict && (
-          <div className="panel-conflict">
+          <div className="sheet-conflict">
             <Icon name="triangle-alert" size={13} />
-            <span className="panel-conflict-line">{view.conflict.line}</span>
+            <span className="sheet-conflict-line">{view.conflict.line}</span>
           </div>
         )}
         {view.answer?.asker != null ? (
@@ -488,9 +488,9 @@ export function NeedsYou({
             <Holds view={view} />
             {aboveBar}
             {view.buttons.length > 0 && (
-              <div className="panel-bar">
+              <div className="sheet-bar">
                 {view.buttons.map((button) => (
-                  <span key={button.action} className="panel-action-group">
+                  <span key={button.action} className="sheet-action-group">
                     <ActionButton button={button} busy={busy === button.action} onPress={press} />
                     {button.action === "approve" && view.approve_more !== null && (
                       <Tooltip text={view.approve_more}>
@@ -510,7 +510,7 @@ export function NeedsYou({
         )}
         {view.build_aside !== null && <BuildAside line={view.build_aside} />}
         {view.stop_message !== null && (
-          <p className="panel-stop-message">
+          <p className="sheet-stop-message">
             <Icon name="triangle-alert" size={13} />
             <span>{view.stop_message}</span>
           </p>
@@ -534,14 +534,14 @@ export function NeedsYou({
   );
 }
 
-/** "● :4020 ↗ ▢" while the Run is up (*13 → Card & panel-header controls*): Open (with an Open URL) and Stop. */
-function RunPill({ ticket, pill }: { ticket: string; pill: PanelRunPill }) {
+/** "● :4020 ↗ ▢" while the Run is up (*13 → Card & sheet-overview-header controls*): Open (with an Open URL) and Stop. */
+function RunPill({ ticket, pill }: { ticket: string; pill: SheetRunPill }) {
   return (
-    <span className="panel-run">
-      <span className="panel-run-dot" />
+    <span className="sheet-run">
+      <span className="sheet-run-dot" />
       <button
         type="button"
-        className="panel-run-port"
+        className="sheet-run-port"
         onClick={() => {
           showTab("run");
         }}
@@ -552,7 +552,7 @@ function RunPill({ ticket, pill }: { ticket: string; pill: PanelRunPill }) {
         <Tooltip text={pill.open_hint}>
           <button
             type="button"
-            className="panel-run-icon"
+            className="sheet-run-icon"
             aria-label={pill.open_hint}
             onClick={() => {
               request("run.open", { url: pill.url }).catch(ignore);
@@ -565,7 +565,7 @@ function RunPill({ ticket, pill }: { ticket: string; pill: PanelRunPill }) {
       <Tooltip text={pill.stop_hint}>
         <button
           type="button"
-          className="panel-run-icon"
+          className="sheet-run-icon"
           aria-label={pill.stop_hint}
           onClick={() => {
             request("run.stop", { key: ticket }).catch(ignore);

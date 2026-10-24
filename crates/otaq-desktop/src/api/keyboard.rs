@@ -150,7 +150,7 @@ mod tests {
             .await
             .unwrap();
         let platform = Platform::current();
-        let inbox_key = if platform == Platform::Mac {
+        let needs_you_key = if platform == Platform::Mac {
             "⌘J"
         } else {
             "Ctrl+J"
@@ -158,13 +158,13 @@ mod tests {
 
         // Taken: the question, nothing stored.
         let edit = json!({
-            "edit": "record", "action": { "action": "open_activity" }, "slot": 0, "key": inbox_key,
+            "edit": "record", "action": { "action": "open_activity" }, "slot": 0, "key": needs_you_key,
         });
         let asked = request(&h.app, "keyboard.edit", edit.clone()).await.unwrap();
         assert_eq!(asked["outcome"], "taken");
         assert_eq!(
             asked["question"],
-            format!("{inbox_key} is used by Next item that needs you. Use it here instead?")
+            format!("{needs_you_key} is used by Next item that needs you. Use it here instead?")
         );
         assert_eq!(global_settings(&h.app).await.unwrap(), before);
 
@@ -177,9 +177,9 @@ mod tests {
         let map = request(&h.app, "keymap.map", Value::Null).await.unwrap();
         assert_eq!(
             texts(&map, json!({ "action": "open_activity" })),
-            [inbox_key, "g a"]
+            [needs_you_key, "g a"]
         );
-        assert!(texts(&map, json!({ "action": "next_inbox_item" })).is_empty());
+        assert!(texts(&map, json!({ "action": "next_needs_you_item" })).is_empty());
 
         // Refused: the reason, nothing stored.
         let quit = if platform == Platform::Mac {
@@ -212,8 +212,8 @@ mod tests {
         assert_eq!(after.terminal_font_size, 17, "other settings are kept");
         let map = request(&h.app, "keymap.map", Value::Null).await.unwrap();
         assert_eq!(
-            texts(&map, json!({ "action": "next_inbox_item" })),
-            [inbox_key]
+            texts(&map, json!({ "action": "next_needs_you_item" })),
+            [needs_you_key]
         );
 
         // An edit the page can't send is an error.
@@ -284,7 +284,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let back = json!({ "keys": [{ "action": { "action": "next_inbox_item" }, "slot": 0 }] });
+        let back = json!({ "keys": [{ "action": { "action": "next_needs_you_item" }, "slot": 0 }] });
         let taken = request(&h.app, "keyboard.reset_row", back.clone()).await.unwrap();
         assert_eq!(taken["outcome"], "taken");
         let mut confirmed = back;
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(done["outcome"], "done");
         let map = request(&h.app, "keymap.map", Value::Null).await.unwrap();
         assert_eq!(
-            texts(&map, json!({ "action": "next_inbox_item" })),
+            texts(&map, json!({ "action": "next_needs_you_item" })),
             [key.as_str().unwrap()]
         );
         assert!(

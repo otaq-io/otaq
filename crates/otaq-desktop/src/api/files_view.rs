@@ -76,7 +76,7 @@ pub struct Load {
 
 /// Whether one of the project's agents works now: the page then asks every 5 s (FIL-10).
 async fn working(app: &App, project: &str) -> bool {
-    super::panel::tickets(app, project)
+    super::sheet::tickets(app, project)
         .await
         .unwrap_or_default()
         .iter()
