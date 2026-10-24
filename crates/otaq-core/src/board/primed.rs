@@ -4,7 +4,8 @@
 //! or since Otaq last handed it a new comment (`stage_runs.handed_over_at`: a Send back, a drag back, a fail that
 //! resumes it). Comments posted while it runs after its prime are for the next agent and don't re-arm the gate. The
 //! user's own moves never pass through here. A prime read before the session's first run opened (`sessions.primed_at`)
-//! counts for that run.
+//! counts for that run. The count leaves out the session's own comments (Q388), and a session whose only unread
+//! comments are its own has nothing to read: it isn't refused.
 
 use sqlx::FromRow;
 
@@ -107,7 +108,7 @@ impl Board {
 
     /// Refuses `session`'s stage end (`stage next`, `stage done`, `check pass|fail`) until it has run `prime` since its
     /// run started or was last handed a new comment, counting the comments posted since its last prime (all of them
-    /// when it never ran). Called after [`Board::refuse_unread_notes`]; never for the user's moves.
+    /// when it never ran), its own left out; not when every one of them is its own. Called after [`Board::refuse_unread_notes`]; never for the user's moves.
     pub async fn refuse_unprimed(&self, key: &str, session: &str) -> Result<(), BoardError> {
         let ticket = self.ticket(key).await?;
         let Some(run) = self.open_run(&ticket.id, session).await? else {
@@ -131,15 +132,33 @@ impl Board {
         .fetch_one(self.store.pool())
         .await?;
         let last_prime = last_prime.max(before_run);
-        let unread: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM ticket_comments
-             WHERE ticket_id = ? AND deleted_at IS NULL AND (? IS NULL OR posted_at > ?)",
+        // A comment is the session's own when its agent wrote it from one of the session's runs on this ticket: the
+        // comment the run ended with, or one posted while it was open, with the run's stage and round (what
+        // `session_author` stamps). Comments carry no session, so this is how the session is told apart from
+        // another session of the same agent.
+        let (unread, own): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), COALESCE(SUM(c.author_kind = 'agent' AND EXISTS (
+                 SELECT 1 FROM stage_runs r
+                 WHERE r.ticket_id = c.ticket_id AND r.session_id = ?
+                   AND c.author_id IS (SELECT agent_id FROM sessions WHERE id = ?)
+                   AND c.stage_id IS r.stage_id AND c.round IS r.round
+                   AND (r.comment_id = c.id
+                        OR (c.posted_at >= r.started_at AND (r.ended_at IS NULL OR c.posted_at <= r.ended_at)))
+             )), 0)
+             FROM ticket_comments c
+             WHERE c.ticket_id = ? AND c.deleted_at IS NULL AND (? IS NULL OR c.posted_at > ?)",
         )
+        .bind(session)
+        .bind(session)
         .bind(&ticket.id)
         .bind(last_prime)
         .bind(last_prime)
         .fetch_one(self.store.pool())
         .await?;
+        let unread = unread - own;
+        if unread == 0 && own > 0 {
+            return Ok(());
+        }
         Err(BoardError::refused(
             Refusal::MoveRefused,
             unprimed_refusal(

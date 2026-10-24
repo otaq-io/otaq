@@ -445,10 +445,11 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         String::from_utf8_lossy(&w.sessions.attach(&dev.id).unwrap().scrollback).into_owned();
     assert!(!screen.contains("column order"), "{screen}");
 
-    // Its `stage next` before `prime` was refused; the next prime names the report and never prints it.
+    // Its `stage next` before `prime` was refused, counting comment 4 but not its own comment 3 (Q388); the next prime
+    // names the report and never prints it.
     assert_eq!(
         read(state, "dev-refused.txt").trim(),
-        "error: Run `otaq prime` first: SHOP-34 has 2 comments you haven't read."
+        "error: Run `otaq prime` first: SHOP-34 has 1 comment you haven't read."
     );
     let prime = read(state, "dev-prime-2.md");
     assert!(prime.contains(VALIDATE_SAYS), "{prime}");
