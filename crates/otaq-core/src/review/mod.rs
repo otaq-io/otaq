@@ -407,6 +407,7 @@ impl Review {
                 .map(PathBuf::from),
             target: target.target.clone(),
             sync_target: !target.into_epic,
+            goes_on_without_remote: board.goes_on_without_remote(&ticket).await?,
             message: message.trim().to_owned(),
         };
         let branch_ref = format!("refs/heads/{}", target.branch);
@@ -430,9 +431,16 @@ impl Review {
         }
         let mut failed = None;
         let outcome = match outcome? {
-            MergeOutcome::Merged { commit, onto, .. } => {
+            MergeOutcome::Merged {
+                commit,
+                onto,
+                fetch_failed,
+                ..
+            } => {
                 let merged = board
                     .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
+                    .await?;
+                self.remote_after_merge(&merged, &request, fetch_failed, actor)
                     .await?;
                 // Done: the session ends, ports return, the worktree goes unless it has changes (REC-05).
                 if let Err(e) = self.finish(&merged).await {
@@ -528,6 +536,33 @@ impl Review {
             },
         };
         Ok(Merge { outcome, failed })
+    }
+
+    /// After a Local merge into a base branch (d0121): a fetch that failed leaves its warning ("merged into your local
+    /// main") on the ticket and in History; one that worked clears an earlier warning. An epic branch isn't fetched.
+    async fn remote_after_merge(
+        &self,
+        merged: &Ticket,
+        request: &MergeRequest,
+        fetch_failed: Option<crate::git::FetchFailure>,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        match fetch_failed {
+            Some(failure) => {
+                let warning = crate::domain::RemoteWarning {
+                    went_on: crate::domain::WentOn::Merged,
+                    reason: failure.reason(),
+                    remote: failure.remote,
+                    branch: request.target.clone(),
+                };
+                board
+                    .record_remote_warning(&merged.id, &warning, actor)
+                    .await
+            }
+            None if request.sync_target => board.clear_remote_warning(&merged.id).await,
+            None => Ok(()),
+        }
     }
 
     /// After a merge into `target` (GIT-04, d0038): a read-only test merge of every ticket in Ready for Review that

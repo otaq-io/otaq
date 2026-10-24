@@ -1045,6 +1045,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                     format!("Check failed \u{d7}{n}"),
                     "Merge check keeps failing",
                 ),
+                Some(AutoMergeStop::DeliveryFailed) => {
+                    ("Not delivered".to_owned(), "Couldn\u{2019}t deliver")
+                }
                 _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
             };
             Part::flag(
@@ -2294,7 +2297,44 @@ fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
             Part::quiet(text, Tone::Warning).hover(schema_overlap_hover(&work.schema_overlap)),
         );
     }
+    // d0121: it went on without its remote; git's reason on hover. Gone at the next fetch that works.
+    if let Some(warning) = ticket.work.as_ref().and_then(|w| w.remote_warning.as_ref())
+        && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
+    {
+        parts.push(
+            Part::quiet(remote_warning_text(warning), Tone::Warning)
+                .hover(Some(remote_warning_hover(warning))),
+        );
+    }
     parts
+}
+
+/// "Couldn't update main from origin · started from your local main" (or "· merged into your local main"): the fetch
+/// before the start or the Local merge failed and the ticket went on from the local base branch (d0121).
+pub fn remote_warning_text(w: &otaq_core::domain::RemoteWarning) -> String {
+    let went_on = match w.went_on {
+        otaq_core::domain::WentOn::Started => "started from",
+        otaq_core::domain::WentOn::Merged => "merged into",
+    };
+    format!(
+        "Couldn\u{2019}t update {b} from {r} \u{b7} {went_on} your local {b}",
+        b = w.branch,
+        r = w.remote
+    )
+}
+
+/// The hover of the remote warning: git's reason.
+pub fn remote_warning_hover(w: &otaq_core::domain::RemoteWarning) -> Hover {
+    Hover {
+        icon: IconName::TriangleAlert,
+        tone: Tone::Warning,
+        title: remote_warning_text(w),
+        sections: vec![HoverSection {
+            label: None,
+            text: w.reason.clone(),
+            muted: false,
+        }],
+    }
 }
 
 /// The origin line of a card an agent created, while it waits in Backlog (d0019, d0068): "Created by Checkout
@@ -4781,6 +4821,73 @@ mod tests {
             t.status = status;
             assert_eq!(decisions_label(&t), None, "{status:?}");
         }
+    }
+
+    /// d0121: a ticket that went on without its remote says so, git's reason on hover, until a fetch for it works
+    /// (the core clears it then); a Done card doesn't.
+    #[test]
+    fn remote_warning() {
+        use otaq_core::domain::{RemoteWarning, WentOn};
+        let reason = "git fetch --quiet origin failed (exit 128): Host key verification failed.";
+        let mut t = ticket("SHOP-18", "Checkout API", Status::Working);
+        t.work = Some(otaq_core::board::tickets::Work {
+            remote_warning: Some(RemoteWarning {
+                went_on: WentOn::Started,
+                branch: "main".into(),
+                remote: "origin".into(),
+                reason: reason.into(),
+            }),
+            ..Default::default()
+        });
+        let vm = card(&t);
+        assert_eq!(
+            line(&vm),
+            Some("Couldn\u{2019}t update main from origin \u{b7} started from your local main")
+        );
+        let hover = &vm.situation.as_ref().unwrap().hovers[0];
+        assert_eq!(hover.tone, Tone::Warning);
+        assert_eq!(hover.sections[0].text, reason);
+
+        let warning = t.work.as_mut().unwrap().remote_warning.as_mut().unwrap();
+        warning.went_on = WentOn::Merged;
+        warning.branch = "develop".into();
+        t.status = Status::WaitingForYou;
+        assert_eq!(
+            line(&card(&t)),
+            Some(
+                "Couldn\u{2019}t update develop from origin \u{b7} merged into your local develop"
+            )
+        );
+        t.status = Status::Merged;
+        assert!(!line(&card(&t)).unwrap_or_default().contains("origin"));
+        // After a good fetch.
+        t.status = Status::Working;
+        t.work.as_mut().unwrap().remote_warning = None;
+        assert_eq!(line(&card(&t)), None);
+    }
+
+    /// d0121: an automatic Delivery whose git step failed: "Couldn't deliver · <reason>", Retry merge.
+    #[test]
+    fn a_failed_delivery() {
+        use otaq_core::domain::AutoMergeStop;
+        let mut t = ticket("BILL-6", "Late fee rule", Status::DeliveryStopped);
+        t.auto_merge_stop = Some(AutoMergeStop::DeliveryFailed);
+        let text =
+            otaq_core::domain::validation::delivery_failed("git commit failed (exit 1): lint");
+        let x = CardExtras {
+            question: Some(text.clone()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(
+            (flag_of(&vm), line(&vm)),
+            (Some("Not delivered"), Some(text.as_str()))
+        );
+        assert_eq!(
+            text,
+            "Couldn\u{2019}t deliver \u{b7} git commit failed (exit 1): lint"
+        );
+        assert_eq!(vm.outline, Outline::Attention);
     }
 
     #[test]

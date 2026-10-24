@@ -25,6 +25,7 @@ pub mod project_files;
 pub mod projects;
 pub mod questions;
 pub mod readiness;
+pub mod remote;
 pub mod reports;
 pub mod review;
 pub mod send_back;

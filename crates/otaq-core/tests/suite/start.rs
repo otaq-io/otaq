@@ -16,7 +16,9 @@ use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::{NewTicketInput, StartProblem, Ticket};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{StartStep, Status};
+use otaq_core::domain::{StartStep, Status, WentOn};
+use otaq_core::flow::Delivers;
+use otaq_core::flow::default::testing::delivering;
 use otaq_core::git::testing::{TempRepos, commit, git};
 use otaq_core::naming;
 use otaq_core::ports::{PortPool, is_free_on_machine};
@@ -404,6 +406,113 @@ async fn a_diverged_base_holds_the_ticket_without_a_worktree() {
         .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     drop(t);
+}
+
+/// billing-api as a clone whose `origin` can't be reached (d0121), with BILL-1 and BILL-2 in Ready for Dev.
+async fn unreachable_origin() -> (Fixture, PathBuf) {
+    let f = Fixture::new().await;
+    let clone = f.repos.clone_with_origin("billing-api", "develop", 1);
+    f.board
+        .add_project(&AddProject {
+            path: clone.display().to_string(),
+            key: Some("BILL".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    git(
+        &clone,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "/nonexistent/billing-api-origin.git",
+        ],
+    );
+    for title in ["Invoices", "Refunds"] {
+        let t = f
+            .create_with(NewTicketInput {
+                project: "BILL".into(),
+                title: title.into(),
+                ..Default::default()
+            })
+            .await;
+        f.board
+            .move_ticket(&t.key.to_string(), DropTarget::ReadyForDev, false, &me())
+            .await
+            .unwrap();
+    }
+    (f, clone)
+}
+
+/// d0121: the fetch fails, and the flow lets the user pick at delivery (the default): the ticket starts from the
+/// local base as it is, with the warning on the ticket and in History.
+#[tokio::test]
+async fn an_unreachable_remote_starts_from_the_local_base_with_a_warning() {
+    let (f, clone) = unreachable_origin().await;
+    let (_sessions, starter, _data) = starter_for(&f, Some(stand_in()));
+    let local = git(&clone, &["rev-parse", "develop"]);
+
+    let outcome = starter
+        .start("BILL-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    let t = f.ticket("BILL-1").await;
+    assert_eq!(t.status, Status::Working);
+    let work = t.work.clone().unwrap();
+    assert_eq!(
+        work.base_sha.as_deref(),
+        Some(local.as_str()),
+        "from the local develop"
+    );
+    let warning = work.remote_warning.unwrap();
+    assert_eq!(
+        (
+            warning.went_on,
+            warning.branch.as_str(),
+            warning.remote.as_str()
+        ),
+        (WentOn::Started, "develop", "origin")
+    );
+    assert!(
+        warning
+            .reason
+            .starts_with("git fetch --quiet origin failed"),
+        "{}",
+        warning.reason
+    );
+    assert!(
+        event_kinds(&f, &t)
+            .await
+            .contains(&"remote_unreachable".to_owned())
+    );
+}
+
+/// d0121: a flow that delivers by PR needs the remote: the start stops as before.
+#[tokio::test]
+async fn an_unreachable_remote_stops_a_pr_flow_start() {
+    let (f, _clone) = unreachable_origin().await;
+    f.board
+        .edit_flow_for_tests("BILL", delivering(Delivers::Pr))
+        .await;
+    let (_sessions, starter, _data) = starter_for(&f, Some(stand_in()));
+
+    let outcome = starter
+        .start("BILL-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    let StartOutcome::Interrupted { step, message } = outcome else {
+        panic!("expected a stopped start, got {outcome:?}");
+    };
+    assert_eq!(step, StartStep::SyncBase);
+    assert!(
+        message.starts_with("git fetch --quiet origin failed (exit "),
+        "{message}"
+    );
+    let t = f.ticket("BILL-1").await;
+    assert_eq!(t.status, Status::StartInterrupted);
+    assert_eq!(t.work.and_then(|w| w.remote_warning), None);
 }
 
 #[tokio::test]

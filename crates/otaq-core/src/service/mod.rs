@@ -903,6 +903,13 @@ impl Service {
                             events.publish(*toast)
                         }
                         Ok(_) => {}
+                        // A git step failed: the card says so, with Retry merge (d0121).
+                        Err(crate::board::BoardError::Git(e)) => {
+                            tracing::warn!(ticket = id, error = %e, "automatic Delivery failed");
+                            if let Err(e) = review.board().automatic_delivery_failed(&id, &e).await {
+                                tracing::warn!(ticket = id, error = %e, "can't record the failed Delivery");
+                            }
+                        }
                         Err(e) => {
                             tracing::warn!(ticket = id, error = %e, "automatic Delivery failed")
                         }

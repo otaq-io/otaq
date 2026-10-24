@@ -351,8 +351,9 @@ impl Scheduler {
     /// up to date: the parent's base branch is fetched (and fast-forwarded when only behind); an epic's branch is
     /// local and isn't fetched. Then a pass starts the children that became ready, from the merged code.
     ///
-    /// If the base diverged from its remote, or the fetch fails, those children are **held** in Queued with the
-    /// message; only the user's Retry start runs them again (nothing retries silently, d0018).
+    /// If the base diverged from its remote, or the fetch fails on a flow that delivers by PR, those children are
+    /// **held** in Queued with the message; only the user's Retry start runs them again (nothing retries silently,
+    /// d0018). A failed fetch on any other flow starts them from the local base, with the warning (d0121).
     pub async fn on_parent_merged(&self, parent: &str) -> Result<Plan, BoardError> {
         let _one_at_a_time = self.inner.pass.lock().await;
         let board = &self.inner.board;
@@ -377,6 +378,13 @@ impl Scheduler {
                 .await;
             let problem = match synced {
                 Ok(BaseSync::Diverged { message }) => Some(message),
+                // d0121: unless the flow delivers by PR, they start from the local base; each start records the
+                // warning.
+                Ok(BaseSync::FetchFailed(failure))
+                    if !board.goes_on_without_remote(&parent).await? =>
+                {
+                    Some(format!("Fetching `{branch}` failed: {}", failure.reason()))
+                }
                 Ok(_) => None,
                 Err(e) => Some(format!("Fetching `{branch}` failed: {e}")),
             };

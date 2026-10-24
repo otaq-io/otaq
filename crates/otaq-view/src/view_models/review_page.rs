@@ -275,18 +275,19 @@ pub enum MergeResult {
     },
 }
 
-/// The toasts after a Local merge: "Local merge done · SHOP-18", then who started ("SHOP-20 started · all
-/// dependencies merged").
+/// The toasts after a Local merge: "Local merge done · SHOP-18", "Couldn't update main from origin · merged into your
+/// local main" with git's reason when the fetch failed (d0121), then who started ("SHOP-20 started · all dependencies
+/// merged").
 pub fn merged_toasts(
     key: &TicketKey,
     outcome: &LocalMergeOutcome,
     tickets: &[Ticket],
 ) -> Vec<ToastText> {
     let LocalMergeOutcome::Merged {
+        ticket,
         target,
         commit,
         started,
-        ..
     } = outcome
     else {
         return Vec::new();
@@ -295,6 +296,17 @@ pub fn merged_toasts(
         title: format!("Local merge done \u{b7} {key}"),
         text: Some(format!("Squashed into {target} as {}", ap::short(commit))),
     }];
+    if let Some(warning) = ticket
+        .work
+        .as_ref()
+        .and_then(|w| w.remote_warning.as_ref())
+        .filter(|w| w.went_on == otaq_core::domain::WentOn::Merged)
+    {
+        toasts.push(ToastText {
+            title: crate::view_models::card::remote_warning_text(warning),
+            text: Some(warning.reason.clone()),
+        });
+    }
     match started.as_slice() {
         [] => {}
         [one] => toasts.push(ToastText {
@@ -671,6 +683,57 @@ mod tests {
             (changed.anyway, changed.send_back),
             ("Approve anyway", "Send back")
         );
+    }
+
+    /// d0121: merged into the local base with the remote unreachable: a warning toast with git's reason, after
+    /// "Local merge done".
+    #[test]
+    fn a_merge_without_the_remote_warns() {
+        use otaq_core::domain::{RemoteWarning, WentOn};
+        let mut t = review_ticket();
+        t.work = Some(otaq_core::board::tickets::Work {
+            remote_warning: Some(RemoteWarning {
+                went_on: WentOn::Merged,
+                branch: "main".into(),
+                remote: "origin".into(),
+                reason: "git fetch --quiet origin failed (exit 128): Host key verification failed."
+                    .into(),
+            }),
+            ..Default::default()
+        });
+        let merged = LocalMergeOutcome::Merged {
+            ticket: Box::new(t.clone()),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+        };
+        let toasts = merged_toasts(&t.key, &merged, &[]);
+        assert_eq!(toasts.len(), 2);
+        assert_eq!(
+            toasts[1].title,
+            "Couldn\u{2019}t update main from origin \u{b7} merged into your local main"
+        );
+        assert_eq!(
+            toasts[1].text.as_deref(),
+            Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
+        );
+        // A warning left from the start isn't the merge's.
+        let mut started = t.clone();
+        started
+            .work
+            .as_mut()
+            .unwrap()
+            .remote_warning
+            .as_mut()
+            .unwrap()
+            .went_on = WentOn::Started;
+        let merged = LocalMergeOutcome::Merged {
+            ticket: Box::new(started),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+        };
+        assert_eq!(merged_toasts(&t.key, &merged, &[]).len(), 1);
     }
 
     #[test]

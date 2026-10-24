@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Kind, RemoteWarning, Status, WentOn};
+use otaq_core::flow::Delivers;
+use otaq_core::flow::default::testing::delivering;
 use otaq_core::git::testing::{commit, git, snapshot};
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
@@ -279,6 +281,125 @@ async fn a_diverged_base_is_refused() {
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main);
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
+    w.stop().await;
+}
+
+/// d0121: `origin` can't be reached. A flow that delivers locally (the default lets the user pick) merges into the local
+/// `main` as it is, with the warning on the ticket and in History; a PR flow still fails as before.
+#[tokio::test]
+async fn an_unreachable_remote_merges_into_the_local_base_with_a_warning() {
+    let w = TestService::start().await;
+    let (repo, _seed) = with_origin(&w).await;
+    git(
+        &repo,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "/nonexistent/shop-web-origin.git",
+        ],
+    );
+    reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    let waiting = w.create("SHOP", "Checkout page").await;
+    w.board
+        .add_dependency("SHOP-2", "SHOP-1", &me())
+        .await
+        .unwrap();
+    w.force_status(&waiting, Status::Queued).await;
+    let main = git(&repo, &["rev-parse", "main"]);
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::Merged {
+        ticket, started, ..
+    } = outcome
+    else {
+        panic!("expected merged, got {outcome:?}");
+    };
+    assert_eq!(
+        git(&repo, &["rev-parse", "main~1"]),
+        main,
+        "onto the local main"
+    );
+    assert_eq!(
+        started,
+        ["SHOP-2".parse().unwrap()],
+        "the freed dependent starts"
+    );
+    let warning = ticket.work.unwrap().remote_warning.unwrap();
+    assert_eq!(
+        (
+            warning.went_on,
+            warning.branch.as_str(),
+            warning.remote.as_str()
+        ),
+        (WentOn::Merged, "main", "origin")
+    );
+    assert!(
+        warning
+            .reason
+            .starts_with("git fetch --quiet origin failed"),
+        "{}",
+        warning.reason
+    );
+    let history = w.board.history("SHOP-1").await.unwrap();
+    let logged = history
+        .iter()
+        .find(|e| e.kind == EventKind::RemoteUnreachable)
+        .expect("History logs it");
+    assert_eq!(logged.payload["went_on"], "merged");
+
+    // A PR flow needs the remote: the merge fails as before, nothing moves.
+    w.board
+        .edit_flow_for_tests("SHOP", delivering(Delivers::Pr))
+        .await;
+    reviewed(&w, "Checkout total", "total.ts", "total\n").await;
+    let main = git(&repo, &["rev-parse", "main"]);
+    let err = w
+        .review
+        .local_merge("SHOP-3", "SHOP-3: Checkout total", false, &me())
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("git fetch --quiet origin failed"),
+        "{err}"
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main);
+    assert_eq!(w.status("SHOP-3").await, Status::WaitingForYou);
+    w.stop().await;
+}
+
+/// d0121: the next fetch for the ticket that works takes its warning away.
+#[tokio::test]
+async fn a_good_fetch_clears_the_warning() {
+    let w = TestService::start().await;
+    with_origin(&w).await;
+    let (t, _) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    let warning = RemoteWarning {
+        went_on: WentOn::Started,
+        branch: "main".into(),
+        remote: "origin".into(),
+        reason: "git fetch --quiet origin failed (exit 128): Host key verification failed.".into(),
+    };
+    w.board
+        .record_remote_warning(&t.id, &warning, &me())
+        .await
+        .unwrap();
+    let before = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(before.work.unwrap().remote_warning, Some(warning));
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::Merged { ticket, .. } = outcome else {
+        panic!("expected merged, got {outcome:?}");
+    };
+    assert_eq!(ticket.work.unwrap().remote_warning, None);
     w.stop().await;
 }
 

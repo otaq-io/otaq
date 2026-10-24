@@ -913,6 +913,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::StartRetried => ("Retry start".to_owned(), Some(who(&e.actor))),
         EventKind::Held => ("Held".to_owned(), text(p, "message").map(first_line)),
         EventKind::StartNote => ("Note".to_owned(), text(p, "message").map(first_line)),
+        // d0121: "Couldn't update main from origin · started from your local main", git's reason under it.
+        EventKind::RemoteUnreachable => (
+            serde_json::from_value(p.clone()).map_or_else(
+                |_| "Couldn\u{2019}t update the base from its remote".to_owned(),
+                |w| super::card::remote_warning_text(&w),
+            ),
+            text(p, "reason").map(first_line),
+        ),
         EventKind::TemplateRefreshFailed => (
             "Template refresh failed".to_owned(),
             text(p, "message").map(first_line),
@@ -1392,6 +1400,26 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    /// d0121: the warning's own words, git's reason under it.
+    #[test]
+    fn an_unreachable_remote() {
+        let row = event_row(&event(
+            EventKind::RemoteUnreachable,
+            MIN,
+            json!({ "went_on": "started", "branch": "main", "remote": "origin",
+                    "reason": "git fetch --quiet origin failed (exit 128): Host key verification failed." }),
+        ))
+        .unwrap();
+        assert_eq!(
+            row.title,
+            "Couldn\u{2019}t update main from origin \u{b7} started from your local main"
+        );
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
+        );
+    }
 
     /// One entry per validation round in place of its bare event, sorted with the rest (VAL-12).
     #[test]

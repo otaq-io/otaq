@@ -64,6 +64,17 @@ pub mod testing {
         }
     }
 
+    /// The Delivery delivers by `delivers`, in its mode (d0121's tests: a PR flow still needs the remote).
+    pub fn delivering(delivers: Delivers) -> impl FnOnce(&mut FlowFile) {
+        move |file| {
+            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
+                if let Some(delivery) = stage.delivery.as_mut() {
+                    delivery.delivers = delivers;
+                }
+            }
+        }
+    }
+
     /// Dev → Validate → Done, the Delivery opening a PR with no click and no dialog (`mode: automatic`, `delivers:
     /// pr`) on the Developer, Dev's agent, so it resumes Dev's session.
     pub fn automatic_pr_delivery(file: &mut FlowFile) {

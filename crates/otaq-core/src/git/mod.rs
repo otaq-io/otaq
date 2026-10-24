@@ -10,7 +10,7 @@ pub mod reword;
 mod sync;
 pub mod testing;
 
-pub use sync::BaseSync;
+pub use sync::{BaseSync, FetchFailure};
 
 use std::ffi::OsStr;
 use std::fmt;

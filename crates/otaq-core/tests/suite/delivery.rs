@@ -543,6 +543,73 @@ async fn a_diverged_base_stops_it() {
     w.stop().await;
 }
 
+/// d0121: an automatic local Delivery with `origin` unreachable merges into the local `main`, History says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreachable_remote_still_merges_automatically() {
+    let w = world().await;
+    let clone = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: clone.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    auto_merge(&w).await;
+    let t = working(&w, "Checkout API", None, "api.ts").await;
+    git(
+        &clone,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "/nonexistent/shop-web-origin.git",
+        ],
+    );
+    let after = pass(&w, &t).await;
+    assert_eq!(after.status, Status::Merged);
+    assert_eq!(
+        git(&clone, &["log", "-1", "--format=%s", "main"]),
+        format!("{}: Checkout API", t.key)
+    );
+    let history = w.board.history(&t.key.to_string()).await.unwrap();
+    assert!(
+        history
+            .iter()
+            .any(|e| e.kind == EventKind::RemoteUnreachable && e.payload["went_on"] == "merged")
+    );
+    w.stop().await;
+}
+
+/// d0121: a git step of an automatic Delivery that fails (here a hook refuses the squash commit) stops the card with
+/// "Couldn't deliver · <reason>" and Retry merge, not only a log line.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_git_step_says_so_on_the_card() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    auto_merge(&w).await;
+    let t = working(&w, "Checkout API", None, "api.ts").await;
+    let hook = repo.join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n").unwrap();
+    let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+    std::fs::set_permissions(&hook, permissions).unwrap();
+    let main = git(&repo, &["rev-parse", "main"]);
+
+    let after = pass(&w, &t).await;
+    assert_eq!(after.status, Status::DeliveryStopped);
+    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::DeliveryFailed));
+    let text = after.signal.unwrap().text.unwrap();
+    assert!(
+        text.starts_with("Couldn\u{2019}t deliver \u{b7} git commit"),
+        "{text}"
+    );
+    assert!(text.contains("lint failed"), "{text}");
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "nothing merged");
+    w.stop().await;
+}
+
 /// An automatic Delivery's conflict goes back to the agent without a click: a build freed at Review comes back
 /// before the restack skill is queued.
 #[tokio::test(flavor = "multi_thread")]

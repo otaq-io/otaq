@@ -5,7 +5,8 @@
 //! 2. refuse if the target branch is checked out in a folder with uncommitted changes ("shop-web has uncommitted
 //!    changes on main. Clean up and retry."), before anything moves, so that branch stays untouched; then bring
 //!    a base branch up to date: fetch, fast-forward if only behind, refuse if diverged (the epic branch is local
-//!    only and skips this);
+//!    only and skips this). A fetch that fails goes on into the local target when the request allows it (d0121);
+//!    otherwise it is the error;
 //! 3. **free rebase** of the ticket's branch onto the target: in its worktree with the checkpoint rule, or in the
 //!    scratch worktree when the branch has no worktree (an epic's branch); a conflict merges nothing;
 //! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run);
@@ -21,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::checkpoint::RebaseOutcome;
-use super::{BaseSync, Git, GitError};
+use super::{BaseSync, FetchFailure, Git, GitError};
 
 /// One Local merge.
 #[derive(Debug, Clone)]
@@ -39,6 +40,8 @@ pub struct MergeRequest {
     pub target: String,
     /// A base branch is fetched and fast-forwarded first; the epic branch is local only.
     pub sync_target: bool,
+    /// A fetch that fails goes on into the local target as it is (a flow that doesn't deliver by PR, d0121).
+    pub goes_on_without_remote: bool,
     /// Otaq's scratch worktree for this repository.
     pub scratch: PathBuf,
     /// The confirmed squash message.
@@ -101,6 +104,8 @@ pub enum MergeOutcome {
         onto: String,
         brought_in: bool,
         checked: bool,
+        /// The fetch before it failed and it merged into the local target as it was (d0121).
+        fetch_failed: Option<FetchFailure>,
     },
     RefusedUncommitted {
         files: Vec<String>,
@@ -152,8 +157,13 @@ impl Git {
                 message: dirty_checkout_message(&m.project_name, &m.target),
             });
         }
+        let mut fetch_failed = None;
         if m.sync_target {
             match self.sync_base(&m.repo, &m.target).await? {
+                BaseSync::FetchFailed(failure) if m.goes_on_without_remote => {
+                    fetch_failed = Some(failure);
+                }
+                BaseSync::FetchFailed(failure) => return Err(failure.error()),
                 BaseSync::Diverged { message } => {
                     return Ok(MergeOutcome::RefusedDiverged { message });
                 }
@@ -282,6 +292,7 @@ impl Git {
             onto,
             brought_in,
             checked,
+            fetch_failed,
         })
     }
 

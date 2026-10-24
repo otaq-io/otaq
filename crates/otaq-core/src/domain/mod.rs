@@ -22,7 +22,7 @@ pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Kind, Place, StartStep, Status, StatusSet};
-pub use ticket_env::{BuildState, ResourceState, SchemaOverlap};
+pub use ticket_env::{BuildState, RemoteWarning, ResourceState, SchemaOverlap, WentOn};
 pub use validation::{
     AutoMergeStop, MovedPast, ReviewEntry, ReviewEntryFlag, ValidationAction, ValidationOutcome,
     ValidationRound, ValidationTrigger,

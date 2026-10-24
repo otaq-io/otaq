@@ -122,6 +122,11 @@ pub fn merge_check_failed_told(key: &super::TicketKey, target: &str) -> String {
     )
 }
 
+/// "Couldn't deliver · git commit failed (exit 1): …": an automatic Delivery's git step failed (d0121).
+pub fn delivery_failed(reason: &str) -> String {
+    format!("Couldn\u{2019}t deliver \u{b7} {reason}")
+}
+
 stored_enum! {
     /// How a ticket reached Ready for Review (d0063). `None` on tickets that got there before M12 or with
     /// validation off.
@@ -250,6 +255,8 @@ stored_enum! {
         BaseDiverged = "base_diverged",
         /// The user's checkout of the target branch has uncommitted changes (GIT-03).
         CheckoutDirty = "checkout_dirty",
+        /// A git step of the automatic Delivery failed (a hook refused the commit): "Couldn't deliver · …" (d0121).
+        DeliveryFailed = "delivery_failed",
     }
 }
 

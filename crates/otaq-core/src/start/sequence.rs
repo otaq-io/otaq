@@ -61,7 +61,9 @@ use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, HandOffKind, Place, StartStep, Status};
+use crate::domain::{
+    Actor, BuildState, HandOffKind, Place, RemoteWarning, StartStep, Status, WentOn,
+};
 use crate::flow::engine::{Move, RunResult, first_stage};
 use crate::git::BaseSync;
 use crate::naming;
@@ -660,9 +662,14 @@ impl Starter {
         // 2. Keep the base current.
         self.mark_step(ticket, StartStep::SyncBase).await;
         if let Some(branch) = to_sync {
-            match git.sync_base(repo, &branch).await {
-                Ok(BaseSync::Diverged { message }) => return Ok(Done::Held(message)),
-                Ok(BaseSync::CheckoutDirty { message }) => {
+            let synced = git
+                .sync_base(repo, &branch)
+                .await
+                .map_err(|e| (StartStep::SyncBase, e.into()))?;
+            let fetched = !matches!(synced, BaseSync::FetchFailed(_));
+            match synced {
+                BaseSync::Diverged { message } => return Ok(Done::Held(message)),
+                BaseSync::CheckoutDirty { message } => {
                     self.note(
                         ticket,
                         actor,
@@ -671,8 +678,34 @@ impl Starter {
                     )
                     .await;
                 }
-                Ok(_) => {}
-                Err(e) => return Err((StartStep::SyncBase, e.into())),
+                // d0121: a local (or the user's pick) Delivery starts from the local base as it is, with a warning;
+                // a PR flow needs the remote and stops as before.
+                BaseSync::FetchFailed(failure) => {
+                    let goes_on = board
+                        .goes_on_without_remote(ticket)
+                        .await
+                        .map_err(|e| (StartStep::SyncBase, e.into()))?;
+                    if !goes_on {
+                        return Err((StartStep::SyncBase, failure.error().into()));
+                    }
+                    let warning = RemoteWarning {
+                        went_on: WentOn::Started,
+                        reason: failure.reason(),
+                        remote: failure.remote,
+                        branch: branch.clone(),
+                    };
+                    board
+                        .record_remote_warning(&ticket.id, &warning, actor)
+                        .await
+                        .map_err(|e| (StartStep::SyncBase, e.into()))?;
+                }
+                _ => {}
+            }
+            if fetched {
+                board
+                    .clear_remote_warning(&ticket.id)
+                    .await
+                    .map_err(|e| (StartStep::SyncBase, e.into()))?;
             }
         }
 

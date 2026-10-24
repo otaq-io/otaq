@@ -14,8 +14,8 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, BuildState, Flags, Kind, MergeCheckState, Place, Priority, ProjectKey, ResourceState,
-    SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
+    Actor, BuildState, Flags, Kind, MergeCheckState, Place, Priority, ProjectKey, RemoteWarning,
+    ResourceState, SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -190,6 +190,9 @@ pub struct Work {
     /// Other Review tickets that add files under the same schema path (M19-e).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub schema_overlap: Vec<SchemaOverlap>,
+    /// The fetch before its start or Local merge failed and it went on from the local base branch (d0121).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_warning: Option<RemoteWarning>,
 }
 
 /// The step a start stopped at, and why: "setup command failed" + the command's last lines.
@@ -435,6 +438,10 @@ stored_enum! {
         /// schema-path glob) and `files` (what `other` adds under it). Recorded once per new overlap; files are never
         /// touched. History reads "Schema path shared with SHOP-21" · "db/migrations/**".
         SchemaOverlap = "schema_overlap",
+        /// The fetch before a start or a Local merge failed and the ticket went on from the local base branch
+        /// (d0121): payload `went_on` (`started` / `merged`), `branch`, `remote`, `reason` (git's). History reads
+        /// "Couldn't update main from origin · started from your local main" · the reason.
+        RemoteUnreachable = "remote_unreachable",
         /// A ticket's or an epic's agent row changed (AGT-04, d0086; rows went with M32, AGM-02, and History still
         /// reads the ones recorded before): payload `role`, `agent` (the name now; null = emptied), `from` (the name
         /// before), `set_by` (`user` / `agent` with `picked_by` and `reason`) and, logged on an epic for a child,
@@ -1268,6 +1275,10 @@ impl Board {
                         .as_deref()
                         .and_then(|j| serde_json::from_str(j).ok())
                         .unwrap_or_default(),
+                    remote_warning: row
+                        .remote_warning
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok()),
                 };
                 // While a start runs, its current step is marked here too (no message yet); that isn't a problem.
                 let start_problem = row
