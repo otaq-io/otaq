@@ -7,7 +7,8 @@
 //!   "Editing · Esc to discard, ⌘S to save" on its label row. Once the text differs from what is saved
 //!   ([`DescriptionState::Changed`]) the tab row's right end shows "Description changed · Discard · Save ⌘S"
 //!   ([`SaveBar`]); switching tabs, moving to another ticket or closing the sheet then asks first ([`leaving`],
-//!   [`LeaveDialog`]). Saving sends only the description ([`crate::view_models::editor::EditorModel::description`]),
+//!   [`LeaveDialog`]: Save · Discard changes · Keep editing, Q415; Save stores it and then goes on, [`leave_step`],
+//!   [`after_save`]). Saving sends only the description ([`crate::view_models::editor::EditorModel::description`]),
 //!   and an untouched description is never saved.
 //! - **Attachments** ([`attachments`]): every report of the ticket, newest first, each with its size, who added it and
 //!   in which stage, and its comment's first line; Add, a drop or a paste opens the comment box with the file as a
@@ -121,12 +122,15 @@ pub fn leaving(state: DescriptionState, stays: bool) -> Leave {
     }
 }
 
-/// The question before leaving a changed description (Q-B: the frames don't draw it).
+/// The question before leaving a changed description (Q415: Save · Discard changes · Keep editing; the frames don't
+/// draw it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DescriptionLeaveDialog")]
 pub struct LeaveDialog {
     pub title: String,
     pub body: String,
+    /// Saves the description, then goes where the user was going (the default button).
+    pub save: String,
     /// Leaves, the changes dropped.
     pub discard: String,
     /// Stays in the editor.
@@ -137,8 +141,47 @@ pub fn leave_dialog(key: &str) -> LeaveDialog {
     LeaveDialog {
         title: "Discard your description changes?".to_owned(),
         body: format!("{key}\u{2019}s description has changes you haven\u{2019}t saved."),
+        save: SAVE.to_owned(),
         discard: "Discard changes".to_owned(),
         keep: "Keep editing".to_owned(),
+    }
+}
+
+/// A button of the leave question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeaveChoice {
+    Save,
+    Discard,
+    Keep,
+}
+
+/// What follows a button of the leave question, or a save it started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeaveStep {
+    /// Store the description (`editor.save`, target `description`) first; [`after_save`] says what then.
+    SaveFirst,
+    /// Make the move (another tab, the next ticket, closing); the editor closes.
+    Go,
+    /// Stay in the editor with the text as typed (and a failed save's error under it).
+    Stay,
+}
+
+/// Save saves first, Discard changes goes with the changes dropped, Keep editing stays.
+pub fn leave_step(choice: LeaveChoice) -> LeaveStep {
+    match choice {
+        LeaveChoice::Save => LeaveStep::SaveFirst,
+        LeaveChoice::Discard => LeaveStep::Go,
+        LeaveChoice::Keep => LeaveStep::Stay,
+    }
+}
+
+/// After the leave question's Save: saved, the move goes on to where the user was going; a refused or failed save
+/// moves nothing and stays in the editor with the error.
+pub fn after_save(saved: bool) -> LeaveStep {
+    if saved {
+        LeaveStep::Go
+    } else {
+        LeaveStep::Stay
     }
 }
 
@@ -612,8 +655,24 @@ mod tests {
             "SHOP-22\u{2019}s description has changes you haven\u{2019}t saved."
         );
         assert_eq!(
-            (d.discard.as_str(), d.keep.as_str()),
-            ("Discard changes", "Keep editing")
+            (d.save.as_str(), d.discard.as_str(), d.keep.as_str()),
+            ("Save", "Discard changes", "Keep editing")
         );
+    }
+
+    /// Q415: Save in the leave question stores the description and then switches (the tab, the next ticket,
+    /// closing); Discard changes switches at once; Keep editing stays.
+    #[test]
+    fn save_then_switch_tab() {
+        assert_eq!(leave_step(LeaveChoice::Save), LeaveStep::SaveFirst);
+        assert_eq!(after_save(true), LeaveStep::Go);
+        assert_eq!(leave_step(LeaveChoice::Discard), LeaveStep::Go);
+        assert_eq!(leave_step(LeaveChoice::Keep), LeaveStep::Stay);
+    }
+
+    /// A refused or failed save switches nothing: the editor stays open with the error.
+    #[test]
+    fn save_failing_stays_in_the_editor() {
+        assert_eq!(after_save(false), LeaveStep::Stay);
     }
 }

@@ -90,6 +90,7 @@ pub use panel::{
     Params as PanelParams, ParentParams as PanelParentParams,
     PriorityParams as PanelPriorityParams, SendAgainParams as PanelSendAgainParams,
     Sent as PanelSent, SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+    ViewParams as PanelViewParams,
 };
 #[cfg(test)]
 pub use pause::export_types as export_pause_types;

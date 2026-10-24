@@ -116,6 +116,16 @@ pub struct Params {
     pub key: String,
 }
 
+/// `panel.view`: the open ticket; `opened` on the sheet's first load of it (it opened, or j / k moved to it), when the
+/// Files count is taken again (Q421).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelViewParams")]
+pub struct ViewParams {
+    pub key: String,
+    #[serde(default)]
+    pub opened: bool,
+}
+
 /// `panel.set_choice`: the user's choice for one stage, until it starts (AGM-08, AGM-09).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "PanelChoiceParams")]
@@ -465,6 +475,8 @@ pub struct Facts<'a> {
     /// Its project's name and its epic's title: the breadcrumb (SHT-01).
     pub project_name: &'a str,
     pub epic_title: Option<&'a str>,
+    /// The Files tab's count (Q421): "Files 3"; `None` with no changes or before it started.
+    pub files_count: Option<u32>,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -758,11 +770,15 @@ fn sheet_of(f: &Facts) -> SheetView {
                     .number()
                     .and_then(|n| f.keys.label(KeyAction::SwitchTab(n))),
                 mark: dot.map(Mark::of),
-                count: (tab == SheetTab::Tickets).then(|| {
-                    otaq_view::view_models::epic_sheet::children(ticket, f.tickets)
-                        .len()
-                        .to_string()
-                }),
+                count: match tab {
+                    SheetTab::Tickets => Some(
+                        otaq_view::view_models::epic_sheet::children(ticket, f.tickets)
+                            .len()
+                            .to_string(),
+                    ),
+                    SheetTab::Files => sheet::files_count_label(f.files_count),
+                    _ => None,
+                },
                 contents,
                 lands_on,
                 parts,
@@ -866,7 +882,33 @@ fn setup_log_path(key: &str) -> Option<std::path::PathBuf> {
         .filter(|p| p.is_file())
 }
 
-pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
+/// The Files tab's count (Q421): kept from the last time it was taken unless the sheet just opened on the ticket or its
+/// status moved on since (its agent's turn ended); only then does it ask git (`files.changes`). Never before the ticket
+/// started.
+async fn files_count(app: &App, ticket: &Ticket, opened: bool) -> Option<u32> {
+    let counts = || app.files_counts.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(kept) = counts().kept(ticket, opened) {
+        return kept;
+    }
+    let count = if sheet::counts_files(ticket) {
+        match app
+            .service
+            .send(Request::FilesChanges(KeyParams {
+                key: ticket.key.to_string(),
+            }))
+            .await
+        {
+            Ok(Reply::FilesChanges(changes)) => sheet::files_count(&changes),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    counts().keep(ticket, count);
+    count
+}
+
+pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     let gone = format!("{} is gone.", params.key);
     let Some(ticket) = ticket(app, &params.key).await? else {
         return Ok(Load { view: None, gone });
@@ -947,6 +989,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         .as_ref()
         .and_then(|epic| all.iter().find(|t| &t.key == epic))
         .map(|epic| epic.title.clone());
+    let files_count = files_count(app, &ticket, params.opened).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -966,6 +1009,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         custom_flow,
         project_name: &project_name,
         epic_title: epic_title.as_deref(),
+        files_count,
     });
     Ok(Load {
         view: Some(view),
@@ -1804,6 +1848,7 @@ pub fn notes_gallery() -> NotesGallery {
                     custom_flow: false,
                     project_name: "shop-web",
                     epic_title: None,
+                    files_count: None,
                 })
             })
             .collect(),
@@ -1903,6 +1948,8 @@ pub fn sheet_gallery() -> Vec<View> {
                 custom_flow: true,
                 project_name: "shop-web",
                 epic_title: ticket.epic.as_ref().map(|_| "Wishlist"),
+                // `s25-03`: "Files 3" once it started.
+                files_count: ticket.started_at.map(|_| 3),
             })
         })
         .collect()
@@ -1997,6 +2044,7 @@ mod tests {
             custom_flow: false,
             project_name: "shop-web",
             epic_title: None,
+            files_count: None,
         }
     }
 
@@ -2621,8 +2669,13 @@ mod tests {
         };
         let key = created.key.to_string();
 
-        let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
+        let load = table(&h.app, "panel.view", json!({ "key": key, "opened": true }))
+            .await
+            .unwrap();
         assert_eq!(load["view"]["title"], "Price table");
+        // Not started: "Files" without a count (Q421).
+        assert_eq!(load["view"]["sheet"]["tabs"][2]["label"], "Files");
+        assert_eq!(load["view"]["sheet"]["tabs"][2]["count"], Value::Null);
         assert_eq!(load["view"]["buttons"][0]["action"], "start");
         assert_eq!(load["view"]["sheet"]["tabs"][0]["tab"], "overview");
         assert_eq!(load["view"]["sheet"]["opens_on"], "overview");

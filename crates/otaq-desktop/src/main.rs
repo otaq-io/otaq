@@ -37,6 +37,8 @@ pub struct App {
     drawer_tabs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
     /// The Files tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
     review: std::sync::Mutex<otaq_view::view_models::diff::ReviewMemory>,
+    /// The sheet's Files counts, taken on open and after a turn ends, not on every refresh (Q421).
+    files_counts: std::sync::Mutex<otaq_view::view_models::sheet::FilesCounts>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
     /// The open Open PR / Push to PR dialogs by ticket, kept between requests (T-0227).
@@ -105,6 +107,7 @@ fn main() {
         switcher: Default::default(),
         drawer_tabs: Default::default(),
         review: Default::default(),
+        files_counts: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,
         pr_dialogs: Default::default(),

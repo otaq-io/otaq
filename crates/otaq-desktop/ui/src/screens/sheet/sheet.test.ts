@@ -10,7 +10,14 @@ import { NOTHING_SELECTED, openTicket, selection } from "../../app/selection";
 import type { PanelView } from "../../generated/PanelView";
 import type { SheetTabView } from "../../generated/SheetTabView";
 import { sheet } from ".";
-import { contentOf, numberedSheetTab, sheetWidth, shownSheetTab, steppedSheetTab } from "./logic";
+import {
+  contentOf,
+  numberedSheetTab,
+  panelViewLoads,
+  sheetWidth,
+  shownSheetTab,
+  steppedSheetTab,
+} from "./logic";
 import { useSheetKeys } from "./Sheet";
 import { renderSheet as render, SHEET, VIEW } from "./sheet_fixtures";
 
@@ -113,6 +120,40 @@ describe("the sheet", () => {
     expect(html).not.toContain("shop-web");
     expect(html).toContain('aria-label="Back to the sheet"');
     expect(html).not.toContain("width:1040px");
+  });
+
+  it("the External ID copies on a click; the Files tab shows its count (Q416, Q421)", () => {
+    const html = render({
+      ...VIEW,
+      sheet: {
+        ...SHEET,
+        details: [
+          ...SHEET.details,
+          {
+            label: "External ID",
+            value: "PAY-123",
+            avatar: null,
+            working: false,
+            mono: true,
+            note: null,
+            change: { kind: "copy", text: "PAY-123", hint: "Copy External ID", copied: "Copied" },
+          },
+        ],
+        tabs: SHEET.tabs.map((t) => (t.tab === "files" ? { ...t, count: "3" } : t)),
+      },
+    });
+    expect(html).toContain('aria-label="External ID: PAY-123. Copy External ID"');
+    expect(html).toContain('<span class="sheet-detail-value" data-mono="true">PAY-123</span>');
+    expect(html).toMatch(/Files<\/span><span class="tab-note">3<\/span>/);
+  });
+
+  it("only the first load of an opening takes the Files count again (Q421)", () => {
+    const loads = panelViewLoads("SHOP-19", true);
+    expect(loads()).toEqual({ key: "SHOP-19", opened: true });
+    expect(loads()).toEqual({ key: "SHOP-19", opened: false });
+    expect(loads()).toEqual({ key: "SHOP-19", opened: false });
+    // Sliding out: nothing is taken.
+    expect(panelViewLoads("SHOP-19", false)()).toEqual({ key: "SHOP-19", opened: false });
   });
 
   it("an epic child's crumb opens the epic", () => {

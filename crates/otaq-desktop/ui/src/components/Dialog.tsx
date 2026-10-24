@@ -199,6 +199,8 @@ export interface ConfirmDialogProps {
   confirmDisabled?: boolean;
   /** A second action in place of the Cancel button ("Start anyway"); Esc and the backdrop still cancel. */
   secondary?: { label: string; onClick: () => void };
+  /** A third button before Cancel ("Discard changes" between Keep editing and Save, Q415). */
+  extra?: { label: string; onClick: () => void };
   hint?: string;
   width?: number;
   onConfirm: () => void;
@@ -216,6 +218,7 @@ export function ConfirmDialog({
   cancelDefault: cancelFirst = false,
   confirmDisabled = false,
   secondary,
+  extra,
   hint,
   width,
   onConfirm,
@@ -239,6 +242,7 @@ export function ConfirmDialog({
       initialFocus={cancelDefault || confirmDisabled ? cancel : confirm}
       footer={
         <>
+          {extra && <Button variant="secondary" label={extra.label} onClick={extra.onClick} />}
           {secondary ? (
             <Button ref={cancel} variant="secondary" label={secondary.label} onClick={secondary.onClick} />
           ) : (

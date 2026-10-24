@@ -28,6 +28,8 @@ export interface Confirmation {
   destructive: boolean;
   /** Cancel as the default while the confirm button stays primary (Park all). */
   cancelDefault?: boolean;
+  /** A third button before Cancel; it closes the dialog, then runs (the leave question's Discard changes, Q415). */
+  extra?: { label: string; onClick: () => unknown };
   onConfirm: () => unknown;
 }
 

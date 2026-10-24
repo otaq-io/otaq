@@ -1,7 +1,8 @@
 // The ticket sheet's moment of interaction (SHT-01, SHT-02; T-0464): which of Rust's tabs shows for the selection,
-// what a tab key or ⌃Tab selects, the sheet's width now, and a tab's dot. The tabs, their keys and the widths are
-// Rust's (`view_models/sheet.rs`, sent as `PanelView.sheet`).
+// what a tab key or ⌃Tab selects, the sheet's width now, a tab's dot, and which load of `panel.view` is the one on
+// open. The tabs, their keys and the widths are Rust's (`view_models/sheet.rs`, sent as `PanelView.sheet`).
 import type { TabIndicator } from "../../components";
+import type { PanelViewParams } from "../../generated/PanelViewParams";
 import type { SheetTabMark } from "../../generated/SheetTabMark";
 import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetTab } from "../../generated/SheetTab";
@@ -65,4 +66,17 @@ export function tabIndicator(
 ): TabIndicator | undefined {
   if (mark !== null) return mark;
   return count === null ? undefined : { kind: "note", text: count };
+}
+
+/**
+ * `panel.view`'s loads for one opening of the sheet on `key`: the first says `opened` (the Files count is taken again
+ * then, Q421), the refreshes after it don't. `open` is `false` while the sheet slides out: nothing is taken then.
+ */
+export function panelViewLoads(key: string, open: boolean): () => PanelViewParams {
+  let opened = open;
+  return () => {
+    const params = { key, opened };
+    opened = false;
+    return params;
+  };
 }

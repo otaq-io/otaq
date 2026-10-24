@@ -1,9 +1,9 @@
 //! The ticket sheet (SHT-01, SHT-02; d0087, d0095, d0097; canvas `s25-02`, `s25-03`, `s25-10`): a 1040 px sheet over
 //! the board (920 px beside the agent panel), or the whole content area at full page (⤢, "← Board"). Its header is
 //! the breadcrumb (project / [epic /] key), the title and status, **Move…** and ⋯; under it the **details line**
-//! (Assignee, Model, Working, Priority, Branch, Epic) and the flow path; then the tabs **Overview · Session · Files ·
-//! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a` (an epic: Overview · Tickets · Lead · Files · Activity,
-//! SHT-07, `epic_sheet.rs`).
+//! (Assignee, Model, Working, Priority, Branch, Epic, External ID) and the flow path; then the tabs **Overview ·
+//! Session · Files · Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a` (an epic: Overview · Tickets · Lead · Files ·
+//! Activity, SHT-07, `epic_sheet.rs`). Files carries its count ("Files 3", Q421, [`FilesCounts`]).
 //!
 //! What the sheet shows is a [`Content`]: a tab, or one side of Session's switch (Agent, the check's agent, Run, Shell;
 //! `session_tab.rs`, T-0466). Each tab's screen registers its body: Overview (`overview.rs`, T-0465), Session, Files
@@ -12,8 +12,11 @@
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
 use otaq_core::agents::{Agent, SessionRole};
+use std::collections::HashMap;
+
+use otaq_core::board::files::{FilesChanges, FilesFrom};
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Place, StatusSet};
+use otaq_core::domain::{Place, Status, StatusSet};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -235,6 +238,12 @@ pub enum DetailChange {
     Choice { stage: String, items: Vec<MenuItem> },
     /// The epic: opens its sheet.
     Open { key: String },
+    /// The External ID (Q416): a click copies `text`; the tooltip then says `copied`.
+    Copy {
+        text: String,
+        hint: &'static str,
+        copied: &'static str,
+    },
 }
 
 /// One item of the details line: "Assignee  CX Rust developer", "Branch  otaq/SHOP-22 from main".
@@ -508,8 +517,32 @@ fn lead_details(f: &DetailFacts) -> (Detail, Detail) {
     (who, model)
 }
 
+/// The External ID detail's words (Q416).
+pub const EXTERNAL_ID: &str = "External ID";
+pub const COPY_EXTERNAL_ID: &str = "Copy External ID";
+pub const COPIED: &str = "Copied";
+
+/// External ID "PAY-123" (Q416), only when the ticket or epic has one: a click copies it.
+fn external_id(ticket: &Ticket) -> Option<Detail> {
+    let id = ticket
+        .external_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())?;
+    Some(Detail {
+        mono: true,
+        change: Some(DetailChange::Copy {
+            text: id.to_owned(),
+            hint: COPY_EXTERNAL_ID,
+            copied: COPIED,
+        }),
+        ..Detail::new(EXTERNAL_ID, id)
+    })
+}
+
 /// The details line (SHT-01): Assignee, Model (not once it is Done), Working (while it works or waits for you),
-/// Priority, Branch, and an epic child's Epic; an epic's (SHT-07) Lead, Model, Tickets "5 · 1 merged · 1 working", Priority and its branch.
+/// Priority, Branch, an epic child's Epic and the External ID when set; an epic's (SHT-07) Lead, Model, Tickets "5 · 1
+/// merged · 1 working", Priority, its branch and its External ID.
 pub fn details(f: &DetailFacts) -> Vec<Detail> {
     let ticket = f.ticket;
     let priority = Detail {
@@ -524,7 +557,10 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
             "Tickets",
             super::epic_sheet::tickets_detail(ticket, f.tickets),
         );
-        return vec![lead, model, tickets, priority, branch(ticket)];
+        return [lead, model, tickets, priority, branch(ticket)]
+            .into_iter()
+            .chain(external_id(ticket))
+            .collect();
     }
     // A finished ticket has no one on it: no Assignee (nor its Model), not the last agent that ran (#36).
     let (who, model) = if ticket.place == Place::Done {
@@ -547,7 +583,60 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         .chain(working(f))
         .chain([priority, branch(ticket)])
         .chain(epic)
+        .chain(external_id(ticket))
         .collect()
+}
+
+/// The Files tab's count (SHT-02, Q421): how many files the ticket changed against its base, as All changes counts
+/// them (an epic's own, not its running children's); `None` when there are none or it never started ("Files").
+pub fn files_count(changes: &FilesChanges) -> Option<u32> {
+    if changes.source.from == FilesFrom::Base {
+        return None;
+    }
+    let own = changes.files.iter().filter(|e| e.child.is_none()).count();
+    u32::try_from(own).ok().filter(|n| *n > 0)
+}
+
+/// Whether there is anything to count: a ticket that never started has no branch of its own ("Files", no git call).
+pub fn counts_files(ticket: &Ticket) -> bool {
+    ticket
+        .work
+        .as_ref()
+        .is_some_and(|w| w.branch.is_some() && w.base_sha.is_some())
+}
+
+/// The Files tab's note: "3"; none without changes.
+pub fn files_count_label(count: Option<u32>) -> Option<String> {
+    count.map(|n| n.to_string())
+}
+
+/// The Files tab's counts by ticket (Q421), kept between the sheet's refreshes so a plain refresh never asks git
+/// again. A count is taken when the sheet opens on the ticket, and again once its status moved on since the count
+/// was taken: its agent's turn ended (Working → Idle, Needs you, the next stage), which is also when its commits land
+/// (no event says "it committed" on its own). Nothing waits on a timer (d0086).
+#[derive(Debug, Default)]
+pub struct FilesCounts {
+    taken: HashMap<String, (Status, Option<u32>)>,
+}
+
+impl FilesCounts {
+    /// The count to show without taking it again; `None` when it must be taken (the sheet just opened, never taken,
+    /// or the status changed since).
+    pub fn kept(&self, ticket: &Ticket, opened: bool) -> Option<Option<u32>> {
+        if opened {
+            return None;
+        }
+        self.taken
+            .get(&ticket.key.to_string())
+            .filter(|(status, _)| *status == ticket.status)
+            .map(|(_, count)| *count)
+    }
+
+    /// Keeps a count just taken for the ticket in its status now.
+    pub fn keep(&mut self, ticket: &Ticket, count: Option<u32>) {
+        self.taken
+            .insert(ticket.key.to_string(), (ticket.status, count));
+    }
 }
 
 /// Where a stage of the flow path stands for the ticket.
@@ -864,7 +953,7 @@ mod tests {
     }
 
     /// The Wishlist epic (`s25-11`): `shop-web / PAY-123`; Lead "Wishlist lead" on Claude Code · opus, Tickets "5 · 1
-    /// merged · 1 working", Priority, and the epic's branch.
+    /// merged · 1 working", Priority, the epic's branch and its External ID (Q416).
     #[test]
     fn the_wishlist_epics_header_and_details() {
         let mut tickets = crate::view_models::epic_sheet::samples::wishlist();
@@ -901,6 +990,7 @@ mod tests {
                     otaq_core::naming::branch("PAY-123"),
                     Some(EPIC_BRANCH)
                 ),
+                ("External ID", "PAY-123".into(), None),
             ]
         );
         assert_eq!(
@@ -1097,6 +1187,174 @@ mod tests {
             panel::neighbour(&tickets, &key("SHOP-1"), -1),
             Some(key("SHOP-2"))
         );
+    }
+
+    /// Q416: "External ID  PAY-123" at the end of the details line when set, a click copying it; not shown when
+    /// empty. Epics too.
+    #[test]
+    fn the_external_id_shows_when_set_and_a_click_copies_it() {
+        let tools = tools();
+        let line = |t: &Ticket| {
+            details(&DetailFacts {
+                ticket: t,
+                agents: None,
+                tools: &tools,
+                epic_title: None,
+                lead: None,
+                tickets: &[],
+                now: 0,
+            })
+        };
+        let mut t = shop_22();
+        t.external_id = Some("PAY-123".into());
+        let shown = line(&t);
+        let id = shown.last().unwrap();
+        assert_eq!((id.label, id.value.as_str()), ("External ID", "PAY-123"));
+        assert!(id.mono);
+        assert_eq!(
+            id.change,
+            Some(DetailChange::Copy {
+                text: "PAY-123".into(),
+                hint: "Copy External ID",
+                copied: "Copied",
+            })
+        );
+        for none in [None, Some(String::new()), Some("  ".into())] {
+            t.external_id = none;
+            assert!(
+                line(&t).iter().all(|d| d.label != EXTERNAL_ID),
+                "no External ID: {:?}",
+                t.external_id
+            );
+        }
+        let mut epic = crate::view_models::epic_sheet::samples::wishlist().remove(0);
+        epic.external_id = Some("PAY-123".into());
+        let shown = line(&epic);
+        let labels: Vec<&str> = shown.iter().map(|d| d.label).collect();
+        assert_eq!(
+            labels,
+            [
+                "Lead",
+                "Model",
+                "Tickets",
+                "Priority",
+                "Branch",
+                "External ID"
+            ]
+        );
+        epic.external_id = None;
+        assert!(line(&epic).iter().all(|d| d.label != EXTERNAL_ID));
+    }
+
+    fn changed(path: &str, child: Option<&str>) -> otaq_core::board::files::ChangedEntry {
+        otaq_core::board::files::ChangedEntry {
+            file: otaq_core::git::diff::ChangedFile {
+                status: otaq_core::git::diff::FileStatus::Modified,
+                path: path.into(),
+                old_path: None,
+                added: 1,
+                removed: 0,
+                binary: false,
+                size: None,
+                old_size: None,
+                similarity: None,
+            },
+            uncommitted: false,
+            tags: Vec::new(),
+            child: child.map(|c| c.parse().unwrap()),
+        }
+    }
+
+    fn changes(from: FilesFrom, files: Vec<otaq_core::board::files::ChangedEntry>) -> FilesChanges {
+        FilesChanges {
+            source: otaq_core::board::files::FilesSource {
+                key: "SHOP-22".parse().unwrap(),
+                from,
+                branch: otaq_core::naming::branch("SHOP-22"),
+                base_branch: "main".into(),
+                base_sha: Some("a1b2c3d4e5".into()),
+                base_short: Some("a1b2c3d".into()),
+            },
+            files,
+            added: 0,
+            removed: 0,
+        }
+    }
+
+    /// Q421: "Files 3" counts the ticket's own changed files; none changed, or never started, reads "Files".
+    #[test]
+    fn the_files_count_and_its_label() {
+        let three = changes(
+            FilesFrom::Worktree,
+            vec![
+                changed("e2e/login.spec.ts", None),
+                changed("src/app/login/page.tsx", None),
+                changed("src/middleware.ts", None),
+            ],
+        );
+        assert_eq!(files_count(&three), Some(3));
+        assert_eq!(files_count_label(files_count(&three)).as_deref(), Some("3"));
+        assert_eq!(files_count(&changes(FilesFrom::Branch, Vec::new())), None);
+        assert_eq!(files_count_label(None), None);
+        assert_eq!(files_count(&changes(FilesFrom::Base, Vec::new())), None);
+        // An epic counts its branch's own files, not a running child's on top.
+        let epic = changes(
+            FilesFrom::Branch,
+            vec![changed("a.ts", None), changed("b.ts", Some("SHOP-40.2"))],
+        );
+        assert_eq!(files_count(&epic), Some(1));
+        // Never started: nothing to count, so no git call at all.
+        let backlog = ticket("SHOP-41", "Fix README typo", Status::Backlog);
+        assert!(!counts_files(&backlog));
+        let mut started = shop_22();
+        started.work = Some(otaq_core::board::tickets::Work {
+            branch: Some(otaq_core::naming::branch("SHOP-22")),
+            base_sha: Some("a1b2c3d4e5".into()),
+            ..Default::default()
+        });
+        assert!(counts_files(&started));
+    }
+
+    /// Q421: the count is taken when the sheet opens and again once the agent's turn ended (its status moved on), never
+    /// on a plain refresh. `taken` counts the diffs computed, as `panel.view` takes them.
+    #[test]
+    fn the_files_count_is_taken_on_open_and_after_a_turn_ends_only() {
+        let mut counts = FilesCounts::default();
+        let mut taken = 0;
+        let mut on_disk = 3;
+        let mut refresh = |counts: &mut FilesCounts, t: &Ticket, opened: bool, on_disk: u32| {
+            counts.kept(t, opened).unwrap_or_else(|| {
+                taken += 1;
+                let count = Some(on_disk);
+                counts.keep(t, count);
+                count
+            })
+        };
+        let mut t = shop_22();
+        t.status = Status::Working;
+        assert_eq!(refresh(&mut counts, &t, true, on_disk), Some(3), "on open");
+        // The agent edits two more files while it works: plain refreshes (tokens, sessions) keep the count.
+        on_disk = 5;
+        for _ in 0..4 {
+            assert_eq!(refresh(&mut counts, &t, false, on_disk), Some(3));
+        }
+        // Its turn ends: Working → Idle.
+        t.status = Status::Idle;
+        assert_eq!(
+            refresh(&mut counts, &t, false, on_disk),
+            Some(5),
+            "after the turn"
+        );
+        assert_eq!(refresh(&mut counts, &t, false, on_disk), Some(5));
+        // Opening the sheet again takes it again.
+        on_disk = 6;
+        assert_eq!(
+            refresh(&mut counts, &t, true, on_disk),
+            Some(6),
+            "opened again"
+        );
+        drop(refresh);
+        assert_eq!(taken, 3, "on open, after the turn ended, on open again");
     }
 
     #[test]
