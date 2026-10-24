@@ -747,7 +747,11 @@ mod tests {
         let mut found = Vec::new();
         while std::time::Instant::now() < deadline {
             found = tree(root);
-            if found.len() >= 2 {
+            // A child read between fork and exec has no args yet (or still the shell's): wait for both sleeps.
+            let execed = |p: &TreeProcess| {
+                !p.args.is_empty() && p.program.as_ref().is_some_and(|p| p.ends_with("sleep"))
+            };
+            if found.len() >= 2 && found.iter().all(execed) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));

@@ -7,6 +7,7 @@
 //! | Agent stage · working, in background, waiting for limit reset, a `restack` fix | reattach silently | **Interrupted** (inbox item, Resume / Resume all) |
 //! | Agent stage · turquoise (Asks you, Needs you, Idle) | reattach silently | **Interrupted, keeping the label and question** |
 //! | Agent check · Checking, Needs you · validator, waiting for limit reset (**the checker's** session) | reattach silently | **Interrupted** from Checking: Resume starts a fresh check (d0063) |
+//! | Agent check · Asks you (**the checker's** session) | reattach silently | **Interrupted, keeping the label and question**; Resume starts a fresh check |
 //! | Human check (Ready for Review), click Delivery (to deliver, PR open) | reattach silently | **not** Interrupted; History notes "session ended (restart)" |
 //! | Automatic PR Delivery · to deliver (its delivery session) | reattach silently | **Interrupted in the Agent stage that runs it** |
 //! | anything else | — | unchanged |
@@ -33,6 +34,9 @@ pub enum Outcome {
     /// The checker is gone: Interrupted from Checking; Resume starts a fresh check, the round doesn't count, the
     /// old checker conversation is never resumed (REC-01, VAL-07).
     InterruptValidation,
+    /// The checker asked the user and is gone: Interrupted, keeping its label and question (d0045, d0119); the
+    /// round ends interrupted like [`Self::InterruptValidation`]'s, and Resume starts a fresh check.
+    InterruptAsking,
     /// An automatic Delivery's session is gone: Interrupted in the Agent stage `stage` that runs it (STG-09).
     InterruptIn { stage: String },
 }
@@ -149,6 +153,7 @@ pub fn reconcile(
         StageAt::Agent if before.is_agent_waiting() => Outcome::Interrupt { keep_label: true },
         StageAt::Agent if AT_WORK.contains(&before) => Outcome::Interrupt { keep_label: false },
         StageAt::AgentCheck if CHECKING.contains(&before) => Outcome::InterruptValidation,
+        StageAt::AgentCheck if before == Status::AsksYou => Outcome::InterruptAsking,
         StageAt::HumanCheck if before == Status::WaitingForYou => Outcome::NoteSessionEnded,
         StageAt::Delivery { runs_agent: true } if before == Status::ToDeliver => {
             match place
@@ -294,6 +299,18 @@ mod tests {
             default(Status::MergeConflictFixing, false),
             Outcome::Interrupt { keep_label: false }
         );
+        // Its agent asked the user during the check: Interrupted, keeping the question (T-0490).
+        let asking = |alive| {
+            reconcile(
+                &default_flow(),
+                &Place::stage_of(VALIDATE),
+                Status::AsksYou,
+                None,
+                alive,
+            )
+        };
+        assert_eq!(asking(false), Outcome::InterruptAsking);
+        assert_eq!(asking(true), Outcome::Unchanged);
     }
 
     /// The default flow's stages are the ones today's statuses lived in.
@@ -357,6 +374,10 @@ mod tests {
                 Some(Status::Checking)
             ),
             Outcome::InterruptValidation
+        );
+        assert_eq!(
+            at("security", Status::AsksYou, None),
+            Outcome::InterruptAsking
         );
         for status in [Status::CheckFailed, Status::CheckNoResult] {
             assert_eq!(at("security", status, None), Outcome::Unchanged);

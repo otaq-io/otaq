@@ -994,6 +994,76 @@ mod tests {
         assert_eq!(v.groups[0].resume_all, None);
     }
 
+    /// T-0490 (#58; d0045, d0063): after a restart a check interrupted mid-run is under Interrupted (Resume starts a
+    /// fresh check); a ticket interrupted while it asked keeps its question with the turquoise items.
+    #[test]
+    fn an_interrupted_check_is_interrupted_not_a_kept_question() {
+        use crate::view_models::card_fixtures;
+        use otaq_core::board::needs_you::{ProjectTickets, needs_you_items};
+        use otaq_core::board::questions::HumanQuestion;
+        use otaq_core::flow::default::VALIDATE;
+        use otaq_core::flow::default_flow;
+
+        let mut checking = card_fixtures::ticket("SHOP-15", "Coupon field", Status::Interrupted);
+        checking.place = otaq_core::domain::Place::stage_of(VALIDATE);
+        checking.interrupted_from = Some(Status::Checking);
+        let mut asked = card_fixtures::ticket("SHOP-22", "Login", Status::Interrupted);
+        asked.interrupted_from = Some(Status::AsksYou);
+        asked.question = Some(HumanQuestion {
+            id: "q1".into(),
+            text: "Which email provider should I use?".into(),
+            options: Vec::new(),
+            recommended: None,
+            notes: Vec::new(),
+            asked_at: 0,
+            via_lead: None,
+        });
+        let flow = default_flow();
+        let tickets = [checking, asked];
+        let found = needs_you_items(
+            &[ProjectTickets {
+                key: "SHOP",
+                name: "shop-web",
+                tickets: &tickets,
+                flow: &flow,
+            }],
+            card_fixtures::NOW,
+        );
+        let reasons: Vec<(String, NeedsYouGroup, &str)> = found
+            .iter()
+            .map(|i| (i.key.to_string(), i.group, i.reason.as_str()))
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                (
+                    "SHOP-22".to_owned(),
+                    NeedsYouGroup::Family,
+                    "asks: Which email provider should I use?"
+                ),
+                (
+                    "SHOP-15".to_owned(),
+                    NeedsYouGroup::Stopped,
+                    "session interrupted"
+                ),
+            ]
+        );
+        let items: Vec<Item> = found.into_iter().map(item).collect();
+        let v = draw(&items, None);
+        let heads: Vec<(GroupId, &str)> =
+            v.groups.iter().map(|g| (g.id, g.title.as_str())).collect();
+        assert_eq!(
+            heads,
+            [
+                (GroupId::NeedsYou, "Needs you \u{b7} 1"),
+                (GroupId::Interrupted, "Interrupted \u{b7} 1"),
+            ]
+        );
+        assert_eq!(chips(&v.groups[0]), ["SHOP-22 a question"]);
+        assert!(v.groups[1].chips.is_empty());
+        assert_eq!(v.groups[1].resume_all, Some("Resume all"));
+    }
+
     /// An epic lead's own question opens its epic on the Lead tab; a suggestion's child opens on its description.
     #[test]
     fn a_lead_opens_its_epic_and_a_suggestion_its_child() {

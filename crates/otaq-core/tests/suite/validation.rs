@@ -955,6 +955,63 @@ async fn park_and_close_stop_both_sessions() {
     w.stop().await;
 }
 
+/// T-0490 (#58; d0045, d0119): a ticket whose agent asked the user during its check is Interrupted after a
+/// restart and keeps its question, in Needs you's turquoise items; the round isn't counted. A ticket interrupted
+/// mid-check is in the Interrupted group.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_asked_during_a_check_is_kept_after_a_restart() {
+    use otaq_core::board::needs_you::NeedsYouGroup;
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let asks = working(&w, "Cart totals").await;
+    let checking = working(&w, "Coupon field").await;
+    for t in [&asks, &checking] {
+        submit(&w, t).await.unwrap();
+    }
+    let question = "Should totals round per line or per order?";
+    w.board
+        .store_question(&asks.id, question, &[], &[], None)
+        .await
+        .unwrap();
+    let caller = otaq_core::caller::Caller::Agent {
+        ticket: asks.key.clone(),
+        ticket_id: asks.id.clone(),
+        session: validator_of(&w, &asks),
+    };
+    w.signals
+        .ask_human(&caller, &asks.id, question)
+        .await
+        .unwrap();
+    assert_eq!(w.status(&asks.key.to_string()).await, Status::AsksYou);
+
+    let w = w
+        .restart_with(|config| ServiceConfig {
+            launch: Some(fake_launch(fake_script())),
+            ..config
+        })
+        .await;
+    let report = w.recovery.startup_report();
+    assert_eq!(report.was_validating, std::slice::from_ref(&checking.key));
+    assert!(report.interrupted.contains(&asks.key));
+    let after = w.board.ticket(&asks.key.to_string()).await.unwrap();
+    assert_eq!(
+        (after.status, after.interrupted_from),
+        (Status::Interrupted, Some(Status::AsksYou))
+    );
+    assert_eq!(after.question.map(|q| q.text).as_deref(), Some(question));
+    assert_eq!(
+        last_outcome(&w, &asks).await.as_deref(),
+        Some("interrupted")
+    );
+    let items = w.board.needs_you_items(now_ms()).await.unwrap();
+    let item = |t: &Ticket| items.iter().find(|i| i.key == t.key).unwrap();
+    assert_eq!(item(&asks).group, NeedsYouGroup::Family);
+    assert_eq!(item(&asks).reason, format!("asks: {question}"));
+    assert_eq!(item(&checking).group, NeedsYouGroup::Stopped);
+    assert_eq!(item(&checking).reason, "session interrupted");
+    w.stop().await;
+}
+
 /// T-0188 (REC-01, VAL-07): after a restart a validating ticket is Interrupted from Validating, in Resume all;
 /// Resume starts a fresh validator with the same round number and leaves the agent alone; the agent is resumed
 /// only when the findings must reach it.

@@ -247,10 +247,10 @@ pub fn needs_you_items_with(
                     return None;
                 }
                 // A needs-you ticket interrupted by a restart keeps its label (d0045): it stays with the turquoise
-                // items, where answering it resumes and delivers.
+                // items, where answering it resumes and delivers. An interrupted check is Interrupted (d0063).
                 let group = match ticket.interrupted_from {
-                    Some(_) => NeedsYouGroup::Family,
-                    None => group_of(ticket.status)?,
+                    Some(s) if s.is_needs_you_family() => NeedsYouGroup::Family,
+                    _ => group_of(ticket.status)?,
                 };
                 let waiting_in = match group {
                     NeedsYouGroup::Review if !waits_for_click(ticket) => return None,
@@ -314,12 +314,18 @@ pub fn change_agent(ticket: &Ticket) -> Option<SessionRole> {
     }
 }
 
+/// The needs-you label an Interrupted ticket kept (d0045); `None` for an interrupted check, whose Resume starts a
+/// fresh check (d0063).
+fn kept_label(ticket: &Ticket) -> Option<Status> {
+    ticket.interrupted_from.filter(|s| s.is_needs_you_family())
+}
+
 /// When the item began: the needs-you signal's start, else when the ticket entered its status.
 fn since(ticket: &Ticket) -> i64 {
     let signal = ticket
         .signal
         .as_ref()
-        .filter(|_| ticket.status.is_needs_you_family() || ticket.interrupted_from.is_some())
+        .filter(|_| ticket.status.is_needs_you_family() || kept_label(ticket).is_some())
         .and_then(|s| s.since);
     signal.or(ticket.status_since).unwrap_or(ticket.updated_at)
 }
@@ -327,7 +333,7 @@ fn since(ticket: &Ticket) -> i64 {
 /// The item's line in the inbox (brief 10); `waiting_in` names a group 3 ticket's human check.
 fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -> String {
     // Interrupted with its label kept: the label's own line (the inbox adds "session ended by restart").
-    if let Some(label) = ticket.interrupted_from {
+    if let Some(label) = kept_label(ticket) {
         let kept = Ticket {
             status: label,
             interrupted_from: None,
