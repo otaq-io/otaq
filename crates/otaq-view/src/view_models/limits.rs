@@ -61,6 +61,10 @@ impl Stepper {
     }
 }
 
+/// The back-pressure setting's label, before its number, in Settings and in the popover (SCH-03; never "Pause",
+/// which is 0112's, Q450).
+pub const BACK_PRESSURE: &str = "Don\u{2019}t start new tickets while Needs you has";
+
 /// The popover for `limits`.
 pub fn popover(limits: &AgentLimits) -> Popover {
     Popover {
@@ -70,11 +74,7 @@ pub fn popover(limits: &AgentLimits) -> Popover {
             limits.max_concurrency,
             &MAX_AGENTS,
         ),
-        back_pressure: Stepper::new(
-            "Pause new starts when Needs you has",
-            limits.back_pressure,
-            &BACK_PRESSURE_ITEMS,
-        ),
+        back_pressure: Stepper::new(BACK_PRESSURE, limits.back_pressure, &BACK_PRESSURE_ITEMS),
         note: "Tickets in Ready for Dev wait for a free slot. Nothing that is already running is stopped.",
     }
 }
@@ -198,7 +198,7 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
             enabled: on,
         },
         LimitRow {
-            label: "Pause new starts when Needs you has",
+            label: BACK_PRESSURE,
             description: if on {
                 "Running agents are never stopped."
             } else {
@@ -210,14 +210,15 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
 }
 
 /// The "Right now" line under the ON section: "Right now: 3 running · 2 queued tickets waiting for a slot ·
-/// needs you 7 (new starts paused)".
+/// needs you 7 (no new starts)".
 pub fn right_now(status: &SchedulerStatus) -> String {
     let waiting = match status.waiting_for_slot {
         1 => "1 ticket waiting for a slot".to_owned(),
         n => format!("{n} tickets waiting for a slot"),
     };
+    // Back-pressure never says "paused": Pause is 0112's (SCH-03, Q450).
     let paused = if status.starts_paused {
-        " (new starts paused)"
+        " (no new starts)"
     } else {
         ""
     };
@@ -334,6 +335,10 @@ mod tests {
             off[1].description,
             "Suggested 5. Tickets in Ready for Dev wait for a free slot."
         );
+        assert_eq!(
+            off[2].label, "Don\u{2019}t start new tickets while Needs you has",
+            "Q450: not \"Pause\", which is 0112's"
+        );
         let on_rows = settings_rows(&on(5, 3));
         assert!(on_rows.iter().all(|r| r.enabled));
         assert_eq!(on_rows[2].description, "Running agents are never stopped.");
@@ -350,7 +355,7 @@ mod tests {
         };
         assert_eq!(
             right_now(&status),
-            "Right now: 3 running · 2 tickets waiting for a slot · needs you 7 (new starts paused)"
+            "Right now: 3 running · 2 tickets waiting for a slot · needs you 7 (no new starts)"
         );
         let calm = SchedulerStatus {
             waiting_for_slot: 1,
@@ -374,6 +379,10 @@ mod tests {
         let view = popover(&limits);
         assert_eq!(view.title, "Agent limits");
         assert_eq!(view.max_agents.label, "Max agents running at once");
+        assert_eq!(
+            view.back_pressure.label,
+            "Don\u{2019}t start new tickets while Needs you has"
+        );
         assert!(!view.max_agents.can_lower && view.max_agents.can_raise);
         assert!(view.back_pressure.can_lower && !view.back_pressure.can_raise);
         let up = stepped(&limits, Field::MaxAgents, true);

@@ -141,6 +141,10 @@ const CardItem = memo(function CardItem({
           state={state}
           onChild={handlers.open}
           onChildPress={handlers.pressChild}
+          onChildHover={(child, over) => {
+            // Off a row the pointer is back on the epic card (its own leave follows if it left the card too).
+            handlers.hover(over ? child : key, true);
+          }}
           onAdd={() => {
             handlers.addToEpic(key);
           }}
@@ -184,7 +188,11 @@ export const CardList = memo(function CardList({
           card={card}
           column={column}
           selected={card.card.key === selected}
-          chain={chainStateOf(chain, card.card.key)}
+          chain={chainStateOf(
+            chain,
+            card.card.key,
+            card.kind === "epic" ? card.card.children.map((c) => c.key) : [],
+          )}
           lifted={card.card.key === lifted}
           dimmed={strong !== null && !strong.has(card.card.key)}
           focusable={card.card.key === tabStop}

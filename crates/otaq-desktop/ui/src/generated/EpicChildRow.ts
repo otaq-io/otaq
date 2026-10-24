@@ -5,7 +5,19 @@ import type { IconName } from "./IconName";
 /**
  * A child row of the Epic Card.
  */
-export type EpicChildRow = { key: string, title: string, state: EpicChildState, icon: IconName, status_label: string, 
+export type EpicChildRow = { key: string, title: string, state: EpicChildState, 
+/**
+ * The state's icon, or the link while it is blocked.
+ */
+icon: IconName, 
+/**
+ * Its status ("Backlog"), or "Blocked by SHOP-18" while it waits for a parent (DPV-01, Q448).
+ */
+status_label: string, 
+/**
+ * It waits for a parent: the status is amber, and hovering the row draws its arrows (DPV-02).
+ */
+blocked: boolean, 
 /**
  * The row can be dragged out to queue only this child (d0080).
  */

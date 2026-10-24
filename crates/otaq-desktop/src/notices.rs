@@ -30,7 +30,7 @@ use otaq_core::protocol::{
     Event, ModelsParams, OnboardingState, ProjectParams, Reply, Request, UsageParams,
 };
 use otaq_core::store::now_ms;
-use otaq_view::view_models::after_restart::{ALREADY_RUNNING_MS, OnConnect, on_connect};
+use otaq_view::view_models::after_restart::{OnConnect, on_connect};
 use otaq_view::view_models::agent_activity::{Created, CreationBatch};
 use otaq_view::view_models::banners::{
     BannerModel, BannerView, Situation, SituationKind, TrustFailure,
@@ -229,8 +229,6 @@ struct State {
     flows: BTreeMap<String, FlowWatch>,
     /// Every project's pause counts, as last fetched (PAU-08): the paused banner of the project on screen.
     pause: Option<PauseCounts>,
-    /// The service start the "… restarted; a pause never lifts on its own" toast was shown for (PAU-07).
-    paused_toast_for: Option<i64>,
     /// Tickets agents created, until a quiet moment makes their toast (#47).
     creations: CreationBatch,
 }
@@ -280,7 +278,6 @@ impl Notices {
                 project: None,
                 flows: BTreeMap::new(),
                 pause: None,
-                paused_toast_for: None,
                 creations: CreationBatch::default(),
             }),
             events,
@@ -660,14 +657,6 @@ impl State {
                 OnConnect::Nothing => {}
             }
             self.connected_once = true;
-            // A service that started again while projects were paused (PAU-07): once per service start.
-            let fresh = info.status.started_at + ALREADY_RUNNING_MS >= self.opened_ms;
-            if fresh && self.paused_toast_for != Some(info.status.started_at) {
-                self.paused_toast_for = Some(info.status.started_at);
-                if let Some(toast) = pause::restart_toast(&info.status) {
-                    self.toasts.push_toast(toast, now);
-                }
-            }
             if self.was_disconnected && !self.busy && !summarized {
                 self.toasts
                     .push(ToastLevel::Success, RECONNECTED, None, now);
@@ -1202,9 +1191,9 @@ mod tests {
     }
 
     /// PAU-07, PAU-08: the paused banner is the project on screen's, first and closed only by Resume; after the
-    /// service started again it says "still paused", and a toast says a pause never lifts on its own, once.
+    /// service started again it says "still paused" and that a pause never lifts on its own, with no toast (Q417).
     #[test]
-    fn the_paused_banner_and_the_restart_toast() {
+    fn the_paused_banner_says_it_after_a_restart() {
         use otaq_core::agents::pause::ProjectPause;
         let n = notices();
         let project = |key: &str, name: &str, since: Option<i64>, working, paused| ProjectPause {
@@ -1262,29 +1251,30 @@ mod tests {
         assert_eq!(toasts(&n.view()), [RECONNECTED], "no restart yet");
         n.dismiss_toast(n.view().toasts[0].id);
 
-        // The service starts again: the pause stays, the banner says so, one toast.
+        // The service starts again: the pause stays and the banner alone says so (PAU-07, Q417).
         let restarted = ServiceStatus {
             started_at: OPENED + 60_000,
             paused: vec![project("SHOP", "shop-web", Some(OPENED), 0, 5)],
             ..Default::default()
         };
         n.on_link(&LinkState::Reconnecting { attempt: 1 });
-        n.on_link(&connected(Compatibility::Same, restarted.clone()));
+        n.on_link(&connected(Compatibility::Same, restarted));
         let view = n.view();
         assert_eq!(titles(&view)[0].0, "shop-web is still paused.");
         assert_eq!(
-            view.toasts
-                .iter()
-                .map(|t| (t.title.as_str(), t.text.as_deref()))
-                .collect::<Vec<_>>()[0],
-            (
-                pause::restarted_line().as_str(),
-                Some("5 agents wait where each one was; Resume when you\u{2019}re ready.")
+            titles(&view)[0].1,
+            format!(
+                "{} 5 agents wait where each one was; Resume when you\u{2019}re ready.",
+                pause::restarted_line()
             )
         );
-        let shown = n.view().toasts.len();
-        n.on_link(&connected(Compatibility::Same, restarted));
-        assert_eq!(n.view().toasts.len(), shown, "once per service start");
+        assert!(
+            view.toasts
+                .iter()
+                .all(|t| !t.title.contains("a pause never lifts")),
+            "no restart toast: {:?}",
+            toasts(&view)
+        );
 
         n.on_pause(counts(None));
         assert_ne!(n.view().banners[0].kind, SituationKind::Paused, "resumed");

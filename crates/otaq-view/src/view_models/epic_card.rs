@@ -12,6 +12,9 @@
 //! has no children either, LEAD-13, d0091). A review card keeps the ended lead
 //! ("Wishlist lead · ended · in review"). Child rows the lead created say "added by Wishlist lead", and a lead that
 //! asks you turns the card's border turquoise ([`EpicViewModel::with_lead`]).
+//!
+//! A child that hasn't started and waits for a parent says so on its row, short: "Wishlist page · Blocked by SHOP-18",
+//! amber with the link, and hovering it draws its arrows as a card's does (DPV-01, DPV-02, Q448).
 
 use crate::view_models::flow_columns::place_set;
 use otaq_core::board::epic_flight::{self, EpicPlace};
@@ -68,6 +71,9 @@ pub struct ChildRow {
     pub draggable: bool,
     /// "added by Wishlist lead": the epic's lead created it (d0083). Rows the user added have none.
     pub origin: Option<String>,
+    /// "Blocked by SHOP-18" in its status's place, amber with the link (DPV-01 short, Q448): it hasn't started and
+    /// waits for a parent to merge.
+    pub blocked: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,6 +192,7 @@ impl EpicViewModel {
                     draggable: card_place
                         && (epic_flight::is_never_started(c) || epic_flight::is_parked(c)),
                     origin: None,
+                    blocked: crate::view_models::dependencies::blocked_short(c, tickets),
                 })
                 .collect(),
             can_add: !done && epic.status != Status::PrOpen,
@@ -362,6 +369,51 @@ mod tests {
             vm.children.iter().all(|c| !c.draggable),
             "a delivery card's rows stay put"
         );
+    }
+
+    /// Q448, DPV-01: a Backlog epic's child waiting for SHOP-18 says so on its row, short, amber with the link;
+    /// once SHOP-18 merges the row is its status again.
+    #[test]
+    fn a_blocked_child_row_says_what_it_waits_for() {
+        use crate::view_models::card_page::EpicCardView;
+
+        let mut tickets = wishlist();
+        for t in &mut tickets[1..] {
+            t.status = Status::Backlog;
+            t.place = otaq_core::domain::Place::Backlog;
+        }
+        tickets[3].depends_on = vec!["SHOP-18".parse().unwrap()];
+        tickets.push(ticket("SHOP-18", "Saved items store", Status::Working));
+        let vm = EpicViewModel::from(&tickets[0], &tickets, None);
+        let blocked: Vec<Option<&str>> = vm.children.iter().map(|c| c.blocked.as_deref()).collect();
+        assert_eq!(blocked, [None, None, Some("Blocked by SHOP-18")]);
+
+        let card = EpicCardView::from_vm(vm);
+        let row = &card.children[2];
+        assert_eq!(
+            (
+                row.key.as_str(),
+                row.title.as_str(),
+                row.status_label.as_str()
+            ),
+            ("SHOP-40.3", "Wishlist page", "Blocked by SHOP-18")
+        );
+        assert!(row.blocked);
+        assert_eq!(row.icon, crate::view_models::dependencies::ICON);
+        assert!(
+            row.draggable,
+            "a blocked row can still be dragged to Ready for Dev"
+        );
+        assert!(!card.children[1].blocked);
+        assert_eq!(card.children[1].status_label, "Backlog");
+
+        let last = tickets.len() - 1;
+        tickets[last].status = Status::Merged;
+        tickets[last].place = otaq_core::domain::Place::Done;
+        let card = EpicCardView::of(&tickets[0], &tickets, None);
+        assert!(!card.children[2].blocked);
+        assert_eq!(card.children[2].status_label, "Backlog");
+        assert_eq!(card.children[2].icon, IconName::CircleDashed);
     }
 
     #[test]

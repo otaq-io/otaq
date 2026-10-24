@@ -16,11 +16,13 @@ export function activeChain(
   return lead === null ? null : (chains.find((c) => c.key === lead) ?? null);
 }
 
-/** A card's look under the chain shown. */
-export function chainStateOf(chain: ChainView | null, key: string): ChainState {
+/** A card's look under the chain shown; an epic card holding a member as a row (`rows`) isn't dimmed (Q448). */
+export function chainStateOf(chain: ChainView | null, key: string, rows: readonly string[] = []): ChainState {
   if (chain === null) return "none";
   if (chain.key === key) return "origin";
-  return chain.members.includes(key) ? "highlighted" : "dimmed";
+  return chain.members.includes(key) || rows.some((r) => chain.members.includes(r))
+    ? "highlighted"
+    : "dimmed";
 }
 
 /** The members among `keys` (a column's cards, the Done rail's, the cards behind Dev's fold). */

@@ -58,6 +58,9 @@ describe("the chain highlight", () => {
     expect(chainStateOf(SHOP_20, "SHOP-17")).toBe("highlighted");
     expect(chainStateOf(SHOP_20, "SHOP-22")).toBe("dimmed");
     expect(chainStateOf(null, "SHOP-22")).toBe("none");
+    // An epic card whose child row is in the chain stays lit (Q448).
+    expect(chainStateOf(SHOP_20, "SHOP-40", ["SHOP-40.1", "SHOP-18"])).toBe("highlighted");
+    expect(chainStateOf(SHOP_20, "SHOP-40", ["SHOP-40.1"])).toBe("dimmed");
     expect(membersIn(SHOP_20, ["SHOP-16", "SHOP-17"])).toEqual(["SHOP-17"]);
     expect(membersIn(null, ["SHOP-17"])).toEqual([]);
   });
