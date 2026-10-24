@@ -201,10 +201,30 @@ async fn no_merge_check_merges_as_today() {
 
 /// The command runs in the scratch worktree seeded copy-on-write from the ticket's build (a file only in its
 /// gitignored `build/` is there), with the project's variables and Otaq's own; the scratch worktree is clean after,
-/// and nothing is written to the user's checkout.
+/// and nothing is written to the user's checkout. Where the temporary folder's disk can't clone (ext4 on Linux CI),
+/// nothing is seeded (WRM-01: never a plain copy), and the variables still arrive.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_check_sees_the_variables_and_the_seeded_build_and_leaves_nothing_behind() {
-    let w = TestService::start().await;
+    sees_the_variables_and_leaves_nothing_behind(TestService::start().await).await;
+}
+
+/// On a disk that can't clone (exFAT, as Otaq is told), the check runs on no seeded build.
+#[tokio::test(flavor = "multi_thread")]
+async fn on_a_disk_that_cant_clone_the_check_runs_without_a_seeded_build() {
+    use otaq_core::warm::clone::{CloneProbe, CloneSupport};
+    let w = TestService::start_with(|config| otaq_core::service::ServiceConfig {
+        clone_probe: std::sync::Arc::new(CloneProbe::forced(CloneSupport {
+            available: false,
+            file_system: "exfat".into(),
+            volume: "/Volumes/Test".into(),
+        })),
+        ..config
+    })
+    .await;
+    sees_the_variables_and_leaves_nothing_behind(w).await;
+}
+
+async fn sees_the_variables_and_leaves_nothing_behind(w: TestService) {
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     commit(&repo, ".gitignore", "build/\n");
@@ -213,7 +233,7 @@ async fn the_check_sees_the_variables_and_the_seeded_build_and_leaves_nothing_be
     let mut settings = w.board.project_settings("SHOP").await.unwrap();
     settings.env_vars = vec![EnvVar::new("MY_FLAG", "on")];
     settings.merge_check = Some(format!(
-        "cat build/out.txt > '{seen}' && echo \"$MY_FLAG ${ticket}\" >> '{seen}' && echo made > made.txt",
+        "(cat build/out.txt 2>/dev/null || echo 'no build') > '{seen}' && echo \"$MY_FLAG ${ticket}\" >> '{seen}' && echo made > made.txt",
         seen = seen.display(),
         ticket = naming::ticket_env_var(),
     ));
@@ -226,15 +246,23 @@ async fn the_check_sees_the_variables_and_the_seeded_build_and_leaves_nothing_be
     std::fs::write(wt.join("build/out.txt"), "built by SHOP-1\n").unwrap();
     commit(&repo, "other.ts", "main moved\n");
     let before = checkout_status(&repo);
+    // What Otaq was told about the data folder's disk, and whether that disk really clones (the CI's ext4 doesn't).
+    let clones = w.warm.support().available && otaq_core::warm::clone::probe(&w.data).available;
 
     let outcome = merge(&w, "SHOP-1").await;
     assert!(
         matches!(outcome, LocalMergeOutcome::Merged { .. }),
         "{outcome:?}"
     );
+    let seeded = if clones {
+        "built by SHOP-1"
+    } else {
+        "no build"
+    };
     assert_eq!(
         std::fs::read_to_string(&seen).unwrap(),
-        "built by SHOP-1\non SHOP-1\n"
+        format!("{seeded}\non SHOP-1\n"),
+        "the disk can clone: {clones}"
     );
     let scratch = w.data.scratch_path("shop-web").unwrap();
     assert_eq!(
@@ -254,7 +282,7 @@ async fn the_check_sees_the_variables_and_the_seeded_build_and_leaves_nothing_be
     assert!(
         std::fs::read_to_string(log)
             .unwrap()
-            .starts_with("$ cat build/out.txt")
+            .starts_with("$ (cat build/out.txt")
     );
     w.stop().await;
 }
