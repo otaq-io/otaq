@@ -144,25 +144,26 @@ impl Review {
         let inner = &self.inner;
         let board = &inner.board;
         let mut stopped = false;
-        if let Some(checker) = inner
+        // Every check agent's checker of the round (d0130).
+        let checkers = inner
             .sessions
-            .running_of(&ticket.id, SessionKind::Validator)
-        {
+            .running_all_of(&ticket.id, SessionKind::Validator);
+        for checker in &checkers {
             if let Err(e) = inner.sessions.stop(&checker.id).await {
                 tracing::warn!(ticket = %ticket.key, error = %e, "can't stop the checker for Apply now");
             }
             stopped = true;
-            if ticket.status == Status::WaitingForLimitReset
-                && let Err(e) = board
-                    .store()
-                    .clear_agent_hold(
-                        crate::agents::store::HoldScope::Ticket(&ticket.id),
-                        crate::agents::SessionRole::Validator,
-                    )
-                    .await
-            {
-                tracing::warn!(ticket = %ticket.key, error = %e, "can't clear the checker's hold");
-            }
+        }
+        // A held check agent is let go too, the others running or not (a ticket outside a check has none).
+        if let Err(e) = board
+            .store()
+            .clear_agent_hold(
+                crate::agents::store::HoldScope::Ticket(&ticket.id),
+                crate::agents::SessionRole::Validator,
+            )
+            .await
+        {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't clear the checker's hold");
         }
         let Some(agent) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) else {
             return stopped;

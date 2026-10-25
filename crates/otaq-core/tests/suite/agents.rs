@@ -580,6 +580,7 @@ fn hold(
         id: uuid::Uuid::now_v7().to_string(),
         ticket_id: ticket.map(str::to_owned),
         project_id: project.map(str::to_owned),
+        check_agent: None,
         role,
         reason,
         tool: Tool::ALL[0],
@@ -640,12 +641,7 @@ async fn holds_are_one_per_scope_and_role() {
 
     // Use fallback on the Developer's hold, then the same role again: replaced, the start and the ask kept while the
     // reason stays.
-    assert!(
-        store
-            .ask_fallback(&shop31.id, SessionRole::Developer)
-            .await
-            .unwrap()
-    );
+    assert!(store.ask_fallback(&developer.id).await.unwrap());
     developer.id = "another".into();
     developer.since = 900;
     developer.fallback_tool = Some(Tool::ALL[0]);
@@ -721,6 +717,73 @@ async fn holds_are_one_per_scope_and_role() {
             .clear_agent_hold(HoldScope::Project(&project.id), SessionRole::ProjectAgent)
             .await
             .unwrap()
+    );
+
+    // An agent check's holds are per check agent (d0130 row 17): Use fallback asks one, a check agent's scope clears
+    // one, the ticket's clears every one.
+    let mut security = hold(
+        Some(&shop31.id),
+        None,
+        SessionRole::Validator,
+        HoldReason::ToolLimit,
+    );
+    security.check_agent = Some("Security reviewer".into());
+    let mut validator = hold(
+        Some(&shop31.id),
+        None,
+        SessionRole::Validator,
+        HoldReason::ToolLimit,
+    );
+    validator.check_agent = Some("Validator".into());
+    store.set_agent_hold(&security).await.unwrap();
+    store.set_agent_hold(&validator).await.unwrap();
+    assert!(store.ask_fallback(&security.id).await.unwrap());
+    let checks: Vec<(Option<String>, bool)> = store
+        .ticket_holds(&shop31.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.role == SessionRole::Validator)
+        .map(|h| (h.check_agent, h.fallback_asked))
+        .collect();
+    assert_eq!(
+        checks,
+        [
+            (Some("Security reviewer".into()), true),
+            (Some("Validator".into()), false)
+        ]
+    );
+    let of_validator = HoldScope::Check {
+        ticket: &shop31.id,
+        agent: "Validator",
+    };
+    assert_eq!(
+        store
+            .agent_hold(of_validator, SessionRole::Validator)
+            .await
+            .unwrap()
+            .map(|h| h.id),
+        Some(validator.id.clone())
+    );
+    assert!(
+        store
+            .clear_agent_hold(of_validator, SessionRole::Validator)
+            .await
+            .unwrap()
+    );
+    store.set_agent_hold(&validator).await.unwrap();
+    assert!(
+        store
+            .clear_agent_hold(HoldScope::Ticket(&shop31.id), SessionRole::Validator)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .agent_hold(HoldScope::Ticket(&shop31.id), SessionRole::Validator)
+            .await
+            .unwrap()
+            .is_none()
     );
     // A deleted ticket takes its holds with it.
     sqlx::query("DELETE FROM tickets WHERE id = ?")

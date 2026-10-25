@@ -180,6 +180,18 @@ async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, Er
                         .map_err(|e| error_body(&e))?;
                 kind = of_stage;
                 if kind == SessionKind::Validator {
+                    // One check agent's of several (d0130 row 17).
+                    if let Some(one) = super::board_requests::check_session(
+                        shared,
+                        &full,
+                        &stage,
+                        target.agent.as_deref(),
+                    )
+                    .await
+                    .map_err(|e| error_body(&e))?
+                    {
+                        return Ok(one.id);
+                    }
                     return shared
                         .sessions
                         .running_of(&full.id, kind)

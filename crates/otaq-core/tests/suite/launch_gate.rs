@@ -759,7 +759,7 @@ async fn use_fallback_starts_one_and_a_fallback_that_cant_run_leaves_it_waiting(
     world.hide(B, true).await;
     queue(w, &first).await;
     until_status(w, &first, Status::Held).await;
-    w.gate.use_fallback(&first).await.unwrap();
+    w.gate.use_fallback(&first, None).await.unwrap();
     until_status(w, &first, Status::Working).await;
     let t = ticket(w, &first).await;
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
@@ -774,7 +774,7 @@ async fn use_fallback_starts_one_and_a_fallback_that_cant_run_leaves_it_waiting(
     };
     assert_eq!((hold.fallback_tool, hold.fallback_held), (None, true));
     let refusal = "Codex's fallback can't start either: Claude Code limit reached";
-    let e = w.gate.use_fallback(&second).await.unwrap_err();
+    let e = w.gate.use_fallback(&second, None).await.unwrap_err();
     assert_eq!(e.refusal(), Some(Refusal::MoveRefused));
     assert_eq!(e.to_string(), refusal);
     let e = w.gate.use_fallback_now(B).await.unwrap_err();
@@ -782,7 +782,7 @@ async fn use_fallback_starts_one_and_a_fallback_that_cant_run_leaves_it_waiting(
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(w.status(&second).await, Status::Held, "still waiting");
     // A ticket that isn't held has nothing to start; a tool without a fallback offers none.
-    let e = w.gate.use_fallback(&first).await.unwrap_err();
+    let e = w.gate.use_fallback(&first, None).await.unwrap_err();
     assert_eq!(e.to_string(), format!("{first} isn't waiting"));
     let e = w.gate.use_fallback_now(A).await.unwrap_err();
     assert_eq!(

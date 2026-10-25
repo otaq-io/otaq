@@ -40,7 +40,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
-        Some(Command::Attach { key, stage }) => attach::run(key, stage, &cli.global),
+        Some(Command::Attach { key, stage, agent }) => attach::run(key, stage, agent, &cli.global),
         Some(Command::Prime {
             epic: Some(epic), ..
         }) => prime::epic(epic, &cli.global, &out),
@@ -54,8 +54,9 @@ fn main() -> ExitCode {
             key,
             terminal: true,
             stage,
+            agent,
             ..
-        }) => read::terminal(key, stage, &cli.global, &out),
+        }) => read::terminal(key, stage, agent, &cli.global, &out),
         Some(Command::Show {
             key,
             long,

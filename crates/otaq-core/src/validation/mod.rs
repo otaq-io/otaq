@@ -30,6 +30,12 @@
 //! with the hold). The automatic fallback may move its Validator row instead. The validator starts once the hold
 //! lifts ([`Validation::start_held`]), or with its tool's Resume ([`Validation::start_waiting`]).
 //!
+//! **Several check agents** (d0130 row 17): each check agent's hold is its own ([`AgentHold::check_agent`]): a held
+//! one waits while the round's others run on (one at its limit mid-round stops and waits the same way), the ticket
+//! shows "Waiting for limit reset" only once nothing else runs, and Use fallback moves the held one only. Retry after
+//! "ended without a verdict" re-runs only the check agents without one (`Board::rerun_without_verdict`); Stop this
+//! check and Skip this check stop every checker; Resume after a restart starts every one fresh (0063).
+//!
 //! **While the project is paused** (PAU-04, d0112) a checker Otaq would start on its own ([`Start::Auto`]: after a
 //! submit or a pass, a drag into a check, a lifted hold, a tool's Resume) doesn't start: the ticket is taken the
 //! pause's way ([`crate::recovery::Recovery::kept_paused`]: interrupted from its check, the round not counted), and the
@@ -112,6 +118,8 @@ struct Inner {
     events: EventBus,
     /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
     agent_turned: Mutex<HashSet<String>>,
+    /// The checkers waiting on a prompt, per ticket (d0130: one checker's Working leaves another's Needs you).
+    asking: Mutex<std::collections::HashMap<String, HashSet<String>>>,
     /// One checker start at a time per ticket: a tool's Resume and the hold lifting it causes both start a waiting
     /// round's checker, and two overlapping starts would leave the round naming a checker that was stopped.
     starting: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -169,6 +177,7 @@ impl Validation {
                 adapters,
                 events,
                 agent_turned: Mutex::new(HashSet::new()),
+                asking: Mutex::new(std::collections::HashMap::new()),
                 starting: Mutex::new(std::collections::HashMap::new()),
                 ending: Mutex::new(std::collections::HashMap::new()),
                 resume_agent: Mutex::new(None),
@@ -295,10 +304,16 @@ impl Validation {
         actor: &Actor,
     ) -> Result<bool, BoardError> {
         let board = &self.inner.board;
+        self.not_asking(&ticket.id, round, end.row);
         if round.open().any(|r| r.id != end.row) {
-            return board
+            let row = end.row.to_owned();
+            let ended = board
                 .end_in_round(ticket, round, Some(end), None, actor)
-                .await;
+                .await?;
+            if ended {
+                self.wait_for_held(ticket, round, &row).await?;
+            }
+            return Ok(ended);
         }
         let verdicts: Vec<(String, Option<ValidationOutcome>)> = round
             .latest()
@@ -551,12 +566,8 @@ impl Validation {
     ) -> Result<(), BoardError> {
         let board = &self.inner.board;
         self.stop_validator(ticket).await;
-        if ticket.status == Status::WaitingForLimitReset {
-            board
-                .store()
-                .clear_agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
-                .await?;
-        }
+        // Any held check agent is let go, the others running or not (d0130 row 17).
+        self.let_go_held(ticket).await?;
         sqlx::query("UPDATE validations SET ended_at = ?, outcome = ? WHERE ticket_id = ? AND ended_at IS NULL")
             .bind(crate::store::now_ms())
             .bind(match skipped {
@@ -610,12 +621,14 @@ impl Validation {
             .contains(ticket_id)
     }
 
+    /// A round ends or opens: the agent's turns and the checkers' prompts are forgotten.
     fn forget_turns(&self, ticket_id: &str) {
         self.inner
             .agent_turned
             .lock()
             .expect("turns")
             .remove(ticket_id);
+        self.inner.asking.lock().expect("asking").remove(ticket_id);
     }
 
     /// The agent's session started a turn (its prompt was submitted). While its ticket validates, that turn may
@@ -670,8 +683,10 @@ impl Validation {
         let ticket = board.ticket(key).await?;
         match action {
             ValidationAction::Stop => {
+                // Every checker of the round stops, a held one is let go (d0130 row 17); the round isn't counted.
                 let step = self.step(&ticket, ValidationEvent::StopValidation).await?;
                 self.stop_validator(&ticket).await;
+                self.let_go_held(&ticket).await?;
                 board.end_round(&ticket, &step, "", None, actor).await?;
                 self.forget_turns(&ticket.id);
             }
@@ -679,14 +694,10 @@ impl Validation {
                 if ticket.status == Status::WaitingForLimitReset {
                     self.may_skip_held(&ticket).await?;
                 }
+                // The whole stage is skipped, every check agent's checker stopped and its holds let go (d0130 row 17).
                 let step = self.step(&ticket, ValidationEvent::SkipCheck).await?;
                 self.stop_validator(&ticket).await;
-                if ticket.status == Status::WaitingForLimitReset {
-                    board
-                        .store()
-                        .clear_agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
-                        .await?;
-                }
+                self.let_go_held(&ticket).await?;
                 board.end_round(&ticket, &step, "", None, actor).await?;
                 if let Some(check) = ticket.place.stage() {
                     board
@@ -736,7 +747,12 @@ impl Validation {
             ValidationAction::Retry => {
                 self.step(&ticket, ValidationEvent::RetryValidation).await?;
                 let head = board.submit_head(&ticket).await?;
-                board.reopen_round(&ticket, &head, actor).await?;
+                self.let_go_held(&ticket).await?;
+                // After "ended without a verdict", only the check agents without one run again; the others' verdicts
+                // stand, as the code is the same (d0130 row 17). Otherwise a fresh round for every one.
+                if !board.rerun_without_verdict(&ticket, &head, actor).await? {
+                    board.reopen_round(&ticket, &head, actor).await?;
+                }
                 self.forget_turns(&ticket.id);
                 // Retry validation: the user's click on this one check (PAU-05).
                 if let Err(e) = self.start_validator(&ticket.id, Start::User).await {
@@ -757,14 +773,23 @@ impl Validation {
     }
 
     /// Skip this check on a check held for the plan limit is the user's only when no fallback can take it (Q277):
-    /// none set, or the fallback at its limit too. Otherwise Use fallback is the way on.
+    /// none set, or the fallback at its limit too, for one of its held check agents (d0130 row 17: `skip_at_limit`
+    /// per held session). Otherwise Use fallback is the way on.
     async fn may_skip_held(&self, ticket: &Ticket) -> Result<(), BoardError> {
-        let hold = self
+        let holds: Vec<AgentHold> = self
             .inner
             .board
             .store()
-            .agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
-            .await?;
+            .ticket_holds(&ticket.id)
+            .await?
+            .into_iter()
+            .filter(|h| h.role == SessionRole::Validator)
+            .collect();
+        let hold = holds
+            .iter()
+            .find(|h| skip_at_limit(h))
+            .or_else(|| holds.first())
+            .cloned();
         match hold {
             Some(hold) if skip_at_limit(&hold) => Ok(()),
             Some(hold) if hold.reason == HoldReason::ToolLimit => Err(BoardError::refused(
@@ -837,6 +862,8 @@ impl Validation {
         let board = &self.inner.board;
         let ticket = board.ticket_by_id(ticket_id).await?;
         let head = board.submit_head(&ticket).await?;
+        // Every check agent starts fresh: no verdict of the interrupted round is kept (0063, d0130 row 17).
+        self.let_go_held(&ticket).await?;
         board
             .reopen_round(&ticket, &head, &Actor::current_user())
             .await?;
@@ -947,6 +974,9 @@ impl Validation {
         let ticket = board.ticket_by_id(ticket_id).await?;
         match signal {
             Signal::NeedsYou { prompt } => {
+                self.asking_of(ticket_id, |asking| {
+                    asking.insert(session.to_owned());
+                });
                 board
                     .set_validation_status(
                         ticket_id,
@@ -958,15 +988,22 @@ impl Validation {
                     .await?;
             }
             Signal::Working { .. } => {
-                board
-                    .set_validation_status(
-                        ticket_id,
-                        &[Status::CheckerNeedsYou],
-                        Status::Checking,
-                        None,
-                        false,
-                    )
-                    .await?;
+                // Validating… again once no checker of the round waits on a prompt (d0130).
+                let still = self.asking_of(ticket_id, |asking| {
+                    asking.remove(session);
+                    !asking.is_empty()
+                });
+                if !still {
+                    board
+                        .set_validation_status(
+                            ticket_id,
+                            &[Status::CheckerNeedsYou],
+                            Status::Checking,
+                            None,
+                            false,
+                        )
+                        .await?;
+                }
             }
             Signal::Idle { .. } | Signal::TurnEnded if validating(ticket.status) => {
                 // No verdict this turn.
@@ -986,6 +1023,13 @@ impl Validation {
                     hand_over: None,
                 };
                 self.row_ended(&ticket, &facts, &round, end, None, &Actor::current_user())
+                    .await?;
+            }
+            Signal::LimitReached { .. }
+                if validating(ticket.status) && self.others_check(&round, &row) =>
+            {
+                // The round's other check agents run on: this one waits for its tool, held (d0130 row 17).
+                self.hold_checker_at_limit(&ticket, &round, &row, session)
                     .await?;
             }
             Signal::LimitReached { .. } if validating(ticket.status) => {
@@ -1208,6 +1252,14 @@ impl Validation {
     /// validation that waits), Validating… otherwise.
     async fn hold_round(&self, ticket: &Ticket, held: &Held) -> Result<(), BoardError> {
         let limit = held.blocked == crate::agents::gate::Blocked::AtLimit;
+        self.round_waits(ticket, limit).await?;
+        tracing::info!(key = %ticket.key, message = held.message(), "the validator is held");
+        Ok(())
+    }
+
+    /// The round waits without a running checker: "Waiting for limit reset" when `limit` (marked as a validation
+    /// that waits), Validating… otherwise.
+    async fn round_waits(&self, ticket: &Ticket, limit: bool) -> Result<(), BoardError> {
         let (from, to, interrupted_from) = if limit {
             (
                 Status::Checking,
@@ -1243,8 +1295,130 @@ impl Validation {
                 ticket.status
             },
         });
-        tracing::info!(key = %ticket.key, message = held.message(), "the validator is held");
         Ok(())
+    }
+
+    /// The round's other check agents still run (or wait for a start of their own) beside `row`'s.
+    fn others_check(&self, round: &OpenRound, row: &str) -> bool {
+        round.several() && round.open().any(|r| r.id != row)
+    }
+
+    /// A check agent's checker hit its tool's limit while the round's others run on (d0130 row 17): its row waits
+    /// without a session (stopping it isn't a crash: nothing interrupts the round) and it is held for its tool,
+    /// offering the fallback (Use fallback for it only) or, with none usable, Skip this check. Its tool's Resume, or
+    /// the limit's reset, lifts the hold and starts a fresh checker for it.
+    async fn hold_checker_at_limit(
+        &self,
+        ticket: &Ticket,
+        round: &OpenRound,
+        row: &str,
+        session: &str,
+    ) -> Result<(), BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
+        let tool = inner.sessions.info(session).ok().and_then(|i| i.tool);
+        let name = round
+            .rows
+            .iter()
+            .find(|r| r.id == row)
+            .and_then(|r| r.agent.clone());
+        sqlx::query("UPDATE validations SET session_id = NULL WHERE id = ? AND ended_at IS NULL")
+            .bind(row)
+            .execute(board.store().pool())
+            .await?;
+        self.not_asking(&ticket.id, round, row);
+        self.stop_session(ticket, session).await;
+        if let (Some(gate), Some(tool)) = (inner.gate.get(), tool) {
+            let named = match &name {
+                Some(name) => resolve::named(board.store(), name).await?,
+                None => None,
+            };
+            let agent = match named {
+                Some(agent) => agent,
+                None => resolve::session_agent(board, ticket, SessionRole::Validator).await?,
+            };
+            gate.hold_at_limit(
+                SessionRole::Validator,
+                Scope::check(ticket, name.as_deref()),
+                &agent,
+                tool,
+            )
+            .await?;
+        }
+        tracing::info!(key = %ticket.key, agent = ?name, "a check agent waits for its tool's limit");
+        self.wait_for_held(ticket, round, row).await
+    }
+
+    /// After `row` stopped checking (its verdict, a turn without one, its limit): when the round's other open rows
+    /// have no running checker, the round only waits for its held check agents, "Waiting for limit reset" if one
+    /// waits for its tool's limit (d0130 row 17).
+    async fn wait_for_held(
+        &self,
+        ticket: &Ticket,
+        round: &OpenRound,
+        row: &str,
+    ) -> Result<(), BoardError> {
+        let running = self
+            .inner
+            .sessions
+            .running_all_of(&ticket.id, SessionKind::Validator);
+        let others: Vec<_> = round.open().filter(|r| r.id != row).collect();
+        let runs = others.iter().any(|r| {
+            r.session
+                .as_ref()
+                .is_some_and(|s| running.iter().any(|i| &i.id == s))
+        });
+        if others.is_empty() || runs {
+            return Ok(());
+        }
+        let limit = self
+            .inner
+            .board
+            .store()
+            .ticket_holds(&ticket.id)
+            .await?
+            .iter()
+            .any(|h| h.role == SessionRole::Validator && h.reason == HoldReason::ToolLimit);
+        if limit {
+            let now = self.inner.board.ticket_by_id(&ticket.id).await?;
+            self.round_waits(&now, true).await?;
+        }
+        Ok(())
+    }
+
+    /// Lets go every held check agent of the ticket (Stop this check, Skip this check, Retry, Resume).
+    async fn let_go_held(&self, ticket: &Ticket) -> Result<(), BoardError> {
+        self.inner
+            .board
+            .store()
+            .clear_agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
+            .await?;
+        Ok(())
+    }
+
+    /// `f` on the ticket's checkers waiting on a prompt.
+    fn asking_of<T>(&self, ticket_id: &str, f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+        let mut asking = self.inner.asking.lock().expect("asking");
+        let set = asking.entry(ticket_id.to_owned()).or_default();
+        let out = f(set);
+        if set.is_empty() {
+            asking.remove(ticket_id);
+        }
+        out
+    }
+
+    /// `row`'s checker no longer waits on a prompt (its row ended or it stopped).
+    fn not_asking(&self, ticket_id: &str, round: &OpenRound, row: &str) {
+        if let Some(session) = round
+            .rows
+            .iter()
+            .find(|r| r.id == row)
+            .and_then(|r| r.session.clone())
+        {
+            self.asking_of(ticket_id, |asking| {
+                asking.remove(&session);
+            });
+        }
     }
 
     /// Starts the validator of the ticket's open round (a submit, Retry validation, a tool's Resume after its limit, a
@@ -1399,11 +1573,12 @@ impl Validation {
                     .await?;
             }
         }
-        if let Some(held) = held {
+        // A held check agent waits while the round's others run (d0130 row 17); with none running, the round waits.
+        if let Some(held) = held
+            && started.is_empty()
+        {
             self.hold_round(&ticket, &held).await?;
-            if started.is_empty() {
-                return Ok(ValidatorStart::Held(held));
-            }
+            return Ok(ValidatorStart::Held(held));
         }
         Ok(ValidatorStart::Started(Box::new(started.remove(0))))
     }
@@ -1432,9 +1607,11 @@ impl Validation {
             }
             _ => resolve::session_agent(board, ticket, SessionRole::Validator).await?,
         };
+        // Each check agent's hold is its own (d0130 row 17).
+        let scope = Scope::check(ticket, name);
         let runs_on = match inner.gate.get() {
             Some(gate) => match gate
-                .before_launch(SessionRole::Validator, Scope::ticket(ticket), &agent)
+                .before_launch(SessionRole::Validator, scope, &agent)
                 .await?
             {
                 Gated::Launch(runs_on) => runs_on,
@@ -1453,7 +1630,7 @@ impl Validation {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
                 if let Some(gate) = inner.gate.get()
                     && let Some(held) = gate
-                        .after_failed_launch(SessionRole::Validator, Scope::ticket(ticket), &agent)
+                        .after_failed_launch(SessionRole::Validator, scope, &agent)
                         .await?
                 {
                     return Ok(ValidatorStart::Held(Box::new(held)));

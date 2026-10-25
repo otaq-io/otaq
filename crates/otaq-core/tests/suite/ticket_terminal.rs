@@ -97,11 +97,22 @@ async fn as_user(
     key: &str,
     stage: Option<&str>,
 ) -> Result<(String, String), String> {
+    of_agent(w, key, stage, None).await
+}
+
+/// `ticket.terminal` from the user with `--agent` (d0130 row 17); a refusal or a not-found is its message.
+async fn of_agent(
+    w: &TestService,
+    key: &str,
+    stage: Option<&str>,
+    agent: Option<&str>,
+) -> Result<(String, String), String> {
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     match client
         .request(Request::TicketTerminal(TerminalParams {
             key: key.into(),
             stage: stage.map(str::to_owned),
+            agent: agent.map(str::to_owned),
         }))
         .await
     {
@@ -111,7 +122,10 @@ async fn as_user(
         }
         Ok(other) => panic!("unexpected {other:?}"),
         Err(ClientError::Service(e)) => {
-            assert_eq!(e.kind, ErrorKind::Refused, "{e:?}");
+            assert!(
+                matches!(e.kind, ErrorKind::Refused | ErrorKind::NotFound),
+                "{e:?}"
+            );
             Err(e.message)
         }
         Err(e) => panic!("{e}"),
@@ -142,8 +156,9 @@ fn refused(answer: &Value) -> &str {
 const PROMPT: &str = "\\033[2J\\033[H\\033[1mBash command\\033[22m\\r\\n\\r\\n  \\033[2mrm -rf .next\\033[22m\
                       \\033[5;1HDo you want to proceed?\\r\\n\\033[36m> 1. Yes\\033[39m   \\r\\n  2. No";
 
-/// FLW-20 on the test flow: `--stage security` reads the Security check's terminal while the ticket is in it, and is
-/// refused in any other stage; the plain form starts with a line naming the stage while the check runs.
+/// FLW-20 on the test flow: `--stage validate` reads the Validate check's terminal (its one check agent) while the
+/// ticket is in it, and is refused in any other stage; the plain form starts with a line naming the stage while the
+/// check runs.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
     let w = world().await;
@@ -171,9 +186,9 @@ async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
         "SHOP-22 isn't in Security"
     );
 
-    // In Security, its check running: `--stage security` (or its name, any case) reads the check's terminal, the
+    // In Validate, its check running: `--stage validate` (or its name, any case) reads the check's terminal, the
     // plain form starts with a line saying so, and Dev is refused.
-    w.force_stage(&note, "security", Status::Checking).await;
+    w.force_stage(&note, "validate", Status::Checking).await;
     let check = printing(
         &w,
         &note,
@@ -182,7 +197,7 @@ async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
         size,
     )
     .await;
-    for stage in ["security", "SECURITY", " Security "] {
+    for stage in ["validate", "VALIDATE", " Validate "] {
         let (from_session, text) = as_user(&w, "SHOP-22", Some(stage)).await.unwrap();
         assert_eq!(
             (from_session.as_str(), text.as_str()),
@@ -193,7 +208,7 @@ async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
     let (_, text) = as_user(&w, "SHOP-22", None).await.unwrap();
     assert!(
         text.starts_with(
-            "SHOP-22 is in Security \u{b7} its terminal: --stage security\nBash command\n"
+            "SHOP-22 is in Validate \u{b7} its terminal: --stage validate\nBash command\n"
         ),
         "{text}"
     );
@@ -205,8 +220,8 @@ async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
     // The check ended: nothing to read with --stage; the plain form loses its line.
     w.sessions.stop(&check).await.unwrap();
     assert_eq!(
-        as_user(&w, "SHOP-22", Some("security")).await.unwrap_err(),
-        "SHOP-22's Security check isn't running"
+        as_user(&w, "SHOP-22", Some("validate")).await.unwrap_err(),
+        "SHOP-22's Validate check isn't running"
     );
     let (_, text) = as_user(&w, "SHOP-22", None).await.unwrap();
     assert!(text.starts_with("Bash command\n"), "{text}");
@@ -223,6 +238,68 @@ async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
     let (from_session, text) = as_user(&w, "SHOP-22", None).await.unwrap();
     assert_eq!(from_session, session);
     assert!(text.contains("Do you want to proceed?"), "{text}");
+    w.stop().await;
+}
+
+/// d0130 row 17: Security has two check agents, one terminal each. `--stage security` alone is refused with the count;
+/// `--agent` (any case) picks one's running checker, else its last one; the plain form's line names both.
+#[tokio::test(flavor = "multi_thread")]
+async fn several_check_agents_each_have_their_terminal() {
+    let w = world().await;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
+    let file = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
+    w.board.use_flow_for_tests("SHOP", &file).await;
+    let note = ticket(&w, "SHOP-22").await;
+    let size = TerminalSize { cols: 60, rows: 12 };
+    printing(&w, &note, SessionKind::Agent, "the agent\\r\\n", size).await;
+    w.force_stage(&note, "security", Status::Checking).await;
+    let security = printing(&w, &note, SessionKind::Validator, "no SQL\\r\\n", size).await;
+    let validator = printing(&w, &note, SessionKind::Validator, "tests pass\\r\\n", size).await;
+    w.validating_with_agents(
+        &note,
+        &[("Security reviewer", &security), ("Validator", &validator)],
+    )
+    .await;
+    w.force_stage(&note, "security", Status::Checking).await;
+
+    assert_eq!(
+        as_user(&w, "SHOP-22", Some("security")).await.unwrap_err(),
+        "Security has 2 check agents; add --agent"
+    );
+    let (from_session, text) = of_agent(&w, "SHOP-22", Some("security"), Some("security REVIEWER"))
+        .await
+        .unwrap();
+    assert_eq!(
+        (from_session.as_str(), text.as_str()),
+        (security.as_str(), "no SQL\n<end>")
+    );
+    let (from_session, _) = of_agent(&w, "SHOP-22", Some("Security"), Some("Validator"))
+        .await
+        .unwrap();
+    assert_eq!(from_session, validator);
+    assert_eq!(
+        of_agent(&w, "SHOP-22", Some("security"), Some("Performance"))
+            .await
+            .unwrap_err(),
+        "Security has no check agent Performance (its check agents: Security reviewer, Validator)"
+    );
+    let (_, text) = as_user(&w, "SHOP-22", None).await.unwrap();
+    assert!(
+        text.starts_with(
+            "SHOP-22 is in Security \u{b7} its terminals: --stage security --agent \"Security reviewer\", \
+             --stage security --agent \"Validator\"\nthe agent"
+        ),
+        "{text}"
+    );
+    // One ended (its verdict is in): its last checker is still readable beside the other's.
+    w.sessions.stop(&security).await.unwrap();
+    let (from_session, text) = of_agent(&w, "SHOP-22", Some("security"), Some("Security reviewer"))
+        .await
+        .unwrap();
+    assert_eq!(
+        (from_session.as_str(), text.as_str()),
+        (security.as_str(), "no SQL\n<end>")
+    );
     w.stop().await;
 }
 

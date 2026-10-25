@@ -1092,6 +1092,88 @@ impl Board {
         Ok(())
     }
 
+    /// The ticket's newest round, open or ended, with every check agent's row.
+    pub(crate) async fn last_round(
+        &self,
+        ticket_id: &str,
+    ) -> Result<Option<OpenRound>, BoardError> {
+        let last: Option<String> = sqlx::query_scalar(
+            "SELECT COALESCE(round_id, id) FROM validations WHERE ticket_id = ?
+             ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        )
+        .bind(ticket_id)
+        .fetch_optional(self.store.pool())
+        .await?;
+        match last {
+            Some(id) => self.round(ticket_id, &id).await,
+            None => Ok(None),
+        }
+    }
+
+    /// Retry after "ended without a verdict" (d0130 row 17): the ticket's last round gets a fresh row for each check
+    /// agent without a verdict, with the same number and head; the others' verdicts stand, as the code is the one
+    /// they judged. `false` (nothing written) unless that round has a verdict to keep, none of its check agents
+    /// failed, every other one ended without a verdict (not stopped, cancelled or interrupted) and `head` is its
+    /// head: then Retry opens a fresh round for every check agent ([`Self::reopen_round`]).
+    pub(crate) async fn rerun_without_verdict(
+        &self,
+        ticket: &Ticket,
+        head: &str,
+        actor: &Actor,
+    ) -> Result<bool, BoardError> {
+        let Some(round) = self.last_round(&ticket.id).await? else {
+            return Ok(false);
+        };
+        let latest = round.latest();
+        let passed = |r: &&RoundRow| r.outcome == Some(ValidationOutcome::Pass);
+        let without: Vec<&RoundRow> = latest.iter().copied().filter(|r| !passed(r)).collect();
+        let keeps = latest.iter().any(passed)
+            && !without.is_empty()
+            && without.iter().all(|r| {
+                !r.open && r.outcome == Some(ValidationOutcome::NoResult) && r.agent.is_some()
+            })
+            && round.head.as_deref() == Some(head);
+        if !keeps {
+            return Ok(false);
+        }
+        let now = now_ms();
+        let to = Status::Checking;
+        let mut tx = self.store.begin_write().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET state = ?, signal_text = NULL, signal_since = NULL,
+                                interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.as_str())
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        for row in &without {
+            sqlx::query(
+                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha, agent, round_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(new_id())
+            .bind(&ticket.id)
+            .bind(i64::from(round.round))
+            .bind(ValidationTrigger::User.as_str())
+            .bind(now)
+            .bind(head)
+            .bind(&row.agent)
+            .bind(&round.id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, round = round.round, again = without.len(), "retry: the check agents without a verdict");
+        Ok(true)
+    }
+
     /// Whether the round this validator session judged has ended (its verdict is in).
     pub(crate) async fn round_of_session_ended(&self, session: &str) -> Result<bool, BoardError> {
         let ended: Option<Option<i64>> =

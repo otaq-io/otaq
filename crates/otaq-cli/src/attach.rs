@@ -49,6 +49,7 @@ pub const DETACH_KEY: u8 = 0x1d;
 pub fn run(
     key: Option<String>,
     stage: Option<String>,
+    agent: Option<String>,
     global: &GlobalArgs,
 ) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
@@ -57,13 +58,25 @@ pub fn run(
         .enable_all()
         .build()
         .map_err(|e| internal(e.to_string()))?;
-    runtime.block_on(attach(&data, key, stage.as_deref(), global))
+    let target = Target {
+        stage: stage.as_deref(),
+        agent: agent.as_deref(),
+    };
+    runtime.block_on(attach(&data, key, target, global))
+}
+
+/// Which of the ticket's sessions: its agent's, or with `stage` the session of the agent running that stage
+/// (`--stage`, FLW-20), with `agent` one check agent's of several (`--agent`, d0130 row 17).
+#[derive(Clone, Copy)]
+struct Target<'a> {
+    stage: Option<&'a str>,
+    agent: Option<&'a str>,
 }
 
 async fn attach(
     data: &DataDir,
     key: Option<String>,
-    stage: Option<&str>,
+    stage: Target<'_>,
     global: &GlobalArgs,
 ) -> Result<(), ErrorBody> {
     let client = crate::service::connect(data, global).await?;
@@ -161,11 +174,11 @@ async fn attach(
     }
 }
 
-/// The ticket's agent session, or with `stage` the session of the agent running that stage (`--stage`, FLW-20).
+/// The ticket's session `stage` names ([`Target`]).
 async fn request_attach(
     client: &Client,
     key: &TicketKey,
-    stage: Option<&str>,
+    stage: Target<'_>,
 ) -> Result<SessionAttach, ErrorBody> {
     let no_session = || ErrorBody::new(ErrorKind::NotFound, format!("{key} has no live session"));
     let reply = client
@@ -173,7 +186,8 @@ async fn request_attach(
             SessionTarget {
                 session: None,
                 key: Some(key.to_string()),
-                stage: stage.map(str::to_owned),
+                stage: stage.stage.map(str::to_owned),
+                agent: stage.agent.map(str::to_owned),
                 ..Default::default()
             }
             .into(),

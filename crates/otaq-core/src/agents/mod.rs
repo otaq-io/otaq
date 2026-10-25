@@ -317,8 +317,8 @@ impl Agent {
 }
 
 /// An agent that would start but doesn't (an Agent stage's start, an agent check's round, an epic lead, a Project
-/// agent's first message), one per ticket and session role, or per project for its Project agent (`agent_holds`).
-/// It lifts when its cause goes, or on the user's Use fallback.
+/// agent's first message), one per ticket and session role (and check agent, d0130 row 17), or per project for its
+/// Project agent (`agent_holds`). It lifts when its cause goes, or on the user's Use fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentHold {
     pub id: String,
@@ -327,6 +327,10 @@ pub struct AgentHold {
     /// The project of a held Project agent's first message; `None` for a ticket's hold.
     pub project_id: Option<String>,
     pub role: SessionRole,
+    /// The held check agent of an agent check's round, as its row names it ("Security reviewer"): the others of the
+    /// round run on (d0130 row 17). `None` for every other hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_agent: Option<String>,
     pub reason: HoldReason,
     /// The tool it would have started on.
     pub tool: Tool,

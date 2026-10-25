@@ -28,8 +28,8 @@ use crate::flow::propose;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
-use crate::session::SessionKind;
 use crate::session::deliveries::DeliveryKind;
+use crate::session::{SessionInfo, SessionKind};
 use crate::signals::LIVE;
 
 /// Answers a board request. `None` when the request isn't a board request.
@@ -270,7 +270,7 @@ pub(super) async fn handle(
             Ok(Reply::StartedOnFallback(started))
         }),
         Request::TicketUseFallback(p) => boxed(move || async move {
-            shared.gate.use_fallback(&p.key).await?;
+            shared.gate.use_fallback(&p.key, p.agent.as_deref()).await?;
             Ok(Reply::Ok)
         }),
         // What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14; d0090).
@@ -1848,9 +1848,13 @@ async fn terminal(
     use crate::session::screen;
     let ticket = shared.board.ticket(&p.key).await?;
     let key = &ticket.key;
+    let mut picked: Option<SessionInfo> = None;
     let (kind, stage) = match &p.stage {
         Some(name) => {
             let (kind, stage) = stage_session(&shared.board, &ticket, name).await?;
+            if kind == SessionKind::Validator {
+                picked = check_session(shared, &ticket, &stage, p.agent.as_deref()).await?;
+            }
             (kind, Some(stage.name))
         }
         None => (SessionKind::Agent, None),
@@ -1859,10 +1863,14 @@ async fn terminal(
         .sessions
         .running_of(&ticket.id, SessionKind::Validator);
     let (session, bytes, size) = if kind == SessionKind::Validator {
-        match check
-            .as_ref()
-            .and_then(|_| shared.sessions.output_of(&ticket.id, kind))
-        {
+        let output = match &picked {
+            // One check agent of several (d0130 row 17): its running checker, else its last one.
+            Some(one) => shared.sessions.output_of_session(&one.id),
+            None => check
+                .as_ref()
+                .and_then(|_| shared.sessions.output_of(&ticket.id, kind)),
+        };
+        match output {
             Some(output) => output,
             None => {
                 return Err(BoardError::refused(
@@ -1901,7 +1909,20 @@ async fn terminal(
     {
         let flow = shared.board.effective_flow(key.project.as_str()).await?;
         let name = flow.stage(id).map_or(id, |s| s.name.as_str());
-        text = format!("{key} is in {name} \u{b7} its terminal: --stage {id}\n{text}");
+        // Several check agents: one terminal each (d0130 row 17).
+        let agents = check_agent_names(&shared.board, &ticket, flow.stage(id)).await?;
+        text = if agents.len() > 1 {
+            let each: Vec<String> = agents
+                .iter()
+                .map(|agent| format!("--stage {id} --agent \"{agent}\""))
+                .collect();
+            format!(
+                "{key} is in {name} \u{b7} its terminals: {}\n{text}",
+                each.join(", ")
+            )
+        } else {
+            format!("{key} is in {name} \u{b7} its terminal: --stage {id}\n{text}")
+        };
     }
     Ok(Reply::TicketTerminal(Box::new(
         crate::protocol::TicketTerminal {
@@ -1957,6 +1978,112 @@ pub(super) async fn stage_session(
         crate::flow::StageKind::Agent | crate::flow::StageKind::Delivery => SessionKind::Agent,
     };
     Ok((kind, stage.clone()))
+}
+
+/// `--agent` with `--stage` on `otaq show --terminal` and `otaq attach` (d0130 row 17): which check agent's session
+/// of the agent check `stage`. With one check agent and no `--agent`, `None`: the caller's rule for the ticket's
+/// running checker, as before. Otherwise the check agent `agent` names (as its round's row names it, any case), its
+/// running checker, else its last one still in memory; refused without `--agent` when the stage has several
+/// ("Validate has 2 check agents; add --agent") and for a name that isn't one of them.
+pub(super) async fn check_session(
+    shared: &Shared,
+    ticket: &Ticket,
+    stage: &crate::flow::Stage,
+    agent: Option<&str>,
+) -> Result<Option<SessionInfo>, BoardError> {
+    let round = named_round(&shared.board, ticket).await?;
+    let names = check_agent_names(&shared.board, ticket, Some(stage)).await?;
+    let several = names.len() > 1;
+    let Some(wanted) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
+        if several {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "{} has {} check agents; add --agent",
+                    stage.name,
+                    names.len()
+                ),
+            ));
+        }
+        return Ok(None);
+    };
+    let folded = wanted.to_lowercase();
+    let Some(name) = names.iter().find(|n| n.trim().to_lowercase() == folded) else {
+        return Err(BoardError::NotFound(format!(
+            "{} has no check agent {wanted} (its check agents: {})",
+            stage.name,
+            names.join(", ")
+        )));
+    };
+    let sessions = &shared.sessions;
+    let mine = |info: &SessionInfo| {
+        info.agent
+            .as_ref()
+            .is_some_and(|a| a.name.trim().to_lowercase() == name.trim().to_lowercase())
+    };
+    // Its rows' sessions, newest first; then any checker of the ticket on that agent.
+    let from_rows: Vec<SessionInfo> = round
+        .iter()
+        .flat_map(|r| r.rows.iter().rev())
+        .filter(|r| r.agent.as_deref() == Some(name.as_str()))
+        .filter_map(|r| r.session.as_deref())
+        .filter_map(|id| sessions.info(id).ok())
+        .collect();
+    let mut running = sessions
+        .running_all_of(&ticket.id, SessionKind::Validator)
+        .into_iter()
+        .filter(|s| mine(s));
+    let picked = from_rows
+        .iter()
+        .find(|s| s.is_running())
+        .cloned()
+        .or_else(|| running.next_back())
+        .or_else(|| from_rows.first().cloned());
+    match picked {
+        Some(session) => Ok(Some(session)),
+        None => Err(BoardError::refused(
+            Refusal::SessionEnded,
+            format!("{}'s {} check isn't running", ticket.key, name),
+        )),
+    }
+}
+
+/// The ticket's newest round, once its check agents are named.
+async fn named_round(
+    board: &Board,
+    ticket: &Ticket,
+) -> Result<Option<crate::board::validation::OpenRound>, BoardError> {
+    Ok(board
+        .last_round(&ticket.id)
+        .await?
+        .filter(|r| r.rows.iter().any(|row| row.agent.is_some())))
+}
+
+/// The check agents of the agent check `stage` the ticket is in: its round's (the ticket's chosen option in the
+/// first one's place), else the stage's (a round of another stage, or none yet).
+async fn check_agent_names(
+    board: &Board,
+    ticket: &Ticket,
+    stage: Option<&crate::flow::Stage>,
+) -> Result<Vec<String>, BoardError> {
+    let of_stage = |name: &str| {
+        stage.is_some_and(|s| {
+            s.every_agent()
+                .any(|a| a.trim().to_lowercase() == name.trim().to_lowercase())
+        })
+    };
+    let round: Vec<String> = match named_round(board, ticket).await? {
+        Some(round) => round
+            .latest()
+            .iter()
+            .filter_map(|r| r.agent.clone())
+            .collect(),
+        None => Vec::new(),
+    };
+    if !round.is_empty() && round.iter().all(|a| of_stage(a)) {
+        return Ok(round);
+    }
+    Ok(stage.map(|s| s.check_agents().to_vec()).unwrap_or_default())
 }
 
 /// `otaq prime`: the ticket's context. Its own agent reads the unread lead notes in it, so they are marked read

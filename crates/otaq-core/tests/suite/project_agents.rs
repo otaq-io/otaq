@@ -821,6 +821,7 @@ async fn the_list_carries_a_held_first_message() {
         id: "h1".into(),
         ticket_id: None,
         project_id: Some(project.id.clone()),
+        check_agent: None,
         role: SessionRole::ProjectAgent,
         reason: HoldReason::ModelUnavailable,
         tool: Tool::ALL[1],

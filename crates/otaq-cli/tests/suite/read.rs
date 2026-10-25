@@ -330,7 +330,9 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
 }
 
 /// `show --terminal --stage <name>` (T-0416, FLW-20) on the test flow: refused while the ticket is in Dev; in
-/// Security, the check's terminal, and the plain form's first line names the stage; `--validator` is unknown.
+/// Validate (one check agent), the check's terminal, and the plain form's first line names the stage; in Security (two
+/// check agents, d0130 row 17) `--stage` alone is refused with the count and `--agent` picks one; `--validator` is
+/// unknown.
 #[tokio::test(flavor = "multi_thread")]
 async fn show_terminal_stage_reads_the_check_running_it() {
     let w = TestService::start().await;
@@ -382,8 +384,8 @@ async fn show_terminal_stage_reads_the_check_running_it() {
         "the agent<end>\n"
     );
 
-    // In Security while its check runs.
-    w.force_stage(&ticket, "security", Status::Checking).await;
+    // In Validate while its check runs.
+    w.force_stage(&ticket, "validate", Status::Checking).await;
     let check = w
         .sessions
         .spawn(print(SessionKind::Validator, "the check<end>"))
@@ -393,7 +395,7 @@ async fn show_terminal_stage_reads_the_check_running_it() {
     assert_eq!(
         stdout(&cb(
             &w,
-            &["show", "SHOP-1", "--terminal", "--stage", "security"]
+            &["show", "SHOP-1", "--terminal", "--stage", "validate"]
         )),
         "the check<end>\n"
     );
@@ -404,19 +406,72 @@ async fn show_terminal_stage_reads_the_check_running_it() {
             "SHOP-1",
             "--terminal",
             "--stage",
-            "Security",
+            "Validate",
             "--json",
         ],
     ));
     assert_eq!(shown["session"], check.id);
     assert_eq!(
         stdout(&cb(&w, &["show", "SHOP-1", "--terminal"])),
-        "SHOP-1 is in Security \u{b7} its terminal: --stage security\nthe agent<end>\n"
+        "SHOP-1 is in Validate \u{b7} its terminal: --stage validate\nthe agent<end>\n"
     );
     let out = cb(&w, &["show", "SHOP-1", "--terminal", "--stage", "dev"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
         "error: SHOP-1 isn't in Dev\n"
+    );
+
+    // In Security: two check agents, one terminal each.
+    let reviewer = w
+        .sessions
+        .spawn(print(SessionKind::Validator, "the reviewer<end>"))
+        .await
+        .unwrap();
+    w.wait_for_output(&reviewer.id, "<end>").await;
+    w.validating_with_agents(
+        &ticket,
+        &[
+            ("Security reviewer", &reviewer.id),
+            ("Validator", &check.id),
+        ],
+    )
+    .await;
+    w.force_stage(&ticket, "security", Status::Checking).await;
+    let out = cb(&w, &["show", "SHOP-1", "--terminal", "--stage", "security"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "error: Security has 2 check agents; add --agent\n"
+    );
+    assert_eq!(
+        stdout(&cb(
+            &w,
+            &[
+                "show",
+                "SHOP-1",
+                "--terminal",
+                "--stage",
+                "security",
+                "--agent",
+                "Security reviewer"
+            ]
+        )),
+        "the reviewer<end>\n"
+    );
+    assert_eq!(
+        stdout(&cb(
+            &w,
+            &[
+                "show",
+                "SHOP-1",
+                "--terminal",
+                "--stage",
+                "security",
+                "--agent",
+                "validator"
+            ]
+        )),
+        "the check<end>\n"
     );
 
     // `--validator` is gone: a usage error.

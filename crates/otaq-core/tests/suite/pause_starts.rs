@@ -524,6 +524,7 @@ async fn the_gates_lift_keeps_a_paused_projects_hold() {
             id: "hold-1".into(),
             ticket_id: Some(t.id.clone()),
             project_id: None,
+            check_agent: None,
             role: SessionRole::Developer,
             reason: HoldReason::ToolLimit,
             tool: Tool::Claude,

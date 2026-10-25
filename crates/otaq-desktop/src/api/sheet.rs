@@ -1640,8 +1640,9 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         ),
         // A held role's fallback takes it (AGT-08, T-0362).
         CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
-            Request::TicketUseFallback(KeyParams {
+            Request::TicketUseFallback(otaq_core::protocol::UseFallbackParams {
                 key: params.key.clone(),
+                agent: None,
             }),
             format!("{key} didn\u{2019}t start on its fallback"),
         ),
@@ -2564,6 +2565,7 @@ mod tests {
             id: "h44".into(),
             ticket_id: Some("t44".into()),
             project_id: None,
+            check_agent: None,
             role: SessionRole::Developer,
             reason: HoldReason::ToolUnavailable,
             tool: Tool::Claude,
