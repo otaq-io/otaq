@@ -6,7 +6,10 @@
 //! - **change only its own ticket** (`update`, `stage next` / `review submit`, `stage done`, `ask`, `answer`, and
 //!   from M10 `pr propose`, `pr opened`, `branch rename`);
 //! - **create tickets**, which always land in Backlog;
-//! - **add or remove dependencies** only from its own ticket, or between two tickets it created.
+//! - **add or remove dependencies** only from its own ticket, or from a ticket it may fix (below);
+//! - **fix the tickets it filed** (d0129): `update`, `delete`, `dep add|remove` and stage choices on a ticket its
+//!   ticket created that never started ([`may_fix`]). Any session of the ticket counts: the actor is the ticket.
+//!   Others are refused: "SHOP-41 was created by you; SHOP-40's agent can only change tickets it created".
 //!
 //! Everything else is refused, for example "SHOP-18's agent can't change SHOP-12". The user (the app, their own
 //! terminals, the Project terminal, Shell and Run) passes every check (CLI-03), except reporting a verdict.
@@ -27,8 +30,8 @@
 //! tickets".
 //!
 //! **Stage choices** (`otaq create|update --stage`, AGM-11; d0108, d0087) are their own action,
-//! [`Action::SetChoices`]: a Project agent on the tickets it may change (Backlog), a ticket agent on its own ticket;
-//! a validator never. Which stage each may
+//! [`Action::SetChoices`]: a Project agent on the tickets it may change (Backlog), a ticket agent on its own ticket
+//! and on the ones it may fix (d0129); a validator never. Which stage each may
 //! choose for, and over whose choice, is [`crate::board::stage_choices::judge`]'s.
 //!
 //! **Ticket comments** (CMT-04, d0109) are [`Action::Comment`]: the user writes, edits and deletes any; a ticket's
@@ -122,6 +125,9 @@ pub enum Action {
     /// Sets this ticket's stage choices (`--stage`, AGM-11); each is then judged by
     /// [`crate::board::stage_choices::judge`].
     SetChoices(TicketFacts),
+    /// Deletes this never-started ticket (`otaq delete`, d0060): the user any; a ticket's agent the ones it may fix
+    /// (d0129).
+    DeleteTicket(TicketFacts),
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
     /// `check pass|fail` for this ticket: its agent check's session only.
@@ -261,25 +267,19 @@ pub fn authorize_in_stage(
         {
             Ok(())
         }
-        Action::ChangeTicket(target)
-        | Action::EditTicket(target)
-        | Action::SetChoices(target)
-        | Action::Answer { asked: target, .. } => {
+        Action::DeleteTicket(target) if target.id == *ticket_id => refuse(format!(
+            "{ticket}'s agent can't delete its own ticket; ask the user"
+        )),
+        // The tickets it filed, while they haven't started (d0129).
+        Action::EditTicket(target) | Action::SetChoices(target) | Action::DeleteTicket(target) => {
+            may_fix(ticket, target).or_else(refuse)
+        }
+        Action::ChangeTicket(target) | Action::Answer { asked: target, .. } => {
             refuse(format!("{ticket}'s agent can't change {}", target.label))
         }
-        Action::Dependency { child, parent } => {
-            let own = Actor::Agent(ticket.clone());
-            let from_own = child.id == *ticket_id;
-            let both_created = child.created_by == own && parent.created_by == own;
-            if from_own || both_created {
-                Ok(())
-            } else {
-                refuse(format!(
-                    "{ticket}'s agent can't change {}: it may link only its own ticket, or tickets it created",
-                    child.label
-                ))
-            }
-        }
+        // From its own ticket to any; from a ticket it may fix to any, its own included ("SHOP-41 waits for SHOP-40").
+        Action::Dependency { child, .. } if child.id == *ticket_id => Ok(()),
+        Action::Dependency { child, .. } => may_fix(ticket, child).or_else(refuse),
         Action::ReadTerminal { target, .. } => refuse(format!(
             "{ticket}'s agent can't read {}'s terminal",
             target.label
@@ -300,6 +300,34 @@ pub fn authorize_in_stage(
             unreachable!("handled above")
         }
         Action::All(actions) => all(actions),
+    }
+}
+
+/// Whether the agent of `ticket` may fix `target` (d0129): its ticket created it and it never started. The refusal
+/// names who created it, or that it started: "SHOP-41 was created by you; SHOP-40's agent can only change tickets it
+/// created".
+pub fn may_fix(ticket: &TicketKey, target: &TicketFacts) -> Result<(), String> {
+    let me = format!("{ticket}'s agent");
+    match &target.created_by {
+        Actor::Agent(creator) if creator == ticket && target.never_started => Ok(()),
+        Actor::Agent(creator) if creator == ticket => Err(format!(
+            "{} has started; {me} can only change tickets it created that haven't started",
+            target.label
+        )),
+        creator => Err(format!(
+            "{} was created by {}; {me} can only change tickets it created",
+            target.label,
+            creator_name(creator)
+        )),
+    }
+}
+
+/// How a creator reads in a refusal: "you", "SHOP-39's agent", "Noyan".
+fn creator_name(creator: &Actor) -> String {
+    match creator {
+        Actor::User(_) => "you".to_owned(),
+        Actor::Agent(key) => format!("{key}'s agent"),
+        Actor::ProjectAgent(_) => "Noyan".to_owned(),
     }
 }
 
@@ -341,8 +369,14 @@ mod tests {
         let me = agent("SHOP-18", "t18");
         let own = facts("SHOP-18", "t18", "nevzat");
         let other = facts("SHOP-12", "t12", "nevzat");
-        let mine_a = facts("SHOP-21", "t21", "agent:SHOP-18");
-        let mine_b = facts("SHOP-22", "t22", "agent:SHOP-18");
+        let mine_a = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-21", "t21", "agent:SHOP-18")
+        };
+        let mine_b = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-22", "t22", "agent:SHOP-18")
+        };
         let theirs = facts("SHOP-23", "t23", "agent:SHOP-19");
         let dep = |child: &TicketFacts, parent: &TicketFacts| Action::Dependency {
             child: child.clone(),
@@ -378,14 +412,19 @@ mod tests {
                 "dep add between user tickets",
                 dep(&other, &facts("SHOP-13", "t13", "nevzat")),
                 Some(
-                    "SHOP-18's agent can't change SHOP-12: it may link only its own ticket, or tickets it created",
+                    "SHOP-12 was created by you; SHOP-18's agent can only change tickets it created",
                 ),
             ),
             (
                 "dep add from its creation to another agent's",
                 dep(&mine_a, &theirs),
+                None,
+            ),
+            (
+                "dep add from another agent's creation",
+                dep(&theirs, &mine_a),
                 Some(
-                    "SHOP-18's agent can't change SHOP-21: it may link only its own ticket, or tickets it created",
+                    "SHOP-23 was created by SHOP-19's agent; SHOP-18's agent can only change tickets it created",
                 ),
             ),
             (
@@ -684,7 +723,7 @@ mod tests {
         );
     }
     /// AGM-11 (CLI-06, CLI-07): who may set stage choices at all. The user always; a Project agent on Backlog
-    /// tickets; a ticket agent on its own ticket only; a validator never.
+    /// tickets; a ticket agent on its own ticket and the never-started ones it created (d0129); a validator never.
     #[test]
     fn who_may_set_stage_choices() {
         let backlog = TicketFacts {
@@ -733,7 +772,7 @@ mod tests {
         assert_eq!(choose(&agent("SHOP-13", "t13"), &backlog), None);
         assert_eq!(
             choose(&agent("SHOP-13", "t13"), &ready).as_deref(),
-            Some("SHOP-13's agent can't change SHOP-20")
+            Some("SHOP-20 was created by you; SHOP-13's agent can only change tickets it created")
         );
         assert_eq!(
             choose(&validator, &backlog).as_deref(),
@@ -846,5 +885,144 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// T-0542 (d0129): SHOP-40's agent fixes the tickets it filed while they haven't started, with every command;
+    /// a started one, another agent's, Noyan's and the user's are refused, and so is deleting its own ticket.
+    #[test]
+    fn an_agent_fixes_the_never_started_tickets_it_created() {
+        let me = agent("SHOP-40", "t40");
+        let own = facts("SHOP-40", "t40", "nevzat");
+        let filed = TicketFacts {
+            never_started: true,
+            backlog: true,
+            ..facts("SHOP-41", "t41", "agent:SHOP-40")
+        };
+        let ready = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-42", "t42", "agent:SHOP-40")
+        };
+        let started = facts("SHOP-43", "t43", "agent:SHOP-40");
+        let others = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-44", "t44", "agent:SHOP-39")
+        };
+        let users = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-45", "t45", "nevzat")
+        };
+        let noyans = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-46", "t46", "project-agent:a1")
+        };
+        let commands = |t: &TicketFacts| {
+            vec![
+                ("update", Action::EditTicket(t.clone())),
+                ("stage choices", Action::SetChoices(t.clone())),
+                ("delete", Action::DeleteTicket(t.clone())),
+                (
+                    "dep add / remove",
+                    Action::Dependency {
+                        child: t.clone(),
+                        parent: own.clone(),
+                    },
+                ),
+            ]
+        };
+        for target in [&filed, &ready] {
+            for (name, action) in commands(target) {
+                assert_eq!(
+                    message(authorize(&me, &action)),
+                    None,
+                    "{name} {}",
+                    target.label
+                );
+            }
+        }
+        let refusals = [
+            (
+                &started,
+                "SHOP-43 has started; SHOP-40's agent can only change tickets it created that haven't started",
+            ),
+            (
+                &others,
+                "SHOP-44 was created by SHOP-39's agent; SHOP-40's agent can only change tickets it created",
+            ),
+            (
+                &users,
+                "SHOP-45 was created by you; SHOP-40's agent can only change tickets it created",
+            ),
+            (
+                &noyans,
+                "SHOP-46 was created by Noyan; SHOP-40's agent can only change tickets it created",
+            ),
+        ];
+        for (target, expected) in refusals {
+            for (name, action) in commands(target) {
+                assert_eq!(
+                    message(authorize(&me, &action)).as_deref(),
+                    Some(expected),
+                    "{name}"
+                );
+            }
+        }
+        // "SHOP-41 waits for SHOP-40", and SHOP-40 may wait for what it filed.
+        for action in [
+            Action::Dependency {
+                child: filed.clone(),
+                parent: own.clone(),
+            },
+            Action::Dependency {
+                child: own.clone(),
+                parent: filed.clone(),
+            },
+        ] {
+            assert_eq!(message(authorize(&me, &action)), None, "{action:?}");
+        }
+        // Its own ticket is the user's to delete; review, questions and the rest stay its own ticket's only.
+        assert_eq!(
+            message(authorize(&me, &Action::DeleteTicket(own.clone()))).as_deref(),
+            Some("SHOP-40's agent can't delete its own ticket; ask the user")
+        );
+        assert_eq!(
+            message(authorize(&me, &Action::ChangeTicket(filed.clone()))).as_deref(),
+            Some("SHOP-40's agent can't change SHOP-41")
+        );
+        // Another session of SHOP-40 (Milestone plan walked again) is the same actor.
+        let again = Caller::Agent {
+            ticket: "SHOP-40".parse().unwrap(),
+            ticket_id: "t40".into(),
+            session: "s2".into(),
+        };
+        assert_eq!(
+            message(authorize(&again, &Action::EditTicket(filed.clone()))),
+            None
+        );
+        // The user deletes; Noyan and a check don't.
+        assert_eq!(
+            message(authorize(
+                &Caller::User,
+                &Action::DeleteTicket(users.clone())
+            )),
+            None
+        );
+        let noyan = Caller::ProjectAgent {
+            project: "SHOP".into(),
+            agent: "a1".into(),
+            session: "s".into(),
+        };
+        assert_eq!(
+            message(authorize(&noyan, &Action::DeleteTicket(filed.clone()))).as_deref(),
+            Some(BACKLOG_ONLY)
+        );
+        let check = Caller::Validator {
+            ticket: "SHOP-40".parse().unwrap(),
+            ticket_id: "t40".into(),
+            session: "v".into(),
+        };
+        assert_eq!(
+            message(authorize(&check, &Action::DeleteTicket(filed))).as_deref(),
+            Some("SHOP-40's check can only give its verdict")
+        );
     }
 }

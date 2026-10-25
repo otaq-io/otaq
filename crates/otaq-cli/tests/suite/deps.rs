@@ -213,9 +213,9 @@ async fn an_agent_links_only_from_its_own_ticket() {
     let other = agent.run(&format!("'{CB}' dep add SHOP-24 SHOP-17")).await;
     assert_ne!(other.status, 0);
     assert!(
-        other
-            .stderr
-            .contains("SHOP-19's agent can't change SHOP-24"),
+        other.stderr.contains(
+            "SHOP-24 was created by you; SHOP-19's agent can only change tickets it created"
+        ),
         "{other:?}"
     );
     assert!(

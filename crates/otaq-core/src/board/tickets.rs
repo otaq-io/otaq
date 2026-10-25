@@ -430,6 +430,10 @@ stored_enum! {
         /// The user ticked or unticked a manual check (d0125): payload `n`, `text` and `ticked`. History reads
         /// "Ticked a manual check" (or "Unticked a manual check") · the item, quoted.
         ManualCheckTicked = "manual_check_ticked",
+        /// The ticket's agent changed or deleted a never-started ticket it created (d0129): logged on the creator,
+        /// payload `ticket` (its key) and `change` (as [`super::fixes::Fix`]). History reads "Edited SHOP-42" ·
+        /// "title, priority" or "Deleted SHOP-43" · "merged into SHOP-42".
+        FixedCreatedTicket = "fixed_created_ticket",
     }
 }
 

@@ -457,6 +457,43 @@ fn fields(names: impl Iterator<Item = String>) -> String {
         .join(" \u{b7} ")
 }
 
+/// A change to a ticket the agent filed (d0129), on the creating ticket: "Edited SHOP-42" with what changed
+/// ("title · priority", "depends on SHOP-40", "Dev: Quick developer"), or "Deleted SHOP-43" with the agent's reason.
+fn fix_line(p: &serde_json::Value) -> (String, Option<String>) {
+    let ticket = text(p, "ticket").unwrap_or_default();
+    let list = |field: &str| {
+        p.get(field)
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    let parent = text(p, "parent").unwrap_or_default();
+    match text(p, "change").as_deref() {
+        Some("deleted") => (format!("Deleted {ticket}"), text(p, "reason")),
+        Some("dependency_added") => (
+            format!("Edited {ticket}"),
+            Some(format!("depends on {parent}")),
+        ),
+        Some("dependency_removed") => (
+            format!("Edited {ticket}"),
+            Some(format!("no longer depends on {parent}")),
+        ),
+        Some("choices_set") => (
+            format!("Edited {ticket}"),
+            Some(list("choices").join(" \u{b7} ")),
+        ),
+        _ => {
+            let changed = fields(list("fields").into_iter());
+            (
+                format!("Edited {ticket}"),
+                (!changed.is_empty()).then_some(changed),
+            )
+        }
+    }
+}
+
 /// A stage choice (AGM-08): "Dev: Quick developer (set by Noyan)" · "typo fix"; on an epic for a child,
 /// "Wishlist lead set SHOP-40.3's Dev: Quick developer".
 fn choice_line(p: &serde_json::Value) -> (String, Option<String>) {
@@ -886,6 +923,9 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 None => who(&e.actor),
             }),
         ),
+        // The agent fixed a ticket it filed (d0129): "Edited SHOP-42" · "title · priority", "Deleted SHOP-43" ·
+        // "merged into SHOP-42".
+        EventKind::FixedCreatedTicket => fix_line(p),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
             // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
@@ -959,22 +999,48 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     (!changed.is_empty()).then_some(changed),
                 )
             }
-            None => ("Edited".to_owned(), Some(who(&e.actor))),
+            None => match (&e.actor, author_of(p)) {
+                // Another ticket's agent fixing what it filed (d0129): "Edited by Milestone plan · SHOP-40".
+                (
+                    Actor::Agent(key),
+                    Some(CommentAuthor::Agent {
+                        stage: Some(stage), ..
+                    }),
+                ) => {
+                    let stage = facts.stages.get(&stage).cloned().unwrap_or(stage);
+                    let names = p
+                        .get("changes")
+                        .and_then(|c| c.as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| text(c, "field"));
+                    let changed = fields(names);
+                    (
+                        format!("Edited by {stage} \u{b7} {key}"),
+                        (!changed.is_empty()).then_some(changed),
+                    )
+                }
+                _ => ("Edited".to_owned(), Some(who(&e.actor))),
+            },
         },
         EventKind::Pinned => ("Pinned".to_owned(), None),
         EventKind::Unpinned => ("Unpinned".to_owned(), None),
         EventKind::DependencyAdded => (
             "Dependency added".to_owned(),
-            text(p, "parent").map(|k| match text(p, "lead") {
-                Some(lead) => format!("depends on {k} \u{b7} by {lead}"),
-                None => format!("depends on {k}"),
+            text(p, "parent").map(|k| match (text(p, "lead"), &e.actor) {
+                (Some(lead), _) => format!("depends on {k} \u{b7} by {lead}"),
+                (None, Actor::Agent(_)) => format!("depends on {k} \u{b7} {}", who(&e.actor)),
+                (None, _) => format!("depends on {k}"),
             }),
         ),
         EventKind::DependencyRemoved => (
             "Dependency removed".to_owned(),
-            text(p, "parent").map(|k| match text(p, "lead") {
-                Some(lead) => format!("no longer depends on {k} \u{b7} by {lead}"),
-                None => format!("no longer depends on {k}"),
+            text(p, "parent").map(|k| match (text(p, "lead"), &e.actor) {
+                (Some(lead), _) => format!("no longer depends on {k} \u{b7} by {lead}"),
+                (None, Actor::Agent(_)) => {
+                    format!("no longer depends on {k} \u{b7} {}", who(&e.actor))
+                }
+                (None, _) => format!("no longer depends on {k}"),
             }),
         ),
         // `otaq stage done` (AGM-10): the agent's reason.
@@ -1442,6 +1508,82 @@ mod tests {
             Some("by DEMO-7's agent \u{b7} in Backlog")
         );
         assert_eq!(row.kind, Kind::Other);
+    }
+
+    /// T-0542 (d0129): SHOP-40's agent fixing a ticket it filed reads on both tickets: "Edited SHOP-42" and "Deleted
+    /// SHOP-43 · merged into SHOP-42" on SHOP-40, "Edited by Milestone plan · SHOP-40" on SHOP-42.
+    #[test]
+    fn an_agent_fixing_what_it_filed() {
+        let by_shop40 = |kind: EventKind, payload: serde_json::Value| HistoryEvent {
+            actor: Actor::Agent("SHOP-40".parse().unwrap()),
+            ..event(kind, MIN, payload)
+        };
+        let line = |e: HistoryEvent| {
+            let row = event_row_in(
+                &e,
+                &Facts {
+                    stages: BTreeMap::from([("plan".to_owned(), "Milestone plan".to_owned())]),
+                    avatars: false,
+                },
+            )
+            .unwrap();
+            (row.title, row.detail)
+        };
+        let rows = [
+            (
+                json!({"ticket": "SHOP-42", "change": "edited", "fields": ["title", "priority"]}),
+                ("Edited SHOP-42", Some("title \u{b7} priority")),
+            ),
+            (
+                json!({"ticket": "SHOP-41", "change": "dependency_added", "parent": "SHOP-40"}),
+                ("Edited SHOP-41", Some("depends on SHOP-40")),
+            ),
+            (
+                json!({"ticket": "SHOP-41", "change": "dependency_removed", "parent": "SHOP-42"}),
+                ("Edited SHOP-41", Some("no longer depends on SHOP-42")),
+            ),
+            (
+                json!({"ticket": "SHOP-42", "change": "choices_set", "choices": ["Dev: Quick developer"]}),
+                ("Edited SHOP-42", Some("Dev: Quick developer")),
+            ),
+            (
+                json!({"ticket": "SHOP-43", "change": "deleted", "title": "Order email",
+                       "reason": "merged into SHOP-42"}),
+                ("Deleted SHOP-43", Some("merged into SHOP-42")),
+            ),
+            (
+                json!({"ticket": "SHOP-43", "change": "deleted", "title": "Order email"}),
+                ("Deleted SHOP-43", None),
+            ),
+        ];
+        for (payload, (title, detail)) in rows {
+            assert_eq!(
+                line(by_shop40(EventKind::FixedCreatedTicket, payload)),
+                (title.to_owned(), detail.map(str::to_owned))
+            );
+        }
+        // On the ticket it changed.
+        assert_eq!(
+            line(by_shop40(
+                EventKind::Updated,
+                json!({"changes": [{"field": "title", "before": "a", "after": "b"}],
+                       "author": {"kind": "agent", "name": "Planner", "stage": "plan"}}),
+            )),
+            (
+                "Edited by Milestone plan \u{b7} SHOP-40".to_owned(),
+                Some("title".to_owned())
+            )
+        );
+        assert_eq!(
+            line(by_shop40(
+                EventKind::DependencyAdded,
+                json!({"parent": "SHOP-40"})
+            )),
+            (
+                "Dependency added".to_owned(),
+                Some("depends on SHOP-40 \u{b7} by SHOP-40's agent".to_owned())
+            )
+        );
     }
 
     /// d0121: the warning's own words, git's reason under it.

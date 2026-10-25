@@ -335,7 +335,7 @@ async fn a_project_agents_choices_and_the_users_words() {
     assert_ne!(ran.status, 0);
     assert!(
         ran.stderr
-            .contains("SHOP-1's Dev choice was set by you; agents can't change it"),
+            .contains("You set Dev for SHOP-1; the agent's choice doesn't replace yours"),
         "{ran:?}"
     );
     // The user's own words, passed on: theirs.
@@ -439,10 +439,58 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
         ))
         .await;
     assert!(
-        ran.stderr.contains("SHOP-2's agent can't change SHOP-1"),
+        ran.stderr.contains(
+            "SHOP-1 was created by you; SHOP-2's agent can only change tickets it created"
+        ),
         "{ran:?}"
     );
     let _ = other;
+
+    // T-0542 (d0129): the tickets it creates are its to choose for while they haven't started, never over the
+    // user's choice; its own ticket's History logs it.
+    let ran = agent
+        .run(&format!("'{CB}' create 'Cart badge' --json"))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ran = agent
+        .run(&format!(
+            "'{CB}' update SHOP-3 --stage 'Grill=skip' --reason 'planned already'"
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let shown = ok(&cb(&w, &["show", "SHOP-3"]));
+    assert_eq!(
+        choices_block(&shown),
+        "Choices:     Grill: skip · set by Griller · planned already"
+    );
+    ok(&cb(
+        &w,
+        &["update", "SHOP-3", "--stage", "Dev=Quick developer"],
+    ));
+    let ran = agent
+        .run(&format!(
+            "'{CB}' update SHOP-3 --stage 'Dev=Rust developer' --reason 'x'"
+        ))
+        .await;
+    assert_ne!(ran.status, 0);
+    assert!(
+        ran.stderr
+            .contains("You set Dev for SHOP-3; the agent's choice doesn't replace yours"),
+        "{ran:?}"
+    );
+    let fixes: Vec<Value> = w
+        .board
+        .history("SHOP-2")
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == otaq_core::board::tickets::EventKind::FixedCreatedTicket)
+        .map(|e| e.payload)
+        .collect();
+    assert_eq!(
+        fixes,
+        [json!({"ticket": "SHOP-3", "change": "choices_set", "choices": ["Grill: skip"]})]
+    );
 
     w.stop().await;
 }

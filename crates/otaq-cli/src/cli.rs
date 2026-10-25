@@ -194,6 +194,14 @@ pub enum Command {
         #[command(flatten)]
         choices: ChoiceFlags,
     },
+    /// Delete a ticket that never started (an agent: only the ones it created, with --reason)
+    Delete {
+        /// SHOP-43, or 43 in the current project
+        key: String,
+        /// Why, for your ticket's History: "merged into SHOP-42"
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Ask the user (`ask human --stdin`; the ticket shows "Asks you") or a linked ticket's agent (`ask SHOP-18
     /// --stdin`)
     Ask {

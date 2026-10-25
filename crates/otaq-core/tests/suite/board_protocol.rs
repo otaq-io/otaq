@@ -12,7 +12,7 @@ use otaq_core::domain::{Priority, Status, StatusSet};
 use otaq_core::git::testing::TempRepos;
 use otaq_core::protocol::{
     DepParams, ErrorKind, Event, KeyParams, MoveParams, ProjectParams, Reply, Request,
-    TicketUpdateParams,
+    TicketDeleteParams, TicketUpdateParams,
 };
 use otaq_core::service::{Service, ServiceConfig};
 use tokio::sync::broadcast;
@@ -370,8 +370,9 @@ async fn the_user_deletes_tickets() {
     // Agent callers are refused by the permission policy (tests/suite/permissions.rs).
     // The user can.
     client
-        .request(Request::TicketDelete(KeyParams {
+        .request(Request::TicketDelete(TicketDeleteParams {
             key: "SHOP-1".into(),
+            reason: None,
         }))
         .await
         .unwrap();

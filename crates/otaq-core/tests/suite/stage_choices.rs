@@ -172,7 +172,7 @@ async fn who_may_set_what() {
     );
     let set_by_you = (
         Refusal::NotAllowed,
-        "SHOP-1's Dev choice was set by you; agents can't change it".to_owned(),
+        "You set Dev for SHOP-1; the agent's choice doesn't replace yours".to_owned(),
     );
     assert_eq!(
         refusal(

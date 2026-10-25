@@ -38,6 +38,7 @@ mod conflict_flag;
 mod connected_tools;
 mod created;
 mod created_by_agent;
+mod created_fixes;
 mod decision_card_count;
 mod decision_outcome;
 mod decisions;

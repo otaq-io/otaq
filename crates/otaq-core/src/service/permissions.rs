@@ -167,7 +167,7 @@ async fn batch_action(
         never_started: true,
     };
     let mut actions: Vec<Action> = tickets.iter().map(|_| Action::CreateTicket).collect();
-    // Choices first, so a ticket agent hears why it can't set them on a new ticket.
+    // Choices first: a ticket agent may set them on the tickets it creates (d0129), Noyan on Backlog ones.
     for (n, ticket) in tickets.iter().enumerate() {
         if !ticket.choices.is_empty() {
             actions.insert(0, Action::SetChoices(new(n)));
@@ -385,7 +385,7 @@ async fn action_for(
         R::TicketMove(_) | R::TicketDrag(_) => Action::UserOnly("move tickets"),
         R::TicketPin(_) | R::TicketUnpin(_) => Action::UserOnly("pin tickets"),
         R::TicketAgentEditsSeen(_) => Action::UserOnly("mark agent edits as seen"),
-        R::TicketDelete(_) => Action::UserOnly("delete tickets"),
+        R::TicketDelete(p) => Action::DeleteTicket(facts(board, &p.key).await?),
         R::TicketRetryStart(_) => Action::UserOnly("retry starts"),
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
