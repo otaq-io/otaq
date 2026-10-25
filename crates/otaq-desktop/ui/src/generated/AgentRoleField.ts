@@ -6,7 +6,7 @@ import type { AgentOption } from "./AgentOption";
  */
 export type AgentRoleField = { label: string, 
 /**
- * None · Project agent · Epic lead; ids `""`, `project-agent`, `epic-lead`.
+ * None · Project agent · Epic lead; ids `""`, `noyan`, `epic-lead`.
  */
 options: Array<AgentOption>, hint: string, 
 /**

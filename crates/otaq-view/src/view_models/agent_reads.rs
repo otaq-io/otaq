@@ -114,7 +114,7 @@ pub fn opening_project(projects: &[Project], wanted: Option<&str>) -> Option<Str
         .map(|p| p.key.clone())
 }
 
-/// "Skill: work-ticket · Dev", "Skill: project-agent · as Project agent", "Skill: epic-lead · as epic lead".
+/// "Skill: work-ticket · Dev", "Skill: noyan · as Project agent", "Skill: epic-lead · as epic lead".
 pub fn skill_heading(skill: &str, runs: &RunsAs) -> String {
     let place = match runs {
         RunsAs::Stage(stage) => stage.clone(),
@@ -457,11 +457,7 @@ mod tests {
         let mut r = reads(
             ("SHOP", "shop-web"),
             "",
-            vec![part(
-                "project-agent",
-                RunsAs::Role(Role::ProjectAgent),
-                "# project-agent",
-            )],
+            vec![part("noyan", RunsAs::Role(Role::ProjectAgent), "# noyan")],
             vec![other("flow", Some(SkillMark::FlowChanges))],
         );
         r.agent = "Planner".into();
@@ -472,7 +468,7 @@ mod tests {
             [
                 "Its instructions",
                 "Notes for shop-web",
-                "Skill: project-agent \u{b7} as Project agent"
+                "Skill: noyan \u{b7} as Project agent"
             ]
         );
         assert_eq!(
@@ -494,7 +490,7 @@ mod tests {
             headings(&v)[2..],
             [
                 "Skill: grill \u{b7} Grill",
-                "Skill: project-agent \u{b7} as Project agent"
+                "Skill: noyan \u{b7} as Project agent"
             ]
         );
     }

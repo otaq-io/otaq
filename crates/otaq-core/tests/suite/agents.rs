@@ -76,7 +76,7 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
         summary,
         [
             (
-                "Planner",
+                "Noyan",
                 Some(Role::ProjectAgent),
                 &AgentModel::Default,
                 &CameFrom::AgentsFile
@@ -117,7 +117,7 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
     };
     assert_eq!(skills("Developer"), shipped(&["work-ticket", "commit"]));
     assert_eq!(skills("Validator"), shipped(&["validate"]));
-    assert_eq!(skills("Planner"), shipped(&["project-agent", "flow"]));
+    assert_eq!(skills("Noyan"), shipped(&["noyan", "flow"]));
     assert_eq!(skills("Epic lead"), shipped(&["epic-lead"]));
     assert_eq!(list.default_model, None);
     assert!(list.fallbacks.is_empty());
@@ -174,12 +174,12 @@ async fn names_are_new_ignoring_case_and_never_skip_or_underscore() {
 #[tokio::test]
 async fn one_agent_per_role_and_the_role_moves() {
     let (_f, agents) = world().await;
-    let planner = named(&agents, "Planner").await;
+    let planner = named(&agents, "Noyan").await;
     assert_eq!(
         refusal(agents.delete(&planner.id).await),
         (
             Refusal::AgentInUse,
-            "Planner is your Project agent. Give the role to another agent first".into()
+            "Noyan is your Project agent. Give the role to another agent first".into()
         )
     );
     let lead = named(&agents, "Epic lead").await;
@@ -189,7 +189,7 @@ async fn one_agent_per_role_and_the_role_moves() {
     );
     // An edit can't remove the role.
     let edited = agents
-        .edit(&planner.id, &fields("Planner", claude(Some("opus"))))
+        .edit(&planner.id, &fields("Noyan", claude(Some("opus"))))
         .await
         .unwrap();
     assert_eq!(edited.role, Some(Role::ProjectAgent));
@@ -203,7 +203,7 @@ async fn one_agent_per_role_and_the_role_moves() {
         .await
         .unwrap();
     assert_eq!(moved.role, Some(Role::ProjectAgent));
-    assert_eq!(named(&agents, "Planner").await.role, None);
+    assert_eq!(named(&agents, "Noyan").await.role, None);
     let holders: Vec<String> = agents
         .list()
         .await
@@ -416,7 +416,7 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
     );
     assert_eq!(griller.skills, [SkillRef::Shipped("grill".into())]);
     assert_eq!(
-        named(&agents, "Planner").await.came_from,
+        named(&agents, "Noyan").await.came_from,
         CameFrom::AgentsFile
     );
     let names: Vec<String> = agents

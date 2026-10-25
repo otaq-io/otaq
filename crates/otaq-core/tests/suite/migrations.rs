@@ -1956,7 +1956,7 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
     assert_eq!(
         shown,
         [
-            ("Planner", &CameFrom::AgentsFile, true),
+            ("Noyan", &CameFrom::AgentsFile, true),
             ("Epic lead", &CameFrom::AgentsFile, true),
             ("Developer", &CameFrom::DefaultPreset, true),
             ("Validator", &CameFrom::DefaultPreset, true),
@@ -2087,7 +2087,7 @@ async fn a_fresh_install_applies_the_two_files() {
     assert_eq!(
         names,
         [
-            ("Planner", true),
+            ("Noyan", true),
             ("Epic lead", true),
             ("Developer", true),
             ("Validator", true)
@@ -2183,7 +2183,7 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
                                      first_request, limit_stopped, created_at, ended_at, closed_at, epic_id,
                                      agent_id, agent_name, model_ran, effort)
          VALUES ('a1', 'p', 'Import GitHub issues', 'agent', 'claude', 'c-agent', 'opus', 'ended_by_restart',
-                 'Import the issues', 1, 3, 4, NULL, NULL, 'ag', 'Planner', 'opus', 'high'),
+                 'Import the issues', 1, 3, 4, NULL, NULL, 'ag', 'Noyan', 'opus', 'high'),
                 ('l40', 'p', 'Wishlist lead', NULL, 'codex', 'c-lead', NULL, 'running', NULL, 0, 6, NULL, NULL,
                  't40', NULL, NULL, NULL, NULL)",
     )
@@ -2219,7 +2219,7 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
         (
             "Import GitHub issues".to_owned(),
             "ended_by_restart".to_owned(),
-            "Planner".to_owned(),
+            "Noyan".to_owned(),
             "high".to_owned(),
             1
         )
@@ -2288,4 +2288,99 @@ async fn merge_check_due_starts_off_and_a_lead_stop_can_be_a_failing_merge_check
         .execute(store.pool())
         .await;
     assert!(refused.is_err(), "the CHECK still holds");
+}
+
+/// T-0517 (d0128, d0108; Q511): migration 0063 stores the Project agent role as `noyan`. An agent holding
+/// `project-agent` holds `noyan` and its shipped skill reads `noyan`; its skills and the stage choices that name it
+/// stay (the rebuild cascades nothing); one agent still holds the role, and `project-agent` is refused.
+#[tokio::test]
+async fn the_project_agent_role_is_stored_as_noyan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 62).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, state, created_by, created_at, updated_at)
+         VALUES ('t40', 'p', 40, 'ticket', 'Wishlist', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, tool, model, role, came_from, created_at, updated_at)
+         VALUES ('ag', 'Noyan', 'Split small.', 'claude', 'opus', 'project-agent', 'agents_file', 1, 2),
+                ('el', 'Epic lead', '', NULL, NULL, 'epic-lead', 'agents_file', 1, 1),
+                ('dev', 'Developer', '', NULL, NULL, NULL, 'default_preset', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agent_skills (agent_id, position, shipped)
+         VALUES ('ag', 0, 'project-agent'), ('ag', 1, 'flow'), ('dev', 0, 'work-ticket')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, set_at)
+         VALUES ('t40', 'dev', 'agent', 'ag', 'user', 3)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let agents: Vec<(String, String, Option<String>, String)> =
+        sqlx::query_as("SELECT id, name, role, instructions FROM agents ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        agents,
+        [
+            (
+                "ag".into(),
+                "Noyan".into(),
+                Some("noyan".into()),
+                "Split small.".into()
+            ),
+            ("dev".into(), "Developer".into(), None, String::new()),
+            (
+                "el".into(),
+                "Epic lead".into(),
+                Some("epic-lead".into()),
+                String::new()
+            ),
+        ]
+    );
+    let skills: Vec<(String, String)> =
+        sqlx::query_as("SELECT agent_id, shipped FROM agent_skills ORDER BY agent_id, position")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        skills,
+        [
+            ("ag".into(), "noyan".into()),
+            ("ag".into(), "flow".into()),
+            ("dev".into(), "work-ticket".into()),
+        ]
+    );
+    let choice: String =
+        sqlx::query_scalar("SELECT agent_id FROM ticket_stage_choices WHERE ticket_id = 't40'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(choice, "ag");
+    let second = sqlx::query("UPDATE agents SET role = 'noyan' WHERE id = 'dev'")
+        .execute(store.pool())
+        .await;
+    assert!(second.is_err(), "one agent holds the role");
+    let old = sqlx::query("UPDATE agents SET role = 'project-agent' WHERE id = 'dev'")
+        .execute(store.pool())
+        .await;
+    assert!(old.is_err(), "the old key is refused");
 }

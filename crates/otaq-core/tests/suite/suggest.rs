@@ -210,13 +210,13 @@ async fn the_question_runs_on_the_project_agent_roles_agent() {
         args
     };
 
-    // Planner on `default` and no default model yet: the new-session tool with its default model, no model option.
+    // Noyan on `default` and no default model yet: the new-session tool with its default model, no model option.
     w.suggester.start("SHOP").await.unwrap();
     assert_eq!(ran_with(&args_file).await, args(None));
 
     // The Project agent role's agent on `opus`: `--model opus` (AGM-05).
     w.set_agent_model(
-        "Planner",
+        "Noyan",
         AgentModel::Tool {
             tool: Tool::ALL[0],
             model: Some("opus".into()),

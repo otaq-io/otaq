@@ -252,7 +252,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         .await
         .unwrap();
     // AGM-02: the Project agent instructions are the Project agent role's agent's own.
-    w.edit_agent("Planner", |a| {
+    w.edit_agent("Noyan", |a| {
         a.instructions = "Split into tickets of about one day.".into();
     })
     .await;
@@ -294,7 +294,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     assert!(text.contains(BACKLOG_ONLY), "{text}");
     assert!(
         text.ends_with(
-            "## Project agent instructions (Planner)\n\nSplit into tickets of about one day.\n"
+            "## Project agent instructions (Noyan)\n\nSplit into tickets of about one day.\n"
         ),
         "{text}"
     );

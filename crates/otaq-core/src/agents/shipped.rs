@@ -1,4 +1,4 @@
-//! What Otaq ships about agents (AGM-02, d0108): the account-level `otaq-agents.yaml` (the Project agent **Planner**
+//! What Otaq ships about agents (AGM-02, d0108): the account-level `otaq-agents.yaml` (the Project agent **Noyan**
 //! and the **Epic lead**), embedded at build time like the default flow, and the skills a shipped skill may name.
 //! A flow file's agents (the default flow's Developer and Validator, the test flow's) become stored agents through
 //! [`new_agent`].
@@ -28,8 +28,8 @@ pub const SKILLS: &[&str] = &[
     "epic-lead",
     "flow",
     "grill",
+    "noyan",
     "open-pr",
-    "project-agent",
     "push",
     "restack",
     "validate",
@@ -83,7 +83,7 @@ pub fn new_agent(agent: &FlowAgent) -> NewAgent {
     }
 }
 
-/// Otaq's first start (AGM-02, FLW-01): with no agents stored yet, applies `otaq-agents.yaml` (Planner, Epic lead)
+/// Otaq's first start (AGM-02, FLW-01): with no agents stored yet, applies `otaq-agents.yaml` (Noyan, Epic lead)
 /// and the default flow's `agents:` (Developer, Validator), in one transaction. A role agent can't be deleted, so
 /// the table is never empty again and a later start changes nothing. Whether it applied them.
 pub async fn apply_on_first_start(store: &Store) -> Result<bool, StoreError> {
@@ -130,19 +130,19 @@ mod tests {
     fn the_agents_file_reads_and_writes_back() {
         let agents = agents_file();
         let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["Planner", "Epic lead"]);
+        assert_eq!(names, ["Noyan", "Epic lead"]);
         assert_eq!(yaml::write_agents(agents), AGENTS_YAML);
-        let planner = new_agent(&agents[0]);
-        assert_eq!(planner.role, Some(Role::ProjectAgent));
-        // Planner changes flows too (FLW-11).
+        let noyan = new_agent(&agents[0]);
+        assert_eq!(noyan.role, Some(Role::ProjectAgent));
+        // Noyan changes flows too (FLW-11).
         assert_eq!(
-            planner.skills,
+            noyan.skills,
             [
-                SkillRef::Shipped("project-agent".into()),
+                SkillRef::Shipped("noyan".into()),
                 SkillRef::Shipped("flow".into())
             ]
         );
-        assert_eq!(planner.model, AgentModel::Default);
+        assert_eq!(noyan.model, AgentModel::Default);
         assert_eq!(new_agent(&agents[1]).role, Some(Role::EpicLead));
     }
 

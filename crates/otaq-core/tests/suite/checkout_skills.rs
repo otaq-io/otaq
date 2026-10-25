@@ -32,7 +32,7 @@ fn plugin(root: &Path) -> PathBuf {
     let skills = find_plugin_dir(Path::new("/nonexistent"))
         .unwrap()
         .join("skills");
-    for name in ["project-agent", "flow", "epic-lead"] {
+    for name in ["noyan", "flow", "epic-lead"] {
         let to = plugin.join("skills").join(name);
         std::fs::create_dir_all(&to).unwrap();
         std::fs::copy(skills.join(name).join("SKILL.md"), to.join("SKILL.md")).unwrap();
@@ -107,8 +107,8 @@ async fn until_gone(path: &Path) {
     assert!(gone.is_ok(), "{} is still there", path.display());
 }
 
-/// A Project agent: its agent's skills (`otaq-project-agent`, `otaq-flow`) are in the checkout before it starts and
-/// its first prompt runs `otaq-project-agent`; a second agent shares them; the copies stay while either runs and go
+/// A Project agent: its agent's skills (`otaq-noyan`, `otaq-flow`) are in the checkout before it starts and
+/// its first prompt runs `otaq-noyan`; a second agent shares them; the copies stay while either runs and go
 /// when the last ends, with the folders they made; `git status` is clean throughout and nothing else in the checkout or its `.git` changes.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agents_skills_stay_while_it_runs() {
@@ -125,17 +125,11 @@ async fn a_project_agents_skills_stay_while_it_runs() {
         .unwrap();
     let session = first.session.as_ref().unwrap().id.clone();
     let out = w.wait_for_output(&session, "CLAUDE").await;
-    assert!(
-        out.contains("/otaq-project-agent Why is checkout slow?"),
-        "{out}"
-    );
-    // Planner's skills: `project-agent` and `flow` (FLW-11).
-    assert!(
-        out.contains("CLAUDE otaq-flow otaq-project-agent ."),
-        "{out}"
-    );
+    assert!(out.contains("/otaq-noyan Why is checkout slow?"), "{out}");
+    // Noyan's skills: `noyan` and `flow` (FLW-11).
+    assert!(out.contains("CLAUDE otaq-flow otaq-noyan ."), "{out}");
     assert!(copied(&repo, "otaq-flow"));
-    assert!(copied(&repo, "otaq-project-agent"));
+    assert!(copied(&repo, "otaq-noyan"));
     assert!(clean(&repo));
 
     let second = w
@@ -145,10 +139,7 @@ async fn a_project_agents_skills_stay_while_it_runs() {
         .unwrap();
     w.project_agents.close(&first.id, true).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(
-        copied(&repo, "otaq-project-agent"),
-        "the second agent holds it"
-    );
+    assert!(copied(&repo, "otaq-noyan"), "the second agent holds it");
     assert!(clean(&repo));
 
     w.project_agents.close(&second.id, true).await.unwrap();
@@ -161,7 +152,7 @@ async fn a_project_agents_skills_stay_while_it_runs() {
 
     // Resume writes it again.
     w.project_agents.resume(&second.id).await.unwrap();
-    until_copies(&repo, &["otaq-flow", "otaq-project-agent"]).await;
+    until_copies(&repo, &["otaq-flow", "otaq-noyan"]).await;
     assert!(clean(&repo));
     w.stop().await;
 }
@@ -216,10 +207,10 @@ async fn a_crash_leftover_goes_at_service_start() {
     std::fs::write(mine.join("SKILL.md"), "---\nname: otaq-mine\n---\nMine.\n").unwrap();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "my own skill"]);
-    let source = dir.path().join("plugin/skills/project-agent");
-    write_copy(&repo, "otaq-project-agent", &source, Marker::Checkout).unwrap();
+    let source = dir.path().join("plugin/skills/noyan");
+    write_copy(&repo, "otaq-noyan", &source, Marker::Checkout).unwrap();
     assert!(clean(&repo));
-    assert_eq!(marked_copies(&repo), ["otaq-project-agent"]);
+    assert_eq!(marked_copies(&repo), ["otaq-noyan"]);
 
     let w = w.restart().await;
     assert_eq!(marked_copies(&repo), Vec::<String>::new());

@@ -53,7 +53,7 @@ fn the_test_flow_round_trips() {
         read.agents[4].instructions,
         "Never edit files.\nFail on unescaped SQL."
     );
-    assert_eq!(read.agents[6].role.as_deref(), Some("project-agent"));
+    assert_eq!(read.agents[6].role.as_deref(), Some("noyan"));
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn every_skip_combination_is_walked() {
     // Three Agent stages, all skippable: skipping all three leaves none.
     let text = "flow:
   - {name: Grill, kind: agent, agent: Griller, skill: grill, options: [skip]}
-  - {name: Plan, kind: agent, agent: Planner, skill: plan, options: [skip]}
+  - {name: Plan, kind: agent, agent: Noyan, skill: plan, options: [skip]}
   - {name: Dev, kind: agent, agent: Developer, skill: work-ticket, options: [skip]}
   - {name: Done, kind: delivery, mode: click, delivers: local}
 ";

@@ -964,7 +964,7 @@ pub enum Request {
     /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
     #[serde(rename = "agents.duplicate")]
     AgentsDuplicate(IdParams),
-    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Planner is
+    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Noyan is
     /// your Project agent. Give the role to another agent first") and while a stage names it ("Griller is used in
     /// shop-web · Grill. Change that stage first.").
     #[serde(rename = "agents.delete")]
@@ -972,7 +972,7 @@ pub enum Request {
     /// `{"id": "0199…"}`: what uses an agent, before Delete asks. Answered with [`Reply::AgentInUse`].
     #[serde(rename = "agents.in_use")]
     AgentsInUse(IdParams),
-    /// `{"role": "project-agent", "agent": "0199…"}`: gives the role to another agent, in one step. Answered with
+    /// `{"role": "noyan", "agent": "0199…"}`: gives the role to another agent, in one step. Answered with
     /// [`Reply::Agent`] (the new holder).
     #[serde(rename = "agents.move_role")]
     AgentsMoveRole(MoveRoleParams),

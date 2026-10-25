@@ -44,7 +44,7 @@ stored_enum! {
     /// Project agent and an epic's lead, so a rename changes nothing. Exactly one agent holds each.
     pub enum Role ("agent role") {
         /// The Project agent (d0068, d0091): onboarding, Split, proposals.
-        ProjectAgent = "project-agent",
+        ProjectAgent = "noyan",
         /// The epic lead (d0083).
         EpicLead = "epic-lead",
     }
@@ -59,7 +59,7 @@ impl Role {
         }
     }
 
-    /// AGM-01's refusal of deleting the agent holding the role, or removing its role: "Planner is your Project
+    /// AGM-01's refusal of deleting the agent holding the role, or removing its role: "Noyan is your Project
     /// agent. Give the role to another agent first".
     pub fn holder_refusal(self, name: &str) -> String {
         format!(
@@ -598,7 +598,7 @@ impl Agents {
         })
     }
 
-    /// Deletes an agent nothing uses (AGM-01): refused for a role's agent ("Planner is your Project agent. Give the
+    /// Deletes an agent nothing uses (AGM-01): refused for a role's agent ("Noyan is your Project agent. Give the
     /// role to another agent first") and while a stage or a stage option names it ("Griller is used in shop-web ·
     /// Grill. Change that stage first.").
     pub async fn delete(&self, id: &str) -> Result<(), BoardError> {
@@ -828,10 +828,10 @@ mod tests {
     #[test]
     fn roles_are_stored_as_the_files_name_them() {
         let stored: Vec<&str> = Role::ALL.iter().map(|r| r.as_str()).collect();
-        assert_eq!(stored, ["project-agent", "epic-lead"]);
+        assert_eq!(stored, ["noyan", "epic-lead"]);
         assert_eq!(
-            Role::ProjectAgent.holder_refusal("Planner"),
-            "Planner is your Project agent. Give the role to another agent first"
+            Role::ProjectAgent.holder_refusal("Noyan"),
+            "Noyan is your Project agent. Give the role to another agent first"
         );
         let sessions: Vec<&str> = SessionRole::ALL.iter().map(|r| r.as_str()).collect();
         assert_eq!(

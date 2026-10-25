@@ -148,7 +148,7 @@ pub struct Detection {
 pub const WORK_TICKET_SKILL: &str = "work-ticket";
 
 /// The skill every Project agent starts with (d0068).
-pub const PROJECT_AGENT_SKILL: &str = "project-agent";
+pub const PROJECT_AGENT_SKILL: &str = "noyan";
 
 /// The skill every epic lead starts with (d0083).
 pub const EPIC_LEAD_SKILL: &str = "epic-lead";

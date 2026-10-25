@@ -854,7 +854,7 @@ async fn another_tools_limit_doesnt_hold_a_project_agent() {
     // The Project agent role's agent on Codex: it opens.
     world
         .set_model(
-            "Planner",
+            "Noyan",
             AgentModel::Tool {
                 tool: B,
                 model: None,
@@ -870,7 +870,7 @@ async fn another_tools_limit_doesnt_hold_a_project_agent() {
     // On Claude Code: held with its tool's message.
     world
         .set_model(
-            "Planner",
+            "Noyan",
             AgentModel::Tool {
                 tool: A,
                 model: Some("sonnet".into()),
