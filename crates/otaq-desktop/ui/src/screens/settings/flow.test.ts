@@ -47,7 +47,7 @@ const item = (id: string, label: string, over: Partial<MenuItem> = {}): MenuItem
 const SECTION: FlowSettings = {
   project: "SHOP",
   title: "Flow",
-  changed: "Changed by the Project agent · yesterday",
+  changed: "Changed by Noyan · yesterday",
   intro:
     "The project’s columns and who works in each. Change it in the flow editor; nothing reaches the board until you apply.",
   waiting: {
@@ -147,7 +147,7 @@ describe("the Flow section", () => {
     });
     const text = box.textContent;
     for (const words of [
-      "Changed by the Project agent · yesterday",
+      "Changed by Noyan · yesterday",
       "A flow change is waiting: QA after Security.",
       "Backlog → Ready for Dev → … → Done: always first and last",
       "Rust developer",

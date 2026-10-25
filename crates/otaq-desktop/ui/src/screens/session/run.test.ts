@@ -70,7 +70,7 @@ const COMMAND: RunCommandView = {
   url_hint: "Leave empty for backends, CLIs and libraries — then there’s no Open button.",
   ask: {
     label: "Ask the agent",
-    tooltip: "Asks Strong (the Project agent’s) to suggest a run command",
+    tooltip: "Asks Noyan (Strong) to suggest a run command",
     note: "The agent looks at the repo and suggests a command.",
   },
   thinking: null,

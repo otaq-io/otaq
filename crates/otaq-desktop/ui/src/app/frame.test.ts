@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe("the frame", () => {
-  it("has rail | Project agent panel | main with the Ask bar, each empty slot showing its name; the ticket sheet only with a ticket open", () => {
+  it("has rail | agent panel | main with the Ask bar, each empty slot showing its name; the ticket sheet only with a ticket open", () => {
     const app = createRegistries();
     // Before `layout.view` answers: no Project agent panel yet.
     expect(slots(render(app))).toEqual([
@@ -143,7 +143,7 @@ describe("the frame", () => {
     expect(html).not.toContain("service failed");
   });
 
-  it("the Project agent panel is 420 px while open and stays mounted, hidden, while closed (SHB-01)", () => {
+  it("the agent panel is 420 px while open and stays mounted, hidden, while closed (SHB-01)", () => {
     const closed = body(INITIAL_LAYOUT);
     expect(closed).toContain(
       '<div class="frame-agent" data-slot="agent_panel"><div class="frame-agent-body" style="width:420px" hidden="">',

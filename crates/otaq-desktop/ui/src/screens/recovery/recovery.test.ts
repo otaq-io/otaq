@@ -67,7 +67,7 @@ const SUMMARY: AfterRestartSummary = {
     resumable: ["SHOP-30", "SHOP-40.4", "SHOP-40.2"],
   },
   agents: {
-    title: "PROJECT AGENTS · NOT IN RESUME SELECTED · TERMINALS ARE GONE",
+    title: "CONVERSATIONS WITH NOYAN · NOT IN RESUME SELECTED · TERMINALS ARE GONE",
     rows: [
       {
         id: "a1",
@@ -81,7 +81,7 @@ const SUMMARY: AfterRestartSummary = {
         sign_in: null,
       },
     ],
-    discarded: "A “New agent” that had no request yet is discarded, not listed.",
+    discarded: "A “New conversation” that had no request yet is discarded, not listed.",
   },
   notes_title: "NOT IN RESUME SELECTED",
   notes: ["Turquoise tickets keep their question — SHOP-22."],
@@ -213,7 +213,7 @@ describe("the after-restart sheet", () => {
       "+3",
       "SHOP-30, SHOP-40.4, SHOP-40.2",
       "NOT IN RESUME SELECTED",
-      "PROJECT AGENTS",
+      "CONVERSATIONS WITH NOYAN",
       "Checkout slowness",
       "Ended by restart · same conversation",
       "is discarded, not listed",

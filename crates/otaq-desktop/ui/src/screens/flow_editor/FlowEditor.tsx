@@ -500,7 +500,7 @@ function StepItem({
 
 /**
  * The Skill field (FED-06): the stage's skill (click it to pick another); empty with Pick a skill… (the user's own,
- * searchable) and Ask the agent to write it; "Being written by the Project agent…" with Stop; or the skill the agent
+ * searchable) and Ask the agent to write it; "Being written by Noyan…" with Stop; or the skill the agent
  * wrote, tinted, with Open and Undo.
  */
 export function SkillField({

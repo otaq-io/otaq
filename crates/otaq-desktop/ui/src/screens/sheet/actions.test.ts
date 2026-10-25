@@ -303,7 +303,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
   /** SHOP-29 mid-flow (*05 → Row · Stage choices and path*). */
   const CHOICES: StageChoicesView = {
     heading: "Choices",
-    set_by: "set by the Project agent",
+    set_by: "set by Noyan",
     rows: [
       {
         stage_id: "grill",
@@ -381,7 +381,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
     const at = (text: string) => out.indexOf(text);
     expect(at("sheet-tabs")).toBeLessThan(at("sheet-bar"));
     expect(at("sheet-bar")).toBeLessThan(at("sheet-agents"));
-    expect(out).toContain("set by the Project agent");
+    expect(out).toContain("set by Noyan");
     expect(out).toContain('aria-label="Locked: Dev has started"');
     expect(out).toContain('data-agent="true"');
     expect(out).toContain("Dev: Quick developer → Rust developer · by Griller · touches session handling");

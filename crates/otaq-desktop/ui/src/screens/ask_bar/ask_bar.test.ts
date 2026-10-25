@@ -47,15 +47,15 @@ const NEW: AskSuggestion = {
 /** `ask_bar.rs`'s words for shop-web with SHOP-29 selected and one conversation running. */
 const VIEW: AskBarView = {
   icon: "bot",
-  placeholder: "Ask the project agent… (“why is checkout slow?”)",
-  short_placeholder: "Ask the project agent…",
+  placeholder: "Ask Noyan… (“why is checkout slow?”)",
+  short_placeholder: "Ask Noyan…",
   keys: "⌘L",
   send_keys: "↵",
   send: "Send",
   title: "ASK ABOUT",
   suggestions: [TICKET, CONTINUE, NEW],
   reply: null,
-  button: { icon: "bot", label: "Project agent", hint: "Open or close · ⌘L", tinted: false, dot: false },
+  button: { icon: "bot", label: "Noyan", hint: "Open or close · ⌘L", tinted: false, dot: false },
 };
 
 let root: Root;
@@ -104,7 +104,7 @@ describe("the bar", () => {
 
   it("closed: the question and ⌘L, no suggestions", () => {
     show({ view: VIEW, text: "", typing: false, choice: 0 });
-    expect(field().placeholder).toBe("Ask the project agent… (“why is checkout slow?”)");
+    expect(field().placeholder).toBe("Ask Noyan… (“why is checkout slow?”)");
     expect(box.querySelector(".kbd")?.textContent).toBe("⌘L");
     expect(box.textContent).not.toContain("ASK ABOUT");
   });
@@ -149,7 +149,7 @@ describe("the bar", () => {
       choice: 0,
       onReply,
     });
-    expect(field().placeholder).toBe("Ask the project agent…");
+    expect(field().placeholder).toBe("Ask Noyan…");
     const reply = box.querySelector<HTMLButtonElement>(".ask-reply");
     expect(reply?.textContent).toBe("New replyCheckout slowness");
     expect(reply?.querySelector(".ask-dot")).not.toBeNull();

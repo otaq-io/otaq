@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Split with the Project agent on an epic with no children (T-0377; LEAD-13, d0091): the click sends the Project
+// Split with Noyan on an epic with no children (T-0377; LEAD-13, d0091): the click sends the Project
 // agent panel Rust's first message (`agent_panel.send` → `project_agent.open`) and the agent panel, shown again if hidden, shows
 // the new agent. The click doesn't select the card.
 import { act, createElement } from "react";
@@ -39,18 +39,18 @@ const SHARING: EpicCardView = {
     name: null,
     state: "",
     short: "",
-    full: "Split with the Project agent",
+    full: "Split with Noyan",
     tone: "none",
     icon: "bot",
     action: {
       kind: "split",
-      label: "Split with the Project agent",
+      label: "Split with Noyan",
       icon: "bot",
       split: { project: "NOTE", message: "Split NOTE-10 into tickets" },
     },
     tooltip: {
-      title: "Split with the Project agent",
-      lines: ["Sends the Project agent the first message “Split NOTE-10 into tickets”."],
+      title: "Split with Noyan",
+      lines: ["Sends Noyan the first message “Split NOTE-10 into tickets”."],
     },
     opens_tab: false,
   },
@@ -79,7 +79,7 @@ afterEach(() => {
   selection.set(NOTHING_SELECTED);
 });
 
-describe("Split with the Project agent (T-0377)", () => {
+describe("Split with Noyan (T-0377)", () => {
   it("sends the agent panel's first message and shows the agent panel with the new agent", async () => {
     ask.mockResolvedValue("a1");
     const onSelect = vi.fn();
@@ -87,10 +87,8 @@ describe("Split with the Project agent (T-0377)", () => {
     act(() => {
       root.render(createElement(EpicCard, { card: SHARING, onSelect, onLeadAction }));
     });
-    const button = [...box.querySelectorAll("button")].find(
-      (b) => b.textContent === "Split with the Project agent",
-    );
-    if (!button) throw new Error("no Split with the Project agent button");
+    const button = [...box.querySelectorAll("button")].find((b) => b.textContent === "Split with Noyan");
+    if (!button) throw new Error("no Split with Noyan button");
     expect(box.querySelector(".lead-status-action")).toBe(button);
     await act(async () => {
       button.click();

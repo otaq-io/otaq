@@ -192,7 +192,7 @@ describe("notification clicks", () => {
     expect(r.focus.get()).toEqual({ ticket: "NOTE-3", seq: 1 });
   });
 
-  it("a Project agent: its project, the agent in the agent panel (shown if hidden), focused", () => {
+  it("a conversation with Noyan: its project, the agent in the agent panel (shown if hidden), focused", () => {
     const r = routes();
     openTarget({ kind: "project_agent", project: "NOTE", agent: "pa7" }, r);
     expect(r.selection.get().project).toBe("NOTE");

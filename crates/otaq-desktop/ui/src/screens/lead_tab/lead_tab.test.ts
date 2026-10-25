@@ -120,14 +120,14 @@ describe("the Lead tab renders each state (T-0290)", () => {
     expect(out).not.toContain("Changes by the lead");
   });
 
-  it("no lead, no children: Split with the Project agent, no text (T-0377)", () => {
+  it("no lead, no children: Split with Noyan, no text (T-0377)", () => {
     const split = { project: "SHOP", message: "Split SHOP-40 into tickets" };
-    const button = { kind: "split", label: "Split with the Project agent", icon: "bot", split } as const;
+    const button = { kind: "split", label: "Split with Noyan", icon: "bot", split } as const;
     const out = html({
       ...IDLE,
       status: status({
         name: null,
-        full: "Split with the Project agent",
+        full: "Split with Noyan",
         tone: "none",
         action: button,
       }),
@@ -136,7 +136,7 @@ describe("the Lead tab renders each state (T-0290)", () => {
       body: { kind: "open_lead", title: "SHOP-40 has no lead", text: null, button },
     });
     expect(out).toContain("SHOP-40 has no lead");
-    expect(out).toContain("<span>Split with the Project agent</span>");
+    expect(out).toContain("<span>Split with Noyan</span>");
     expect(out).not.toContain("Open lead");
     expect(out).not.toContain("<p>");
   });
