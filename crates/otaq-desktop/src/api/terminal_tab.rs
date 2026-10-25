@@ -800,6 +800,7 @@ mod tests {
 
     fn round(round: u32, session: &str, outcome: Option<ValidationOutcome>) -> ValidationRecord {
         ValidationRecord {
+            agent: None,
             round,
             trigger: ValidationTrigger::Agent,
             outcome,

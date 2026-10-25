@@ -109,3 +109,65 @@ async fn only_the_validator_reports_a_verdict() {
     .expect("the validator ends after its verdict turn");
     w.stop().await;
 }
+
+/// Two check agents in one round (T-0527, d0130): each verdict records its own session's and its reply names the
+/// check as with one ("SHOP-19: Validate passed. End your turn."); the round moves only on the last one. A third
+/// checker that isn't in the round is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_check_agent_gives_its_own_verdict() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let shop19 = w.board.ticket("SHOP-19").await.unwrap();
+    let first = w.shell(&shop19, SessionKind::Validator).await;
+    let second = w.shell(&shop19, SessionKind::Validator).await;
+    let stranger = w.shell(&shop19, SessionKind::Validator).await;
+    let _agent = w.agent_shell(&shop19).await;
+    w.validating_with_agents(
+        &shop19,
+        &[
+            ("Security reviewer", &first.session),
+            ("Validator", &second.session),
+        ],
+    )
+    .await;
+    for checker in [&first, &second, &stranger] {
+        let ran = checker.run(&format!("'{CB}' prime --validate")).await;
+        assert_eq!(ran.status, 0, "{ran:?}");
+    }
+
+    let ran = stranger
+        .run_with_stdin(&format!("'{CB}' check pass --stdin --json"), "fine")
+        .await;
+    assert_ne!(ran.status, 0);
+    let e: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(e["error"]["message"], "This isn't SHOP-19's running check");
+
+    let ran = first
+        .run_with_stdin(&format!("'{CB}' check pass --stdin"), "no unescaped SQL")
+        .await;
+    assert_eq!(
+        (ran.status, ran.stdout.trim()),
+        (0, "SHOP-19: Validate passed. End your turn."),
+        "{ran:?}"
+    );
+    assert_eq!(
+        w.status("SHOP-19").await,
+        Status::Checking,
+        "the other checks on"
+    );
+    let again = first
+        .run_with_stdin(&format!("'{CB}' check fail --stdin"), "changed my mind")
+        .await;
+    assert_ne!(again.status, 0, "one verdict per check agent: {again:?}");
+
+    let ran = second
+        .run_with_stdin(&format!("'{CB}' check fail --stdin"), "prices not sorted")
+        .await;
+    assert_eq!(
+        (ran.status, ran.stdout.trim()),
+        (0, "SHOP-19: Validate failed. End your turn."),
+        "{ran:?}"
+    );
+    assert_eq!(w.status("SHOP-19").await, Status::Working);
+    w.stop().await;
+}

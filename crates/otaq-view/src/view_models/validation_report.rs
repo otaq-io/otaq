@@ -464,6 +464,7 @@ mod tests {
 
     fn record(round: u32, outcome: Option<ValidationOutcome>, report: &str) -> ValidationRecord {
         ValidationRecord {
+            agent: None,
             round,
             trigger: ValidationTrigger::Agent,
             outcome,

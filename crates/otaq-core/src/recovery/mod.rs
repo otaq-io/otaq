@@ -706,20 +706,36 @@ impl Recovery {
         if !checker {
             return Ok(None);
         }
+        // One of the open round's checkers (d0130: one per check agent).
         let own = self
             .inner
             .board
             .open_round(&ticket.id)
             .await?
-            .and_then(|(_, _, session, _)| session);
-        if own.as_deref() != Some(info.id.as_str()) {
+            .is_some_and(|round| round.open_row_of(&info.id).is_some());
+        if !own {
             return Ok(None);
         }
         let from = self.interrupted_from(&ticket).await?;
         match reconcile(&flow, &ticket.place, ticket.status, from, false) {
             Outcome::InterruptValidation => {
-                self.interrupt_validation(&ticket.id, ticket.status, ended_payload(info))
-                    .await
+                let key = self
+                    .interrupt_validation(&ticket.id, ticket.status, ended_payload(info))
+                    .await?;
+                // The whole round is interrupted (0108 rule 9: a crash restarts it fresh): the other check agents
+                // stop with it.
+                if key.is_some() {
+                    for other in self
+                        .inner
+                        .sessions
+                        .running_all_of(&ticket.id, SessionKind::Validator)
+                    {
+                        if let Err(e) = self.inner.sessions.stop(&other.id).await {
+                            tracing::warn!(key = %ticket.key, error = %e, "can't stop the round's other checker");
+                        }
+                    }
+                }
+                Ok(key)
             }
             _ => Ok(None),
         }
