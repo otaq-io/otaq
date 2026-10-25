@@ -391,7 +391,7 @@ pub fn changed_line(before: &Basis, after: &ApplyNowPlan, why: &Refreshed) -> St
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::domain::{Kind, Status};
+    use otaq_core::domain::Status;
 
     use super::*;
 
@@ -463,7 +463,6 @@ flow:
         PlannedMove {
             ticket: key(ticket),
             title: title.to_owned(),
-            kind: Kind::Ticket,
             stage: stage.to_lowercase(),
             stage_name: stage.to_owned(),
             waiting: false,
@@ -791,29 +790,6 @@ flow:
         );
         assert_eq!(stale.moves[0].picked, "stage:review");
         assert_eq!(stale.hint, None);
-    }
-
-    /// An epic's picker offers only its forward stages (the plan's choices); the window draws what it's given, with
-    /// no Backlog or Ready for Dev line above the stages.
-    #[test]
-    fn an_epics_picker_has_only_forward_stages() {
-        let mut epic = mv("SHOP-40", "Wishlist", "Security", "review");
-        epic.kind = Kind::Epic;
-        epic.choices
-            .retain(|c| matches!(c.way, Way::Next | Way::Forward));
-        let v = view(
-            &plan("x", vec![epic], Vec::new()),
-            None,
-            &Picks::new(),
-            None,
-        );
-        let labels: Vec<&str> = v.moves[0]
-            .choices
-            .iter()
-            .map(|i| i.label.as_str())
-            .collect();
-        assert_eq!(labels, ["Review", "Done \u{b7} PR"]);
-        assert!(v.moves[0].choices.iter().all(|i| !i.separated));
     }
 
     /// A merged change that removes no stage: its own words as the summary, nothing to move, the tickets that keep

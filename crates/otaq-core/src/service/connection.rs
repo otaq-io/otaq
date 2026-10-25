@@ -467,13 +467,12 @@ async fn respond(
         | Request::ProjectAgentAnswer(_)
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
-        | Request::ProjectAgentCreated(_)
-        | Request::LeadOpen(_)
-        | Request::LeadResume(_)
-        | Request::LeadList(_)) => match agent_requests::handle(request, who, shared).await {
-            Ok(reply) => (reply, Then::Continue),
-            Err(error) => return (Message::error(id, error), Then::Continue),
-        },
+        | Request::ProjectAgentCreated(_)) => {
+            match agent_requests::handle(request, who, shared).await {
+                Ok(reply) => (reply, Then::Continue),
+                Err(error) => return (Message::error(id, error), Then::Continue),
+            }
+        }
         request @ (Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)

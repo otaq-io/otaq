@@ -1,5 +1,5 @@
 //! Ticket comments (CMT-01…CMT-04, CMT-14; d0109): the hand-over between stages. Every ticket has them, written by
-//! the user, any stage's agent and the epic lead; every later agent reads them all in `prime`. Not the line comments
+//! the user and any stage's agent; every later agent reads them all in `prime`. Not the line comments
 //! on a diff ([`super::comments`]), which stay as they are.
 //!
 //! - A comment's text is at most [`COMMENT_LIMIT_CHARS`] Unicode characters and never empty ([`check_body`]); longer
@@ -115,13 +115,6 @@ pub enum CommentAuthor {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         round: Option<u32>,
     },
-    /// An epic's lead ("Wishlist lead"): its comments are its epic's lead's, whichever session runs it.
-    Lead {
-        epic_id: String,
-        name: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        tool: Option<Tool>,
-    },
 }
 
 impl CommentAuthor {
@@ -129,7 +122,6 @@ impl CommentAuthor {
         match self {
             Self::User { .. } => "user",
             Self::Agent { .. } => "agent",
-            Self::Lead { .. } => "lead",
         }
     }
 }
@@ -158,12 +150,11 @@ pub struct TicketComment {
 }
 
 impl TicketComment {
-    /// Who wrote it, for people and agents: "You", "Rust developer", "Wishlist lead".
+    /// Who wrote it, for people and agents: "You", "Rust developer".
     pub fn author_label(&self) -> String {
         match &self.author {
             CommentAuthor::User { .. } => "You".to_owned(),
             CommentAuthor::Agent { name, .. } => name.clone().unwrap_or_else(|| "Agent".to_owned()),
-            CommentAuthor::Lead { name, .. } => name.clone(),
         }
     }
 
@@ -281,11 +272,6 @@ impl Row {
                 stage: self.stage_id.clone(),
                 round: self.round.and_then(|r| u32::try_from(r).ok()),
             },
-            "lead" => CommentAuthor::Lead {
-                epic_id: self.author_id.clone().unwrap_or_default(),
-                name: self.author_name.clone().unwrap_or_default(),
-                tool,
-            },
             _ => CommentAuthor::User {
                 name: self.author_name.clone().unwrap_or_default(),
             },
@@ -389,11 +375,6 @@ pub(crate) async fn post_comment_in(
             stage,
             round,
         } => (id.clone(), name.clone(), *tool, stage.clone(), *round),
-        CommentAuthor::Lead {
-            epic_id,
-            name,
-            tool,
-        } => (Some(epic_id.clone()), Some(name.clone()), *tool, None, None),
     };
     sqlx::query(
         "INSERT INTO ticket_comments (id, ticket_id, n, author_kind, author_id, author_name, author_tool, stage_id,
@@ -433,7 +414,7 @@ pub(crate) async fn post_comment_in(
 }
 
 impl Board {
-    /// Posts a comment (the user's, an agent's or a lead's) with an optional report: the text is checked first, then
+    /// Posts a comment (the user's or an agent's) with an optional report: the text is checked first, then
     /// the report copied (a missing file or one over 20 MB refused before anything is posted), then the comment
     /// stored. Rights are the policy's (CMT-04).
     pub async fn post_ticket_comment(
@@ -649,7 +630,7 @@ impl Board {
     }
 
     /// The author a caller's new comment gets: the user by name, a ticket's agent by its session
-    /// ([`Self::session_author`]), an epic lead as its epic's lead. A checker and a Project agent don't post here
+    /// ([`Self::session_author`]). A checker and a Project agent don't post here
     /// (the policy refused them first).
     pub async fn caller_author(
         &self,
@@ -663,19 +644,6 @@ impl Board {
             Caller::Agent { session, .. } | Caller::Validator { session, .. } => {
                 self.session_author(session).await
             }
-            Caller::EpicLead { epic_id, agent, .. } => {
-                let epic = self.ticket_by_id(epic_id).await?;
-                let tool: Option<String> =
-                    sqlx::query_scalar("SELECT tool FROM project_agents WHERE id = ?")
-                        .bind(agent)
-                        .fetch_optional(self.store.pool())
-                        .await?;
-                Ok(CommentAuthor::Lead {
-                    epic_id: epic_id.clone(),
-                    name: crate::project_agents::lead::lead_name(&epic.title),
-                    tool: tool.and_then(|t| t.parse().ok()),
-                })
-            }
             Caller::ProjectAgent { .. } => Err(BoardError::refused(
                 Refusal::NotAllowed,
                 crate::policy::PROJECT_AGENT_NO_COMMENTS,
@@ -684,7 +652,7 @@ impl Board {
     }
 
     /// Whether `caller` wrote comment `n` (CMT-04): a ticket's agent when the comment is by the same agent (its
-    /// session's), an epic lead when it is by its epic's lead. The user owns none and needs none.
+    /// session's). The user owns none and needs none.
     pub async fn is_own_comment(
         &self,
         caller: &Caller,
@@ -703,9 +671,6 @@ impl Board {
                         .fetch_optional(self.store.pool())
                         .await?;
                 mine.flatten().as_ref() == Some(id)
-            }
-            (Caller::EpicLead { epic_id, .. }, CommentAuthor::Lead { epic_id: of, .. }) => {
-                epic_id == of
             }
             _ => false,
         })

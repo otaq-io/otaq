@@ -119,16 +119,6 @@ pub enum Command {
         /// What a validator works from: the ticket, the summary, the diff, earlier findings, linked tickets
         #[arg(long)]
         validate: bool,
-        /// An epic lead's context: the epic, every child, overlaps, open questions, notes, suggestions. Bare
-        /// `--epic`: $OTAQ_EPIC
-        #[arg(
-            long,
-            value_name = "EPIC",
-            num_args = 0..=1,
-            default_missing_value = "",
-            conflicts_with_all = ["key", "validate"]
-        )]
-        epic: Option<String>,
     },
     /// Show a ticket: details, description, dependencies (default: $OTAQ_TICKET)
     #[command(visible_alias = "view")]
@@ -138,11 +128,8 @@ pub enum Command {
         /// Also show the ticket's history
         #[arg(long)]
         long: bool,
-        /// For an epic: list its tickets with their statuses
-        #[arg(long)]
-        children: bool,
         /// Print the ticket's terminal as the user sees it, as plain text (read-only)
-        #[arg(long, conflicts_with_all = ["long", "children"])]
+        #[arg(long, conflicts_with = "long")]
         terminal: bool,
         /// With --terminal: the terminal of the agent running this stage (its name or id) instead
         #[arg(long, value_name = "STAGE", requires = "terminal")]
@@ -157,12 +144,6 @@ pub enum Command {
         /// approved, done)
         #[arg(long)]
         status: Option<String>,
-        /// Show epics with their tickets indented under them
-        #[arg(long)]
-        tree: bool,
-        /// Only the tickets of this epic
-        #[arg(long, value_name = "EPIC")]
-        parent: Option<String>,
         /// Only this priority: 1 Urgent, 2 High, 3 Normal, 4 Low
         #[arg(long, value_name = "N", value_parser = parse_priority)]
         priority: Option<Priority>,
@@ -191,12 +172,6 @@ pub enum Command {
         /// Create every ticket of a Markdown file (### headings), all or nothing
         #[arg(short = 'f', long = "file", value_name = "FILE")]
         file: Option<PathBuf>,
-        /// ticket (default) or epic
-        #[arg(long = "type", value_name = "TYPE", value_parser = ["ticket", "epic"])]
-        kind: Option<String>,
-        /// Create it inside this epic (SHOP-40 → SHOP-40.4)
-        #[arg(long, value_name = "EPIC")]
-        parent: Option<String>,
         #[command(flatten)]
         choices: ChoiceFlags,
     },
@@ -237,10 +212,6 @@ pub enum Command {
         /// The recommended option, 1-based
         #[arg(long, value_name = "N")]
         recommended: Option<u32>,
-        /// Epic leads: pass a child's question on to the user (`ask human --pass-on <QUESTION-ID> --stdin`, your
-        /// reason on stdin); the options default to the child's
-        #[arg(long, value_name = "QUESTION-ID")]
-        pass_on: Option<String>,
     },
     /// Answer a question another ticket's agent asked this one (`answer <ID> --stdin`)
     Answer {
@@ -256,12 +227,8 @@ pub enum Command {
         key: Option<String>,
     },
     /// Record a product choice you made instead of asking (`decision record --stdin`); the user sees it in the review.
-    /// Epic leads: mark a child's decision a written source contradicts (`decision mark <ID> --source … --stdin`)
     #[command(subcommand)]
     Decision(DecisionCommand),
-    /// An epic lead's commands (`suggest close|delete <KEY> --stdin`)
-    #[command(flatten)]
-    Lead(crate::lead::LeadCommand),
     /// End your stage: `stage next --stdin` (the default: on to the next stage with a summary) or `stage done
     /// --stdin` (nothing to deliver: Closed · nothing to merge, with your reason)
     #[command(subcommand)]
@@ -347,23 +314,12 @@ pub enum DecisionCommand {
         #[arg(long)]
         stdin: bool,
     },
-    /// Epic leads: mark a child's recorded decision that a written source contradicts; one line on stdin
-    Mark {
-        /// The decision's ID, as `show` or `prime` prints it: SHOP-40.1#1
-        id: String,
-        /// The written source it contradicts: PAY-123, the epic's plan, SHOP-40.2's description…
-        #[arg(long)]
-        source: String,
-        /// Read the mark from stdin
-        #[arg(long)]
-        stdin: bool,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum StageCommand {
     /// Finish your stage with a summary on stdin, posted as your comment: the ticket moves to the next stage (an
-    /// agent check, Review…); refused while files are uncommitted or a lead note is unread
+    /// agent check, Review…); refused while files are uncommitted
     Next {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
@@ -859,7 +815,12 @@ mod tests {
                 .join("skills");
         let mut checked = 0;
         for entry in std::fs::read_dir(&skills).unwrap() {
-            let file = entry.unwrap().path().join("SKILL.md");
+            let folder = entry.unwrap().path();
+            // The epic lead's skill goes with T-0534 (d0133); its `ask human --pass-on` is gone from the CLI.
+            if folder.ends_with("epic-lead") {
+                continue;
+            }
+            let file = folder.join("SKILL.md");
             let Ok(text) = std::fs::read_to_string(&file) else {
                 continue;
             };
@@ -1010,30 +971,12 @@ mod tests {
             cli.command,
             Some(Command::Prime {
                 key: None,
-                validate: false,
-                epic: None
+                validate: false
             })
         ));
         let cli = parse(&["-P", "SHOP", "prime", "18"]).unwrap();
         assert!(!cli.global.bare_project());
         assert_eq!(cli.global.project_key(), Some("SHOP"));
-    }
-
-    /// `prime --epic SHOP-40` names the epic; a bare `--epic` leaves it to $OTAQ_EPIC (LEAD-03).
-    #[test]
-    fn prime_epic_takes_an_optional_key() {
-        let cli = parse(&["prime", "--epic", "SHOP-40"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Command::Prime { key: None, epic: Some(ref e), .. }) if e == "SHOP-40"
-        ));
-        let cli = parse(&["prime", "--epic", "--json"]).unwrap();
-        assert!(cli.global.json);
-        assert!(matches!(
-            cli.command,
-            Some(Command::Prime { epic: Some(ref e), .. }) if e.is_empty()
-        ));
-        assert!(parse(&["prime", "--epic", "SHOP-40", "--validate"]).is_err());
     }
 
     #[test]

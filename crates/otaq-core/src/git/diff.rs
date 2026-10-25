@@ -382,7 +382,7 @@ impl Git {
         Ok(Some((bytes, size)))
     }
 
-    /// The paths a worktree has changed so far against where it left `branch` (LEAD-09): its commits and its
+    /// The paths a worktree has changed so far against where it left `branch`: its commits and its
     /// uncommitted changes since the merge base, plus untracked files that aren't ignored. A rename counts as
     /// both paths. Sorted, without duplicates. Read-only: `--no-optional-locks` keeps git from refreshing the
     /// index, so the index's mtime moves only when the agent stages or commits.

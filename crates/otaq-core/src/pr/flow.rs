@@ -109,7 +109,7 @@ pub struct PrFlowView {
     pub key: TicketKey,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flow: Option<PrFlow>,
-    /// The branch the PR targets: the ticket's or epic's base branch.
+    /// The branch the PR targets: the ticket's base branch.
     pub target: String,
     /// The ticket's branch now: `otaq/SHOP-18`, or the pushed name.
     pub branch: String,

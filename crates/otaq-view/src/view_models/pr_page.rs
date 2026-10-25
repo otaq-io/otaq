@@ -6,7 +6,7 @@
 //! The page keeps only the fields as the user types them and the click; the dialog's state (the proposal filled once,
 //! the debounced name check) stays in [`PrDialog`].
 
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::pr::flow::{FlowKind, PrFlowView};
 use serde::Serialize;
 use ts_rs::TS;
@@ -307,10 +307,7 @@ pub fn open_box(ticket: &Ticket, now_ms: i64) -> Option<OpenBox> {
     let n = ticket.flags.pr_number?;
     let work = ticket.work.as_ref();
     let url = work.and_then(|w| w.pr_url.clone());
-    let target = match &ticket.base {
-        Base::Branch(b) => b.clone(),
-        Base::Epic(e) => e.to_string(),
-    };
+    let target = ticket.base.branch().to_owned();
     let branch = work.and_then(|w| w.branch.clone()).unwrap_or_default();
     Some(OpenBox {
         label: url
@@ -328,7 +325,7 @@ pub fn open_box(ticket: &Ticket, now_ms: i64) -> Option<OpenBox> {
 #[cfg(test)]
 mod tests {
     use otaq_core::board::tickets::Work;
-    use otaq_core::domain::{Kind, Status};
+    use otaq_core::domain::Status;
     use otaq_core::pr::flow::{FlowCommit, FlowState, PrFlow};
     use otaq_core::pr::proposal::{CommitMessage, Proposal};
     use otaq_core::pr::provider::{PrProvider, Provider};
@@ -524,14 +521,6 @@ mod tests {
         );
         assert_eq!(v.target_line, "PR #481 \u{b7} into main \u{b7} GitHub");
         assert_eq!(v.confirm, "Push to PR #481");
-    }
-
-    #[test]
-    fn an_epic_opens_one_pr() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        let d = PrDialog::opening(&epic, "open-pr", Some(&github(true)));
-        assert_eq!(dialog_view(&d).heading, "Open PR for epic SHOP-40 Wishlist");
     }
 
     #[test]

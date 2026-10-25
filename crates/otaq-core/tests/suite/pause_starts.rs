@@ -12,9 +12,9 @@ use otaq_core::agents::kept::kept_tickets;
 use otaq_core::agents::pause::PauseScope;
 use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
 use otaq_core::board::moves::{DropOn, DropTarget};
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
-use otaq_core::domain::{Actor, Kind, Status, ValidationTrigger};
+use otaq_core::domain::{Actor, Status, ValidationTrigger};
 use otaq_core::flow::apply_now::ApplyNowParams;
 use otaq_core::flow::yaml;
 use otaq_core::project_agents::AgentState;
@@ -419,59 +419,12 @@ async fn a_check_after_a_submit_waits_for_resume() {
     stop_all(w).await;
 }
 
-/// Epic leads (PAU-04, PAU-05; d0083): queueing a whole epic while paused keeps its lead's start for Resume, which
-/// starts it once; Open lead and a Project agent's first message are the user's clicks and start.
+/// A Project agent's first message is the user's click (PAU-05): it starts while the project is paused, and the
+/// pause stays.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_queued_epics_lead_starts_on_resume_and_the_users_agents_start_while_paused() {
+async fn the_users_agents_start_while_paused() {
     let w = world().await;
-    let new_epic = |title: &str| NewTicketInput {
-        project: "SHOP".into(),
-        title: title.into(),
-        kind: Kind::Epic,
-        ..Default::default()
-    };
-    let wishlist = w
-        .board
-        .create_ticket(&new_epic("Wishlist"), &me())
-        .await
-        .unwrap();
-    w.board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist API".into(),
-                epic: Some(wishlist.key.to_string()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let search = w
-        .board
-        .create_ticket(&new_epic("Search"), &me())
-        .await
-        .unwrap();
     w.pause.pause(&shop()).await.unwrap();
-
-    let queued = w
-        .board
-        .queue_epic(&wishlist.key.to_string(), &me())
-        .await
-        .unwrap();
-    assert!(!queued.lead_started, "kept");
-    let leads = w.project_agents.leads();
-    assert!(
-        leads
-            .get(&wishlist.key.to_string())
-            .await
-            .unwrap()
-            .is_none()
-    );
-
-    // The user's clicks.
-    let opened = leads.open(&search.key.to_string()).await.unwrap();
-    assert!(opened.agent.session.is_some_and(|s| s.is_running()));
     let agent = w
         .project_agents
         .open("SHOP", "Import GitHub issues")
@@ -479,21 +432,6 @@ async fn a_queued_epics_lead_starts_on_resume_and_the_users_agents_start_while_p
         .unwrap();
     assert_eq!(agent.state, AgentState::Running);
     assert!(w.pause.is_paused("SHOP").await.unwrap());
-
-    w.pause.resume(&shop(), &me()).await.unwrap();
-    let lead = leads
-        .get(&wishlist.key.to_string())
-        .await
-        .unwrap()
-        .expect("the kept lead started");
-    assert!(lead.agent.session.is_some_and(|s| s.is_running()));
-    w.pause.resume(&shop(), &me()).await.unwrap();
-    let ids: Vec<(String,)> = sqlx::query_as("SELECT id FROM project_agents WHERE epic_id = ?")
-        .bind(&wishlist.id)
-        .fetch_all(w.board.store().pool())
-        .await
-        .unwrap();
-    assert_eq!(ids.len(), 1, "once");
     stop_all(w).await;
 }
 

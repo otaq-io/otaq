@@ -39,8 +39,6 @@ use crate::board::conflicts::Conflict;
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
-use crate::board::epic_flight::{EpicQueueOutcome, TakeBackPlan, UndoQueueOutcome};
-use crate::board::epics::ClosePlan;
 use crate::board::merge::MergeProposal;
 use crate::board::moves::{DropOn, DropTarget};
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
@@ -236,7 +234,7 @@ pub enum Request {
     // Tickets. Mutations answer with the ticket as it is afterwards ([`Reply::Ticket`]).
     #[serde(rename = "ticket.get")]
     TicketGet(KeyParams),
-    /// Every ticket and epic of a project, by key; answered with [`Reply::Tickets`].
+    /// Every ticket of a project, by key; answered with [`Reply::Tickets`].
     #[serde(rename = "ticket.list")]
     TicketList(ProjectParams),
     #[serde(rename = "ticket.create")]
@@ -268,7 +266,7 @@ pub enum Request {
     /// What deleting a never-started ticket would remove; answered with [`Reply::DeletePreview`].
     #[serde(rename = "ticket.delete_preview")]
     TicketDeletePreview(KeyParams),
-    /// Deletes a never-started ticket (or epic with its children); answered with [`Reply::DeletePreview`]
+    /// Deletes a never-started ticket; answered with [`Reply::DeletePreview`]
     /// (what was removed). Not for agents (CLI-02).
     #[serde(rename = "ticket.delete")]
     TicketDelete(KeyParams),
@@ -291,18 +289,12 @@ pub enum Request {
     /// A ticket's recorded decisions (`otaq show`); answered with [`Reply::Decisions`].
     #[serde(rename = "decision.list")]
     DecisionList(KeyParams),
-    /// Change… on a recorded decision in review (DEC-06, d0084): with `text`, Send back with it; with `title` and
-    /// `description`, a fix child in the epic's review. Answered with [`Reply::DecisionChanged`].
+    /// Change… on a recorded decision in review (DEC-06, d0084): Send back with `text`. Answered with
+    /// [`Reply::DecisionChanged`].
     #[serde(rename = "decision.change")]
     DecisionChange(DecisionChangeParams),
-    /// `otaq decision mark <ID> --source "<source>" --stdin` (DEC-04, d0083): an epic lead marks a child's recorded
-    /// decision that a written source contradicts; a second mark replaces the first. Lead only. Answered with
-    /// [`Reply::Decision`].
-    #[serde(rename = "decision.mark")]
-    DecisionMark(DecisionMarkParams),
     /// `otaq stage next --stdin` (and its other name `otaq review submit`): the agent ends its Agent stage with a
-    /// summary and the ticket moves to the next stage; refused with uncommitted files (REV-07) and an unread lead
-    /// note (CLI-08) (AGM-10). Answered with [`Reply::StageEnded`].
+    /// summary and the ticket moves to the next stage; refused with uncommitted files (REV-07) (AGM-10). Answered with [`Reply::StageEnded`].
     #[serde(rename = "ticket.stage_next")]
     TicketStageNext(StageEndParams),
     /// `otaq stage done --stdin` (AGM-10): the agent ends the ticket from its Agent stage as Closed · nothing to
@@ -326,7 +318,7 @@ pub enum Request {
     #[serde(rename = "ticket.validations")]
     TicketValidations(KeyParams),
     /// **Create ticket** from a "Not covered by any ticket" note of the ticket's validation (VAL-12; the user's
-    /// click, never the validator's): a prefilled Backlog ticket in the same epic. Answered with [`Reply::Ticket`].
+    /// click, never the validator's): a prefilled Backlog ticket. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.create_from_note")]
     TicketCreateFromNote(NoteParams),
     /// `otaq pr propose --stdin` (REV-10): the Open PR / Push skill's proposal (JSON text). Answered with
@@ -460,7 +452,7 @@ pub enum Request {
     WarmClear(WarmClearParams),
 
     // Review (REV-01…REV-03).
-    /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
+    /// The ticket's changed files since its `base_sha`. Answered with
     /// [`Reply::DiffSummary`].
     #[serde(rename = "diff.files")]
     DiffFiles(KeyParams),
@@ -501,7 +493,7 @@ pub enum Request {
     /// Every owner's changed files, grouped by ticket; answered with [`Reply::ProjectChanges`].
     #[serde(rename = "files.project_changes")]
     FilesProjectChanges(ProjectParams),
-    /// The source picker's rows: the base, epics, tickets with a worktree, tickets without; answered with
+    /// The source picker's rows: the base, tickets with a worktree, tickets without; answered with
     /// [`Reply::ProjectSources`].
     #[serde(rename = "files.project_sources")]
     FilesProjectSources(ProjectParams),
@@ -587,34 +579,6 @@ pub enum Request {
     /// Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
     #[serde(rename = "ticket.send_back_pr")]
     TicketSendBackPr(FailParams),
-    /// **Add a child from PR comments** (FLW-16): an epic whose PR is open gets a Backlog child holding the PR's
-    /// unresolved comments. Answered with [`Reply::Ticket`] (the child).
-    #[serde(rename = "ticket.add_child_from_pr")]
-    TicketAddChildFromPr(KeyParams),
-
-    // Epics.
-    #[serde(rename = "epic.move_to")]
-    EpicMoveTo(MoveToEpicParams),
-    /// Answered with [`Reply::ClosePlan`].
-    #[serde(rename = "epic.close_plan")]
-    EpicClosePlan(KeyParams),
-    /// Answered with [`Reply::ClosePlan`] (what was closed). Without `confirm`, refused (`needs_confirmation`)
-    /// when agents would be stopped.
-    #[serde(rename = "epic.close")]
-    EpicClose(CloseParams),
-    /// **Queue an epic** (EPC-12): every child in Backlog goes to Ready for Dev (parked ones resume), or with
-    /// `child` only that one row. Answered with [`Reply::EpicQueued`], what the queue toast reads (EPC-15).
-    #[serde(rename = "epic.queue")]
-    EpicQueue(EpicQueueParams),
-    /// **Take back an epic** (EPC-14): its track dropped on Backlog. Waiting children are unqueued; when nothing
-    /// waits, the running ones are parked, which without `confirm` is refused (`needs_confirmation`). Answered with
-    /// [`Reply::EpicTakenBack`], the plan carried out.
-    #[serde(rename = "epic.take_back")]
-    EpicTakeBack(CloseParams),
-    /// The queue toast's **Undo** (EPC-15) with the outcome's keys: takes back the ones still waiting, never parks.
-    /// Answered with [`Reply::EpicQueueUndone`] ("SHOP-45.1 already started").
-    #[serde(rename = "epic.undo_queue")]
-    EpicUndoQueue(EpicUndoQueueParams),
 
     // Dependencies.
     #[serde(rename = "dep.add")]
@@ -852,8 +816,7 @@ pub enum Request {
     /// `confirm`. Answered with [`Reply::Ok`].
     #[serde(rename = "project_agent.close")]
     ProjectAgentClose(ProjectAgentCloseParams),
-    /// **Close ended agents** (d0087): closes every ended, not yet closed Project agent of the project (not epic
-    /// leads). Answered with the project's [`Reply::ProjectAgents`].
+    /// **Close ended agents** (d0087): closes every ended, not yet closed Project agent of the project. Answered with the project's [`Reply::ProjectAgents`].
     #[serde(rename = "project_agent.close_ended")]
     ProjectAgentCloseEnded(ProjectParams),
     /// Resumes an ended Project agent's conversation (Ended by restart · Resume, Recently ended). Answered with
@@ -890,58 +853,8 @@ pub enum Request {
     #[serde(rename = "project_agent.created")]
     ProjectAgentCreated(IdParams),
 
-    // Epic leads (LEAD-02, LEAD-12; d0083).
-    /// **Open lead**: starts the epic's lead with no first message, or resumes an ended one (the user's click).
-    /// Refused while it is live, while the epic is in review, and during the usage limit. Answered with
-    /// [`Reply::Lead`]; attach to its agent's `session`.
-    #[serde(rename = "lead.open")]
-    LeadOpen(LeadParams),
-    /// Resumes the epic's lead's conversation (Ended by restart · Resume). Answered with [`Reply::Lead`].
-    #[serde(rename = "lead.resume")]
-    LeadResume(LeadParams),
-    /// `otaq suggest close|delete <KEY> --stdin` (LEAD-08): an epic lead suggests closing or deleting a never-started
-    /// child of its epic; a needs-you item the user confirms or dismisses. Lead only. Answered with
-    /// [`Reply::Suggestion`].
-    #[serde(rename = "lead.suggest")]
-    LeadSuggest(SuggestParams),
-    /// The user's Close… / Delete… on a lead's suggestion: runs the usual close (d0044) or delete (d0060) of the
-    /// child and marks the suggestion confirmed. Answered with [`Reply::Suggestion`].
-    #[serde(rename = "suggestion.confirm")]
-    SuggestionConfirm(IdParams),
-    /// The user's Dismiss on a lead's suggestion; it doesn't wake the lead. Answered with [`Reply::Suggestion`].
-    #[serde(rename = "suggestion.dismiss")]
-    SuggestionDismiss(IdParams),
-    /// Every epic lead of the project, with its status (the board's Lead Status, T-0289). Answered with
-    /// [`Reply::Leads`].
-    #[serde(rename = "lead.list")]
-    LeadList(ProjectParams),
-    /// `otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin` (LEAD-06): the epic's lead
-    /// passes a child's question that waits for it on to the user, with its recommendation and reason. Lead only.
-    /// Answered with [`Reply::LeadQuestion`].
-    #[serde(rename = "lead.pass_on")]
-    LeadPassOn(PassOnParams),
-    /// `otaq questions` from an epic's lead (LEAD-06): its children's questions waiting for it. Lead only. Answered
-    /// with [`Reply::LeadQuestions`].
-    #[serde(rename = "lead.questions")]
-    LeadQuestions,
-    /// `otaq prime --epic` (LEAD-03): the epic lead's context, for the lead (`$OTAQ_EPIC`) or the user's terminal.
-    /// Answered with [`Reply::EpicPrime`].
-    #[serde(rename = "lead.prime")]
-    LeadPrime(KeyParams),
-    /// `otaq note <KEY> --stdin` (LEAD-10): an epic lead leaves an unread note for a running child of its epic. Lead
-    /// only. Answered with [`Reply::LeadNote`].
-    #[serde(rename = "lead.note")]
-    LeadNote(LeadNoteParams),
-    /// `otaq notes` (LEAD-10): the ticket's unread lead notes, marked read by this request. Answered with
-    /// [`Reply::LeadNotes`].
-    #[serde(rename = "ticket.notes")]
-    TicketNotes(KeyParams),
-    /// The epic lead's log on a ticket (T-0290): its children's questions to the lead and the lead's notes, for
-    /// the Messages section of the epic and the child. Answered with [`Reply::LeadLog`].
-    #[serde(rename = "ticket.lead_log")]
-    TicketLeadLog(KeyParams),
     /// `otaq show <KEY> --terminal` (SHL-10, CLI-09, d0087): the ticket's terminal as the user sees it, as plain
-    /// text; read-only, for the user, a Project agent of its project and the lead of its epic. Answered with
+    /// text; read-only, for the user and a Project agent of its project. Answered with
     /// [`Reply::TicketTerminal`].
     #[serde(rename = "ticket.terminal")]
     TicketTerminal(TerminalParams),
@@ -1007,8 +920,8 @@ pub enum Request {
     AgentsResume(crate::agents::pause::PauseScope),
     #[serde(rename = "agents.pause_counts")]
     AgentsPauseCounts(crate::agents::pause::PauseScope),
-    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the agent each stage of the
-    /// ticket's flow runs (an epic's lead), the sessions with their agents, the holds. Answered with
+    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP"}` for the ⌘N form: the agent each stage of the
+    /// ticket's flow runs, the sessions with their agents, the holds. Answered with
     /// [`Reply::TicketAgents`].
     #[serde(rename = "ticket.agents")]
     TicketAgents(TicketAgentsParams),
@@ -1145,15 +1058,13 @@ pub struct AgentEditParams {
     pub fields: crate::agents::AgentFields,
 }
 
-/// `ticket.agents`: an existing ticket by `key`, else a new one in `project` (an epic when `new_epic`).
+/// `ticket.agents`: an existing ticket by `key`, else a new one in `project`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketAgentsParams {
     #[serde(default)]
     pub key: Option<String>,
     #[serde(default)]
     pub project: Option<String>,
-    #[serde(default)]
-    pub new_epic: bool,
 }
 
 /// `ticket.choices`: an existing ticket by `key`, else a new one in `project`.
@@ -1171,55 +1082,6 @@ pub struct SetChoiceParams {
     pub key: String,
     pub stage: String,
     pub choice: String,
-}
-
-/// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "notes": [null, "Kept in the
-/// browser."], "recommended": 1, "reason": "PAY-123 only mentions signed-in users."}`; without `options` the child's
-/// options and notes stay.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PassOnParams {
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub options: Vec<String>,
-    /// Each option's note (ATT-17), in the options' order, `null` for an option without one; omitted when none has
-    /// one.
-    #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
-    pub notes: Vec<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<u32>,
-    pub reason: String,
-}
-
-/// `{"key": "SHOP-40.4", "text": "40.1 returns items newest first …"}`; to a stuck child also `"view": "The agent
-/// keeps changing the API instead of the test"` (`--view`, LEAD-07), shown only if the child reaches the user later.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LeadNoteParams {
-    pub key: String,
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub view: Option<String>,
-}
-
-/// `{"key": "SHOP-40.6", "kind": "close", "reason": "PAY-123 doesn't ask for an export."}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SuggestParams {
-    pub key: String,
-    pub kind: crate::epic_lead::suggest::SuggestionKind,
-    pub reason: String,
-}
-
-/// `{"id": "SHOP-40.1#1", "source": "PAY-123", "text": "items are listed in the order they were added"}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DecisionMarkParams {
-    pub id: String,
-    pub source: String,
-    pub text: String,
-}
-
-/// `{"epic": "SHOP-40"}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LeadParams {
-    pub epic: String,
 }
 
 /// `{"target": "SHOP-18", "question": "…"}`.
@@ -1346,42 +1208,32 @@ pub struct DecisionRecordParams {
 }
 
 /// Change… (DEC-06): `{"id": "SHOP-23#1", "text": "Split fullName everywhere"}` sends SHOP-23 back (`clear_first`
-/// is the user's "Clear it and send"); `{"id": "SHOP-40.1#1", "title": "Change: …", "description": "…"}` adds a fix
-/// child to the epic.
+/// is the user's "Clear it and send").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecisionChangeParams {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
 }
 
-/// `{"key": "SHOP-18", "path": "lib/pricing.ts"}`; `child` (epics) limits it to that child's squash commit.
+/// `{"key": "SHOP-18", "path": "lib/pricing.ts"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffFileParams {
     pub key: String,
     pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child: Option<String>,
     /// Only what changed after this commit (the reviewed head: "changed since you reviewed it", REV-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
 }
 
-/// `{"key": "SHOP-22", "path": "src/middleware.ts"}`: a file or folder of the ticket's Files tab; `child` (epics)
-/// reads that child's change.
+/// `{"key": "SHOP-22", "path": "src/middleware.ts"}`: a file or folder of the ticket's Files tab.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilesPathParams {
     pub key: String,
     #[serde(default)]
     pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child: Option<String>,
 }
 
 /// `{"key": "SHOP-22", "query": "log"}`.
@@ -1781,30 +1633,6 @@ pub struct DragParams {
     pub report: Option<crate::board::reports::ReportSource>,
 }
 
-/// An epic dropped on Ready for Dev or Dev (or ⇧⌘D on it); `child` when one row of it was dropped.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EpicQueueParams {
-    /// The epic, e.g. SHOP-45.
-    pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child: Option<String>,
-}
-
-/// The queue toast's Undo: the epic and the keys its queue moved (the outcome's `queued` and `resumed`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EpicUndoQueueParams {
-    /// The epic, e.g. SHOP-45.
-    pub key: String,
-    #[serde(default)]
-    pub keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MoveToEpicParams {
-    pub key: String,
-    pub epic: String,
-}
-
 /// `child` depends on `parent`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepParams {
@@ -2067,13 +1895,11 @@ impl Request {
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
             Self::TicketSendBackPr(_) => "ticket.send_back_pr",
-            Self::TicketAddChildFromPr(_) => "ticket.add_child_from_pr",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::DecisionRecord(_) => "decision.record",
             Self::DecisionList(_) => "decision.list",
             Self::DecisionChange(_) => "decision.change",
-            Self::DecisionMark(_) => "decision.mark",
             Self::TicketStageNext(_) => "ticket.stage_next",
             Self::TicketStageDone(_) => "ticket.stage_done",
             Self::ValidationVerdict(_) => "validation.verdict",
@@ -2098,12 +1924,6 @@ impl Request {
             Self::TicketPrBranchCheck(_) => "ticket.pr_branch_check",
             Self::TicketMarkMerged(_) => "ticket.mark_merged",
             Self::TicketMarkClosed(_) => "ticket.mark_closed",
-            Self::EpicMoveTo(_) => "epic.move_to",
-            Self::EpicClosePlan(_) => "epic.close_plan",
-            Self::EpicClose(_) => "epic.close",
-            Self::EpicQueue(_) => "epic.queue",
-            Self::EpicTakeBack(_) => "epic.take_back",
-            Self::EpicUndoQueue(_) => "epic.undo_queue",
             Self::DepAdd(_) => "dep.add",
             Self::DepRemove(_) => "dep.remove",
             Self::DepTree(_) => "dep.tree",
@@ -2175,18 +1995,6 @@ impl Request {
             Self::ProjectAgentSend(_) => "project_agent.send",
             Self::ProjectAgentPrime(_) => "project_agent.prime",
             Self::ProjectAgentCreated(_) => "project_agent.created",
-            Self::LeadOpen(_) => "lead.open",
-            Self::LeadResume(_) => "lead.resume",
-            Self::LeadSuggest(_) => "lead.suggest",
-            Self::SuggestionConfirm(_) => "suggestion.confirm",
-            Self::SuggestionDismiss(_) => "suggestion.dismiss",
-            Self::LeadList(_) => "lead.list",
-            Self::LeadPassOn(_) => "lead.pass_on",
-            Self::LeadQuestions => "lead.questions",
-            Self::LeadPrime(_) => "lead.prime",
-            Self::LeadNote(_) => "lead.note",
-            Self::TicketNotes(_) => "ticket.notes",
-            Self::TicketLeadLog(_) => "ticket.lead_log",
             Self::TicketTerminal(_) => "ticket.terminal",
             Self::AgentsList => "agents.list",
             Self::AgentsAdd(_) => "agents.add",
@@ -2255,13 +2063,6 @@ pub enum Reply {
     Decision(Box<crate::decisions::Decision>),
     Decisions(Vec<crate::decisions::Decision>),
     DecisionChanged(crate::decisions::ChangeOutcome),
-    Suggestion(Box<crate::epic_lead::suggest::Suggestion>),
-    LeadQuestion(Box<crate::epic_lead::questions::LeadQuestion>),
-    LeadQuestions(Vec<crate::epic_lead::questions::LeadQuestion>),
-    EpicPrime(Box<crate::epic_lead::prime::EpicPrime>),
-    LeadNote(Box<crate::epic_lead::notes::LeadNote>),
-    LeadNotes(Vec<crate::epic_lead::notes::LeadNote>),
-    LeadLog(Box<crate::epic_lead::log::LeadLog>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     /// The answer to `ticket.stage_next` and `ticket.stage_done` (AGM-10): the ticket and what the agent is told
@@ -2275,10 +2076,6 @@ pub enum Reply {
     SessionUsage(Vec<crate::usage::SessionUsage>),
     Activity(Box<crate::usage::activity::Activity>),
     AgentEdits(AgentEdits),
-    ClosePlan(ClosePlan),
-    EpicQueued(EpicQueueOutcome),
-    EpicTakenBack(TakeBackPlan),
-    EpicQueueUndone(UndoQueueOutcome),
     DeletePreview(DeletePreview),
     DepTree(DepTree),
     /// Dependency loops, each starting and ending on the same ticket; empty on a valid database.
@@ -2348,8 +2145,6 @@ pub enum Reply {
     ProjectAgents(Box<crate::project_agents::ProjectAgentList>),
     ProjectPrime(Box<crate::project_agents::prime::ProjectPrime>),
     CreatedAndChanged(Box<crate::project_agents::CreatedAndChanged>),
-    Lead(Box<crate::project_agents::lead::Lead>),
-    Leads(Vec<crate::project_agents::lead::Lead>),
     TicketTerminal(Box<TicketTerminal>),
     /// A tool's model list as Otaq's copy has it; `None` before it was first read.
     Models(Option<Box<crate::agent_tools::models::ModelCopy>>),
@@ -2441,7 +2236,7 @@ pub struct ServiceStatus {
 pub enum Event {
     /// Only used by tests, so the event stream is testable before real events exist.
     Test { seq: u64 },
-    /// A ticket or epic changed in any way (fields, column, links, pin, key). Refetch it or the board.
+    /// A ticket changed in any way (fields, column, links, pin, key). Refetch it or the board.
     TicketChanged {
         project: String,
         id: String,
@@ -2506,7 +2301,7 @@ pub enum Event {
         counts: crate::attention::needs_you::NeedsYouCounts,
     },
     /// An OS notification was clicked (ATT-11, d0090): bring the app forward on its target (a ticket's or a
-    /// validator's terminal, a Project agent, a lead, Needs you, the board).
+    /// validator's terminal, a Project agent, Needs you, the board).
     OpenFromNotification {
         target: crate::attention::notify::Target,
     },
@@ -2532,8 +2327,8 @@ pub enum Event {
         key: TicketKey,
         message: String,
     },
-    /// A toast (UI-07, d0064): an automatic local Delivery merged a ticket ("SHOP-40.1 merged automatically into the
-    /// Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2 can start"). No notification.
+    /// A toast (UI-07, d0064): an automatic local Delivery merged a ticket ("SHOP-41 merged automatically into main" ·
+    /// "Validated · round 1 · local, not pushed · SHOP-42 can start"). No notification.
     MergedAutomatically {
         project: String,
         key: TicketKey,
@@ -2548,9 +2343,9 @@ pub enum Event {
         title: String,
         message: String,
     },
-    /// A ticket's agent or an epic lead created a ticket (#47; d0016: a toast, no notification): "Ticket created by
-    /// agent" · "DEMO-7 created DEMO-12 → Backlog". `by` names the creator as the toast does (the ticket's key, or
-    /// the lead's name); `status` is where the new ticket landed (Backlog, or Queued in its epic's queue). Not sent
+    /// A ticket's agent created a ticket (#47; d0016: a toast, no notification): "Ticket created by agent" · "DEMO-7
+    /// created DEMO-12 → Backlog". `by` names the creator as the toast does (the ticket's key); `status` is where the
+    /// new ticket landed (Backlog). Not sent
     /// for the user's tickets nor a Project agent's (its agent panel lists what it created).
     CreatedByAgent {
         project: String,
@@ -2572,8 +2367,6 @@ pub enum Event {
     /// A project's Flow setup changed (ASK-04, ASK-06): a flow agent, a proposal, a tool's state or a limit, or
     /// its flow got settled. Refetch `onboarding.flow_setup` (and `project.list` once it is settled).
     FlowSetupChanged { project: String },
-    /// An epic's lead was opened, resumed or ended, or its status changed (d0083): refetch the epic's lead.
-    LeadChanged { project: String, epic: TicketKey },
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
@@ -2857,7 +2650,7 @@ mod tests {
             Message::event(Event::CardStatusChanged {
                 project: "SHOP".into(),
                 id: "id".into(),
-                key: "SHOP-40.1".parse().unwrap(),
+                key: "SHOP-41".parse().unwrap(),
                 status: Status::Queued,
             }),
             Message::event(Event::ProjectsChanged),

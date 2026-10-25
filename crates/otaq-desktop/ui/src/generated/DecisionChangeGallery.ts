@@ -2,7 +2,6 @@
 import type { DecisionChangeView } from "./DecisionChangeView";
 
 /**
- * The Gallery's two dialogs (`gallery.decision_change`): SHOP-23's Send back and SHOP-40's fix child with the
- * lead's mark.
+ * The Gallery's dialog (`gallery.decision_change`): SHOP-23's Send back.
  */
-export type DecisionChangeGallery = { send_back: DecisionChangeView, fix_child: DecisionChangeView, };
+export type DecisionChangeGallery = { send_back: DecisionChangeView, };

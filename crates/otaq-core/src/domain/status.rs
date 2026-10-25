@@ -1,4 +1,4 @@
-//! Kinds, places and statuses (SDD §7.2, STG-04; d0004, d0039, d0108).
+//! Places and statuses (SDD §7.2, STG-04; d0004, d0108).
 //!
 //! A ticket is always in one [`Place`] (Backlog, waiting before an Agent stage, a stage of its flow, Done) and has
 //! one [`Status`] from the set its place allows. There is no column: the board computes its columns from the flow
@@ -6,16 +6,6 @@
 //! Paused or "needs restack" (d0049).
 
 use super::stored_enum;
-
-stored_enum! {
-    /// The two ticket types (TKT-02). An epic is a container and a delivery unit (d0039, d0059).
-    #[derive(Default)]
-    pub enum Kind ("ticket kind") {
-        #[default]
-        Ticket = "ticket",
-        Epic = "epic",
-    }
-}
 
 stored_enum! {
     /// Every status of STG-04: what a ticket is doing in its [`Place`]. Each status belongs to one
@@ -318,7 +308,7 @@ impl Status {
 stored_enum! {
     /// The steps of the start sequence, in order (SES-01). A start that stops names the step it stopped at.
     pub enum StartStep ("start step") {
-        /// Resolve the base branch (the epic's branch for an epic child).
+        /// Resolve the base branch.
         Base = "base",
         /// Fetch and fast-forward the base; hold if it diverged (d0059).
         SyncBase = "sync_base",
@@ -389,18 +379,8 @@ mod tests {
 
     #[test]
     fn every_enum_round_trips_through_its_stored_form() {
-        round_trip(Kind::ALL);
         round_trip(Status::ALL);
         assert!("paused".parse::<Status>().is_err());
-        assert!(
-            "epic_in_progress".parse::<Status>().is_err(),
-            "never written"
-        );
-    }
-
-    #[test]
-    fn two_kinds() {
-        assert_eq!(Kind::ALL, &[Kind::Ticket, Kind::Epic]);
     }
 
     /// STG-04: every set has a status; today's fourteen Dev statuses are the Agent stage's and the agent check's.

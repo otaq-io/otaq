@@ -421,29 +421,6 @@ mod tests {
         );
     }
 
-    /// An epic at its stop (Review on the default flow, an implicit "Review epic" on a flow without a human check)
-    /// is in a human check: a note only.
-    #[test]
-    fn an_epic_at_its_stop_gets_a_note() {
-        use crate::board::epic_flight::{REVIEW_EPIC, epic_flow};
-        let mut no_qa = every_kind();
-        no_qa.stages.retain(|s| s.id != "qa");
-        for (flow, stop) in [(default_flow(), REVIEW), (no_qa, REVIEW_EPIC)] {
-            let flow = epic_flow(&flow);
-            assert_eq!(
-                reconcile(
-                    &flow,
-                    &Place::stage_of(stop),
-                    Status::WaitingForYou,
-                    None,
-                    false
-                ),
-                Outcome::NoteSessionEnded,
-                "{stop}"
-            );
-        }
-    }
-
     /// A stage the flow doesn't have (a row from another flow) goes by its status's set.
     #[test]
     fn a_stage_the_flow_doesnt_have() {

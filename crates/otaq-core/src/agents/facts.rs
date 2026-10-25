@@ -6,13 +6,13 @@
 use serde::{Deserialize, Serialize};
 
 use super::store::SessionAgentRun;
-use super::{Agent, AgentHold, FallbackFrom, HoldReason, ModelRef, Role, SessionRole, resolve};
+use super::{Agent, AgentHold, FallbackFrom, HoldReason, ModelRef, SessionRole, resolve};
 use crate::agent_tools::Tool;
 use crate::board::stage_choices::StageOptions;
 use crate::board::stage_runs::StageRun;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
-use crate::domain::{Kind, Place, Status, TicketKey};
+use crate::domain::{Place, Status, TicketKey};
 use crate::flow::{Flow, StageKind};
 use crate::usage::AgentTokens;
 
@@ -31,20 +31,16 @@ pub struct StageAgent {
     pub agent: Option<Agent>,
 }
 
-/// The answer to `ticket.agents`: a ticket's or an epic's agents, or (no key) a new one's in a project.
+/// The answer to `ticket.agents`: a ticket's agents, or (no key) a new one's in a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketAgents {
     /// `None` for a ticket not created yet (the ⌘N form).
     pub key: Option<TicketKey>,
-    pub kind: Kind,
     pub status: Option<Status>,
     /// Every agent.
     pub agents: Vec<Agent>,
-    /// A ticket's stages that run an agent, in flow order; empty for an epic.
+    /// A ticket's stages that run an agent, in flow order.
     pub stages: Vec<StageAgent>,
-    /// An epic's lead: the Epic lead role's agent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lead: Option<Agent>,
     /// Oldest first.
     pub sessions: Vec<SessionAgentRun>,
     /// Tokens by session role and agent ([`crate::usage::Usage::agents_of`]); filled by the service.
@@ -57,8 +53,8 @@ pub struct TicketAgents {
     /// Where the ticket is now (`None` for a new one).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<Place>,
-    /// A ticket's path (AGM-09): every stage of its flow, in order, with the agent each runs for it; empty for an
-    /// epic and a new ticket.
+    /// A ticket's path (AGM-09): every stage of its flow, in order, with the agent each runs for it; empty for a
+    /// new ticket.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<PathStage>,
     /// The ticket's stage runs, oldest first (STG-05): what ran, on which exact model, and how each ended.
@@ -157,7 +153,7 @@ async fn path_of(
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardAgents {
     pub agent_count: usize,
-    /// Every ticket of the project (not its epics).
+    /// Every ticket of the project.
     pub cards: Vec<CardAgents>,
     /// The agent tools connected now (`ConnectedTools`, filled by the service): avatars and tool names show once
     /// there are two (SHL-08, d0086; T-0362).
@@ -288,24 +284,14 @@ async fn stage_agents(board: &Board, project: &str) -> Result<Vec<StageAgent>, B
     Ok(stages)
 }
 
-/// What a ticket of `kind` not created yet in `project` runs: its flow's stages, nothing ran.
-pub async fn new_ticket_agents(
-    board: &Board,
-    project: &str,
-    kind: Kind,
-) -> Result<TicketAgents, BoardError> {
+/// What a ticket not created yet in `project` runs: its flow's stages, nothing ran.
+pub async fn new_ticket_agents(board: &Board, project: &str) -> Result<TicketAgents, BoardError> {
     let store = board.store();
-    let (stages, lead) = match kind {
-        Kind::Ticket => (stage_agents(board, project).await?, None),
-        Kind::Epic => (Vec::new(), store.role_agent(Role::EpicLead).await?),
-    };
     Ok(TicketAgents {
         key: None,
-        kind,
         status: None,
         agents: store.agents().await?,
-        stages,
-        lead,
+        stages: stage_agents(board, project).await?,
         sessions: Vec::new(),
         tokens: Vec::new(),
         holds: Vec::new(),
@@ -319,22 +305,20 @@ pub async fn new_ticket_agents(
 /// Everything the sheet shows of `key`'s agents ([`TicketAgents`]).
 pub async fn ticket_agents(board: &Board, key: &str) -> Result<TicketAgents, BoardError> {
     let ticket = board.ticket(key).await?;
-    let mut agents = new_ticket_agents(board, ticket.key.project.as_str(), ticket.kind).await?;
+    let mut agents = new_ticket_agents(board, ticket.key.project.as_str()).await?;
     // The agent the ticket chose for a stage instead of its usual one (AGM-08), its path, runs and choices (AGM-09).
-    if ticket.kind == Kind::Ticket {
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-        for stage_agent in &mut agents.stages {
-            if let Some(stage) = flow.stage(&stage_agent.stage_id)
-                && let Some(chosen) = board.chosen_agent(&ticket, stage).await?
-            {
-                stage_agent.agent = Some(chosen);
-            }
+    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    for stage_agent in &mut agents.stages {
+        if let Some(stage) = flow.stage(&stage_agent.stage_id)
+            && let Some(chosen) = board.chosen_agent(&ticket, stage).await?
+        {
+            stage_agent.agent = Some(chosen);
         }
-        let skips = board.ticket_skips(&ticket, &flow).await?;
-        agents.path = path_of(board, &ticket, &flow, &skips).await?;
-        agents.runs = board.stage_runs(key).await?;
-        agents.choices = board.ticket_choices(key).await?.stages;
     }
+    let skips = board.ticket_skips(&ticket, &flow).await?;
+    agents.path = path_of(board, &ticket, &flow, &skips).await?;
+    agents.runs = board.stage_runs(key).await?;
+    agents.choices = board.ticket_choices(key).await?.stages;
     agents.place = Some(ticket.place.clone());
     let store = board.store();
     let mut sessions = store.session_agents(&ticket.id).await?;
@@ -369,9 +353,6 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
     };
     let mut cards = Vec::new();
     for ticket in board.tickets(&project.key).await? {
-        if ticket.kind != Kind::Ticket {
-            continue;
-        }
         let running_of = |role| {
             running
                 .iter()

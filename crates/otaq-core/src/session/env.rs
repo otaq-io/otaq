@@ -7,7 +7,7 @@
 //!
 //! **The order rule.** A program gets the service's environment, then the project variables on top, then Otaq's
 //! own variables on top of those: **Otaq's own win** over a row of the same name, because Otaq needs them to
-//! work (the data folder variable, `OTAQ_TICKET`, the role and epic variables, `PORT`, `TERM`, `COLORTERM`,
+//! work (the data folder variable, `OTAQ_TICKET`, the role variables, `PORT`, `TERM`, `COLORTERM`,
 //! `COLORFGBG` (the theme's kind, d0117), and for setup on Windows the variable carrying the command). The one exception is `PATH`: a `PATH` row replaces
 //! the service's `PATH`, and where Otaq puts its bin folder in front of `PATH` (sessions), it puts it in front
 //! of the row's value instead, so `otaq` still resolves. Names compare as the OS does: ignoring case on Windows.

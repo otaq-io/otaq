@@ -4,14 +4,11 @@
 //! is written into the user's repo (d0023), and recording changes no state, makes no needs-you item and notifies
 //! nobody: it is information, listed in the review (T-0287), `otaq show` and `otaq prime`.
 //!
-//! Decisions are numbered per ticket from 1; the ID people and agents see is `<KEY>#<n>` (`SHOP-40.1#1`), built
-//! from the ticket's current key ([`DecisionId`]).
-//!
-//! Later tickets fill the other columns: the lead's mark (T-0280) and the outcome, kept or changed (T-0277).
+//! Decisions are numbered per ticket from 1; the ID people and agents see is `<KEY>#<n>` (`SHOP-23#1`), built
+//! from the ticket's key ([`DecisionId`]). The review keeps or changes them (T-0277).
 
 pub mod outcome;
 pub use outcome::{ChangeOutcome, keep_all, open_count};
-pub mod mark;
 
 use std::fmt;
 use std::str::FromStr;
@@ -41,12 +38,10 @@ stored_enum! {
         Kept = "kept",
         /// Change… sent the ticket back with another option: "Changed by you → sent back".
         ChangedSentBack = "changed_sent_back",
-        /// Change… in an epic's review added a fix child: "Changed by you → SHOP-40.7".
-        ChangedFixChild = "changed_fix_child",
     }
 }
 
-/// A decision's ID as people see it: the ticket's key and its number on that ticket (`SHOP-40.1#1`).
+/// A decision's ID as people see it: the ticket's key and its number on that ticket (`SHOP-23#1`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DecisionId {
     pub ticket: TicketKey,
@@ -63,7 +58,7 @@ impl fmt::Display for DecisionId {
 impl FromStr for DecisionId {
     type Err = BoardError;
 
-    /// `SHOP-40.1#1`; surrounding spaces are ignored.
+    /// `SHOP-23#1`; surrounding spaces are ignored.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
         let bad = || {
@@ -206,17 +201,6 @@ impl Field {
     }
 }
 
-/// The lead's one-line note that a written source contradicts a decision (T-0280; DEC-04).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Mark {
-    pub text: String,
-    /// The source it names (`PAY-123`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    pub by: Actor,
-    pub at: i64,
-}
-
 /// One recorded decision on a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Decision {
@@ -231,25 +215,12 @@ pub struct Decision {
     pub why: String,
     pub recorded_by: Actor,
     pub recorded_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mark: Option<Mark>,
     pub outcome: Outcome,
     /// The other option or the user's own words a Change… used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome_text: Option<String>,
-    /// The fix child a Change… in an epic's review added.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fix_child: Option<TicketKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome_at: Option<i64>,
-}
-
-/// One child's decisions in an epic's list ([`list_for_epic`]).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChildDecisions {
-    pub key: TicketKey,
-    pub title: String,
-    pub decisions: Vec<Decision>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -263,55 +234,25 @@ struct DecisionRow {
     why: String,
     recorded_by: String,
     recorded_at: i64,
-    mark_text: Option<String>,
-    mark_source: Option<String>,
-    marked_by: Option<String>,
-    marked_at: Option<i64>,
     outcome: String,
     outcome_text: Option<String>,
     outcome_at: Option<i64>,
     project_key: String,
     number: i64,
-    child_number: i64,
-    title: String,
-    fix_project_key: Option<String>,
-    fix_number: Option<i64>,
-    fix_child_number: Option<i64>,
 }
 
-const SELECT_DECISIONS: &str =
-    "SELECT d.*, p.key AS project_key, t.number, t.child_number, t.title,
-            fp.key AS fix_project_key, f.number AS fix_number, f.child_number AS fix_child_number
+const SELECT_DECISIONS: &str = "SELECT d.*, p.key AS project_key, t.number
      FROM decisions d
      JOIN tickets t ON t.id = d.ticket_id
-     JOIN projects p ON p.id = t.project_id
-     LEFT JOIN tickets f ON f.id = d.fix_child_id
-     LEFT JOIN projects fp ON fp.id = f.project_id";
+     JOIN projects p ON p.id = t.project_id";
 
 impl DecisionRow {
     fn key(&self) -> Option<TicketKey> {
-        key_from_parts(&self.project_key, self.number, self.child_number)
+        key_from_parts(&self.project_key, self.number)
     }
 
     fn into_decision(self) -> Option<Decision> {
         let ticket = self.key()?;
-        let fix_child = match (
-            &self.fix_project_key,
-            self.fix_number,
-            self.fix_child_number,
-        ) {
-            (Some(project), Some(number), Some(child)) => key_from_parts(project, number, child),
-            _ => None,
-        };
-        let mark = match (self.mark_text, self.marked_by, self.marked_at) {
-            (Some(text), Some(by), Some(at)) => Some(Mark {
-                text,
-                source: self.mark_source,
-                by: by.parse().expect("infallible"),
-                at,
-            }),
-            _ => None,
-        };
         Some(Decision {
             id: DecisionId {
                 ticket,
@@ -325,10 +266,8 @@ impl DecisionRow {
             why: self.why,
             recorded_by: self.recorded_by.parse().expect("infallible"),
             recorded_at: self.recorded_at,
-            mark,
             outcome: self.outcome.parse().unwrap_or(Outcome::Open),
             outcome_text: self.outcome_text,
-            fix_child,
             outcome_at: self.outcome_at,
         })
     }
@@ -435,34 +374,7 @@ pub async fn list_by_ticket_id(
         .collect())
 }
 
-/// Every child's decisions of the epic `epic` (by key), grouped by child in child order (SHOP-40.1, SHOP-40.2, …);
-/// children without decisions are left out. For the epic's review (DEC-04) and `prime --epic` (T-0283).
-pub async fn list_for_epic(board: &Board, epic: &str) -> Result<Vec<ChildDecisions>, BoardError> {
-    let epic_id = board.ticket_id(epic).await?;
-    let sql = format!("{SELECT_DECISIONS} WHERE t.epic_id = ? ORDER BY t.child_number, d.ordinal");
-    let rows: Vec<DecisionRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
-        .bind(&epic_id)
-        .fetch_all(board.store().pool())
-        .await?;
-    let mut groups: Vec<ChildDecisions> = Vec::new();
-    for row in rows {
-        let title = row.title.clone();
-        let Some(decision) = row.into_decision() else {
-            continue;
-        };
-        match groups.last_mut() {
-            Some(group) if group.key == decision.id.ticket => group.decisions.push(decision),
-            _ => groups.push(ChildDecisions {
-                key: decision.id.ticket.clone(),
-                title,
-                decisions: vec![decision],
-            }),
-        }
-    }
-    Ok(groups)
-}
-
-/// One decision by its ID (`SHOP-40.1#1`); the key may be an old key kept after Move to epic.
+/// One decision by its ID (`SHOP-23#1`).
 pub async fn get(board: &Board, id: &str) -> Result<Decision, BoardError> {
     let parsed: DecisionId = id.parse()?;
     let ticket_id = board.ticket_id(&parsed.ticket.to_string()).await?;
@@ -484,38 +396,19 @@ pub fn recorded_message(decision: &Decision) -> String {
     )
 }
 
-/// The decision as text, for `otaq show`, `otaq prime` and `otaq prime --epic`: its ID and question, then Built, the
-/// other options, Why, the lead's mark and the outcome, each on its own line indented by `indent`. `lead` is the name
-/// of the child's epic lead ("Wishlist lead"): only a lead marks, so its mark reads "Marked by Wishlist lead"; without
-/// it the mark names its actor.
-pub fn render(decision: &Decision, indent: &str, lead: Option<&str>) -> String {
+/// The decision as text, for `otaq show` and `otaq prime`: its ID and question, then Built, the other options, Why and
+/// the outcome, each on its own line indented by `indent`.
+pub fn render(decision: &Decision, indent: &str) -> String {
     let mut out = format!("{} {}\n", decision.id, decision.question);
     out.push_str(&format!("{indent}Built: {}\n", decision.built));
     for other in &decision.other_options {
         out.push_str(&format!("{indent}Other option: {other}\n"));
     }
     out.push_str(&format!("{indent}Why: {}\n", decision.why));
-    if let Some(mark) = &decision.mark {
-        let by = match (&mark.by, lead) {
-            (Actor::ProjectAgent(_), Some(lead)) => lead.to_owned(),
-            (by, _) => by.to_string(),
-        };
-        match &mark.source {
-            Some(source) => out.push_str(&format!(
-                "{indent}Marked by {by}: contradicts {source}: {}\n",
-                mark.text
-            )),
-            None => out.push_str(&format!("{indent}Marked by {by}: {}\n", mark.text)),
-        }
-    }
     let outcome = match decision.outcome {
         Outcome::Open => None,
         Outcome::Kept => Some("Kept by you".to_owned()),
         Outcome::ChangedSentBack => Some("Changed by you \u{2192} sent back".to_owned()),
-        Outcome::ChangedFixChild => Some(match &decision.fix_child {
-            Some(child) => format!("Changed by you \u{2192} {child}"),
-            None => "Changed by you".to_owned(),
-        }),
     };
     if let Some(outcome) = outcome {
         out.push_str(&format!("{indent}{outcome}\n"));
@@ -566,15 +459,22 @@ mod tests {
 
     #[test]
     fn decision_ids_parse_and_print() {
-        let id: DecisionId = "SHOP-40.1#2".parse().unwrap();
-        assert_eq!(id.ticket.to_string(), "SHOP-40.1");
+        let id: DecisionId = "SHOP-40#2".parse().unwrap();
+        assert_eq!(id.ticket.to_string(), "SHOP-40");
         assert_eq!(id.ordinal, 2);
-        assert_eq!(id.to_string(), "SHOP-40.1#2");
+        assert_eq!(id.to_string(), "SHOP-40#2");
         assert_eq!(
             " SHOP-23#1 ".parse::<DecisionId>().unwrap().to_string(),
             "SHOP-23#1"
         );
-        for bad in ["SHOP-23", "SHOP-23#0", "SHOP-23#x", "#1", "shop#1"] {
+        for bad in [
+            "SHOP-23",
+            "SHOP-23#0",
+            "SHOP-23#x",
+            "#1",
+            "shop#1",
+            "SHOP-40.1#1",
+        ] {
             assert!(bad.parse::<DecisionId>().is_err(), "{bad}");
         }
     }

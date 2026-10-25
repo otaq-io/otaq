@@ -1,8 +1,7 @@
 //! Deleting tickets that never went to Dev (TKT-08; d0060, d0029, d0018, d0044). Nothing exists on disk for
 //! them (no branch, worktree or conversation), so a delete is pure bookkeeping, but it is still a deletion: the
-//! user confirms it, from what [`Board::delete_preview`] names (the links that go with it, and for an epic the
-//! never-started children that go too). Anything that has been to Dev can only be Closed (d0033). The number
-//! is never handed out again (d0029); the key and its aliases stop resolving.
+//! user confirms it, from what [`Board::delete_preview`] names (the links that go with it). Anything that has been
+//! to Dev can only be Closed (d0033). The number is never handed out again (d0029); the key stops resolving.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,29 +14,14 @@ use crate::domain::TicketKey;
 pub struct DeletePreview {
     pub key: TicketKey,
     pub title: String,
-    pub is_epic: bool,
-    /// An epic's children, deleted with it.
-    pub children: Vec<(TicketKey, String)>,
     /// Links that go with it: (dependent, dependency) where one side stays.
     pub links: Vec<(TicketKey, TicketKey)>,
 }
 
 impl DeletePreview {
-    /// "Delete SHOP-40 and its 2 tickets (SHOP-40.1, SHOP-40.2)? None of them started." /
     /// "Delete SHOP-21 Order confirmation email?"
     pub fn question(&self) -> String {
-        if self.is_epic && !self.children.is_empty() {
-            let keys: Vec<String> = self.children.iter().map(|(k, _)| k.to_string()).collect();
-            let n = keys.len();
-            format!(
-                "Delete {} and its {n} ticket{} ({})? None of them started.",
-                self.key,
-                if n == 1 { "" } else { "s" },
-                keys.join(", ")
-            )
-        } else {
-            format!("Delete {} {}?", self.key, self.title)
-        }
+        format!("Delete {} {}?", self.key, self.title)
     }
 
     /// One line per link that will be removed: "SHOP-21 is a dependency of SHOP-22; that link will be removed".
@@ -54,14 +38,11 @@ impl DeletePreview {
 impl Board {
     /// What deleting `key` would remove, or why it can't be deleted.
     pub async fn delete_preview(&self, key: &str) -> Result<DeletePreview, BoardError> {
-        let (ticket, doomed, tickets) = self.deletion(key).await?;
-        let doomed_keys: Vec<&TicketKey> = doomed.iter().map(|t| &t.key).collect();
+        let (ticket, tickets) = self.deletion(key).await?;
         let mut links = Vec::new();
         for t in &tickets {
             for parent in &t.depends_on {
-                let child_gone = doomed_keys.contains(&&t.key);
-                let parent_gone = doomed_keys.contains(&parent);
-                if child_gone != parent_gone {
+                if (t.key == ticket.key) != (*parent == ticket.key) {
                     links.push((t.key.clone(), parent.clone()));
                 }
             }
@@ -70,45 +51,29 @@ impl Board {
         Ok(DeletePreview {
             key: ticket.key.clone(),
             title: ticket.title.clone(),
-            is_epic: ticket.is_epic(),
-            children: doomed
-                .iter()
-                .filter(|t| t.id != ticket.id)
-                .map(|t| (t.key.clone(), t.title.clone()))
-                .collect(),
             links,
         })
     }
 
-    /// Deletes a never-started ticket (with its links, aliases, review and message rows, its comments and their
-    /// reports), or
-    /// an epic together with its never-started children, in one transaction.
+    /// Deletes a never-started ticket, with its links, review and message rows, its comments and their reports.
     pub async fn delete_ticket(&self, key: &str) -> Result<DeletePreview, BoardError> {
         let preview = self.delete_preview(key).await?;
-        let (ticket, doomed, _) = self.deletion(key).await?;
-        // Their comments' reports go with them (CMT-03); the rows go by cascade.
-        let ids: Vec<&str> = doomed.iter().map(|t| t.id.as_str()).collect();
-        let reports = self.report_files_of(&ids).await?;
+        let (ticket, _) = self.deletion(key).await?;
+        // Its comments' reports go with it (CMT-03); the rows go by cascade.
+        let reports = self.report_files_of(&[ticket.id.as_str()]).await?;
         let mut tx = self.store.begin_write().await?;
-        // Children first, then the epic (they reference it).
-        for t in doomed.iter().filter(|t| t.id != ticket.id) {
-            sqlx::query("DELETE FROM tickets WHERE id = ?")
-                .bind(&t.id)
-                .execute(&mut *tx)
-                .await?;
-        }
         sqlx::query("DELETE FROM tickets WHERE id = ?")
             .bind(&ticket.id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
         self.remove_reports(&reports);
-        tracing::info!(key = %ticket.key, with = doomed.len() - 1, "ticket deleted");
+        tracing::info!(key = %ticket.key, "ticket deleted");
         Ok(preview)
     }
 
-    /// The ticket, everything that goes with it, and the project's tickets; or the refusal.
-    async fn deletion(&self, key: &str) -> Result<(Ticket, Vec<Ticket>, Vec<Ticket>), BoardError> {
+    /// The ticket and the project's tickets; or the refusal.
+    async fn deletion(&self, key: &str) -> Result<(Ticket, Vec<Ticket>), BoardError> {
         let ticket = self.ticket(key).await?;
         let tickets = self.tickets(ticket.key.project.as_str()).await?;
         if self.has_been_to_dev(&ticket).await? {
@@ -117,21 +82,6 @@ impl Board {
                 format!("{} has been to Dev. Close it instead.", ticket.key),
             ));
         }
-        let mut doomed = vec![ticket.clone()];
-        if ticket.is_epic() {
-            for child in tickets
-                .iter()
-                .filter(|t| t.epic.as_ref() == Some(&ticket.key))
-            {
-                if self.has_been_to_dev(child).await? {
-                    return Err(BoardError::refused(
-                        Refusal::Started,
-                        format!("{} has started tickets. Close it instead.", ticket.key),
-                    ));
-                }
-                doomed.push(child.clone());
-            }
-        }
-        Ok((ticket, doomed, tickets))
+        Ok((ticket, tickets))
     }
 }

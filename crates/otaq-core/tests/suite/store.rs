@@ -18,9 +18,6 @@ const TABLES: &[&str] = &[
     "flow_proposals",
     "flow_waiting",
     "human_questions",
-    "lead_notes",
-    "lead_stuck",
-    "lead_suggestions",
     "limit_windows",
     "manual_checks",
     "messages",
@@ -37,7 +34,6 @@ const TABLES: &[&str] = &[
     "stage_runs",
     "ticket_comments",
     "ticket_deps",
-    "ticket_key_aliases",
     "ticket_stage_choices",
     "tickets",
     "usage",
@@ -62,13 +58,10 @@ fn shop_web() -> NewProject {
     }
 }
 
-fn ticket(project_id: &str, number: i64, kind: &str, title: &str) -> NewTicket {
+fn ticket(project_id: &str, number: i64, title: &str) -> NewTicket {
     NewTicket {
         project_id: project_id.into(),
         number,
-        epic_id: None,
-        child_number: 0,
-        kind: kind.into(),
         title: title.into(),
         body: String::new(),
         stage_id: None,
@@ -103,12 +96,7 @@ async fn migrations_create_every_table_on_an_empty_database() {
     assert_eq!(names(&store, "table").await, TABLES);
 
     let indexes = names(&store, "index").await;
-    for expected in [
-        "ticket_deps_parent",
-        "sessions_ticket",
-        "tickets_epic",
-        "events_ticket",
-    ] {
+    for expected in ["ticket_deps_parent", "sessions_ticket", "events_ticket"] {
         assert!(indexes.iter().any(|i| i == expected), "{indexes:?}");
     }
     let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
@@ -151,38 +139,26 @@ async fn projects_and_tickets_round_trip() {
     );
     assert_eq!(store.project_by_key("BILL").await.unwrap(), None);
 
-    let epic = store
-        .insert_ticket(&ticket(&project.id, 40, "epic", "Wishlist"))
-        .await
-        .unwrap();
-    let child = store
-        .insert_ticket(&NewTicket {
-            epic_id: Some(epic.id.clone()),
-            child_number: 1,
-            ..ticket(&project.id, 40, "ticket", "Wishlist button")
-        })
+    let wishlist = store
+        .insert_ticket(&ticket(&project.id, 40, "Wishlist"))
         .await
         .unwrap();
 
-    assert_eq!(store.ticket(&epic.id).await.unwrap(), Some(epic.clone()));
     assert_eq!(
-        store.ticket_by_number(&project.id, 40, 1).await.unwrap(),
-        Some(child.clone())
+        store.ticket(&wishlist.id).await.unwrap(),
+        Some(wishlist.clone())
     );
     assert_eq!(
-        store.ticket_by_number(&project.id, 40, 0).await.unwrap(),
-        Some(epic)
+        store.ticket_by_number(&project.id, 40).await.unwrap(),
+        Some(wishlist.clone())
     );
-    assert!(!child.parked && !child.branch_locked);
-    assert_eq!(child.sent_back_round, 0);
+    assert!(!wishlist.parked && !wishlist.branch_locked);
+    assert_eq!(wishlist.sent_back_round, 0);
+    assert_eq!(wishlist.priority, 3, "Normal by default");
+    assert_eq!(wishlist.plan, "");
 
-    // SHOP-40.1 exists once.
-    let duplicate = store
-        .insert_ticket(&NewTicket {
-            child_number: 1,
-            ..ticket(&project.id, 40, "ticket", "again")
-        })
-        .await;
+    // SHOP-40 exists once.
+    let duplicate = store.insert_ticket(&ticket(&project.id, 40, "again")).await;
     assert!(duplicate.is_err());
 }
 
@@ -190,23 +166,17 @@ async fn projects_and_tickets_round_trip() {
 async fn foreign_keys_are_enforced_and_removing_a_project_removes_its_tickets() {
     let (_tmp, store) = temp_store().await;
     let orphan = store
-        .insert_ticket(&ticket("no-such-project", 1, "ticket", "Orphan"))
+        .insert_ticket(&ticket("no-such-project", 1, "Orphan"))
         .await;
     assert!(orphan.is_err());
 
     let project = store.insert_project(&shop_web()).await.unwrap();
-    let epic = store
-        .insert_ticket(&ticket(&project.id, 40, "epic", "Wishlist"))
-        .await
-        .unwrap();
-    store
-        .insert_ticket(&NewTicket {
-            epic_id: Some(epic.id.clone()),
-            child_number: 1,
-            ..ticket(&project.id, 40, "ticket", "Wishlist button")
-        })
-        .await
-        .unwrap();
+    for (number, title) in [(40, "Wishlist"), (41, "Wishlist button")] {
+        store
+            .insert_ticket(&ticket(&project.id, number, title))
+            .await
+            .unwrap();
+    }
     sqlx::query("DELETE FROM projects WHERE id = ?")
         .bind(&project.id)
         .execute(store.pool())
@@ -224,11 +194,11 @@ async fn one_row_round_trips_through_every_table() {
 
     let project = store.insert_project(&shop_web()).await.unwrap();
     let t18 = store
-        .insert_ticket(&ticket(&project.id, 18, "ticket", "Checkout button"))
+        .insert_ticket(&ticket(&project.id, 18, "Checkout button"))
         .await
         .unwrap();
     let t19 = store
-        .insert_ticket(&ticket(&project.id, 19, "ticket", "Cart badge"))
+        .insert_ticket(&ticket(&project.id, 19, "Cart badge"))
         .await
         .unwrap();
 
@@ -265,20 +235,6 @@ async fn one_row_round_trips_through_every_table() {
         .execute(pool)
         .await;
     assert!(self_dep.is_err());
-
-    sqlx::query("INSERT INTO ticket_key_aliases (old_key, ticket_id) VALUES (?, ?)")
-        .bind("SHOP-51")
-        .bind(&t19.id)
-        .execute(pool)
-        .await
-        .unwrap();
-    let aliased: String =
-        sqlx::query_scalar("SELECT ticket_id FROM ticket_key_aliases WHERE old_key = ?")
-            .bind("SHOP-51")
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    assert_eq!(aliased, t19.id);
 
     // Every tool session id is kept: two sessions for one ticket (d0045).
     let session_id = new_id();
@@ -612,63 +568,6 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(outcome, "open");
 
-    // An epic lead's suggestion (T-0280, d0083).
-    sqlx::query(
-        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at) \
-         VALUES (?, ?, ?, 'close', 'PAY-123 doesn''t ask for an export.', 'project-agent:l1', ?)",
-    )
-    .bind(new_id())
-    .bind(&t19.id)
-    .bind(&t18.id)
-    .bind(at)
-    .execute(pool)
-    .await
-    .unwrap();
-    let state: String = sqlx::query_scalar("SELECT state FROM lead_suggestions WHERE child_id = ?")
-        .bind(&t18.id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    assert_eq!(state, "open");
-
-    // An epic lead's note to a running child (T-0281, d0083): unread until read.
-    sqlx::query(
-        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, created_at) \
-         VALUES (?, ?, ?, 'l1', 'project-agent:l1', 'Use the same order.', ?)",
-    )
-    .bind(new_id())
-    .bind(&t19.id)
-    .bind(&t18.id)
-    .bind(at)
-    .execute(pool)
-    .await
-    .unwrap();
-    let read_how: Option<String> =
-        sqlx::query_scalar("SELECT read_how FROM lead_notes WHERE child_id = ?")
-            .bind(&t18.id)
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    assert_eq!(read_how, None);
-
-    // A stuck child's one lead attempt (T-0285, d0083): held until the lead's note or the hand-back.
-    sqlx::query(
-        "INSERT INTO lead_stuck (child_id, epic_id, lead_id, stop, detail, rounds, state, held_at) \
-         VALUES (?, ?, 'l1', 'validation_failed', 'orders.test.ts expects `list`', 3, 'held', ?)",
-    )
-    .bind(&t18.id)
-    .bind(&t19.id)
-    .bind(at)
-    .execute(pool)
-    .await
-    .unwrap();
-    let state: String = sqlx::query_scalar("SELECT state FROM lead_stuck WHERE child_id = ?")
-        .bind(&t18.id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    assert_eq!(state, "held");
-
     // An agent with an imported skill (AGM-01): the shipped ones are there already.
     let light = new_id();
     sqlx::query(
@@ -815,7 +714,7 @@ async fn agent_counts_come_from_live_agent_sessions() {
             .insert_ticket(&NewTicket {
                 stage_id: Some("dev".into()),
                 state: state.into(),
-                ..ticket(&project.id, number, "ticket", "t")
+                ..ticket(&project.id, number, "t")
             })
             .await
             .unwrap();

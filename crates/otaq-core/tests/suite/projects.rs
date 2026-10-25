@@ -213,9 +213,6 @@ async fn remove_deletes_everything_in_the_database_and_leaves_the_repo() {
             .insert_ticket(&NewTicket {
                 project_id: project.id.clone(),
                 number,
-                epic_id: None,
-                child_number: 0,
-                kind: "ticket".into(),
                 title: format!("SHOP-{number}"),
                 body: String::new(),
                 stage_id: None,

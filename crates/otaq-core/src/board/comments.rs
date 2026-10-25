@@ -111,12 +111,6 @@ impl Board {
     /// any human check of its flow, whose one status is `WaitingForYou` (FTB-05).
     pub async fn add_comment(&self, new: &NewComment) -> Result<ReviewComment, BoardError> {
         let ticket = self.ticket(&new.key).await?;
-        if ticket.is_epic() {
-            return Err(BoardError::refused(
-                Refusal::MoveRefused,
-                super::review::EPIC_NO_SEND_BACK,
-            ));
-        }
         if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,

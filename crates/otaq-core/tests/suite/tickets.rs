@@ -6,7 +6,7 @@ use crate::common::{Fixture, agent, me, shop_input};
 use otaq_core::board::Refusal;
 use otaq_core::board::tickets::{Base, NewTicketInput, TicketUpdate};
 use otaq_core::domain::Priority;
-use otaq_core::domain::{Actor, Kind, Status, StatusSet};
+use otaq_core::domain::{Actor, Status, StatusSet};
 use serde_json::Value;
 
 async fn events(f: &Fixture, ticket_id: &str) -> Vec<(String, String, Value)> {
@@ -28,25 +28,16 @@ async fn create_allocates_numbers_and_lands_in_backlog() {
     let first = f.create("Checkout page").await;
     assert_eq!(first.key.to_string(), "SHOP-1");
     assert_eq!(
-        (first.board_group(), first.status, first.kind),
-        (StatusSet::Backlog, Status::Backlog, Kind::Ticket)
+        (first.board_group(), first.status),
+        (StatusSet::Backlog, Status::Backlog)
     );
     assert_eq!(first.base, Base::Branch("main".into()));
     assert_eq!(first.created_by, me());
 
-    let epic = f.epic("Wishlist").await;
-    assert_eq!(epic.key.to_string(), "SHOP-2");
-    let c1 = f.child(&epic, "Wishlist API").await;
-    let c2 = f.child(&epic, "Wishlist UI").await;
-    assert_eq!(c1.key.to_string(), "SHOP-2.1");
-    assert_eq!(c2.key.to_string(), "SHOP-2.2");
-    assert_eq!(c1.epic, Some(epic.key.clone()));
-    assert_eq!(c1.base, Base::Epic(epic.key.clone()));
-    assert_eq!(
-        f.create("next").await.key.to_string(),
-        "SHOP-3",
-        "children don't use project numbers"
-    );
+    assert_eq!(first.priority, Priority::Normal);
+    assert_eq!(f.create("next").await.key.to_string(), "SHOP-2");
+    // There are no child keys (d0133).
+    assert!(f.board.ticket("SHOP-2.1").await.is_err());
 
     // Another project numbers on its own.
     f.add_project("billing-api").await;
@@ -73,19 +64,6 @@ async fn deleted_numbers_are_never_handed_out_again() {
         .unwrap();
     assert!(f.board.ticket("SHOP-24").await.is_err());
     assert_eq!(f.create("Next").await.key.to_string(), "SHOP-25");
-
-    let epic = f.epic("Wishlist").await;
-    let c1 = f.child(&epic, "one").await;
-    sqlx::query("DELETE FROM tickets WHERE id = ?")
-        .bind(&c1.id)
-        .execute(f.board.store().pool())
-        .await
-        .unwrap();
-    assert_eq!(
-        f.child(&epic, "two").await.key.child,
-        Some(2),
-        "child numbers aren't reused either"
-    );
 }
 
 #[tokio::test]
@@ -163,86 +141,12 @@ async fn update_fields() {
 #[tokio::test]
 async fn base_branch_and_external_id_rules() {
     let f = Fixture::shop().await;
-    let epic = f.epic("Wishlist").await;
-    let child = f.child(&epic, "API").await;
-    let key = child.key.to_string();
-
-    let err = f
-        .board
-        .update_ticket(
-            &key,
-            &TicketUpdate {
-                base_branch: Some("develop".into()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::BaseFromEpic));
-    assert_eq!(
-        err.to_string(),
-        "SHOP-1.1 starts from the epic's branch (SHOP-1)"
-    );
-
-    let err = f
-        .board
-        .update_ticket(
-            &key,
-            &TicketUpdate {
-                external_id: Some("PAY-1".into()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::ExternalIdOnChild));
-
-    for input in [
-        NewTicketInput {
-            base_branch: Some("develop".into()),
-            ..shop_input()
-        },
-        NewTicketInput {
-            external_id: Some("PAY-9".into()),
-            ..shop_input()
-        },
-        NewTicketInput {
-            kind: Kind::Epic,
-            ..shop_input()
-        },
-    ] {
-        let input = NewTicketInput {
-            title: "x".into(),
-            epic: Some(epic.key.to_string()),
-            ..input
-        };
-        assert!(
-            f.board.create_ticket(&input, &me()).await.is_err(),
-            "{input:?}"
-        );
-    }
+    // Every ticket has its own base and External ID (d0059, d0133).
     let plain = f.create("plain").await;
-    let err = f
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                title: "x".into(),
-                epic: Some(plain.key.to_string()),
-                ..shop_input()
-            },
-            &me(),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::NotAnEpic));
-
-    // An epic keeps its own base and External ID.
-    let epic = f
+    let ticket = f
         .board
         .update_ticket(
-            &epic.key.to_string(),
+            &plain.key.to_string(),
             &TicketUpdate {
                 base_branch: Some("develop".into()),
                 external_id: Some("PAY-123".into()),
@@ -253,7 +157,7 @@ async fn base_branch_and_external_id_rules() {
         .await
         .unwrap();
     assert_eq!(
-        (epic.base.clone(), epic.external_id.as_deref()),
+        (ticket.base.clone(), ticket.external_id.as_deref()),
         (Base::Branch("develop".into()), Some("PAY-123"))
     );
 
@@ -268,7 +172,7 @@ async fn base_branch_and_external_id_rules() {
         .update_ticket(
             &plain.key.to_string(),
             &TicketUpdate {
-                base_branch: Some("develop".into()),
+                base_branch: Some("release/2.3".into()),
                 ..Default::default()
             },
             &me(),
@@ -281,7 +185,7 @@ async fn base_branch_and_external_id_rules() {
         .update_ticket(
             &plain.key.to_string(),
             &TicketUpdate {
-                base_branch: Some("main".into()),
+                base_branch: Some("develop".into()),
                 ..Default::default()
             },
             &me(),

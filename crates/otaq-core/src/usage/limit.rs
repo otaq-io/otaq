@@ -467,10 +467,6 @@ impl PlanLimit {
         for id in inner.board.limit_stops().marked_by(tool) {
             inner.needs_you.mark_limit_stopped(&id, None);
         }
-        // The leads' wake-ups held during the limit are typed now (d0083).
-        if let Some(agents) = agents {
-            agents.leads().deliver_held(tool).await?;
-        }
         tracing::info!(%tool, continued = continued.len(), "resume after the usage limit");
         inner.events.publish(Event::UsageChanged);
         Ok(continued)

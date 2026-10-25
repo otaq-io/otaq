@@ -4,7 +4,7 @@
 //! pushes, and no state offers to stash or discard.
 
 use otaq_core::board::review::{ApproveCheck, changed_message};
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::review::LocalMergeOutcome;
@@ -32,8 +32,6 @@ pub enum ApproveChoice {
 pub fn menu_title(ticket: &Ticket) -> String {
     if let Some(n) = ticket.flags.pr_number {
         format!("Push {} {} to PR #{n}", ticket.key, ticket.title)
-    } else if ticket.is_epic() {
-        format!("Approve epic {} {}", ticket.key, ticket.title)
     } else {
         format!("Approve {} {}", ticket.key, ticket.title)
     }
@@ -46,9 +44,6 @@ pub fn menu_note(ticket: &Ticket) -> String {
             "Pushes the branch to origin. {} doesn\u{2019}t watch the PR; use Mark merged or Mark closed once the PR is merged or closed.",
             otaq_core::naming::PRODUCT_NAME
         )
-    } else if ticket.epic.is_some() {
-        "Open PR isn\u{2019}t offered for epic children: the epic opens one PR for all of them."
-            .to_owned()
     } else {
         "Both open a confirmation step before anything runs.".to_owned()
     }
@@ -116,18 +111,8 @@ pub fn options(
             enabled: true,
         }];
     }
-    let (title, mut detail) = match &ticket.base {
-        // An epic child squashes back into its epic's branch (*Epic child · Approve offers only Local merge*).
-        Base::Epic(epic) => (
-            format!("Local merge into {epic}"),
-            format!("Squash into {target} \u{b7} local, never pushed"),
-        ),
-        Base::Branch(_) if ticket.is_epic() => (
-            format!("Local merge into {target}"),
-            format!("Squash the whole feature into {target} \u{b7} never pushes"),
-        ),
-        Base::Branch(_) => ("Local merge".to_owned(), format!("Squash into {target}")),
-    };
+    let title = "Local merge".to_owned();
+    let mut detail = format!("Squash into {target}");
     if let Some((key, _, others)) = still_waiting(ticket, tickets).first() {
         detail.push_str(&format!(" \u{b7} {key} still waits for {}", keys(others)));
     }
@@ -137,30 +122,19 @@ pub fn options(
         detail,
         enabled: true,
     }];
-    if ticket.epic.is_none() {
-        let blocked = pr.and_then(PrProvider::open_pr_blocked);
-        let detail = match blocked {
-            Some(why) => why.to_owned(),
-            // The epic is the delivery unit: one PR, one commit per merged child (EPC-08, d0059).
-            None if ticket.is_epic() => format!("One commit per child \u{b7} into {target}"),
-            None => format!(
-                "The Open PR skill proposes; you confirm before anything is pushed \u{b7} into {target}"
-            ),
-        };
-        let mut title = open_pr_title(pr);
-        if ticket.is_epic() {
-            match &ticket.external_id {
-                Some(id) => title.push_str(&format!(" \u{b7} one PR for {id}")),
-                None => title.push_str(" \u{b7} one PR for the whole epic"),
-            }
-        }
-        out.push(ApproveOption {
-            choice: ApproveChoice::OpenPr,
-            title,
-            detail,
-            enabled: blocked.is_none(),
-        });
-    }
+    let blocked = pr.and_then(PrProvider::open_pr_blocked);
+    let detail = match blocked {
+        Some(why) => why.to_owned(),
+        None => format!(
+            "The Open PR skill proposes; you confirm before anything is pushed \u{b7} into {target}"
+        ),
+    };
+    out.push(ApproveOption {
+        choice: ApproveChoice::OpenPr,
+        title: open_pr_title(pr),
+        detail,
+        enabled: blocked.is_none(),
+    });
     out
 }
 
@@ -177,12 +151,9 @@ pub fn confirm_title(ticket: &Ticket) -> String {
     format!("Local merge {} {}", ticket.key, ticket.title)
 }
 
-/// "Into (SHOP-18’s base branch)", or the epic's branch for a child.
+/// "Into (SHOP-18’s base branch)".
 pub fn into_label(ticket: &Ticket) -> String {
-    match &ticket.base {
-        Base::Epic(epic) => format!("Into (the epic {epic}\u{2019}s branch)"),
-        Base::Branch(_) => format!("Into ({}\u{2019}s base branch)", ticket.key),
-    }
+    format!("Into ({}\u{2019}s base branch)", ticket.key)
 }
 
 /// The note under the message: who keeps waiting, and what happens to the worktree.
@@ -446,43 +417,6 @@ mod tests {
         assert!(options[0].enabled);
         assert_eq!(options[1].choice, ApproveChoice::OpenPr);
         assert!(options[1].enabled, "Open PR works from M10");
-        let mut child = ticket("SHOP-40.1", "Wishlist API", Status::WaitingForYou);
-        child.epic = Some("SHOP-40".parse().unwrap());
-        child.base = Base::Epic("SHOP-40".parse().unwrap());
-        let epic_branch = otaq_core::naming::branch("SHOP-40");
-        let only = super::options(&child, &epic_branch, &[], None);
-        assert_eq!(only.len(), 1, "epic children only merge locally");
-        assert_eq!(only[0].title, "Local merge into SHOP-40");
-        assert_eq!(
-            only[0].detail,
-            format!("Squash into {epic_branch} \u{b7} local, never pushed")
-        );
-        assert!(menu_note(&child).starts_with("Open PR isn"));
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = otaq_core::domain::Kind::Epic;
-        assert_eq!(menu_title(&epic), "Approve epic SHOP-40 Wishlist");
-        let both = super::options(&epic, "main", &[], None);
-        assert_eq!(both[0].title, "Local merge into main");
-        assert_eq!(
-            both[0].detail,
-            "Squash the whole feature into main \u{b7} never pushes"
-        );
-        assert_eq!(
-            both[1].choice,
-            ApproveChoice::OpenPr,
-            "the epic offers Open PR (M10)"
-        );
-        assert_eq!(both[1].title, "Open PR \u{b7} one PR for the whole epic");
-        assert_eq!(both[1].detail, "One commit per child \u{b7} into main");
-        epic.external_id = Some("PAY-123".into());
-        assert_eq!(
-            super::options(&epic, "main", &[], None)[1].title,
-            "Open PR \u{b7} one PR for PAY-123"
-        );
-        assert_eq!(
-            into_label(&child),
-            "Into (the epic SHOP-40\u{2019}s branch)"
-        );
     }
 
     #[test]

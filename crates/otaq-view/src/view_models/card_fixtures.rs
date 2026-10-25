@@ -2,8 +2,7 @@
 //! variants → Ticket Card v2 · all variants* (the M21 ones). The gallery draws them; tests build on them.
 
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Priority, Status};
-use otaq_core::domain::{AskedLead, ByLead, LeadNoteSent, SameFile, StuckStop, UnreadNotes};
+use otaq_core::domain::{Actor, Flags, Priority, Status};
 
 use crate::view_models::card::{AgentFacts, CardExtras, Sleeve};
 
@@ -14,20 +13,15 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
     Ticket {
         id: key.into(),
         key: key.parse().expect("fixture key"),
-        kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -46,8 +40,6 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 
@@ -123,11 +115,7 @@ pub fn variants() -> Vec<Variant> {
         question: Some(question.into()),
         ..base()
     };
-    let child = |key: &str, title: &str, status| {
-        let mut t = ticket(key, title, status);
-        t.epic = Some("SHOP-40".parse().expect("key"));
-        t
-    };
+    let child = |key: &str, title: &str, status| ticket(key, title, status);
     let sleeved = || CardExtras {
         sleeve: wishlist(false),
         ..base()
@@ -280,7 +268,7 @@ pub fn variants() -> Vec<Variant> {
     out.push(v("Validation failed · round 2 of 3", t, base()));
 
     let mut t = child(
-        "SHOP-40.4",
+        "SHOP-44",
         "Wishlist share link",
         Status::MergeConflictFixing,
     );
@@ -289,7 +277,7 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 10, 77_000);
     out.push(v("Merge conflict · fixing (0064)", t, sleeved()));
 
-    let mut t = child("SHOP-40.4", "Wishlist share link", Status::DeliveryStopped);
+    let mut t = child("SHOP-44", "Wishlist share link", Status::DeliveryStopped);
     t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
     t.auto_merge_conflicts = 3;
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
@@ -306,40 +294,13 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 10, 91_000);
     out.push(v("Merge check failed · fixing (0120)", t, base()));
 
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
-    t.depends_on = keys(&["SHOP-40.2"]);
+    let mut t = child("SHOP-43", "Wishlist page", Status::Queued);
+    t.depends_on = keys(&["SHOP-42"]);
     out.push(v(
         "Picked by the lead (0083)",
         t,
         CardExtras {
-            waits_for: Some("waits for SHOP-40.2 to merge".into()),
-            ..sleeved()
-        },
-    ));
-
-    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
-    live(&mut t, 12, 58_000);
-    t.flags.unread_notes = Some(UnreadNotes {
-        count: 1,
-        from: WISHLIST_LEAD.into(),
-        latest_text: "40.1 returns items newest first. Use the same order on the shared list."
-            .into(),
-        latest_at: NOW - 2 * 60_000,
-    });
-    t.flags.same_file = vec![SameFile {
-        other: "SHOP-40.4".parse().expect("key"),
-        files: vec!["lib/wishlist.ts".into()],
-    }];
-    out.push(v("Unread note · same file (0083 · T)", t, sleeved()));
-
-    let mut t = child("SHOP-40.5", "Wishlist empty state", Status::AsksYou);
-    live(&mut t, 12, 64_000);
-    t.flags.via_lead = Some(WISHLIST_LEAD.into());
-    out.push(v(
-        "Asks you · via Wishlist lead (0083)",
-        t,
-        CardExtras {
-            question: Some("Show the empty state on mobile too?".into()),
+            waits_for: Some("waits for SHOP-42 to merge".into()),
             ..sleeved()
         },
     ));
@@ -407,7 +368,7 @@ pub fn variants() -> Vec<Variant> {
         base(),
     ));
 
-    let mut t = child("SHOP-40.1", "Wishlist API", Status::Merged);
+    let mut t = child("SHOP-41", "Wishlist API", Status::Merged);
     t.validation_round = 1;
     t.flags.review_entry = Some(ReviewEntryFlag {
         entry: ReviewEntry::Validated,
@@ -447,81 +408,8 @@ pub fn variants() -> Vec<Variant> {
     out
 }
 
-/// *04 → Row · epic children & Done (0080)*: sleeved children of SHOP-40 Wishlist (EPC-09, EPC-13, EPC-17).
-pub fn sleeve_variants() -> Vec<Variant> {
-    let child = |key: &str, title: &str, status| {
-        let mut t = ticket(key, title, status);
-        t.epic = Some("SHOP-40".parse().expect("key"));
-        t
-    };
-    let mut out = Vec::new();
-    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
-    t.depends_on = keys(&["SHOP-40.1"]);
-    t.flags.last_signal_at = Some(NOW - 60_000);
-    t.flags.tokens = Some(96_000);
-    out.push(v(
-        "Dev · epic child · working",
-        t,
-        CardExtras {
-            sleeve: wishlist(false),
-            ..base()
-        },
-    ));
-    let mut t = child("SHOP-40.2", "Wishlist button", Status::AsksYou);
-    t.flags.last_signal_at = Some(NOW - 2 * 60_000);
-    t.flags.tokens = Some(98_000);
-    out.push(v(
-        "Dev · epic child · asks you",
-        t,
-        CardExtras {
-            sleeve: wishlist(false),
-            question: Some("Show the heart on product cards too?".into()),
-            ..base()
-        },
-    ));
-    // The epic is pinned: the pin is in the sleeve, not on the child (EPC-17).
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
-    t.depends_on = keys(&["SHOP-40.2"]);
-    out.push(v(
-        "Pinned epic · child (no own pin)",
-        t,
-        CardExtras {
-            sleeve: wishlist(true),
-            waits_for: Some("waits for SHOP-40.2 to merge".into()),
-            waits_for_merge: true,
-            ..base()
-        },
-    ));
-    // *03 → epic flows 3 → 10*: SHOP-40.2's agent added it while the whole epic was queued (EPC-13).
-    let mut t = child("SHOP-40.4", "Wishlist share link", Status::Queued);
-    t.depends_on = keys(&["SHOP-40.2"]);
-    t.created_by = Actor::Agent("SHOP-40.2".parse().expect("key"));
-    t.joined_queue_by = Some(Actor::Agent("SHOP-40.2".parse().expect("key")));
-    out.push(v(
-        "Ready for Dev · epic child · new",
-        t,
-        CardExtras {
-            sleeve: wishlist(false),
-            ..base()
-        },
-    ));
-    out
-}
-
 /// The lead's name in the fixtures.
 pub const WISHLIST_LEAD: &str = "Wishlist lead";
-
-/// The lead's note in the fixtures (*03 → 24, 25*).
-pub fn lead_note() -> LeadNoteSent {
-    LeadNoteSent {
-        lead: WISHLIST_LEAD.into(),
-        text: "The API returns items[] (SHOP-40.1). Fix the test, don't change the API.".into(),
-        view: Some("The agent keeps changing the API instead of the test.".into()),
-        stop: StuckStop::ValidationFailed,
-        after_rounds: Some(3),
-        at: NOW - 30 * 60_000,
-    }
-}
 
 /// The refused model's message, as Claude Code words it, straight apostrophe and all (the models report; T-0335's
 /// fixture).
@@ -911,26 +799,15 @@ pub fn flow_variants() -> Vec<Variant> {
             ..base()
         },
     ));
-    let stopped = |key: &str, title: &str, epic: bool| {
+    let stopped = |key: &str, title: &str| {
         let mut t = ticket(key, title, Status::DeliveryStopped);
         t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
         t.auto_merge_conflicts = 3;
-        if epic {
-            t.epic = Some("SHOP-40".parse().expect("key"));
-        }
         t
     };
     out.push(v(
-        "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
-        stopped("SHOP-40.4", "Wishlist share link", true),
-        CardExtras {
-            sleeve: wishlist(false),
-            ..base()
-        },
-    ));
-    out.push(v(
         "Conflicts \u{d7}3 \u{b7} main",
-        stopped("SHOP-38", "Cart totals rounding", false),
+        stopped("SHOP-38", "Cart totals rounding"),
         base(),
     ));
 
@@ -1314,212 +1191,6 @@ pub fn tool_variants() -> Vec<Variant> {
             )
         },
     ));
-    out
-}
-
-/// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)*, in the frames'
-/// order, then *03 → 25*'s second stop (LEAD-06…LEAD-10). SHOP-40 Wishlist has five children here.
-pub fn lead_variants() -> Vec<Variant> {
-    let child = |key: &str, title: &str, status| {
-        let mut t = ticket(key, title, status);
-        t.epic = Some("SHOP-40".parse().expect("key"));
-        t
-    };
-    let sleeve = || CardExtras {
-        sleeve: Some(Sleeve {
-            epic_key: "SHOP-40".into(),
-            name: "Wishlist".into(),
-            pinned: false,
-        }),
-        ..base()
-    };
-    let live = |t: &mut Ticket, ago_s: i64, tokens: u64| {
-        t.flags.last_signal_at = Some(NOW - ago_s * 1000);
-        t.flags.tokens = Some(tokens);
-    };
-    let same = |other: &str| {
-        vec![SameFile {
-            other: other.parse().expect("key"),
-            files: vec!["lib/wishlist.ts".into()],
-        }]
-    };
-    let unread = || {
-        UnreadNotes {
-        count: 1,
-        from: WISHLIST_LEAD.into(),
-        latest_text: "40.1 returns items newest first (recorded decision on SHOP-40.1). Use the same order on the \
-                      shared list."
-            .into(),
-        latest_at: NOW - 2 * 60_000,
-    }
-    };
-    let mut out = Vec::new();
-
-    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
-    t.depends_on = keys(&["SHOP-40.1"]);
-    live(&mut t, 60, 104_000);
-    t.flags.asked_lead = Some(AskedLead {
-        lead: WISHLIST_LEAD.into(),
-        question: "Should the button show a filled heart once the item is saved?".into(),
-    });
-    out.push(v("Dev · asked lead · waiting", t, sleeve()));
-
-    let mut t = child("SHOP-40.2", "Wishlist button", Status::AsksYou);
-    live(&mut t, 3 * 60, 106_000);
-    t.flags.via_lead = Some(WISHLIST_LEAD.into());
-    out.push(v(
-        "Dev · Asks you · via Wishlist lead",
-        t,
-        CardExtras {
-            question: Some("Can guests save items without logging in?".into()),
-            ..sleeve()
-        },
-    ));
-
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
-    t.depends_on = keys(&["SHOP-40.4"]);
-    t.flags.by_lead = Some(ByLead {
-        lead: WISHLIST_LEAD.into(),
-        added: false,
-        updated: true,
-        fields: vec!["description".into()],
-        waits_for: keys(&["SHOP-40.4"]),
-    });
-    out.push(v("Ready for Dev · Updated by Wishlist lead", t, sleeve()));
-
-    let mut t = child("SHOP-40.5", "Wishlist empty state", Status::Queued);
-    t.created_by = Actor::ProjectAgent("lead-1".into());
-    t.flags.by_lead = Some(ByLead {
-        lead: WISHLIST_LEAD.into(),
-        added: true,
-        ..ByLead::default()
-    });
-    out.push(v(
-        "Ready for Dev · new · added by Wishlist lead",
-        t,
-        sleeve(),
-    ));
-
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::Working);
-    live(&mut t, 20, 141_000);
-    t.flags.lead_note_sent = Some(lead_note());
-    out.push(v("Dev · Lead's note sent (round 0 of 3)", t, sleeve()));
-
-    let mut t = child("SHOP-40.4", "Wishlist share link", Status::Working);
-    live(&mut t, 40, 71_000);
-    t.flags.unread_notes = Some(unread());
-    out.push(v("Dev · 1 unread note from Wishlist lead", t, sleeve()));
-
-    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
-    live(&mut t, 20, 118_000);
-    t.flags.same_file = same("SHOP-40.4");
-    out.push(v("Dev · same file as SHOP-40.4", t, sleeve()));
-
-    let mut t = child("SHOP-40.4", "Wishlist share link", Status::Working);
-    live(&mut t, 60, 71_000);
-    t.flags.same_file = same("SHOP-40.2");
-    out.push(v("Dev · same file as SHOP-40.2", t.clone(), sleeve()));
-
-    t.flags.unread_notes = Some(unread());
-    out.push(v("Dev · both on one card", t, sleeve()));
-
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::CheckFailed);
-    t.validation_round = 3;
-    t.flags.verdict = Some("orders.test.ts expects list".into());
-    t.flags.tokens = Some(163_000);
-    t.flags.lead_note_sent = Some(lead_note());
-    out.push(v("Dev · Failed 3 times after the lead's note", t, sleeve()));
-    out
-}
-
-/// An epic and its project's tickets, for the Epic Card rows.
-pub struct EpicVariant {
-    pub name: &'static str,
-    pub epic: Ticket,
-    pub tickets: Vec<Ticket>,
-    pub branch: Option<&'static str>,
-}
-
-/// *Row · epics* and *Row · epics as delivery units (0059)*.
-pub fn epic_variants() -> Vec<EpicVariant> {
-    let epic = |key: &str, title: &str, status: Status, external: Option<&str>| {
-        let mut t = ticket(key, title, status);
-        t.kind = Kind::Epic;
-        t.external_id = external.map(str::to_owned);
-        t
-    };
-    let child = |epic: &str, key: &str, title: &str, status: Status| {
-        let mut t = ticket(key, title, status);
-        t.epic = Some(epic.parse().expect("key"));
-        t
-    };
-    let wishlist = |status: Status, children: [Status; 3]| {
-        let e = epic("SHOP-40", "Wishlist", status, Some("PAY-123"));
-        let mut tickets = vec![e.clone()];
-        for (i, (title, s)) in ["Wishlist API", "Wishlist button", "Wishlist page"]
-            .into_iter()
-            .zip(children)
-            .enumerate()
-        {
-            tickets.push(child("SHOP-40", &format!("SHOP-40.{}", i + 1), title, s));
-        }
-        (e, tickets)
-    };
-    let mut out = Vec::new();
-    let (e, t) = wishlist(
-        Status::Backlog,
-        [Status::Merged, Status::Working, Status::Backlog],
-    );
-    out.push(EpicVariant {
-        name: "Epic · Backlog",
-        epic: e,
-        tickets: t,
-        branch: None,
-    });
-    let (e, t) = wishlist(Status::WaitingForYou, [Status::Merged; 3]);
-    out.push(EpicVariant {
-        name: "Epic · Ready for Review",
-        epic: e,
-        tickets: t,
-        branch: None,
-    });
-    let (mut e, mut t) = wishlist(Status::PrOpen, [Status::Merged; 3]);
-    e.flags.pr_number = Some(490);
-    t[0] = e.clone();
-    out.push(EpicVariant {
-        name: "Epic · Approved · PR open",
-        epic: e,
-        tickets: t,
-        branch: Some("feature/PAY-123-wishlist"),
-    });
-    let (e, t) = wishlist(Status::Merged, [Status::Merged; 3]);
-    out.push(EpicVariant {
-        name: "Epic · Done",
-        epic: e,
-        tickets: t,
-        branch: Some("feature/PAY-123-wishlist"),
-    });
-    let gift = epic("SHOP-50", "Gift cards", Status::ClosedNotMerged, None);
-    out.push(EpicVariant {
-        name: "Epic · closed, not merged",
-        tickets: vec![
-            gift.clone(),
-            child(
-                "SHOP-50",
-                "SHOP-50.1",
-                "Gift card model",
-                Status::ClosedNotMerged,
-            ),
-            child(
-                "SHOP-50",
-                "SHOP-50.2",
-                "Redeem gift card",
-                Status::ClosedNotMerged,
-            ),
-        ],
-        epic: gift,
-        branch: None,
-    });
     out
 }
 

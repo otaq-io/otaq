@@ -516,40 +516,6 @@ async fn an_unreachable_remote_stops_a_pr_flow_start() {
 }
 
 #[tokio::test]
-async fn the_first_epic_child_syncs_the_epic_base() {
-    let s = setup().await;
-    let epic = s.f.epic("Wishlist").await;
-    let child =
-        s.f.create_with(NewTicketInput {
-            title: "Wishlist API".into(),
-            epic: Some(epic.key.to_string()),
-            ..common::shop_input()
-        })
-        .await;
-    s.f.board
-        .move_ticket(
-            &child.key.to_string(),
-            DropTarget::ReadyForDev,
-            false,
-            &me(),
-        )
-        .await
-        .unwrap();
-    let outcome = s
-        .starter
-        .start("SHOP-1.1", &me(), otaq_core::session::Start::Auto)
-        .await
-        .unwrap();
-    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
-    let epic_branch = otaq_core::naming::branch("SHOP-1");
-    assert_eq!(
-        git(&repo(&s.f), &["rev-parse", &epic_branch]),
-        git(&repo(&s.f), &["rev-parse", "main"])
-    );
-    s.sessions.shutdown().await;
-}
-
-#[tokio::test]
 async fn entering_queued_over_the_socket_and_the_scheduler_starts_it() {
     let repos = TempRepos::new();
     let repo = repos.repo("shop-web", 1);

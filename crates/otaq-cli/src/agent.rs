@@ -6,17 +6,12 @@
 //!
 //! `ask human` takes 2–4 answer options (`--option "Postmark" --option "SES" --recommended 1`, d0061); the
 //! service checks them. Each option may carry a note, its pros and cons: `--note "…"` right after its `--option`
-//! (ATT-17), stored whole. An epic child's `ask human` goes to its epic's live lead first (LEAD-06); the lead answers
-//! it with `otaq answer <QUESTION-ID> --stdin` or passes it on with `otaq ask human --pass-on <QUESTION-ID>
-//! [--option …] [--recommended N] --stdin` (its reason on stdin), and `otaq questions` in its session lists the
-//! questions waiting for it.
+//! (ATT-17), stored whole.
 //!
 //! # `--json` shapes
 //!
 //! They print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
-//! `text`, `options` and `recommended` (1-based). A lead's `answer` and `ask human --pass-on` print the question
-//! (`otaq_core::epic_lead::questions::LeadQuestion`: `{"id", "child", "epic", "lead", "question", "options",
-//! "recommended", "state": "answered" | "passed_on", "reason"?, "answer"?, …}`), and its `questions` a list of them.
+//! `text`, `options` and `recommended` (1-based).
 //!
 //! `review feedback --json` prints `{"key", "round", "note"?, "comments": [{"file", "line", "side", "body"}], "pr"?}`;
 //! `pr` (a ticket with a PR) is `{"number", "comments": [{"file"?, "line"?, "author", "text"}], "note"?}`, the
@@ -57,8 +52,6 @@ pub struct AskArgs {
     /// Each option's note, paired by position ([`crate::cli::option_notes`]), or why the pairing is refused.
     pub notes: Result<Vec<Option<String>>, String>,
     pub recommended: Option<u32>,
-    /// `--pass-on <QUESTION-ID>`: an epic lead passes a child's question on (LEAD-06).
-    pub pass_on: Option<String>,
 }
 
 pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
@@ -69,30 +62,11 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         options,
         notes,
         recommended,
-        pass_on,
     } = args;
     let to_human = target_name.eq_ignore_ascii_case("human");
-    let notes = check_notes(to_human, &options, pass_on.is_some(), notes)?;
+    let notes = check_notes(to_human, &options, notes)?;
     if !to_human && (!options.is_empty() || recommended.is_some()) {
         return Err(usage("Options are only for questions to the human"));
-    }
-    if let Some(id) = pass_on {
-        if !to_human {
-            return Err(usage(format!(
-                "--pass-on passes a question on to the human: `{cmd} ask human --pass-on {id} --stdin`"
-            )));
-        }
-        if !stdin {
-            return Err(usage(format!(
-                "give your reason on stdin: `{cmd} ask human --pass-on {id} --stdin`"
-            )));
-        }
-        let choices = Choices {
-            options,
-            notes,
-            recommended,
-        };
-        return pass_on_question(id, choices, global, out);
     }
     if !stdin {
         return Err(usage(format!(
@@ -147,7 +121,6 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
 fn check_notes(
     to_human: bool,
     options: &[String],
-    pass_on: bool,
     notes: Result<Vec<Option<String>>, String>,
 ) -> Result<Vec<Option<String>>, ErrorBody> {
     let any = notes
@@ -161,7 +134,7 @@ fn check_notes(
             "--note is only for questions to the human: a question to a ticket's agent is free text",
         ));
     }
-    if options.is_empty() && !pass_on {
+    if options.is_empty() {
         return Err(usage(
             "A free-text question takes no --note: a --note describes the --option before it",
         ));
@@ -176,12 +149,10 @@ struct Choices {
     recommended: Option<u32>,
 }
 
-/// Where `ask human` goes: a ticket's agent asks, a Project agent (or lead) asks, or a lead passes a child's question
-/// on (`text` is then its reason).
+/// Where `ask human` goes: a ticket's agent asks, or a Project agent asks.
 enum Route {
     Ticket(String),
     ProjectAgent,
-    PassOn(String),
 }
 
 /// The request of each route; every one carries the options' notes (ATT-17).
@@ -205,55 +176,14 @@ fn human_request(route: Route, text: String, choices: Choices) -> Request {
             notes,
             recommended,
         }),
-        Route::PassOn(id) => Request::LeadPassOn(otaq_core::protocol::PassOnParams {
-            id,
-            options,
-            notes,
-            recommended,
-            reason: text,
-        }),
     }
-}
-
-/// `otaq ask human --pass-on <QUESTION-ID> [--option … [--note …]] [--recommended N] --stdin` (LEAD-06): the epic's
-/// lead passes a child's question on to the user, its reason on stdin. Without options the child's options and notes
-/// stay.
-fn pass_on_question(
-    id: String,
-    choices: Choices,
-    global: &GlobalArgs,
-    out: &Output,
-) -> Result<(), ErrorBody> {
-    let reason = read_stdin()?;
-    if reason.is_empty() {
-        return Err(usage("your reason on stdin is empty"));
-    }
-    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
-    service::runtime()?.block_on(async {
-        let client = service::connect(&data, global).await?;
-        let question = match client
-            .request(human_request(Route::PassOn(id), reason, choices))
-            .await
-            .map_err(client_error)?
-        {
-            Reply::LeadQuestion(q) => *q,
-            other => return Err(unexpected(&other)),
-        };
-        out.print(
-            &otaq_core::epic_lead::questions::passed_on_message(&question),
-            &question,
-            Some(&question.id),
-        );
-        Ok(())
-    })
 }
 
 /// `otaq ask <KEY> --stdin` (MSG-01): a question to a linked ticket's agent; returns at once with its ID.
-/// A Project agent's session: the Project agent (or epic lead, d0083) role and no ticket (d0068).
+/// A Project agent's session: the Project agent role and no ticket (d0068).
 fn in_project_agent() -> bool {
     crate::service::ticket_env().is_none()
-        && std::env::var(naming::role_env_var())
-            .is_ok_and(|r| r == naming::ROLE_PROJECT_AGENT || r == naming::ROLE_EPIC_LEAD)
+        && std::env::var(naming::role_env_var()).is_ok_and(|r| r == naming::ROLE_PROJECT_AGENT)
 }
 
 /// `ask human` / `ask <KEY>` from a Project agent: it has no ticket; the service knows it by its session.
@@ -366,15 +296,6 @@ pub fn answer(id: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Res
             .map_err(client_error)?
         {
             Reply::Message(m) => *m,
-            // An epic lead answered a child's question (LEAD-06).
-            Reply::LeadQuestion(q) => {
-                out.print(
-                    &otaq_core::epic_lead::questions::answered_message(&q),
-                    &q,
-                    Some(&q.id),
-                );
-                return Ok(());
-            }
             other => return Err(unexpected(&other)),
         };
         out.print(
@@ -391,25 +312,12 @@ pub fn answer(id: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Res
     })
 }
 
-/// `otaq questions [KEY]`: the questions waiting for this ticket's answer; in an epic lead's session, the children's
-/// questions waiting for the lead (LEAD-06).
+/// `otaq questions [KEY]`: the questions waiting for this ticket's answer.
 pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let cmd = naming::COMMAND_NAME;
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
-        if key.is_none() && in_epic_lead() {
-            let waiting = match client
-                .request(Request::LeadQuestions)
-                .await
-                .map_err(client_error)?
-            {
-                Reply::LeadQuestions(q) => q,
-                other => return Err(unexpected(&other)),
-            };
-            out.print(&render_lead_questions(&waiting), &waiting, None);
-            return Ok(());
-        }
         let key = target::resolve_key(&client, &data, key, global).await?;
         let messages = match client
             .request(Request::TicketQuestions(KeyParams {
@@ -441,74 +349,6 @@ pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Resu
         out.print(&text, &messages, None);
         Ok(())
     })
-}
-
-/// An epic lead's session: the epic lead role and no ticket (d0083).
-fn in_epic_lead() -> bool {
-    crate::service::ticket_env().is_none()
-        && std::env::var(naming::role_env_var()).is_ok_and(|r| r == naming::ROLE_EPIC_LEAD)
-}
-
-/// ```text
-/// 0199… · from SHOP-40.2 Wishlist button
-///   Can guests save items without logging in?
-///   options: 1. Logged-in users only · 2. Guests too, kept in the browser
-///   answer: `otaq answer 0199… --stdin` · pass on: `otaq ask human --pass-on 0199… --stdin`
-/// ```
-///
-/// When an option has a note (ATT-17), the options are listed one per line, each note whole under its label:
-///
-/// ```text
-///   options:
-///     1. Markdown files
-///        Opens in any editor; one file per note, no attachments.
-///     2. One ZIP
-/// ```
-fn render_lead_questions(waiting: &[otaq_core::epic_lead::questions::LeadQuestion]) -> String {
-    let cmd = naming::COMMAND_NAME;
-    if waiting.is_empty() {
-        return "No questions wait for you.".to_owned();
-    }
-    waiting
-        .iter()
-        .map(|q| {
-            let options = if q.options.is_empty() {
-                String::new()
-            } else if q.notes.iter().any(Option::is_some) {
-                let listed: Vec<String> = q
-                    .options
-                    .iter()
-                    .enumerate()
-                    .map(|(n, o)| match q.notes.get(n).cloned().flatten() {
-                        Some(note) => format!(
-                            "\n    {}. {o}\n       {}",
-                            n + 1,
-                            note.replace('\n', "\n       ")
-                        ),
-                        None => format!("\n    {}. {o}", n + 1),
-                    })
-                    .collect();
-                format!("\n  options:{}", listed.concat())
-            } else {
-                let listed: Vec<String> = q
-                    .options
-                    .iter()
-                    .enumerate()
-                    .map(|(n, o)| format!("{}. {o}", n + 1))
-                    .collect();
-                format!("\n  options: {}", listed.join(" \u{b7} "))
-            };
-            format!(
-                "{id} \u{b7} from {} {}\n  {}{options}\n  answer: `{cmd} answer {id} --stdin` \u{b7} pass on: \
-                 `{cmd} ask human --pass-on {id} --stdin`",
-                q.child,
-                q.child_title,
-                q.question.replace('\n', "\n  "),
-                id = q.id,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 /// What a stage end is given: `--stdin`, `--report-file` and the `--manual-check` items (d0125).
@@ -808,80 +648,9 @@ mod tests {
         }
     }
 
-    /// LEAD-06: `otaq questions` in a lead's session lists its children's questions with both ways out.
+    /// ATT-17: every route carries the notes.
     #[test]
-    fn a_leads_waiting_questions() {
-        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
-        let cmd = naming::COMMAND_NAME;
-        assert_eq!(render_lead_questions(&[]), "No questions wait for you.");
-        let q = LeadQuestion {
-            id: "q7".into(),
-            child: "SHOP-40.2".parse().unwrap(),
-            child_title: "Wishlist button".into(),
-            epic: "SHOP-40".parse().unwrap(),
-            lead: "Wishlist lead".into(),
-            lead_agent: None,
-            question: "Can guests save items?".into(),
-            options: vec!["Logged-in users only".into(), "Guests too".into()],
-            recommended: None,
-            notes: Vec::new(),
-            state: LeadQuestionState::WithLead,
-            reason: None,
-            answer: None,
-            asked_at: 0,
-            lead_at: None,
-            answered_at: None,
-        };
-        assert_eq!(
-            render_lead_questions(&[q]),
-            format!(
-                "q7 \u{b7} from SHOP-40.2 Wishlist button\n  Can guests save items?\n  options: 1. Logged-in users \
-                 only \u{b7} 2. Guests too\n  answer: `{cmd} answer q7 --stdin` \u{b7} pass on: `{cmd} ask human \
-                 --pass-on q7 --stdin`"
-            )
-        );
-    }
-
-    /// ATT-17: with notes, each option's note is listed whole under it; options without one have none.
-    #[test]
-    fn a_leads_waiting_questions_show_the_notes() {
-        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
-        let long = "y".repeat(600);
-        let q = LeadQuestion {
-            id: "q8".into(),
-            child: "NOTE-1".parse().unwrap(),
-            child_title: "Add export".into(),
-            epic: "NOTE-10".parse().unwrap(),
-            lead: "Sharing lead".into(),
-            lead_agent: None,
-            question: "Which export format?".into(),
-            options: vec!["Markdown files".into(), "One ZIP".into(), "PDF".into()],
-            recommended: Some(1),
-            notes: vec![
-                Some("Opens in any editor; one file per note, no attachments.".into()),
-                None,
-                Some(long.clone()),
-            ],
-            state: LeadQuestionState::WithLead,
-            reason: None,
-            answer: None,
-            asked_at: 0,
-            lead_at: None,
-            answered_at: None,
-        };
-        let text = render_lead_questions(&[q]);
-        assert!(
-            text.contains(&format!(
-                "  Which export format?\n  options:\n    1. Markdown files\n       Opens in any editor; one file per \
-                 note, no attachments.\n    2. One ZIP\n    3. PDF\n       {long}\n  answer: "
-            )),
-            "{text}"
-        );
-    }
-
-    /// ATT-17: every route carries the notes; a pass-on without options sends none, so the child's stay.
-    #[test]
-    fn the_three_routes_carry_the_notes() {
+    fn the_routes_carry_the_notes() {
         let notes = vec![Some("Opens in any editor.".to_owned()), None];
         let choices = || Choices {
             options: vec!["Markdown files".into(), "One ZIP".into()],
@@ -902,28 +671,6 @@ mod tests {
             panic!("a Project agent asks with agent.ask_human")
         };
         assert_eq!(p.notes, notes);
-        let Request::LeadPassOn(p) = human_request(
-            Route::PassOn("q8".into()),
-            "PAY-1 says so.".into(),
-            choices(),
-        ) else {
-            panic!("a lead passes on with lead.pass_on")
-        };
-        assert_eq!((p.reason.as_str(), &p.notes), ("PAY-1 says so.", &notes));
-        let keep = Choices {
-            options: Vec::new(),
-            notes: Vec::new(),
-            recommended: None,
-        };
-        let Request::LeadPassOn(p) = human_request(Route::PassOn("q8".into()), "r".into(), keep)
-        else {
-            panic!("lead.pass_on")
-        };
-        let sent = serde_json::to_value(&p).unwrap();
-        assert!(
-            sent.get("options").is_none() && sent.get("notes").is_none(),
-            "{sent}"
-        );
     }
 
     /// ATT-17: the refusals of `--note`, each naming its rule.
@@ -936,20 +683,18 @@ mod tests {
             message(check_notes(
                 false,
                 &[],
-                false,
                 Err(crate::cli::NOTE_AFTER_OPTION.into())
             )),
             "--note is only for questions to the human: a question to a ticket's agent is free text"
         );
         assert!(
-            check_notes(false, &opts, false, one.clone()).is_err(),
+            check_notes(false, &opts, one.clone()).is_err(),
             "ask <KEY> with options too"
         );
         assert_eq!(
             message(check_notes(
                 true,
                 &[],
-                false,
                 Err(crate::cli::NOTE_AFTER_OPTION.into())
             )),
             "A free-text question takes no --note: a --note describes the --option before it"
@@ -957,8 +702,7 @@ mod tests {
         assert_eq!(
             message(check_notes(
                 true,
-                &[],
-                true,
+                &opts,
                 Err(crate::cli::NOTE_AFTER_OPTION.into())
             )),
             "--note must follow the --option it describes"
@@ -967,21 +711,17 @@ mod tests {
             message(check_notes(
                 true,
                 &opts,
-                false,
                 Err("Give at most one --note per --option: \"A\" has two".into())
             )),
             "Give at most one --note per --option: \"A\" has two"
         );
         assert_eq!(
-            check_notes(true, &opts, false, one.clone()),
+            check_notes(true, &opts, one.clone()),
             Ok(vec![Some("a".to_owned()), None])
         );
+        assert_eq!(check_notes(true, &opts, Ok(vec![None, None])), Ok(vec![]));
         assert_eq!(
-            check_notes(true, &opts, false, Ok(vec![None, None])),
-            Ok(vec![])
-        );
-        assert_eq!(
-            check_notes(false, &[], false, Ok(vec![])),
+            check_notes(false, &[], Ok(vec![])),
             Ok(vec![]),
             "ask <KEY> without notes"
         );

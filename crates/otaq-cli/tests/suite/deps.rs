@@ -75,12 +75,12 @@ async fn add_remove_and_refusals() {
         )
         .await
         .unwrap();
-    let error = refused(&cb(&w, &["dep", "add", "SHOP-41", "SHOP-20"]));
+    let error = refused(&cb(&w, &["dep", "add", "SHOP-44", "SHOP-20"]));
     assert_eq!(
         error.trim(),
-        "error: SHOP-41 merges into `release/2.3`, SHOP-20 into `main`. Linked tickets must use the same base branch."
+        "error: SHOP-44 merges into `release/2.3`, SHOP-20 into `main`. Linked tickets must use the same base branch."
     );
-    let out = cb(&w, &["dep", "add", "SHOP-41", "SHOP-20", "--json"]);
+    let out = cb(&w, &["dep", "add", "SHOP-44", "SHOP-20", "--json"]);
     assert!(!out.status.success());
     let e: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(e["error"]["data"]["refusal"], "cross_base");

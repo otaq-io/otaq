@@ -3,7 +3,7 @@
 //! Before a delivery unit starts, and later before a Local merge into a base branch (T-0089), Otaq runs
 //! `git fetch`, fast-forwards the local base if it is **only behind** its remote, and **holds** if the two have
 //! **diverged**. It never merges, rebases, pushes or stashes, and never touches a checkout with uncommitted
-//! changes (P3). Epic branches are local only and skip this step (the caller doesn't call it for them).
+//! changes (P3).
 //!
 //! A fetch that fails (an unreachable remote, no key for it) is [`BaseSync::FetchFailed`], not an error: whether the
 //! ticket goes on from its local base branch is the caller's call (d0121).

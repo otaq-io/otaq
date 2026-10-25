@@ -6,7 +6,6 @@
 import { setAgentExpanded, setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
 import { type Selection, selectProject, selection } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
-import type { LeadSplit } from "../../generated/LeadSplit";
 import type { AgentPanelSendParams } from "../../generated/AgentPanelSendParams";
 import type { request } from "../../tauri";
 
@@ -227,19 +226,4 @@ export async function sendFirstMessage(
   } finally {
     sending.delete(project);
   }
-}
-
-/**
- * Split with the Project agent on an epic with no children (LEAD-13, d0091): the agent panel is shown and sent Rust's first
- * message ("Split NOTE-10 into tickets") as if typed into its empty box; the click is the go-ahead. The agent panel then
- * shows the new agent. A refusal is the service's toast (`agent_panel.send`); resolves to the new agent's id, or `null`.
- */
-export function splitWithProjectAgent(
-  split: LeadSplit,
-  ask: typeof request,
-  routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
-): Promise<string | null> {
-  selectProject(split.project, routes.selection);
-  showAgentPanel(routes);
-  return sendFirstMessage(split.project, split.message, ask, routes).catch(() => null);
 }

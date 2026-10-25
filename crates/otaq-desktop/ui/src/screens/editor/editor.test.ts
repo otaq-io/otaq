@@ -280,19 +280,14 @@ describe("the editor", () => {
       "Title",
       "Add a title",
       "P3 Normal",
-      "Ticket",
-      "No epic",
       "What and why",
       "Start from and merge into",
       "External ID",
     ]) {
       expect(out).toContain(text);
     }
-    // An epic child has no base or External ID of its own; nobody has Depends on (the sheet's, DPV-04).
+    // Nobody has Depends on (the sheet's, DPV-04).
     expect(out).not.toContain("Depends on");
-    const child = html(createElement(EditorFields, { ...props, form: { ...FORM, epic: "SHOP-40" } }));
-    expect(child).not.toContain("External ID");
-    expect(child).not.toContain("Start from and merge into");
   });
 
   it("a locked base shows why", () => {
@@ -725,7 +720,7 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
     });
   };
 
-  it("⌘N: a picker per stage with options; a pick stays in the form; none for an epic or without options", () => {
+  it("⌘N: a picker per stage with options; a pick stays in the form; none without options", () => {
     const host = mount(createElement(Form, { view: { ...VIEW, choices: CHOICES } }));
     expect(host.textContent).toContain("Stage choices");
     expect([...host.querySelectorAll(".stage-choice-label")].map((l) => l.textContent)).toEqual([
@@ -744,9 +739,6 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
     expect([...host.querySelectorAll(".stage-choice-select button")][1]?.textContent).toContain(
       "Quick developer",
     );
-    press([...host.querySelectorAll("button")].find((b) => b.textContent === "Epic"));
-    expect(shown.epic_kind).toBe(true);
-    expect(host.querySelector(".stage-choices")).toBeNull();
     const none = mount(createElement(Form, { view: VIEW }));
     expect(none.querySelector(".stage-choices")).toBeNull();
   });

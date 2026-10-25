@@ -3,8 +3,7 @@
 //! that mattered. `notifications.state` answers [`NotificationsState`]; every change publishes
 //! `notifications_changed` with the new state.
 //!
-//! - **The ask** is set pending when the first agent session of any kind starts (a ticket's agent, a Project agent, an
-//!   epic lead) while macOS hasn't been asked, once: after `notifications.ask_answered` (Allow, Not now, or Settings'
+//! - **The ask** is set pending when the first agent session of any kind starts (a ticket's agent, a Project agent) while macOS hasn't been asked, once: after `notifications.ask_answered` (Allow, Not now, or Settings'
 //!   Allow notifications) it is never set again. The request to macOS itself happens in the app's process; the
 //!   service only reads the answer. Outside the bundle the permission is never "not asked", so nothing is pending.
 //! - **The blocked banner** shows while Otaq's switch is on, macOS has notifications turned off and Needs you left out

@@ -82,12 +82,6 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
                 &CameFrom::AgentsFile
             ),
             (
-                "Epic lead",
-                Some(Role::EpicLead),
-                &AgentModel::Default,
-                &CameFrom::AgentsFile
-            ),
-            (
                 "Developer",
                 None,
                 &AgentModel::Default,
@@ -118,7 +112,6 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
     assert_eq!(skills("Developer"), shipped(&["work-ticket", "commit"]));
     assert_eq!(skills("Validator"), shipped(&["validate"]));
     assert_eq!(skills("Noyan"), shipped(&["noyan", "flow"]));
-    assert_eq!(skills("Epic lead"), shipped(&["epic-lead"]));
     assert_eq!(list.default_model, None);
     assert!(list.fallbacks.is_empty());
 }
@@ -182,11 +175,6 @@ async fn one_agent_per_role_and_the_role_moves() {
             "Noyan has the Noyan role. Give the role to another agent first".into()
         )
     );
-    let lead = named(&agents, "Epic lead").await;
-    assert_eq!(
-        refusal(agents.delete(&lead.id).await).1,
-        "Epic lead is your Epic lead. Give the role to another agent first"
-    );
     // An edit can't remove the role.
     let edited = agents
         .edit(&planner.id, &fields("Noyan", claude(Some("opus"))))
@@ -214,14 +202,6 @@ async fn one_agent_per_role_and_the_role_moves() {
         .map(|a| a.name)
         .collect();
     assert_eq!(holders, ["Strong"]);
-    // The Epic lead's role can't go to the Project agent: the Project agent's role would be left with no agent.
-    assert_eq!(
-        refusal(agents.move_role(Role::EpicLead, &strong.id).await),
-        (
-            Refusal::AgentInUse,
-            "Strong has the Noyan role. Give the role to another agent first".into()
-        )
-    );
     // Giving it the role it holds changes nothing.
     agents
         .move_role(Role::ProjectAgent, &strong.id)
@@ -423,10 +403,6 @@ async fn a_rename_changes_nothing_for_the_flow() {
         .await
         .unwrap();
     assert_eq!(validator.name, "Validator");
-    let lead = resolve::session_agent(&f.board, &t, SessionRole::EpicLead)
-        .await
-        .unwrap();
-    assert_eq!(lead.role, Some(Role::EpicLead));
 }
 
 /// AGM-01, AGM-13: the test flow's own agents are created by `use_flow_for_tests` ("Added by SHOP's flow"; a role
@@ -682,7 +658,7 @@ async fn holds_are_one_per_scope_and_role() {
     assert!(twice.is_err(), "one hold per ticket and role");
     let both = sqlx::query(
         "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, since)
-         VALUES ('y', ?, ?, 'lead', 'tool_limit', 'claude', 1)",
+         VALUES ('y', ?, ?, 'project_agent', 'tool_limit', 'claude', 1)",
     )
     .bind(&shop24.id)
     .bind(&project.id)
@@ -821,7 +797,7 @@ async fn the_requests_are_the_users() {
     let Reply::Agents(list) = client.request(Request::AgentsList).await.unwrap() else {
         panic!("agents.list")
     };
-    assert_eq!(list.agents.len(), 4);
+    assert_eq!(list.agents.len(), 3);
     let tool = Tool::ALL[0].as_str();
     let Reply::Agent(strong) = ask(
         &client,
@@ -855,13 +831,13 @@ async fn the_requests_are_the_users() {
     let Reply::Agent(holder) = ask(
         &client,
         "agents.move_role",
-        json!({"role": "epic-lead", "agent": strong.id}),
+        json!({"role": "noyan", "agent": strong.id}),
     )
     .await
     .unwrap() else {
         panic!("agents.move_role")
     };
-    assert_eq!(holder.role, Some(Role::EpicLead));
+    assert_eq!(holder.role, Some(Role::ProjectAgent));
     let Reply::Agents(list) = ask(
         &client,
         "agents.default_model",
@@ -901,7 +877,7 @@ async fn the_requests_are_the_users() {
         ("agents.delete", json!({"id": strong.id})),
         (
             "agents.move_role",
-            json!({"role": "epic-lead", "agent": strong.id}),
+            json!({"role": "noyan", "agent": strong.id}),
         ),
         ("agents.default_model", json!({"model": {"tool": tool}})),
         ("agents.fallback", json!({"tool": tool})),

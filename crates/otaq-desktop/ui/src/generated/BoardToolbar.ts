@@ -19,11 +19,7 @@ subtitle: string | null,
  */
 live: string | null, 
 /**
- * The Board's Lanes None · Epic (EPL-01).
- */
-lanes: ToolbarGroup | null, 
-/**
- * The List's Group by Stage · Status · Epic · Agent (LST-01).
+ * The List's Group by Stage · Status · Agent (LST-01).
  */
 group_by: ToolbarGroup | null, 
 /**

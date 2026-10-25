@@ -204,13 +204,16 @@ async fn with_the_agents_instructions_and_the_projects_notes() {
     })
     .await;
 
-    let epic_child = w
+    let button = w
         .board
-        .prime_context("SHOP-40.2", w.adapters.for_new_session())
+        .prime_context("SHOP-42", w.adapters.for_new_session())
         .await
         .unwrap();
-    let text = render(&epic_child);
-    assert!(text.contains("It merges into the epic's branch (SHOP-40) once the user approves it.\nIt is part of the epic SHOP-40 · Wishlist.\nPriority: P3 · Normal.\n"), "{text}");
+    let text = render(&button);
+    assert!(
+        text.contains("It merges into `main` once the user approves it.\nPriority: P3 · Normal.\n"),
+        "{text}"
+    );
     assert!(
         !text.contains("Done when"),
         "no Done when section (d0067): {text}"
@@ -316,12 +319,12 @@ async fn on_the_test_flow_dev_reads_grills_comment() {
 }
 
 /// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage with options, each agent with its
-/// model and its instructions' first line, and how to set a choice; the epic lead's the same, for its children.
+/// model and its instructions' first line, and how to set a choice.
 #[tokio::test(flavor = "multi_thread")]
 async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
     let w = with_agents().await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
-    let (_, project, epic) = primes(&w).await;
+    let (_, project) = primes(&w).await;
     let default = match w.board.store().default_model().await.unwrap() {
         Some(m) => format!(
             "default · {} · {}",
@@ -342,14 +345,6 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
              \"Grill=skip\" --reason \"…\" --stdin`. When unsure, leave the stage's own agent.\n\n{options}"
         )),
         "{project}"
-    );
-    assert!(
-        epic.contains(&format!(
-            "\n## Stage choices\n\nSet them on never-started children only, when how hard the work is says so, \
-             always with a reason: `otaq update <KEY> --stage \"Grill=skip\" --reason \"…\"`, or on `otaq create \
-             --parent`. Never change a choice the user set.\n\n{options}"
-        )),
-        "{epic}"
     );
     w.stop().await;
 }
@@ -390,34 +385,6 @@ async fn validate_prime_plain() {
     assert!(
         !text.contains("## Earlier stages"),
         "no stage ran yet: {text}"
-    );
-    w.stop().await;
-}
-
-/// An epic child: the epic's description and its siblings.
-#[tokio::test(flavor = "multi_thread")]
-async fn validate_prime_epic_child_with_siblings() {
-    let w = sample().await;
-    w.board
-        .update_ticket(
-            "SHOP-40",
-            &TicketUpdate {
-                body: Some("Customers keep a wishlist.".into()),
-                ..Default::default()
-            },
-            &Actor::User("me".into()),
-        )
-        .await
-        .unwrap();
-    let ctx = w.board.validate_prime("SHOP-40.2").await.unwrap();
-    let epic = ctx.epic.as_ref().unwrap();
-    assert_eq!(epic.key.to_string(), "SHOP-40");
-    let siblings: Vec<String> = epic.siblings.iter().map(|s| s.key.to_string()).collect();
-    assert_eq!(siblings, ["SHOP-40.1", "SHOP-40.3"]);
-    let text = otaq_core::prime::render_validate(&ctx);
-    assert!(
-        text.contains("Epic SHOP-40 · Wishlist:\nCustomers keep a wishlist.\n- sibling SHOP-40.1"),
-        "{text}"
     );
     w.stop().await;
 }
@@ -471,8 +438,8 @@ async fn with_agents() -> TestService {
     w
 }
 
-/// The three primes as the user's terminal gets them, rendered.
-async fn primes(w: &TestService) -> (String, String, String) {
+/// The two primes as the user's terminal gets them, rendered.
+async fn primes(w: &TestService) -> (String, String) {
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     let ticket = match client
         .request(Request::TicketPrime(KeyParams {
@@ -494,25 +461,15 @@ async fn primes(w: &TestService) -> (String, String, String) {
         Reply::ProjectPrime(c) => otaq_core::project_agents::prime::render(&c),
         other => panic!("{other:?}"),
     };
-    let epic = match client
-        .request(Request::LeadPrime(KeyParams {
-            key: "SHOP-40".into(),
-        }))
-        .await
-        .unwrap()
-    {
-        Reply::EpicPrime(c) => otaq_core::epic_lead::prime::render(&c),
-        other => panic!("{other:?}"),
-    };
-    (ticket, project, epic)
+    (ticket, project)
 }
 
 /// AGM-06: the default flow has no stage options, so no prime lists choices to set.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_prime_lists_choices_on_the_default_flow() {
     let w = with_agents().await;
-    let (ticket, project, epic) = primes(&w).await;
-    for text in [&ticket, &project, &epic] {
+    let (ticket, project) = primes(&w).await;
+    for text in [&ticket, &project] {
         assert!(!text.contains("\n## Stage choices\n"), "{text}");
         assert!(!text.contains("\n## Agents\n"), "{text}");
     }
@@ -808,7 +765,7 @@ async fn prime_validate_prints_the_comments() {
 }
 
 /// CMT-07: "Depends on" shows a parent's last comment from an Agent stage (not a check's, not the user's), with its
-/// report's line; the epic lead reads its children's the same way.
+/// report's line.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_parents_last_comment_from_an_agent_stage() {
     let w = with_agents().await;

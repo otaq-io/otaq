@@ -8,9 +8,8 @@ use std::process::{Command, Output};
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::yaml;
 use otaq_core::git::testing::TempRepos;
 use otaq_core::naming;
@@ -445,59 +444,5 @@ async fn a_ticket_agent_and_an_epic_lead() {
     );
     let _ = other;
 
-    // An epic lead: its unstarted child, with a reason; logged on the epic too.
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me,
-        )
-        .await
-        .unwrap();
-    let child: Ticket = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist API".into(),
-                epic: Some(epic.key.to_string()),
-                ..Default::default()
-            },
-            &me,
-        )
-        .await
-        .unwrap();
-    let lead = w
-        .project_agents
-        .leads()
-        .open(&epic.key.to_string())
-        .await
-        .unwrap();
-    let shell = w.shell_in(&lead.agent.session.as_ref().unwrap().id);
-    let ran = shell
-        .run(&format!(
-            "'{CB}' update {} --stage 'Grill=skip' --reason 'the API is agreed'",
-            child.key
-        ))
-        .await;
-    assert_eq!(ran.status, 0, "{ran:?}");
-    let shown = ok(&cb(&w, &["show", &child.key.to_string()]));
-    assert_eq!(
-        choices_block(&shown),
-        "Choices:     Grill: skip · set by Wishlist lead · the API is agreed"
-    );
-    let history = w.board.history(&epic.key.to_string()).await.unwrap();
-    assert!(
-        history.iter().any(|e| {
-            e.kind == otaq_core::board::tickets::EventKind::StageChoiceSet
-                && e.payload["child"] == child.key.to_string()
-        }),
-        "{history:?}"
-    );
     w.stop().await;
 }

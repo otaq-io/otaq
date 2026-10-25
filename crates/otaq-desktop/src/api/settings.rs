@@ -992,17 +992,16 @@ mod tests {
             rows,
             [
                 ("Noyan", &json!("Noyan")),
-                ("Epic lead", &json!("Epic lead")),
                 ("Developer", &Value::Null),
                 ("Validator", &Value::Null),
             ]
         );
-        assert_eq!(section["rows"][2]["skills"], json!(["work-ticket", "commit"]));
-        assert_eq!(section["rows"][2]["model"], "default");
+        assert_eq!(section["rows"][1]["skills"], json!(["work-ticket", "commit"]));
+        assert_eq!(section["rows"][1]["model"], "default");
         assert_eq!(section["rows"][0]["used_in"], "every project \u{b7} Noyan");
         assert_eq!(section["default_model"]["dropdown"]["value"], "The first agent tool you connect");
         let id = |n: usize| section["rows"][n]["id"].as_str().unwrap().to_owned();
-        let (noyan, developer) = (id(0), id(2));
+        let (noyan, developer) = (id(0), id(1));
 
         // One agent's page, and a change saved at once.
         let page = ask("settings.agent", json!({ "id": developer })).await.unwrap();
@@ -1021,7 +1020,7 @@ mod tests {
         assert_eq!(page["name"]["problem"], "Another agent is already called Noyan");
         assert_eq!(page["draft"]["name"], "Noyan", "the refused name stays typed");
 
-        // The role: None · Noyan · Epic lead; None is refused on its agent; another agent takes it, and the page says
+        // The role: None · Noyan; None is refused on its agent; another agent takes it, and the page says
         // whose it was.
         let page = ask("settings.agent_role", json!({ "id": noyan, "role": "" })).await.unwrap();
         let options: Vec<(&str, &str)> = page["role"]["options"]
@@ -1030,7 +1029,7 @@ mod tests {
             .iter()
             .map(|o| (o["id"].as_str().unwrap(), o["label"].as_str().unwrap()))
             .collect();
-        assert_eq!(options, [("", "None"), ("noyan", "Noyan"), ("epic-lead", "Epic lead")]);
+        assert_eq!(options, [("", "None"), ("noyan", "Noyan")]);
         assert_eq!(
             page["role"]["problem"],
             "Noyan has the Noyan role. Give the role to another agent first."
@@ -1055,7 +1054,7 @@ mod tests {
         let quick = added["page"]["id"].as_str().unwrap().to_owned();
 
         // Delete: refused for a stage's agent (the default flow's Dev), the plain question for an unused one.
-        let validator = id(3);
+        let validator = id(2);
         let refused = ask("settings.agent_delete_dialog", json!({ "id": validator })).await.unwrap();
         assert_eq!(refused["kind"], "refused");
         assert_eq!(refused["title"], "Can\u{2019}t delete Validator");
@@ -1063,7 +1062,7 @@ mod tests {
         assert_eq!(confirm["kind"], "confirm");
         let deleted = ask("settings.agent_delete", json!({ "id": quick })).await.unwrap();
         assert_eq!(deleted["outcome"], "deleted");
-        assert_eq!(deleted["section"]["rows"].as_array().unwrap().len(), 4);
+        assert_eq!(deleted["section"]["rows"].as_array().unwrap().len(), 3);
         h.service.stop_all().await;
     }
 }

@@ -42,8 +42,6 @@ export function actionRoute(action: SheetAction): ActionRoute {
     case "retry_validation":
     case "retry_merge":
     case "move_to_review":
-    case "resume_lead":
-    case "add_child_from_pr":
     case "stop_merge_check": // d0120: on a connection of its own (Rust's), the merge finishes without merging.
       return { kind: "service" };
     // Session on the check's side (SHT-04).
@@ -93,11 +91,7 @@ export type MenuRoute =
   | { kind: "edit" }
   | { kind: "service" }
   | { kind: "copy"; what: "branch" | "attach" }
-  | { kind: "close_epic" }
-  | {
-      kind: "overlay";
-      id: "close_ticket" | "submit_for_review" | "delete_ticket" | "move_to_epic";
-    }
+  | { kind: "overlay"; id: "close_ticket" | "submit_for_review" | "delete_ticket" }
   | { kind: "unknown" };
 
 /** The menu's Close ticket… item (`close.rs`'s `CLOSE_TICKET`). */
@@ -123,10 +117,6 @@ export function menuRoute(item: string): MenuRoute {
       return { kind: "overlay", id: "submit_for_review" };
     case "delete":
       return { kind: "overlay", id: "delete_ticket" };
-    case "move-to-epic":
-      return { kind: "overlay", id: "move_to_epic" };
-    case "close-epic":
-      return { kind: "close_epic" };
     default:
       return { kind: "unknown" };
   }

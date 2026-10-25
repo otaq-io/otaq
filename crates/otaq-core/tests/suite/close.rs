@@ -1,4 +1,4 @@
-//! Close ticket and Close epic (T-0100, CLS-01, EPC-06): from any state, the agent stopped after a
+//! Close ticket (T-0100, CLS-01): from any state, the agent stopped after a
 //! confirmation, the branch kept, the worktree removed unless it has uncommitted changes, the ticket's resources
 //! removed (M19-d).
 
@@ -6,12 +6,11 @@ use crate::common::resources as resources_common;
 
 use otaq_core::board::Refusal;
 use otaq_core::board::settings::ProjectSettings;
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::board::tickets::EventKind;
+use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
-use otaq_core::session::SessionKind;
 use resources_common::{append, created, lines, resource_row, var};
 
 fn me() -> Actor {
@@ -74,67 +73,6 @@ async fn close_from_backlog_dev_and_review() {
     w.force_status(&merged, Status::Merged).await;
     let err = w.review.close("SHOP-4", true, &me()).await.unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
-    w.stop().await;
-}
-
-async fn child(w: &TestService, epic: &Ticket, title: &str) -> Ticket {
-    w.board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: title.into(),
-                epic: Some(epic.key.to_string()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap()
-}
-
-#[tokio::test]
-async fn closing_an_epic_closes_its_unfinished_children_and_leaves_merged_ones() {
-    let w = TestService::start().await;
-    w.add_project("shop-web").await;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let merged = child(&w, &epic, "API").await;
-    w.force_status(&merged, Status::Merged).await;
-    let working = child(&w, &epic, "Button").await;
-    w.start_worktree(&working).await;
-    w.force_status(&working, Status::Working).await;
-    w.agent_shell(&working).await;
-    child(&w, &epic, "Page").await;
-
-    let err = w
-        .review
-        .close_epic("SHOP-1", false, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::NeedsConfirmation));
-    let plan = w.review.close_epic("SHOP-1", true, &me()).await.unwrap();
-    let closed: Vec<_> = plan.close.iter().map(|c| c.key.to_string()).collect();
-    assert_eq!(closed, ["SHOP-1.2", "SHOP-1.3"]);
-    assert_eq!(w.status("SHOP-1.1").await, Status::Merged);
-    assert_eq!(w.status("SHOP-1.2").await, Status::ClosedNotMerged);
-    assert_eq!(w.status("SHOP-1.3").await, Status::ClosedNotMerged);
-    assert_eq!(w.status("SHOP-1").await, Status::ClosedNotMerged);
-    assert!(
-        w.sessions
-            .running_of(&working.id, SessionKind::Agent)
-            .is_none()
-    );
     w.stop().await;
 }
 

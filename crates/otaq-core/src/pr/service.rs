@@ -32,7 +32,6 @@ use crate::board::review::ApproveCheck;
 use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
-use crate::data_dir::DataDir;
 use crate::domain::{Actor, HandOffKind, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
 use crate::naming;
@@ -73,7 +72,6 @@ pub struct Prs {
 
 struct Inner {
     board: Board,
-    data: DataDir,
     sessions: Sessions,
     deliveries: Deliveries,
     adapters: Adapters,
@@ -161,7 +159,6 @@ pub fn confirmed_instruction(kind: FlowKind) -> String {
 impl Prs {
     pub fn new(
         board: Board,
-        data: DataDir,
         sessions: Sessions,
         deliveries: Deliveries,
         adapters: Adapters,
@@ -170,7 +167,6 @@ impl Prs {
         Self {
             inner: Arc::new(Inner {
                 board,
-                data,
                 sessions,
                 deliveries,
                 adapters,
@@ -209,12 +205,6 @@ impl Prs {
                 ),
             ));
         }
-        if ticket.epic.is_some() {
-            return Err(BoardError::refused(
-                Refusal::MoveRefused,
-                "Open PR isn\u{2019}t offered for epic children: the epic opens one PR for all of them.",
-            ));
-        }
         let kind = match ticket.flags.pr_number {
             Some(_) => FlowKind::Push,
             None => FlowKind::Open,
@@ -237,13 +227,6 @@ impl Prs {
         if session == SessionKind::Delivery && self.live_of(&ticket, session).is_none() {
             self.delivery_runs_on(&ticket).await?;
         }
-        // An epic has no worktree, and its lead never delivers (d0083): its delivery session runs in a worktree on
-        // the epic branch (EPC-08).
-        let ticket = if ticket.is_epic() {
-            self.delivery_worktree(&ticket).await?
-        } else {
-            ticket
-        };
         let worktree = worktree_of(&ticket)?;
         let git = board.git()?;
         let files = git.uncommitted_files(&worktree).await?;
@@ -395,16 +378,11 @@ impl Prs {
             return Err(BoardError::refused(Refusal::NotAllowed, why));
         }
         // The Dev stage's session when the Delivery's agent is the same, else a fresh delivery session (d0108 second
-        // gap review rule 6). An epic always has its own (EPC-08).
+        // gap review rule 6).
         let session = self.session_kind_for(&ticket).await;
         if session == SessionKind::Delivery && self.live_of(&ticket, session).is_none() {
             self.delivery_runs_on(&ticket).await?;
         }
-        let ticket = if ticket.is_epic() {
-            self.delivery_worktree(&ticket).await?
-        } else {
-            ticket
-        };
         let worktree = worktree_of(&ticket)?;
         let files = board.git()?.uncommitted_files(&worktree).await?;
         if !files.is_empty() {
@@ -632,76 +610,38 @@ impl Prs {
         self.live_of(ticket, kind)
     }
 
-    /// The epic's delivery worktree on its branch (created, or reused): `wt/<repo>/SHOP-40`. Returns the epic
-    /// with the worktree recorded.
-    async fn delivery_worktree(&self, epic: &Ticket) -> Result<Ticket, BoardError> {
-        let board = &self.inner.board;
-        let row = board
-            .store()
-            .ticket(&epic.id)
-            .await?
-            .ok_or_else(|| BoardError::NotFound(epic.key.to_string()))?;
-        let branch = row.branch_name.ok_or_else(|| {
-            BoardError::refused(
-                Refusal::NoBranch,
-                format!("{} has no branch: no child has started", epic.key),
-            )
-        })?;
-        let project = board.project(epic.key.project.as_str()).await?;
-        let repo = PathBuf::from(&project.repo_path);
-        let repo_name = repo
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| project.name.clone());
-        let path = self
-            .inner
-            .data
-            .worktree_path(&repo_name, &epic.key.to_string())
-            .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))?;
-        crate::start::worktree::add_worktree(board.git()?, &repo, &path, &branch)
-            .await
-            .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))?;
-        sqlx::query("UPDATE tickets SET worktree_path = ?, worktree_kept = FALSE WHERE id = ?")
-            .bind(path.display().to_string())
-            .bind(&epic.id)
-            .execute(board.store().pool())
-            .await?;
-        board.ticket_by_id(&epic.id).await
-    }
-
-    /// Starts a short-lived delivery session: a new conversation in the delivery worktree (an epic's, EPC-08) or the
-    /// ticket's worktree (an automatic Delivery whose agent isn't the Dev stage's, FLW-15), with the skill in force
+    /// Starts a short-lived delivery session: a new conversation in the ticket's worktree (a Delivery whose agent isn't
+    /// the Dev stage's, FLW-15), with the skill in force
     /// (written into it first, named by the adapter) as its first prompt, `OTAQ_TICKET` the ticket. On the Delivery
     /// stage's agent.
     async fn start_delivery(
         &self,
-        epic: &Ticket,
+        ticket: &Ticket,
         step: PrStep<'_>,
         start: Start,
     ) -> Result<SessionInfo, BoardError> {
-        let runs_on = self.delivery_runs_on(epic).await?;
+        let runs_on = self.delivery_runs_on(ticket).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
-        let worktree = worktree_of(epic)?;
-        let (first_prompt, copies) = self.copy_skills(epic, &worktree, step).await?;
+        let worktree = worktree_of(ticket)?;
+        let (first_prompt, copies) = self.copy_skills(ticket, &worktree, step).await?;
         let launched = self.inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
                 role: LaunchRole::Delivery,
                 cwd: worktree,
-                project: epic.key.project.to_string(),
-                ticket: Some(epic.key.clone()),
-                epic: None,
+                project: ticket.key.project.to_string(),
+                ticket: Some(ticket.key.clone()),
                 port: 0,
                 first_prompt: Some(first_prompt),
                 resume: None,
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                title: Some(epic.title.clone()),
+                title: Some(ticket.title.clone()),
                 theme: self.inner.board.theme_in_use().await,
             },
         )?;
         self.spawn(
-            epic,
+            ticket,
             SessionKind::Delivery,
             launched,
             &runs_on,
@@ -711,14 +651,13 @@ impl Prs {
         .await
     }
 
-    /// What the epic's delivery session runs on: the Delivery stage's agent (AGM-05; Q-D: an epic has no Agent stage
-    /// of its own), through the check before every launch (T-0357's Q3): refused with the hold's message ("Codex
+    /// What a delivery session runs on: the Delivery stage's agent (AGM-05), through the check before every launch (T-0357's Q3): refused with the hold's message ("Codex
     /// isn't available · logged out", "Claude Code limit reached", "Model unavailable · Codex no longer lists
     /// gpt-5.4") when it can't start now, nothing held (it is the user's click); a family choice resolved to the
     /// model it passes.
-    async fn delivery_runs_on(&self, epic: &Ticket) -> Result<RunsOn, BoardError> {
+    async fn delivery_runs_on(&self, ticket: &Ticket) -> Result<RunsOn, BoardError> {
         let board = &self.inner.board;
-        let agent = resolve::delivery_agent(board, epic.key.project.as_str()).await?;
+        let agent = resolve::delivery_agent(board, ticket.key.project.as_str()).await?;
         let Some(gate) = self.inner.gate.get() else {
             return Ok(RunsOn::agent(
                 &agent,
@@ -740,60 +679,17 @@ impl Prs {
                     fallback: None,
                     fallback_held: false,
                 };
-                tracing::info!(key = %epic.key, reason = %held.blocked.reason(), "delivery refused before launch");
+                tracing::info!(key = %ticket.key, reason = %held.blocked.reason(), "delivery refused before launch");
                 Err(BoardError::refused(Refusal::MoveRefused, held.message()))
             }
         }
     }
 
-    /// Ends a delivery: its session stops. An epic's delivery worktree goes too, unless it has uncommitted changes
-    /// (then it is kept and listed in Cleanup, d0018); a ticket keeps its worktree until Done.
-    async fn end_delivery(&self, epic: &Ticket) -> Result<(), BoardError> {
+    /// Ends a delivery: its session stops. The ticket keeps its worktree until Done.
+    async fn end_delivery(&self, ticket: &Ticket) -> Result<(), BoardError> {
         let inner = &self.inner;
-        let board = &inner.board;
-        if let Some(session) = inner.sessions.running_of(&epic.id, SessionKind::Delivery) {
+        if let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Delivery) {
             inner.sessions.stop(&session.id).await.map_err(other)?;
-        }
-        if !epic.is_epic() {
-            return Ok(());
-        }
-        let epic = board.ticket_by_id(&epic.id).await?;
-        let Some(worktree) = epic
-            .work
-            .as_ref()
-            .and_then(|w| w.worktree.clone())
-            .map(PathBuf::from)
-        else {
-            return Ok(());
-        };
-        let git = board.git()?;
-        let dirty = if worktree.is_dir() {
-            git.uncommitted_files(&worktree).await?
-        } else {
-            Vec::new()
-        };
-        if dirty.is_empty() {
-            if worktree.is_dir() {
-                let project = board.project(epic.key.project.as_str()).await?;
-                crate::review::finish::remove_worktree(
-                    &board.project_git(&project.key).await?,
-                    std::path::Path::new(&project.repo_path),
-                    &worktree,
-                )
-                .await?;
-            }
-            sqlx::query(
-                "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
-            )
-            .bind(&epic.id)
-            .execute(board.store().pool())
-            .await?;
-        } else {
-            sqlx::query("UPDATE tickets SET worktree_kept = TRUE WHERE id = ?")
-                .bind(&epic.id)
-                .execute(board.store().pool())
-                .await?;
-            tracing::info!(key = %epic.key, files = dirty.len(), "delivery worktree kept: uncommitted changes");
         }
         Ok(())
     }
@@ -1056,7 +952,6 @@ impl Prs {
                 cwd: worktree,
                 project: ticket.key.project.to_string(),
                 ticket: Some(ticket.key.clone()),
-                epic: None,
                 port,
                 first_prompt: Some(first_prompt),
                 resume: Some(conversation.id),

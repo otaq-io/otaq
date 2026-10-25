@@ -1,8 +1,7 @@
 //! The start sequence (SES-01, SES-02; d0018, d0007, d0059), in order:
 //!
-//! 1. resolve the base (the epic's branch for an epic child);
-//! 2. sync the base: fetch, fast-forward if only behind, **hold** in Queued if diverged (skipped for an epic
-//!    branch that exists; the first child of an epic syncs the epic's base before creating the epic branch);
+//! 1. resolve the base;
+//! 2. sync the base: fetch, fast-forward if only behind, **hold** in Queued if diverged;
 //! 3. branch `otaq/<KEY>`, worktree and `base_sha`; a new worktree is then seeded from the project's warm build
 //!    or the user's checkout ([`crate::warm::seed`], WRM-04), as part of the same step;
 //! 4. env files; then the ticket's resources (the project's Create command, d0087); 5. setup command; 6. two ports;
@@ -119,21 +118,6 @@ pub enum StartOutcome {
 #[derive(Clone)]
 pub struct Starter {
     inner: Arc<Inner>,
-}
-
-/// Tickets [`Starter::hold`] keeps from starting; dropping it lets them start again.
-pub struct StartHold {
-    inner: Arc<Inner>,
-    ids: Vec<String>,
-}
-
-impl Drop for StartHold {
-    fn drop(&mut self) {
-        let mut running = self.inner.running.lock().expect("running starts");
-        for id in &self.ids {
-            running.remove(id);
-        }
-    }
 }
 
 struct Inner {
@@ -282,25 +266,6 @@ impl Starter {
     /// The ids of the tickets whose start sequence is running now.
     pub fn starting(&self) -> HashSet<String> {
         self.inner.running.lock().expect("running starts").clone()
-    }
-
-    /// Holds off new starts of `ids` until the hold drops, so taking an epic back (EPC-14) can't race one: a start
-    /// asked for meanwhile is skipped. The ids whose start already runs aren't held; they're returned.
-    pub fn hold(&self, ids: impl IntoIterator<Item = String>) -> (StartHold, HashSet<String>) {
-        let mut running = self.inner.running.lock().expect("running starts");
-        let (mut held, mut starting) = (Vec::new(), HashSet::new());
-        for id in ids {
-            if running.insert(id.clone()) {
-                held.push(id);
-            } else {
-                starting.insert(id);
-            }
-        }
-        let hold = StartHold {
-            inner: self.inner.clone(),
-            ids: held,
-        };
-        (hold, starting)
     }
 
     /// Marks the step a start is at, so a start cut short by the service stopping (or crashing) is found at the
@@ -472,13 +437,12 @@ impl Starter {
                 // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
                 // ticket is no longer parked. Its first prompt (a Send back's skill, a needs-you answer) stays until
                 // the agent shows it got it ([`Board::first_prompt_delivered`]): a resume that can't find its
-                // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112). A child
-                // that joined its epic's queue isn't "new" any more once it started (EPC-13).
+                // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112).
                 // A ticket whose first turn was refused on the model counted as not started (T-0337): it has
                 // started again now.
                 sqlx::query(
                     "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL,
-                                        joined_queue_by = NULL, started_at = COALESCE(started_at, ?)
+                                        started_at = COALESCE(started_at, ?)
                      WHERE id = ?",
                 )
                     .bind(now_ms())
@@ -669,25 +633,6 @@ impl Starter {
                 ));
             }
             Base::Branch(branch) => Some(branch.clone()),
-            Base::Epic(epic) => {
-                let epic = board
-                    .ticket(&epic.to_string())
-                    .await
-                    .map_err(|e| (StartStep::Base, e.into()))?;
-                let epic_ref = format!("refs/heads/{}", naming::branch(&epic.key.to_string()));
-                let exists = git
-                    .resolve(repo, &epic_ref)
-                    .await
-                    .map_err(|e| (StartStep::Base, e.into()))?
-                    .is_some();
-                match (&epic.base, exists) {
-                    // The epic branch is local only (d0059).
-                    (_, true) => None,
-                    // The first child: the epic's base is synced before the epic branch is made from it.
-                    (Base::Branch(branch), false) => Some(branch.clone()),
-                    (Base::Epic(_), false) => None,
-                }
-            }
         };
 
         // 2. Keep the base current.
@@ -1042,7 +987,6 @@ impl Starter {
                     cwd: cwd.to_owned(),
                     project: project.key.clone(),
                     ticket: Some(ticket.key.clone()),
-                    epic: None,
                     port,
                     first_prompt,
                     resume,

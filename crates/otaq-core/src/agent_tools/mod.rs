@@ -150,9 +150,6 @@ pub const WORK_TICKET_SKILL: &str = "work-ticket";
 /// The skill every Project agent starts with (d0068).
 pub const PROJECT_AGENT_SKILL: &str = "noyan";
 
-/// The skill every epic lead starts with (d0083).
-pub const EPIC_LEAD_SKILL: &str = "epic-lead";
-
 /// Where things are on this machine, for every launch: what all adapters share, and each adapter's own part.
 /// [`LaunchContext::from_process`] finds them for the running service; tests replace each tool's program with an
 /// ordinary command.
@@ -237,11 +234,9 @@ pub enum LaunchRole {
     Validator,
     /// A Project agent, in the project's own folder, for no ticket (PAG-01).
     ProjectAgent,
-    /// An epic lead, in the project's own folder, for one epic (LEAD-01).
-    EpicLead,
     /// A finished ticket's conversation resumed to answer another agent (M10).
     Answer,
-    /// An epic's short-lived delivery session that runs Open PR or Push (EPC-08).
+    /// A Delivery's own session that runs Open PR or Push, when its agent isn't the ticket's (d0108).
     Delivery,
 }
 
@@ -250,8 +245,7 @@ pub enum LaunchRole {
 pub enum FirstPrompt {
     /// A skill by its own name (`work-ticket`, `address-review`, an imported `team-validate`…), already copied into
     /// the launch's folder as `otaq-<name>` ([`crate::skills`], AGM-07) and named in the tool's syntax by the adapter
-    /// ([`AgentTool::skill_reference`]), optionally followed by a message (the Project agent's first request, the
-    /// epic lead's first message).
+    /// ([`AgentTool::skill_reference`]), optionally followed by a message (the Project agent's first request).
     Skill {
         name: String,
         message: Option<String>,
@@ -261,7 +255,7 @@ pub enum FirstPrompt {
 }
 
 impl FirstPrompt {
-    /// The prompt as typed for `tool`: `/otaq-epic-lead <message>`, or the text.
+    /// The prompt as typed for `tool`: `/otaq-noyan <message>`, or the text.
     pub fn text(&self, tool: &dyn AgentTool) -> String {
         match self {
             Self::Skill { name, message } => {
@@ -284,11 +278,8 @@ pub struct LaunchRequest {
     pub cwd: PathBuf,
     /// The project's key.
     pub project: String,
-    /// The ticket (`OTAQ_TICKET`): the ticket, or the epic for a delivery session. `None` for Project agents and
-    /// epic leads.
+    /// The ticket (`OTAQ_TICKET`). `None` for Project agents.
     pub ticket: Option<TicketKey>,
-    /// The epic an epic lead works on.
-    pub epic: Option<TicketKey>,
     /// The ticket's dev-server port (`PORT`); 0 where the role has none (answer, delivery), as today.
     pub port: u16,
     /// The first prompt; a resume may have none.
@@ -301,7 +292,7 @@ pub struct LaunchRequest {
     /// The tool's own effort level (AGM-01), only for a tool with one ([`AgentTool::effort_levels`]); `None` passes
     /// none. Comes the same way as the model.
     pub effort: Option<String>,
-    /// The ticket's or the epic's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
+    /// The ticket's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
     /// session list: "Otaq · SHOP-18 · Add coupon codes"); `None` for a Project agent.
     pub title: Option<String>,
     /// Otaq's theme when the agent starts (d0117 point 4), read once per start: its kind goes to a tool with a
@@ -578,7 +569,7 @@ pub trait AgentTool: Send + Sync {
     ///   (plugin, skills, the `otaq *` shell rule, the model); never `--auto` or `OPENCODE_CONFIG_DIR`; tool id
     ///   created before launch by a [`PrepareStep`] (ADP-09).
     ///
-    /// The environment carries Otaq's own variables (`OTAQ_TICKET`, the role, the epic, `PORT`, PATH with the
+    /// The environment carries Otaq's own variables (`OTAQ_TICKET`, the role, `PORT`, PATH with the
     /// `otaq` folder first) for every tool.
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError>;
 
@@ -1026,7 +1017,6 @@ mod tests {
             cwd: "/wt/SHOP-50".into(),
             project: "SHOP".into(),
             ticket: Some("SHOP-50".parse().unwrap()),
-            epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
@@ -1078,7 +1068,6 @@ mod tests {
                 cwd: "/wt/SHOP-18".into(),
                 project: "SHOP".into(),
                 ticket: Some("SHOP-18".parse().unwrap()),
-                epic: None,
                 port: 4012,
                 first_prompt: None,
                 resume: Some("ses_c1".into()),
@@ -1147,7 +1136,6 @@ mod tests {
             cwd: "/wt/SHOP-18".into(),
             project: "SHOP".into(),
             ticket: Some("SHOP-18".parse().unwrap()),
-            epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),

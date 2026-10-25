@@ -1,15 +1,13 @@
-//! A ticket's **Files** tab (FTB-01…FTB-04, FTB-06; d0017 as refined 2026-10-23, d0087, d0010, d0059): the
+//! A ticket's **Files** tab (FTB-01…FTB-04; d0017 as refined 2026-10-23, d0087, d0010, d0059): the
 //! tree of what the ticket works on, its files by name, one file as it is, one file's diff and all its changes.
 //!
 //! **What is shown** ([`FilesFrom`]):
 //! - A ticket whose worktree is on disk: **the worktree**, uncommitted edits and untracked files included (and
 //!   marked), against where the ticket left its base (`base_sha`, as the Files tab measured it).
-//! - A ticket that started but whose worktree is gone (Done), and an **epic**: its **branch**, from git objects.
+//! - A ticket that started but whose worktree is gone (Done): its **branch**, from git objects.
 //! - A ticket that never started (Backlog, Ready for Dev): its **base branch**, flagged, with no changes.
 //!
-//! **An epic** (FTB-06) shows its branch: each changed file carries the children whose Local merge changed it
-//! (their squash commits, `merge_commit_sha`), and each running child's changes so far come on top from its own
-//! worktree, tagged with the child's key ("40.2 · writing"). Children keep their own worktrees (d0010, d0059).
+//! A file's [`PieceTag`]s name the pieces of the ticket's plan that changed it (d0133); none until helpers exist.
 //!
 //! **Read-only, and never the user's checkout** (d0087): files on disk are read only inside a ticket's worktree;
 //! everything else comes from git objects of the project's repository (`ls-tree`, `cat-file`, `diff` between
@@ -24,10 +22,9 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 
 use super::diff::short_sha;
-use super::tickets::{Base, Ticket};
+use super::tickets::Ticket;
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Status, TicketKey};
-use crate::epic_lead::overlap::is_running;
+use crate::domain::TicketKey;
 use crate::git::diff::{
     ChangedFile, DIFF_CONTEXT, DiffSpec, FileDiff, FileStatus, MAX_FILE_LINES, MAX_READ_BYTES,
     looks_binary, new_file_diff,
@@ -43,7 +40,7 @@ pub const SEARCH_LIMIT: usize = 50;
 pub enum FilesFrom {
     /// The ticket's worktree on disk: "SHOP-22's worktree", uncommitted edits included.
     Worktree,
-    /// The ticket's branch, from git (its worktree is gone), or an epic's branch.
+    /// The ticket's branch, from git (its worktree is gone).
     Branch,
     /// The ticket never started: its base branch, labelled so (FTB-01).
     Base,
@@ -56,7 +53,7 @@ pub struct FilesSource {
     pub from: FilesFrom,
     /// The branch shown: `otaq/SHOP-22`, or the base branch itself for [`FilesFrom::Base`].
     pub branch: String,
-    /// What the changes are against: `main`, or the epic's branch for an epic child.
+    /// What the changes are against: `main`.
     pub base_branch: String,
     /// Where the ticket left its base; `None` before it started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,20 +75,21 @@ pub struct FileChange {
     pub uncommitted: bool,
 }
 
-/// How a child touched an epic's file.
+/// How a piece touched the ticket's file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TagKind {
-    /// Its Local merge changed the file ("40.1").
+    /// Its helper's work was merged into the ticket's branch and changed the file ("40.1").
     Merged,
-    /// It is running and has changed the file in its own worktree ("40.2 ✎").
+    /// Its helper is working and has changed the file in its own worktree ("40.2 ✎").
     Writing,
 }
 
-/// An epic's file tag: the child that changed it (FTB-06).
+/// A file's tag: the piece of the ticket's plan that changed it (d0133). Empty until helpers exist.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChildTag {
-    pub key: TicketKey,
+pub struct PieceTag {
+    /// The piece's number within its plan: 1 for "40.1".
+    pub piece: u32,
     pub kind: TagKind,
 }
 
@@ -121,9 +119,9 @@ pub struct TreeEntry {
     /// Folders: how many changed files are inside, at any depth.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub changed_below: u32,
-    /// Epics: the children that changed the file, merged ones first.
+    /// The pieces that changed the file, merged ones first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<ChildTag>,
+    pub tags: Vec<PieceTag>,
 }
 
 /// `files.tree`: one folder's entries, folders first, then by name.
@@ -150,7 +148,7 @@ pub struct FileMatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<FileChange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<ChildTag>,
+    pub tags: Vec<PieceTag>,
 }
 
 /// `files.search`: file names across the whole tree, best first (FTB-02).
@@ -170,13 +168,9 @@ pub struct ChangedEntry {
     pub file: ChangedFile,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub uncommitted: bool,
-    /// Epics: the children that changed it.
+    /// The pieces that changed it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<ChildTag>,
-    /// Epics: a running child's change on top of the epic's branch, from its worktree; pass it as `child` to
-    /// `files.diff` / `files.read`. `None`: the change is the ticket's (or the epic branch's) own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child: Option<TicketKey>,
+    pub tags: Vec<PieceTag>,
 }
 
 /// `files.changes`: every changed file, by path, without hunks; each file's diff comes from `files.diff`
@@ -185,7 +179,7 @@ pub struct ChangedEntry {
 pub struct FilesChanges {
     pub source: FilesSource,
     pub files: Vec<ChangedEntry>,
-    /// The sums over the ticket's own files (an epic's running children's changes aren't counted).
+    /// The sums over the ticket's files.
     pub added: u32,
     pub removed: u32,
 }
@@ -195,9 +189,6 @@ pub struct FilesChanges {
 pub struct FileContent {
     pub source: FilesSource,
     pub path: String,
-    /// Epics: read from this running child's worktree.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child: Option<TicketKey>,
     /// The whole file's size in bytes.
     pub size: u64,
     /// Binary files carry no text.
@@ -211,7 +202,7 @@ pub struct FileContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<FileChange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<ChildTag>,
+    pub tags: Vec<PieceTag>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -229,33 +220,19 @@ pub(super) struct Source {
     pub(super) worktree: Option<PathBuf>,
     /// Worktrees: the commit the changes count from (where the ticket left `base_sha`).
     pub(super) from: Option<String>,
-    /// Epics: the epic itself, for its children.
-    epic: Option<Ticket>,
 }
 
-/// A running epic child's worktree.
-struct Running {
-    key: TicketKey,
-    worktree: PathBuf,
-    /// Where it left the epic's branch.
-    from: String,
-}
-
-/// Every change of a source, by path, with the epic's tags.
+/// Every change of a source, by path, with the pieces' tags.
 pub(super) struct Changes {
     pub(super) entries: Vec<ChangedEntry>,
-    by_path: BTreeMap<String, (Option<FileChange>, Vec<ChildTag>)>,
+    by_path: BTreeMap<String, (Option<FileChange>, Vec<PieceTag>)>,
 }
 
 impl Changes {
-    fn new(entries: Vec<ChangedEntry>, mut tags: HashMap<String, Vec<ChildTag>>) -> Self {
-        let mut by_path: BTreeMap<String, (Option<FileChange>, Vec<ChildTag>)> = BTreeMap::new();
+    fn new(entries: Vec<ChangedEntry>, mut tags: HashMap<String, Vec<PieceTag>>) -> Self {
+        let mut by_path: BTreeMap<String, (Option<FileChange>, Vec<PieceTag>)> = BTreeMap::new();
         for entry in &entries {
-            let slot = by_path.entry(entry.file.path.clone()).or_default();
-            // The ticket's own change wins over a child's on top.
-            if slot.0.is_none() || entry.child.is_none() {
-                slot.0 = Some(file_change(entry));
-            }
+            by_path.entry(entry.file.path.clone()).or_default().0 = Some(file_change(entry));
         }
         for (path, tags) in tags.drain() {
             by_path.entry(path).or_default().1 = tags;
@@ -263,7 +240,7 @@ impl Changes {
         Self { entries, by_path }
     }
 
-    fn change(&self, path: &str) -> (Option<FileChange>, Vec<ChildTag>) {
+    fn change(&self, path: &str) -> (Option<FileChange>, Vec<PieceTag>) {
         self.by_path.get(path).cloned().unwrap_or_default()
     }
 
@@ -303,7 +280,7 @@ impl Board {
             }
             Err(e) => return Err(e.into()),
         };
-        // Files git doesn't list at this revision: untracked or staged ones, deleted ones, a child's new ones.
+        // Files git doesn't list at this revision: untracked or staged ones, deleted ones.
         let mut extra: Vec<&String> = changes.by_path.keys().collect();
         let untracked = match &source.worktree {
             Some(wt) if source.info.from == FilesFrom::Worktree => git.untracked_files(wt).await?,
@@ -446,17 +423,12 @@ impl Board {
         let ticket = self.ticket(key).await?;
         let source = self.files_source(&ticket).await?;
         let changes = self.files_changes_of(&source).await?;
-        let (added, removed) =
-            changes
-                .entries
-                .iter()
-                .filter(|e| e.child.is_none())
-                .fold((0u32, 0u32), |(a, r), e| {
-                    (
-                        a.saturating_add(e.file.added),
-                        r.saturating_add(e.file.removed),
-                    )
-                });
+        let (added, removed) = changes.entries.iter().fold((0u32, 0u32), |(a, r), e| {
+            (
+                a.saturating_add(e.file.added),
+                r.saturating_add(e.file.removed),
+            )
+        });
         Ok(FilesChanges {
             source: source.info,
             files: changes.entries,
@@ -465,31 +437,12 @@ impl Board {
         })
     }
 
-    /// `files.diff`: one file's hunks against the base, uncommitted edits included. `child` (epics): that
-    /// child's change, from its worktree while it runs, else its squash commit.
-    pub async fn files_diff(
-        &self,
-        key: &str,
-        path: &str,
-        child: Option<&str>,
-    ) -> Result<FileDiff, BoardError> {
+    /// `files.diff`: one file's hunks against the base, uncommitted edits included.
+    pub async fn files_diff(&self, key: &str, path: &str) -> Result<FileDiff, BoardError> {
         let path = clean_path(path, false)?;
         let ticket = self.ticket(key).await?;
         let not_changed =
             || BoardError::NotFound(format!("{path} isn't changed in {}", ticket.key));
-        if let Some(child) = child {
-            let child = self.epic_child(&ticket, child).await?;
-            return match self.running(&ticket, &child).await? {
-                Some(running) => self
-                    .worktree_file_diff(&running.worktree, &running.from, &path, DIFF_CONTEXT)
-                    .await?
-                    .ok_or_else(not_changed),
-                None => {
-                    self.diff_file(key, &path, Some(&child.key.to_string()))
-                        .await
-                }
-            };
-        }
         self.ticket_file_diff(&ticket, &path, DIFF_CONTEXT)
             .await?
             .ok_or_else(not_changed)
@@ -519,14 +472,8 @@ impl Board {
         })
     }
 
-    /// `files.read`: the file as it is: on disk in a worktree, else from git. `child` (epics): from that
-    /// running child's worktree (its change on top of the epic's branch).
-    pub async fn files_read(
-        &self,
-        key: &str,
-        path: &str,
-        child: Option<&str>,
-    ) -> Result<FileContent, BoardError> {
+    /// `files.read`: the file as it is: on disk in a worktree, else from git.
+    pub async fn files_read(&self, key: &str, path: &str) -> Result<FileContent, BoardError> {
         let path = clean_path(path, false)?;
         let ticket = self.ticket(key).await?;
         let source = self.files_source(&ticket).await?;
@@ -534,25 +481,11 @@ impl Board {
         let git = self.git()?;
 
         let changes = self.files_changes_of(&source).await?;
-        let (mut change, tags) = changes.change(&path);
-        let mut child_key = None;
-        let mut on_disk = match (&source.worktree, source.info.from) {
+        let (change, tags) = changes.change(&path);
+        let on_disk = match (&source.worktree, source.info.from) {
             (Some(wt), FilesFrom::Worktree) => Some(wt.clone()),
             _ => None,
         };
-        if let Some(child) = child {
-            let child = self.epic_child(&ticket, child).await?;
-            if let Some(running) = self.running(&ticket, &child).await? {
-                change = self
-                    .worktree_changes(&running.worktree, &running.from)
-                    .await?
-                    .into_iter()
-                    .find(|e| e.file.path == path)
-                    .map(|e| file_change(&e));
-                on_disk = Some(running.worktree);
-            }
-            child_key = Some(child.key);
-        }
 
         let (bytes, size) = match &on_disk {
             Some(wt) => read_confined(wt, &path).await?.ok_or_else(missing)?,
@@ -571,7 +504,6 @@ impl Board {
         Ok(FileContent {
             source: source.info,
             path,
-            child: child_key,
             size,
             binary,
             text,
@@ -586,8 +518,7 @@ impl Board {
         let repo = PathBuf::from(project.repo_path);
         let git = self.git()?;
         let work = ticket.work.clone().unwrap_or_default();
-        let base_branch = self.files_base_branch(&repo, ticket).await?;
-        let epic = ticket.is_epic().then(|| ticket.clone());
+        let base_branch = ticket.base.branch().to_owned();
 
         if let (Some(branch), Some(base_sha)) = (work.branch, work.base_sha) {
             let info = FilesSource {
@@ -598,10 +529,7 @@ impl Board {
                 base_short: Some(short_sha(&base_sha)),
                 base_sha: Some(base_sha.clone()),
             };
-            let worktree = work
-                .worktree
-                .map(PathBuf::from)
-                .filter(|wt| !ticket.is_epic() && wt.is_dir());
+            let worktree = work.worktree.map(PathBuf::from).filter(|wt| wt.is_dir());
             if let Some(wt) = worktree {
                 let from = match git.run(&wt, &["merge-base", &base_sha, "HEAD"]).await {
                     Ok(out) => out.trim().to_owned(),
@@ -616,7 +544,6 @@ impl Board {
                     rev: "HEAD".to_owned(),
                     worktree: Some(wt),
                     from: Some(from),
-                    epic,
                 });
             }
             let rev = format!("refs/heads/{branch}");
@@ -627,7 +554,6 @@ impl Board {
                     rev,
                     worktree: None,
                     from: None,
-                    epic,
                 });
             }
         }
@@ -644,36 +570,13 @@ impl Board {
             cwd: repo,
             worktree: None,
             from: None,
-            epic,
         })
     }
 
-    /// The branch a ticket's changes are against: its base branch, or its epic's branch (the epic's own base
-    /// while the epic's branch doesn't exist yet).
-    async fn files_base_branch(&self, repo: &Path, ticket: &Ticket) -> Result<String, BoardError> {
-        Ok(match &ticket.base {
-            Base::Branch(branch) => branch.clone(),
-            Base::Epic(epic) => {
-                let epic = self.ticket(&epic.to_string()).await?;
-                let branch = epic
-                    .work
-                    .as_ref()
-                    .and_then(|w| w.branch.clone())
-                    .unwrap_or_else(|| crate::naming::branch(&epic.key.to_string()));
-                match &epic.base {
-                    Base::Branch(base) if !branch_exists(self.git()?, repo, &branch).await => {
-                        base.clone()
-                    }
-                    _ => branch,
-                }
-            }
-        })
-    }
-
-    /// Every change of `source`, with an epic's tags and its running children's changes on top.
+    /// Every change of `source`.
     pub(super) async fn files_changes_of(&self, source: &Source) -> Result<Changes, BoardError> {
         let git = self.git()?;
-        let mut entries = match (source.info.from, &source.worktree, &source.from) {
+        let entries = match (source.info.from, &source.worktree, &source.from) {
             (FilesFrom::Worktree, Some(wt), Some(from)) => self.worktree_changes(wt, from).await?,
             (FilesFrom::Branch, _, _) => {
                 let base_sha = source.info.base_sha.as_deref().unwrap_or_default();
@@ -684,58 +587,12 @@ impl Board {
                         file,
                         uncommitted: false,
                         tags: Vec::new(),
-                        child: None,
                     })
                     .collect()
             }
             _ => Vec::new(),
         };
-        let mut tags: HashMap<String, Vec<ChildTag>> = HashMap::new();
-        if let Some(epic) = &source.epic {
-            let mut writing = Vec::new();
-            for child in self.epic_children(&epic.key.to_string()).await? {
-                if child.status == Status::Merged
-                    && let Some(commit) = self.merge_commit(&child.id).await?
-                {
-                    for file in git
-                        .changed_files(&source.cwd, &DiffSpec::commit(&commit))
-                        .await?
-                    {
-                        for path in std::iter::once(file.path).chain(file.old_path) {
-                            tags.entry(path).or_default().push(ChildTag {
-                                key: child.key.clone(),
-                                kind: TagKind::Merged,
-                            });
-                        }
-                    }
-                } else if let Some(running) = self.running(epic, &child).await? {
-                    for mut entry in self
-                        .worktree_changes(&running.worktree, &running.from)
-                        .await?
-                    {
-                        entry.child = Some(running.key.clone());
-                        writing.push(entry);
-                    }
-                }
-            }
-            for entry in &mut writing {
-                let tag = ChildTag {
-                    key: entry.child.clone().unwrap_or_else(|| epic.key.clone()),
-                    kind: TagKind::Writing,
-                };
-                tags.entry(entry.file.path.clone())
-                    .or_default()
-                    .push(tag.clone());
-            }
-            entries.extend(writing);
-            for entry in &mut entries {
-                entry.tags = tags.get(&entry.file.path).cloned().unwrap_or_default();
-            }
-            entries.sort_by(|a, b| {
-                (&a.file.path, a.child.is_some()).cmp(&(&b.file.path, b.child.is_some()))
-            });
-        }
-        Ok(Changes::new(entries, tags))
+        Ok(Changes::new(entries, HashMap::new()))
     }
 
     /// A worktree's changes since `from`: its commits, its uncommitted edits and its untracked files.
@@ -766,7 +623,6 @@ impl Board {
                         .is_some_and(|p| uncommitted.contains(p)),
                 file,
                 tags: Vec::new(),
-                child: None,
             })
             .collect())
     }
@@ -794,49 +650,6 @@ impl Board {
         Ok(git
             .file_diff_with(worktree, &DiffSpec::working_tree(from), path, context)
             .await?)
-    }
-
-    /// `child`, checked to be one of `epic`'s children.
-    async fn epic_child(&self, epic: &Ticket, child: &str) -> Result<Ticket, BoardError> {
-        let child = self.ticket(child).await?;
-        if !epic.is_epic() || child.epic.as_ref() != Some(&epic.key) {
-            return Err(BoardError::refused(
-                Refusal::NotAnEpic,
-                format!("{} isn't a child of {}", child.key, epic.key),
-            ));
-        }
-        Ok(child)
-    }
-
-    /// The child's worktree while it runs (an agent working in Dev, as the epic lead's overlap reads it).
-    async fn running(&self, epic: &Ticket, child: &Ticket) -> Result<Option<Running>, BoardError> {
-        if !is_running(child.status) {
-            return Ok(None);
-        }
-        let Some(worktree) = child
-            .work
-            .as_ref()
-            .and_then(|w| w.worktree.as_deref())
-            .map(PathBuf::from)
-            .filter(|wt| wt.is_dir())
-        else {
-            return Ok(None);
-        };
-        let Some(epic_branch) = epic.work.as_ref().and_then(|w| w.branch.clone()) else {
-            return Ok(None);
-        };
-        let git = self.git()?;
-        let epic_ref = format!("refs/heads/{epic_branch}");
-        let from = match git.run(&worktree, &["merge-base", "HEAD", &epic_ref]).await {
-            Ok(out) => out.trim().to_owned(),
-            Err(GitError::Failed { .. }) => return Ok(None),
-            Err(e) => return Err(e.into()),
-        };
-        Ok(Some(Running {
-            key: child.key.clone(),
-            worktree,
-            from,
-        }))
     }
 }
 

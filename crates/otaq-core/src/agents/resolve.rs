@@ -1,6 +1,6 @@
 //! Which agent runs (AGM-05; d0108, d0088): a session in a stage runs the ticket's choice for that stage (AGM-08,
-//! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); the Project agent and the epic lead run **the agent with
-//! that role**. A flow names agents by name, looked up among the agents ignoring case; a rename renames the agent in
+//! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); the Project agent runs **the agent with that
+//! role**. A flow names agents by name, looked up among the agents ignoring case; a rename renames the agent in
 //! every stored flow ([`crate::flow::store`]), so it changes nothing. An unknown name is a check error naming the
 //! stage ([`crate::flow::check_agents`]).
 //!
@@ -114,7 +114,7 @@ pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> 
 }
 
 /// The agent a ticket's new session of `role` runs (AGM-05): an Agent stage's ([`agent_stage_of`]), an agent check's
-/// ([`check_stage_of`]), or the role's agent for the epic lead and the Project agent. A chosen option the stage no
+/// ([`check_stage_of`]), or the role's agent for the Project agent. A chosen option the stage no
 /// longer offers is dropped here, with its History note ([`Board::drop_removed_choice`]).
 pub async fn session_agent(
     board: &Board,

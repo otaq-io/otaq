@@ -77,7 +77,7 @@ impl OpenTicket {
                 .iter()
                 .any(|(a, _)| *a == SheetAction::RetryValidation),
             diff: sheet::tabs(ticket).contains(&SheetTab::Files),
-            in_epic: ticket.is_epic() || ticket.epic.is_some(),
+            in_epic: false,
         }
     }
 }
@@ -659,7 +659,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
         ticket("SHOP-20", "Checkout page", Status::Queued),
         ticket("SHOP-49", "Export orders as CSV", Status::Queued),
         ticket(
-            "SHOP-40.4",
+            "SHOP-44",
             "Wishlist share link: approve copy",
             Status::Working,
         ),

@@ -13,9 +13,8 @@
 //! (`attention::needs_you`), unchanged.
 
 use otaq_core::attention::needs_you::NeedsYouList;
-use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem};
+use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::epic_lead::suggest::SuggestionKind;
 use otaq_core::flow::model::Delivers;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::{Deserialize, Serialize};
@@ -61,26 +60,16 @@ impl Item {
             Self::Ticket(i) => Target::Ticket {
                 project: i.project.clone(),
                 key: i.key.to_string(),
-                tab: if i.suggestion.is_some() {
-                    // A suggestion's child never started: its description.
-                    Content::Overview
-                } else if i.group == NeedsYouGroup::Review {
+                tab: if i.group == NeedsYouGroup::Review {
                     Content::Files
                 } else {
                     // Session, on the side that needs you (the check's while it asks).
                     session_tab::lands_on(i.status)
                 },
             },
-            Self::Agent(a) => match &a.epic {
-                Some(epic) => Target::Ticket {
-                    project: a.project.clone(),
-                    key: epic.to_string(),
-                    tab: Content::Lead,
-                },
-                None => Target::Agent {
-                    project: a.project.clone(),
-                    agent: a.agent.clone(),
-                },
+            Self::Agent(a) => Target::Agent {
+                project: a.project.clone(),
+                agent: a.agent.clone(),
             },
         }
     }
@@ -355,23 +344,6 @@ pub fn view(
             resume_all: None,
         });
     }
-    let suggestions: Vec<Suggestion> = in_group(NeedsYouGroup::Suggestions)
-        .filter_map(|i| match i {
-            Item::Ticket(t) => t.suggestion.as_ref().map(|s| suggestion(&t.key, s)),
-            Item::Agent(_) => None,
-        })
-        .collect();
-    if !suggestions.is_empty() {
-        groups.push(Group {
-            id: GroupId::Suggestions,
-            icon: IconName::Lightbulb,
-            tone: Tone::Investigate,
-            title: "Suggestion".to_owned(),
-            chips: Vec::new(),
-            suggestions,
-            resume_all: None,
-        });
-    }
     let stopped: Vec<&Item> = in_group(NeedsYouGroup::Stopped).collect();
     if !stopped.is_empty() {
         let resumable = stopped
@@ -448,9 +420,6 @@ fn chip(item: &Item) -> Option<Chip> {
 }
 
 fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
-    if item.suggestion.is_some() {
-        return None;
-    }
     let status = item.interrupted_from.unwrap_or(item.status);
     let asks = (
         IconName::MessageCircleQuestionMark,
@@ -472,14 +441,7 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
             Status::NeedsYou | Status::CheckerNeedsYou => {
                 (IconName::Hand, Tone::Attn, "allow a command".to_owned())
             }
-            Status::AsksYou => match item.question.as_ref().and_then(|q| q.via_lead.as_ref()) {
-                Some(_) => (
-                    IconName::MessageCircleQuestionMark,
-                    Tone::Attn,
-                    "via the lead".to_owned(),
-                ),
-                None => asks,
-            },
+            Status::AsksYou => asks,
             Status::Idle => (IconName::Hand, Tone::Attn, "idle".to_owned()),
             Status::CheckFailed | Status::CheckNoResult => {
                 (IconName::CircleX, Tone::Error, "decide".to_owned())
@@ -507,51 +469,17 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
 }
 
 fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
-    let reason = match (&a.epic, a.status) {
-        (_, Status::NeedsYou) => "allow a command",
-        (Some(_), _) => "the lead asks",
-        (None, _) => "a question",
+    let reason = match a.status {
+        Status::NeedsYou => "allow a command",
+        _ => "a question",
     };
     Chip {
-        label: match &a.epic {
-            Some(epic) => short_key(epic),
-            None => "Agent".to_owned(),
-        },
+        label: "Agent".to_owned(),
         reason: reason.to_owned(),
         icon: IconName::Bot,
         tone: Tone::Investigate,
-        title: match &a.epic {
-            Some(_) => format!("{} \u{b7} {}", a.name, a.reason),
-            None => format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
-        },
+        title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
         target,
-    }
-}
-
-/// The line a suggestion adds to the close and delete confirmations.
-pub fn suggested_line(s: &SuggestionItem) -> String {
-    format!(
-        "Suggested by {}: \u{201c}{}\u{201d}",
-        s.lead,
-        s.reason.trim()
-    )
-}
-
-fn suggestion(child: &TicketKey, s: &SuggestionItem) -> Suggestion {
-    let (verb, dialog) = match s.kind {
-        SuggestionKind::Close => ("Close", SuggestionDialog::Close),
-        SuggestionKind::Delete => ("Delete", SuggestionDialog::Delete),
-    };
-    Suggestion {
-        id: s.id.clone(),
-        ticket: child.to_string(),
-        label: format!("{verb} {}?", short_key(child)),
-        heading: format!("{} suggests", s.lead),
-        text: s.reason.trim().to_owned(),
-        not_now: "Not now",
-        confirm: "Confirm",
-        dialog,
-        line: suggested_line(s),
     }
 }
 
@@ -678,10 +606,9 @@ pub fn gallery() -> Gallery {
 
 /// The example's items (`tickets/m38-tickets.md` → The example), for the Gallery and the tests.
 pub mod samples {
-    use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem, WaitingIn};
-    use otaq_core::board::questions::{HumanQuestion, ViaLead};
+    use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, WaitingIn};
+    use otaq_core::board::questions::HumanQuestion;
     use otaq_core::domain::Status;
-    use otaq_core::epic_lead::suggest::SuggestionKind;
     use otaq_core::project_agents::AgentNeedsYou;
 
     use super::Item;
@@ -707,8 +634,6 @@ pub mod samples {
             age_ms: 0,
             blocked: 0,
             message: None,
-            suggestion: None,
-            lead_note: None,
             change_agent: None,
             waiting_in: None,
         }
@@ -755,14 +680,14 @@ pub mod samples {
         ]
     }
 
-    /// What `s24-12` adds: 40.4 passed on by the Wishlist lead, a waiting Project agent, the lead's suggestion and
-    /// three interrupted sessions (the checks are shop-web's).
+    /// What `s24-12` adds: SHOP-44's question, a waiting Project agent and three interrupted sessions (the checks
+    /// are shop-web's).
     pub fn every_group() -> Vec<Item> {
         let mut passed = ticket(
-            "SHOP-40.4",
+            "SHOP-44",
             "Share link",
             Status::AsksYou,
-            "asks · passed on by Wishlist lead: Should the share link expire?",
+            "asks: Should the share link expire?",
         );
         passed.question = Some(HumanQuestion {
             id: "q4".into(),
@@ -771,24 +696,6 @@ pub mod samples {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: Some(ViaLead {
-                lead: "Wishlist lead".into(),
-                reason: "PAY-123 doesn't say.".into(),
-            }),
-        });
-        let mut suggestion = ticket(
-            "SHOP-40.6",
-            "Wishlist export (CSV)",
-            Status::Backlog,
-            "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)",
-        );
-        suggestion.group = NeedsYouGroup::Suggestions;
-        suggestion.suggestion = Some(SuggestionItem {
-            id: "sg1".into(),
-            epic: "SHOP-40".parse().expect("key"),
-            lead: "Wishlist lead".into(),
-            kind: SuggestionKind::Close,
-            reason: "PAY-123 doesn't ask for an export.".into(),
         });
         let interrupted = |key: &str, title: &str| {
             item(ticket(
@@ -801,7 +708,6 @@ pub mod samples {
         vec![
             item(passed),
             Item::Agent(Box::new(agent())),
-            item(suggestion),
             interrupted("SHOP-33", "Shipping estimate"),
             interrupted("SHOP-29", "Coupon field"),
             interrupted("SHOP-30", "Order history page"),
@@ -815,7 +721,6 @@ pub mod samples {
             project_name: "shop-web".into(),
             agent: "pa3".into(),
             name: "Checkout slowness".into(),
-            epic: None,
             status: Status::AsksYou,
             reason: "asks: Add an index on orders.created_at?".into(),
             question: None,
@@ -913,7 +818,7 @@ mod tests {
     }
 
     /// NYS-01 (`s24-12`): every group in the queue's order: a passed-on question and a waiting Project agent under
-    /// Needs you, the lead's suggestion with Not now · Confirm, "Interrupted · 3" with Resume all and no chips, then
+    /// Needs you, "Interrupted · 3" with Resume all and no chips, then
     /// "Checks · 1".
     #[test]
     fn every_group_in_the_queues_order() {
@@ -926,7 +831,6 @@ mod tests {
             titles,
             [
                 "Needs you \u{b7} 5",
-                "Suggestion",
                 "Interrupted \u{b7} 3",
                 "Checks \u{b7} 1"
             ]
@@ -937,7 +841,7 @@ mod tests {
                 "SHOP-22 allow a command",
                 "SHOP-12 a question",
                 "SHOP-32 decide",
-                "40.4 via the lead",
+                "SHOP-44 a question",
                 "Agent a question"
             ]
         );
@@ -954,19 +858,9 @@ mod tests {
                 agent: "pa3".into()
             }
         );
-        let s = &v.groups[1].suggestions[0];
-        assert_eq!(s.label, "Close 40.6?");
-        assert_eq!(s.heading, "Wishlist lead suggests");
-        assert_eq!(s.text, "PAY-123 doesn't ask for an export.");
-        assert_eq!((s.not_now, s.confirm), ("Not now", "Confirm"));
-        assert_eq!(s.dialog, SuggestionDialog::Close);
-        assert_eq!(
-            s.line,
-            "Suggested by Wishlist lead: \u{201c}PAY-123 doesn't ask for an export.\u{201d}"
-        );
-        assert!(v.groups[2].chips.is_empty());
-        assert_eq!(v.groups[2].resume_all, Some("Resume all"));
-        assert_eq!(v.groups[3].title, "Checks \u{b7} 1");
+        assert!(v.groups[1].chips.is_empty());
+        assert_eq!(v.groups[1].resume_all, Some("Resume all"));
+        assert_eq!(v.groups[2].title, "Checks \u{b7} 1");
     }
 
     /// Start failed and Parent closed keep a chip under Interrupted; Resume all only while a session can resume.
@@ -1017,7 +911,6 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         });
         let flow = default_flow();
         let tickets = [checking, asked];
@@ -1063,32 +956,6 @@ mod tests {
         assert_eq!(chips(&v.groups[0]), ["SHOP-22 a question"]);
         assert!(v.groups[1].chips.is_empty());
         assert_eq!(v.groups[1].resume_all, Some("Resume all"));
-    }
-
-    /// An epic lead's own question opens its epic on the Lead tab; a suggestion's child opens on its description.
-    #[test]
-    fn a_lead_opens_its_epic_and_a_suggestion_its_child() {
-        let mut lead = agent();
-        lead.epic = Some("SHOP-40".parse().unwrap());
-        lead.name = "Wishlist lead".into();
-        let v = draw(&[Item::Agent(Box::new(lead.clone()))], None);
-        assert_eq!(chips(&v.groups[0]), ["SHOP-40 the lead asks"]);
-        assert_eq!(
-            Item::Agent(Box::new(lead)).target(),
-            Target::Ticket {
-                project: "SHOP".into(),
-                key: "SHOP-40".into(),
-                tab: Content::Lead
-            }
-        );
-        let suggestion = every_group().remove(2);
-        assert!(matches!(
-            suggestion.target(),
-            Target::Ticket {
-                tab: Content::Overview,
-                ..
-            }
-        ));
     }
 
     /// NYS-01 (`s24-12`): "Needs you · 0 here", "You’re through shop-web’s items." and the accent "Next ·
@@ -1163,7 +1030,7 @@ mod tests {
     }
 
     /// NYS-02: a waiting plain Project agent is an item Next walks, after the tickets that need you and before the
-    /// suggestions; the panel showing it counts as open.
+    /// interrupted sessions; the panel showing it counts as open.
     #[test]
     fn a_waiting_project_agent_is_an_item() {
         let mut tickets = shop_web();
@@ -1171,7 +1038,7 @@ mod tests {
         let list = list(tickets);
         let items = super::items(&list);
         let order = order();
-        let after_passed = next(&items, "SHOP", Some(&open_ticket("SHOP-40.4")), &order);
+        let after_passed = next(&items, "SHOP", Some(&open_ticket("SHOP-44")), &order);
         assert_eq!(
             after_passed.unwrap().item().target(),
             Target::Agent {
@@ -1189,7 +1056,7 @@ mod tests {
         );
         assert!(matches!(
             after_agent.unwrap().item().target(),
-            Target::Ticket { ref key, .. } if key == "SHOP-40.6"
+            Target::Ticket { ref key, .. } if key == "SHOP-33"
         ));
     }
 
@@ -1233,8 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn a_childs_key_is_its_number() {
-        assert_eq!(short_key(&"SHOP-40.4".parse().unwrap()), "40.4");
+    fn a_key_shows_whole() {
         assert_eq!(short_key(&"SHOP-22".parse().unwrap()), "SHOP-22");
     }
 

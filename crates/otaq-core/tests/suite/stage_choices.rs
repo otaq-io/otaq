@@ -15,7 +15,7 @@ use otaq_core::board::stage_choices::{
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::board::{BoardError, Refusal};
-use otaq_core::domain::{Actor, Kind, Place, Status};
+use otaq_core::domain::{Actor, Place, Status};
 use otaq_core::flow::engine::{self, At, Move, RunResult};
 use otaq_core::flow::{FlowFile, StageOption, yaml};
 use otaq_core::service::ServiceConfig;
@@ -69,16 +69,9 @@ async fn choose(
     let ticket = w.board.ticket(&ticket.key.to_string()).await?;
     let writes = w
         .board
-        .check_choices(
-            "SHOP",
-            Some(&ticket),
-            (ticket.kind, ""),
-            picks,
-            chooser,
-            by_user,
-        )
+        .check_choices("SHOP", Some(&ticket), "", picks, chooser, by_user)
         .await?;
-    w.board.write_choices(&ticket, &writes, &me(), None).await?;
+    w.board.write_choices(&ticket, &writes, &me()).await?;
     Ok(writes)
 }
 
@@ -129,7 +122,7 @@ async fn who_may_set_what() {
         .check_choices(
             "SHOP",
             None,
-            (Kind::Ticket, label),
+            label,
             &[pick("Dev", "quick developer", Some("typo fix"))],
             &planner(),
             false,
@@ -137,10 +130,7 @@ async fn who_may_set_what() {
         .await
         .unwrap();
     let typo = w.create("SHOP", "Fix README typo").await;
-    w.board
-        .write_choices(&typo, &writes, &me(), None)
-        .await
-        .unwrap();
+    w.board.write_choices(&typo, &writes, &me()).await.unwrap();
     assert_eq!(
         choice_of(&w, &typo, "Dev").await,
         (
@@ -407,7 +397,7 @@ async fn who_may_set_what() {
 }
 
 /// AGM-05 and AGM-08: the running agent is the choice, else the stage's agent; a choice for an agent the stage no
-/// longer offers, or for a stage the flow no longer has, is ignored. Epics have no choices.
+/// longer offers, or for a stage the flow no longer has, is ignored.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_running_agent_and_choices_the_flow_dropped() {
     let w = world().await;
@@ -469,37 +459,6 @@ async fn the_running_agent_and_choices_the_flow_dropped() {
     let flow = w.board.effective_flow("SHOP").await.unwrap();
     assert!(w.board.ticket_skips(&t, &flow).await.unwrap().is_empty());
 
-    // Epics have none.
-    let epic = w
-        .board
-        .create_ticket(
-            &otaq_core::board::tickets::NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    assert!(choices(&w, &epic).await.stages.is_empty());
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &epic,
-                &[pick("Dev", "Quick developer", None)],
-                &Chooser::User,
-                false
-            )
-            .await
-        ),
-        (
-            Refusal::NotAnOption,
-            "SHOP-2 is an epic: epics have no stage choices".into()
-        )
-    );
     w.stop().await;
 }
 
@@ -680,7 +639,7 @@ async fn the_default_flow_has_no_choices() {
         .check_choices(
             &project,
             Some(&t),
-            (Kind::Ticket, ""),
+            "",
             &[pick("Dev", "skip", None)],
             &Chooser::User,
             false,

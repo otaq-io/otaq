@@ -70,9 +70,8 @@ pub fn cancelled_toast(key: &str, by: CancelledBy) -> (String, String) {
     )
 }
 
-/// The automatic local Delivery's toast (frame *11 → Success toasts*): "SHOP-40.1 merged automatically into the
-/// Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2 can start". `into` is "the Wishlist branch"
-/// for an epic child, else the base branch; `round` is the round that passed, `None` with no check passed before the
+/// The automatic local Delivery's toast (frame *11 → Success toasts*): "SHOP-41 merged automatically into main" ·
+/// "Validated · round 1 · local, not pushed · SHOP-42 can start". `into` is the base branch; `round` is the round that passed, `None` with no check passed before the
 /// Delivery ("Delivered without checks", d0108 rule 8); `started` are the waiting tickets that started after the
 /// merge.
 pub fn merged_toast(
@@ -324,15 +323,10 @@ mod tests {
     #[test]
     fn toasts() {
         assert_eq!(
-            merged_toast(
-                "SHOP-40.1",
-                "the Wishlist branch",
-                Some(1),
-                &["SHOP-40.2".into()]
-            ),
+            merged_toast("SHOP-41", "main", Some(1), &["SHOP-42".into()]),
             (
-                "SHOP-40.1 merged automatically into the Wishlist branch".to_owned(),
-                "Validated · round 1 · local, not pushed · SHOP-40.2 can start".to_owned()
+                "SHOP-41 merged automatically into main".to_owned(),
+                "Validated · round 1 · local, not pushed · SHOP-42 can start".to_owned()
             )
         );
         assert_eq!(

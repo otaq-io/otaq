@@ -23,9 +23,6 @@ use crate::signals::LIVE;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
-/// Epics take no Send back and no comments: their changes come from their children (EPC-05, d0059).
-pub const EPIC_NO_SEND_BACK: &str = "Add or reopen a child ticket to change it";
-
 /// The statuses the user can submit from: the agent isn't mid-turn (CLS-05).
 pub const USER_SUBMITS_FROM: &[Status] = &[
     Status::Idle,
@@ -119,21 +116,6 @@ pub fn uncommitted_message(count: usize) -> String {
 }
 
 impl Board {
-    /// `otaq stage next` and `stage done` are refused while the ticket has an unread note from its epic's lead
-    /// (CLI-08, LEAD-10): "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."
-    /// The user's Move to next stage (CLS-05) doesn't ask.
-    pub async fn refuse_unread_notes(&self, key: &str) -> Result<(), BoardError> {
-        let ticket = self.ticket(key).await?;
-        let unread = crate::epic_lead::notes::unread(self, &ticket.id).await?;
-        match unread.first() {
-            None => Ok(()),
-            Some(note) => Err(BoardError::refused(
-                Refusal::MoveRefused,
-                crate::epic_lead::notes::submit_refusal(unread.len(), &note.lead),
-            )),
-        }
-    }
-
     /// Moves a working ticket to Ready for Review with the agent's summary as its comment (`hand_over`), unless its
     /// worktree has uncommitted files. A ticket whose agent fixed a Delivery's conflict moves on the same way (FLW-17).
     pub async fn submit_for_review(

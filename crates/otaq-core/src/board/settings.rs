@@ -544,7 +544,7 @@ impl ProjectSettings {
     }
 }
 
-/// A project's view preferences (SHB-05, BRD-01…BRD-04, LST-01, EPL-01, DPV-02): each project opens as it was
+/// A project's view preferences (SHB-05, BRD-01…BRD-04, LST-01, DPV-02): each project opens as it was
 /// left, restarts included. Only a view: nothing in the flow changes. Unknown or unreadable values fall back to
 /// their defaults one by one (`read_or_default`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -552,8 +552,6 @@ impl ProjectSettings {
 pub struct ViewPrefs {
     /// Board, List or Files (BRD-01, FIL-01).
     pub view: BoardView,
-    /// The Board's lanes (EPL-01).
-    pub lanes: Lanes,
     /// The List's grouping (LST-01): Stage by default.
     pub group_by: GroupBy,
     /// "Fold empty columns" in the Board's toolbar (BRD-02).
@@ -565,8 +563,6 @@ pub struct ViewPrefs {
     /// The Board's columns folded to their rail by their ⋯ (BRD-02), by column id (`"done"`, a stage's id). Done is
     /// folded at first: its "Done 4 →" line under the last column.
     pub folded_columns: Vec<String>,
-    /// The epic lanes folded by their head (EPL-01), by epic key.
-    pub folded_lanes: Vec<String>,
     /// A human check column's sections folded by their label (Review's Approved, d0087), by section id.
     pub folded_sections: Vec<String>,
     /// An agent column shows every card instead of its "4 more · working" fold (T-0027).
@@ -580,13 +576,11 @@ impl Default for ViewPrefs {
     fn default() -> Self {
         Self {
             view: BoardView::Board,
-            lanes: Lanes::None,
             group_by: GroupBy::Stage,
             fold_empty_columns: false,
             hide_empty_stages: false,
             dependencies: Dependencies::OnHover,
             folded_columns: vec![DONE_COLUMN.to_owned()],
-            folded_lanes: Vec::new(),
             folded_sections: Vec::new(),
             dev_unfolded: false,
         }
@@ -603,15 +597,6 @@ pub enum BoardView {
     Files,
 }
 
-/// The Board's lanes (EPL-01): none, or one per epic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Lanes {
-    #[default]
-    None,
-    Epic,
-}
-
 /// The List's grouping (LST-01).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -619,7 +604,6 @@ pub enum GroupBy {
     #[default]
     Stage,
     Status,
-    Epic,
     Agent,
 }
 

@@ -1,9 +1,8 @@
 //! The editor's remaining fields (UI-05, DEP-02, DEP-04, TKT-03; d0046, d0051, d0059; *08 · Ticket editor → Row ·
-//! base branch per ticket, Row · epics and base branches*): which fields a ticket kind shows, the base-branch
+//! base branch per ticket*): which fields a ticket shows, the base-branch
 //! choices, and how the service's refusals read inline. Dependencies are the sheet's (DPV-04, `dependencies.rs`).
 
 use otaq_core::board::tickets::Base;
-use otaq_core::domain::{Kind, TicketKey};
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
@@ -13,10 +12,8 @@ use crate::view_models::menu::MenuItem;
 pub enum BaseField {
     /// A dropdown of local and remote branches.
     Editable,
-    /// Fixed: the ticket (or for an epic, a child) has started.
+    /// Fixed: the ticket has started.
     Locked(String),
-    /// Epic children: "From the epic's branch (SHOP-40)".
-    FromEpic(TicketKey),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,25 +22,15 @@ pub struct FieldVisibility {
     pub external_id: bool,
 }
 
-/// Which fields a ticket shows: standalone tickets and epics have a base and an External ID; epic children
-/// have neither (they use the epic's branch, and the epic carries the ID).
-pub fn visibility(kind: Kind, epic: Option<&TicketKey>, locked: bool) -> FieldVisibility {
-    match epic {
-        Some(epic) => FieldVisibility {
-            base: BaseField::FromEpic(epic.clone()),
-            external_id: false,
+/// Which fields a ticket shows: every ticket has a base and an External ID (d0059, d0133).
+pub fn visibility(locked: bool) -> FieldVisibility {
+    FieldVisibility {
+        base: if locked {
+            BaseField::Locked("locked · the ticket has started".into())
+        } else {
+            BaseField::Editable
         },
-        None => FieldVisibility {
-            base: if locked {
-                BaseField::Locked(match kind {
-                    Kind::Epic => "locked · a child has started".into(),
-                    Kind::Ticket => "locked · the ticket has started".into(),
-                })
-            } else {
-                BaseField::Editable
-            },
-            external_id: true,
-        },
+        external_id: true,
     }
 }
 
@@ -107,38 +94,25 @@ pub fn refusal_icon(code: Option<&str>) -> IconName {
     }
 }
 
-/// The base a ticket shows ("main", or the epic's).
+/// The base a ticket shows ("main").
 pub fn base_label(base: &Base) -> String {
-    match base {
-        Base::Branch(b) => b.clone(),
-        Base::Epic(e) => e.to_string(),
-    }
+    base.branch().to_owned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn key(k: &str) -> TicketKey {
-        k.parse().unwrap()
-    }
-
     #[test]
-    fn fields_per_kind() {
-        let standalone = visibility(Kind::Ticket, None, false);
+    fn fields_of_a_ticket() {
+        let standalone = visibility(false);
         assert_eq!(standalone.base, BaseField::Editable);
         assert!(standalone.external_id);
-        let started = visibility(Kind::Ticket, None, true);
-        assert!(matches!(started.base, BaseField::Locked(_)));
-        let epic = visibility(Kind::Epic, None, true);
+        let started = visibility(true);
         assert_eq!(
-            epic.base,
-            BaseField::Locked("locked · a child has started".into())
+            started.base,
+            BaseField::Locked("locked · the ticket has started".into())
         );
-        assert!(epic.external_id);
-        let child = visibility(Kind::Ticket, Some(&key("SHOP-40")), false);
-        assert_eq!(child.base, BaseField::FromEpic(key("SHOP-40")));
-        assert!(!child.external_id);
     }
 
     #[test]
@@ -178,6 +152,5 @@ mod tests {
         assert_eq!(refusal_icon(Some("cycle")), IconName::RefreshCcw);
         assert_eq!(refusal_icon(Some("cross_base")), IconName::CircleX);
         assert_eq!(refusal_title(Some("cross_base")), "Different base branches");
-        assert_eq!(base_label(&Base::Epic(key("SHOP-40"))), "SHOP-40");
     }
 }

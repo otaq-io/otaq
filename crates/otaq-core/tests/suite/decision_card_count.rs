@@ -1,9 +1,9 @@
 //! The card's "N decisions" (DEC-03, d0084): `Flags.open_decisions` counts the open recorded decisions of a ticket
-//! in Ready for Review, an epic's with every child's, and is zero in every other column and once approved.
+//! in Ready for Review, and is zero in every other column and once approved.
 
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::decisions::{self, NewDecision, outcome};
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::commit;
 use otaq_core::service::testing::TestService;
 
@@ -35,21 +35,6 @@ async fn count(w: &TestService, key: &str) -> u32 {
     w.board.ticket(key).await.unwrap().flags.open_decisions
 }
 
-async fn child(w: &TestService, epic: &Ticket, title: &str) -> Ticket {
-    w.board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: title.into(),
-                epic: Some(epic.key.to_string()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn the_count_shows_only_in_ready_for_review() {
     let w = TestService::start().await;
@@ -79,41 +64,5 @@ async fn the_count_shows_only_in_ready_for_review() {
     // Approve keeps them: nothing after approval.
     outcome::keep_all(&w.board, "SHOP-1", &me()).await.unwrap();
     assert_eq!(count(&w, "SHOP-1").await, 0);
-    w.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_in_review_counts_every_childs_open_decisions() {
-    let w = TestService::start().await;
-    w.add_project("shop-web").await;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let api = child(&w, &epic, "Wishlist API").await;
-    let page = child(&w, &epic, "Wishlist page").await;
-    record(&w, &api, "Order of saved items?").await;
-    record(&w, &page, "What does an empty wishlist show?").await;
-    for c in [&api, &page] {
-        let wt = w.start_worktree(c).await;
-        commit(&wt, &format!("{}.ts", c.key), "x\n");
-        w.force_status(c, Status::WaitingForYou).await;
-        w.review
-            .deliver_locally(&c.key.to_string(), false)
-            .await
-            .unwrap();
-    }
-    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
-    assert_eq!(count(&w, "SHOP-1").await, 2);
-    assert_eq!(count(&w, "SHOP-1.1").await, 0, "a merged child shows none");
     w.stop().await;
 }

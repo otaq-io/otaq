@@ -4,4 +4,4 @@ import type { ToastAction } from "./ToastAction";
 /**
  * `{"id": 3, "label": "Undo", "action": {"kind": "undo_epic_queue", …}}`: the user pressed a toast's button.
  */
-export type ToastPress = { id: number, label: string, action: ToastAction, };
+export type ToastPress = { id: number, action: ToastAction, };

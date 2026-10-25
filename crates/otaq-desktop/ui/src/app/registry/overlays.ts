@@ -34,21 +34,14 @@ export interface Confirmation {
 }
 
 /** Each overlay id with what it is opened with (`undefined`: nothing). */
-/** A lead's suggestion behind a close or delete confirmation (LEAD-08): its line, and the id its confirm sends. */
-export interface SuggestionConfirm {
-  id: string;
-  /** "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”" */
-  line: string;
-}
-
 export interface OverlayParams {
   /** The quick switcher, ⌘P (T-0219). */
   quick_switcher: undefined;
   /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
   command_palette: { terminal: boolean } | undefined;
-  /** The ticket editor on a new Backlog ticket, in an epic if given (T-0228); `body` starts the description, and the
-   * whole form opens (New ticket from this file, FTB-03). */
-  new_ticket: { epic?: string; body?: string } | undefined;
+  /** The ticket editor on a new Backlog ticket (T-0228); `body` starts the description, and the whole form opens
+   * (New ticket from this file, FTB-03). */
+  new_ticket: { body?: string } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
   /** Settings, on a project's page and on a section if given (T-0234); `agent`: Settings → Agents on that agent's
@@ -73,18 +66,14 @@ export interface OverlayParams {
   onboarding: { step?: OnboardingStepId; project?: string } | undefined;
   /** "Help improve Otaq": anonymous usage data, asked once after first run (d0085). */
   usage_data: UsageDataDialog;
-  /** The delete confirmation of a never-started ticket (T-0221); from a lead's suggestion, with its line (T-0292). */
-  delete_ticket: { ticket: string; suggestion?: SuggestionConfirm };
-  /** The Close ticket confirmation (T-0222); from a lead's suggestion, with its line (T-0292). */
-  close_ticket: { ticket: string; suggestion?: SuggestionConfirm };
+  /** The delete confirmation of a never-started ticket (T-0221). */
+  delete_ticket: { ticket: string };
+  /** The Close ticket confirmation (T-0222). */
+  close_ticket: { ticket: string };
   /** Move to next stage (was Submit for review) with an optional note (T-0222, T-0406). */
   submit_for_review: { ticket: string };
   /** Start from scratch after a failed resume: what is kept and lost (T-0235). */
   start_from_scratch: { ticket: string };
-  /** Move to epic… on a never-started ticket, from the card menu (T-0223's epic dialogs). */
-  move_to_epic: { ticket: string };
-  /** Close epic…'s confirmation, from the card menu (T-0223's epic dialogs). */
-  close_epic: { epic: string };
   /** Send back with a note (T-0226), from every human check (d0093). */
   send_back: { ticket: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
@@ -148,8 +137,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   close_ticket: true,
   submit_for_review: true,
   start_from_scratch: true,
-  move_to_epic: true,
-  close_epic: true,
   send_back: true,
   drag_back: true,
   blocked: true,

@@ -59,7 +59,7 @@ impl DataDir {
         self.root.join("wt")
     }
 
-    /// A ticket's worktree: `wt/<repo-name>/<KEY>`, for example `wt/shop-web/SHOP-40.1`.
+    /// A ticket's worktree: `wt/<repo-name>/<KEY>`, for example `wt/shop-web/SHOP-41`.
     pub fn worktree_path(&self, repo_name: &str, key: &str) -> Result<PathBuf, DataDirError> {
         let repo = path_component(repo_name)?;
         let key = path_component(key)?;
@@ -290,8 +290,8 @@ mod tests {
             wt.join("shop-web").join("SHOP-18")
         );
         assert_eq!(
-            data.worktree_path("shop-web", "SHOP-40.1").unwrap(),
-            wt.join("shop-web").join("SHOP-40.1")
+            data.worktree_path("shop-web", "SHOP-41").unwrap(),
+            wt.join("shop-web").join("SHOP-41")
         );
     }
 
@@ -299,12 +299,12 @@ mod tests {
     fn ticket_resources_have_a_folder_and_a_log() {
         let (tmp, data) = temp_data_dir();
         let root = tmp.path().join("home");
-        let key: TicketKey = "SHOP-40.1".parse().unwrap();
+        let key: TicketKey = "SHOP-41".parse().unwrap();
         assert_eq!(
             data.resource_path("shop-web", &key).unwrap(),
             root.join(naming::resource_dir_name())
                 .join("shop-web")
-                .join("SHOP-40.1")
+                .join("SHOP-41")
         );
         assert!(data.resource_path("a/b", &key).is_err());
         assert_eq!(

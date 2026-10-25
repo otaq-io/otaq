@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 // The Needs you strip's own rules (T-0459; NYS-01…NYS-03, d0114, d0016): it draws Rust's groups and chips with Next at
-// its end; a chip opens its ticket, its epic's Lead tab or the Project agent panel; Next asks from what the page shows
-// and opens the answer, switching project; nothing opens by itself; a suggestion's Not now and Confirm; Resume all
-// asks for the strip's project.
+// its end; a chip opens its ticket or the Project agent panel; Next asks from what the page shows and opens the answer,
+// switching project; nothing opens by itself; Resume all asks for the strip's project.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -19,7 +18,7 @@ import type { StripView } from "../../generated/StripView";
 import { request } from "../../tauri";
 import type { AgentPanelFocusRequest, ShownAgents } from "../agent_panel/logic";
 import { strip } from ".";
-import { confirmSuggestion, dismissSuggestion, openOf, openTarget, runNext, type StripRoutes } from "./logic";
+import { openOf, openTarget, runNext, type StripRoutes } from "./logic";
 import { resumeAll, ResumeAllBody } from "./ResumeAll";
 import { StripBody } from "./Strip";
 
@@ -67,27 +66,6 @@ const VIEW: StripView = {
         },
       ],
       suggestions: [],
-      resume_all: null,
-    },
-    {
-      id: "suggestions",
-      icon: "lightbulb",
-      tone: "investigate",
-      title: "Suggestion",
-      chips: [],
-      suggestions: [
-        {
-          id: "sg1",
-          ticket: "SHOP-40.6",
-          label: "Close 40.6?",
-          heading: "Wishlist lead suggests",
-          text: "PAY-123 doesn't ask for an export.",
-          not_now: "Not now",
-          confirm: "Confirm",
-          dialog: "close",
-          line: "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”",
-        },
-      ],
       resume_all: null,
     },
     {
@@ -197,8 +175,6 @@ describe("the strip's markup", () => {
       "40.4",
       "via the lead",
       "Agent",
-      "Suggestion",
-      "Close 40.6?",
       "Interrupted · 3",
       "Resume all",
       "Checks · 1",
@@ -210,7 +186,7 @@ describe("the strip's markup", () => {
     const at = texts.map((t) => html.indexOf(t));
     expect(at.every((n) => n >= 0)).toBe(true);
     expect(at).toEqual(at.toSorted((a, b) => a - b));
-    expect(html.match(/class="strip-divider"/g)).toHaveLength(3);
+    expect(html.match(/class="strip-divider"/g)).toHaveLength(2);
     expect(html).toContain('class="strip-chip" data-tone="attn"');
     expect(html).toContain('class="strip-head" data-tone="review"');
     expect(html).not.toContain("strip-empty");
@@ -259,36 +235,6 @@ describe("pressing the strip", () => {
     show(VIEW);
     click("Resume all");
     expect(overlays.store.get()).toEqual([{ id: "resume_all", params: { project: "SHOP" } }]);
-  });
-
-  it("a suggestion opens the lead's card: Not now dismisses, Confirm opens the usual confirmation with its line", () => {
-    ask.mockResolvedValue(null);
-    show(VIEW);
-    click("Close 40.6?");
-    expect(document.body.textContent).toContain("Wishlist lead suggests");
-    expect(document.body.textContent).toContain("PAY-123 doesn't ask for an export.");
-    act(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".strip-suggestion button")]
-        .find((b) => b.textContent === "Confirm")
-        ?.click();
-    });
-    expect(overlays.store.get()).toEqual([
-      {
-        id: "close_ticket",
-        params: {
-          ticket: "SHOP-40.6",
-          suggestion: { id: "sg1", line: "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”" },
-        },
-      },
-    ]);
-    expect(ask).not.toHaveBeenCalled();
-    click("Close 40.6?");
-    act(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".strip-suggestion button")]
-        .find((b) => b.textContent === "Not now")
-        ?.click();
-    });
-    expect(ask).toHaveBeenCalledWith("strip.suggestion", { id: "sg1", confirm: false });
   });
 });
 
@@ -366,18 +312,11 @@ describe("opening and Next", () => {
     expect(ask).not.toHaveBeenCalled();
   });
 
-  it("a suggestion's confirm and Resume all's confirm send their requests", async () => {
+  it("Resume all's confirm sends its request", async () => {
     ask.mockResolvedValue(null);
-    await confirmSuggestion({ id: "sg1", line: "…" }, ask);
-    await dismissSuggestion("sg2", ask);
     await resumeAll("SHOP", ask);
     await resumeAll(undefined, ask);
-    expect(ask.mock.calls).toEqual([
-      ["strip.suggestion", { id: "sg1", confirm: true }],
-      ["strip.suggestion", { id: "sg2", confirm: false }],
-      ["strip.resume_all", { project: "SHOP" }],
-      ["notices.resume_all"],
-    ]);
+    expect(ask.mock.calls).toEqual([["strip.resume_all", { project: "SHOP" }], ["notices.resume_all"]]);
   });
 
   it("Resume all's confirmation lists what it resumes and what it leaves out", () => {

@@ -33,7 +33,6 @@ function fallbackKind(role: AgentRole): CardActionKind | null {
       return "use_fallback";
     case "validator":
       return "use_validator_fallback";
-    case "lead":
     case "project_agent":
       return null;
   }

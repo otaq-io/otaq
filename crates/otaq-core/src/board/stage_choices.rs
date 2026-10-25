@@ -4,13 +4,12 @@
 //! FLW-22, Q290).
 //!
 //! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins; an agent (the
-//! Project agent, an epic lead, a ticket's own agent) only with a reason, never over the user's choice, and once the
+//! Project agent, a ticket's own agent) only with a reason, never over the user's choice, and once the
 //! ticket has started only a **later** stage's; before the ticket starts it may set any stage's. An agent's request
 //! that carries `--by-user` (d0087) is the user's. Which tickets each agent may change at all is the policy's
-//! ([`crate::policy::Action::SetChoices`], CLI-06, CLI-07): the Project agent its Backlog tickets, an epic lead its
-//! epic's unstarted children, a ticket agent its own ticket. A choice **locks** when its stage starts (the ticket
-//! has a run of it, STG-05). A choice must be one of the stage's options, else it is refused naming them; a stage
-//! without options refuses any. Epics have no choices.
+//! ([`crate::policy::Action::SetChoices`], CLI-06): the Project agent its Backlog tickets, a ticket agent its own
+//! ticket. A choice **locks** when its stage starts (the ticket has a run of it, STG-05). A choice must be one of the
+//! stage's options, else it is refused naming them; a stage without options refuses any.
 //!
 //! **What a choice does:** the running agent of a stage is its choice, else the stage's agent
 //! ([`crate::agents::resolve::running_agent`]); a skipped stage is passed with a run of result `skipped`
@@ -25,7 +24,7 @@ use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::agents::Agent;
 use crate::agents::resolve;
-use crate::domain::{Actor, Kind, Place, TicketKey};
+use crate::domain::{Actor, Place, TicketKey};
 use crate::flow::{Flow, Stage, StageOption};
 use crate::store::now_ms;
 
@@ -120,19 +119,17 @@ pub enum SetBy {
     User,
     /// The Project agent, by its name ("Checkout slowness").
     ProjectAgent { name: String, reason: String },
-    /// An epic lead ("Wishlist lead").
-    EpicLead { name: String, reason: String },
     /// A ticket's own agent, by the agent it runs ("Griller").
     Agent { name: String, reason: String },
 }
 
 impl SetBy {
-    /// "you", "Noyan", "Wishlist lead", "Griller".
+    /// "you", "Noyan", "Griller".
     pub fn who(&self) -> String {
         match self {
             Self::User => "you".to_owned(),
             Self::ProjectAgent { .. } => "Noyan".to_owned(),
-            Self::EpicLead { name, .. } | Self::Agent { name, .. } => name.clone(),
+            Self::Agent { name, .. } => name.clone(),
         }
     }
 
@@ -140,9 +137,7 @@ impl SetBy {
     pub fn reason(&self) -> Option<&str> {
         match self {
             Self::User => None,
-            Self::ProjectAgent { reason, .. }
-            | Self::EpicLead { reason, .. }
-            | Self::Agent { reason, .. } => Some(reason),
+            Self::ProjectAgent { reason, .. } | Self::Agent { reason, .. } => Some(reason),
         }
     }
 
@@ -154,7 +149,6 @@ impl SetBy {
         match self {
             Self::User => ("user", None),
             Self::ProjectAgent { name, .. } => ("project_agent", Some(name)),
-            Self::EpicLead { name, .. } => ("epic_lead", Some(name)),
             Self::Agent { name, .. } => ("agent", Some(name)),
         }
     }
@@ -163,7 +157,6 @@ impl SetBy {
         let (name, reason) = (name.unwrap_or_default(), reason.unwrap_or_default());
         match set_by {
             "project_agent" => Self::ProjectAgent { name, reason },
-            "epic_lead" => Self::EpicLead { name, reason },
             "agent" => Self::Agent { name, reason },
             _ => Self::User,
         }
@@ -175,9 +168,6 @@ impl SetBy {
 pub enum Chooser {
     User,
     ProjectAgent {
-        name: String,
-    },
-    EpicLead {
         name: String,
     },
     /// A ticket's own agent, by the agent its session runs.
@@ -194,10 +184,6 @@ impl Chooser {
             _ if by_user => SetBy::User,
             Self::User => SetBy::User,
             Self::ProjectAgent { name } => SetBy::ProjectAgent {
-                name: name.clone(),
-                reason,
-            },
-            Self::EpicLead { name } => SetBy::EpicLead {
                 name: name.clone(),
                 reason,
             },
@@ -287,7 +273,7 @@ impl StageOptions {
 }
 
 /// The answer to `ticket.choices`: a ticket's (or, with no key, a new ticket's in a project) stages with options, in
-/// flow order; empty on the default flow and for an epic.
+/// flow order; empty on the default flow.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketChoices {
     pub key: Option<TicketKey>,
@@ -305,7 +291,6 @@ pub fn skipped_mark(stage: &str) -> String {
 pub struct Target<'a> {
     /// "SHOP-5", or "the new ticket \"Fix README typo\"".
     pub label: &'a str,
-    pub kind: Kind,
     pub started: bool,
     /// The first stage (an index into the flow) an agent may still choose for once the ticket has started: the one
     /// after the stage it is in, or the one it waits before.
@@ -410,7 +395,6 @@ pub fn choice_of(stage: &Stage, options: &StageOptions, word: &str) -> Result<Ch
 /// Judges one choice (AGM-08; d0108, d0087) for `target` at flow position `index`, over `current` (the choice it
 /// has). `by_user` makes an agent's choice the user's.
 ///
-/// - an epic has no choices;
 /// - a stage that started is locked, for everyone;
 /// - an agent's own choice needs a reason, never overrides the user's, and once the ticket has started is only for
 ///   a later stage.
@@ -423,12 +407,6 @@ pub fn judge(
     by_user: bool,
     reason: Option<&str>,
 ) -> Result<(), BoardError> {
-    if target.kind == Kind::Epic {
-        return Err(BoardError::refused(
-            Refusal::NotAnOption,
-            format!("{} is an epic: epics have no stage choices", target.label),
-        ));
-    }
     if target.ran.contains(&stage.id) {
         return Err(BoardError::refused(
             Refusal::ChoiceLocked,
@@ -614,26 +592,20 @@ impl Board {
         Ok(choices)
     }
 
-    /// `ticket.choices` for an existing ticket: its stages with options, its choices and locks. Empty for an epic.
+    /// `ticket.choices` for an existing ticket: its stages with options, its choices and locks.
     pub async fn ticket_choices(&self, key: &str) -> Result<TicketChoices, BoardError> {
         let ticket = self.ticket(key).await?;
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let stages = match ticket.kind {
-            Kind::Epic => Vec::new(),
-            Kind::Ticket => {
-                let mut stages = self.flow_options(&flow).await?;
-                let stored = self.stored_choices(&ticket.id, &stages).await?;
-                let ran = self.stages_ran(&ticket.id).await?;
-                for stage in &mut stages {
-                    stage.choice = stored
-                        .iter()
-                        .find(|c| c.stage_id == stage.stage_id)
-                        .cloned();
-                    stage.locked = ran.contains(&stage.stage_id);
-                }
-                stages
-            }
-        };
+        let mut stages = self.flow_options(&flow).await?;
+        let stored = self.stored_choices(&ticket.id, &stages).await?;
+        let ran = self.stages_ran(&ticket.id).await?;
+        for stage in &mut stages {
+            stage.choice = stored
+                .iter()
+                .find(|c| c.stage_id == stage.stage_id)
+                .cloned();
+            stage.locked = ran.contains(&stage.stage_id);
+        }
         Ok(TicketChoices {
             key: Some(ticket.key),
             stages,
@@ -649,14 +621,14 @@ impl Board {
         })
     }
 
-    /// The stages `ticket` skips by its choices (the flow engine's [`crate::flow::engine::At::skips`]); none for an
-    /// epic and on a flow without `skip` options.
+    /// The stages `ticket` skips by its choices (the flow engine's [`crate::flow::engine::At::skips`]); none on a
+    /// flow without `skip` options.
     pub async fn ticket_skips(
         &self,
         ticket: &Ticket,
         flow: &Flow,
     ) -> Result<Vec<String>, BoardError> {
-        if ticket.is_epic() || !flow.stages.iter().any(Stage::can_skip) {
+        if !flow.stages.iter().any(Stage::can_skip) {
             return Ok(Vec::new());
         }
         let skips: Vec<String> = sqlx::query_scalar(
@@ -678,11 +650,10 @@ impl Board {
         ticket: &Ticket,
         stage: &Stage,
     ) -> Result<Option<Agent>, BoardError> {
-        if ticket.is_epic()
-            || !stage
-                .options
-                .iter()
-                .any(|o| matches!(o, StageOption::Agent(_)))
+        if !stage
+            .options
+            .iter()
+            .any(|o| matches!(o, StageOption::Agent(_)))
         {
             return Ok(None);
         }
@@ -707,14 +678,13 @@ impl Board {
         Ok(None)
     }
 
-    /// Checks every pick for `ticket` (`None`: a ticket of `kind` a batch is about to create in `project`, labelled
-    /// `label`) and returns what to write; nothing is written, so a refused pick leaves the ticket (or the whole
+    /// Checks every pick for `ticket` (`None`: a ticket a batch is about to create in `project`, labelled `new`) and returns what to write; nothing is written, so a refused pick leaves the ticket (or the whole
     /// batch) as it was.
     pub async fn check_choices(
         &self,
         project: &str,
         ticket: Option<&Ticket>,
-        new: (Kind, &str),
+        new: &str,
         picks: &[ChoicePick],
         chooser: &Chooser,
         by_user: bool,
@@ -725,17 +695,15 @@ impl Board {
         let flow = self.effective_flow(project).await?;
         let options = self.flow_options(&flow).await?;
         let (stored, ran, label) = match ticket {
-            Some(t) if !t.is_epic() => (
+            Some(t) => (
                 self.stored_choices(&t.id, &options).await?,
                 self.stages_ran(&t.id).await?,
                 t.key.to_string(),
             ),
-            Some(t) => (Vec::new(), Vec::new(), t.key.to_string()),
-            None => (Vec::new(), Vec::new(), new.1.to_owned()),
+            None => (Vec::new(), Vec::new(), new.to_owned()),
         };
         let target = Target {
             label: &label,
-            kind: ticket.map_or(new.0, |t| t.kind),
             started: ticket.is_some_and(Ticket::has_started),
             later_from: ticket.map_or(0, |t| later_from(&flow, &t.place)),
             ran: &ran,
@@ -744,9 +712,6 @@ impl Board {
         for pick in picks {
             let stage = find_stage(&flow, project, &pick.stage)?;
             let index = flow.position(&stage.id).expect("a stage of the flow");
-            if target.kind == Kind::Epic {
-                judge(target, stage, index, None, chooser, by_user, None)?;
-            }
             let offered = options
                 .iter()
                 .find(|o| o.stage_id == stage.id)
@@ -785,14 +750,12 @@ impl Board {
         Ok(writes)
     }
 
-    /// Writes checked choices on `ticket`, skipping those that already read so. Returns whether one changed. An epic
-    /// lead's choice for a child is logged on the child and on the epic (`epic_id`).
+    /// Writes checked choices on `ticket`, skipping those that already read so. Returns whether one changed.
     pub async fn write_choices(
         &self,
         ticket: &Ticket,
         writes: &[ChoiceWrite],
         actor: &Actor,
-        epic_id: Option<&str>,
     ) -> Result<bool, BoardError> {
         if writes.is_empty() {
             return Ok(false);
@@ -836,19 +799,9 @@ impl Board {
                 &ticket.id,
                 EventKind::StageChoiceSet,
                 actor,
-                choice_event(write, from.as_deref(), None),
+                choice_event(write, from.as_deref()),
             )
             .await?;
-            if let Some(epic_id) = epic_id.filter(|epic| *epic != ticket.id) {
-                record_event(
-                    &mut tx,
-                    epic_id,
-                    EventKind::StageChoiceSet,
-                    actor,
-                    choice_event(write, from.as_deref(), Some(&ticket.key)),
-                )
-                .await?;
-            }
             changed = true;
         }
         tx.commit().await?;
@@ -857,8 +810,8 @@ impl Board {
 }
 
 /// The History payload of one choice ([`EventKind::StageChoiceSet`]).
-fn choice_event(write: &ChoiceWrite, from: Option<&str>, child: Option<&TicketKey>) -> Value {
-    let mut payload = json!({
+fn choice_event(write: &ChoiceWrite, from: Option<&str>) -> Value {
+    json!({
         "stage": write.stage,
         "stage_id": write.stage_id,
         "choice": write.label,
@@ -866,11 +819,7 @@ fn choice_event(write: &ChoiceWrite, from: Option<&str>, child: Option<&TicketKe
         "set_by": write.set_by.stored().0,
         "by": write.set_by.who(),
         "reason": write.set_by.reason(),
-    });
-    if let Some(child) = child {
-        payload["child"] = json!(child);
-    }
-    payload
+    })
 }
 
 #[cfg(test)]
@@ -1025,7 +974,6 @@ mod tests {
         let dev_ran = ["grill".to_owned(), "dev".to_owned()];
         let fresh = Target {
             label: "SHOP-5",
-            kind: Kind::Ticket,
             started: false,
             later_from: 0,
             ran: &none,
@@ -1126,15 +1074,6 @@ mod tests {
         assert_eq!(
             refusal(judge(past, &grill, 0, None, &griller, false, Some("x"))).0,
             Refusal::NotAllowed
-        );
-        let epic = Target {
-            kind: Kind::Epic,
-            label: "SHOP-40",
-            ..fresh
-        };
-        assert_eq!(
-            refusal(judge(epic, &dev, 1, None, &Chooser::User, false, None)).1,
-            "SHOP-40 is an epic: epics have no stage choices"
         );
     }
 

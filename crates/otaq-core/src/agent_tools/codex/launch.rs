@@ -85,14 +85,14 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
     })
 }
 
-/// The first prompt as typed: `$otaq-epic-lead <message>`, or the text.
+/// The first prompt as typed: `$otaq-noyan <message>`, or the text.
 fn prompt_text(codex: &Codex, prompt: &FirstPrompt) -> String {
     prompt.text(codex)
 }
 
 /// Otaq's variables for the role, as every tool gets them: a ticket's agent (and an answer or delivery session)
 /// `OTAQ_TICKET`, `PORT` and PATH; a validator the ticket, PATH and its role, no `PORT`; a Project agent PATH and its
-/// role; an epic lead PATH, its role and the epic.
+/// role.
 fn environment(
     request: &LaunchRequest,
     path: String,
@@ -122,17 +122,6 @@ fn environment(
                 naming::ROLE_PROJECT_AGENT.to_owned(),
             ),
         ],
-        LaunchRole::EpicLead => {
-            let epic = request
-                .epic
-                .as_ref()
-                .ok_or_else(|| LaunchError("an epic lead needs its epic".to_owned()))?;
-            vec![
-                ("PATH".to_owned(), path),
-                (naming::role_env_var(), naming::ROLE_EPIC_LEAD.to_owned()),
-                (naming::epic_env_var(), epic.to_string()),
-            ]
-        }
     })
 }
 
@@ -275,7 +264,6 @@ mod tests {
             cwd: "/wt/shop-web/SHOP-18".into(),
             project: "SHOP".into(),
             ticket: Some("SHOP-18".parse().unwrap()),
-            epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
@@ -420,7 +408,7 @@ mod tests {
         );
     }
 
-    /// Each role gets Otaq's variables as on every tool; the epic lead's first message follows its skill.
+    /// Each role gets Otaq's variables as on every tool; the Project agent's first message follows its skill.
     #[test]
     fn the_environment_of_each_role() {
         let path = path_value();
@@ -451,31 +439,15 @@ mod tests {
             ]
         );
 
-        let mut lead = project.clone();
-        lead.role = LaunchRole::EpicLead;
-        lead.epic = Some("SHOP-30".parse().unwrap());
-        lead.first_prompt = Some(FirstPrompt::Skill {
-            name: "epic-lead".into(),
+        let mut first = project.clone();
+        first.first_prompt = Some(FirstPrompt::Skill {
+            name: "noyan".into(),
             message: Some("  Start with the cart  ".into()),
         });
-        let plan = codex().launch(&lead).unwrap();
+        let plan = codex().launch(&first).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("${}-epic-lead Start with the cart", naming::COMMAND_NAME)
-        );
-        assert_eq!(
-            plan.env,
-            [
-                ("PATH".to_owned(), path.clone()),
-                (naming::role_env_var(), naming::ROLE_EPIC_LEAD.to_owned()),
-                (naming::epic_env_var(), "SHOP-30".to_owned()),
-            ]
-        );
-
-        lead.epic = None;
-        assert!(
-            codex().launch(&lead).is_err(),
-            "an epic lead needs its epic"
+            &format!("${}-noyan Start with the cart", naming::COMMAND_NAME)
         );
         let mut no_ticket = request(LaunchRole::TicketAgent);
         no_ticket.ticket = None;

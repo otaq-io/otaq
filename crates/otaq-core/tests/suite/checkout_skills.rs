@@ -1,5 +1,5 @@
 //! Skills in the checkout (T-0408; AGM-07; d0108, d0098's copy and marker, an exception to d0023): while a Project
-//! agent or an epic lead runs in the project's own folder, its agent's skills are copied there as `otaq-<name>` with
+//! agent runs in the project's own folder, its agent's skills are copied there as `otaq-<name>` with
 //! Otaq's marker and a `.gitignore` holding `*`, and removed when it ends (unless another running one holds the same
 //! copy); copies a crash left are removed at service start; `git status` stays clean throughout and nothing else in
 //! the repository changes. Every repository is a temporary one, `claude` is `sh` printing its arguments, and the
@@ -11,8 +11,6 @@ use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::{ClaudeLaunch, find_plugin_dir};
-use otaq_core::board::tickets::NewTicketInput;
-use otaq_core::domain::{Actor, Kind};
 use otaq_core::git::testing::git;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -32,7 +30,7 @@ fn plugin(root: &Path) -> PathBuf {
     let skills = find_plugin_dir(Path::new("/nonexistent"))
         .unwrap()
         .join("skills");
-    for name in ["noyan", "flow", "epic-lead"] {
+    for name in ["noyan", "flow"] {
         let to = plugin.join("skills").join(name);
         std::fs::create_dir_all(&to).unwrap();
         std::fs::copy(skills.join(name).join("SKILL.md"), to.join("SKILL.md")).unwrap();
@@ -153,43 +151,6 @@ async fn a_project_agents_skills_stay_while_it_runs() {
     // Resume writes it again.
     w.project_agents.resume(&second.id).await.unwrap();
     until_copies(&repo, &["otaq-flow", "otaq-noyan"]).await;
-    assert!(clean(&repo));
-    w.stop().await;
-}
-
-/// An epic lead in the checkout: `otaq-epic-lead` is copied before it starts and goes when it ends.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_leads_skills_come_and_go() {
-    let dir = TempDir::new().unwrap();
-    let w = TestService::start_with(launch(dir.path())).await;
-    let project = w.add_project("shop-web").await;
-    let repo = PathBuf::from(&project.repo_path);
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &Actor::User("me".into()),
-        )
-        .await
-        .unwrap();
-    let lead = w
-        .project_agents
-        .leads()
-        .open(&epic.key.to_string())
-        .await
-        .unwrap();
-    let session = lead.agent.session.as_ref().unwrap().id.clone();
-    let out = w.wait_for_output(&session, "CLAUDE").await;
-    assert!(out.contains("/otaq-epic-lead"), "{out}");
-    assert!(out.contains("CLAUDE otaq-epic-lead ."), "{out}");
-    assert!(clean(&repo));
-    w.project_agents.close(&lead.agent.id, true).await.unwrap();
-    until_copies(&repo, &[]).await;
     assert!(clean(&repo));
     w.stop().await;
 }

@@ -51,7 +51,7 @@ stored_enum! {
         Agent = "agent",
         /// A finished ticket resumed to answer another agent's question (M10).
         Answer = "answer",
-        /// The short-lived session that opens an epic's PR (M10).
+        /// The Delivery's own session when its agent isn't the ticket's (M10, d0108).
         Delivery = "delivery",
         /// A ticket's Shell tab (M9).
         Shell = "shell",
@@ -101,7 +101,7 @@ pub const END_STOPPED_BY_RESTART: &str = "stopped by restart";
 /// started (its row unlocks) and its conversation isn't kept for Resume.
 pub const END_MODEL_REFUSED: &str = "model refused";
 /// An agent session the user's **Pause** ended (PAU-02, d0112): recovery takes its ticket through a restart's path
-/// with the cause "paused" ([`crate::recovery::REASON_PAUSED`]); a Project agent or an epic lead becomes Paused.
+/// with the cause "paused" ([`crate::recovery::REASON_PAUSED`]); a Project agent becomes Paused.
 pub const END_PAUSED: &str = "paused";
 
 /// A terminal's size in character cells.
@@ -388,11 +388,10 @@ pub async fn moved_on(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Start {
     /// Otaq on its own: the scheduler, a check after a stage, an answer session (d0030), a conflict's `restack`
-    /// (d0064), a lead's start or wake (d0083), a lifted hold (d0086), a drag's start. Refused while its project is
+    /// (d0064), a lifted hold (d0086), a drag's start. Refused while its project is
     /// paused ([`Sessions::spawn`]); its caller keeps the start for Resume instead.
     Auto,
-    /// The user's click on this one agent (answering it, its Resume, a Project agent's first message, a lead's Open or
-    /// Resume), or the user's own terminal: it starts whether or not the project is paused, and the pause stays.
+    /// The user's click on this one agent (answering it, its Resume, a Project agent's first message), or the user's own terminal: it starts whether or not the project is paused, and the pause stays.
     User,
 }
 
@@ -507,8 +506,6 @@ pub struct ProjectAgentRoot {
     pub project: String,
     /// The Project agent's id.
     pub agent: String,
-    /// An epic lead's epic (its id and key, d0083), once [`Sessions::set_epic_lead`] said so.
-    pub epic: Option<(String, TicketKey)>,
 }
 
 /// A piece of output and where it sits in the session's whole output.
@@ -591,8 +588,6 @@ struct Live {
     ticket_id: Option<String>,
     /// The Project agent the session runs for (d0068), once [`Sessions::set_project_agent`] said so.
     project_agent: Mutex<Option<String>>,
-    /// The epic it leads (id and key), once [`Sessions::set_epic_lead`] said so (d0083).
-    lead_epic: Mutex<Option<(String, TicketKey)>>,
     /// The skill copies in its folder when it started (`otaq-address-review`…), once
     /// [`Sessions::set_started_skills`] said so (d0118): its tool read those, and only those, at its start.
     started_skills: Mutex<Vec<String>>,
@@ -864,7 +859,6 @@ impl Sessions {
             info: Mutex::new(info.clone()),
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
             project_agent: Mutex::new(None),
-            lead_epic: Mutex::new(None),
             started_skills: Mutex::new(Vec::new()),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
@@ -1194,19 +1188,6 @@ impl Sessions {
         Ok(())
     }
 
-    /// Records that the Project agent session `id` leads the epic `epic_id` (`key`): from then on its processes are
-    /// that epic lead's callers (d0083). In memory only: the lead's row keeps the epic.
-    pub fn set_epic_lead(
-        &self,
-        id: &str,
-        epic_id: &str,
-        key: &TicketKey,
-    ) -> Result<(), SessionError> {
-        *self.live(id)?.lead_epic.lock().expect("session lead epic") =
-            Some((epic_id.to_owned(), key.clone()));
-        Ok(())
-    }
-
     /// Records the skill copies (`otaq-work-ticket`, `otaq-address-review`…) written into the session's folder right
     /// before it started (d0118). In memory only: a restart relaunches the session, which copies them again.
     pub fn set_started_skills(&self, id: &str, copies: Vec<String>) -> Result<(), SessionError> {
@@ -1442,13 +1423,12 @@ impl Sessions {
             #[sqlx(flatten)]
             session: SessionRow,
             number: Option<i64>,
-            child_number: Option<i64>,
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
                     s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
                     s.fallback_from, s.fallback_reason,
-                    t.number, t.child_number
+                    t.number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
         )
@@ -1457,13 +1437,9 @@ impl Sessions {
         .await
         .map_err(|e| SessionError::Store(e.into()))?
         .ok_or_else(|| SessionError::NotFound(id.to_owned()))?;
-        let ticket = row.number.and_then(|n| {
-            crate::board::tickets::key_from_parts(
-                &row.session.project_key,
-                n,
-                row.child_number.unwrap_or(0),
-            )
-        });
+        let ticket = row
+            .number
+            .and_then(|n| crate::board::tickets::key_from_parts(&row.session.project_key, n));
         row.session
             .into_info(ticket)
             .ok_or_else(|| SessionError::NotFound(id.to_owned()))
@@ -1657,7 +1633,6 @@ impl Live {
                 .lock()
                 .expect("session project agent")
                 .clone()?,
-            epic: self.lead_epic.lock().expect("session lead epic").clone(),
         })
     }
 

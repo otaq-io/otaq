@@ -1,4 +1,4 @@
-# Refused: Review has the id `_review-epic`: ids starting with _ are Otaq's own, so leave the id out or pick another
+# Refused: Review has the id `_review`: ids starting with _ are Otaq's own, so leave the id out or pick another
 flow:
   - id: dev
     name: Dev
@@ -14,7 +14,7 @@ flow:
     agents: [Validator]
     skill: validate
     rounds: 3
-  - id: _review-epic
+  - id: _review
     name: Review
     kind: check
     by: you

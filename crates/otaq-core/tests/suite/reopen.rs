@@ -13,8 +13,8 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::conflicts::ConflictReason;
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::board::tickets::Ticket;
+use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
@@ -202,52 +202,6 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Agent) {
         w.sessions.stop(&s.id).await.unwrap();
     }
-    w.stop().await;
-}
-
-#[tokio::test]
-async fn merged_tickets_are_locked_and_a_reopened_child_returns_its_epic_to_backlog() {
-    let w = TestService::start().await;
-    w.add_project("shop-web").await;
-    let merged = w.create("SHOP", "Merged").await;
-    w.force_status(&merged, Status::Merged).await;
-    let err = w.board.reopen("SHOP-1", &me()).await.unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "Merged tickets are locked. Create a new ticket."
-    );
-
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let child = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Page".into(),
-                epic: Some(epic.key.to_string()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    w.force_status(&child, Status::ClosedNotMerged).await;
-    w.force_status(&epic, Status::WaitingForYou).await;
-    w.board.reopen(&child.key.to_string(), &me()).await.unwrap();
-    assert_eq!(w.status(&child.key.to_string()).await, Status::Backlog);
-    assert_eq!(w.status(&epic.key.to_string()).await, Status::Backlog);
     w.stop().await;
 }
 

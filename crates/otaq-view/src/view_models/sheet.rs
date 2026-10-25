@@ -16,9 +16,8 @@ use std::collections::HashMap;
 
 use otaq_core::board::files::{FilesChanges, FilesFrom};
 use otaq_core::board::order::sort_column;
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status, StatusSet, TicketKey};
-use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -29,7 +28,6 @@ use crate::view_models::card::tokens_label;
 use crate::view_models::flow_columns::Columns;
 use crate::view_models::menu::MenuItem;
 use crate::view_models::priority;
-use crate::view_models::session_tab::Dot;
 use crate::view_models::stage_choices;
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools;
@@ -138,25 +136,14 @@ pub enum Content {
     Tickets,
 }
 
-/// The sheet's tabs for `ticket`, in order: Overview · Session · Files · Activity; an epic shows Overview · Tickets ·
-/// Lead · Files (its branch with its children's tags, FTB-06) · Activity (SHT-07).
-pub fn tabs(ticket: &Ticket) -> Vec<SheetTab> {
-    if ticket.is_epic() {
-        vec![
-            SheetTab::Overview,
-            SheetTab::Tickets,
-            SheetTab::Lead,
-            SheetTab::Files,
-            SheetTab::Activity,
-        ]
-    } else {
-        vec![
-            SheetTab::Overview,
-            SheetTab::Session,
-            SheetTab::Files,
-            SheetTab::Activity,
-        ]
-    }
+/// The sheet's tabs for `ticket`, in order: Overview · Session · Files · Activity.
+pub fn tabs(_ticket: &Ticket) -> Vec<SheetTab> {
+    vec![
+        SheetTab::Overview,
+        SheetTab::Session,
+        SheetTab::Files,
+        SheetTab::Activity,
+    ]
 }
 
 /// The shown tab whose key is `n`.
@@ -174,17 +161,6 @@ pub fn opens_on(ticket: &Ticket) -> SheetTab {
     }
 }
 
-/// The Lead tab's dot: violet while the lead runs (the page draws a live lead's dot in its own colour), turquoise
-/// while it asks you, none once it ended.
-pub fn lead_dot(status: Option<&LeadStatus>) -> Option<Dot> {
-    let status = status.filter(|s| super::lead_tab::is_live(s))?;
-    Some(if *status == LeadStatus::AsksYou {
-        Dot::Waiting
-    } else {
-        Dot::Running
-    })
-}
-
 /// One crumb of the breadcrumb: the project, the epic (opens it), the key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetCrumb")]
@@ -196,35 +172,20 @@ pub struct Crumb {
     pub key: bool,
 }
 
-/// "40.2" for an epic child (its epic is the crumb before it), an epic's External ID ("PAY-123"); other keys whole.
-fn short_key(ticket: &Ticket) -> String {
-    match &ticket.external_id {
-        Some(external) if ticket.is_epic() && !external.is_empty() => external.clone(),
-        _ => super::epic_sheet::short_key(ticket),
-    }
-}
-
-/// `shop-web / SHOP-22`, `shop-web / Wishlist / 40.2`, an epic's `shop-web / PAY-123` (SHT-01, SHT-07). At full page
-/// the project's crumb is the page's "← Board".
-pub fn breadcrumb(ticket: &Ticket, project: &str, epic_title: Option<&str>) -> Vec<Crumb> {
-    let epic = ticket.epic.as_ref().map(|epic| Crumb {
-        text: epic_title.map_or_else(|| epic.to_string(), str::to_owned),
-        opens: Some(epic.to_string()),
-        key: epic_title.is_none(),
-    });
-    [Crumb {
-        text: project.to_owned(),
-        opens: None,
-        key: false,
-    }]
-    .into_iter()
-    .chain(epic)
-    .chain([Crumb {
-        text: short_key(ticket),
-        opens: None,
-        key: true,
-    }])
-    .collect()
+/// `shop-web / SHOP-22` (SHT-01). At full page the project's crumb is the page's "← Board".
+pub fn breadcrumb(ticket: &Ticket, project: &str) -> Vec<Crumb> {
+    vec![
+        Crumb {
+            text: project.to_owned(),
+            opens: None,
+            key: false,
+        },
+        Crumb {
+            text: ticket.key.to_string(),
+            opens: None,
+            key: true,
+        },
+    ]
 }
 
 /// What a click on a detail does.
@@ -284,10 +245,7 @@ pub struct DetailFacts<'a> {
     /// The ticket's agents (`ticket.agents`); `None` when they couldn't be read.
     pub agents: Option<&'a TicketAgents>,
     pub tools: &'a Tools,
-    /// The epic of a child, by title.
-    pub epic_title: Option<&'a str>,
-    /// An epic's lead and its project's tickets (its children): Lead, Model and Tickets (SHT-07).
-    pub lead: Option<&'a Lead>,
+    /// The project's tickets.
     pub tickets: &'a [Ticket],
     pub now: i64,
 }
@@ -446,75 +404,13 @@ fn working(f: &DetailFacts) -> Option<Detail> {
     })
 }
 
-/// The note after an epic's branch: its children merge into it (`s25-11`).
-pub const EPIC_BRANCH: &str = "the epic\u{2019}s branch";
-
-/// Branch: "otaq/SHOP-22 from main", "otaq/PAY-123/40.2 from the epic’s branch"; an epic's own is "the epic’s branch",
-/// shared by its children.
+/// Branch: "otaq/SHOP-22 from main".
 fn branch(ticket: &Ticket) -> Detail {
-    if ticket.is_epic() {
-        let name = ticket
-            .work
-            .as_ref()
-            .and_then(|w| w.branch.clone())
-            .unwrap_or_else(|| otaq_core::naming::branch(&ticket.key.to_string()));
-        return Detail {
-            mono: true,
-            note: Some(EPIC_BRANCH.to_owned()),
-            ..Detail::new("Branch", name)
-        };
-    }
     Detail {
         mono: true,
-        note: Some(match &ticket.base {
-            Base::Branch(b) => format!("from {b}"),
-            Base::Epic(_) => "from the epic\u{2019}s branch".to_owned(),
-        }),
+        note: Some(format!("from {}", ticket.base.branch())),
         ..Detail::new("Branch", branch_name(ticket).unwrap_or_default())
     }
-}
-
-/// An epic's Lead and Model (SHT-07): its lead's name and the tool and model it runs on; before it has one, the lead
-/// agent its flow names.
-fn lead_details(f: &DetailFacts) -> (Detail, Detail) {
-    let (mut who, model) = match f.lead {
-        Some(lead) => {
-            let agent = &lead.agent;
-            (
-                Detail {
-                    avatar: f.tools.avatar(agent.tool, agent.model.as_deref()),
-                    ..Detail::new("Lead", lead.name.clone())
-                },
-                Detail::new("Model", model_text(agent.tool, agent.model.as_deref())),
-            )
-        }
-        None => match f.agents.and_then(|a| a.lead.as_ref()) {
-            Some(agent) => {
-                let on = agent.model.on(f.tools.default_model.as_ref());
-                (
-                    Detail {
-                        avatar: on
-                            .as_ref()
-                            .and_then(|m| f.tools.avatar(m.tool, m.model.as_deref())),
-                        ..Detail::new(
-                            "Lead",
-                            otaq_core::project_agents::lead::lead_name(&f.ticket.title),
-                        )
-                    },
-                    Detail::new(
-                        "Model",
-                        on.map_or_else(
-                            || DASH.to_owned(),
-                            |m| model_text(m.tool, m.model.as_deref()),
-                        ),
-                    ),
-                )
-            }
-            None => (Detail::new("Lead", DASH), Detail::new("Model", DASH)),
-        },
-    };
-    who.label = "Lead";
-    (who, model)
 }
 
 /// The External ID detail's words (Q416).
@@ -541,8 +437,7 @@ fn external_id(ticket: &Ticket) -> Option<Detail> {
 }
 
 /// The details line (SHT-01): Assignee, Model (not once it is Done), Working (while it works or waits for you),
-/// Priority, Branch, an epic child's Epic and the External ID when set; an epic's (SHT-07) Lead, Model, Tickets "5 · 1
-/// merged · 1 working", Priority, its branch and its External ID.
+/// Priority, Branch and the External ID when set.
 pub fn details(f: &DetailFacts) -> Vec<Detail> {
     let ticket = f.ticket;
     let priority = Detail {
@@ -551,17 +446,6 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         }),
         ..Detail::new("Priority", priority::view(ticket.priority).short)
     };
-    if ticket.is_epic() {
-        let (lead, model) = lead_details(f);
-        let tickets = Detail::new(
-            "Tickets",
-            super::epic_sheet::tickets_detail(ticket, f.tickets),
-        );
-        return [lead, model, tickets, priority, branch(ticket)]
-            .into_iter()
-            .chain(external_id(ticket))
-            .collect();
-    }
     // A finished ticket has no one on it: no Assignee (nor its Model), not the last agent that ran (#36).
     let (who, model) = if ticket.place == Place::Done {
         (None, None)
@@ -569,32 +453,21 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         let (who, model) = assignee(f);
         (Some(who), Some(model))
     };
-    let epic = ticket.epic.as_ref().map(|epic| Detail {
-        change: Some(DetailChange::Open {
-            key: epic.to_string(),
-        }),
-        ..Detail::new(
-            "Epic",
-            f.epic_title.map_or_else(|| epic.to_string(), str::to_owned),
-        )
-    });
     who.into_iter()
         .chain(model)
         .chain(working(f))
         .chain([priority, branch(ticket)])
-        .chain(epic)
         .chain(external_id(ticket))
         .collect()
 }
 
 /// The Files tab's count (SHT-02, Q421): how many files the ticket changed against its base, as All changes counts
-/// them (an epic's own, not its running children's); `None` when there are none or it never started ("Files").
+/// them; `None` when there are none or it never started ("Files").
 pub fn files_count(changes: &FilesChanges) -> Option<u32> {
     if changes.source.from == FilesFrom::Base {
         return None;
     }
-    let own = changes.files.iter().filter(|e| e.child.is_none()).count();
-    u32::try_from(own).ok().filter(|n| *n > 0)
+    u32::try_from(changes.files.len()).ok().filter(|n| *n > 0)
 }
 
 /// Whether there is anything to count: a ticket that never started has no branch of its own ("Files", no git call).
@@ -663,9 +536,9 @@ pub struct Step {
 }
 
 /// The flow path as steps: the stages before the one it is in done, that one current, the rest to come; from
-/// Backlog every stage is to come, in Done every one is done. None for an epic or an unread flow.
+/// Backlog every stage is to come, in Done every one is done. None for an unread flow.
 pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
-    let Some(agents) = agents.filter(|_| !ticket.is_epic()) else {
+    let Some(agents) = agents else {
         return Vec::new();
     };
     let index = |id: &str| agents.path.iter().position(|s| s.stage_id == id);
@@ -813,10 +686,7 @@ pub fn branch_name(ticket: &Ticket) -> Option<String> {
         .work
         .as_ref()
         .and_then(|w| w.branch.clone())
-        .or_else(|| {
-            (!ticket.is_epic() && started)
-                .then(|| otaq_core::naming::branch(&ticket.key.to_string()))
-        })
+        .or_else(|| started.then(|| otaq_core::naming::branch(&ticket.key.to_string())))
 }
 
 #[cfg(test)]
@@ -889,8 +759,6 @@ mod tests {
             ticket: &t,
             agents: Some(&agents),
             tools: &several,
-            epic_title: None,
-            lead: None,
             tickets: &[],
             now: 103 * MIN + 20_000,
         });
@@ -919,7 +787,7 @@ mod tests {
             Some(DetailChange::Priority { .. })
         ));
         assert_eq!(details[0].change, None, "Dev has started");
-        let crumbs = breadcrumb(&t, "shop-web", None);
+        let crumbs = breadcrumb(&t, "shop-web");
         let texts: Vec<_> = crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(texts, ["shop-web", "SHOP-22"]);
         assert!(crumbs[1].key && !crumbs[0].key);
@@ -929,8 +797,6 @@ mod tests {
             ticket: &t,
             agents: Some(&agents),
             tools: &one,
-            epic_title: None,
-            lead: None,
             tickets: &[],
             now: 103 * MIN,
         });
@@ -959,51 +825,11 @@ mod tests {
             ticket: &t,
             agents: Some(&agents),
             tools: &tools,
-            epic_title: None,
-            lead: None,
             tickets: &[],
             now: 0,
         });
         let labels: Vec<&str> = details.iter().map(|d| d.label).collect();
         assert_eq!(labels, ["Priority", "Branch"]);
-    }
-
-    /// A child of the Wishlist epic: the epic in the breadcrumb (key shortened) and its Epic detail linking back,
-    /// the branch from the epic's.
-    #[test]
-    fn a_child_of_an_epic() {
-        let mut t = ticket("SHOP-40.2", "Wishlist button", Status::Working);
-        t.epic = Some("SHOP-40".parse().unwrap());
-        t.base = Base::Epic("SHOP-40".parse().unwrap());
-        t.place = Place::InStage("dev".into());
-        let crumbs = breadcrumb(&t, "shop-web", Some("Wishlist"));
-        let texts: Vec<_> = crumbs.iter().map(|c| c.text.as_str()).collect();
-        assert_eq!(texts, ["shop-web", "Wishlist", "40.2"]);
-        assert_eq!(crumbs[1].opens.as_deref(), Some("SHOP-40"));
-        let tools = tools();
-        let details = details(&DetailFacts {
-            ticket: &t,
-            agents: None,
-            tools: &tools,
-            epic_title: Some("Wishlist"),
-            lead: None,
-            tickets: &[],
-            now: 0,
-        });
-        let epic = details.last().unwrap();
-        assert_eq!((epic.label, epic.value.as_str()), ("Epic", "Wishlist"));
-        assert_eq!(
-            epic.change,
-            Some(DetailChange::Open {
-                key: "SHOP-40".into()
-            })
-        );
-        let branch = details.iter().find(|d| d.label == "Branch").unwrap();
-        assert_eq!(
-            branch.note.as_deref(),
-            Some("from the epic\u{2019}s branch")
-        );
-        assert_eq!(details[0].value, DASH, "agents unread");
     }
 
     /// While a hand-off waits for the agent (d0118) the Working detail says so, without the working dot.
@@ -1016,8 +842,6 @@ mod tests {
             ticket: &t,
             agents: None,
             tools: &tools,
-            epic_title: None,
-            lead: None,
             tickets: &[],
             now: 0,
         });
@@ -1027,66 +851,6 @@ mod tests {
             "Sent back \u{b7} waiting for the agent to pick it up"
         );
         assert!(!working.working);
-    }
-
-    /// The Wishlist epic (`s25-11`): `shop-web / PAY-123`; Lead "Wishlist lead" on Claude Code · opus, Tickets "5 · 1
-    /// merged · 1 working", Priority, the epic's branch and its External ID (Q416).
-    #[test]
-    fn the_wishlist_epics_header_and_details() {
-        let mut tickets = crate::view_models::epic_sheet::samples::wishlist();
-        tickets[0].priority = Priority::Urgent;
-        tickets[0].work = Some(otaq_core::board::tickets::Work {
-            branch: Some(otaq_core::naming::branch("PAY-123")),
-            ..Default::default()
-        });
-        let epic = &tickets[0];
-        let crumbs = breadcrumb(epic, "shop-web", None);
-        let texts: Vec<_> = crumbs.iter().map(|c| c.text.as_str()).collect();
-        assert_eq!(texts, ["shop-web", "PAY-123"]);
-        let mut lead = crate::view_models::lead_status::sample(epic, LeadStatus::AsksYou, 0);
-        lead.agent.model = Some("opus".into());
-        let several = several_tools();
-        let details = details(&DetailFacts {
-            ticket: epic,
-            agents: None,
-            tools: &several,
-            epic_title: None,
-            lead: Some(&lead),
-            tickets: &tickets,
-            now: 0,
-        });
-        assert_eq!(
-            shown(&details),
-            [
-                ("Lead", "Wishlist lead".into(), None),
-                ("Model", "Claude Code \u{b7} opus".into(), None),
-                ("Tickets", "5 \u{b7} 1 merged \u{b7} 1 working".into(), None),
-                ("Priority", "P1".into(), None),
-                (
-                    "Branch",
-                    otaq_core::naming::branch("PAY-123"),
-                    Some(EPIC_BRANCH)
-                ),
-                ("External ID", "PAY-123".into(), None),
-            ]
-        );
-        assert_eq!(
-            details[0].avatar.as_ref().map(|a| a.letters.as_str()),
-            Some("CC")
-        );
-        // No lead yet: dashes until it starts.
-        let tools = tools();
-        let none = super::details(&DetailFacts {
-            ticket: epic,
-            agents: None,
-            tools: &tools,
-            epic_title: None,
-            lead: None,
-            tickets: &tickets,
-            now: 0,
-        });
-        assert_eq!((none[0].label, none[0].value.as_str()), ("Lead", DASH));
-        assert!(steps(epic, None).is_empty());
     }
 
     /// A ticket in Backlog: its first stage's agent, changeable before it starts; no working time, no branch yet.
@@ -1099,8 +863,6 @@ mod tests {
             ticket: &t,
             agents: Some(&agents),
             tools: &tools,
-            epic_title: None,
-            lead: None,
             tickets: &[],
             now: 0,
         });
@@ -1130,8 +892,6 @@ mod tests {
             ticket: &t,
             agents: None,
             tools: &tools,
-            epic_title: None,
-            lead: None,
             tickets: &[],
             now: 22 * MIN,
         });
@@ -1217,33 +977,6 @@ mod tests {
         );
         assert_eq!(SheetTab::Files.contents(), [Content::Files]);
         assert_eq!(SheetTab::Activity.contents(), [Content::Activity]);
-
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = otaq_core::domain::Kind::Epic;
-        let epic_tabs = tabs(&epic);
-        assert_eq!(
-            epic_tabs,
-            [
-                SheetTab::Overview,
-                SheetTab::Tickets,
-                SheetTab::Lead,
-                SheetTab::Files,
-                SheetTab::Activity
-            ]
-        );
-        let numbers: Vec<Option<u8>> = epic_tabs.iter().map(|t| t.number()).collect();
-        assert_eq!(numbers, [Some(1), None, Some(2), Some(3), Some(4)]);
-        assert_eq!(numbered(&epic_tabs, 2), Some(SheetTab::Lead));
-        assert_eq!(SheetTab::Tickets.contents(), [Content::Tickets]);
-        assert_eq!(opens_on(&epic), SheetTab::Overview);
-    }
-
-    #[test]
-    fn the_lead_tab_has_its_dot() {
-        assert_eq!(lead_dot(Some(&LeadStatus::Replanning)), Some(Dot::Running));
-        assert_eq!(lead_dot(Some(&LeadStatus::AsksYou)), Some(Dot::Waiting));
-        assert_eq!(lead_dot(Some(&LeadStatus::EndedByRestart)), None);
-        assert_eq!(lead_dot(None), None);
     }
 
     /// j / k follow the column's order (pinned first), as the panel's did (`neighbour`).
@@ -1261,7 +994,7 @@ mod tests {
     }
 
     /// Q416: "External ID  PAY-123" at the end of the details line when set, a click copying it; not shown when
-    /// empty. Epics too.
+    /// empty.
     #[test]
     fn the_external_id_shows_when_set_and_a_click_copies_it() {
         let tools = tools();
@@ -1270,8 +1003,6 @@ mod tests {
                 ticket: t,
                 agents: None,
                 tools: &tools,
-                epic_title: None,
-                lead: None,
                 tickets: &[],
                 now: 0,
             })
@@ -1298,26 +1029,9 @@ mod tests {
                 t.external_id
             );
         }
-        let mut epic = crate::view_models::epic_sheet::samples::wishlist().remove(0);
-        epic.external_id = Some("PAY-123".into());
-        let shown = line(&epic);
-        let labels: Vec<&str> = shown.iter().map(|d| d.label).collect();
-        assert_eq!(
-            labels,
-            [
-                "Lead",
-                "Model",
-                "Tickets",
-                "Priority",
-                "Branch",
-                "External ID"
-            ]
-        );
-        epic.external_id = None;
-        assert!(line(&epic).iter().all(|d| d.label != EXTERNAL_ID));
     }
 
-    fn changed(path: &str, child: Option<&str>) -> otaq_core::board::files::ChangedEntry {
+    fn changed(path: &str) -> otaq_core::board::files::ChangedEntry {
         otaq_core::board::files::ChangedEntry {
             file: otaq_core::git::diff::ChangedFile {
                 status: otaq_core::git::diff::FileStatus::Modified,
@@ -1332,7 +1046,6 @@ mod tests {
             },
             uncommitted: false,
             tags: Vec::new(),
-            child: child.map(|c| c.parse().unwrap()),
         }
     }
 
@@ -1358,9 +1071,9 @@ mod tests {
         let three = changes(
             FilesFrom::Worktree,
             vec![
-                changed("e2e/login.spec.ts", None),
-                changed("src/app/login/page.tsx", None),
-                changed("src/middleware.ts", None),
+                changed("e2e/login.spec.ts"),
+                changed("src/app/login/page.tsx"),
+                changed("src/middleware.ts"),
             ],
         );
         assert_eq!(files_count(&three), Some(3));
@@ -1368,12 +1081,6 @@ mod tests {
         assert_eq!(files_count(&changes(FilesFrom::Branch, Vec::new())), None);
         assert_eq!(files_count_label(None), None);
         assert_eq!(files_count(&changes(FilesFrom::Base, Vec::new())), None);
-        // An epic counts its branch's own files, not a running child's on top.
-        let epic = changes(
-            FilesFrom::Branch,
-            vec![changed("a.ts", None), changed("b.ts", Some("SHOP-40.2"))],
-        );
-        assert_eq!(files_count(&epic), Some(1));
         // Never started: nothing to count, so no git call at all.
         let backlog = ticket("SHOP-41", "Fix README typo", Status::Backlog);
         assert!(!counts_files(&backlog));

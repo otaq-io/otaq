@@ -19,9 +19,8 @@ use std::collections::{BTreeMap, HashSet};
 
 use otaq_core::board::files::EntryKind;
 use otaq_core::board::project_files::{
-    EpicSource, FileOwner, LineRange, NoWorktree, OwnerLines, OwnerTicket, ProjectChanges,
-    ProjectCounts, ProjectEntry, ProjectFile, ProjectSearch, ProjectSource, ProjectSources,
-    UserWorktree,
+    FileOwner, LineRange, NoWorktree, OwnerLines, OwnerTicket, ProjectChanges, ProjectCounts,
+    ProjectEntry, ProjectFile, ProjectSearch, ProjectSource, ProjectSources, UserWorktree,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, StatusSet, TicketKey};
@@ -53,7 +52,6 @@ pub const EMPTY_TEXT: &str = "Start one from the board, or ask Noyan.";
 pub const FIND: &str = "Find a ticket or epic";
 pub const BASE_SECTION: &str = "BASE BRANCH";
 pub const THE_DEFAULT: &str = "the default";
-pub const EPICS_SECTION: &str = "EPICS \u{b7} THE EPIC\u{2019}S BRANCH";
 pub const TICKETS_SECTION: &str = "TICKETS \u{b7} THEIR WORKTREE";
 /// Your own git worktrees of the repository (#43), shown read-only.
 pub const YOURS_SECTION: &str = "YOUR WORKTREES";
@@ -176,7 +174,7 @@ pub const TICKET_COLOURS: [&str; 12] = [
 ];
 
 fn colour_index(key: &TicketKey) -> usize {
-    (key.number as usize + 5 * key.child.unwrap_or(0) as usize) % TICKET_COLOURS.len()
+    key.number as usize % TICKET_COLOURS.len()
 }
 
 /// A ticket's own colour, the same wherever it shows.
@@ -579,33 +577,6 @@ pub struct Picker {
     pub no_worktree: Option<String>,
 }
 
-/// "40.1".
-fn short(key: &TicketKey) -> String {
-    match key.child {
-        Some(child) => format!("{}.{child}", key.number),
-        None => key.to_string(),
-    }
-}
-
-fn epic_row(epic: &EpicSource) -> PickerRow {
-    let list = |keys: &[TicketKey]| keys.iter().map(short).collect::<Vec<_>>().join(", ");
-    let detail: Vec<String> = [
-        (!epic.merged.is_empty()).then(|| format!("{} merged", list(&epic.merged))),
-        (!epic.on_top.is_empty()).then(|| format!("{} on top", list(&epic.on_top))),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    PickerRow {
-        pick: Pick::Ticket {
-            key: epic.key.to_string(),
-        },
-        key: None,
-        title: format!("{} \u{b7} {}", epic.title, epic.key),
-        detail: (!detail.is_empty()).then(|| detail.join(" \u{b7} ")),
-    }
-}
-
 /// "Dev · 3 files", "Dev · release/2.3 · 2 files", "PR open · 1 file".
 fn ticket_row(t: &OwnerTicket) -> PickerRow {
     let place = match t.status {
@@ -689,12 +660,6 @@ pub fn picker(sources: &ProjectSources, first_stage: &str) -> Picker {
             detail: Some(THE_DEFAULT.to_owned()),
         }],
     }];
-    if !sources.epics.is_empty() {
-        sections.push(PickerSection {
-            title: EPICS_SECTION,
-            rows: sources.epics.iter().map(epic_row).collect(),
-        });
-    }
     if !sources.tickets.is_empty() {
         sections.push(PickerSection {
             title: TICKETS_SECTION,
@@ -1448,7 +1413,6 @@ pub mod example {
             base_branch: "main".to_owned(),
             other_base: false,
             needs_you: status.is_needs_you_family(),
-            epic: None,
             files: 0,
             added: 0,
             removed: 0,
@@ -1467,7 +1431,6 @@ pub mod example {
                     file,
                     uncommitted: false,
                     tags: Vec::new(),
-                    child: None,
                 })
                 .collect(),
         }
@@ -2080,14 +2043,6 @@ pub fn gallery() -> Gallery {
     let facts = facts();
     let sources = ProjectSources {
         source: source.clone(),
-        epics: vec![EpicSource {
-            key: key("SHOP-40"),
-            title: "Wishlist".to_owned(),
-            status: Status::Working,
-            branch: otaq_core::naming::branch("SHOP-40"),
-            merged: vec![key("SHOP-40.1")],
-            on_top: vec![key("SHOP-40.2")],
-        }],
         tickets: changes.groups.iter().map(|g| g.ticket.clone()).collect(),
         no_worktree: vec![NoWorktree {
             key: key("SHOP-12"),
@@ -2275,7 +2230,6 @@ mod tests {
         assert_eq!(p.source.subtitle, "the base branch \u{b7} 1 ticket, 1 file");
         let sources = ProjectSources {
             source,
-            epics: Vec::new(),
             tickets: Vec::new(),
             no_worktree: Vec::new(),
             yours: Vec::new(),
@@ -2461,14 +2415,6 @@ mod tests {
         };
         let sources = ProjectSources {
             source: base("main"),
-            epics: vec![EpicSource {
-                key: key("SHOP-40"),
-                title: "Wishlist".to_owned(),
-                status: Status::Working,
-                branch: otaq_core::naming::branch("SHOP-40"),
-                merged: vec![key("SHOP-40.1")],
-                on_top: vec![key("SHOP-40.2")],
-            }],
             tickets: vec![
                 with_files(
                     ticket(
@@ -2565,10 +2511,6 @@ mod tests {
                     vec!["main \u{b7} every ticket\u{2019}s changes | the default".to_owned()]
                 ),
                 (
-                    "EPICS \u{b7} THE EPIC\u{2019}S BRANCH",
-                    vec!["Wishlist \u{b7} SHOP-40 | 40.1 merged \u{b7} 40.2 on top".to_owned()]
-                ),
-                (
                     "TICKETS \u{b7} THEIR WORKTREE",
                     vec![
                         "SHOP-22 | Fix flaky login redirect | Dev \u{b7} 3 files".to_owned(),
@@ -2589,7 +2531,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            p.sections[3].rows[0].pick,
+            p.sections[2].rows[0].pick,
             Pick::Worktree {
                 path: "/work/habitat-experiment".to_owned()
             }
@@ -2602,7 +2544,7 @@ mod tests {
             )
         );
         assert_eq!(
-            p.sections[2].rows[1].pick,
+            p.sections[1].rows[1].pick,
             Pick::Ticket {
                 key: "SHOP-29".to_owned()
             }

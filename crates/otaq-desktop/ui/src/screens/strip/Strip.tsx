@@ -1,27 +1,25 @@
 // The Needs you strip (T-0459; NYS-01, NYS-02; d0114; *24 → Row · The two views* `s24-03`, *Row · Needs you: the
 // next project, and every group* `s24-12`): under the board's toolbar in both views, the open project's items as
 // chips in the queue's order and groups, with Next (⌘J) at its end; "Needs you · 0 here" and "Next · billing-api, 1"
-// when this project has none. A chip opens its ticket, its epic's Lead tab or the Project agent panel; a lead's
-// suggestion opens "Wishlist lead suggests" with Not now · Confirm; Resume all asks first. Everything it says is
-// `strip.view`'s. The Board view and the List view each render `<NeedsYouStrip />` once.
-import { Fragment, useCallback, useRef, useState } from "react";
+// when this project has none. A chip opens its ticket or the Project agent panel; Resume all asks first. Everything it
+// says is `strip.view`'s. The Board view and the List view each render `<NeedsYouStrip />` once.
+import { Fragment, useCallback } from "react";
 
 import { shellLayout } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Button, Kbd, Popover, Tooltip } from "../../components";
+import { Kbd, Tooltip } from "../../components";
 import type { StripChip } from "../../generated/StripChip";
 import type { StripGroup } from "../../generated/StripGroup";
 import type { StripParams } from "../../generated/StripParams";
-import type { StripSuggestion } from "../../generated/StripSuggestion";
 import type { StripTarget } from "../../generated/StripTarget";
 import type { StripView } from "../../generated/StripView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { shownAgents } from "../agent_panel/logic";
-import { dismissSuggestion, lastOpened, next, openOf, openTarget, stripParams } from "./logic";
+import { lastOpened, next, openOf, openTarget, stripParams } from "./logic";
 
 /** The service events that change the strip: its items, the projects' names and order, the user's key for Next. */
 export const STRIP_EVENTS = [
@@ -54,77 +52,6 @@ function Chip({ chip, onOpen }: { chip: StripChip; onOpen: (target: StripTarget)
   );
 }
 
-/** A lead's suggestion: its chip, and "Wishlist lead suggests" with Not now · Confirm under it while open. */
-function SuggestionChip({ suggestion, open = false }: { suggestion: StripSuggestion; open?: boolean }) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [shown, setShown] = useState(open);
-  const close = useCallback(() => {
-    setShown(false);
-  }, []);
-  return (
-    <>
-      <button
-        ref={anchor}
-        type="button"
-        className="strip-chip"
-        data-tone="investigate"
-        data-suggestion
-        aria-expanded={shown}
-        onClick={() => {
-          setShown((s) => !s);
-        }}
-      >
-        <span className="strip-chip-reason">{suggestion.label}</span>
-        <Icon name="chevron-down" size={11} />
-      </button>
-      {shown && (
-        <Popover label={suggestion.heading} anchor={anchor} onClose={close}>
-          <SuggestionCard
-            suggestion={suggestion}
-            onNotNow={() => {
-              close();
-              dismissSuggestion(suggestion.id).catch(ignore);
-            }}
-            onConfirm={() => {
-              close();
-              openOverlay(suggestion.dialog === "close" ? "close_ticket" : "delete_ticket", {
-                ticket: suggestion.ticket,
-                suggestion: { id: suggestion.id, line: suggestion.line },
-              });
-            }}
-          />
-        </Popover>
-      )}
-    </>
-  );
-}
-
-/** "Wishlist lead suggests", the lead's reason, Not now · Confirm (also what the gallery draws in place). */
-export function SuggestionCard({
-  suggestion,
-  onNotNow,
-  onConfirm,
-}: {
-  suggestion: StripSuggestion;
-  onNotNow?: () => void;
-  onConfirm?: () => void;
-}) {
-  return (
-    <div className="strip-suggestion">
-      <div className="strip-suggestion-head">
-        <Icon name="lightbulb" size={14} />
-        <span>{suggestion.heading}</span>
-      </div>
-      <p className="strip-suggestion-text">{suggestion.text}</p>
-      <div className="strip-suggestion-buttons">
-        <Button variant="ghost" label={suggestion.not_now} onClick={onNotNow} />
-        <span className="strip-gap" />
-        <Button label={suggestion.confirm} icon="check" onClick={onConfirm} />
-      </div>
-    </div>
-  );
-}
-
 function Group({
   group,
   project,
@@ -142,9 +69,6 @@ function Group({
       </span>
       {group.chips.map((chip) => (
         <Chip key={`${chip.label} ${chip.reason}`} chip={chip} onOpen={onOpen} />
-      ))}
-      {group.suggestions.map((s) => (
-        <SuggestionChip key={s.id} suggestion={s} />
       ))}
       {group.resume_all !== null && (
         <button

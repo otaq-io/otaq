@@ -1,4 +1,4 @@
-//! The nouns every other module talks about, as plain types with no I/O: ticket keys, kinds, places, statuses
+//! The nouns every other module talks about, as plain types with no I/O: ticket keys, places, statuses
 //! and flags (SDD §6.2, §7.1, §7.2).
 //!
 //! Each enum has one stored string form (`as_str` / `FromStr`), used in the database and on the wire, so a
@@ -14,14 +14,11 @@ pub mod ticket_env;
 pub mod validation;
 
 pub use actor::Actor;
-pub use flags::{
-    AskedLead, ByLead, CheckAgentFlag, CheckRoundFlag, Flag, Flags, LeadNoteSent, MergeCheckState,
-    SameFile, SentBack, StuckStop, UnreadNotes,
-};
+pub use flags::{CheckAgentFlag, CheckRoundFlag, Flag, Flags, MergeCheckState, SentBack};
 pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
-pub use status::{Kind, Place, StartStep, Status, StatusSet};
+pub use status::{Place, StartStep, Status, StatusSet};
 pub use ticket_env::{BuildState, RemoteWarning, ResourceState, SchemaOverlap, WentOn};
 pub use validation::{
     AutoMergeStop, MovedPast, ReviewEntry, ReviewEntryFlag, ValidationAction, ValidationOutcome,

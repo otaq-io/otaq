@@ -1,7 +1,7 @@
 //! `ticket.terminal` (T-0317; SHL-10, CLI-09, CLI-03; d0087, d0031, d0068, d0083, d0045): a ticket's terminal as
 //! the user sees it, read-only. The text comes from the session's kept output replayed through a terminal
 //! emulator; who may read it is judged from where the request comes from (an ordinary `sh` started as an agent,
-//! a validator, a Project agent or an epic lead, running `nc`).
+//! a validator or a Project agent, running `nc`).
 
 use std::path::PathBuf;
 
@@ -17,8 +17,8 @@ use otaq_core::service::testing::{AgentShell, TestService, path_without_build_fo
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use serde_json::{Value, json};
 
-/// The sample board (SHOP, with the epic SHOP-40 Wishlist and its children), a second project `notes-api`, and
-/// `claude` an interactive `sh` in the service's data folder (for Project agents and leads).
+/// The sample board (SHOP), a second project `notes-api`, and
+/// `claude` an interactive `sh` in the service's data folder (for Project agents).
 async fn world() -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let data = home.path().join("h");
@@ -320,7 +320,7 @@ async fn no_session_in_memory_is_a_plain_refusal() {
     w.stop().await;
 }
 
-/// CLI-09: the user always; a Project agent on its project's tickets; an epic lead on its epic's children; ticket
+/// CLI-09: the user always; a Project agent on its project's tickets; ticket
 /// agents and validators never.
 #[tokio::test(flavor = "multi_thread")]
 async fn who_may_read_a_ticket_s_terminal() {
@@ -329,7 +329,7 @@ async fn who_may_read_a_ticket_s_terminal() {
     let other_project = w.add_project("notes-api").await;
     let other = w.create(&other_project.key, "Rate limits").await;
     let other_key = other.key.to_string();
-    for key in ["SHOP-19", "SHOP-40.2"] {
+    for key in ["SHOP-19", "SHOP-42"] {
         printing(
             &w,
             &ticket(&w, key).await,
@@ -342,7 +342,7 @@ async fn who_may_read_a_ticket_s_terminal() {
     printing(&w, &other, SessionKind::Agent, "hello\\r\\n", size).await;
 
     // The user: any ticket of any project.
-    for key in ["SHOP-19", "SHOP-40.2", other_key.as_str()] {
+    for key in ["SHOP-19", "SHOP-42", other_key.as_str()] {
         assert!(as_user(&w, key, None).await.is_ok(), "{key}");
     }
 
@@ -358,23 +358,11 @@ async fn who_may_read_a_ticket_s_terminal() {
         .await
         .unwrap();
     assert!(allowed(&from(&w, &shell, "SHOP-19").await).contains("Allow rm -rf .next?"));
-    assert!(allowed(&from(&w, &shell, "SHOP-40.2").await).contains("Allow rm -rf .next?"));
+    assert!(allowed(&from(&w, &shell, "SHOP-42").await).contains("Allow rm -rf .next?"));
     assert_eq!(
         refused(&from(&w, &shell, &other_key).await),
         "Checkout bug can only read shop-web's tickets"
     );
-
-    // An epic lead: its epic's children, not the epic itself or a ticket outside it.
-    let lead = w.project_agents.leads().open("SHOP-40").await.unwrap();
-    let shell = w.shell_in(&lead.agent.session.as_ref().unwrap().id);
-    assert!(allowed(&from(&w, &shell, "SHOP-40.2").await).contains("Allow rm -rf .next?"));
-    for key in ["SHOP-40", "SHOP-19"] {
-        assert_eq!(
-            refused(&from(&w, &shell, key).await),
-            "Wishlist lead can only read SHOP-40's children's terminals",
-            "{key}"
-        );
-    }
 
     // A ticket's agent and a validator: refused, also for their own ticket.
     let shell = w.agent_shell(&ticket(&w, "SHOP-18").await).await;

@@ -13,7 +13,7 @@ use std::collections::HashSet;
 
 use otaq_core::board::readiness::{ReadyState, WaitingParent, readiness};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Kind, Place, Status, TicketKey};
+use otaq_core::domain::{Place, Status, TicketKey};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -67,17 +67,11 @@ pub fn waiting_for(ticket: &Ticket, all: &[Ticket]) -> Vec<WaitingParent> {
 
 /// Whether the ticket hasn't started yet: it is in Backlog or waits in Ready for Dev (a parked ticket has started).
 fn not_started(ticket: &Ticket) -> bool {
-    ticket.kind == Kind::Ticket
-        && ticket.status != Status::Parked
-        && matches!(ticket.place, Place::Backlog | Place::Waiting(None))
+    ticket.status != Status::Parked && matches!(ticket.place, Place::Backlog | Place::Waiting(None))
 }
 
 fn parent_name(p: &WaitingParent) -> String {
-    if p.kind == Kind::Epic {
-        format!("epic {}", p.key)
-    } else {
-        p.key.to_string()
-    }
+    p.key.to_string()
 }
 
 /// DPV-01's line on a card and a row: "Blocked · waits for SHOP-18 and SHOP-29 to merge", for a ticket that hasn't
@@ -405,11 +399,8 @@ fn starts_when(waiting: usize) -> Option<String> {
     }
 }
 
-/// The section of `ticket` (a ticket, not an epic: the epic sheet has its own, T-0469). `all` are its project's.
+/// The section of `ticket`. `all` are its project's.
 pub fn section(columns: &Columns, ticket: &Ticket, all: &[Ticket], now_ms: i64) -> Option<Section> {
-    if ticket.kind != Kind::Ticket {
-        return None;
-    }
     let row = |t: &Ticket, direction| {
         let (place, dot) = place_line(columns, t, now_ms);
         Row {
@@ -495,7 +486,6 @@ pub fn search(
     };
     all.iter()
         .filter(|t| t.key != ticket.key && !linked(t) && !t.place.is_done())
-        .filter(|t| direction == Direction::BlockedBy || t.kind == Kind::Ticket)
         .filter(|t| {
             q.is_empty()
                 || t.key.to_string().to_lowercase().contains(&q)

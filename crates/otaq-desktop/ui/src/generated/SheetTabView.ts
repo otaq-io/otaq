@@ -11,7 +11,7 @@ import type { SheetTabMark } from "./SheetTabMark";
  */
 export type SheetTabView = { tab: SheetTab, label: string, icon: IconName, 
 /**
- * Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2, its Tickets has none (Q-A).
+ * Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`).
  */
 number: number | null, 
 /**
@@ -19,11 +19,11 @@ number: number | null,
  */
 keys: string | null, 
 /**
- * The live dot (Session: its agents'; Lead: the lead's).
+ * The live dot (Session: its agents').
  */
 mark: SheetTabMark | null, 
 /**
- * The short note after its name: an epic's Tickets "5" (`s25-11`).
+ * The short note after its name: Files "3" (`s25-03`).
  */
 count: string | null, 
 /**

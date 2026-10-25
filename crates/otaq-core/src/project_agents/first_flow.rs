@@ -217,7 +217,7 @@ impl ProjectAgents {
     /// Every flow agent of `project`, newest first, closed ones too.
     async fn flow_agents(&self, project: &Project) -> Result<Vec<ProjectAgent>, BoardError> {
         let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "SELECT id, first_request FROM project_agents WHERE project_id = ? AND epic_id IS NULL
+            "SELECT id, first_request FROM project_agents WHERE project_id = ?
              ORDER BY created_at DESC, id DESC",
         )
         .bind(&project.id)

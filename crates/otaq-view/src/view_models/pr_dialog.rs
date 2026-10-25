@@ -125,7 +125,7 @@ impl PrDialog {
         };
         Self {
             kind,
-            epic: ticket.is_epic(),
+            epic: false,
             key: ticket.key.to_string(),
             ticket_title: ticket.title.clone(),
             skill: skill.to_owned(),
@@ -367,7 +367,7 @@ pub fn success_toast(kind: FlowKind, number: u32) -> String {
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::ticket;
-    use otaq_core::domain::{Kind, Status};
+    use otaq_core::domain::Status;
     use otaq_core::pr::flow::{FlowCommit, PrFlow};
     use otaq_core::pr::provider::Provider;
 
@@ -533,39 +533,6 @@ mod tests {
         );
         d.title.clear();
         assert!(d.can_confirm(), "no title needed for a push");
-    }
-
-    #[test]
-    fn epic_and_not_logged_in() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        let mut d = PrDialog::opening(&epic, "open-pr", Some(&github(true)));
-        d.target = "main".into();
-        assert_eq!(d.heading(), "Open PR for epic SHOP-40 Wishlist");
-        d.commits = vec![CommitField {
-            sha: "a".into(),
-            message: "m".into(),
-        }];
-        assert_eq!(d.commits_label(), "Commit messages (one per merged child)");
-        assert_eq!(
-            d.target_line(),
-            "Into main \u{b7} the epic\u{2019}s base branch"
-        );
-
-        let d = PrDialog::opening(&shop18(), "open-pr", Some(&github(false)));
-        assert_eq!(
-            d.stage,
-            Stage::NotLoggedIn {
-                cli: "gh".into(),
-                login: "gh auth login".into()
-            }
-        );
-        // An imported skill (shown by its name) handles logins itself (REV-11, WSK-08).
-        let mut custom = github(false);
-        custom.open_pr_skill = "my-pr".into();
-        let d = PrDialog::opening(&shop18(), "my-pr", Some(&custom));
-        assert_eq!(d.stage, Stage::Preparing);
-        assert_eq!(success_toast(FlowKind::Open, 481), "PR opened #481");
     }
 }
 

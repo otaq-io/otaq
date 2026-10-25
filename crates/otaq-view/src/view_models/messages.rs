@@ -427,9 +427,9 @@ mod tests {
     fn message(route: Option<Route>) -> Message {
         Message {
             id: "q1".into(),
-            from: Some("SHOP-40.2".parse().unwrap()),
+            from: Some("SHOP-42".parse().unwrap()),
             from_agent: None,
-            to: "SHOP-40.1".parse().unwrap(),
+            to: "SHOP-41".parse().unwrap(),
             question: "Which endpoint returns the wishlist?".into(),
             answer: None,
             route,
@@ -464,20 +464,20 @@ mod tests {
         let t = &threads(&[resumed.clone()], 120_000)[0];
         assert_eq!(
             t.question.status,
-            "Delivered \u{b7} SHOP-40.1 is finished, resumed answer-only"
+            "Delivered \u{b7} SHOP-41 is finished, resumed answer-only"
         );
         assert_eq!(t.question.icon, IconName::MessageCircleReply);
         let answer = t.answer.as_ref().unwrap();
         assert_eq!(answer.icon, IconName::CheckCheck);
         assert_eq!(
             answer.from.as_ref().map(ToString::to_string).as_deref(),
-            Some("SHOP-40.1"),
+            Some("SHOP-41"),
             "the answer goes the other way"
         );
         assert!(
             answer
                 .status
-                .starts_with("Answered by resuming SHOP-40.1\u{2019}s session")
+                .starts_with("Answered by resuming SHOP-41\u{2019}s session")
         );
 
         let needs_you = message(Some(Route::NeedsYou));
@@ -492,7 +492,7 @@ mod tests {
         live.answered_at = Some(2);
         assert_eq!(
             threads(&[live], 0)[0].answer.as_ref().unwrap().status,
-            "Answered \u{b7} waiting to reach SHOP-40.2"
+            "Answered \u{b7} waiting to reach SHOP-42"
         );
         assert_eq!(
             heading(&threads(&[resumed], 0)),
@@ -501,16 +501,18 @@ mod tests {
     }
 
     /// *05 → Messages on the epic (SHOP-40 · Ticket tab)*: answered by the lead, passed on and answered by you, and
-    /// the lead's note after a stop; *Messages on SHOP-40.2*: a passed-on question waiting.
+    /// the lead's note after a stop; *Messages on SHOP-42*: a passed-on question waiting.
     #[test]
     fn the_leads_threads() {
-        let child: TicketKey = "SHOP-40.2".parse().unwrap();
-        let page: TicketKey = "SHOP-40.3".parse().unwrap();
+        let child: TicketKey = "SHOP-42".parse().unwrap();
+        let page: TicketKey = "SHOP-43".parse().unwrap();
         let log = vec![
             LeadEntry::Note {
                 id: "n1".into(),
                 child: page.clone(),
-                text: "The API returns items[] (SHOP-40.1). Fix the test, don\u{2019}t change the API.".into(),
+                text:
+                    "The API returns items[] (SHOP-41). Fix the test, don\u{2019}t change the API."
+                        .into(),
                 at: 300,
                 after: Some("Validation failed 3 times".into()),
                 read: true,
@@ -521,7 +523,8 @@ mod tests {
                 text: "Should the button show a filled heart once the item is saved?".into(),
                 asked_at: 100,
                 outcome: LeadOutcome::Answered {
-                    text: "Yes: filled heart means saved, outline means not saved (plan, step 2).".into(),
+                    text: "Yes: filled heart means saved, outline means not saved (plan, step 2)."
+                        .into(),
                     at: 110,
                     delivered: true,
                 },
@@ -562,7 +565,7 @@ mod tests {
         assert_eq!(answer.to, Some(child.clone()));
         assert_eq!(
             answer.status,
-            "Answered by Wishlist lead \u{b7} typed into SHOP-40.2\u{2019}s session"
+            "Answered by Wishlist lead \u{b7} typed into SHOP-42\u{2019}s session"
         );
 
         let passed = &threads[1];
@@ -580,7 +583,7 @@ mod tests {
         );
         assert_eq!(
             yours.status,
-            "Answered by you \u{b7} typed into SHOP-40.2\u{2019}s session"
+            "Answered by you \u{b7} typed into SHOP-42\u{2019}s session"
         );
 
         let note = &threads[2];
@@ -592,7 +595,7 @@ mod tests {
         );
         assert!(threads.iter().all(|t| !t.answerable));
 
-        // On SHOP-40.2 while the second question waits for you; and before the lead answered.
+        // On SHOP-42 while the second question waits for you; and before the lead answered.
         let waiting = lead_threads(
             &[
                 LeadEntry::Question {

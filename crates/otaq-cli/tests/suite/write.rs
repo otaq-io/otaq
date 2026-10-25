@@ -6,7 +6,7 @@ use std::process::{Command, Output, Stdio};
 
 use otaq_core::board::tickets::NewTicketInput;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Kind};
+use otaq_core::domain::Actor;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use serde_json::Value;
@@ -76,7 +76,7 @@ async fn create_with_every_flag() {
         ],
     );
     let ticket: Value = serde_json::from_str(&ok(&out)).unwrap();
-    assert_eq!(ticket["key"], "SHOP-41");
+    assert_eq!(ticket["key"], "SHOP-44");
     assert_eq!(ticket["place"], "backlog");
     assert_eq!(ticket["body"], "Let buyers add gift wrap.");
     assert!(
@@ -90,11 +90,11 @@ async fn create_with_every_flag() {
 
     assert_eq!(
         ok(&cb(&w, &["-P", "SHOP", "new", "Quiet one", "--silent"])),
-        "SHOP-42\n"
+        "SHOP-45\n"
     );
     assert_eq!(
         ok(&cb(&w, &["-P", "SHOP", "create", "Human one"])),
-        "Created SHOP-43 · Human one\n"
+        "Created SHOP-46 · Human one\n"
     );
 
     // Long text through stdin, quotes and backticks untouched.
@@ -107,34 +107,7 @@ async fn create_with_every_flag() {
     let ticket: Value = serde_json::from_str(&ok(&out)).unwrap();
     assert_eq!(ticket["body"], body.trim_end());
 
-    // --parent makes an epic child; --type epic an epic.
-    let child: Value = serde_json::from_str(&ok(&cb(
-        &w,
-        &[
-            "create",
-            "Wishlist sharing",
-            "--parent",
-            "SHOP-40",
-            "--json",
-        ],
-    )))
-    .unwrap();
-    assert_eq!(child["key"], "SHOP-40.4");
-    let epic: Value = serde_json::from_str(&ok(&cb(
-        &w,
-        &[
-            "-P",
-            "SHOP",
-            "create",
-            "Gift cards",
-            "--type",
-            "epic",
-            "--json",
-        ],
-    )))
-    .unwrap();
-    assert_eq!(epic["kind"], Kind::Epic.as_str());
-    assert_eq!(epic["created_by"], Actor::current_user().to_string());
+    assert_eq!(ticket["created_by"], Actor::current_user().to_string());
     w.stop().await;
 }
 
@@ -158,7 +131,7 @@ async fn dependency_checks_apply_and_nothing_is_left_behind() {
     let e = error(&cb(
         &w,
         &[
-            "-P", "SHOP", "create", "Cross", "--deps", "SHOP-41", "--json",
+            "-P", "SHOP", "create", "Cross", "--deps", "SHOP-44", "--json",
         ],
     ));
     assert_eq!(e["data"]["refusal"], "cross_base", "{e}");
@@ -231,9 +204,9 @@ async fn batch_import_all_or_nothing() {
     );
     assert_eq!(
         created[1]["depends_on"],
-        serde_json::json!(["SHOP-18", "SHOP-41"])
+        serde_json::json!(["SHOP-18", "SHOP-44"])
     );
-    assert_eq!(created[2]["depends_on"], serde_json::json!(["SHOP-42"]));
+    assert_eq!(created[2]["depends_on"], serde_json::json!(["SHOP-45"]));
     assert_eq!(
         created[0]["body"],
         "Store cards with a balance.\n\n## Done when\n\n- cards have a code and a balance"
@@ -270,7 +243,7 @@ async fn batch_import_all_or_nothing() {
     let before = before + 1;
     std::fs::write(
         &plan,
-        PLAN.replace("**Depends on:** P2", "**Depends on:** P2, SHOP-44"),
+        PLAN.replace("**Depends on:** P2", "**Depends on:** P2, SHOP-47"),
     )
     .unwrap();
     let e = error(&cb(

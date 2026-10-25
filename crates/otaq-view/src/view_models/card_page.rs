@@ -1,29 +1,23 @@
 //! A card as the Tauri page draws it (T-0218; Ticket Card v2 since T-0322; the one-line card of BRD-03 since T-0460):
-//! [`CardViewModel`] and [`EpicViewModel`] turned into plain, serialized shapes (`TicketCardView`, `EpicCardView`)
-//! with every text the card shows already worded. A ticket card is its key (with its epic's name when it is a
-//! child), its title, one status line, who and when, a coloured edge when it needs the user, and one action; the
+//! [`CardViewModel`] turned into a plain, serialized shape (`TicketCardView`) with every text the card shows already
+//! worded. A ticket card is its key, its title, one status line, who and when, a coloured edge when it needs the user, and one action; the
 //! pill, the model, the tokens and the answer options are the ticket's sheet's. The page only lays them out.
 
 use otaq_core::board::tickets::Ticket;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::icons::IconName;
 use crate::view_models::card::{
     CardAction, CardExtras, CardViewModel, Signal, StatusHover, StatusLine, Tone,
 };
 use crate::view_models::card_fixtures::{self, Look, NOW};
-use crate::view_models::epic_card::{ChildState, EpicViewModel};
 use crate::view_models::priority::{self, PriorityView};
-use crate::view_models::status::PillView;
 use crate::view_models::tool_avatar::ToolAvatarView;
 
 /// The hover quick actions' tooltips and key (*Interaction states → Hover*: open terminal, open sheet).
 pub const OPEN_SHEET: &str = "Open panel";
 pub const OPEN_SHEET_KEYS: &str = "\u{21b5}";
 pub const OPEN_TERMINAL: &str = "Open terminal";
-/// The epic card's last row.
-pub const ADD_TO_EPIC: &str = "Add ticket to epic";
 
 /// The card's width in the frames (*24 · The two views*: a 7-stage flow at 1440, about 180 px; the narrowest a column
 /// gets, BRD-02) and the width the gallery draws next to it.
@@ -109,93 +103,6 @@ impl TicketCardView {
     }
 }
 
-/// A child row of the Epic Card.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EpicChildRow")]
-pub struct ChildView {
-    pub key: String,
-    pub title: String,
-    pub state: ChildState,
-    /// The state's icon, or the link while it is blocked.
-    pub icon: IconName,
-    /// Its status ("Backlog"), or "Blocked by SHOP-18" while it waits for a parent (DPV-01, Q448).
-    pub status_label: String,
-    /// It waits for a parent: the status is amber, and hovering the row draws its arrows (DPV-02).
-    pub blocked: bool,
-    /// The row can be dragged out to queue only this child (d0080).
-    pub draggable: bool,
-    /// "added by Wishlist lead" (d0083).
-    pub origin: Option<String>,
-}
-
-/// An Epic Card for the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "EpicCardView")]
-pub struct EpicCardView {
-    pub key: String,
-    pub pinned: bool,
-    pub external_id: Option<String>,
-    pub priority: Option<PriorityView>,
-    pub pill: PillView,
-    pub title: String,
-    pub segments: Vec<ChildState>,
-    pub progress: String,
-    pub branch: String,
-    pub children: Vec<ChildView>,
-    /// "Add ticket to epic", when it can still take a child.
-    pub add: Option<String>,
-    pub actions: Vec<CardAction>,
-    pub faded: Option<f32>,
-    /// The Lead row under the branch line, or Open lead (d0083, T-0289).
-    pub lead: Option<crate::view_models::lead_status::LeadStatusView>,
-    /// Its lead asks you: the border is turquoise.
-    pub lead_asks: bool,
-}
-
-impl EpicCardView {
-    pub fn of(epic: &Ticket, tickets: &[Ticket], branch: Option<&str>) -> Self {
-        Self::from_vm(EpicViewModel::from(epic, tickets, branch))
-    }
-
-    pub fn from_vm(vm: EpicViewModel) -> Self {
-        let lead_asks = vm.lead_asks();
-        Self {
-            key: vm.key.to_string(),
-            pinned: vm.pinned,
-            external_id: vm.external_id,
-            priority: vm.priority.map(priority::view),
-            pill: PillView::legend(vm.pill.legend, Some(&vm.pill.label)),
-            title: vm.title,
-            segments: vm.segments,
-            progress: vm.progress,
-            branch: vm.branch,
-            children: vm
-                .children
-                .into_iter()
-                .map(|c| ChildView {
-                    key: c.key.to_string(),
-                    title: c.title,
-                    state: c.state,
-                    icon: if c.blocked.is_some() {
-                        crate::view_models::dependencies::ICON
-                    } else {
-                        c.state.icon()
-                    },
-                    blocked: c.blocked.is_some(),
-                    status_label: c.blocked.unwrap_or_else(|| c.status_label.to_owned()),
-                    draggable: c.draggable,
-                    origin: c.origin,
-                })
-                .collect(),
-            add: vm.can_add.then(|| ADD_TO_EPIC.to_owned()),
-            actions: vm.actions,
-            faded: vm.faded,
-            lead: vm.lead,
-            lead_asks,
-        }
-    }
-}
-
 /// One cell of the gallery's variant grid: the frame's variant name and the look it is drawn in.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "CardGalleryCell")]
@@ -205,16 +112,8 @@ pub struct GalleryCell {
     pub card: TicketCardView,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "EpicGalleryCell")]
-pub struct EpicCell {
-    pub name: String,
-    pub card: EpicCardView,
-}
-
 /// The gallery's cards: *04 → Ticket Card v2 · all variants* in the frame's order (the M21 ones), drawn at
-/// [`CARD_WIDTH`] and at [`CARD_WIDTH_1280`]; the epic rows; the sleeved children (*Epic Sleeve v2*); and the
-/// lead's rows. From [`card_fixtures`].
+/// [`CARD_WIDTH`] and at [`CARD_WIDTH_1280`]. From [`card_fixtures`].
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "CardGallery")]
 pub struct CardGallery {
@@ -222,11 +121,6 @@ pub struct CardGallery {
     /// The normal card width and the width at 1280 (*Cards at 1280*): the page draws the variants at both.
     pub width: u32,
     pub width_1280: u32,
-    pub epics: Vec<EpicCell>,
-    /// *Epic Sleeve v2*: sleeved epic children (EPC-09).
-    pub sleeves: Vec<GalleryCell>,
-    /// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)* (T-0291).
-    pub leads: Vec<GalleryCell>,
     /// *04 → Variants · one tool (M22)* and the picked-by cards (T-0345): the footer's agent part, Start failed and
     /// No result on a refused model.
     pub agents: Vec<GalleryCell>,
@@ -249,15 +143,6 @@ pub fn gallery() -> CardGallery {
         variants: card_fixtures::variants().iter().map(cell).collect(),
         width: CARD_WIDTH,
         width_1280: CARD_WIDTH_1280,
-        epics: card_fixtures::epic_variants()
-            .iter()
-            .map(|v| EpicCell {
-                name: v.name.to_owned(),
-                card: EpicCardView::of(&v.epic, &v.tickets, v.branch),
-            })
-            .collect(),
-        sleeves: card_fixtures::sleeve_variants().iter().map(cell).collect(),
-        leads: card_fixtures::lead_variants().iter().map(cell).collect(),
         agents: card_fixtures::agent_variants().iter().map(cell).collect(),
         tools: card_fixtures::tool_variants().iter().map(cell).collect(),
         flows: card_fixtures::flow_variants().iter().map(cell).collect(),
@@ -277,7 +162,6 @@ mod tests {
     fn cell<'a>(g: &'a CardGallery, name: &str) -> &'a TicketCardView {
         g.variants
             .iter()
-            .chain(&g.sleeves)
             .chain(&g.flows)
             .find(|c| c.name == name)
             .map(|c| &c.card)
@@ -424,10 +308,8 @@ mod tests {
     }
 
     #[test]
-    fn an_epic_child_names_its_epic_and_quiet_buttons_leave() {
+    fn quiet_buttons_leave() {
         let g = gallery();
-        let card = cell(&g, "Dev \u{b7} epic child \u{b7} working");
-        assert_eq!(card.epic.as_deref(), Some("Wishlist"));
         // Send back with PR comments is a quiet button: the sheet has it.
         let pr = cell(&g, "PR #481 open \u{b7} opened by Shipper");
         assert_eq!(
@@ -456,9 +338,6 @@ mod tests {
     fn every_fixture_reaches_the_page() {
         let g = gallery();
         assert_eq!(g.variants.len(), card_fixtures::variants().len());
-        assert_eq!(g.epics.len(), card_fixtures::epic_variants().len());
-        assert_eq!(g.sleeves.len(), card_fixtures::sleeve_variants().len());
-        assert_eq!(g.leads.len(), card_fixtures::lead_variants().len());
         assert_eq!(g.agents.len(), card_fixtures::agent_variants().len());
         assert_eq!(g.tools.len(), card_fixtures::tool_variants().len());
         assert!(
@@ -477,18 +356,5 @@ mod tests {
         ] {
             assert!(looks.contains(&look), "{look:?}");
         }
-    }
-
-    #[test]
-    fn epic_rows_are_worded_here() {
-        let g = gallery();
-        let epics = &g.epics;
-        assert_eq!(epics[0].card.add.as_deref(), Some(ADD_TO_EPIC));
-        assert_eq!(epics[0].card.children[0].status_label, "Merged");
-        let done = epics.iter().find(|e| e.name == "Epic \u{b7} Done").unwrap();
-        assert_eq!(done.card.add, None);
-        let json = serde_json::to_value(&epics[2].card).unwrap();
-        assert_eq!(json["actions"][0]["kind"], "mark_merged");
-        assert_eq!(json["segments"][0], "merged");
     }
 }

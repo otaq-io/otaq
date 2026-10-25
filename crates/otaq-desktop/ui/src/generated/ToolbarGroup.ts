@@ -3,11 +3,11 @@ import type { IconName } from "./IconName";
 import type { ToolbarOption } from "./ToolbarOption";
 
 /**
- * A segmented switch: "Lanes" None · Epic. `ToolbarGroup` on the page.
+ * A segmented switch: "Group by" Stage · Status · Agent. `ToolbarGroup` on the page.
  */
 export type ToolbarGroup = { 
 /**
- * The words before it ("Lanes", "Group by"); `null` for Board · List · Files.
+ * The words before it ("Group by"); `null` for Board · List · Files.
  */
 label: string | null, 
 /**

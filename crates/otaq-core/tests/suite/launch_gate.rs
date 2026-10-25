@@ -27,8 +27,8 @@ use otaq_core::agents::{
 };
 use otaq_core::board::Refusal;
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, StartStep, Status};
+use otaq_core::board::tickets::{EventKind, Ticket};
+use otaq_core::domain::{Actor, StartStep, Status};
 use otaq_core::flow::FlowAgent;
 use otaq_core::protocol::Event;
 use otaq_core::service::testing::TestService;
@@ -884,32 +884,10 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_lead_and_a_project_agent_are_held_too_and_a_project_agent_never_falls_back() {
+async fn a_project_agent_is_held_too_and_never_falls_back() {
     let world = world().await;
     let w = &world.w;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    world.hide(A, true).await;
-    let not_available = "Claude Code isn\u{2019}t available \u{b7} hidden in Settings";
-    let e = w.project_agents.leads().open("SHOP-1").await.unwrap_err();
-    assert_eq!(e.to_string(), not_available);
-    let [hold] = &holds(w, "SHOP-1").await[..] else {
-        panic!("one hold")
-    };
-    assert_eq!(hold.role, SessionRole::EpicLead);
-    // The Project agent role's agent on Codex (whose fallback is free while Claude Code isn't hidden): no fallback is
-    // ever offered.
+    // The Project agent role's agent on Codex (whose fallback, Claude Code, is free): no fallback is ever offered.
     world.hide(B, true).await;
     world
         .set_model(
@@ -938,18 +916,8 @@ async fn a_lead_and_a_project_agent_are_held_too_and_a_project_agent_never_falls
         (SessionRole::ProjectAgent, None, false)
     );
 
-    // Back: the lead starts (the user's Open lead asked for it); the Project agent's message waits for a send.
-    world.hide(A, false).await;
+    // Back: the Project agent's message waits for a send.
     world.hide(B, false).await;
-    until("the lead started", || async {
-        w.project_agents
-            .leads()
-            .get(&epic.key.to_string())
-            .await
-            .unwrap()
-            .is_some()
-    })
-    .await;
     until("the project hold went", || async {
         w.board
             .store()

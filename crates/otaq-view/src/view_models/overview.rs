@@ -233,9 +233,7 @@ pub fn attachments(comments: &[TicketComment], avatars: bool) -> Vec<AttachmentR
             let mine = matches!(c.author, CommentAuthor::User { .. });
             let mark = match &c.author {
                 CommentAuthor::User { .. } => Mark::You,
-                CommentAuthor::Agent { tool, .. } | CommentAuthor::Lead { tool, .. } => {
-                    agent_mark(*tool, avatars)
-                }
+                CommentAuthor::Agent { tool, .. } => agent_mark(*tool, avatars),
             };
             Some(AttachmentRow {
                 n: c.n,

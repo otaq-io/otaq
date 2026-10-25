@@ -1,7 +1,7 @@
 //! Proposals, what applies when, and the quiet-board wait (T-0413; FLW-03, FLW-05, FLW-06, FLW-09, FLW-10; d0108):
 //! each refusal names its stage or agent; the diff keeps ids on a rename and says when each change applies; a shape
 //! change waits for a quiet board while the project's starts are held; Cancel change resumes them; a second change
-//! merges into the waiting one; an epic at Review epic doesn't hold it; a choice the flow drops falls back to the
+//! merges into the waiting one; a choice the flow drops falls back to the
 //! stage's agent with a History note. On the example's names: pocket-api, API-1, QA, Security, Quick developer and
 //! Rust developer (`tests/flows/every-kind.yaml`). `claude` is stood in for by an ordinary command.
 
@@ -14,10 +14,10 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::FixedModels;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::stage_choices::{ChoicePick, Chooser};
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
+use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::board::{BoardError, Refusal};
-use otaq_core::domain::{Actor, Kind, Status};
-use otaq_core::flow::apply::{ProposeFrom, Wait, is_quiet, still_working};
+use otaq_core::domain::{Actor, Status};
+use otaq_core::flow::apply::{ProposeFrom, Wait};
 use otaq_core::flow::proposal::{
     About, AgentChangeKind, Applies, ApplyChoices, Change, ClashChoice, Fix, NewProposal, Proposal,
     ProposedBy, SAME, Source,
@@ -434,7 +434,7 @@ async fn the_diff_says_what_changes_and_when() {
         .check_choices(
             &key,
             Some(&t),
-            (Kind::Ticket, ""),
+            "",
             &[ChoicePick {
                 stage: "Dev".into(),
                 choice: "Quick developer".into(),
@@ -445,10 +445,7 @@ async fn the_diff_says_what_changes_and_when() {
         )
         .await
         .unwrap();
-    w.board
-        .write_choices(&t, &writes, &me(), None)
-        .await
-        .unwrap();
+    w.board.write_choices(&t, &writes, &me()).await.unwrap();
     let mut without = every_kind();
     without
         .flow
@@ -621,106 +618,6 @@ async fn a_removal_waits_for_its_span() {
     w.stop().await;
 }
 
-/// FLW-06, second gap review rule 11: an epic waiting at its Review epic stop doesn't hold a change; a ticket in an
-/// agent check does, and so does one in a stage the change removes.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_at_review_epic_is_quiet() {
-    let (w, key) = world().await;
-    // A flow with no check by you: epics stop at Review epic.
-    let no_review = default_with(|f| {
-        f.flow.stages.retain(|s| s.id != "review");
-        let done = f.flow.stages.last_mut().unwrap();
-        done.column = otaq_core::flow::Column::Own;
-    });
-    w.board.use_flow_for_tests(&key, &no_review).await;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: key.clone(),
-                title: "Billing".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    w.force_stage(&epic, "_review-epic", Status::WaitingForYou)
-        .await;
-    let checking = create(&w, &key, "Invoices").await;
-    w.force_stage(&checking, "validate", Status::Checking).await;
-    let old = w.board.effective_flow(&key).await.unwrap();
-    let mut new = old.clone();
-    new.stages.retain(|s| s.id != "validate");
-    let tickets = w.board.tickets(&key).await.unwrap();
-    let holding: Vec<String> =
-        still_working(&tickets, &old, &new, &HashSet::new(), &Wait::WholeBoard)
-            .into_iter()
-            .map(|t| t.key.to_string())
-            .collect();
-    assert_eq!(holding, [checking.key.to_string()], "the epic is quiet");
-
-    // A card in the Delivery stage is quiet, unless a Delivery session works on it.
-    let shipping = create(&w, &key, "Receipts").await;
-    w.force_stage(&shipping, "deliver", Status::ToDeliver).await;
-    let shipping = w.board.ticket(&shipping.key.to_string()).await.unwrap();
-    assert!(is_quiet(&shipping, &old, &new, &HashSet::new()));
-    let at_work: HashSet<String> = [shipping.id.clone()].into();
-    assert!(!is_quiet(&shipping, &old, &new, &at_work));
-    w.force_status(&shipping, Status::Merged).await;
-
-    // A swap (an imported file, which waits for the whole board) applied while only the epic waits at Review epic:
-    // no wait at all.
-    w.force_stage(&checking, "deliver", Status::ToDeliver).await;
-    w.force_status(&checking, Status::Merged).await;
-    let with_docs = default_with(|f| {
-        f.flow.stages.retain(|s| s.id != "review");
-        f.flow.stages.last_mut().unwrap().column = otaq_core::flow::Column::Own;
-        let mut docs = f.flow.stages[0].clone();
-        docs.id = String::new();
-        docs.name = "Docs".into();
-        f.flow.stages.insert(1, docs);
-    });
-    let proposal = w
-        .board
-        .propose_from(
-            &key,
-            &ProposeFrom::File {
-                name: "docs.yaml".into(),
-                yaml: stages_only(&with_docs),
-            },
-            &models(),
-        )
-        .await
-        .unwrap();
-    assert!(proposal.diff.waits);
-    assert!(
-        proposal
-            .diff
-            .stages
-            .iter()
-            .all(|c| c.applies == Applies::QuietBoard || !c.change.is_shape()),
-        "{:?}",
-        proposal.diff.stages
-    );
-    let applied = w
-        .board
-        .apply_proposal(&key, proposal.id, &ApplyChoices::default(), &models())
-        .await
-        .unwrap();
-    assert!(applied.waiting.is_none(), "{:?}", applied.waiting);
-    assert!(
-        w.board
-            .effective_flow(&key)
-            .await
-            .unwrap()
-            .stage("docs")
-            .is_some()
-    );
-    w.stop().await;
-}
-
 /// Keeps running, printing its arguments.
 const KEEPS_RUNNING: &str = "printf 'ARGS %s\\n' \"$*\"; exec sleep 30";
 
@@ -761,20 +658,10 @@ async fn a_removed_choice_falls_back_with_a_history_note() {
     ];
     let writes = w
         .board
-        .check_choices(
-            &key,
-            Some(&t),
-            (Kind::Ticket, ""),
-            &picks,
-            &Chooser::User,
-            false,
-        )
+        .check_choices(&key, Some(&t), "", &picks, &Chooser::User, false)
         .await
         .unwrap();
-    w.board
-        .write_choices(&t, &writes, &me(), None)
-        .await
-        .unwrap();
+    w.board.write_choices(&t, &writes, &me()).await.unwrap();
 
     // The user removes Dev's option: not a shape change, so it applies now.
     let mut without = every_kind();

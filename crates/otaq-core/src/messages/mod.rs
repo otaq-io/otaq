@@ -8,7 +8,7 @@
 //! - The target has only a **stored conversation** (normally a merged parent): the question waits here until the
 //!   answer-only resume (MSG-03) or Needs you (MSG-05) takes it.
 //!
-//! The answer goes back to the asker the same way, and "asked SHOP-40.1 · waiting" lasts until it was typed
+//! The answer goes back to the asker the same way, and "asked SHOP-41 · waiting" lasts until it was typed
 //! there (MSG-06).
 
 pub mod answering;

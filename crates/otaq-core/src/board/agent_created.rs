@@ -1,6 +1,5 @@
-//! A ticket an agent created (#47; d0016, d0083): the creating ticket's History logs it ("Created DEMO-12 Fix the
-//! build"), and the service tells the app, which shows one quiet toast per burst. An epic lead's new child is
-//! already on its epic's History (`lead_changed`, "Added SHOP-40.5 …").
+//! A ticket an agent created (#47; d0016): the creating ticket's History logs it ("Created DEMO-12 Fix the build"),
+//! and the service tells the app, which shows one quiet toast per burst.
 
 use serde_json::json;
 

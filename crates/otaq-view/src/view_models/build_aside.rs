@@ -28,9 +28,6 @@ pub struct BuildAsideLine {
 /// The line for `ticket` now: set aside while it waits in a human check or Delivery with its build freed, bringing
 /// back while a Send back, Run or Shell fetches it; none otherwise (an epic has no build of its own).
 pub fn line(ticket: &Ticket) -> Option<BuildAsideLine> {
-    if ticket.is_epic() {
-        return None;
-    }
     let work = ticket.work.as_ref()?;
     work.worktree.as_ref()?;
     match work.build_state {
@@ -51,7 +48,7 @@ pub fn line(ticket: &Ticket) -> Option<BuildAsideLine> {
 #[cfg(test)]
 mod tests {
     use otaq_core::board::tickets::Work;
-    use otaq_core::domain::{Kind, Status};
+    use otaq_core::domain::Status;
 
     use super::*;
     use crate::view_models::card_fixtures::ticket;
@@ -91,10 +88,7 @@ mod tests {
         assert!(line(&with_build(Status::Working, BuildState::Fetching)).is_some());
         // Freed but no longer in Review (merged, closed): Run and Shell no longer bring it back.
         assert_eq!(line(&with_build(Status::Merged, BuildState::Freed)), None);
-        // No worktree, or an epic: nothing to say.
+        // No worktree: nothing to say.
         assert_eq!(line(&ticket("SHOP-1", "t", Status::WaitingForYou)), None);
-        let mut epic = with_build(Status::WaitingForYou, BuildState::Freed);
-        epic.kind = Kind::Epic;
-        assert_eq!(line(&epic), None);
     }
 }

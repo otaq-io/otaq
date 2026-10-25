@@ -1,15 +1,15 @@
 //! The ticket editor (UI-05, TKT-03; d0019; *08 · Ticket editor → Quick-create in Backlog, Full form · filled,
-//! Validation · empty form*): Title, Priority, Type and Epic (when creating) and the description (Markdown). A
+//! Validation · empty form*): Title, Priority and the description (Markdown). A
 //! missing title is the only hard rule; a short or empty description is fine (d0067). Saving an existing ticket
 //! sends only what changed. Priority is sent only once picked (TKT-09, d0065): a new ticket is Normal unless
-//! picked, and an epic child shows and follows its epic's until it gets its own. A new ticket can take a report (pick,
+//! picked. A new ticket can take a report (pick,
 //! drop or paste) with its one line (RPT-03, d0109): Create posts them as the ticket's first comment, the user's, "at
 //! creation" ([`AttachState`]).
 
 use otaq_core::board::reports::ReportSource;
 use otaq_core::board::ticket_comments::FirstComment;
 use otaq_core::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
-use otaq_core::domain::{Kind, Priority, TicketKey};
+use otaq_core::domain::{Priority, TicketKey};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -18,7 +18,7 @@ use crate::view_models::ticket_comments::CommentBoxView;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorMode {
-    /// A new ticket in this project (and epic, when chosen).
+    /// A new ticket in this project.
     Create {
         project: String,
     },
@@ -86,13 +86,9 @@ pub struct EditorModel {
     pub mode: EditorMode,
     pub title: String,
     pub body: String,
-    pub kind: Kind,
-    /// The ticket's own priority, picked or saved; `None` until picked (a new ticket is then Normal, an epic
-    /// child follows its epic).
+    /// The ticket's own priority, picked or saved; `None` until picked (a new ticket is then Normal).
     pub priority: Option<Priority>,
-    /// Create the ticket inside this epic.
-    pub epic: Option<TicketKey>,
-    /// "Start from and merge into" for standalone tickets and epics; `None` for epic children.
+    /// "Start from and merge into".
     pub base_branch: Option<String>,
     pub base_locked: bool,
     pub external_id: String,
@@ -122,9 +118,7 @@ impl EditorModel {
             },
             title: title.to_owned(),
             body: String::new(),
-            kind: Kind::Ticket,
             priority: None,
-            epic: None,
             base_branch: Some(base.to_owned()),
             base_locked: false,
             external_id: String::new(),
@@ -146,13 +140,8 @@ impl EditorModel {
             },
             title: ticket.title.clone(),
             body: ticket.body.clone(),
-            kind: ticket.kind,
-            priority: (!ticket.priority_inherited).then_some(ticket.priority),
-            epic: ticket.epic.clone(),
-            base_branch: match &ticket.base {
-                otaq_core::board::tickets::Base::Branch(b) => Some(b.clone()),
-                otaq_core::board::tickets::Base::Epic(_) => None,
-            },
+            priority: Some(ticket.priority),
+            base_branch: Some(ticket.base.branch().to_owned()),
             base_locked: ticket.base_locked,
             external_id: ticket.external_id.clone().unwrap_or_default(),
             report: None,
@@ -185,18 +174,11 @@ impl EditorModel {
         (self.tried && self.title.trim().is_empty()).then_some(TITLE_REQUIRED)
     }
 
-    /// The priority the form shows: the ticket's own, else (an epic child) the epic's `epic_priority` or the one
-    /// it was saved following, else Normal.
-    pub fn shown_priority(&self, epic_priority: Option<Priority>) -> Priority {
+    /// The priority the form shows: the ticket's own, else the saved one, else Normal.
+    pub fn shown_priority(&self) -> Priority {
         self.priority
-            .or_else(|| self.epic.as_ref().and(epic_priority))
             .or_else(|| self.original.as_ref().map(|t| t.priority))
             .unwrap_or_default()
-    }
-
-    /// An epic child without a priority of its own: it follows its epic.
-    pub fn follows_epic(&self) -> Option<&TicketKey> {
-        self.epic.as_ref().filter(|_| self.priority.is_none())
     }
 
     /// Save/Create is enabled once there is a title.
@@ -204,7 +186,7 @@ impl EditorModel {
         !self.title.trim().is_empty() && !self.saving
     }
 
-    /// The report's state (RPT-03). An epic takes none: its lead reads no comments of its own.
+    /// The report's state (RPT-03).
     pub fn attach_state(&self) -> AttachState {
         match &self.report {
             Some(_) if !self.takes_report() => AttachState::None,
@@ -214,9 +196,9 @@ impl EditorModel {
         }
     }
 
-    /// The form shows the report's place: a new ticket (not an epic).
+    /// The form shows the report's place: a new ticket.
     pub fn takes_report(&self) -> bool {
-        self.is_create() && self.kind == Kind::Ticket
+        self.is_create()
     }
 
     /// Create is refused while the report waits for its line (once tried).
@@ -247,18 +229,12 @@ impl EditorModel {
         };
         Some(NewTicketInput {
             project: project.clone(),
-            kind: self.kind,
             title: self.title.trim().to_owned(),
             body: self.body.clone(),
-            // Only when picked: the service makes the rest Normal, and a child follows its epic.
+            // Only when picked: the service makes the rest Normal.
             priority: self.priority,
-            epic: self.epic.as_ref().map(ToString::to_string),
-            base_branch: self
-                .epic
-                .is_none()
-                .then(|| self.base_branch.clone())
-                .flatten(),
-            external_id: (self.epic.is_none() && !self.external_id.trim().is_empty())
+            base_branch: self.base_branch.clone(),
+            external_id: (!self.external_id.trim().is_empty())
                 .then(|| self.external_id.trim().to_owned()),
             first_comment: self.first_comment(),
         })
@@ -274,13 +250,11 @@ impl EditorModel {
         if self.body != original.body {
             update.body = Some(self.body.clone());
         }
-        let own = (!original.priority_inherited).then_some(original.priority);
-        if self.priority.is_some() && self.priority != own {
+        if self.priority.is_some() && self.priority != Some(original.priority) {
             update.priority = self.priority;
         }
-        if let (Some(new), otaq_core::board::tickets::Base::Branch(old)) =
-            (&self.base_branch, &original.base)
-            && new != old
+        if let Some(new) = &self.base_branch
+            && new != original.base.branch()
         {
             update.base_branch = Some(new.clone());
         }
@@ -341,15 +315,9 @@ mod tests {
         assert_eq!(input.base_branch.as_deref(), Some("main"));
         assert_eq!(input.external_id, None);
         assert!(m.update_input().is_none());
-        // A child of an epic sends neither base nor External ID.
-        m.epic = Some("SHOP-40".parse().unwrap());
-        m.external_id = "PAY-1".into();
-        let input = m.create_input().unwrap();
-        assert_eq!((input.base_branch, input.external_id), (None, None));
     }
 
-    /// RPT-03: the New ticket form's report waits for its line; with it, Create sends both as the first comment; an
-    /// epic takes none.
+    /// RPT-03: the New ticket form's report waits for its line; with it, Create sends both as the first comment.
     #[test]
     fn the_new_ticket_forms_report_needs_its_line() {
         let mut m = EditorModel::create("SHOP", "Fix flaky login redirect", "main");
@@ -383,11 +351,7 @@ mod tests {
             Some(ReportSource::Text("running 20 tests".into()))
         );
 
-        // An epic takes none; an edit has no report place.
-        m.kind = Kind::Epic;
-        assert!(!m.takes_report());
-        assert_eq!(m.attach_state(), AttachState::None);
-        assert_eq!(m.create_input().unwrap().first_comment, None);
+        // An edit has no report place.
         assert!(!EditorModel::edit(&saved_ticket()).takes_report());
     }
 
@@ -468,11 +432,11 @@ mod tests {
         });
     }
 
-    /// Quick-create and the full form: Normal unless picked; a child follows its epic until it picks one.
+    /// Quick-create and the full form: Normal unless picked.
     #[test]
     fn priority_is_sent_only_once_picked() {
         let mut m = EditorModel::create("SHOP", "Checkout page", "main");
-        assert_eq!(m.shown_priority(None), Priority::Normal);
+        assert_eq!(m.shown_priority(), Priority::Normal);
         assert_eq!(
             m.create_input().unwrap().priority,
             None,
@@ -480,30 +444,10 @@ mod tests {
         );
         m.priority = Some(Priority::High);
         assert_eq!(m.create_input().unwrap().priority, Some(Priority::High));
-
-        let mut child = EditorModel::create("SHOP", "Wishlist button", "main");
-        child.epic = Some("SHOP-40".parse().unwrap());
-        assert_eq!(
-            child.shown_priority(Some(Priority::Urgent)),
-            Priority::Urgent
-        );
-        assert_eq!(
-            child.follows_epic().map(ToString::to_string).as_deref(),
-            Some("SHOP-40")
-        );
-        assert_eq!(
-            child.create_input().unwrap().priority,
-            None,
-            "follows the epic"
-        );
-        child.priority = Some(Priority::Low);
-        assert_eq!(child.shown_priority(Some(Priority::Urgent)), Priority::Low);
-        assert_eq!(child.follows_epic(), None);
-        assert_eq!(child.create_input().unwrap().priority, Some(Priority::Low));
+        assert_eq!(m.shown_priority(), Priority::High);
     }
 
-    /// The edit form and the Ticket tab: an inherited priority shows until the child gets its own; only a change
-    /// is sent, and picking the inherited value gives the child its own.
+    /// The edit form and the Ticket tab: only a change is sent.
     #[test]
     fn priority_changes_are_sent_with_the_update() {
         let mut saved = saved_ticket();
@@ -514,31 +458,10 @@ mod tests {
         assert_eq!(m.update_input(), None, "the same priority is no change");
         m.priority = Some(Priority::Urgent);
         assert_eq!(m.update_input().unwrap().priority, Some(Priority::Urgent));
-
-        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
-        child.epic = Some("SHOP-40".parse().unwrap());
-        child.base = otaq_core::board::tickets::Base::Epic("SHOP-40".parse().unwrap());
-        child.priority = Priority::High;
-        child.priority_inherited = true;
-        let mut m = EditorModel::edit(&child);
-        assert_eq!(m.priority, None);
-        assert_eq!(
-            m.shown_priority(None),
-            Priority::High,
-            "the epic's, as saved"
-        );
-        assert!(m.follows_epic().is_some());
-        assert_eq!(m.update_input(), None);
-        m.priority = Some(Priority::High);
-        assert_eq!(
-            m.update_input().unwrap().priority,
-            Some(Priority::High),
-            "its own now, even if the same"
-        );
     }
 
     /// Quick-create's and the full form's priority reach a real service: picked, it is the ticket's own; not
-    /// picked, a child follows its epic and shows the epic's.
+    /// picked, Normal.
     #[test]
     fn priority_round_trips_through_the_service() {
         use otaq_core::client::{Client, ClientConfig};
@@ -558,19 +481,10 @@ mod tests {
                 Reply::Ticket(t) => *t,
                 other => panic!("{other:?}"),
             };
-            let mut epic = EditorModel::create("SHOP", "Wishlist", "main");
-            epic.kind = Kind::Epic;
-            epic.priority = Some(Priority::High);
-            let epic = create(&epic).await;
-            assert_eq!(epic.priority, Priority::High);
-
             let mut m = EditorModel::create("SHOP", "Wishlist button", "main");
-            m.epic = Some(epic.key.clone());
+            m.priority = Some(Priority::High);
             let child = create(&m).await;
-            assert_eq!(
-                (child.priority, child.priority_inherited),
-                (Priority::High, true)
-            );
+            assert_eq!(child.priority, Priority::High);
 
             let mut m = EditorModel::edit(&child);
             m.priority = Some(Priority::Low);
@@ -584,10 +498,7 @@ mod tests {
             else {
                 panic!()
             };
-            assert_eq!(
-                (child.priority, child.priority_inherited),
-                (Priority::Low, false)
-            );
+            assert_eq!(child.priority, Priority::Low);
             let plain = create(&EditorModel::create("SHOP", "Footer", "main")).await;
             assert_eq!(plain.priority, Priority::Normal);
         });

@@ -10,7 +10,7 @@
 //!
 //! **An open question holds Needs you until it is closed** (d0119). A question closes ([`AnsweredVia`]) when the user
 //! answers it from the answer box, presses Enter on a line in that agent's terminal (or the Ask bar's Continue to a
-//! Project agent or lead), when the same agent asks a new question (the older one is replaced), or when its ticket is
+//! Project agent), when the same agent asks a new question (the older one is replaced), or when its ticket is
 //! closed, parked or delivered (a trigger, migration 0058). One agent has at most one open question.
 
 use serde::{Deserialize, Serialize};
@@ -20,8 +20,7 @@ use crate::domain::stored_enum;
 use crate::store::{new_id, now_ms};
 
 stored_enum! {
-    /// How a question was closed (`human_questions.answered_via`, d0119). A question its epic's lead answered has
-    /// none: the lead's answer is in `lead_state` (LEAD-06).
+    /// How a question was closed (`human_questions.answered_via`, d0119).
     pub enum AnsweredVia ("answer source") {
         /// The user's answer from the strip, card or sheet (d0061).
         Box = "box",
@@ -55,20 +54,6 @@ pub struct HumanQuestion {
     #[serde(default, skip_serializing_if = "no_notes")]
     pub notes: Vec<Option<String>>,
     pub asked_at: i64,
-    /// Passed on by the epic's lead (LEAD-06): `recommended` is the lead's choice, and this names the lead and
-    /// its reason ("SHOP-40.2 asks · passed on by Wishlist lead").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub via_lead: Option<ViaLead>,
-}
-
-/// The epic's lead that passed a child's question on to the user, with its reason for the recommended option
-/// (LEAD-06, d0083).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ViaLead {
-    /// "Wishlist lead".
-    pub lead: String,
-    /// "PAY-123 only mentions signed-in users."
-    pub reason: String,
 }
 
 /// An unanswered question of a ticket, as the board reads it for the cards.
@@ -76,8 +61,6 @@ pub struct ViaLead {
 pub(crate) struct OpenQuestion {
     pub ticket_id: String,
     pub question: HumanQuestion,
-    /// The lead's name while the question waits for it ("asked lead · waiting", LEAD-06).
-    pub with_lead: Option<String>,
 }
 
 /// An `ask human` question with the user's answer, for the Messages section.
@@ -202,35 +185,15 @@ struct QuestionRow {
     recommended: Option<i64>,
     option_notes_json: Option<String>,
     asked_at: i64,
-    lead_state: Option<String>,
-    lead_reason: Option<String>,
-    /// The title of the epic it was routed through: the lead's name.
-    epic_title: Option<String>,
 }
 
-/// The columns of [`QuestionRow`], and where they come from (`human_questions q` and the epic `e` it was routed
-/// through).
-const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at, \
-     q.lead_state, q.lead_reason, e.title AS epic_title";
-const QUESTION_FROM: &str = "human_questions q LEFT JOIN tickets e ON e.id = q.lead_epic_id";
-
-impl QuestionRow {
-    fn lead_name(&self) -> Option<String> {
-        self.epic_title
-            .as_deref()
-            .map(crate::project_agents::lead::lead_name)
-    }
-}
+/// The columns of [`QuestionRow`], and where they come from (`human_questions q`).
+const QUESTION_COLUMNS: &str =
+    "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at";
+const QUESTION_FROM: &str = "human_questions q";
 
 impl From<QuestionRow> for HumanQuestion {
     fn from(row: QuestionRow) -> Self {
-        let via_lead = match (row.lead_state.as_deref(), row.lead_name()) {
-            (Some(crate::epic_lead::questions::PASSED_ON), Some(lead)) => Some(ViaLead {
-                lead,
-                reason: row.lead_reason.clone().unwrap_or_default(),
-            }),
-            _ => None,
-        };
         Self {
             id: row.id,
             text: row.question,
@@ -238,7 +201,6 @@ impl From<QuestionRow> for HumanQuestion {
             recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
             notes: notes_from_json(row.option_notes_json.as_deref()),
             asked_at: row.asked_at,
-            via_lead,
         }
     }
 }
@@ -285,19 +247,16 @@ impl Board {
         Ok(row.map(Into::into))
     }
 
-    /// The question the ticket's agent holds for the user (d0119): its open question, unless it waits for the epic's
-    /// lead ("asked lead · waiting", LEAD-06).
+    /// The question the ticket's agent holds for the user (d0119): its open question.
     pub async fn open_user_question(
         &self,
         ticket_id: &str,
     ) -> Result<Option<HumanQuestion>, BoardError> {
         let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.ticket_id = ? AND q.answered_at IS NULL
-               AND (q.lead_state IS NULL OR q.lead_state <> ?)
              ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
         )))
         .bind(ticket_id)
-        .bind(crate::epic_lead::questions::WITH_LEAD)
         .fetch_optional(self.store().pool())
         .await?;
         Ok(row.map(Into::into))
@@ -322,7 +281,7 @@ impl Board {
         Ok(Some(question))
     }
 
-    /// The same for a Project agent's or an epic lead's open question: `line` from its terminal or the Ask bar's
+    /// The same for a Project agent's open question: `line` from its terminal or the Ask bar's
     /// Continue.
     pub async fn answer_agent_in_terminal(
         &self,
@@ -379,7 +338,6 @@ impl Board {
             recommended,
             notes: clean_notes(notes),
             asked_at: now_ms(),
-            via_lead: None,
         };
         let mut tx = self.store().begin_write().await?;
         // A new question replaces the agent's older open one (d0119).
@@ -430,16 +388,9 @@ impl Board {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|row| {
-                let with_lead = (row.question.lead_state.as_deref()
-                    == Some(crate::epic_lead::questions::WITH_LEAD))
-                .then(|| row.question.lead_name())
-                .flatten();
-                OpenQuestion {
-                    ticket_id: row.ticket_id,
-                    question: row.question.into(),
-                    with_lead,
-                }
+            .map(|row| OpenQuestion {
+                ticket_id: row.ticket_id,
+                question: row.question.into(),
             })
             .collect())
     }
@@ -452,16 +403,14 @@ impl Board {
     }
 
     /// The ticket's answered `ask human` questions, oldest first: logged in its Messages with the user's answer
-    /// (*10 → Answer · inline*: "Logged in SHOP-21 Messages"). A question its epic's lead answered isn't the
-    /// user's: it is in the lead's log ([`crate::epic_lead::questions::log_of`]).
+    /// (*10 → Answer · inline*: "Logged in SHOP-21 Messages").
     pub async fn answered_human_questions(
         &self,
         ticket_id: &str,
     ) -> Result<Vec<HumanAnswer>, BoardError> {
         let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
             "SELECT question, answer, asked_at, answered_at FROM human_questions
-             WHERE ticket_id = ? AND answered_at IS NOT NULL AND answer IS NOT NULL
-               AND (lead_state IS NULL OR lead_state <> 'answered') ORDER BY asked_at, id",
+             WHERE ticket_id = ? AND answered_at IS NOT NULL AND answer IS NOT NULL ORDER BY asked_at, id",
         )
         .bind(ticket_id)
         .fetch_all(self.store().pool())
@@ -591,7 +540,6 @@ mod tests {
             recommended: Some(1),
             notes: vec![Some("One small library.".into()), None, None],
             asked_at: 0,
-            via_lead: None,
         };
         assert_eq!(
             format_answer(&q, &Choice::Option(1)),

@@ -11,7 +11,6 @@ mod deps;
 mod flow;
 mod hook;
 mod launch;
-mod lead;
 mod notify_check;
 mod output;
 mod pr;
@@ -42,14 +41,11 @@ fn main() -> ExitCode {
         Some(Command::Daemon(command)) => daemon::run(command, &out),
         Some(Command::Attach { key, stage, agent }) => attach::run(key, stage, agent, &cli.global),
         Some(Command::Prime {
-            epic: Some(epic), ..
-        }) => prime::epic(epic, &cli.global, &out),
-        Some(Command::Prime {
             key: None,
             validate: false,
             ..
         }) if cli.global.bare_project() => prime::project(&cli.global, &out),
-        Some(Command::Prime { key, validate, .. }) => prime::run(key, validate, &cli.global, &out),
+        Some(Command::Prime { key, validate }) => prime::run(key, validate, &cli.global, &out),
         Some(Command::Show {
             key,
             terminal: true,
@@ -57,35 +53,12 @@ fn main() -> ExitCode {
             agent,
             ..
         }) => read::terminal(key, stage, agent, &cli.global, &out),
-        Some(Command::Show {
-            key,
-            long,
-            children,
-            ..
-        }) => read::show(
-            read::ShowArgs {
-                key,
-                long,
-                children,
-            },
-            &cli.global,
-            &out,
-        ),
-        Some(Command::List {
-            status,
-            tree,
-            parent,
-            priority,
-        }) => read::list(
-            read::ListArgs {
-                status,
-                tree,
-                parent,
-                priority,
-            },
-            &cli.global,
-            &out,
-        ),
+        Some(Command::Show { key, long, .. }) => {
+            read::show(read::ShowArgs { key, long }, &cli.global, &out)
+        }
+        Some(Command::List { status, priority }) => {
+            read::list(read::ListArgs { status, priority }, &cli.global, &out)
+        }
         Some(Command::Ready) => read::readiness(false, &cli.global, &out),
         Some(Command::Blocked) => read::readiness(true, &cli.global, &out),
         Some(Command::Create {
@@ -95,8 +68,6 @@ fn main() -> ExitCode {
             deps,
             stdin,
             file,
-            kind,
-            parent,
             choices,
         }) => write::create(
             write::CreateArgs {
@@ -106,8 +77,6 @@ fn main() -> ExitCode {
                 deps,
                 stdin,
                 file,
-                epic: kind.as_deref() == Some("epic"),
-                parent,
                 choices,
             },
             &cli.global,
@@ -138,7 +107,6 @@ fn main() -> ExitCode {
             options,
             notes: _,
             recommended,
-            pass_on,
         }) => agent::ask(
             agent::AskArgs {
                 target,
@@ -146,7 +114,6 @@ fn main() -> ExitCode {
                 options,
                 notes: cli::option_notes(&matches),
                 recommended,
-                pass_on,
             },
             &cli.global,
             &out,
@@ -188,7 +155,6 @@ fn main() -> ExitCode {
             &out,
         ),
         Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
-        Some(Command::Lead(command)) => lead::run(command, &cli.global, &out),
         Some(Command::Check(command)) => agent::check(command, &cli.global, &out),
         Some(Command::Agent(cli::AgentCommand::Name { name, rename })) => {
             agent::name(&name, rename, &cli.global, &out)

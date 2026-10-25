@@ -50,7 +50,7 @@ pub mod testing {
     }
 
     /// Dev → Validate → Done, the Delivery merging locally with no click (`mode: automatic`, `delivers: local`) right
-    /// after Validate's pass: what Auto-merge's "All tickets" was (d0108). No Review: an epic stops at Review epic.
+    /// after Validate's pass: what Auto-merge's "All tickets" was (d0108). No Review.
     pub fn automatic_local_delivery(file: &mut FlowFile) {
         file.flow.stages.retain(|s| s.id != REVIEW);
         for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {

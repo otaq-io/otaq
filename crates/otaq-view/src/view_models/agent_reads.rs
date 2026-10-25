@@ -119,7 +119,6 @@ pub fn skill_heading(skill: &str, runs: &RunsAs) -> String {
     let place = match runs {
         RunsAs::Stage(stage) => stage.clone(),
         RunsAs::Role(Role::ProjectAgent) => "as Noyan".to_owned(),
-        RunsAs::Role(Role::EpicLead) => "as epic lead".to_owned(),
     };
     format!("Skill: {skill} \u{b7} {place}")
 }
@@ -478,10 +477,6 @@ mod tests {
         let also = v.also.unwrap();
         assert_eq!(also.skills[0].name, "flow");
         assert_eq!(also.skills[0].note.as_deref(), Some("(for flow changes)"));
-        assert_eq!(
-            skill_heading("epic-lead", &RunsAs::Role(Role::EpicLead)),
-            "Skill: epic-lead \u{b7} as epic lead"
-        );
         // An agent with a role and a stage: a part for each.
         r.skills
             .insert(0, part("grill", RunsAs::Stage("Grill".into()), "# grill"));

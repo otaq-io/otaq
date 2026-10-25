@@ -1,8 +1,6 @@
-//! Readiness, beads-style (DEP-03, DEP-04; d0049, d0044, d0046, d0059): a ticket may start only when **every**
-//! parent is Done · Merged into the ticket's base. For an epic child that base is the epic's branch, so a
-//! sibling counts once it is merged into the epic branch (d0059). A dependency on an epic is ready when the epic
-//! is Done · Merged (d0046). **Closed never counts** (d0044): a closed parent, or an epic whose children all
-//! ended Closed, makes the ticket "parent closed" until the user reopens the parent or removes the link.
+//! Readiness, beads-style (DEP-03; d0049, d0044): a ticket may start only when **every** parent is Done · Merged
+//! into the ticket's base. **Closed never counts** (d0044): a closed parent makes the ticket "parent closed" until
+//! the user reopens the parent or removes the link. A ticket depends only on tickets (d0133).
 //!
 //! [`readiness`] is pure: the scheduler (T-0079), `otaq ready` / `blocked`, the cards, the Stack list and
 //! the sheet all derive the same state and the same waiting text from it ("waits for SHOP-18, SHOP-19 to merge
@@ -13,37 +11,21 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::epics::{EpicProgress, progress_of};
 use super::tickets::Ticket;
-use crate::domain::{Kind, Status, StatusSet, TicketKey};
+use crate::domain::{Status, StatusSet, TicketKey};
 
 /// A parent a ticket still waits for, and how far it got.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WaitingParent {
     pub key: TicketKey,
     pub status: Status,
-    /// The parent is an epic (DEP-04).
-    #[serde(default, skip_serializing_if = "is_ticket")]
-    pub kind: Kind,
     /// PR open: the PR's number ("PR #482 open").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_number: Option<u32>,
-    /// An epic parent's progress ("1 / 3 merged").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub progress: Option<EpicProgress>,
-}
-
-fn is_ticket(kind: &Kind) -> bool {
-    *kind == Kind::Ticket
 }
 
 impl WaitingParent {
-    fn is_epic(&self) -> bool {
-        self.kind == Kind::Epic
-    }
-
-    /// How far the parent got, when it says more than "not merged yet": "in Review", "PR #482 open",
-    /// "1 / 3 merged" (an epic still in Backlog).
+    /// How far the parent got, when it says more than "not merged yet": "in Review", "PR #482 open".
     pub fn progress_note(&self) -> Option<String> {
         match self.status {
             Status::WaitingForYou => Some("in Review".into()),
@@ -51,7 +33,7 @@ impl WaitingParent {
                 Some(n) => format!("PR #{n} open"),
                 None => "PR open".into(),
             }),
-            _ => self.progress.map(|p| p.label()),
+            _ => None,
         }
     }
 }
@@ -74,8 +56,7 @@ impl ReadyState {
     }
 
     /// The card's waiting line: "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)", "waits for SHOP-18 ·
-    /// PR #482 open", "waits for epic SHOP-40 to be merged (1 / 3 merged)", "parent SHOP-26 closed". `None`
-    /// when ready.
+    /// PR #482 open", "parent SHOP-26 closed". `None` when ready.
     pub fn reason(&self) -> Option<String> {
         match self {
             Self::Ready => None,
@@ -100,26 +81,13 @@ fn waiting_text(parents: &[WaitingParent]) -> String {
         if parent.status == Status::PrOpen {
             return format!("waits for {} · {}", parent.key, note.unwrap_or_default());
         }
-        let what = if parent.is_epic() {
-            format!("epic {} to be merged", parent.key)
-        } else {
-            format!("{} to merge", parent.key)
-        };
+        let what = format!("{} to merge", parent.key);
         return match note {
             Some(note) => format!("waits for {what} ({note})"),
             None => format!("waits for {what}"),
         };
     }
-    let keys: Vec<String> = parents
-        .iter()
-        .map(|p| {
-            if p.is_epic() {
-                format!("epic {}", p.key)
-            } else {
-                p.key.to_string()
-            }
-        })
-        .collect();
+    let keys: Vec<String> = parents.iter().map(|p| p.key.to_string()).collect();
     let notes: Vec<String> = parents
         .iter()
         .filter_map(|p| {
@@ -149,7 +117,7 @@ pub fn readiness(ticket: &Ticket, tickets: &[Ticket]) -> ReadyState {
     parents.sort_by(|a, b| a.key.cmp(&b.key));
     let closed: Vec<TicketKey> = parents
         .iter()
-        .filter(|p| is_closed(p, tickets))
+        .filter(|p| p.status == Status::ClosedNotMerged)
         .map(|p| p.key.clone())
         .collect();
     if !closed.is_empty() {
@@ -162,12 +130,7 @@ pub fn readiness(ticket: &Ticket, tickets: &[Ticket]) -> ReadyState {
         waiting.push(WaitingParent {
             key: parent.key.clone(),
             status: parent.status,
-            kind: parent.kind,
             pr_number: parent.flags.pr_number,
-            progress: parent
-                .is_epic()
-                .then(|| progress_of(&parent.key, tickets))
-                .filter(|p| p.total > 0),
         });
     }
     if waiting.is_empty() {
@@ -177,27 +140,10 @@ pub fn readiness(ticket: &Ticket, tickets: &[Ticket]) -> ReadyState {
     }
 }
 
-/// Closed without merging: a closed ticket, or an epic that ended "Closed · not merged" (also before the epic
-/// itself moves there: every child Closed, none merged; d0044, d0046).
-fn is_closed(parent: &Ticket, tickets: &[Ticket]) -> bool {
-    if parent.status == Status::ClosedNotMerged {
-        return true;
-    }
-    if !parent.is_epic() || parent.status == Status::Merged {
-        return false;
-    }
-    let mut children = tickets
-        .iter()
-        .filter(|t| t.epic.as_ref() == Some(&parent.key))
-        .peekable();
-    children.peek().is_some() && children.all(|c| c.status == Status::ClosedNotMerged)
-}
-
-/// A Backlog ticket that could start: not an epic, every parent merged (d0066). Only a hint: Backlog never
+/// A Backlog ticket that could start: every parent merged (d0066). Only a hint: Backlog never
 /// starts by itself (SCH-02).
 pub fn ready_to_start(ticket: &Ticket, tickets: &[Ticket]) -> bool {
     matches!(ticket.status, Status::Backlog | Status::Parked)
-        && ticket.kind != Kind::Epic
         && readiness(ticket, tickets).is_ready()
 }
 
@@ -236,9 +182,7 @@ pub fn project_readiness(tickets: &[Ticket]) -> Vec<Readiness> {
                 .map(|p| WaitingParent {
                     key: p.key.clone(),
                     status: p.status,
-                    kind: p.kind,
                     pr_number: p.flags.pr_number,
-                    progress: None,
                 })
                 .collect();
             Readiness {
@@ -269,20 +213,15 @@ mod tests {
         Ticket {
             id: key.into(),
             key: key.parse().unwrap(),
-            kind: Kind::Ticket,
             title: key.into(),
             body: String::new(),
             priority: Default::default(),
-            priority_inherited: false,
-            epic: None,
             place: crate::domain::Place::of(status, None, None),
             status,
             base: Base::Branch("main".into()),
             base_locked: false,
             external_id: None,
             depends_on: Vec::new(),
-            aliases: Vec::new(),
-            next_child_number: None,
             flags: Flags::default(),
             created_by: Actor::User("me".into()),
             updated_by: None,
@@ -301,8 +240,6 @@ mod tests {
             signal: None,
             question: None,
             pushed_differs: None,
-            epic_queue_mode: Default::default(),
-            joined_queue_by: None,
         }
     }
 
@@ -432,81 +369,6 @@ mod tests {
         );
     }
 
-    fn epic_board(children: &[Status], epic_status: Status) -> Vec<Ticket> {
-        let mut epic = ticket("SHOP-40", epic_status);
-        epic.kind = Kind::Epic;
-        let mut board = vec![epic];
-        for (i, status) in children.iter().enumerate() {
-            let mut child = ticket(&format!("SHOP-40.{}", i + 1), *status);
-            child.epic = Some("SHOP-40".parse().unwrap());
-            child.base = Base::Epic("SHOP-40".parse().unwrap());
-            board.push(child);
-        }
-        board.push(deps(ticket("SHOP-50", Status::Queued), &["SHOP-40"]));
-        board
-    }
-
-    #[test]
-    fn a_dependency_on_an_epic_is_ready_when_the_epic_is_merged() {
-        let board = epic_board(
-            &[Status::Merged, Status::Working, Status::Backlog],
-            Status::Backlog,
-        );
-        assert_eq!(
-            reason_of("SHOP-50", &board).unwrap(),
-            "waits for epic SHOP-40 to be merged (1 of 3 merged)"
-        );
-        let board = epic_board(
-            &[Status::Merged, Status::ClosedNotMerged],
-            Status::WaitingForYou,
-        );
-        assert_eq!(
-            reason_of("SHOP-50", &board).unwrap(),
-            "waits for epic SHOP-40 to be merged (in Review)"
-        );
-        let board = epic_board(&[Status::Merged, Status::Merged], Status::Merged);
-        assert!(state_of("SHOP-50", &board).is_ready());
-    }
-
-    #[test]
-    fn an_epic_with_all_children_closed_never_counts() {
-        let board = epic_board(
-            &[Status::ClosedNotMerged, Status::ClosedNotMerged],
-            Status::ClosedNotMerged,
-        );
-        assert_eq!(
-            reason_of("SHOP-50", &board).unwrap(),
-            "parent SHOP-40 closed"
-        );
-        // Also before the epic itself has moved to "Closed · not merged".
-        let board = epic_board(
-            &[Status::ClosedNotMerged, Status::ClosedNotMerged],
-            Status::Backlog,
-        );
-        assert_eq!(
-            reason_of("SHOP-50", &board).unwrap(),
-            "parent SHOP-40 closed"
-        );
-        // An empty epic isn't closed: it waits.
-        let board = epic_board(&[], Status::Backlog);
-        assert_eq!(
-            reason_of("SHOP-50", &board).unwrap(),
-            "waits for epic SHOP-40 to be merged"
-        );
-    }
-
-    #[test]
-    fn epic_children_wait_for_siblings_merged_into_the_epic_branch() {
-        let mut board = epic_board(&[Status::Working, Status::Queued], Status::Backlog);
-        board[2].depends_on = vec!["SHOP-40.1".parse().unwrap()];
-        assert_eq!(
-            reason_of("SHOP-40.2", &board).unwrap(),
-            "waits for SHOP-40.1 to merge"
-        );
-        board[1].status = Status::Merged;
-        assert!(state_of("SHOP-40.2", &board).is_ready());
-    }
-
     #[test]
     fn a_parent_merged_into_another_base_does_not_count() {
         let mut board = chain(Status::Merged, Status::Merged);
@@ -514,22 +376,6 @@ mod tests {
         assert_eq!(
             reason_of("SHOP-20", &board).unwrap(),
             "waits for SHOP-18 to merge"
-        );
-    }
-
-    #[test]
-    fn several_parents_mixed_with_an_epic() {
-        let mut board = epic_board(&[Status::Merged, Status::Working], Status::Backlog);
-        board.push(ticket("SHOP-18", Status::WaitingForYou));
-        board.last_mut().unwrap().depends_on.clear();
-        let i = board
-            .iter()
-            .position(|t| t.key.to_string() == "SHOP-50")
-            .unwrap();
-        board[i].depends_on = vec!["SHOP-18".parse().unwrap(), "SHOP-40".parse().unwrap()];
-        assert_eq!(
-            reason_of("SHOP-50", &board).unwrap(),
-            "waits for SHOP-18, epic SHOP-40 to merge (SHOP-18 in Review, SHOP-40 · 1 of 2 merged)"
         );
     }
 

@@ -4,15 +4,14 @@
 
 use otaq_core::agent_tools::{Adapters, Tool};
 use otaq_core::agents::SessionRole;
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::Kind;
 use otaq_core::service::EventBus;
 use otaq_core::session::{MovedOn, moved_on};
 use otaq_core::store::new_id;
 use otaq_core::usage::{AgentTokens, Tokens, Usage};
 
-use crate::common::{self, Fixture};
+use crate::common::Fixture;
 
 /// One stored session of `t`: its kind, the named agent it ran on (id, name), the exact model that ran, and when it
 /// started.
@@ -98,7 +97,7 @@ async fn moved_on_compares_the_previous_run_of_the_same_agent_and_role() {
 }
 
 /// Tokens by role and named agent: the developer's sessions (resumed and answering ones too) on Strong, the
-/// validator's on Light, an epic's lead on its own; a session that ran on no named agent is its own entry.
+/// validator's on Light.
 #[tokio::test]
 async fn tokens_are_split_by_role_and_named_agent() {
     let f = Fixture::shop().await;
@@ -155,61 +154,6 @@ async fn tokens_are_split_by_role_and_named_agent() {
                 tool: Some(Tool::Claude),
                 tokens: tokens(23_000, 2),
             },
-        ]
-    );
-
-    let epic = f
-        .create_with(NewTicketInput {
-            title: "Wishlist".into(),
-            kind: Kind::Epic,
-            ..common::shop_input()
-        })
-        .await;
-    let project = f.board.project("SHOP").await.unwrap();
-    let lead = new_id();
-    sqlx::query(
-        "INSERT INTO project_agents (id, project_id, tool, state, created_at, epic_id)
-         VALUES (?, ?, ?, 'running', 1, ?)",
-    )
-    .bind(&lead)
-    .bind(&project.id)
-    .bind(Tool::Claude.as_str())
-    .bind(&epic.id)
-    .execute(pool)
-    .await
-    .unwrap();
-    let lead_session = new_id();
-    sqlx::query(
-        "INSERT INTO sessions (id, project_id, kind, tool, tool_session_id, agent_id, agent_name,
-                               project_agent_id, state, started_at)
-         VALUES (?, ?, 'project_agent', ?, 'lead-conversation', 'strong', 'Strong', ?, 'running', 5)",
-    )
-    .bind(&lead_session)
-    .bind(&project.id)
-    .bind(Tool::Claude.as_str())
-    .bind(&lead)
-    .execute(pool)
-    .await
-    .unwrap();
-    let delivery = session(&f, &epic, "delivery", None, None, 50).await;
-    for (id, input) in [(&lead_session, 7_000), (&delivery, 500)] {
-        sqlx::query("INSERT INTO usage (session_id, day, input, cached, output) VALUES (?, '2026-10-17', ?, 0, 0)")
-            .bind(id)
-            .bind(input)
-            .execute(pool)
-            .await
-            .unwrap();
-    }
-    let on_epic = usage.agents_of(&epic.id).await.unwrap();
-    let parts: Vec<_> = on_epic
-        .iter()
-        .map(|a| (a.role, a.agent.as_deref(), a.tokens.map(|t| t.input)))
-        .collect();
-    assert_eq!(
-        parts,
-        [
-            (SessionRole::Developer, None, Some(500)),
-            (SessionRole::EpicLead, Some("Strong"), Some(7_000)),
         ]
     );
 }

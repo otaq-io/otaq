@@ -1,7 +1,7 @@
 //! Launch and resume (ADP-08, SES-03; T-0352). A new conversation:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE, OTAQ_EPIC as for every tool]
+//! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
 //!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq-work-ticket"
 //! ```
@@ -124,7 +124,7 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     }
 }
 
-/// The first prompt as typed: `/otaq-epic-lead <message>`, or the text.
+/// The first prompt as typed: `/otaq-noyan <message>`, or the text.
 fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
     prompt.text(adapter)
 }
@@ -135,8 +135,8 @@ pub(super) fn skill_reference(skill: &str) -> String {
 }
 
 /// Otaq's variables for the role, as for every tool: the ticket and `PORT` for a ticket's agent (an answer, a
-/// delivery), the ticket and the validator role without `PORT` for a validator, the role for a Project agent, the
-/// role and the epic for an epic lead; PATH with the `otaq` folder first.
+/// delivery), the ticket and the validator role without `PORT` for a validator, the role for a Project agent; PATH
+/// with the `otaq` folder first.
 fn environment(
     launch: &LaunchContext,
     request: &LaunchRequest,
@@ -165,17 +165,6 @@ fn environment(
         ],
         LaunchRole::ProjectAgent => {
             vec![("PATH".to_owned(), path), role(naming::ROLE_PROJECT_AGENT)]
-        }
-        LaunchRole::EpicLead => {
-            let epic = request
-                .epic
-                .as_ref()
-                .ok_or_else(|| LaunchError("an epic lead needs its epic".to_owned()))?;
-            vec![
-                ("PATH".to_owned(), path),
-                role(naming::ROLE_EPIC_LEAD),
-                (naming::epic_env_var(), epic.to_string()),
-            ]
         }
     })
 }
@@ -263,7 +252,6 @@ mod tests {
             cwd: "/wt/shop-web/SHOP-29".into(),
             project: "SHOP".into(),
             ticket: Some("SHOP-29".parse().unwrap()),
-            epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
@@ -411,12 +399,10 @@ mod tests {
             LaunchRole::TicketAgent,
             LaunchRole::Validator,
             LaunchRole::ProjectAgent,
-            LaunchRole::EpicLead,
             LaunchRole::Answer,
             LaunchRole::Delivery,
         ] {
             let mut req = request(role);
-            req.epic = Some("SHOP-40".parse().unwrap());
             for model in [None, Some("auto@balance".to_owned())] {
                 req.model = model;
                 let plan = launch(&i.copilot, &req).unwrap();
@@ -473,28 +459,6 @@ mod tests {
             &format!("/{}-validate", naming::COMMAND_NAME)
         );
         assert!(!plan.args.iter().any(|a| a == "--add-dir"));
-
-        let mut req = request(LaunchRole::EpicLead);
-        req.ticket = None;
-        req.first_prompt = Some(FirstPrompt::Skill {
-            name: crate::agent_tools::EPIC_LEAD_SKILL.into(),
-            message: Some("Plan the coupon work".into()),
-        });
-        assert!(launch(&i.copilot, &req).is_err(), "needs its epic");
-        req.epic = Some("SHOP-40".parse().unwrap());
-        let plan = launch(&i.copilot, &req).unwrap();
-        assert_eq!(
-            plan.env,
-            [
-                ("PATH".to_owned(), path()),
-                (naming::role_env_var(), naming::ROLE_EPIC_LEAD.to_owned()),
-                (naming::epic_env_var(), "SHOP-40".to_owned()),
-            ]
-        );
-        assert_eq!(
-            plan.args.last().unwrap(),
-            &format!("/{}-epic-lead Plan the coupon work", naming::COMMAND_NAME)
-        );
 
         let mut req = request(LaunchRole::ProjectAgent);
         req.ticket = None;

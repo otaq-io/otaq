@@ -20,7 +20,7 @@ use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::manual_checks::ManualCheck;
 use crate::board::stage_choices::StageOptions;
 use crate::board::ticket_comments::{CommentAuthor, TicketComment};
-use crate::board::tickets::{Base, Ticket};
+use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::domain::{Place, Status, TicketKey};
 use crate::flow::engine::RunResult;
@@ -31,9 +31,6 @@ use crate::naming;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeContext {
     pub ticket: Ticket,
-    /// The epic a child belongs to: its key and title.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<(TicketKey, String)>,
     pub parents: Vec<Parent>,
     /// Questions from other agents waiting for this one (M10); empty until then.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -41,9 +38,6 @@ pub struct PrimeContext {
     /// The decisions this ticket's agent recorded (DEC-02), so a resumed or sent-back agent sees them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decisions: Vec<crate::decisions::Decision>,
-    /// The epic lead's unread notes to this ticket (LEAD-10), at the top; its own agent's prime marks them read.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unread_notes: Vec<crate::epic_lead::notes::LeadNote>,
     /// The commit skill of the stage's agent (d0050), named for the caller's tool by its copy in the worktree
     /// (AGM-07): `/otaq-commit`, or the agent's imported skill standing for it (`/otaq-commit-compact`). Empty when
     /// the agent has no commit skill: it commits with git.
@@ -58,7 +52,7 @@ pub struct PrimeContext {
     /// The agent's own instructions and the project's notes (AGM-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
-    /// The stage the session works in, its agent and its skill (AGM-06); `None` for an epic.
+    /// The stage the session works in, its agent and its skill (AGM-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<CurrentStage>,
     /// The ticket's earlier stages (AGM-06), oldest first.
@@ -285,8 +279,6 @@ pub enum AgentReader {
     TicketAgent,
     /// A Project agent: any stage of the tickets it creates.
     ProjectAgent,
-    /// An epic lead: any stage of its never-started children.
-    EpicLead,
 }
 
 /// Whose stage choices a prime lists ([`reader_choices`]).
@@ -294,12 +286,12 @@ pub enum AgentReader {
 pub enum ChoicesFor<'a> {
     /// A ticket's own agent: the stages it hasn't reached, whose choice the user didn't set.
     Ticket(&'a Ticket),
-    /// A Project agent or an epic lead in `project`: every stage with options, as a new ticket has them.
+    /// A Project agent in `project`: every stage with options, as a new ticket has them.
     NewTickets(&'a str),
 }
 
 /// The stage choices a prime lists (AGM-06, AGM-08), each option with its model and its instructions' first line;
-/// none on the default flow (no stage has options) and for an epic.
+/// none on the default flow (no stage has options).
 pub async fn reader_choices(
     board: &Board,
     of: ChoicesFor<'_>,
@@ -416,11 +408,6 @@ pub fn render_choices(
              the work is says so, with a reason: `{cmd} create \"Title\" {example} --reason \"…\" --stdin`. When \
              unsure, leave the stage's own agent."
         ),
-        AgentReader::EpicLead => format!(
-            "Set them on never-started children only, when how hard the work is says so, always with a reason: \
-             `{cmd} update <KEY> {example} --reason \"…\"`, or on `{cmd} create --parent`. Never change a choice \
-             the user set."
-        ),
     };
     let mut out = format!("\n## Stage choices\n\n{lead}\n\n");
     for c in choices {
@@ -490,26 +477,15 @@ impl Board {
                 last_comment: self.last_agent_comment(&parent.key.to_string()).await?,
             });
         }
-        let epic = ticket.epic.as_ref().and_then(|e| {
-            tickets
-                .iter()
-                .find(|t| &t.key == e)
-                .map(|t| (t.key.clone(), t.title.clone()))
-        });
         let flow = self.effective_flow(&project).await?;
-        let stage: Option<Stage> = match ticket.is_epic() {
-            true => None,
-            false => {
-                let skips = self.ticket_skips(&ticket, &flow).await?;
-                match role {
-                    SessionRole::Validator => {
-                        crate::agents::resolve::check_stage_of(&flow, &ticket, &skips)
-                    }
-                    _ => crate::agents::resolve::agent_stage_of(&flow, &ticket, &skips),
-                }
-                .cloned()
+        let skips = self.ticket_skips(&ticket, &flow).await?;
+        let stage: Option<Stage> = match role {
+            SessionRole::Validator => {
+                crate::agents::resolve::check_stage_of(&flow, &ticket, &skips)
             }
-        };
+            _ => crate::agents::resolve::agent_stage_of(&flow, &ticket, &skips),
+        }
+        .cloned();
         let agent = match &stage {
             Some(stage) => crate::agents::resolve::running_agent(self, &ticket, &stage.id)
                 .await
@@ -539,14 +515,11 @@ impl Board {
             })
             .collect();
         let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
-        let unread_notes = crate::epic_lead::notes::unread(self, &ticket.id).await?;
         let comments = self.ticket_comments(key).await?.comments;
         let manual_checks = self.manual_checks(key).await?.items;
         let context = PrimeContext {
-            unread_notes,
             conflict,
             ticket,
-            epic,
             parents,
             pending_questions,
             decisions,
@@ -628,7 +601,7 @@ impl Board {
             .collect())
     }
 
-    /// A ticket's last comment from an Agent stage's agent (CMT-07): what its dependents and its epic's lead read.
+    /// A ticket's last comment from an Agent stage's agent (CMT-07): what its dependents read.
     /// A stage the flow no longer has counts as an Agent stage when the comment has no check round.
     pub async fn last_agent_comment(&self, key: &str) -> Result<Option<TicketComment>, BoardError> {
         let ticket = self.ticket(key).await?;
@@ -737,9 +710,6 @@ pub struct ValidatePrime {
     /// Tickets that depend on this one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Linked>,
-    /// The epic a child belongs to, with its description and the other children.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<EpicContext>,
 }
 
 /// The user's line comments of the latest Send back (`prime --validate`'s "The user's review").
@@ -756,15 +726,6 @@ pub struct Linked {
     pub key: TicketKey,
     pub title: String,
     pub status: Status,
-}
-
-/// The epic around an epic child.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EpicContext {
-    pub key: TicketKey,
-    pub title: String,
-    pub description: String,
-    pub siblings: Vec<Linked>,
 }
 
 impl Board {
@@ -786,20 +747,6 @@ impl Board {
             .filter(|t| t.depends_on.contains(&ticket.key))
             .map(linked)
             .collect();
-        let epic = ticket
-            .epic
-            .as_ref()
-            .and_then(|e| tickets.iter().find(|t| &t.key == e))
-            .map(|e| EpicContext {
-                key: e.key.clone(),
-                title: e.title.clone(),
-                description: e.body.clone(),
-                siblings: tickets
-                    .iter()
-                    .filter(|t| t.epic.as_ref() == Some(&e.key) && t.key != ticket.key)
-                    .map(linked)
-                    .collect(),
-            });
         let rounds = self
             .effective_flow(&project)
             .await?
@@ -819,7 +766,6 @@ impl Board {
             instructions: base.instructions,
             parents: base.parents,
             children,
-            epic,
             ticket,
         })
     }
@@ -893,7 +839,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
             out.push_str(&format!("- {}:{}: {}\n", c.file, c.line, c.body.trim()));
         }
     }
-    if !ctx.parents.is_empty() || !ctx.children.is_empty() || ctx.epic.is_some() {
+    if !ctx.parents.is_empty() || !ctx.children.is_empty() {
         out.push_str(
             "\n## Linked tickets\n\nA gap another of these covers is a note, not a failure.\n",
         );
@@ -915,21 +861,6 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
                 c.title,
                 c.status.label()
             ));
-        }
-        if let Some(epic) = &ctx.epic {
-            out.push_str(&format!("\nEpic {} · {}:\n", epic.key, epic.title));
-            if !epic.description.trim().is_empty() {
-                out.push_str(epic.description.trim());
-                out.push('\n');
-            }
-            for s in &epic.siblings {
-                out.push_str(&format!(
-                    "- sibling {} · {} ({})\n",
-                    s.key,
-                    s.title,
-                    s.status.label()
-                ));
-            }
         }
     }
     out.push_str(&format!(
@@ -1198,16 +1129,7 @@ pub fn render(ctx: &PrimeContext) -> String {
     let t = &ctx.ticket;
     let cmd = naming::COMMAND_NAME;
     let mut out = format!("# {} · {}\n\n", t.key, t.title);
-    if !ctx.unread_notes.is_empty() {
-        out.push_str(&format!(
-            "## Notes from your epic's lead\n\n{}\n\nApply them before you go on.\n\n",
-            crate::epic_lead::notes::unread_message(&ctx.unread_notes)
-        ));
-    }
-    let base = match &t.base {
-        Base::Branch(b) => format!("`{b}`"),
-        Base::Epic(e) => format!("the epic's branch ({e})"),
-    };
+    let base = t.base.describe();
     let branch = t
         .work
         .as_ref()
@@ -1219,9 +1141,6 @@ pub fn render(ctx: &PrimeContext) -> String {
         naming::PRODUCT_NAME,
         t.key
     ));
-    if let Some((key, title)) = &ctx.epic {
-        out.push_str(&format!("It is part of the epic {key} · {title}.\n"));
-    }
     out.push_str(&format!("Priority: {}.\n", t.priority));
     if let Some(conflict) = &ctx.conflict {
         out.push_str(&render_conflict(conflict, &ctx.restack_skill));
@@ -1277,18 +1196,11 @@ pub fn render(ctx: &PrimeContext) -> String {
     }
 
     if !ctx.decisions.is_empty() {
-        let lead = ctx
-            .epic
-            .as_ref()
-            .map(|(_, title)| crate::project_agents::lead::lead_name(title));
         out.push_str(
             "\n## Decisions you recorded\n\nThe user sees these in the review; don't record them again.\n\n",
         );
         for decision in &ctx.decisions {
-            out.push_str(&format!(
-                "- {}",
-                crate::decisions::render(decision, "  ", lead.as_deref())
-            ));
+            out.push_str(&format!("- {}", crate::decisions::render(decision, "  ")));
         }
     }
 

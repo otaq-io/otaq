@@ -3,7 +3,7 @@
 //! leaves the worktree for the stock, so the next ticket can start from it. The worktree, branch, ports and agent
 //! session stay as they are.
 //!
-//! - Only in [`FREED_IN`], never for an epic, only while the build is in the worktree (`build_state = present`).
+//! - Only in [`FREED_IN`], only while the build is in the worktree (`build_state = present`).
 //! - A Run or Shell still open holds it ([`FreeOutcome::Waiting`]): Otaq never stops the user's process. The Free
 //!   runs again when it closes.
 //! - Warm builds on: the files are added to the stock ([`Stock::add`], which applies the limit). Off: they are
@@ -39,7 +39,7 @@ pub enum FreeOutcome {
     Freed { entry: Option<u64> },
     /// A Run or Shell of the ticket is open: freed once it closes.
     Waiting,
-    /// Nothing to free: not in Review, an epic, no worktree, or the build isn't in the worktree.
+    /// Nothing to free: not in Review, no worktree, or the build isn't in the worktree.
     NotNeeded,
     /// The build stays in the worktree: why.
     Failed(String),
@@ -52,11 +52,10 @@ pub(crate) fn has_live_terminal(sessions: &Sessions, ticket_id: &str) -> bool {
         .any(|kind| sessions.running_of(ticket_id, kind).is_some())
 }
 
-/// The ticket can have its build freed, judged from its row: in [`FREED_IN`], not an epic, its build in its
-/// worktree. Returns the worktree.
+/// The ticket can have its build freed, judged from its row: in [`FREED_IN`], its build in its worktree. Returns the worktree.
 pub(crate) fn to_free(ticket: &Ticket) -> Option<PathBuf> {
     let work = ticket.work.as_ref()?;
-    if !freed_in(ticket.status) || ticket.is_epic() || work.build_state != BuildState::Present {
+    if !freed_in(ticket.status) || work.build_state != BuildState::Present {
         return None;
     }
     work.worktree.as_deref().map(PathBuf::from)

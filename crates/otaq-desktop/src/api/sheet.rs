@@ -5,11 +5,6 @@
 //! the Start interrupted callout and the tab strip with its indicators. The buttons that talk to the service land
 //! here too, so their wording (toasts, refusals) stays in Rust; the ones that open a tab or a dialog are the page's.
 //!
-//! An epic's sheet (SHT-07, T-0469; d0083): Overview · Tickets · Lead · Files · Activity, "1 of 5 merged" and its
-//! lead's state by the title, Lead, Model and Tickets on its details line; its lead's own question ("Wishlist lead
-//! asks") is Overview's top, answered with `project_agent.answer`; "Resume lead" leads the bar while its lead ended by
-//! restart (or its agent tool exited).
-//!
 //! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header, details line
 //! and tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
 //! T-0465, T-0466 and T-0468 move it. `sheet.move_menu` is the header's Move….
@@ -19,13 +14,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use otaq_core::board::conflicts::Conflict;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::questions::Choice;
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{TicketKey, ValidationAction};
-use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
-    CloseParams, CommentsParams, DeliverNowParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
+    CloseParams, CommentsParams, DeliverNowParams, DepParams, KeyParams, MoveParams,
     ProjectParams, Reply, Request, SessionListParams, SessionTarget, SetChoiceParams, SubmitByUserParams, UsageParams,
     ValidationActionParams,
 };
@@ -45,7 +39,6 @@ use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
 };
 use otaq_view::view_models::close;
-use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::flow_columns::Columns;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::session_tab::{self, Dot, PartView};
@@ -218,13 +211,13 @@ pub struct TabView {
     pub tab: SheetTab,
     pub label: &'static str,
     pub icon: IconName,
-    /// Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2, its Tickets has none (Q-A).
+    /// Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`).
     pub number: Option<u8>,
     /// The user's first key for it (`1`).
     pub keys: Option<String>,
-    /// The live dot (Session: its agents'; Lead: the lead's).
+    /// The live dot (Session: its agents').
     pub mark: Option<Mark>,
-    /// The short note after its name: an epic's Tickets "5" (`s25-11`).
+    /// The short note after its name: Files "3" (`s25-03`).
     pub count: Option<String>,
     /// What it can show: itself, or Session's parts (the check only once one ran).
     pub contents: Vec<Content>,
@@ -241,10 +234,8 @@ pub struct TabView {
 pub struct SheetFrame {
     pub crumbs: Vec<Crumb>,
     pub details: Vec<Detail>,
-    /// The flow path under the details line; empty for an epic.
+    /// The flow path under the details line.
     pub steps: Vec<Step>,
-    /// An epic's "1 of 5 merged" and its lead's state beside the title (SHT-07); its header has no Move….
-    pub epic: Option<otaq_view::view_models::epic_sheet::Head>,
     pub tabs: Vec<TabView>,
     pub opens_on: SheetTab,
     /// "Move…": the drag's columns (`sheet.move_menu`).
@@ -277,8 +268,6 @@ pub struct AnswerRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetAnswer")]
 pub struct Answer {
-    /// Who asks, over an epic lead's question: "Wishlist lead asks" (`s25-11`); the lead's options are its buttons.
-    pub asker: Option<String>,
     pub question: String,
     pub text: String,
     pub rows: Vec<AnswerRow>,
@@ -367,7 +356,6 @@ pub struct Confirm {
 pub struct View {
     pub key: String,
     pub title: String,
-    pub epic: bool,
     pub priority: PriorityView,
     pub priority_hint: String,
     pub priority_menu: Vec<MenuItem>,
@@ -468,8 +456,6 @@ pub struct Facts<'a> {
     pub run: Option<&'a otaq_core::terminals::run::RunInfo>,
     /// Open recorded decisions Approve keeps: "Approve · keeps N decisions" (DEC-05, T-0287).
     pub decisions: u32,
-    /// An epic's lead (T-0290): the Lead tab's dot, its question bar and Resume lead.
-    pub lead: Option<&'a Lead>,
     /// The rows and the sessions' named agents (`ticket.agents`), with the agent tools and their model lists.
     pub agents: Option<&'a TicketAgents>,
     pub tools: &'a Tools,
@@ -478,9 +464,8 @@ pub struct Facts<'a> {
     /// Its project's flow isn't the default's shape: a human check's Approve is its Pass (FLW-14), Send back with PR
     /// comments (FLW-16).
     pub custom_flow: bool,
-    /// Its project's name and its epic's title: the breadcrumb (SHT-01).
+    /// Its project's name: the breadcrumb (SHT-01).
     pub project_name: &'a str,
-    pub epic_title: Option<&'a str>,
     /// The Files tab's count (Q421): "Files 3"; `None` with no changes or before it started.
     pub files_count: Option<u32>,
 }
@@ -499,30 +484,9 @@ fn answer_of(ticket: &Ticket) -> Option<Answer> {
     question_bar(ticket.question.as_ref()?)
 }
 
-/// The epic lead's own `ask human` question (*05 → Lead tab · asks you*): the same bar as a ticket's (d0061).
-fn lead_answer_of(lead: &Lead) -> Option<Answer> {
-    if lead.status != LeadStatus::AsksYou {
-        return None;
-    }
-    let mut bar = question_bar(lead.agent.question.as_ref()?)?;
-    bar.asker = Some(format!("{} asks", lead.name));
-    Some(bar)
-}
-
-/// An epic lead that ended and can continue: "Resume lead" leads the bar (*05 → Lead tab · ended by restart*).
-fn resumes_lead(lead: Option<&Lead>) -> bool {
-    lead.is_some_and(|l| {
-        matches!(
-            l.status,
-            LeadStatus::EndedByRestart | LeadStatus::Paused | LeadStatus::Ended
-        )
-    })
-}
-
 fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option<Answer> {
     let options = AnswerOptions::of(question)?;
     Some(Answer {
-        asker: None,
         question: question.id.clone(),
         text: question.text.clone(),
         rows: options
@@ -572,11 +536,9 @@ fn notice_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<Notice> {
 pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
     let live = running_agent(f.sessions);
-    // Run is built here (T-0232); `actions::buttons` leaves it out. Resume lead is the epic sheet's (T-0290).
-    let resume_lead = (ticket.is_epic() && resumes_lead(f.lead)).then_some((Action::ResumeLead, Look::Primary));
-    let buttons: Vec<Button> = resume_lead
+    // Run is built here (T-0232); `actions::buttons` leaves it out.
+    let buttons: Vec<Button> = actions::all_buttons_in(ticket, f.custom_flow)
         .into_iter()
-        .chain(actions::all_buttons_in(ticket, f.custom_flow))
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
         .map(|(action, look)| Button {
             action,
@@ -601,7 +563,6 @@ pub fn view_of(f: &Facts) -> View {
             look,
         })
         .collect();
-    let has_epics = !epic_actions::epic_choices(f.tickets).is_empty();
     let has_branch = ticket.work.as_ref().is_some_and(|w| w.branch.is_some());
     let signal = ticket.flags.last_signal_at.map(|at| Signal {
         text: format!("{} ago", age_label(f.now - at)),
@@ -646,12 +607,8 @@ pub fn view_of(f: &Facts) -> View {
     View {
         key: ticket.key.to_string(),
         title: ticket.title.clone(),
-        epic: ticket.is_epic(),
         priority: priority::view(ticket.priority),
-        priority_hint: match (&ticket.epic, ticket.priority_inherited) {
-            (Some(epic), true) => priority::inherited_hint(epic),
-            _ => "Priority".to_owned(),
-        },
+        priority_hint: "Priority".to_owned(),
         priority_menu: priority::menu_items(ticket.priority),
         pill: {
             let mut pill = PillView::of(status::shown(ticket));
@@ -667,10 +624,7 @@ pub fn view_of(f: &Facts) -> View {
             full,
         }),
         copy_branch: "Copy branch name",
-        base: match &ticket.base {
-            Base::Branch(b) => b.clone(),
-            Base::Epic(epic) => otaq_core::naming::branch(&epic.to_string()),
-        },
+        base: ticket.base.branch().to_owned(),
         signal,
         tokens,
         token_split: match f.agents {
@@ -696,13 +650,13 @@ pub fn view_of(f: &Facts) -> View {
         }),
         buttons,
         parent: ticket.depends_on.first().map(ToString::to_string),
-        menu: actions::menu(ticket, has_epics, has_branch, !f.sessions.is_empty()),
+        menu: actions::menu(ticket, has_branch, !f.sessions.is_empty()),
         attach_command: format!(
             "{} attach {}",
             otaq_core::naming::COMMAND_NAME,
             ticket.key
         ),
-        answer: answer_of(ticket).or_else(|| f.lead.filter(|_| ticket.is_epic()).and_then(lead_answer_of)),
+        answer: answer_of(ticket),
         notice: notice_of(ticket, f.tickets),
         conflict: f
             .conflict
@@ -788,12 +742,6 @@ fn sheet_of(f: &Facts) -> SheetFrame {
                     parts.clone(),
                     session_tab::tab_dot(&parts),
                 ),
-                SheetTab::Lead => (
-                    tab.contents().to_vec(),
-                    Content::Lead,
-                    Vec::new(),
-                    sheet::lead_dot(f.lead.map(|l| &l.status)),
-                ),
                 _ => (tab.contents().to_vec(), tab.contents()[0], Vec::new(), None),
             };
             TabView {
@@ -806,11 +754,6 @@ fn sheet_of(f: &Facts) -> SheetFrame {
                     .and_then(|n| f.keys.label(KeyAction::SwitchTab(n))),
                 mark: dot.map(Mark::of),
                 count: match tab {
-                    SheetTab::Tickets => Some(
-                        otaq_view::view_models::epic_sheet::children(ticket, f.tickets)
-                            .len()
-                            .to_string(),
-                    ),
                     SheetTab::Files => sheet::files_count_label(f.files_count),
                     _ => None,
                 },
@@ -821,20 +764,15 @@ fn sheet_of(f: &Facts) -> SheetFrame {
         })
         .collect();
     SheetFrame {
-        crumbs: sheet::breadcrumb(ticket, f.project_name, f.epic_title),
+        crumbs: sheet::breadcrumb(ticket, f.project_name),
         details: sheet::details(&DetailFacts {
             ticket,
             agents: f.agents,
             tools: f.tools,
-            epic_title: f.epic_title,
-            lead: f.lead,
             tickets: f.tickets,
             now: f.now,
         }),
         steps: sheet::steps(ticket, f.agents),
-        epic: ticket
-            .is_epic()
-            .then(|| otaq_view::view_models::epic_sheet::head(ticket, f.tickets, f.lead)),
         tabs,
         opens_on: sheet::opens_on(ticket),
         move_label: sheet::MOVE,
@@ -1006,12 +944,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     } else {
         0
     };
-    let decisions = super::review::open_decisions(app, &ticket, &all).await;
-    let lead = if ticket.is_epic() {
-        super::lead::lead_of(app, &ticket).await
-    } else {
-        None
-    };
+    let decisions = super::review::open_decisions(app, &ticket).await;
     let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
     let tools = super::editor::agent_tools(app).await;
     let keys = super::keymap::labels(app).await;
@@ -1021,11 +954,6 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         .then(|| super::review::send_back_stage(&ticket, &flow, agents.as_ref()))
         .flatten();
     let project_name = project_name(app, ticket.key.project.as_str()).await;
-    let epic_title = ticket
-        .epic
-        .as_ref()
-        .and_then(|epic| all.iter().find(|t| &t.key == epic))
-        .map(|epic| epic.title.clone());
     let files_count = files_count(app, &ticket, params.opened).await;
     let view = view_of(&Facts {
         ticket: &ticket,
@@ -1040,13 +968,11 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         now: now_ms(),
         run: run.as_ref(),
         decisions,
-        lead: lead.as_ref(),
         agents: agents.as_ref(),
         tools: &tools,
         keys,
         custom_flow,
         project_name: &project_name,
-        epic_title: epic_title.as_deref(),
         files_count,
     });
     Ok(Load {
@@ -1144,10 +1070,6 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             Request::TicketRetryResume(k),
             format!("{key} can\u{2019}t be resumed"),
         ),
-        Action::ResumeLead => (
-            Request::LeadResume(LeadParams { epic: key.clone() }),
-            format!("{key}\u{2019}s lead can\u{2019}t be resumed"),
-        ),
         Action::Reopen => (
             Request::TicketReopen(k),
             format!("{key} can\u{2019}t be reopened"),
@@ -1159,11 +1081,6 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
         Action::MoveOnAnyway => (
             validation_request(&key, ValidationAction::MoveOnAnyway, ""),
             format!("{key} can\u{2019}t be moved on"),
-        ),
-        // FLW-16: a Backlog child with the epic's unresolved PR comments.
-        Action::AddChildFromPr => (
-            Request::TicketAddChildFromPr(k),
-            format!("{key}\u{2019}s PR comments didn\u{2019}t become a child"),
         ),
         Action::AnotherRound => (
             validation_request(&key, ValidationAction::AnotherRound, ""),
@@ -1542,9 +1459,6 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<Sent, RequestErro
     let Some(ticket) = ticket(app, &params.key).await? else {
         return Err(RequestError::plain(format!("{key} is gone.")));
     };
-    if ticket.is_epic() {
-        return answer_lead(app, &ticket, &params).await;
-    }
     let Some(choice) = choice_of(&ticket, &params) else {
         return Err(RequestError::plain(format!(
             "{key}\u{2019}s question has changed"
@@ -1562,48 +1476,6 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<Sent, RequestErro
         Ok(other) => Err(unexpected("needs_you.answer", &other)),
         Err(e) => {
             toast_error(app, format!("The answer to {key} wasn\u{2019}t sent"), &e);
-            Err(e)
-        }
-    }
-}
-
-/// The epic lead's question answered from the epic sheet's bar (T-0290): typed into the lead's session as for a
-/// Project agent (PAG-07); with unsent text in its input line the user is asked first (d0048).
-async fn answer_lead(app: &App, epic: &Ticket, params: &AnswerParams) -> Result<Sent, RequestError> {
-    let lead = super::lead::lead_of(app, epic).await;
-    let name = lead
-        .as_ref()
-        .map_or_else(|| format!("{} lead", epic.title), |l| l.name.clone());
-    let choice = lead
-        .as_ref()
-        .and_then(|l| l.agent.question.as_ref())
-        .filter(|q| q.id == params.question)
-        .and_then(|q| {
-            let mut options = AnswerOptions::of(q)?;
-            options.press(params.pick).then_some(())?;
-            options.choice(&params.other)
-        })
-        .ok_or_else(|| RequestError::plain(format!("{name}\u{2019}s question has changed")))?;
-    let Some(lead) = lead else {
-        return Err(RequestError::plain(format!("{name}\u{2019}s question has changed")));
-    };
-    let request = Request::ProjectAgentAnswer(ProjectAgentAnswerParams {
-        id: lead.agent.id.clone(),
-        choice: choice.clone(),
-        clear: params.clear,
-    });
-    match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
-            let (title, body) = otaq_view::view_models::lead_tab::unsent(&name, &choice);
-            Ok(Sent::Ask(Unsent::asking(
-                title,
-                body,
-                unclearable_by.as_deref(),
-            )))
-        }
-        Ok(_) => Ok(Sent::Done),
-        Err(e) => {
-            toast_error(app, format!("The answer to {name} wasn\u{2019}t sent"), &e);
             Err(e)
         }
     }
@@ -1670,13 +1542,10 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         // FLW-13: Move on anyway after the last failed round; Skip this check at the plan limit with no fallback.
         CardActionKind::MoveOnAnyway => (validation(V::MoveOnAnyway), format!("{key} can\u{2019}t be moved on")),
         CardActionKind::SkipCheck => (validation(V::Skip), format!("{key}\u{2019}s check can\u{2019}t be skipped")),
-        // FLW-16: an epic's PR comments as a Backlog child.
-        CardActionKind::AddChildFromPr => (
-            Request::TicketAddChildFromPr(KeyParams {
-                key: params.key.clone(),
-            }),
-            format!("{key}\u{2019}s PR comments didn\u{2019}t become a child"),
-        ),
+        // No card shows it since the epic type left (d0133).
+        CardActionKind::AddChildFromPr => {
+            return Err(RequestError::plain(format!("{key} has no PR comments to add")));
+        }
         // A held role's fallback takes it (AGT-08, T-0362).
         CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
             Request::TicketUseFallback(otaq_core::protocol::UseFallbackParams {
@@ -1870,7 +1739,7 @@ pub fn notes_gallery() -> NotesGallery {
     let [asks, passed] = note_samples();
     let tickets: Vec<Ticket> = [
         ("NOTE-1", "Add export", asks),
-        ("NOTE-10.1", "Invoice export", passed),
+        ("NOTE-11", "Invoice export", passed),
     ]
     .into_iter()
     .map(|(key, title, question)| {
@@ -1895,13 +1764,11 @@ pub fn notes_gallery() -> NotesGallery {
                     now: NOW,
                     run: None,
                     decisions: 0,
-                    lead: None,
                     agents: None,
                     tools,
                     keys: KeyLabels::default(),
                     custom_flow: false,
                     project_name: "shop-web",
-                    epic_title: None,
                     files_count: None,
                     send_back_to: None,
                 })
@@ -1950,14 +1817,10 @@ pub fn sheet_gallery() -> Vec<View> {
         branch: Some(otaq_core::naming::branch("SHOP-18")),
         ..Default::default()
     });
-    let mut epic = ticket("SHOP-40", "Wishlist", Status::Working, Place::Waiting(None));
-    epic.kind = otaq_core::domain::Kind::Epic;
-    let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Working, Place::InStage("dev".into()));
-    child.epic = Some(epic.key.clone());
-    child.base = Base::Epic(epic.key.clone());
-    child.flags.tokens = Some(21_000);
+    let mut button = ticket("SHOP-24", "Wishlist button", Status::Working, Place::InStage("dev".into()));
+    button.flags.tokens = Some(21_000);
     let shop_41 = ticket("SHOP-41", "Fix README typo", Status::Backlog, Place::Backlog);
-    let tickets = vec![shop_22, shop_18, child, shop_41, epic];
+    let tickets = vec![shop_22, shop_18, button, shop_41];
     let running = |agent: &str, tool, model: &str, minutes: i64| {
         let mut s = agents::session("s1", SessionRole::Developer, agent, tool, None, Some(model));
         s.running = true;
@@ -1996,14 +1859,12 @@ pub fn sheet_gallery() -> Vec<View> {
                 now: NOW,
                 run: None,
                 decisions: 0,
-                lead: None,
                 agents: Some(&facts),
                 tools,
                 keys: KeyLabels::default(),
                 custom_flow: true,
                 send_back_to: None,
                 project_name: "shop-web",
-                epic_title: ticket.epic.as_ref().map(|_| "Wishlist"),
                 // `s25-03`: "Files 3" once it started.
                 files_count: ticket.started_at.map(|_| 3),
             })
@@ -2093,13 +1954,11 @@ mod tests {
             now: 60_000,
             run: None,
             decisions: 0,
-            lead: None,
             agents: None,
             tools: one_tool(),
             keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
             custom_flow: false,
             project_name: "shop-web",
-            epic_title: None,
             files_count: None,
             send_back_to: None,
         }
@@ -2168,8 +2027,8 @@ mod tests {
         assert_eq!((off.sheet.full_page.keys, off.sheet.back.keys), (None, None));
     }
 
-    /// The gallery's sheets (T-0464): SHOP-22's details as drawn in `s25-03`, SHOP-18 waiting for you, 40.2 under
-    /// its epic, SHOP-41's Grill agent to pick.
+    /// The gallery's sheets (T-0464): SHOP-22's details as drawn in `s25-03`, SHOP-18 waiting for you, SHOP-24
+    /// working, SHOP-41's Grill agent to pick.
     #[test]
     fn the_sheet_gallery_draws_the_frames_details() {
         let views = sheet_gallery();
@@ -2193,8 +2052,7 @@ mod tests {
         assert_eq!(views[0].sheet.details[0].avatar.as_ref().map(|a| a.letters.as_str()), Some("CX"));
         assert_eq!(&line(&views[1])[..3], ["Assignee You", "Model \u{2014}", "Working waiting for you \u{b7} 12 min"]);
         let crumbs: Vec<&str> = views[2].sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
-        assert_eq!(crumbs, ["shop-web", "Wishlist", "40.2"]);
-        assert_eq!(line(&views[2]).last().map(String::as_str), Some("Epic Wishlist"));
+        assert_eq!(crumbs, ["shop-web", "SHOP-24"]);
         assert!(matches!(
             views[3].sheet.details[0].change,
             Some(sheet::DetailChange::Choice { .. })
@@ -2285,7 +2143,6 @@ mod tests {
             recommended: Some(1),
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         });
         let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
         let answer = view.answer.unwrap();
@@ -2382,71 +2239,6 @@ mod tests {
         assert_eq!(view.sheet.tabs[1].parts[1].dot, Some(Dot::Problem));
     }
 
-    /// An epic's sheet (SHT-07): Overview · Tickets (its count, no key) · Lead · Files · Activity, Lead on `2`, the Lead
-    /// tab's dot, "1 of N merged" and the lead's state by the title, the lead's question with "<lead> asks", and Resume
-    /// lead after a restart.
-    #[test]
-    fn an_epic_shows_its_lead() {
-        use otaq_core::project_agents::lead::LeadStatus;
-        use otaq_view::view_models::lead_tab::fixtures;
-        let epic = fixtures::epic();
-        let all = fixtures::tickets();
-        let tabs = |view: &View| view.sheet.tabs.iter().map(|t| t.label).collect::<Vec<_>>();
-        let idle = fixtures::lead(LeadStatus::Idle);
-        let view = view_of(&Facts {
-            lead: Some(&idle),
-            ..facts(&epic, &all, &[])
-        });
-        assert_eq!(
-            tabs(&view),
-            ["Overview", "Tickets", "Lead", "Files", "Activity"]
-        );
-        let children = otaq_view::view_models::epic_sheet::children(&epic, &all).len();
-        assert_eq!(view.sheet.tabs[1].count, Some(children.to_string()));
-        assert_eq!((view.sheet.tabs[1].number, view.sheet.tabs[1].keys.as_deref()), (None, None));
-        assert_eq!(view.sheet.tabs[2].mark, Some(Mark::Live));
-        assert_eq!(
-            view.sheet.tabs[2].keys.as_deref(),
-            Some("2"),
-            "the Lead tab takes Session's key on an epic"
-        );
-        let head = view.sheet.epic.as_ref().unwrap();
-        assert!(head.progress.ends_with(" merged"), "{}", head.progress);
-        assert_eq!(head.lead.as_ref().unwrap().label, "Lead idle");
-        assert_eq!(view.sheet.details[0].label, "Lead");
-        assert_eq!(view.answer, None);
-        assert!(!labels(&view).contains(&"Resume lead"));
-
-        let mut asking = fixtures::lead(LeadStatus::AsksYou);
-        asking.agent.question = Some(otaq_core::board::questions::HumanQuestion {
-            id: "q-lead".into(),
-            text: "Should the share link (40.4) expire?".into(),
-            options: vec!["Never".into(), "After 30 days".into()],
-            recommended: None,
-            notes: Vec::new(),
-            asked_at: 0,
-            via_lead: None,
-        });
-        let view = view_of(&Facts {
-            lead: Some(&asking),
-            ..facts(&epic, &all, &[])
-        });
-        assert_eq!(view.sheet.tabs[2].mark, Some(Mark::LiveAttention));
-        let answer = view.answer.unwrap();
-        assert_eq!(answer.asker, Some(format!("{} asks", asking.name)));
-        assert_eq!(answer.question, "q-lead");
-        assert_eq!(answer.rows.len(), 3, "two options and Other");
-
-        let ended = fixtures::lead(LeadStatus::EndedByRestart);
-        let view = view_of(&Facts {
-            lead: Some(&ended),
-            ..facts(&epic, &all, &[])
-        });
-        assert_eq!(labels(&view)[0], "Resume lead");
-        assert_eq!(view.buttons[0].look, Look::Primary);
-        assert_eq!(view.sheet.tabs[2].mark, None);
-    }
-
     #[test]
     fn send_back_counts_the_pending_comments() {
         let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
@@ -2520,7 +2312,6 @@ mod tests {
             tokens: tokens(67_000),
             validation: tokens(9_000),
             rounds: 0,
-            lead: None,
         };
         let view = view_of(&Facts {
             usage: Some(&usage),
@@ -2570,7 +2361,7 @@ mod tests {
         );
         assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
 
-        let mut stopped = fixture("SHOP-40.2", "Wishlist page", Status::DeliveryStopped);
+        let mut stopped = fixture("SHOP-42", "Wishlist page", Status::DeliveryStopped);
         stopped.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty);
         stopped.signal = Some(otaq_core::board::tickets::AgentSignal {
             text: Some("shop-web has uncommitted changes on main. Clean up and retry.".into()),
@@ -2725,11 +2516,9 @@ mod tests {
             .service
             .send(Request::TicketCreate(NewTicketInput {
                 project: project.key.clone(),
-                kind: Default::default(),
                 title: "Price table".into(),
                 body: String::new(),
                 priority: None,
-                epic: None,
                 base_branch: None,
                 external_id: None,
                 first_comment: None,

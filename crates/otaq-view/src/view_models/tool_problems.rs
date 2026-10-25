@@ -9,7 +9,7 @@
 //!   "Codex isn't available · logged out" with Use fallback (Claude Code), Change agent and Sign in…; "Claude Code
 //!   limit reached · resets 3:45 pm"; "Model unavailable" with Change agent (Change validator for the Validator).
 //!   The fallback is the tool's (AGM-03, d0108): it takes a held start only when you ask.
-//! - **A running or ended agent** whose tool isn't available or is at its limit ([`agent_notice`], [`lead_notice`]):
+//! - **A running or ended agent** whose tool isn't available or is at its limit ([`agent_notice`]):
 //!   it waits, since a conversation never moves tools; the agent panel offers Sign in… and "New agent on Sonnet".
 //!
 //! Unavailable, a model no longer listed and moves are amber; limits are neutral; nothing here is turquoise (d0077).
@@ -553,87 +553,6 @@ pub fn first_message_notice(
     notice
 }
 
-/// The epic lead's waiting state (*08 → Epic lead · its tool isn't available / is at its limit*), on the Lead tab:
-/// a lead held before its start (`hold`), or a running or ended lead on a tool that can't run now.
-pub fn lead_notice(
-    hold: Option<&AgentHold>,
-    lead_tool: Option<Tool>,
-    agents: &[Agent],
-    tools: &Tools,
-) -> Option<Callout> {
-    if let Some(hold) = hold {
-        let tool = hold.tool;
-        let problem = tools.problem(tool);
-        let (tone, heading, buttons) = match hold.reason {
-            HoldReason::ToolUnavailable => (
-                Tone::Amber,
-                match &problem {
-                    Some(Problem::Unavailable { reason, .. }) => unavailable_text(tool, reason),
-                    _ => format!("{} isn\u{2019}t available", tool_word(tool)),
-                },
-                unavailable_buttons(tool, problem.as_ref()),
-            ),
-            HoldReason::ToolLimit => (
-                Tone::Neutral,
-                format!("Waiting for {}\u{2019}s limit reset", tool_word(tool)),
-                Vec::new(),
-            ),
-            HoldReason::ModelUnavailable => (
-                Tone::Amber,
-                MODEL_UNAVAILABLE.to_owned(),
-                vec![open_agent(hold.agent_id.as_deref())],
-            ),
-        };
-        let callout = hold_callout(hold, agents, tools);
-        return Some(Callout {
-            heading,
-            tone,
-            buttons: buttons
-                .into_iter()
-                .enumerate()
-                .map(|(i, b)| Button {
-                    primary: i == 0,
-                    ..b
-                })
-                .collect(),
-            ..callout
-        });
-    }
-    let tool = lead_tool?;
-    let problem = tools.problem(tool)?;
-    let (tone, heading, buttons) = match &problem {
-        Problem::Unavailable { reason, .. } => (
-            Tone::Amber,
-            format!(
-                "{}. The lead waits; children on {} wait too.",
-                unavailable_text(tool, reason),
-                tool_word(tool)
-            ),
-            unavailable_buttons(tool, Some(&problem)),
-        ),
-        Problem::Limit { resets_at } => (
-            Tone::Neutral,
-            format!(
-                "{}. The lead continues after the reset.",
-                limit_text(tool, *resets_at, tools.now)
-            ),
-            Vec::new(),
-        ),
-    };
-    Some(Callout {
-        role: None,
-        tone,
-        avatar: tools.avatar(tool, None),
-        heading,
-        text: None,
-        model: None,
-        buttons: buttons
-            .into_iter()
-            .map(|b| Button { primary: true, ..b })
-            .collect(),
-    })
-}
-
 /// "Codex isn't available (logged out)", for a recovery row whose tool can't resume now (*16 → Recovery per tool*).
 pub fn recovery_problem(tool: Tool, tools: &Tools) -> Option<(String, Option<Button>)> {
     match tools.problem(tool)? {
@@ -1045,62 +964,6 @@ mod tests {
             "Codex isn\u{2019}t available \u{b7} signed out. Your message is kept: it starts after you sign in."
         );
         assert_eq!(labels(&c), ["Sign in\u{2026}", "New agent on Sonnet"]);
-    }
-
-    /// *08 → Epic lead*: the three waiting states of a lead held before its start, and a running lead's tool.
-    #[test]
-    fn the_leads_waiting_states() {
-        let all = agents();
-        let held = |reason, tools: &Tools| {
-            lead_notice(
-                Some(&hold(
-                    SessionRole::EpicLead,
-                    reason,
-                    CODEX,
-                    "standard",
-                    Some("gpt-5.4"),
-                )),
-                None,
-                &all,
-                tools,
-            )
-            .unwrap()
-        };
-        let c = held(HoldReason::ToolUnavailable, &codex_logged_out());
-        assert_eq!(
-            (c.heading.as_str(), labels(&c)),
-            (
-                "Codex isn\u{2019}t available \u{b7} signed out",
-                vec!["Sign in\u{2026}"]
-            )
-        );
-        let c = held(HoldReason::ToolLimit, &at_limit(CODEX, None));
-        assert_eq!(
-            (c.heading.as_str(), c.tone),
-            ("Waiting for Codex\u{2019}s limit reset", Tone::Neutral)
-        );
-        assert!(c.buttons.is_empty());
-        let c = held(HoldReason::ModelUnavailable, &several());
-        assert_eq!(
-            (c.heading.as_str(), labels(&c)),
-            ("Model unavailable", vec!["Open agent\u{2026}"])
-        );
-        assert!(matches!(c.buttons[0].action, Action::OpenAgent { .. }));
-        // A running lead on a logged-out tool, and at its limit.
-        let mut tools = several();
-        tools.statuses[0] = status(CLAUDE, AgentToolState::FoundNotSignedIn { version: None });
-        let c = lead_notice(None, Some(CLAUDE), &all, &tools).unwrap();
-        assert_eq!(
-            c.heading,
-            "Claude Code isn\u{2019}t available \u{b7} signed out. The lead waits; children on Claude Code wait too."
-        );
-        assert_eq!(labels(&c), ["Sign in\u{2026}"]);
-        let c = lead_notice(None, Some(CLAUDE), &all, &at_limit(CLAUDE, None)).unwrap();
-        assert_eq!(
-            c.heading,
-            "Claude Code limit reached. The lead continues after the reset."
-        );
-        assert_eq!(lead_notice(None, Some(CLAUDE), &all, &several()), None);
     }
 
     #[test]

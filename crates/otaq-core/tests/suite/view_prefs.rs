@@ -2,7 +2,7 @@
 //! `project_view.set`, read back after a restart; the Settings page's save never puts an older view back.
 
 use otaq_core::board::settings::{
-    BoardView, DONE_COLUMN, Dependencies, GroupBy, Lanes, ProjectSettings, ViewPrefs,
+    BoardView, DONE_COLUMN, Dependencies, GroupBy, ProjectSettings, ViewPrefs,
 };
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::protocol::{
@@ -29,7 +29,7 @@ async fn view_preferences_survive_a_service_restart() {
     w.add_project("shop-web").await;
     w.add_project("billing-api").await;
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
-    // A new project opens on the Board, no lanes, by stage, Done folded.
+    // A new project opens on the Board, by stage, Done folded.
     let fresh = settings(&client, "SHOP").await.view;
     assert_eq!(fresh, ViewPrefs::default());
     assert_eq!(fresh.view, BoardView::Board);
@@ -37,13 +37,11 @@ async fn view_preferences_survive_a_service_restart() {
 
     let view = ViewPrefs {
         view: BoardView::List,
-        lanes: Lanes::Epic,
         group_by: GroupBy::Status,
         fold_empty_columns: true,
         hide_empty_stages: true,
         dependencies: Dependencies::Always,
         folded_columns: vec!["grill".into()],
-        folded_lanes: vec!["SHOP-40".into()],
         folded_sections: vec!["delivery".into()],
         dev_unfolded: true,
     };
@@ -88,14 +86,14 @@ async fn an_unreadable_view_value_falls_back_alone() {
     let project = w.add_project("shop-web").await;
     // A stored view with a value this version doesn't know: the rest stays.
     sqlx::query("UPDATE projects SET settings_json = ? WHERE id = ?")
-        .bind(r#"{"view": {"view": "list", "lanes": "swimlanes", "fold_empty_columns": true}}"#)
+        .bind(r#"{"view": {"view": "list", "group_by": "swimlanes", "fold_empty_columns": true}}"#)
         .bind(&project.id)
         .execute(w.board.store().pool())
         .await
         .unwrap();
     let view = w.board.project_settings("SHOP").await.unwrap().view;
     assert_eq!(view.view, BoardView::List);
-    assert_eq!(view.lanes, Lanes::None);
+    assert_eq!(view.group_by, GroupBy::Stage);
     assert!(view.fold_empty_columns);
     w.stop().await;
 }

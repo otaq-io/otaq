@@ -221,9 +221,6 @@ export function useSheetActions(view: SheetView): SheetActions {
       case "overlay":
         openOverlay(route.id, { ticket: view.key });
         return;
-      case "close_epic":
-        openOverlay("close_epic", { epic: view.key });
-        return;
       case "unknown":
         return;
     }

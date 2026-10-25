@@ -64,16 +64,9 @@ pub fn refused(key: &str, message: impl Into<String>) -> DeleteText {
     }
 }
 
-/// The toast after a delete: "Deleted SHOP-21", "Deleted SHOP-40 and 2 tickets".
+/// The toast after a delete: "Deleted SHOP-21".
 pub fn deleted(preview: &DeletePreview) -> String {
-    match preview.children.len() {
-        0 => format!("Deleted {}", preview.key),
-        n => format!(
-            "Deleted {} and {n} ticket{}",
-            preview.key,
-            if n == 1 { "" } else { "s" }
-        ),
-    }
+    format!("Deleted {}", preview.key)
 }
 
 fn join_keys(keys: &[String]) -> String {
@@ -89,27 +82,8 @@ const TITLE_CHARS: usize = 60;
 
 pub fn text(preview: &DeletePreview) -> DeleteText {
     let key = &preview.key;
-    let epic_with_children = preview.is_epic && !preview.children.is_empty();
-    let title = if epic_with_children {
-        let keys: Vec<String> = preview
-            .children
-            .iter()
-            .map(|(k, _)| k.to_string())
-            .collect();
-        let n = keys.len();
-        format!(
-            "Delete {key} and its {n} ticket{} ({})?",
-            if n == 1 { "" } else { "s" },
-            keys.join(", ")
-        )
-    } else {
-        format!("Delete {key} {}?", cut(&preview.title, TITLE_CHARS))
-    };
-    let mut body = vec![if epic_with_children {
-        "None of them started.".to_owned()
-    } else {
-        "It never started, so nothing on disk is affected.".to_owned()
-    }];
+    let title = format!("Delete {key} {}?", cut(&preview.title, TITLE_CHARS));
+    let mut body = vec!["It never started, so nothing on disk is affected.".to_owned()];
     // Links where the deleted ticket itself is the dependent: "Its link to SHOP-20 is removed too."
     let own: Vec<String> = preview
         .links
@@ -147,14 +121,7 @@ pub fn text(preview: &DeletePreview) -> DeleteText {
             if many { "those links" } else { "that link" }
         ));
     }
-    let confirm = if epic_with_children {
-        let n = preview.children.len();
-        format!("Delete epic & {n} ticket{}", if n == 1 { "" } else { "s" })
-    } else if preview.is_epic {
-        "Delete epic".to_owned()
-    } else {
-        "Delete ticket".to_owned()
-    };
+    let confirm = "Delete ticket".to_owned();
     DeleteText {
         title,
         body,
@@ -178,8 +145,6 @@ mod tests {
         DeletePreview {
             key: key("SHOP-21"),
             title: "Order confirmation email".into(),
-            is_epic: false,
-            children: Vec::new(),
             links: links.iter().map(|(a, b)| (key(a), key(b))).collect(),
         }
     }
@@ -271,34 +236,6 @@ mod tests {
             text(&p).title,
             format!("Delete SHOP-21 {}?", "x".repeat(60))
         );
-    }
-
-    #[test]
-    fn an_epic_with_two_children() {
-        let p = DeletePreview {
-            key: key("SHOP-40"),
-            title: "Wishlist".into(),
-            is_epic: true,
-            children: vec![
-                (key("SHOP-40.1"), "Wishlist API".into()),
-                (key("SHOP-40.2"), "Wishlist button".into()),
-            ],
-            links: vec![(key("SHOP-41"), key("SHOP-40"))],
-        };
-        let t = text(&p);
-        assert_eq!(
-            t.title,
-            "Delete SHOP-40 and its 2 tickets (SHOP-40.1, SHOP-40.2)?"
-        );
-        assert_eq!(
-            t.body,
-            [
-                "None of them started.",
-                "SHOP-41 depends on it; that link will be removed.",
-            ]
-        );
-        assert_eq!(t.confirm, "Delete epic & 2 tickets");
-        assert_eq!(deleted(&p), "Deleted SHOP-40 and 2 tickets");
     }
 
     #[test]

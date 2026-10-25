@@ -2,9 +2,9 @@
 //! PRs (no polling, no webhooks): the user says what happened to an Approved · PR open ticket.
 //!
 //! Mark merged: Done · Merged, the Done cleanup (agent and Run/Shell stop, ports freed, worktree removed unless
-//! dirty), the epic re-evaluated, then the base is fetched before the tickets that just became ready start
+//! dirty), then the base is fetched before the tickets that just became ready start
 //! (`Scheduler::on_parent_merged`), and the tickets in Review that merge into the same base are test-merged
-//! against it (the early conflict flag). Mark closed: Close ticket (or Close epic) after the user's confirmation.
+//! against it (the early conflict flag). Mark closed: Close ticket after the user's confirmation.
 
 use std::path::PathBuf;
 
@@ -82,13 +82,6 @@ impl Review {
         if let Err(e) = self.finish(&merged).await {
             tracing::warn!(ticket = %merged.key, error = %e, "Done cleanup failed");
         }
-        if let Some(epic) = &merged.epic {
-            board.reevaluate_epic(&epic.to_string(), actor).await?;
-        }
-        board
-            .leads()
-            .child_finished(&merged, crate::epic_lead::wake::Finished::Merged)
-            .await;
         // The base is fetched first, then waiting tickets start from it (SCH-05, T-0081).
         let started = match inner.scheduler.on_parent_merged(key).await {
             Ok(plan) => plan.start.into_iter().map(|t| t.key).collect(),
@@ -118,7 +111,7 @@ impl Review {
     }
 
     /// **Mark closed** on Approved · PR open, after the user confirmed: closed like Close ticket (branch kept,
-    /// worktree removed unless dirty, Run and Shell stop); an epic closes like Close epic.
+    /// worktree removed unless dirty, Run and Shell stop).
     pub async fn mark_closed(
         &self,
         key: &str,
@@ -145,10 +138,6 @@ impl Review {
                     ticket.key
                 ),
             ));
-        }
-        if ticket.is_epic() {
-            self.close_epic(key, true, actor).await?;
-            return board.ticket(key).await;
         }
         self.close(key, true, actor).await
     }

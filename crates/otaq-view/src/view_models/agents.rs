@@ -188,15 +188,13 @@ pub fn agent_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>
     }
 }
 
-/// A session role as the page sends it back, as stored (`developer`, `validator`, `lead`, `project_agent`).
+/// A session role as the page sends it back, as stored (`developer`, `validator`, `project_agent`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "AgentRole")]
 pub enum RoleId {
     Developer,
     Validator,
-    #[serde(rename = "lead")]
-    EpicLead,
     ProjectAgent,
 }
 
@@ -205,7 +203,6 @@ impl From<SessionRole> for RoleId {
         match role {
             SessionRole::Developer => Self::Developer,
             SessionRole::Validator => Self::Validator,
-            SessionRole::EpicLead => Self::EpicLead,
             SessionRole::ProjectAgent => Self::ProjectAgent,
         }
     }
@@ -216,7 +213,6 @@ impl From<RoleId> for SessionRole {
         match role {
             RoleId::Developer => Self::Developer,
             RoleId::Validator => Self::Validator,
-            RoleId::EpicLead => Self::EpicLead,
             RoleId::ProjectAgent => Self::ProjectAgent,
         }
     }
@@ -306,13 +302,12 @@ pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>)
     }
 }
 
-/// What uses an agent, one place each (AGM-01): "every project · Noyan", "every project · epics",
+/// What uses an agent, one place each (AGM-01): "every project · Noyan",
 /// "pocket-api · Dev", "shop-web · Dev (option)".
 pub fn used_in(uses: &InUse) -> Vec<String> {
     let role = uses.role.map(|role| {
         match role {
             Role::ProjectAgent => "every project \u{b7} Noyan",
-            Role::EpicLead => "every project \u{b7} epics",
         }
         .to_owned()
     });
@@ -891,11 +886,6 @@ pub mod fixtures {
                 a.instructions = "Keep tickets small".into();
                 a.skills = vec![SkillRef::Shipped("noyan".into())];
             }),
-            with(agent("lead", "Epic lead", Some("opus")), &|a| {
-                a.role = Some(Role::EpicLead);
-                a.came_from = CameFrom::AgentsFile;
-                a.skills = vec![SkillRef::Shipped("epic-lead".into())];
-            }),
             with(agent("developer", "Developer", Some("haiku")), &|a| {
                 a.came_from = CameFrom::DefaultPreset;
                 a.instructions = instructions.into();
@@ -931,11 +921,6 @@ pub mod fixtures {
             InUse {
                 agent: "Noyan".into(),
                 role: Some(Role::ProjectAgent),
-                stages: Vec::new(),
-            },
-            InUse {
-                agent: "Epic lead".into(),
-                role: Some(Role::EpicLead),
                 stages: Vec::new(),
             },
             InUse {
@@ -1094,14 +1079,6 @@ mod tests {
                     "Claude Code \u{b7} haiku",
                     s(&["noyan"]),
                     "every project \u{b7} Noyan"
-                ),
-                (
-                    "Epic lead",
-                    Some("Epic lead"),
-                    &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
-                    "Claude Code \u{b7} opus",
-                    s(&["epic-lead"]),
-                    "every project \u{b7} epics"
                 ),
                 (
                     "Developer",

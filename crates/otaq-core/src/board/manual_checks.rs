@@ -111,7 +111,6 @@ impl ManualCheck {
         match &self.author {
             CommentAuthor::User { .. } => "You".to_owned(),
             CommentAuthor::Agent { name, .. } => name.clone().unwrap_or_else(|| "Agent".to_owned()),
-            CommentAuthor::Lead { name, .. } => name.clone(),
         }
     }
 
@@ -165,11 +164,6 @@ impl Row {
                 stage: self.stage_id.clone(),
                 round: self.round.and_then(|r| u32::try_from(r).ok()),
             },
-            "lead" => CommentAuthor::Lead {
-                epic_id: self.author_id.clone().unwrap_or_default(),
-                name: self.author_name.clone().unwrap_or_default(),
-                tool,
-            },
             _ => CommentAuthor::User {
                 name: self.author_name.clone().unwrap_or_default(),
             },
@@ -209,11 +203,6 @@ pub(crate) async fn replace_in(
     let (kind, author_id, author_name, tool) = match author {
         CommentAuthor::User { name } => ("user", None, Some(name.clone()), None),
         CommentAuthor::Agent { id, name, tool, .. } => ("agent", id.clone(), name.clone(), *tool),
-        CommentAuthor::Lead {
-            epic_id,
-            name,
-            tool,
-        } => ("lead", Some(epic_id.clone()), Some(name.clone()), *tool),
     };
     for item in &manual.items {
         n += 1;

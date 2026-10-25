@@ -493,10 +493,6 @@ mod tests {
             db_name("SHOP", &key("SHOP-18")),
             format!("{prefix}_shop_shop_18")
         );
-        assert_eq!(
-            db_name("SHOP", &key("SHOP-40.1")),
-            format!("{prefix}_shop_shop_40_1")
-        );
         assert_eq!(db_template("SHOP"), format!("{prefix}_shop_template"));
         // Anything else becomes one `_`, never two in a row; non-ASCII too.
         assert_eq!(
@@ -506,21 +502,21 @@ mod tests {
         // Too long: cut before the ticket part, which stays whole, and a hash keeps two names apart.
         let long = "A".repeat(80);
         let other = "B".repeat(80);
-        let name = db_name(&long, &key("SHOP-123.4"));
+        let name = db_name(&long, &key("SHOP-1234"));
         assert_eq!(name.len(), MAX_DB_NAME, "{name}");
         assert!(name.starts_with(&format!("{prefix}_aaa")), "{name}");
         let (before_hash, hash) = name.rsplit_once('_').unwrap();
-        assert!(before_hash.ends_with("_shop_123_4"), "{name}");
+        assert!(before_hash.ends_with("_shop_1234"), "{name}");
         assert_eq!(hash.len(), 8);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(
-            db_name(&other, &key("SHOP-123.4"))
+            db_name(&other, &key("SHOP-1234"))
                 .rsplit_once('_')
                 .unwrap()
                 .1,
             hash
         );
-        assert_eq!(name, db_name(&long, &key("SHOP-123.4")), "stable");
+        assert_eq!(name, db_name(&long, &key("SHOP-1234")), "stable");
         for name in [name, db_template(&long)] {
             assert!(name.len() <= MAX_DB_NAME);
             assert!(

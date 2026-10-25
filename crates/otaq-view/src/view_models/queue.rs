@@ -10,9 +10,8 @@
 
 use otaq_core::board::readiness::{ReadyState, WaitingParent, readiness};
 use otaq_core::board::stack::queue_reason;
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::naming;
 use otaq_core::start::sequence::WAITING_TO_START;
 
 /// The end of the start toast's title; the toast host gives it the play icon.
@@ -68,10 +67,7 @@ pub fn sheet_notice(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
 
 /// Where a started ticket branched from: its base and the base commit ("main", " @ 3b7d0e1").
 fn branched_from(ticket: &Ticket) -> (String, String) {
-    let base = match &ticket.base {
-        Base::Branch(branch) => branch.clone(),
-        Base::Epic(epic) => naming::branch(&epic.to_string()),
-    };
+    let base = ticket.base.branch().to_owned();
     let sha = ticket
         .work
         .as_ref()

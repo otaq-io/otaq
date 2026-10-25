@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 fn base_params() -> Value {
     json!({
         "path": "/nonexistent", "project": "NOPE", "key": "NOPE-1", "child": "NOPE-1", "parent": "NOPE-2",
-        "epic": "NOPE-2", "id": "nope", "session": "nope", "items": [], "tickets": [], "event": "Stop",
+        "id": "nope", "session": "nope", "items": [], "tickets": [], "event": "Stop",
         "title": "t", "target": "backlog", "choice": {"other": "x"}, "file": "a", "line": 1, "side": "new",
         "body": "b", "message": "m", "question": "q", "answer": "a", "proposal": "p", "name": "n",
         "url": "https://example.invalid/pr/1", "settings": {}, "cols": 80, "rows": 24, "data": "",
@@ -32,16 +32,6 @@ fn sample(method: &str, unit: bool) -> Request {
         let mut params = base_params();
         if method == "ticket.pr_confirm" {
             params["proposal"] = json!({"branch": "b", "commits": []});
-        }
-        if method == "lead.suggest" {
-            params["kind"] = json!("close");
-            params["reason"] = json!("r");
-        }
-        if method == "lead.pass_on" {
-            params["reason"] = json!("r");
-        }
-        if method == "lead.note" {
-            params["text"] = json!("t");
         }
         if method == "flow.apply" {
             params["proposal"] = json!(3);
@@ -82,7 +72,7 @@ fn sample(method: &str, unit: bool) -> Request {
             params["model"] = json!({"kind": "default"});
         }
         if method == "agents.move_role" {
-            params["role"] = json!("epic-lead");
+            params["role"] = json!("noyan");
             params["agent"] = json!("nope");
         }
         if method == "agents.default_model" {
@@ -247,21 +237,11 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketApproveCheck(_)
         | Request::TicketConflict(_)
         | Request::TicketSendBackPr(_)
-        | Request::TicketAddChildFromPr(_)
         | Request::TicketPrime(_)
         | Request::TicketAskHuman(_)
         | Request::DecisionRecord(_)
         | Request::DecisionList(_)
         | Request::DecisionChange(_)
-        | Request::DecisionMark(_)
-        | Request::LeadSuggest(_)
-        | Request::LeadPassOn(_)
-        | Request::LeadQuestions
-        | Request::LeadPrime(_)
-        | Request::SuggestionConfirm(_)
-        | Request::SuggestionDismiss(_)
-        | Request::LeadNote(_)
-        | Request::TicketNotes(_)
         | Request::TicketStageNext(_)
         | Request::TicketStageDone(_)
         | Request::ValidationVerdict(_)
@@ -277,7 +257,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::MessageResume(_)
         | Request::TicketQuestions(_)
         | Request::TicketMessages(_)
-        | Request::TicketLeadLog(_)
         | Request::TicketTerminal(_)
         | Request::TicketHumanAnswers(_)
         | Request::TicketOpenPr(_)
@@ -288,12 +267,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketPrBranchCheck(_)
         | Request::TicketMarkMerged(_)
         | Request::TicketMarkClosed(_)
-        | Request::EpicMoveTo(_)
-        | Request::EpicClosePlan(_)
-        | Request::EpicClose(_)
-        | Request::EpicQueue(_)
-        | Request::EpicTakeBack(_)
-        | Request::EpicUndoQueue(_)
         | Request::DepAdd(_)
         | Request::DepRemove(_)
         | Request::DepTree(_)
@@ -366,9 +339,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
-        | Request::LeadOpen(_)
-        | Request::LeadResume(_)
-        | Request::LeadList(_)
         | Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)

@@ -1,4 +1,4 @@
-//! Worktrees, temporary branches, base_sha and the epic integration branch (T-0048), against temporary repos.
+//! Worktrees, temporary branches and base_sha (T-0048), against temporary repos.
 
 use std::path::{Path, PathBuf};
 
@@ -130,67 +130,6 @@ async fn a_foreign_folder_in_the_way_is_reported_not_removed() {
 }
 
 #[tokio::test]
-async fn epic_children_use_the_epic_branch() {
-    let f = Fixture::shop().await;
-    let epic = f.epic("Wishlist").await;
-    let first = f.child(&epic, "Wishlist API").await;
-    let second = f.child(&epic, "Wishlist page").await;
-    assert_eq!(first.key.to_string(), "SHOP-1.1");
-    let main = git(&repo(&f), &["rev-parse", "main"]);
-
-    let wt1 = prepare_worktree(&f.board, &data(&f), "SHOP-1.1")
-        .await
-        .unwrap();
-    assert_eq!(wt1.base_branch, "otaq/SHOP-1");
-    assert_eq!(wt1.branch, "otaq/SHOP-1.1");
-    assert_eq!(
-        wt1.path,
-        data(&f).worktree_path("shop-web", "SHOP-1.1").unwrap()
-    );
-    assert_eq!(git(&repo(&f), &["rev-parse", "otaq/SHOP-1"]), main);
-    let epic_row = f.board.store().ticket(&epic.id).await.unwrap().unwrap();
-    assert_eq!(epic_row.branch_name.as_deref(), Some("otaq/SHOP-1"));
-    assert_eq!(epic_row.base_sha.as_deref(), Some(main.as_str()));
-    assert_eq!(epic_row.worktree_path, None, "no worktree for the epic");
-    assert!(
-        !data(&f)
-            .worktree_path("shop-web", "SHOP-1")
-            .unwrap()
-            .exists()
-    );
-
-    // A child merged into the epic branch meanwhile (simulated): the next child starts from there, and the
-    // epic branch isn't recreated.
-    let scratch = f.repos.root().join("scratch");
-    let scratch_arg = scratch.display().to_string();
-    git(
-        &repo(&f),
-        &["worktree", "add", "--quiet", &scratch_arg, "otaq/SHOP-1"],
-    );
-    commit(&scratch, "merged.txt", "child 1\n");
-    let epic_head = git(&repo(&f), &["rev-parse", "otaq/SHOP-1"]);
-    assert_ne!(epic_head, main);
-
-    let wt2 = prepare_worktree(&f.board, &data(&f), &second.key.to_string())
-        .await
-        .unwrap();
-    assert_eq!(wt2.base_branch, "otaq/SHOP-1");
-    assert_eq!(wt2.base_sha, epic_head);
-    assert_eq!(git(&repo(&f), &["rev-parse", "otaq/SHOP-1"]), epic_head);
-    let epic_row = f.board.store().ticket(&epic.id).await.unwrap().unwrap();
-    assert_eq!(
-        epic_row.base_sha.as_deref(),
-        Some(main.as_str()),
-        "the epic keeps where it left main"
-    );
-
-    let err = prepare_worktree(&f.board, &data(&f), &epic.key.to_string())
-        .await
-        .unwrap_err();
-    assert!(err.to_string().contains("epic"), "{err}");
-}
-
-#[tokio::test]
 async fn an_existing_branch_is_reused_not_recreated() {
     let f = Fixture::shop().await;
     let repo = repo(&f);
@@ -219,43 +158,4 @@ async fn an_existing_branch_is_reused_not_recreated() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("not-a-commit"), "{err}");
-}
-
-#[tokio::test]
-async fn two_children_of_one_epic_start_at_once() {
-    let f = Fixture::shop().await;
-    let main = git(&repo(&f), &["rev-parse", "main"]);
-    let data = data(&f);
-    // Several fresh epics, so a regression shows up whatever the timing.
-    for _ in 0..10 {
-        let epic = f.epic("Notebooks").await;
-        let a = f.child(&epic, "Notebook list").await.key.to_string();
-        let b = f.child(&epic, "Notebook colors").await.key.to_string();
-
-        let (wt_a, wt_b) = tokio::join!(
-            prepare_worktree(&f.board, &data, &a),
-            prepare_worktree(&f.board, &data, &b)
-        );
-        let (wt_a, wt_b) = (wt_a.unwrap(), wt_b.unwrap());
-
-        let epic_branch = format!("otaq/{}", epic.key);
-        let epic_head = git(&repo(&f), &["rev-parse", &epic_branch]);
-        assert_eq!(epic_head, main);
-        for (key, wt) in [(&a, &wt_a), (&b, &wt_b)] {
-            assert_eq!(wt.base_branch, epic_branch);
-            assert_eq!(wt.base_sha, epic_head);
-            assert!(wt.path.is_dir(), "{key}'s worktree exists");
-            let row = f
-                .board
-                .store()
-                .ticket(&f.ticket(key).await.id)
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(row.base_sha.as_deref(), Some(epic_head.as_str()));
-        }
-        let epic_row = f.board.store().ticket(&epic.id).await.unwrap().unwrap();
-        assert_eq!(epic_row.branch_name.as_deref(), Some(epic_branch.as_str()));
-        assert_eq!(epic_row.base_sha.as_deref(), Some(main.as_str()));
-    }
 }

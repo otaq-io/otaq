@@ -17,10 +17,10 @@ use serde::{Deserialize, Serialize};
 use super::default::{DEV, REVIEW, VALIDATE};
 use super::model::{CheckBy, Column, Delivers, DeliveryMode, Flow, Stage, StageKind};
 use crate::board::moves::{
-    DropOn, DropTarget, EPIC_NO_DRAG_BACK, MERGED_LOCKED, MoveAction, MoveCheck,
-    ONLY_AGENT_SUBMITS, QUEUE_FIRST, STARTS_BY_ITSELF,
+    DropOn, DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, QUEUE_FIRST,
+    STARTS_BY_ITSELF,
 };
-use crate::domain::{Kind, Place, Status, StatusSet, stored_enum};
+use crate::domain::{Place, Status, StatusSet, stored_enum};
 
 stored_enum! {
     /// How a stage run ended (STG-05, `stage_runs.result`).
@@ -322,7 +322,7 @@ pub fn first_stage<'f>(flow: &'f Flow, skips: &[String]) -> (Vec<&'f Stage>, Opt
 }
 
 /// Where a status written by the validation's own bookkeeping belongs, from the stage the ticket is in: a check's
-/// status in that check, or (from its Agent stage, a stop the epic lead held at work) the next agent check; an Agent
+/// status in that check, or (from its Agent stage) the next agent check; an Agent
 /// stage's status in that stage, or (from a check) the Agent stage before it. `None` when the stage stays.
 pub fn stage_for<'f>(flow: &'f Flow, place: &Place, status: Status) -> Option<&'f Stage> {
     let current = flow.stage(place.stage()?)?;
@@ -638,14 +638,8 @@ impl DropOn {
 }
 
 /// [`drag_with`] for a ticket that skips nothing.
-pub fn drag(
-    flow: &Flow,
-    place: &Place,
-    status: Status,
-    kind: Kind,
-    target: impl Into<DropOn>,
-) -> MoveCheck {
-    drag_with(flow, place, status, kind, &[], &target.into())
+pub fn drag(flow: &Flow, place: &Place, status: Status, target: impl Into<DropOn>) -> MoveCheck {
+    drag_with(flow, place, status, &[], &target.into())
 }
 
 /// The stages a forward drag from `from` (an index; the stage itself when `skip_from`) to `to` walks over: those
@@ -705,13 +699,11 @@ fn forward_drags(_flow: &Flow) -> bool {
 /// back to an earlier Agent stage asks for its agent's instructions ([`MoveAction::SendBack`]), back to an agent check
 /// asks for a note ([`MoveAction::RunCheckAgain`]), back onto a human check needs nothing ([`MoveAction::MoveBack`]);
 /// forward, the very next stage is Move to next stage (or a human check's Pass) and anything further skips the stages
-/// between ([`MoveAction::SkipTo`]); a parked card dropped anywhere returns to the stage it left. An epic can't be
-/// dragged back. `skips` are the stages the ticket skips by its choices (they don't count as the "next" stage).
+/// between ([`MoveAction::SkipTo`]); a parked card dropped anywhere returns to the stage it left. `skips` are the stages the ticket skips by its choices (they don't count as the "next" stage).
 pub fn drag_with(
     flow: &Flow,
     place: &Place,
     status: Status,
-    kind: Kind,
     skips: &[String],
     target: &DropOn,
 ) -> MoveCheck {
@@ -758,15 +750,6 @@ pub fn drag_with(
         {
             MoveCheck::Unchanged
         }
-        // An epic in Backlog is its card or its track (EPC-11): the drop queues its children (d0080).
-        (Target::Backlog, Target::Waiting) if kind == Kind::Epic => MoveCheck::Allowed {
-            action: MoveAction::QueueEpic,
-        },
-        (Target::Backlog, Target::Stage(b)) if b.is_agent_stage() && kind == Kind::Epic => {
-            MoveCheck::Allowed {
-                action: MoveAction::QueueEpic,
-            }
-        }
         // The go-ahead; on an Agent stage it waits until it can start (d0066). A parked card goes back to the stage
         // it left wherever it is dropped (d0052, FLW-18).
         (Target::Backlog, Target::Waiting) => MoveCheck::Allowed {
@@ -781,7 +764,6 @@ pub fn drag_with(
             action: MoveAction::Unqueue,
         },
         (Target::Waiting, Target::Stage(b)) if at_work(b) => refused(STARTS_BY_ITSELF),
-        (Target::Stage(_), Target::Waiting) if kind == Kind::Epic => refused(EPIC_NO_DRAG_BACK),
         (Target::Stage(a), Target::Waiting) if at_work(a) => {
             refused("Drag it to Backlog to park it")
         }
@@ -802,11 +784,9 @@ pub fn drag_with(
                 action: MoveAction::PrRework,
             }
         }
-        // Back to an earlier stage (d0108 "Dragging a card back"): an epic can't go back (0059).
+        // Back to an earlier stage (d0108 "Dragging a card back").
         (Target::Stage(a), Target::Stage(b)) if index(b) < index(a) => {
-            if kind == Kind::Epic {
-                refused(EPIC_NO_DRAG_BACK)
-            } else if b.is_agent_stage() {
+            if b.is_agent_stage() {
                 MoveCheck::Confirm {
                     action: MoveAction::SendBack,
                 }
@@ -821,9 +801,8 @@ pub fn drag_with(
             }
         }
         // Forward (d0108 "Other drags"): the very next stage the ticket runs is Move to next stage (a human check's
-        // Pass); further, or out of an agent check, the stages between are skipped by you. An epic never skips its
-        // check.
-        (Target::Stage(a), Target::Stage(b)) if kind != Kind::Epic && forward_drags(flow) => {
+        // Pass); further, or out of an agent check, the stages between are skipped by you.
+        (Target::Stage(a), Target::Stage(b)) if forward_drags(flow) => {
             let skipped = skipped_by_drag(flow, skips, index(a), index(b), a.is_agent_check());
             let action = if skipped.is_empty() {
                 MoveAction::NextStage

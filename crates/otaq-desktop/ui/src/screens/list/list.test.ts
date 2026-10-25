@@ -152,7 +152,6 @@ function handlers() {
     action: vi.fn<ListHandlers["action"]>(),
     start: vi.fn<ListHandlers["start"]>(),
     menu: vi.fn<ListHandlers["menu"]>(),
-    open: vi.fn<ListHandlers["open"]>(),
   };
 }
 
@@ -275,69 +274,6 @@ describe("the List", () => {
       // Group by Stage's targets registered their elements; Validate (no target) didn't.
       expect([...groups.keys()].sort()).toEqual(["backlog", "done", "grill", "ready_for_dev"]);
       expect(host.querySelector('[aria-label="Ready"]')?.getAttribute("data-verdict")).toBe("allowed");
-    });
-
-    it("draws an epic's parent row with its children; a click opens it, the chevron folds it", () => {
-      const h = handlers();
-      const onView = vi.fn();
-      const child = row("SHOP-40.3", "Wishlist page");
-      const byEpic: ListView = {
-        ...LIST,
-        groups: [
-          {
-            ...group("epics", "Epics", []),
-            count: "1",
-            empty: null,
-            entries: [
-              {
-                kind: "parent",
-                parent: {
-                  row: {
-                    key: "SHOP-40",
-                    external_id: "PAY-123",
-                    name: "Wishlist",
-                    track: { stages: [], at: 0, label: "Dev" },
-                    line: "1 of 5 merged · Wishlist lead is planning",
-                    lead: null,
-                    needs_you: true,
-                  },
-                  track: { steps: [{ name: "Dev", fill: "working" }], label: "Dev" },
-                  folded: false,
-                  fold: { kind: "fold_lane", epic: "SHOP-40", folded: true },
-                  fold_label: "Fold",
-                  children: [child],
-                },
-              },
-            ],
-          },
-        ],
-      };
-      expect(rowKeys(byEpic)).toEqual(["SHOP-40.3"]);
-      act(() => {
-        root.render(
-          createElement(List, {
-            list: byEpic,
-            selected: null,
-            lifted: null,
-            verdict: () => undefined,
-            handlers: h,
-            group: () => undefined,
-            onView,
-          }),
-        );
-      });
-      expect(host.textContent).toContain("PAY-123");
-      expect(host.textContent).toContain("1 of 5 merged · Wishlist lead is planning");
-      expect(host.querySelector('[data-row="SHOP-40.3"]')).not.toBeNull();
-      act(() => {
-        (host.querySelector(".list-parent-fold") as HTMLButtonElement).click();
-      });
-      expect(onView).toHaveBeenCalledWith({ kind: "fold_lane", epic: "SHOP-40", folded: true });
-      expect(h.open).not.toHaveBeenCalled();
-      act(() => {
-        (host.querySelector(".list-parent") as HTMLElement).click();
-      });
-      expect(h.open).toHaveBeenCalledWith("SHOP-40");
     });
   });
 });

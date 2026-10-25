@@ -54,16 +54,14 @@ use crate::agents::{AgentHold, HoldReason, RunsOn, SessionRole, resolve};
 use crate::board::hand_over::{HandOver, check_failed_text, settled};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    CheckCounts, OpenRound, RoundClose, RowEnd, Transition, ValidationEvent, ValidationState,
-    check_name, round_event, transition, verdict_of,
+    OpenRound, RoundClose, RowEnd, ValidationEvent, ValidationState, check_name, round_event,
+    transition, verdict_of,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{
-    Actor, MovedPast, Place, Status, ValidationAction, ValidationOutcome, ValidationTrigger,
+    Actor, MovedPast, Status, ValidationAction, ValidationOutcome, ValidationTrigger,
 };
-use crate::epic_lead::stuck::FirstStop;
-use crate::flow::engine::Counters;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
@@ -348,52 +346,17 @@ impl Validation {
             }
             return Ok(ended);
         }
-        // An epic child's first "Validation failed N times" goes to its live lead once (LEAD-07): held at work.
-        let held = step.to == Status::CheckFailed && board.leads().takes_stop(ticket).await;
-        let recorded = if held {
-            // Held at work: back in the Agent stage before the check.
-            let place = ticket
-                .place
-                .stage()
-                .and_then(|id| crate::flow::engine::back_to(&facts.flow, id, &[]))
-                .map_or_else(|| ticket.place.clone(), |s| Place::stage_of(&s.id));
-            Transition {
-                to: Status::Working,
-                place,
-                ..step.clone()
-            }
-        } else {
-            step.clone()
-        };
         let close = RoundClose {
-            step: &recorded,
+            step: &step,
             reason: "",
             signal: None,
-            resumed: step.deliver_findings || held,
+            resumed: step.deliver_findings,
         };
         if !board
             .end_in_round(ticket, round, Some(end), Some(close), actor)
             .await?
         {
             return Ok(false);
-        }
-        if held {
-            let report = board.last_report(&ticket.id).await?.unwrap_or_default();
-            if !board
-                .leads()
-                .child_stuck(ticket, &FirstStop::validation_failed(&report, facts.rounds))
-                .await
-            {
-                board
-                    .set_validation_status(
-                        &ticket.id,
-                        &[Status::Working],
-                        Status::CheckFailed,
-                        None,
-                        false,
-                    )
-                    .await?;
-            }
         }
         if step.deliver_findings {
             // The findings are the checkers' comments: the agent reads them all in `prime` (CMT-05, d0130).
@@ -437,7 +400,6 @@ impl Validation {
             skips,
             fails: count.fails,
             rounds,
-            counts,
         })
     }
 
@@ -808,47 +770,6 @@ impl Validation {
                 ),
             )),
         }
-    }
-
-    /// The epic lead's one note to a child whose "Validation failed N times" waits for it (LEAD-07, d0083): it
-    /// counts as Answer the agent (VAL-06). The round counter restarts at 0 and the note goes to the agent with the
-    /// last findings. The child is at work already (its stop was held there).
-    pub async fn lead_answer(
-        &self,
-        key: &str,
-        lead: &str,
-        note: &str,
-    ) -> Result<Ticket, BoardError> {
-        let board = &self.inner.board;
-        let ticket = board.ticket(key).await?;
-        let facts = self.check_facts(&ticket).await?;
-        // The child is at work already (its stop was held there): the row is the failed check's, the one that
-        // counted last (the lead's note is per check stage, d0083).
-        let Some(check) = facts.counts.counting(&facts.flow, &ticket.place) else {
-            return Err(BoardError::refused(
-                Refusal::MoveRefused,
-                format!("{} has no failed check to answer", ticket.key),
-            ));
-        };
-        let place = Place::stage_of(&check.id);
-        let failed = ValidationState {
-            place: &place,
-            status: Status::CheckFailed,
-            ..facts.state(&ticket)
-        };
-        let step = transition(failed, ValidationEvent::AnswerAgent)
-            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
-        debug_assert_eq!(step.counters, Counters::ResetThis);
-        board.reset_check_counter(&ticket.id, &check.id).await?;
-        let findings = board.last_report(&ticket.id).await?.unwrap_or_default();
-        let after = board.ticket_by_id(&ticket.id).await?;
-        self.tell_agent(
-            &after,
-            &lead_findings_message(&after, &findings, lead, note),
-            Start::Auto,
-        )
-        .await;
-        Ok(after)
     }
 
     /// Resume of a ticket interrupted while it validated (REC-01, VAL-07): a fresh validator on a new row with
@@ -1755,7 +1676,6 @@ impl Validation {
                 cwd: worktree,
                 project: ticket.key.project.to_string(),
                 ticket: Some(ticket.key.clone()),
-                epic: None,
                 port: 0,
                 first_prompt,
                 resume: None,
@@ -1872,17 +1792,6 @@ fn user_findings_message(ticket: &Ticket, findings: &str, note: &str, extra: boo
     text
 }
 
-/// What the agent gets from the lead's note after its last round failed (LEAD-07): the note first, then the
-/// findings.
-fn lead_findings_message(ticket: &Ticket, findings: &str, lead: &str, note: &str) -> String {
-    format!(
-        "Note from {lead}: {}\n\nThe validation's findings for {}. Fix these, commit, and submit again:\n\n{}",
-        note.trim(),
-        ticket.key,
-        findings.trim()
-    )
-}
-
 /// Whether a hold offers **Skip this check** (FLW-13, Q277): an agent check's checker held for its tool's plan limit
 /// with no usable fallback (none set, or the fallback at its limit too). An Agent stage held for the limit never
 /// offers it, nor does any other hold.
@@ -1899,7 +1808,6 @@ struct CheckFacts {
     skips: Vec<String>,
     fails: u32,
     rounds: u32,
-    counts: CheckCounts,
 }
 
 impl CheckFacts {

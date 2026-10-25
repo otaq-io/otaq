@@ -1,8 +1,7 @@
 // The Needs you strip's moment of interaction (T-0459; NYS-01, NYS-02, NYS-03; d0114, d0016): what the page shows
-// now (which Next moves on from), opening a chip or Next's answer, and a lead's suggestion's Not now and Confirm. What
-// the strip says and where Next goes are Rust's (`strip.view`, `strip.next`, `otaq-view`'s `needs_you_strip.rs`).
+// now (which Next moves on from), and opening a chip or Next's answer. What the strip says and where Next goes are
+// Rust's (`strip.view`, `strip.next`, `otaq-view`'s `needs_you_strip.rs`).
 // Nothing opens without the user's press: Next never moves on by itself (d0016).
-import type { SuggestionConfirm } from "../../app/registry";
 import {
   focusTerminal,
   openTicket,
@@ -16,7 +15,6 @@ import {
 import { createStore, type Store } from "../../app/store";
 import type { StripOpen } from "../../generated/StripOpen";
 import type { StripParams } from "../../generated/StripParams";
-import type { StripSuggestionParams } from "../../generated/StripSuggestionParams";
 import type { StripTarget } from "../../generated/StripTarget";
 import { request } from "../../tauri";
 import {
@@ -115,19 +113,4 @@ export async function runNext(
 /** ⌘J from anywhere: a refusal opens nothing. */
 export function next(): void {
   runNext().catch(ignore);
-}
-
-/** A lead's suggestion: Not now dismisses it, the confirmation's confirm (`confirmSuggestion`) carries it out. */
-export function dismissSuggestion(id: string, ask: typeof request = request): Promise<unknown> {
-  const params: StripSuggestionParams = { id, confirm: false };
-  return ask("strip.suggestion", params);
-}
-
-/** The confirm of a suggestion's close or delete confirmation: the service closes or deletes the child (LEAD-08). */
-export function confirmSuggestion(
-  suggestion: SuggestionConfirm,
-  ask: typeof request = request,
-): Promise<unknown> {
-  const params: StripSuggestionParams = { id: suggestion.id, confirm: true };
-  return ask("strip.suggestion", params);
 }

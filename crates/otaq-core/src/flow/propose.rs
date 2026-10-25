@@ -28,7 +28,7 @@ use crate::naming;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::store::now_ms;
 
-/// Who may propose (FLW-03, user decision 2026-10-20): a ticket's agent, a check and an epic lead are refused.
+/// Who may propose (FLW-03, user decision 2026-10-20): a ticket's agent and a check are refused.
 pub const ONLY_A_PROJECT_AGENT_OR_YOU: &str = "Only Noyan or you can propose a flow";
 
 /// What `flow.propose` proposes.

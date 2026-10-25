@@ -5,7 +5,7 @@
 
 use otaq_core::board::review::ApproveCheck;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::decisions::{ChildDecisions, Decision};
+use otaq_core::decisions::Decision;
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::decisions::outcome::ChangeOutcome;
 use otaq_core::protocol::{
@@ -111,7 +111,6 @@ pub async fn available(app: &App, params: Params) -> Result<Available, RequestEr
     let ticket = ticket(app, &params.key).await?;
     let approve = ticket.status == Status::WaitingForYou;
     let pass = approve
-        && !ticket.is_epic()
         && !otaq_view::view_models::flow_columns::keeps_default_look(
             &super::board::flow(app, ticket.key.project.as_str()).await,
         );
@@ -170,7 +169,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         ticket: &ticket,
         tickets: &all,
         target: &proposal.target,
-        into_epic: proposal.into_epic,
+        into_epic: false,
         message: &proposal.message,
         repo: &repo,
         project_base: &project_base,
@@ -462,51 +461,26 @@ async fn decision_list(app: &App, key: &str) -> Result<Vec<Decision>, RequestErr
     }
 }
 
-/// The recorded decisions the review lists (DEC-04): the ticket's own and, for an epic, each child's with any, in
-/// child order.
-pub async fn decisions_of(
-    app: &App,
-    ticket: &Ticket,
-    tickets: &[Ticket],
-) -> Result<(Vec<Decision>, Vec<ChildDecisions>), RequestError> {
-    let own = decision_list(app, &ticket.key.to_string()).await?;
-    let mut children = Vec::new();
-    if ticket.is_epic() {
-        let mut kids: Vec<&Ticket> = tickets
-            .iter()
-            .filter(|t| t.epic.as_ref() == Some(&ticket.key))
-            .collect();
-        kids.sort_by(|a, b| a.key.cmp(&b.key));
-        for kid in kids {
-            let decisions = decision_list(app, &kid.key.to_string()).await?;
-            if !decisions.is_empty() {
-                children.push(ChildDecisions {
-                    key: kid.key.clone(),
-                    title: kid.title.clone(),
-                    decisions,
-                });
-            }
-        }
-    }
-    Ok((own, children))
+/// The recorded decisions the review lists (DEC-04): the ticket's own.
+pub async fn decisions_of(app: &App, ticket: &Ticket) -> Result<Vec<Decision>, RequestError> {
+    decision_list(app, &ticket.key.to_string()).await
 }
 
 /// How many open decisions Approve keeps now: "Approve · keeps N decisions" (DEC-05); 0 outside Ready for Review.
-pub async fn open_decisions(app: &App, ticket: &Ticket, tickets: &[Ticket]) -> u32 {
+pub async fn open_decisions(app: &App, ticket: &Ticket) -> u32 {
     if !di::in_review(ticket) {
         return 0;
     }
-    decisions_of(app, ticket, tickets)
+    decisions_of(app, ticket)
         .await
-        .map_or(0, |(own, children)| di::open_count(&own, &children))
+        .map_or(0, |own| di::open_count(&own))
 }
 
 /// The Decisions section on the Files tab, under the agent summary; `null` when there is nothing to list.
 pub async fn decisions(app: &App, params: Params) -> Result<Option<DecisionsSection>, RequestError> {
     let ticket = ticket(app, &params.key).await?;
-    let all = tickets(app, &ticket.key.project.to_string()).await?;
-    let (own, children) = decisions_of(app, &ticket, &all).await?;
-    Ok(di::section(&ticket, &own, &children, &all))
+    let own = decisions_of(app, &ticket).await?;
+    Ok(di::section(&ticket, &own))
 }
 
 /// The read-only Decisions section in the Ticket tab, under "What and why" (DEC-03); `null` without decisions.
@@ -515,9 +489,8 @@ pub async fn ticket_decisions(
     params: Params,
 ) -> Result<Option<DecisionsSection>, RequestError> {
     let ticket = ticket(app, &params.key).await?;
-    let all = tickets(app, &ticket.key.project.to_string()).await?;
-    let (own, children) = decisions_of(app, &ticket, &all).await?;
-    Ok(di::ticket_tab(&ticket, &own, &children, &all))
+    let own = decisions_of(app, &ticket).await?;
+    Ok(di::ticket_tab(&ticket, &own))
 }
 
 /// The decision Change… was pressed on: `SHOP-23#1`.
@@ -540,30 +513,24 @@ async fn decision_by_id(app: &App, id: &str) -> Result<(Decision, Ticket), Reque
     Ok((decision, ticket))
 }
 
-/// The dialog Change… opens (DEC-06): "Change this decision" (Send back) on a ticket, "Add a fix child" for a
-/// merged epic child.
+/// The dialog Change… opens (DEC-06): "Change this decision" (Send back).
 pub async fn change_view(app: &App, params: ChangeViewParams) -> Result<ChangeView, RequestError> {
     let (decision, ticket) = decision_by_id(app, &params.id).await?;
-    let project = ticket.key.project.to_string();
-    let (all, comments, leads) = tokio::join!(
-        tickets(app, &project),
-        app.service.send(Request::ReviewComments(CommentsParams {
+    let comments = match app
+        .service
+        .send(Request::ReviewComments(CommentsParams {
             key: ticket.key.to_string(),
             round: None,
-        })),
-        app.service.send(Request::LeadList(ProjectParams {
-            project: project.clone(),
-        })),
-    );
-    let comments = match comments {
+        }))
+        .await
+    {
         Ok(Reply::ReviewComments(list)) => list.comments.len() as u32,
         _ => 0,
     };
-    let has_lead = matches!(leads, Ok(Reply::Leads(list)) if list.iter().any(|l| ticket.epic.as_ref() == Some(&l.epic)));
-    Ok(dc::view(&decision, &ticket, &all?, comments, has_lead))
+    Ok(dc::view(&decision, &ticket, comments))
 }
 
-/// Send back to the agent (`text`) or Add fix child (`title`, `description`); `clear` is "Clear it and send"
+/// Send back to the agent (`text`); `clear` is "Clear it and send"
 /// (d0048), `comments` the pending line comments for that question's wording.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "DecisionChangeParams")]
@@ -571,10 +538,6 @@ pub struct ChangeParams {
     pub id: String,
     #[serde(default)]
     pub text: Option<String>,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
     #[serde(default)]
     pub clear: bool,
     #[serde(default)]
@@ -587,14 +550,11 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
         .split_once('#')
         .map_or(params.id.as_str(), |(k, _)| k)
         .to_owned();
-    let fix = params.text.is_none();
     match app
         .service
         .send(Request::DecisionChange(DecisionChangeParams {
             id: params.id.clone(),
             text: params.text.clone(),
-            title: params.title,
-            description: params.description,
             clear_first: params.clear,
         }))
         .await
@@ -616,11 +576,7 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
         Ok(Reply::DecisionChanged(_)) => Ok(Sent::Done),
         Ok(other) => Err(unexpected("decision.change", &other)),
         Err(e) => {
-            let title = if fix {
-                format!("No fix child was added for {ticket_key}")
-            } else {
-                format!("{ticket_key} wasn\u{2019}t sent back")
-            };
+            let title = format!("{ticket_key} wasn\u{2019}t sent back");
             toast(app, ToastLevel::Error, title, Some(e.message.clone()));
             Err(e)
         }
@@ -664,11 +620,9 @@ mod tests {
             .service
             .send(Request::TicketCreate(NewTicketInput {
                 project: project.key.clone(),
-                kind: Default::default(),
                 title: "Checkout API".into(),
                 body: String::new(),
                 priority: None,
-                epic: None,
                 base_branch: None,
                 external_id: None,
                 first_comment: None,
@@ -725,9 +679,9 @@ mod tests {
             ))
             .await;
         assert!(matches!(recorded, Ok(Reply::Decision(_))), "{recorded:?}");
-        let (own, children) = decisions_of(&h.app, &created, &[]).await.unwrap();
-        assert_eq!((own.len(), children.len()), (1, 0));
-        assert_eq!(open_decisions(&h.app, &created, &[]).await, 0, "not in review");
+        let own = decisions_of(&h.app, &created).await.unwrap();
+        assert_eq!(own.len(), 1);
+        assert_eq!(open_decisions(&h.app, &created).await, 0, "not in review");
         let section = table(&h.app, "review.decisions", json!({ "key": key }))
             .await
             .unwrap();

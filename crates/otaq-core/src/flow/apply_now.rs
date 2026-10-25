@@ -10,8 +10,7 @@
 //! the plan was made from.
 //!
 //! **The removed stage's place** in the new flow is just before the first surviving stage that followed it in the old
-//! flow ([`removed_place`]). A ticket's choices are Backlog, Ready for Dev and every stage of the new flow; an epic's
-//! only the stages of its own walk ([`crate::board::epic_flight::epic_flow`]) after that place (an epic can't go back).
+//! flow ([`removed_place`]). A ticket's choices are Backlog, Ready for Dev and every stage of the new flow.
 //! A stage before the place is **back**, the first one the ticket runs after it is the **next** (the default), any
 //! later one is **forward**. Each is decided as a drag from the place would be (FLW-18): the moves are computed by
 //! [`crate::flow::engine::dragged`] on the new flow with the removed stage standing at its place ([`with_removed`]).
@@ -35,13 +34,12 @@ use super::engine::{self, At, RunResult, skipped_by_drag};
 use super::model::{Flow, Stage};
 use super::store::{FlowVersion, NewFlowVersion};
 use super::yaml;
-use crate::board::epic_flight::{REVIEW_EPIC, epic_flow, epic_stop};
 use crate::board::moves::{DragWrite, DropOn, DropTarget, record_drag_in};
 use crate::board::send_back::{SentBackTo, send_back_in};
 use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
-use crate::domain::{Actor, Kind, MovedPast, Place, Status, TicketKey};
+use crate::domain::{Actor, MovedPast, Place, Status, TicketKey};
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, now_ms};
 
@@ -117,7 +115,6 @@ pub struct ApplyNowPlan {
 pub struct PlannedMove {
     pub ticket: TicketKey,
     pub title: String,
-    pub kind: Kind,
     /// The removed stage's id and name ("in Grill (removed)").
     pub stage: String,
     pub stage_name: String,
@@ -128,7 +125,7 @@ pub struct PlannedMove {
     pub status: Status,
     /// Its state when one shows on the card ("failed ×3").
     pub state: Option<String>,
-    /// Where it can go, in board order: Backlog, Ready for Dev, then the new flow's stages (an epic: only forward).
+    /// Where it can go, in board order: Backlog, Ready for Dev, then the new flow's stages.
     pub choices: Vec<MoveChoice>,
     /// The choice the picker starts on: the first stage it runs after the removed stage's place.
     pub default: DropOn,
@@ -265,8 +262,7 @@ pub struct PlanFacts<'a> {
 }
 
 /// The removed stage `id`'s place in `new`: the index of the first stage that followed it in `old` and survives (the
-/// Delivery at the latest). A stage `old` doesn't have (an epic's implicit Review epic stop) stands before the
-/// Delivery.
+/// Delivery at the latest). A stage `old` doesn't have stands before the Delivery.
 pub fn removed_place(old: &Flow, new: &Flow, id: &str) -> usize {
     let end = new
         .stages
@@ -282,13 +278,13 @@ pub fn removed_place(old: &Flow, new: &Flow, id: &str) -> usize {
     }
 }
 
-/// `walk` (the new flow, or an epic's walk of it) with `removed` standing at `place` in `new`'s indices: where the
+/// `walk` (the new flow) with `removed` standing at `place` in `new`'s indices: where the
 /// moves out of it are decided, as drags from there. Its index in the result too.
 pub fn with_removed(walk: &Flow, new: &Flow, removed: &Stage, place: usize) -> (Flow, usize) {
     let at_or_after = |s: &Stage| {
         let at = match new.position(&s.id) {
             Some(at) => at,
-            // The implicit Review epic stop stands just before the Delivery.
+            // A stage the new flow doesn't have stands just before the Delivery.
             None => new
                 .stages
                 .iter()
@@ -307,22 +303,9 @@ pub fn with_removed(walk: &Flow, new: &Flow, removed: &Stage, place: usize) -> (
     (Flow { stages }, index)
 }
 
-/// The flow a ticket walks: an epic's own walk (d0108 rule 7), the flow for any other ticket.
-fn walk_of(new: &Flow, ticket: &Ticket) -> Flow {
-    match ticket.is_epic() {
-        true => epic_flow(new),
-        false => new.clone(),
-    }
-}
-
-/// The removed stage a ticket is in or waits before, if it is one: a stage of the old flow (or the implicit Review
-/// epic stop) the new flow doesn't have.
+/// The removed stage a ticket is in or waits before, if it is one: a stage of the old flow the new flow doesn't have.
 fn removed_stage(old: &Flow, new: &Flow, ticket: &Ticket) -> Option<Stage> {
     let id = ticket.place.stage_id()?;
-    if ticket.is_epic() && id == REVIEW_EPIC {
-        // The implicit stop goes when the new flow has a human check of its own.
-        return (epic_stop(new).id != REVIEW_EPIC).then(|| epic_stop(old));
-    }
     match new.stage(id) {
         Some(_) => None,
         None => old.stage(id).cloned(),
@@ -358,11 +341,10 @@ pub fn plan(facts: &PlanFacts<'_>) -> ApplyNowPlan {
             moves.push(planned_move(facts, ticket, &stage));
         }
     }
-    let working: HashSet<&str> =
-        still_working(facts.tickets, old, new, facts.delivering, facts.wait)
-            .into_iter()
-            .map(|t| t.id.as_str())
-            .collect();
+    let working: HashSet<&str> = still_working(facts.tickets, new, facts.delivering, facts.wait)
+        .into_iter()
+        .map(|t| t.id.as_str())
+        .collect();
     let keep: Vec<KeptTicket> = tickets
         .iter()
         .filter(|t| working.contains(t.id.as_str()) && !moving.contains(&t.id))
@@ -408,24 +390,22 @@ fn planned_move(facts: &PlanFacts<'_>, ticket: &Ticket, stage: &Stage) -> Planne
     let no_skips = Vec::new();
     let skips = facts.skips.get(&ticket.id).unwrap_or(&no_skips);
     let place = removed_place(facts.old, new, &stage.id);
-    let walk = walk_of(new, ticket);
-    let (virtual_flow, from) = with_removed(&walk, new, stage, place);
+    let (virtual_flow, from) = with_removed(new, new, stage, place);
     let ran = facts.ran.get(&ticket.id);
-    let mut choices = Vec::new();
-    if !ticket.is_epic() {
-        choices.push(MoveChoice {
+    let mut choices = vec![
+        MoveChoice {
             to: DropTarget::Backlog.into(),
             name: Status::Backlog.label().to_owned(),
             way: Way::Backlog,
             hint: None,
-        });
-        choices.push(MoveChoice {
+        },
+        MoveChoice {
             to: DropTarget::ReadyForDev.into(),
             name: Status::Queued.label().to_owned(),
             way: Way::ReadyForDev,
             hint: None,
-        });
-    }
+        },
+    ];
     for (i, s) in virtual_flow.stages.iter().enumerate() {
         if i == from {
             continue;
@@ -437,10 +417,6 @@ fn planned_move(facts: &PlanFacts<'_>, ticket: &Ticket, stage: &Stage) -> Planne
         } else {
             Way::Forward
         };
-        // An epic can't go back (FLW-18).
-        if ticket.is_epic() && way == Way::Back {
-            continue;
-        }
         let hint = match way {
             Way::Back if s.is_agent_stage() => Some(match ran.is_some_and(|r| r.contains(&s.id)) {
                 true => resumes_hint(&s.name, &ticket.key),
@@ -471,7 +447,6 @@ fn planned_move(facts: &PlanFacts<'_>, ticket: &Ticket, stage: &Stage) -> Planne
     PlannedMove {
         ticket: ticket.key.clone(),
         title: ticket.title.clone(),
-        kind: ticket.kind,
         stage: stage.id.clone(),
         stage_name: stage.name.clone(),
         waiting: !in_it,
@@ -737,8 +712,7 @@ impl Board {
             BoardError::NotFound(format!("{} isn't in a removed stage", ticket.key))
         })?;
         let place = removed_place(old, new, &planned.stage);
-        let walk = walk_of(new, ticket);
-        let (virtual_flow, from) = with_removed(&walk, new, &removed_stage, place);
+        let (virtual_flow, from) = with_removed(new, new, &removed_stage, place);
         let to = virtual_flow.stage(stage).ok_or_else(|| {
             BoardError::NotFound(format!("{} has no stage {stage}", ticket.key.project))
         })?;

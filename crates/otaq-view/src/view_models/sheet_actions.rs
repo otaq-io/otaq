@@ -6,15 +6,13 @@
 
 use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::StatusSet;
-use otaq_core::domain::{Kind, Status};
+use otaq_core::domain::Status;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::delete;
-use crate::view_models::epic_actions::{can_close_epic, can_move_to_epic};
 use crate::view_models::menu::MenuItem;
 use crate::view_models::{card, card_menu};
 
@@ -44,7 +42,7 @@ pub enum Action {
     StartFromScratch,
     /// Start interrupted (T-0063).
     RetryStart,
-    /// Ready for Review on the default flow, an epic in its human check, a To deliver ticket: the delivery choices
+    /// Ready for Review on the default flow, a To deliver ticket: the delivery choices
     /// (M6, T-0095).
     Approve,
     /// Every human check (M6, T-0094; d0093, d0131): the Send back dialog, to the stage the check's fails go to.
@@ -54,8 +52,6 @@ pub enum Action {
     Pass,
     /// PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
     SendBackPr,
-    /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
-    AddChildFromPr,
     /// PR open (M10, T-0150).
     OpenPrInBrowser,
     MarkMerged,
@@ -80,9 +76,6 @@ pub enum Action {
     RetryMerge,
     /// Auto-merge stopped: Ready for Review, not merged again (AMG-04).
     MoveToReview,
-    /// An epic whose lead ended (by restart, or its agent tool exited): the same conversation (LEAD-12, d0083).
-    /// Added by the epic sheet's view, not by [`all_buttons`].
-    ResumeLead,
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
@@ -129,7 +122,6 @@ impl Action {
             Self::SendBack => SEND_BACK,
             Self::Pass => APPROVE,
             Self::SendBackPr => crate::view_models::card::SEND_BACK_WITH_PR_COMMENTS,
-            Self::AddChildFromPr => "Add a child from PR comments",
             Self::OpenPrInBrowser => "Open PR in browser",
             Self::MarkMerged => "Mark merged",
             Self::MarkClosed => "Mark closed",
@@ -143,7 +135,6 @@ impl Action {
             Self::RetryValidation => "Retry validation",
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
-            Self::ResumeLead => "Resume lead",
             Self::OpenAgent => "Open agent\u{2026}",
             Self::StopMergeCheck => crate::view_models::card::STOP,
         }
@@ -169,11 +160,10 @@ impl Action {
             Self::RetryResume => IconName::RefreshCw,
             Self::RetryStart | Self::StartFromScratch => IconName::RotateCcw,
             Self::SendBack | Self::SendBackPr => IconName::Undo2,
-            Self::AddChildFromPr => IconName::Plus,
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
-            Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
+            Self::Reopen => IconName::RotateCcw,
             Self::StopMergeCheck => IconName::Square,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
             Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
@@ -196,12 +186,11 @@ impl Action {
             | Self::SendBack
             | Self::Pass
             | Self::SendBackPr
-            | Self::AddChildFromPr
             | Self::Approve => None,
             Self::Run => Some("T-0134"),
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
-            Self::Reopen | Self::ResumeLead => None,
+            Self::Reopen => None,
             Self::OpenAgent | Self::StopMergeCheck => None,
             Self::OpenValidator
             | Self::AnswerValidator
@@ -249,8 +238,7 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
 
 /// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): a human
 /// check's Approve is its Pass there (FLW-14), which moves it on; on the default flow it opens the delivery choices.
-/// Every human check offers Send back (d0093). Every flow offers Send back with PR comments on an open PR and an
-/// epic's Add a child from PR comments (FLW-16).
+/// Every human check offers Send back (d0093). Every flow offers Send back with PR comments on an open PR (FLW-16).
 pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
@@ -258,25 +246,6 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     // While Local merge runs the Merge check, Stop is all there is to do (d0120): the merge finishes on its own.
     if ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Running) {
         return vec![(A::StopMergeCheck, Secondary)];
-    }
-    if ticket.kind == Kind::Epic {
-        // No Start on an epic: its children start (d0059). Its review flow is T-0109.
-        // By the kind of stage it is in (STG-08): its Backlog, its human check, its Delivery, Done.
-        return match crate::view_models::flow_columns::place_set(ticket) {
-            StatusSet::Backlog => vec![(A::Edit, Secondary)],
-            // A delivery unit in its human check: Approve, never Send back (EPC-05).
-            StatusSet::HumanCheck => vec![(A::Approve, Primary)],
-            // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13), and its comments as a child
-            // (FLW-16).
-            StatusSet::Delivery if s == Status::PrOpen => vec![
-                (A::OpenPrInBrowser, Secondary),
-                (A::AddChildFromPr, Secondary),
-                (A::MarkMerged, Primary),
-                (A::MarkClosed, Danger),
-            ],
-            StatusSet::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
-            _ => Vec::new(),
-        };
     }
     // A hand-off typed in that the agent hasn't picked up (d0118): Send again first.
     if card::pending_hand_off(ticket, s).is_some() {
@@ -331,19 +300,12 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
         ],
         // Waits for the Delivery click (not on the default flow): Local merge or Open PR; Run too (d0125).
         Status::ToDeliver => vec![(A::Approve, Primary), (A::Run, Secondary)],
-        Status::PrOpen => {
-            // Epic children never offer the PR actions; they merge locally (d0059).
-            if ticket.epic.is_some() {
-                Vec::new()
-            } else {
-                vec![
-                    (A::OpenPrInBrowser, Secondary),
-                    (A::SendBackPr, Secondary),
-                    (A::MarkMerged, Primary),
-                    (A::MarkClosed, Danger),
-                ]
-            }
-        }
+        Status::PrOpen => vec![
+            (A::OpenPrInBrowser, Secondary),
+            (A::SendBackPr, Secondary),
+            (A::MarkMerged, Primary),
+            (A::MarkClosed, Danger),
+        ],
         Status::Merged => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
         // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
@@ -432,14 +394,9 @@ pub fn validating(ticket: &Ticket) -> bool {
 
 /// The "…" menu: Stop this check and Skip this check while it validates (d0063), Edit ticket… (the fields the
 /// sheet's details line doesn't cover, SHT-01), Pin / Unpin, Copy
-/// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
+/// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Close ticket…, and Delete… (enabled only for
 /// never-started tickets, d0060).
-pub fn menu(
-    ticket: &Ticket,
-    has_epics: bool,
-    has_branch: bool,
-    has_session: bool,
-) -> Vec<MenuItem> {
+pub fn menu(ticket: &Ticket, has_branch: bool, has_session: bool) -> Vec<MenuItem> {
     let mut items = Vec::new();
     if validating(ticket) {
         items.push(
@@ -473,17 +430,6 @@ pub fn menu(
     }
     if let Some(submit) = crate::view_models::close::submit_item(ticket) {
         items.push(submit);
-    }
-    if has_epics && can_move_to_epic(ticket) {
-        items.push(MenuItem::new(card_menu::MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
-    }
-    if can_close_epic(ticket) {
-        items.push(
-            MenuItem::new(card_menu::CLOSE_EPIC, "Close epic…")
-                .icon(IconName::CircleSlash)
-                .danger()
-                .separated(),
-        );
     }
     items.extend(crate::view_models::close::close_item(ticket));
     items.push(delete::menu_item(ticket));
@@ -594,7 +540,7 @@ mod tests {
     }
 
     /// d0125: a ticket waiting in a human check or a click-mode Delivery offers Run next to Approve, as during Dev;
-    /// an open PR, a merged ticket and an epic don't.
+    /// an open PR and a merged ticket don't.
     #[test]
     fn run_at_review() {
         use Look::*;
@@ -608,13 +554,10 @@ mod tests {
         for status in [Status::PrOpen, Status::Merged, Status::Backlog] {
             assert!(!all(status).iter().any(|(a, _)| *a == A::Run), "{status}");
         }
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        assert_eq!(all_buttons(&epic), [(A::Approve, Primary)]);
     }
 
     /// FLW-14, FLW-16 (`s03-46`), d0093: in another flow a human check offers Approve (its Pass) · Send back; an
-    /// open PR Send back with PR comments and an epic's open PR Add a child from PR comments on every flow.
+    /// open PR Send back with PR comments on every flow.
     #[test]
     fn other_flows_approve_send_back_and_send_back_pr_comments() {
         use Look::*;
@@ -639,11 +582,6 @@ mod tests {
                 (A::MarkClosed, Danger)
             ]
         );
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::PrOpen);
-        epic.kind = Kind::Epic;
-        epic.place = otaq_core::domain::Place::stage_of("deliver");
-        assert_eq!(custom(&epic)[1], (A::AddChildFromPr, Secondary));
-        assert!(all_buttons(&epic).contains(&(A::AddChildFromPr, Secondary)));
         assert_eq!(A::Pass.label(), "Approve", "d0093: Pass isn't UI text");
         assert_eq!(A::SendBack.label(), "Send back\u{2026}");
         assert_eq!(A::SendBackPr.label(), "Send back with PR comments");
@@ -706,28 +644,9 @@ mod tests {
     }
 
     #[test]
-    fn epics_and_children_follow_their_rules() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        assert_eq!(
-            all_buttons(&epic),
-            [(A::Edit, Look::Secondary)],
-            "no Start on an epic"
-        );
-        let mut child = ticket("SHOP-40.2", "Wishlist page", Status::PrOpen);
-        child.epic = Some("SHOP-40".parse().unwrap());
-        assert!(
-            all_buttons(&child).is_empty(),
-            "children never offer PR actions"
-        );
-        let child = ticket("SHOP-40.1", "Wishlist API", Status::Backlog);
-        assert_eq!(buttons(&child)[0].0, A::Start);
-    }
-
-    #[test]
     fn menu_delete_only_for_never_started() {
         let fresh = ticket("SHOP-21", "Order confirmation email", Status::Backlog);
-        let items = menu(&fresh, false, false, false);
+        let items = menu(&fresh, false, false);
         let delete = items.last().unwrap();
         assert_eq!(delete.label, "Delete…");
         assert!(!delete.disabled);
@@ -738,7 +657,7 @@ mod tests {
 
         let mut started = ticket("SHOP-19", "Price table", Status::Working);
         started.started_at = Some(1);
-        let items = menu(&started, false, true, true);
+        let items = menu(&started, true, true);
         let delete = items.last().unwrap();
         assert!(delete.disabled);
         assert_eq!(
@@ -802,7 +721,7 @@ mod tests {
     fn the_menu_while_validating() {
         let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.started_at = Some(1);
-        let items = menu(&t, false, true, false);
+        let items = menu(&t, true, false);
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -821,7 +740,7 @@ mod tests {
         assert!(items[2].separated);
         let mut idle = ticket("SHOP-19", "Price table", Status::Idle);
         idle.started_at = Some(1);
-        let items = menu(&idle, false, false, false);
+        let items = menu(&idle, false, false);
         assert_eq!(items[0].label, "Edit ticket\u{2026}");
         assert!(!items[0].separated);
         assert!(
@@ -830,7 +749,7 @@ mod tests {
                 .any(|i| i.label == "Move to next stage…" && !i.disabled)
         );
         t.status = Status::CheckerNeedsYou;
-        assert_eq!(menu(&t, false, true, false)[0].id, STOP_VALIDATION);
+        assert_eq!(menu(&t, true, false)[0].id, STOP_VALIDATION);
     }
 
     /// SHOP-48's facts after the refusal: one ended Developer session on Fable test, `fable` → `claude-fable-5-1`.
@@ -838,11 +757,9 @@ mod tests {
         use otaq_core::agents::store::SessionAgentRun;
         TicketAgents {
             key: Some("SHOP-48".parse().unwrap()),
-            kind: otaq_core::domain::Kind::Ticket,
             status: Some(Status::StartInterrupted),
             agents: Vec::new(),
             stages: Vec::new(),
-            lead: None,
             sessions: vec![SessionAgentRun {
                 id: "s1".into(),
                 role: otaq_core::agents::SessionRole::Developer,

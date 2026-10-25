@@ -4,19 +4,17 @@
 // pending line comments and a comment for Dev in the comment box (CMT-13, `s07-20`: a long paste becomes its report,
 // the limit applies). Their words come from `review.approve`, `review.local_merge` and
 // `review.send_back_view`; Open PR and Push to PR hand over to T-0227's `open_pr` dialog. Change… on a recorded
-// decision (DEC-06, T-0288) opens "Change this decision" (a Send back with the other option) on a ticket, or "Add a
-// fix child" in an epic's review, from `review.change_view`.
+// decision (DEC-06, T-0288) opens "Change this decision" (a Send back with the other option), from
+// `review.change_view`.
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { openTicket, selection, showTab } from "../../app/selection";
-import { Button, CodeText, Dialog, Kbd, TextArea, TextInput, PLAIN_TEXT } from "../../components";
+import { Button, CodeText, Dialog, Kbd, TextArea, PLAIN_TEXT } from "../../components";
 import type { ApproveView } from "../../generated/ApproveView";
 import type { DecisionChangeParams } from "../../generated/DecisionChangeParams";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
-import type { DecisionFixChildView } from "../../generated/DecisionFixChildView";
-import type { DecisionMarkView } from "../../generated/DecisionMarkView";
 import type { DecisionSendBackView } from "../../generated/DecisionSendBackView";
 import type { DiffFileView } from "../../generated/DiffFileView";
 import type { LocalMergeResult } from "../../generated/LocalMergeResult";
@@ -669,29 +667,13 @@ function sendChange(
   });
 }
 
-/** The decision the dialog changes: its question, Built and the other option, and the lead's mark. */
-function DecisionSummary({
-  question,
-  summary,
-  mark,
-}: {
-  question: string;
-  summary: string;
-  mark?: DecisionMarkView | null;
-}) {
+/** The decision the dialog changes: its question, Built and the other option. */
+function DecisionSummary({ question, summary }: { question: string; summary: string }) {
   return (
-    <>
-      <div className="review-decision">
-        <span className="review-decision-question">{question}</span>
-        <span className="review-decision-summary">{summary}</span>
-      </div>
-      {mark && (
-        <div className="decision-mark">
-          <Icon name="bot" size={13} />
-          <span className="decision-mark-text">{mark.text}</span>
-        </div>
-      )}
-    </>
+    <div className="review-decision">
+      <span className="review-decision-question">{question}</span>
+      <span className="review-decision-summary">{summary}</span>
+    </div>
   );
 }
 
@@ -705,13 +687,10 @@ export function ChangeSendBackDialog({ view, close }: { view: DecisionSendBackVi
     if (busy || empty) return;
     setBusy(true);
     setRefusal(null);
-    sendChange(view.key, { id: view.id, text, title: null, description: null, comments: view.comments }).then(
-      close,
-      (e: unknown) => {
-        setRefusal(asRequestError(e).message);
-        setBusy(false);
-      },
-    );
+    sendChange(view.key, { id: view.id, text, comments: view.comments }).then(close, (e: unknown) => {
+      setRefusal(asRequestError(e).message);
+      setBusy(false);
+    });
   };
   return (
     <Dialog
@@ -746,64 +725,9 @@ export function ChangeSendBackDialog({ view, close }: { view: DecisionSendBackVi
   );
 }
 
-/** "Add a fix child" (*07 → Change… on 40.1's decision*): a new child of the epic, title and description editable. */
-export function AddFixChildDialog({ view, close }: { view: DecisionFixChildView; close: () => void }) {
-  const [title, setTitle] = useState(view.child_title);
-  const [description, setDescription] = useState(view.child_description);
-  const [busy, setBusy] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  const empty = title.trim() === "";
-  const confirm = () => {
-    if (busy || empty) return;
-    setBusy(true);
-    setRefusal(null);
-    sendChange(view.epic, { id: view.id, text: null, title, description, comments: 0 }).then(
-      close,
-      (e: unknown) => {
-        setRefusal(asRequestError(e).message);
-        setBusy(false);
-      },
-    );
-  };
-  return (
-    <Dialog
-      title={view.title}
-      width={480}
-      hint={view.hint}
-      onConfirm={confirm}
-      onCancel={close}
-      footer={
-        <>
-          <Button variant="ghost" label={view.cancel} onClick={close} />
-          <Button icon="plus" label={view.confirm} loading={busy} disabled={empty} onClick={confirm} />
-        </>
-      }
-    >
-      <div className="review-body">
-        <DecisionSummary question={view.question} summary={view.summary} mark={view.mark} />
-        <label className="review-section" htmlFor="fix-child-title">
-          {view.title_label}
-        </label>
-        <TextInput id="fix-child-title" value={title} onChange={setTitle} />
-        <TextArea value={description} onChange={setDescription} rows={4} label={view.description_label} />
-        <p className="review-muted">{view.help}</p>
-        <Callout icon="plus" tone="quiet">
-          {view.note}
-        </Callout>
-        {refusal !== null && <p className="review-error">{refusal}</p>}
-      </div>
-    </Dialog>
-  );
-}
-
-/** One of the two, by what Rust decided. */
+/** The dialog, as Rust words it. */
 export function ChangeDecisionBody({ view, close }: { view: DecisionChangeView; close: () => void }) {
-  switch (view.kind) {
-    case "send_back":
-      return <ChangeSendBackDialog view={view} close={close} />;
-    case "fix_child":
-      return <AddFixChildDialog view={view} close={close} />;
-  }
+  return <ChangeSendBackDialog view={view} close={close} />;
 }
 
 export function ChangeDecisionDialog({ params, close }: OverlayProps<"change_decision">) {

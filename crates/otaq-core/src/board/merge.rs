@@ -21,14 +21,12 @@ use std::sync::{Arc, OnceLock};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::epic_flight::{delivery_of, epic_flow};
 use super::stage_runs::StageRun;
-use super::tickets::{Base, EventKind, Ticket, record_event};
+use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, AutoMergeStop, Place, Status, TicketKey};
 use crate::flow::engine::{self, Move, RunResult};
 use crate::flow::{Delivers, Delivery, DeliveryMode, Flow, Stage};
-use crate::naming;
 use crate::store::tickets::set_state_since;
 use crate::store::{new_id, now_ms};
 
@@ -85,9 +83,9 @@ fn latest_run(runs: &[StageRun], stage: &str) -> Option<RunResult> {
 /// A ticket's Delivery as it stands now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryNow {
-    /// The Delivery stage of the ticket's flow (an epic's: its own walk, d0108 rule 7).
+    /// The Delivery stage of the ticket's flow.
     pub stage: Stage,
-    /// What it delivers: an epic child always Local-merges into its epic's branch.
+    /// What it delivers.
     pub delivery: Delivery,
     /// It delivers with no click: [`delivery_is_automatic`], and the user didn't move it past a check.
     pub automatic: bool,
@@ -131,12 +129,10 @@ impl DeliveryLink {
 /// Where a ticket's Local merge goes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MergeTarget {
-    /// The branch merged: `otaq/SHOP-18`, or an epic's `otaq/SHOP-40`.
+    /// The branch merged: `otaq/SHOP-18`.
     pub branch: String,
-    /// The branch merged into: `main`, or the epic's branch for an epic child (EPC-03).
+    /// The branch merged into: `main`.
     pub target: String,
-    /// The target is the epic's local integration branch (no fetch, d0059).
-    pub into_epic: bool,
 }
 
 /// What the Local merge confirmation shows before the click: the target and an editable squash message.
@@ -144,14 +140,12 @@ pub struct MergeTarget {
 pub struct MergeProposal {
     pub key: TicketKey,
     pub target: String,
-    pub into_epic: bool,
     /// "SHOP-18: Checkout API" and the agent's summary.
     pub message: String,
 }
 
 impl Board {
-    /// Where the ticket merges: a standalone ticket or an epic into its base branch, an epic child into its
-    /// epic's branch.
+    /// Where the ticket merges: into its base branch.
     pub async fn merge_target(&self, ticket: &Ticket) -> Result<MergeTarget, BoardError> {
         let branch = ticket
             .work
@@ -163,52 +157,24 @@ impl Board {
                     format!("{} has no branch to merge", ticket.key),
                 )
             })?;
-        Ok(match &ticket.base {
-            Base::Branch(target) => MergeTarget {
-                branch,
-                target: target.clone(),
-                into_epic: false,
-            },
-            Base::Epic(epic) => {
-                let epic = self.ticket(&epic.to_string()).await?;
-                MergeTarget {
-                    branch,
-                    target: epic
-                        .work
-                        .and_then(|w| w.branch)
-                        .unwrap_or_else(|| naming::branch(&epic.key.to_string())),
-                    into_epic: true,
-                }
-            }
+        Ok(MergeTarget {
+            branch,
+            target: ticket.base.branch().to_owned(),
         })
     }
 
-    /// The proposed squash message: "SHOP-18: Checkout API", then the agent's summary (an epic lists its merged
-    /// children).
+    /// The proposed squash message: "SHOP-18: Checkout API", then the agent's summary.
     pub async fn merge_proposal(&self, key: &str) -> Result<MergeProposal, BoardError> {
         let ticket = self.ticket(key).await?;
         let target = self.merge_target(&ticket).await?;
         let mut message = format!("{}: {}", ticket.key, ticket.title);
-        let body = if ticket.is_epic() {
-            let children: Vec<String> = self
-                .epic_children(key)
-                .await?
-                .into_iter()
-                .filter(|c| c.status == Status::Merged)
-                .map(|c| format!("- {} {}", c.key, c.title))
-                .collect();
-            (!children.is_empty()).then(|| children.join("\n"))
-        } else {
-            self.review_summary(&ticket.id).await?
-        };
-        if let Some(body) = body {
+        if let Some(body) = self.review_summary(&ticket.id).await? {
             message.push_str("\n\n");
             message.push_str(body.trim());
         }
         Ok(MergeProposal {
             key: ticket.key,
             target: target.target,
-            into_epic: target.into_epic,
             message,
         })
     }
@@ -281,16 +247,11 @@ impl Board {
     /// The ticket's Delivery now: its stage, what it delivers, and whether it runs with no click.
     pub async fn delivery_now(&self, ticket: &Ticket) -> Result<Option<DeliveryNow>, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        // An epic walks its own flow: its stop, then the Delivery (d0108 rule 7).
-        let flow = if ticket.is_epic() {
-            epic_flow(&flow)
-        } else {
-            flow
-        };
-        let (Some(stage), Some(delivery)) = (
-            flow.stages.iter().find(|s| s.is_delivery()).cloned(),
-            delivery_of(&flow, ticket),
-        ) else {
+        let Some((stage, delivery)) = flow
+            .stages
+            .iter()
+            .find_map(|s| Some((s.clone(), s.delivery?)))
+        else {
             return Ok(None);
         };
         let skips = self.ticket_skips(ticket, &flow).await?;
@@ -307,13 +268,9 @@ impl Board {
 
     /// Whose session runs the ticket's Delivery (d0108 second gap review rule 6): the Dev stage's (an agent
     /// session) when the Delivery's agent is the agent that ran it, else a delivery session of the Delivery's own
-    /// agent; an epic's is always a delivery session (EPC-08). A flow whose agents can't be read keeps the ticket's
-    /// agent.
+    /// agent. A flow whose agents can't be read keeps the ticket's agent.
     pub async fn delivery_session_kind(&self, ticket: &Ticket) -> crate::session::SessionKind {
         use crate::session::SessionKind;
-        if ticket.is_epic() {
-            return SessionKind::Delivery;
-        }
         match self.delivery_agent_is_devs(ticket).await {
             Ok(false) => SessionKind::Delivery,
             Ok(true) => SessionKind::Agent,
@@ -509,8 +466,7 @@ impl Board {
         self.to_delivery(ticket, actor).await
     }
 
-    /// Back to where the Delivery is offered ([`Self::back_to_delivery`]), from wherever the ticket is: the epic
-    /// lead's note on a child that kept conflicting (LEAD-07).
+    /// Back to where the Delivery is offered ([`Self::back_to_delivery`]), from wherever the ticket is.
     pub(crate) async fn to_delivery(
         &self,
         ticket: &Ticket,

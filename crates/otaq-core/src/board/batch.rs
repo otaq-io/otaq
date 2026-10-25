@@ -13,9 +13,7 @@
 //!
 //! ### T-0064 · Caller identity           ← one ticket per level-3 heading: "<ID> · <title>" or "<title>"
 //! - **Depends on:** T-0007, SHOP-18      ← IDs of this file, or keys of existing tickets; "—" for none
-//! - **Parent:** SHOP-40                  ← optional: the epic (an ID of this file or a key)
-//! - **Type:** epic                       ← optional: ticket (default) or epic
-//! - **Priority:** 2                      ← optional: 1 Urgent … 4 Low (default 3, a child follows its epic)
+//! - **Priority:** 2                      ← optional: 1 Urgent … 4 Low (default 3)
 //! - **Stage:** Dev=Quick developer · typo fix ← optional, repeatable: a stage choice, " · " and the agent's reason
 //! - **Size:** M                          ← any other "- **Name:** value" line at the top is ignored
 //!
@@ -35,7 +33,7 @@ use serde::{Deserialize, Serialize};
 
 use super::tickets::{NewTicketInput, Ticket};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Kind, Priority, TicketKey};
+use crate::domain::{Actor, Priority, TicketKey};
 
 /// One ticket of a batch.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,14 +43,9 @@ pub struct BatchTicket {
     pub id: Option<String>,
     pub title: String,
     #[serde(default)]
-    pub kind: Kind,
-    #[serde(default)]
     pub body: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
-    /// The epic: a batch ID or a key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
     /// What it depends on: batch IDs or keys.
     #[serde(default)]
     pub depends_on: Vec<String>,
@@ -71,7 +64,7 @@ pub enum Ref {
 }
 
 impl Board {
-    /// Resolves a batch reference: a batch ID first, then a key (or an old key).
+    /// Resolves a batch reference: a batch ID first, then a key.
     pub async fn batch_ref(
         &self,
         tickets: &[BatchTicket],
@@ -114,16 +107,8 @@ impl Board {
                     format!("Ticket {} of the batch has no title", n + 1),
                 ));
             }
-            for reference in ticket.parent.iter().chain(&ticket.depends_on) {
-                if let Ref::Batch(m) = self.batch_ref(tickets, reference).await?
-                    && m >= n
-                    && ticket.parent.as_deref() == Some(reference.as_str())
-                {
-                    return Err(BoardError::refused(
-                        Refusal::NotAnEpic,
-                        format!("Put the epic {reference} before its tickets"),
-                    ));
-                }
+            for reference in &ticket.depends_on {
+                self.batch_ref(tickets, reference).await?;
             }
         }
 
@@ -162,20 +147,11 @@ impl Board {
             }
         };
         for ticket in tickets {
-            let epic = match &ticket.parent {
-                Some(parent) => {
-                    let r = self.batch_ref(tickets, parent).await?;
-                    key_of(created, r).map(|k| k.to_string())
-                }
-                None => None,
-            };
             let input = NewTicketInput {
                 project: project.to_owned(),
-                kind: ticket.kind,
                 title: ticket.title.clone(),
                 body: ticket.body.clone(),
                 priority: ticket.priority,
-                epic,
                 ..Default::default()
             };
             created.push(self.create_ticket(&input, actor).await?);
@@ -303,7 +279,6 @@ impl Section {
         };
         match name.to_ascii_lowercase().as_str() {
             "depends on" => self.ticket.depends_on = refs(),
-            "parent" => self.ticket.parent = refs().into_iter().next(),
             "priority" => {
                 self.ticket.priority = Some(
                     value
@@ -319,13 +294,6 @@ impl Section {
                 let pick = super::stage_choices::ChoicePick::parse(pick, reason)
                     .map_err(|e| format!("{}: {e}", self.ticket.title))?;
                 self.ticket.choices.push(pick);
-            }
-            "type" => {
-                self.ticket.kind = value
-                    .trim()
-                    .to_ascii_lowercase()
-                    .parse()
-                    .map_err(|_| format!("{}: unknown type {value:?}", self.ticket.title))?;
             }
             _ => {}
         }
@@ -400,7 +368,7 @@ Intro text is ignored.
 ## M4 · Agent signals
 
 ### T-0064 · Caller identity by process ancestry, `--actor`
-- **Epic:** M4 · Agent signals
+- **Milestone:** M4 · Agent signals
 - **Depends on:** T-0007, T-0050
 - **Size:** M
 
@@ -425,7 +393,6 @@ Agents run the CLI without prompts.
 - one policy function
 
 ### E1 · Wishlist
-- **Type:** epic
 - **Depends on:** —
 
 ### Wishlist API · button and page
@@ -458,12 +425,11 @@ Agents run the CLI without prompts.
         assert_eq!(first.priority, None, "no line: the default");
         assert_eq!(second.priority, Some(Priority::High));
         assert!(parse_markdown("### X\n- **Priority:** 5\n").is_err());
-        assert_eq!(tickets[2].kind, Kind::Epic);
         assert_eq!(tickets[2].id.as_deref(), Some("E1"));
         assert!(tickets[2].depends_on.is_empty());
         assert_eq!(tickets[3].id, None, "an ID has a digit");
         assert_eq!(tickets[3].title, "Wishlist API · button and page");
-        assert_eq!(tickets[3].parent.as_deref(), Some("E1"));
+        assert!(tickets[3].depends_on.is_empty(), "a Parent line is ignored");
     }
 
     /// The format stays compatible with the tickets file itself (d0032): every ticket reads, its Done when list
@@ -522,6 +488,6 @@ Agents run the CLI without prompts.
     #[test]
     fn a_file_without_tickets_is_an_error() {
         assert!(parse_markdown("# nothing here\n").is_err());
-        assert!(parse_markdown("### X\n- **Type:** story\n").is_err());
+        assert!(parse_markdown("### X\n- **Priority:** 9\n").is_err());
     }
 }

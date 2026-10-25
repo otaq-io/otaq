@@ -4,4 +4,4 @@
  * What a chosen item does on the page (T-0221): most send their request at once; the rest open a dialog by
  * overlay id, so the page never compares item ids itself.
  */
-export type CardMenuChoice = { "kind": "sent" } | { "kind": "delete" } | { "kind": "close_ticket" } | { "kind": "move_to_epic" } | { "kind": "close_epic" } | { "kind": "open_epic" } | { "kind": "queue_epic" } | { "kind": "take_back_epic" } | { "kind": "add_to_epic" } | { "kind": "focus_epic" } | { "kind": "nothing" };
+export type CardMenuChoice = { "kind": "sent" } | { "kind": "delete" } | { "kind": "close_ticket" } | { "kind": "nothing" };

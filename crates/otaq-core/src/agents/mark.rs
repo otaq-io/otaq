@@ -1,8 +1,8 @@
 //! The amber mark on an agent (AGT-05, AGM-04; d0088, d0077): "Claude Code couldn't run `claude-fable-5-1` on SHOP-48".
 //!
 //! - **Set** on any model refused ([`set`]): the session's agent, with the model (the session's exact model,
-//!   else the model passed, else the one the tool named) and where it happened (the ticket, the epic, or the project
-//!   for a Project agent), and the tool's own message for the edit dialog. A later refusal replaces it.
+//!   else the model passed, else the one the tool named) and where it happened (the ticket, or the project for a
+//!   Project agent), and the tool's own message for the edit dialog. A later refusal replaces it.
 //! - **Cleared**, never dismissed: when the agent's model is changed and saved ([`super::Agents::edit`]), or
 //!   when a session of the agent that started after the mark ends its first turn normally on the model the agent
 //!   has now ([`clear_after_first_turn`]). A rename, an instructions change, or another agent's run leaves it.
@@ -41,7 +41,7 @@ pub fn model_named<'a>(
         .unwrap_or(DEFAULT_MODEL)
 }
 
-/// The mark for a refusal of `model` by `tool` (its name as shown) on `on` (a ticket or epic key, or a project), with
+/// The mark for a refusal of `model` by `tool` (its name as shown) on `on` (a ticket's key, or a project), with
 /// the tool's own `message`.
 pub fn mark(tool: &str, model: &str, on: &str, message: &str) -> Mark {
     Mark {

@@ -202,13 +202,6 @@ describe("notification clicks", () => {
     expect(r.focus.get()).toBeNull();
   });
 
-  it("an epic lead: the epic's Lead tab with the lead's terminal focused", () => {
-    const r = routes();
-    openTarget({ kind: "lead", project: "NOTE", epic: "NOTE-40" }, r);
-    expect(r.selection.get()).toMatchObject({ project: "NOTE", ticket: "NOTE-40", tab: "lead" });
-    expect(r.focus.get()).toEqual({ ticket: "NOTE-40", seq: 1 });
-  });
-
   it("a summary opens the Needs you strip's next item (NYS-03); the board for a tool that isn't available", () => {
     const r = routes();
     openTarget({ kind: "needs_you" }, r);
@@ -378,11 +371,7 @@ describe("drawn", () => {
     expect(html).not.toContain("toast-text");
     vi.mocked(request).mockResolvedValue(null);
     actionsOf(toast)?.[0]?.onClick();
-    expect(vi.mocked(request)).toHaveBeenCalledWith("notices.toast_action", {
-      id: 7,
-      label: "Undo",
-      action: undo,
-    });
+    expect(vi.mocked(request)).toHaveBeenCalledWith("notices.toast_action", { id: 7, action: undo });
   });
 
   it("the restart dialog's body: the warning callout, then the rest", () => {

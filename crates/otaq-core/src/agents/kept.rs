@@ -10,7 +10,6 @@
 //!   check the pause's way, and Resume starts a fresh check ([`crate::recovery::Recovery::kept_paused`]);
 //! - **an answer session** (d0030): the question waits, and Resume routes it again;
 //! - **an automatic PR Delivery**: the card waits in its Delivery, and Resume runs it;
-//! - **an epic lead** (a queued epic's, d0083): Resume starts it; an ended lead whose epic came back becomes Paused;
 //! - **a held start** (the launch gate's, d0086): its hold stays, and Resume lifts the holds once more.
 //!
 //! [`register`] runs these on every project's Resume, after its stopped agents were resumed and before the scheduler
@@ -57,8 +56,6 @@ async fn run(parts: &KeptParts, project: &str) -> Result<(), BoardError> {
     let lifted = parts.gate.lift().await?;
     // Questions waiting for a paused target.
     parts.messages.route_waiting().await?;
-    // Leads of epics queued while paused.
-    let leads = parts.project_agents.leads().start_kept(project).await?;
     // Automatic Deliveries that waited.
     let mut deliveries = Vec::new();
     for ticket in parts.board.tickets(project).await? {
@@ -67,7 +64,7 @@ async fn run(parts: &KeptParts, project: &str) -> Result<(), BoardError> {
             deliveries.push(ticket.key);
         }
     }
-    tracing::info!(project, lifted, leads = ?leads, deliveries = ?deliveries, "kept starts run");
+    tracing::info!(project, lifted, deliveries = ?deliveries, "kept starts run");
     Ok(())
 }
 

@@ -14,8 +14,7 @@
 //!
 //! **The wait** ([`still_working`], [`Wait`]): it applies once no ticket inside what it waits for is at work. A
 //! ticket is quiet in Backlog, Ready for Dev or Done, waiting in a human check the new flow still has, waiting in the
-//! Delivery stage with no Delivery session at work (To deliver, PR open), or an epic at its Review epic stop
-//! (`epic_is_quiet`). Cards in an Agent stage, an agent check, a running Delivery session or a stage the change
+//! Delivery stage with no Delivery session at work (To deliver, PR open). Cards in an Agent stage, an agent check, a running Delivery session or a stage the change
 //! removes hold it. For a span only the cards inside it count (Security moved before Validate: Dev to Review); tickets
 //! before it move on freely and those past it are untouched. **Meanwhile no ticket enters it** ([`Hold`]): a ticket
 //! that would waits at its edge, before its first stage, "Waiting for the flow change": the scheduler doesn't start it
@@ -46,7 +45,6 @@ use super::store::{AppliedBy, FlowVersion, NewFlowVersion};
 use super::yaml;
 use crate::agents::store::NewAgent;
 use crate::agents::{Agent, CameFrom, ModelCatalog, Role, SkillRef, shipped};
-use crate::board::epic_flight::epic_is_quiet;
 use crate::board::moves::DropOn;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
@@ -323,15 +321,14 @@ pub enum FlowEvent {
     Cancelled,
 }
 
-/// Whether `ticket` lets a change from `old` to `new` apply (FLW-06): in Backlog, Ready for Dev or Done; waiting in
+/// Whether `ticket` lets a change to `new` apply (FLW-06): in Backlog, Ready for Dev or Done; waiting in
 /// a human check `new` still has; waiting in the Delivery stage (To deliver, PR open) with no Delivery session at
 /// work, since a Delivery is never removed (Q-new-1, d0108: "Cards in an Agent stage or an agent check, and cards in
-/// a stage the change removes, block it"); an epic at its stop (second gap review rule 11). `delivering`: the ids of
+/// a stage the change removes, block it"). `delivering`: the ids of
 /// tickets a Delivery session works on now (an automatic PR Delivery's `open-pr`), which hold it.
-pub fn is_quiet(ticket: &Ticket, old: &Flow, new: &Flow, delivering: &HashSet<String>) -> bool {
+pub fn is_quiet(ticket: &Ticket, new: &Flow, delivering: &HashSet<String>) -> bool {
     match &ticket.place {
         Place::Backlog | Place::Waiting(None) | Place::Done => true,
-        _ if ticket.is_epic() && epic_is_quiet(ticket, old) => true,
         Place::InStage(id) => match ticket.status.set() {
             StatusSet::HumanCheck => new.stage(id).is_some_and(Stage::is_human_check),
             StatusSet::Delivery => !delivering.contains(&ticket.id),
@@ -341,18 +338,17 @@ pub fn is_quiet(ticket: &Ticket, old: &Flow, new: &Flow, delivering: &HashSet<St
     }
 }
 
-/// The tickets a change from `old` to `new` waits for, in `tickets`' order: those `wait` covers that aren't quiet
+/// The tickets a change to `new` waits for, in `tickets`' order: those `wait` covers that aren't quiet
 /// ([`is_quiet`]).
 pub fn still_working<'t>(
     tickets: &'t [Ticket],
-    old: &Flow,
     new: &Flow,
     delivering: &HashSet<String>,
     wait: &Wait,
 ) -> Vec<&'t Ticket> {
     tickets
         .iter()
-        .filter(|t| wait.covers(&t.place) && !is_quiet(t, old, new, delivering))
+        .filter(|t| wait.covers(&t.place) && !is_quiet(t, new, delivering))
         .collect()
 }
 
@@ -393,11 +389,10 @@ impl Board {
         let wait = wait_of(&old, &new, memo.whole_board);
         let tickets = self.tickets(&project.key).await?;
         let delivering = self.delivering().await?;
-        let mut waiting_for: Vec<TicketKey> =
-            still_working(&tickets, &old, &new, &delivering, &wait)
-                .into_iter()
-                .map(|t| t.key.clone())
-                .collect();
+        let mut waiting_for: Vec<TicketKey> = still_working(&tickets, &new, &delivering, &wait)
+            .into_iter()
+            .map(|t| t.key.clone())
+            .collect();
         waiting_for.sort();
         Ok(Some(WaitingChange {
             project: project.key,
@@ -422,18 +417,16 @@ impl Board {
             .collect())
     }
 
-    /// Whether nothing `wait` covers on `project`'s board is at work now for a change from `old` to `new`
-    /// ([`still_working`]).
+    /// Whether nothing `wait` covers on `project`'s board is at work now for a change to `new` ([`still_working`]).
     pub(crate) async fn is_quiet_for(
         &self,
         project: &str,
-        old: &Flow,
         new: &Flow,
         wait: &Wait,
     ) -> Result<bool, BoardError> {
         let tickets = self.tickets(project).await?;
         let delivering = self.delivering().await?;
-        Ok(still_working(&tickets, old, new, &delivering, wait).is_empty())
+        Ok(still_working(&tickets, new, &delivering, wait).is_empty())
     }
 
     /// Where a drop of `ticket` on `target` lands while its project's change waits for a span (FED-08): a forward drag
@@ -452,7 +445,7 @@ impl Board {
             Some(Target::Stage(stage)) => span.contains(&stage.id) && stage.id != *first,
             _ => false,
         };
-        if inside && !ticket.is_epic() && span.is_before(&flow, &ticket.place) {
+        if inside && span.is_before(&flow, &ticket.place) {
             tracing::info!(ticket = %ticket.key, edge = %first, "a drop into the waiting span stops at its edge");
             return Ok(DropOn::stage(first.clone()));
         }
@@ -645,9 +638,7 @@ impl Board {
             if against_waiting {
                 self.merge_waiting(&waiting).await?;
             } else if let Some(wait) = wait
-                && !self
-                    .is_quiet_for(&project.key, &now, &file.flow, &wait)
-                    .await?
+                && !self.is_quiet_for(&project.key, &file.flow, &wait).await?
             {
                 // The part that doesn't wait applies now; the whole change waits for its span (or the board).
                 if now != base.flow && super::check(&now).is_ok() {
@@ -998,9 +989,6 @@ impl Board {
         ticket: &Ticket,
         stage: &Stage,
     ) -> Result<(), BoardError> {
-        if ticket.is_epic() {
-            return Ok(());
-        }
         let chosen: Option<Option<String>> = sqlx::query_scalar(
             "SELECT agent_id FROM ticket_stage_choices WHERE ticket_id = ? AND stage_id = ? AND choice = 'agent'",
         )

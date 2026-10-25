@@ -4,7 +4,7 @@ import type { MenuSearch } from "./MenuSearch";
 /**
  * The form's words.
  */
-export type EditorTexts = { title: string, title_placeholder: string, title_required: string, priority: string, priority_hint: string, kind: string, kind_ticket: string, kind_epic: string, epic: string, epic_hint: string, epic_none: string, body: string, 
+export type EditorTexts = { title: string, title_placeholder: string, title_required: string, priority: string, priority_hint: string, body: string, 
 /**
  * The description's label in the Ticket tab's read mode, over the comments (CMT-10, `s05-41`).
  */

@@ -135,7 +135,7 @@ export function actionsOf(toast: ToastView) {
   return link.actions.map((button) => ({
     label: button.label,
     onClick: () => {
-      const press: ToastPress = { id: toast.id, label: button.label, action: button.action };
+      const press: ToastPress = { id: toast.id, action: button.action };
       request("notices.toast_action", press).catch(warnOnFailure(button.label));
     },
   }));

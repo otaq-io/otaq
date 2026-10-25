@@ -29,18 +29,11 @@ async fn choose(w: &TestService, key: &str, picks: &[ChoicePick], chooser: &Choo
     let ticket = w.board.ticket(key).await.unwrap();
     let writes = w
         .board
-        .check_choices(
-            "SHOP",
-            Some(&ticket),
-            (ticket.kind, ""),
-            picks,
-            chooser,
-            false,
-        )
+        .check_choices("SHOP", Some(&ticket), "", picks, chooser, false)
         .await
         .unwrap();
     w.board
-        .write_choices(&ticket, &writes, &Actor::User("me".into()), None)
+        .write_choices(&ticket, &writes, &Actor::User("me".into()))
         .await
         .unwrap();
 }

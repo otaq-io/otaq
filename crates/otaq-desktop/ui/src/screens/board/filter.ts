@@ -3,9 +3,7 @@
 // with no filter (as the GPUI app did). Rust reads it (`board.view` hides cards, `board.search` words the field); the
 // page only keeps it (UIT-04).
 import type { BoardFilter } from "../../generated/BoardFilter";
-import type { BoardFocusParams } from "../../generated/BoardFocusParams";
 import { createStore, type Store } from "../../app/store";
-import { request } from "../../tauri";
 
 export interface KeptFilter extends BoardFilter {
   /** The project it was typed in. */
@@ -61,26 +59,6 @@ export function finishedTokens(sent: BoardFilter, answer: BoardFilter, now: Boar
   return answer;
 }
 
-/**
- * Focuses the epic of `key` (a card or a track's epic; EPC-18, d0080), or leaves the focus with `null` (Esc): Rust
- * answers the filter with the epic's `epic:` token in place of another, or without it, which the board then dims by
- * (Q55). A standalone ticket (or Esc without a focus) changes nothing. Whether the filter changed.
- */
-export function focusEpic(
-  project: string,
-  key: string | null,
-  ask: typeof request = request,
-  store: Store<KeptFilter> = boardFilter,
-): Promise<boolean> {
-  const sent = filterOf(store.get(), project);
-  const params: BoardFocusParams = { project, filter: { tokens: sent.tokens, text: sent.text }, key };
-  return (ask("board.focus", params) as Promise<BoardFilter | null>).then((answer) => {
-    if (answer === null) return false;
-    setFilter(project, answer, store);
-    return true;
-  });
-}
-
 /** Filter the board (`/`) asks the field for the keyboard: each request counts up, so pressing it twice is two requests. */
 export const searchFocusRequests: Store<number> = createStore(0);
 
@@ -122,16 +100,11 @@ export function clearAgentFilter(project: string, store: Store<AgentFilter | nul
 }
 
 /**
- * What Esc on the board undoes first: a drag in progress (the card flies back), then a focused epic (it was put on
- * top of the rest), then the agent filter; `null` leaves Esc to the next taker (the sheet's Close).
+ * What Esc on the board undoes first: a drag in progress (the card flies back), then the agent filter; `null` leaves
+ * Esc to the next taker (the sheet's Close).
  */
-export function escapeStep(
-  dragging: boolean,
-  focused: boolean,
-  agent: boolean,
-): "drag" | "focus" | "agent" | null {
+export function escapeStep(dragging: boolean, agent: boolean): "drag" | "agent" | null {
   if (dragging) return "drag";
-  if (focused) return "focus";
   if (agent) return "agent";
   return null;
 }

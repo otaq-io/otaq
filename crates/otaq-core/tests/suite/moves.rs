@@ -5,26 +5,21 @@ use crate::common::{Fixture, me, shop_input};
 use otaq_core::board::Refusal;
 use otaq_core::board::moves::{DropTarget, MoveAction, MoveCheck, check_move};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Status, StatusSet, TicketKey};
+use otaq_core::domain::{Actor, Flags, Status, StatusSet, TicketKey};
 
-fn ticket(kind: Kind, status: Status) -> Ticket {
+fn ticket(status: Status) -> Ticket {
     Ticket {
         id: "id".into(),
         key: "SHOP-18".parse::<TicketKey>().unwrap(),
-        kind,
         title: "t".into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -43,8 +38,6 @@ fn ticket(kind: Kind, status: Status) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 
@@ -113,7 +106,7 @@ fn allowed_drags() {
     ];
     for (status, target, expected) in rows {
         assert_eq!(
-            check_move(&ticket(Kind::Ticket, status), target),
+            check_move(&ticket(status), target),
             expected,
             "{status} → {target}"
         );
@@ -123,10 +116,7 @@ fn allowed_drags() {
 /// No "Done when" warning any more (TKT-04, d0067): a ticket with an empty description starts like any other.
 #[test]
 fn an_empty_description_never_warns() {
-    let check = check_move(
-        &ticket(Kind::Ticket, Status::Backlog),
-        DropTarget::ReadyForDev,
-    );
+    let check = check_move(&ticket(Status::Backlog), DropTarget::ReadyForDev);
     assert_eq!(
         check,
         MoveCheck::Allowed {
@@ -138,7 +128,7 @@ fn an_empty_description_never_warns() {
 #[test]
 fn refused_drags_carry_a_reason() {
     use DropTarget as T;
-    let t = |s| ticket(Kind::Ticket, s);
+    let t = ticket;
     for status in [Status::Backlog, Status::ClosedNotMerged] {
         assert_eq!(
             reason(&check_move(&t(status), T::ReadyForReview)),
@@ -154,29 +144,6 @@ fn refused_drags_carry_a_reason() {
         assert_eq!(
             reason(&check_move(&t(Status::Merged), target)),
             "Merged tickets are locked"
-        );
-    }
-    // An epic card or track queues its children (d0080); its delivery card keeps the rules.
-    let epic = ticket(Kind::Epic, Status::Backlog);
-    for target in [T::ReadyForDev, T::Dev] {
-        assert_eq!(
-            check_move(&epic, target),
-            MoveCheck::Allowed {
-                action: MoveAction::QueueEpic
-            }
-        );
-    }
-    let in_progress = ticket(Kind::Epic, Status::Backlog);
-    assert_eq!(
-        check_move(&in_progress, T::ReadyForDev).action(),
-        Some(MoveAction::QueueEpic)
-    );
-    // An epic waiting for its review can't go back (FLW-18, 0059).
-    let delivery = ticket(Kind::Epic, Status::WaitingForYou);
-    for target in [T::ReadyForDev, T::Dev] {
-        assert_eq!(
-            reason(&check_move(&delivery, target)),
-            "An epic can\u{2019}t be dragged back"
         );
     }
     assert_eq!(
@@ -222,23 +189,15 @@ fn group(target: DropTarget) -> StatusSet {
 #[test]
 fn same_column_is_unchanged_and_every_pair_is_decided() {
     for status in Status::ALL {
-        for kind in Kind::ALL {
-            for target in DropTarget::ALL {
-                let check = check_move(&ticket(*kind, *status), *target);
-                let epic_in_dev = *kind == Kind::Epic
-                    && matches!(
-                        status.set().board_group(),
-                        StatusSet::Waiting | StatusSet::AgentStage
-                    );
-                // Validate has its own column (FLW-01): a card in it dropped on Dev goes back (FLW-18).
-                let check_on_dev =
-                    status.set() == StatusSet::AgentCheck && *target == DropTarget::Dev;
-                if status.set().board_group() == group(*target) && !epic_in_dev && !check_on_dev {
-                    assert_eq!(check, MoveCheck::Unchanged, "{kind} {status} → {target}");
-                }
-                if *status == Status::Merged && group(*target) != StatusSet::Done {
-                    assert!(check.is_refused());
-                }
+        for target in DropTarget::ALL {
+            let check = check_move(&ticket(*status), *target);
+            // Validate has its own column (FLW-01): a card in it dropped on Dev goes back (FLW-18).
+            let check_on_dev = status.set() == StatusSet::AgentCheck && *target == DropTarget::Dev;
+            if status.set().board_group() == group(*target) && !check_on_dev {
+                assert_eq!(check, MoveCheck::Unchanged, "{status} → {target}");
+            }
+            if *status == Status::Merged && group(*target) != StatusSet::Done {
+                assert!(check.is_refused());
             }
         }
     }
@@ -272,25 +231,6 @@ async fn start_queues_the_ticket_and_locks_its_base() {
         .await
         .unwrap();
     assert_eq!(moved.status, Status::Queued);
-
-    // A child locks its epic's base too; the epic itself queues what is left (here nothing).
-    let epic = f.epic("Wishlist").await;
-    let child = f.child(&epic, "API").await;
-    f.board
-        .move_ticket(&child.key.to_string(), DropTarget::ReadyForDev, true, &me())
-        .await
-        .unwrap();
-    assert!(f.ticket(&epic.key.to_string()).await.base_locked);
-    let err = f
-        .board
-        .move_ticket(&epic.key.to_string(), DropTarget::ReadyForDev, true, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
-    assert_eq!(
-        err.to_string(),
-        format!("Every child of {} is already queued or started", epic.key)
-    );
 }
 
 #[tokio::test]
@@ -328,14 +268,15 @@ async fn later_moves_are_allowed_but_not_available_yet() {
 #[tokio::test]
 async fn reopen_of_a_never_started_closed_ticket_is_bookkeeping() {
     let f = Fixture::shop().await;
-    let epic = f.epic("Search").await;
-    f.board
-        .close_epic(&epic.key.to_string(), &me())
+    let never = f.create("Search").await;
+    sqlx::query("UPDATE tickets SET stage_id = NULL, state = 'closed_not_merged' WHERE id = ?")
+        .bind(&never.id)
+        .execute(f.board.store().pool())
         .await
         .unwrap();
     let reopened = f
         .board
-        .move_ticket(&epic.key.to_string(), DropTarget::Backlog, false, &me())
+        .move_ticket(&never.key.to_string(), DropTarget::Backlog, false, &me())
         .await
         .unwrap();
     assert_eq!(
@@ -400,13 +341,12 @@ async fn unqueue_takes_it_out_of_the_queue() {
     f.board.delete_ticket(&key).await.unwrap();
 }
 
-/// "Ready to start" (d0066): a Backlog ticket whose parents are all merged; never an epic, and it never starts.
+/// "Ready to start" (d0066): a Backlog ticket whose parents are all merged; it never starts.
 #[tokio::test]
 async fn backlog_tickets_with_merged_parents_are_ready_to_start() {
     let f = Fixture::shop().await;
     let parent = f.create("Checkout API").await;
     let child = f.create("Checkout page").await;
-    let epic = f.epic("Wishlist").await;
     f.board
         .add_dependency(&child.key.to_string(), &parent.key.to_string(), &me())
         .await
@@ -422,7 +362,6 @@ async fn backlog_tickets_with_merged_parents_are_ready_to_start() {
     let tickets = f.board.tickets("SHOP").await.unwrap();
     assert!(flags(&tickets, &parent.key), "no parents: unblocked");
     assert!(!flags(&tickets, &child.key), "waits for SHOP's parent");
-    assert!(!flags(&tickets, &epic.key), "never an epic");
     sqlx::query("UPDATE tickets SET state = 'merged', stage_id = NULL WHERE id = ?")
         .bind(&parent.id)
         .execute(f.board.store().pool())

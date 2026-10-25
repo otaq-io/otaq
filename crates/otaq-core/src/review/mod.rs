@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::hand_over::{HandOver, settled};
 use crate::board::reports::ReportSource;
-use crate::board::review::{ApproveCheck, EPIC_NO_SEND_BACK};
+use crate::board::review::ApproveCheck;
 use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
@@ -119,12 +119,12 @@ pub enum LocalMergeOutcome {
     RefusedDirtyCheckout { message: String },
     /// The free rebase conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
     /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
-    /// (FLW-17). An epic's conflict stays on its card.
+    /// (FLW-17).
     Conflict { target: String, files: Vec<String> },
     /// The Merge check `command` failed on the merged result (d0120; `exit` `None`: a signal ended it): nothing was
     /// merged; the ticket went back to its nearest earlier Agent stage with a comment holding the output as its
     /// report, whose session fixes it with `restack` (no click), or stopped there after the third conflict or
-    /// failed check in a row. An epic's stays on its card, with the comment.
+    /// failed check in a row.
     CheckFailed {
         target: String,
         command: String,
@@ -210,9 +210,6 @@ impl Review {
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
-        if ticket.is_epic() {
-            return Err(BoardError::refused(Refusal::MoveRefused, EPIC_NO_SEND_BACK));
-        }
         if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
@@ -236,7 +233,7 @@ impl Review {
     }
 
     /// **Pass** on a human check (FLW-14, STG-06): directly before a click Delivery it changes nothing and offers the
-    /// delivery choices (an epic child's: Local merge only, d0108 rule 7); otherwise the card moves to the next stage
+    /// delivery choices; otherwise the card moves to the next stage
     /// the ticket runs: another human check, an agent check (its checker starts, through `validation`), the wait
     /// before an Agent stage (the scheduler starts it), or its Delivery.
     pub async fn pass(
@@ -249,10 +246,6 @@ impl Review {
         let ticket = board.ticket(key).await?;
         let moved = board.pass_step(&ticket).await?;
         if let Some(delivers) = moved.choose {
-            let delivers = match ticket.epic {
-                Some(_) => Delivers::Local,
-                None => delivers,
-            };
             return Ok(PassOutcome::Choose { delivers });
         }
         if moved.start_check {
@@ -409,7 +402,7 @@ impl Review {
                 .and_then(|w| w.worktree.as_ref())
                 .map(PathBuf::from),
             target: target.target.clone(),
-            sync_target: !target.into_epic,
+            sync_target: true,
             goes_on_without_remote: board.goes_on_without_remote(&ticket).await?,
             message: message.trim().to_owned(),
         };
@@ -449,14 +442,6 @@ impl Review {
                 if let Err(e) = self.finish(&merged).await {
                     tracing::warn!(ticket = %merged.key, error = %e, "Done cleanup failed");
                 }
-                // An epic child merged: the epic may be ready for its own review (EPC-04).
-                if let Some(epic) = &merged.epic {
-                    board.reevaluate_epic(&epic.to_string(), actor).await?;
-                }
-                board
-                    .leads()
-                    .child_finished(&merged, crate::epic_lead::wake::Finished::Merged)
-                    .await;
                 let merged = board.ticket_by_id(&merged.id).await?;
                 // The early conflict flag on every other ticket in Review that merges into the same branch, and its
                 // hand-back to the agent (d0127).
@@ -543,7 +528,7 @@ impl Review {
     }
 
     /// After a Local merge into a base branch (d0121): a fetch that failed leaves its warning ("merged into your local
-    /// main") on the ticket and in History; one that worked clears an earlier warning. An epic branch isn't fetched.
+    /// main") on the ticket and in History; one that worked clears an earlier warning. A local-only target isn't fetched.
     async fn remote_after_merge(
         &self,
         merged: &Ticket,

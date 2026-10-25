@@ -24,12 +24,12 @@ use std::collections::BTreeMap;
 
 use otaq_core::board::comments::{ReviewComment, Side};
 use otaq_core::board::files::{
-    ChangedEntry, ChildTag, EntryKind, FileChange, FileContent, FileMatch, FilesChanges, FilesFrom,
-    FilesSource, TagKind, TreeEntry,
+    ChangedEntry, EntryKind, FileChange, FileContent, FileMatch, FilesChanges, FilesFrom,
+    FilesSource, PieceTag, TagKind, TreeEntry,
 };
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{StatusSet, TicketKey};
+use otaq_core::domain::StatusSet;
 use otaq_core::git::diff::FileStatus;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -73,10 +73,9 @@ pub fn waits_for_you(ticket: &Ticket) -> bool {
     ticket.status.set() == StatusSet::HumanCheck
 }
 
-/// Line comments can be written: a ticket (never an epic, EPC-05) waiting in your check. The rule
-/// `board.add_comment` applies (FTB-05).
+/// Line comments can be written: a ticket waiting in your check. The rule `board.add_comment` applies (FTB-05).
 pub fn can_comment(ticket: &Ticket) -> bool {
-    waits_for_you(ticket) && !ticket.is_epic()
+    waits_for_you(ticket)
 }
 
 // ---- Words ----
@@ -158,42 +157,6 @@ pub fn source_view(source: &FilesSource) -> SourceView {
     }
 }
 
-/// An epic's Files (FTB-06, `s25-11`): "Wishlist’s branch" over "otaq/PAY-123 · what its tickets merged", and the key
-/// to its tags from its own children: the first merged one ("40.1 merged") and the first one running in its own
-/// worktree ("40.2 on top · its own worktree"). Before it started, its base branch as for a ticket.
-pub fn epic_source(epic: &Ticket, source: &FilesSource, tickets: &[Ticket]) -> SourceView {
-    if source.from == FilesFrom::Base {
-        return source_view(source);
-    }
-    let children = super::epic_sheet::children(epic, tickets);
-    let merged = children
-        .iter()
-        .find(|c| c.status == otaq_core::domain::Status::Merged)
-        .map(|c| TagView {
-            label: format!("{} merged", super::epic_sheet::short_key(c)),
-            writing: false,
-        });
-    let writing = children
-        .iter()
-        .find(|c| {
-            otaq_core::epic_lead::overlap::is_running(c.status)
-                && c.work.as_ref().is_some_and(|w| w.worktree.is_some())
-        })
-        .map(|c| TagView {
-            label: format!(
-                "{} on top \u{b7} its own worktree",
-                super::epic_sheet::short_key(c)
-            ),
-            writing: true,
-        });
-    SourceView {
-        kind: SourceKind::Branch,
-        title: format!("{}\u{2019}s branch", epic.title),
-        subtitle: format!("{} \u{b7} what its tickets merged", source.branch),
-        legend: merged.into_iter().chain(writing).collect(),
-    }
-}
-
 /// Where a file is read: "in SHOP-22’s worktree", "on otaq/SHOP-22", "on main".
 fn read_in(source: &FilesSource) -> String {
     match source.from {
@@ -240,13 +203,10 @@ pub struct TagView {
     pub writing: bool,
 }
 
-fn tags(tags: &[ChildTag]) -> Vec<TagView> {
+fn tags(tags: &[PieceTag]) -> Vec<TagView> {
     tags.iter()
         .map(|t| {
-            let short = match t.key.child {
-                Some(child) => format!("{}.{child}", t.key.number),
-                None => t.key.to_string(),
-            };
+            let short = t.piece.to_string();
             let writing = t.kind == TagKind::Writing;
             TagView {
                 label: if writing {
@@ -320,13 +280,6 @@ pub struct ChipView {
     pub colour: &'static str,
 }
 
-/// The running child writing a file on top of the epic's branch, by key.
-fn writing_child(tags: &[ChildTag]) -> Option<String> {
-    tags.iter()
-        .find(|t| t.kind == TagKind::Writing)
-        .map(|t| t.key.to_string())
-}
-
 /// A folder's entries at `depth` (`files.tree`).
 pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
     entries
@@ -340,7 +293,7 @@ pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
             quiet: e.kind != EntryKind::Folder && e.change.is_none() && e.tags.is_empty(),
             opens: e.kind != EntryKind::Submodule,
             tags: tags(&e.tags),
-            child: writing_child(&e.tags),
+            child: None,
             chips: Vec::new(),
             changed_below: None,
             branch: None,
@@ -398,7 +351,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 quiet: false,
                 opens: true,
                 tags: tags(&entry.tags),
-                child: entry.child.as_ref().map(ToString::to_string),
+                child: None,
                 chips: Vec::new(),
                 changed_below: None,
                 branch: None,
@@ -497,7 +450,7 @@ pub fn search_view(query: &str, matches: &[FileMatch], total: u32) -> SearchView
                 mark: m.change.as_ref().map(mark),
                 quiet: m.change.is_none() && m.tags.is_empty(),
                 tags: tags(&m.tags),
-                child: writing_child(&m.tags),
+                child: None,
                 chips: Vec::new(),
                 branch: None,
             }
@@ -634,12 +587,9 @@ pub struct ChangesView {
 
 pub fn change_row(entry: &ChangedEntry) -> ChangeRow {
     let file = &entry.file;
-    let child = entry.child.as_ref().map(ToString::to_string);
+    let child: Option<String> = None;
     ChangeRow {
-        id: match &child {
-            Some(c) => format!("{}\u{0}{c}", file.path),
-            None => file.path.clone(),
-        },
+        id: file.path.clone(),
         path: file.path.clone(),
         label: vm::file_label(file),
         mark: mark(&change_of(entry)),
@@ -699,14 +649,13 @@ fn revision(changes: &FilesChanges) -> String {
             e.uncommitted,
         )
             .hash(&mut h);
-        e.child.as_ref().map(ToString::to_string).hash(&mut h);
     }
     format!("{:016x}", h.finish())
 }
 
 pub fn changes_view(ticket: &Ticket, changes: &FilesChanges, memory: &ReviewMemory) -> ChangesView {
     let source = &changes.source;
-    let own = changes.files.iter().filter(|e| e.child.is_none()).count();
+    let own = changes.files.len();
     let mut summary = files_label(own);
     if let Some(c) = counts(changes.added, changes.removed) {
         summary.push_str(&format!(" \u{b7} {c}"));
@@ -811,31 +760,6 @@ pub struct FilePage {
     pub writing: Option<String>,
 }
 
-/// The note over a file `child` is writing on top of its epic's branch, naming its agent when known (FTB-06).
-pub fn writing_note(child: &TicketKey, agent: Option<&str>) -> String {
-    let short = match child.child {
-        Some(n) => format!("{}.{n}", child.number),
-        None => child.to_string(),
-    };
-    let who = match agent {
-        Some(agent) => format!("{short}\u{2019}s agent ({agent})"),
-        None => format!("{short}\u{2019}s agent"),
-    };
-    format!(
-        "{who} is writing this file in {short}\u{2019}s own worktree; you see its change on top of the epic\u{2019}s \
-         branch."
-    )
-}
-
-/// The subtitle of a file `child` is writing: "40.2’s change, on top of the epic’s branch · not merged yet".
-fn child_subtitle(child: &TicketKey) -> String {
-    let short = match child.child {
-        Some(n) => format!("{}.{n}", child.number),
-        None => child.to_string(),
-    };
-    format!("{short}\u{2019}s change, on top of the epic\u{2019}s branch \u{b7} not merged yet")
-}
-
 /// A file's text as numbered lines, highlighted by its name (the project Files view's file too).
 pub fn code_lines(path: &str, text: &str) -> Vec<CodeLine> {
     let texts: Vec<&str> = text.lines().collect();
@@ -885,9 +809,6 @@ pub fn file_page(content: &FileContent, memory: &ReviewMemory) -> FilePage {
         }
         None => subtitle.push_str(" \u{b7} not changed"),
     }
-    if let Some(child) = &content.child {
-        subtitle = child_subtitle(child);
-    }
     let lines = if content.binary {
         Vec::new()
     } else {
@@ -908,7 +829,7 @@ pub fn file_page(content: &FileContent, memory: &ReviewMemory) -> FilePage {
     };
     FilePage {
         path: content.path.clone(),
-        child: content.child.as_ref().map(ToString::to_string),
+        child: None,
         subtitle,
         modes: FILE_MODES,
         opens_in: if changed.is_some() {
@@ -925,7 +846,7 @@ pub fn file_page(content: &FileContent, memory: &ReviewMemory) -> FilePage {
         new_ticket_body: new_ticket_body(&content.path),
         lines,
         note,
-        writing: content.child.as_ref().map(|c| writing_note(c, None)),
+        writing: None,
     }
 }
 
@@ -1142,7 +1063,7 @@ pub fn review_bar(
     let send_back = crate::view_models::send_back::available(ticket);
     let approve = |primary: bool, keys: Option<String>| BarButton {
         // An epic's Approve is its delivery choice on every flow (EPC-05).
-        action: match custom && !ticket.is_epic() {
+        action: match custom {
             true => BarAction::Pass,
             false => BarAction::Approve,
         },
@@ -1254,7 +1175,6 @@ pub fn gallery() -> Gallery {
         },
         uncommitted,
         tags: Vec::new(),
-        child: None,
     };
     let mut shop_22 = crate::view_models::card_fixtures::ticket(
         "SHOP-22",
@@ -1293,7 +1213,6 @@ pub fn gallery() -> Gallery {
         &FileContent {
             source: source("SHOP-22"),
             path: "src/middleware.ts".into(),
-            child: None,
             size: text.len() as u64,
             binary: false,
             text: text.into(),
@@ -1504,7 +1423,6 @@ mod tests {
             },
             uncommitted,
             tags: Vec::new(),
-            child: None,
         }
     }
 
@@ -1797,13 +1715,6 @@ mod tests {
         );
         assert_eq!(comments_line(2, false), "2 line comments");
         assert_eq!(comments_line(0, true), "1 line comment being written");
-        // An epic takes no comments and isn't sent back (EPC-05): Approve only.
-        let mut epic = shop_18();
-        epic.kind = otaq_core::domain::Kind::Epic;
-        let bar = review_bar(&epic, 0, false, "Dev", None, false).unwrap();
-        assert_eq!(bar.line, "\u{b7} Security passed");
-        assert_eq!(bar.buttons.len(), 1);
-        assert!(!can_comment(&epic));
     }
 
     #[test]
@@ -1861,50 +1772,14 @@ mod tests {
         assert_eq!(titles, ["Your check", "1 line comment, 1 being written"]);
     }
 
-    /// The Wishlist epic's Files (FTB-06, `s25-11`): its branch with "40.1 merged" and "40.2 on top · its own
-    /// worktree", each file tagged with the child that changed it ("40.1", "40.2 ✎" opening 40.2's worktree), files no
-    /// child wrote dimmed, and 40.2's file with its "being written" note.
+    /// A file's tags name the pieces of the plan that changed it: "1", "2 \u{270e}" while one is writing.
     #[test]
-    fn the_wishlist_epics_files_and_their_tags() {
-        use otaq_core::board::files::{ChildTag, TagKind};
-        let mut tickets = crate::view_models::epic_sheet::samples::wishlist();
-        tickets[2].work = Some(otaq_core::board::tickets::Work {
-            worktree: Some("/tmp/wt/SHOP-40.2".into()),
-            ..Default::default()
-        });
-        let epic = &tickets[0];
-        let mut branch = source("SHOP-40", FilesFrom::Branch);
-        branch.branch = otaq_core::naming::branch("PAY-123");
-        let view = epic_source(epic, &branch, &tickets);
-        assert_eq!(view.title, "Wishlist\u{2019}s branch");
-        assert_eq!(
-            view.subtitle,
-            format!("{} \u{b7} what its tickets merged", branch.branch)
-        );
-        let legend: Vec<(&str, bool)> = view
-            .legend
-            .iter()
-            .map(|t| (t.label.as_str(), t.writing))
-            .collect();
-        assert_eq!(
-            legend,
-            [
-                ("40.1 merged", false),
-                ("40.2 on top \u{b7} its own worktree", true)
-            ]
-        );
-        // A ticket's source has no legend; an epic that never started reads its base branch.
-        assert!(source_view(&branch).legend.is_empty());
-        assert_eq!(
-            epic_source(epic, &source("SHOP-40", FilesFrom::Base), &tickets).title,
-            "main"
-        );
-
-        let tag = |k: &str, kind| ChildTag { key: key(k), kind };
+    fn a_files_tags_name_its_pieces() {
+        let tag = |piece, kind| PieceTag { piece, kind };
         let rows = tree_rows(
             &[
                 TreeEntry {
-                    tags: vec![tag("SHOP-40.1", TagKind::Merged)],
+                    tags: vec![tag(1, TagKind::Merged), tag(2, TagKind::Writing)],
                     ..entry(
                         "route.ts",
                         "src/app/api/wishlist/route.ts",
@@ -1912,70 +1787,27 @@ mod tests {
                         Some(change(FileStatus::Added, 12, 0, false)),
                     )
                 },
-                TreeEntry {
-                    tags: vec![tag("SHOP-40.2", TagKind::Writing)],
-                    ..entry(
-                        "WishlistButton.tsx",
-                        "src/components/WishlistButton.tsx",
-                        EntryKind::File,
-                        Some(change(FileStatus::Added, 12, 0, true)),
-                    )
-                },
                 entry("package.json", "package.json", EntryKind::File, None),
             ],
             0,
         );
-        let shown: Vec<(&str, Vec<&str>, bool, Option<&str>)> = rows
+        let shown: Vec<(&str, Vec<&str>, bool)> = rows
             .iter()
             .map(|r| {
                 (
                     r.name.as_str(),
                     r.tags.iter().map(|t| t.label.as_str()).collect(),
                     r.quiet,
-                    r.child.as_deref(),
                 )
             })
             .collect();
         assert_eq!(
             shown,
             [
-                ("route.ts", vec!["40.1"], false, None),
-                (
-                    "WishlistButton.tsx",
-                    vec!["40.2 \u{270e}"],
-                    false,
-                    Some("SHOP-40.2")
-                ),
-                ("package.json", vec![], true, None),
+                ("route.ts", vec!["1", "2 \u{270e}"], false),
+                ("package.json", vec![], true),
             ]
         );
-
-        let page = file_page(
-            &FileContent {
-                source: branch.clone(),
-                path: "src/components/WishlistButton.tsx".into(),
-                child: Some(key("SHOP-40.2")),
-                size: 300,
-                binary: false,
-                text: "'use client'\n".into(),
-                truncated: false,
-                change: Some(change(FileStatus::Added, 12, 0, true)),
-                tags: vec![tag("SHOP-40.2", TagKind::Writing)],
-            },
-            &ReviewMemory::default(),
-        );
-        assert_eq!(
-            page.subtitle,
-            "40.2\u{2019}s change, on top of the epic\u{2019}s branch \u{b7} not merged yet"
-        );
-        assert_eq!(page.opens_in, FileMode::Diff);
-        assert_eq!(page.child.as_deref(), Some("SHOP-40.2"));
-        assert_eq!(
-            writing_note(&key("SHOP-40.2"), Some("Rust developer")),
-            "40.2\u{2019}s agent (Rust developer) is writing this file in 40.2\u{2019}s own worktree; you see its \
-             change on top of the epic\u{2019}s branch."
-        );
-        assert_eq!(page.writing, Some(writing_note(&key("SHOP-40.2"), None)));
     }
 
     #[test]
@@ -1983,7 +1815,6 @@ mod tests {
         let content = FileContent {
             source: source("SHOP-22", FilesFrom::Worktree),
             path: "src/middleware.ts".into(),
-            child: None,
             size: 120,
             binary: false,
             text: "import { NextResponse } from 'next/server'\n\nexport function middleware() {}\n"

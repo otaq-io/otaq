@@ -1,5 +1,5 @@
 // The board's toolbar, in every view (BRD-01, FIL-01; *24 · The two views*, `s28-03`): Board · List · Files first
-// (`g b`, `g l`, `g f`), then the Board's Lanes None · Epic or the List's Group by; on the right the Board's
+// (`g b`, `g l`, `g f`), then the List's Group by; on the right the Board's
 // Dependencies On hover · Always (DPV-02, `s24-09`), the Fold empty columns (or Hide empty stages) switch, All tickets
 // and New ticket. On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
@@ -120,7 +120,7 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
 const NARROW_MAIN = 760 + 2 * 16;
 
 export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarProps) {
-  const choices = toolbar.lanes ?? toolbar.group_by;
+  const choices = toolbar.group_by;
   const main = useStore(mainWidth);
   return (
     <div

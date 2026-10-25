@@ -40,63 +40,56 @@ use crate::session::{SessionAgent, StoredConversation};
 pub use in_use::InUse;
 
 stored_enum! {
-    /// The two roles an agent can hold (AGM-01, d0108): Otaq starts "the agent with that role" for a project's
-    /// Project agent and an epic's lead, so a rename changes nothing. Exactly one agent holds each.
+    /// The role an agent can hold (AGM-01, d0108, d0133): Otaq starts "the agent with that role" for a project's
+    /// Project agent, so a rename changes nothing. Exactly one agent holds it.
     pub enum Role ("agent role") {
-        /// The Project agent (d0068, d0091): onboarding, Split, proposals.
+        /// The Project agent (d0068, d0091, d0128): onboarding, Split, proposals.
         ProjectAgent = "noyan",
-        /// The epic lead (d0083).
-        EpicLead = "epic-lead",
     }
 }
 
 impl Role {
-    /// The role as people read it: "Noyan", "Epic lead".
+    /// The role as people read it: "Noyan".
     pub fn label(self) -> &'static str {
         match self {
             Self::ProjectAgent => "Noyan",
-            Self::EpicLead => "Epic lead",
         }
     }
 
     /// AGM-01's refusal of deleting the agent holding the role, or removing its role: "Noyan has the Noyan role.
-    /// Give the role to another agent first", "Lead is your Epic lead. Give the role to another agent first".
+    /// Give the role to another agent first".
     pub fn holder_refusal(self, name: &str) -> String {
-        let holds = match self {
-            Self::ProjectAgent => format!("{name} has the {} role", self.label()),
-            Self::EpicLead => format!("{name} is your {}", self.label()),
-        };
-        format!("{holds}. Give the role to another agent first")
+        format!(
+            "{name} has the {} role. Give the role to another agent first",
+            self.label()
+        )
     }
 }
 
 stored_enum! {
     /// Which kind of session something is about: a hold (stored as its `role`), a token count, a running session.
     /// The Developer is an Agent stage's session (and its answers and PR), the Validator an agent check's round, the
-    /// epic lead and the Project agent run their role's agent.
+    /// Project agent runs its role's agent.
     pub enum SessionRole ("session role") {
         Developer = "developer",
         Validator = "validator",
-        EpicLead = "lead",
         ProjectAgent = "project_agent",
     }
 }
 
 impl SessionRole {
-    /// "Developer", "Validator", "Epic lead", "Noyan".
+    /// "Developer", "Validator", "Noyan".
     pub fn label(self) -> &'static str {
         match self {
             Self::Developer => "Developer",
             Self::Validator => "Validator",
-            Self::EpicLead => "Epic lead",
             Self::ProjectAgent => "Noyan",
         }
     }
 
-    /// The role whose agent this session runs: the epic lead's and the Project agent's.
+    /// The role whose agent this session runs: the Project agent's.
     pub fn role(self) -> Option<Role> {
         match self {
-            Self::EpicLead => Some(Role::EpicLead),
             Self::ProjectAgent => Some(Role::ProjectAgent),
             Self::Developer | Self::Validator => None,
         }
@@ -214,7 +207,7 @@ pub struct ModelRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "from", rename_all = "snake_case")]
 pub enum CameFrom {
-    /// Otaq's shipped `otaq-agents.yaml` (the Project agent and the epic lead).
+    /// Otaq's shipped `otaq-agents.yaml` (the Project agent).
     AgentsFile,
     /// The default flow's own `agents:` (Developer, Validator).
     DefaultPreset,
@@ -316,13 +309,13 @@ impl Agent {
     }
 }
 
-/// An agent that would start but doesn't (an Agent stage's start, an agent check's round, an epic lead, a Project
-/// agent's first message), one per ticket and session role (and check agent, d0130 row 17), or per project for its
+/// An agent that would start but doesn't (an Agent stage's start, an agent check's round, a Project agent's first
+/// message), one per ticket and session role (and check agent, d0130 row 17), or per project for its
 /// Project agent (`agent_holds`). It lifts when its cause goes, or on the user's Use fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentHold {
     pub id: String,
-    /// The held ticket or epic; `None` for a Project agent's first message.
+    /// The held ticket; `None` for a Project agent's first message.
     pub ticket_id: Option<String>,
     /// The project of a held Project agent's first message; `None` for a ticket's hold.
     pub project_id: Option<String>,
@@ -622,8 +615,7 @@ impl Agents {
     }
 
     /// Gives `role` to the agent `to` (AGM-01: "the role can be moved to another agent"), in one step: the agent
-    /// that held it loses it. Refused when `to` holds the other role, which would be left without its agent ("Epic
-    /// lead is your Epic lead. Give the role to another agent first").
+    /// that held it loses it. Refused when `to` holds another role, which would be left without its agent.
     pub async fn move_role(&self, role: Role, to: &str) -> Result<Agent, BoardError> {
         let agent = self.agent(to).await?;
         if let Some(held) = agent.role.filter(|held| *held != role) {
@@ -833,16 +825,13 @@ mod tests {
     #[test]
     fn roles_are_stored_as_the_files_name_them() {
         let stored: Vec<&str> = Role::ALL.iter().map(|r| r.as_str()).collect();
-        assert_eq!(stored, ["noyan", "epic-lead"]);
+        assert_eq!(stored, ["noyan"]);
         assert_eq!(
             Role::ProjectAgent.holder_refusal("Noyan"),
             "Noyan has the Noyan role. Give the role to another agent first"
         );
         let sessions: Vec<&str> = SessionRole::ALL.iter().map(|r| r.as_str()).collect();
-        assert_eq!(
-            sessions,
-            ["developer", "validator", "lead", "project_agent"]
-        );
+        assert_eq!(sessions, ["developer", "validator", "project_agent"]);
     }
 
     #[test]

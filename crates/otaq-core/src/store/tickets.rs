@@ -11,14 +11,14 @@ pub struct TicketRow {
     pub id: String,
     pub project_id: String,
     pub number: i64,
-    pub epic_id: Option<String>,
-    pub child_number: i64,
-    pub next_child_number: i64,
-    pub kind: String,
     pub title: String,
     pub body: String,
-    /// 1–4 (d0065); `NULL` for an epic child that follows its epic (migration 0023).
-    pub priority: Option<i64>,
+    /// The Plan (Markdown, d0133; migration 0066), who last wrote it (an actor) and when.
+    pub plan: String,
+    pub plan_by: Option<String>,
+    pub plan_at: Option<i64>,
+    /// 1–4 (d0065).
+    pub priority: i64,
     pub external_id: Option<String>,
     pub state: String,
     pub outcome: Option<String>,
@@ -77,11 +77,6 @@ pub struct TicketRow {
     pub nothing_to_merge: Option<String>,
     /// T-0419 (migration 0053): an automatic Delivery delivered it with no check passed before it.
     pub delivered_without_checks: bool,
-    /// T-0262 (migration 0030): an epic's queue mode, `none` / `whole` / `single` (d0080), and when it was set.
-    pub epic_queue_mode: String,
-    pub epic_queue_mode_at: Option<i64>,
-    /// T-0262 (migration 0030): a child that joined a whole-queued epic's queue: who added it (an actor).
-    pub joined_queue_by: Option<String>,
     /// T-0304 (migration 0041): where the build output is (`present` / `freed` / `fetching`, d0085, d0086), and
     /// why the last Free failed.
     pub build_state: String,
@@ -117,9 +112,6 @@ pub(crate) use set_state_since;
 pub struct NewTicket {
     pub project_id: String,
     pub number: i64,
-    pub epic_id: Option<String>,
-    pub child_number: i64,
-    pub kind: String,
     pub title: String,
     pub body: String,
     /// The stage it is in (`None` in Backlog, Ready for Dev and Done).
@@ -133,16 +125,13 @@ impl Store {
         let id = new_id();
         let now = now_ms();
         sqlx::query(
-            "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body,
-                                  stage_id, state, created_by, created_at, updated_at, state_since)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tickets (id, project_id, number, title, body, stage_id, state, created_by, created_at,
+                                  updated_at, state_since)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.project_id)
         .bind(new.number)
-        .bind(&new.epic_id)
-        .bind(new.child_number)
-        .bind(&new.kind)
         .bind(&new.title)
         .bind(&new.body)
         .bind(&new.stage_id)
@@ -163,20 +152,6 @@ impl Store {
             .bind(id)
             .fetch_optional(self.pool())
             .await?)
-    }
-
-    /// Records who added a child to its whole-queued epic's queue (EPC-13, migration 0030), or clears it (`None`).
-    pub async fn set_joined_queue_by(
-        &self,
-        id: &str,
-        actor: Option<&str>,
-    ) -> Result<(), StoreError> {
-        sqlx::query("UPDATE tickets SET joined_queue_by = ? WHERE id = ?")
-            .bind(actor)
-            .bind(id)
-            .execute(self.pool())
-            .await?;
-        Ok(())
     }
 
     /// Records where the ticket's build output is (d0085, d0086) and why the last Free failed (`None` clears it).
@@ -225,20 +200,18 @@ impl Store {
         Ok(())
     }
 
-    /// A ticket by project and number: `(40, 0)` is SHOP-40, `(40, 1)` is SHOP-40.1.
+    /// A ticket by project and number: 40 is SHOP-40.
     pub async fn ticket_by_number(
         &self,
         project_id: &str,
         number: i64,
-        child_number: i64,
     ) -> Result<Option<TicketRow>, StoreError> {
-        Ok(sqlx::query_as(
-            "SELECT * FROM tickets WHERE project_id = ? AND number = ? AND child_number = ?",
+        Ok(
+            sqlx::query_as("SELECT * FROM tickets WHERE project_id = ? AND number = ?")
+                .bind(project_id)
+                .bind(number)
+                .fetch_optional(self.pool())
+                .await?,
         )
-        .bind(project_id)
-        .bind(number)
-        .bind(child_number)
-        .fetch_optional(self.pool())
-        .await?)
     }
 }

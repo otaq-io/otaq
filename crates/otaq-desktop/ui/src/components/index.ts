@@ -26,7 +26,6 @@ export {
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
 export { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
 export { Kbd } from "./Kbd";
-export { LeadStatus, leadAction, openLeadTab, type LeadStatusProps } from "./LeadStatus";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
 export {
   type InnerMotion,

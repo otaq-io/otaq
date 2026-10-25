@@ -1,12 +1,12 @@
 //! Validation reports in History, and Create ticket from a note (T-0195 core; VAL-12, d0063): every round with its
 //! outcome, duration, report, notes and tokens over the socket, newest first; a "Not covered by any ticket" note
-//! becomes a prefilled Backlog ticket in the same epic on the user's click. `claude` stands in as `sh`.
+//! becomes a prefilled Backlog ticket on the user's click. `claude` stands in as `sh`.
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, Kind, Status, StatusSet, ValidationOutcome, ValidationTrigger};
+use otaq_core::domain::{Actor, Status, StatusSet, ValidationOutcome, ValidationTrigger};
 use otaq_core::protocol::{KeyParams, NoteParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -34,30 +34,16 @@ async fn world() -> TestService {
     .await
 }
 
-/// SHOP-1 Wishlist (an epic) and its child SHOP-1.1, working with a committed worktree.
-async fn epic_child(w: &TestService) -> Ticket {
+/// SHOP-1 Save items, working with a committed worktree.
+async fn working_ticket(w: &TestService) -> Ticket {
     w.add_project("shop-web").await;
     let me = Actor::current_user();
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                kind: Kind::Epic,
-                title: "Wishlist".into(),
-                ..NewTicketInput::default()
-            },
-            &me,
-        )
-        .await
-        .unwrap();
     let child = w
         .board
         .create_ticket(
             &NewTicketInput {
                 project: "SHOP".into(),
                 title: "Save items".into(),
-                epic: Some(epic.key.to_string()),
                 ..NewTicketInput::default()
             },
             &me,
@@ -101,7 +87,7 @@ const NOTE: &str = "Not covered by any ticket: refunds endpoint";
 #[tokio::test(flavor = "multi_thread")]
 async fn history_lists_every_round_with_its_report() {
     let w = world().await;
-    let t = epic_child(&w).await;
+    let t = working_ticket(&w).await;
     let _agent = w.agent_shell(&t).await;
     round(&w, &t, false, "src/wishlist.ts:4 items aren't saved").await;
     round(&w, &t, true, &format!("All checks pass.\n- Note: {NOTE}")).await;
@@ -141,14 +127,14 @@ async fn history_lists_every_round_with_its_report() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn create_ticket_from_a_note_lands_in_the_same_epic() {
+async fn create_ticket_from_a_note() {
     let w = world().await;
-    let t = epic_child(&w).await;
+    let t = working_ticket(&w).await;
     round(
         &w,
         &t,
         true,
-        &format!("Works.\n- Note: {NOTE}\n- Note: covered by SHOP-1.2"),
+        &format!("Works.\n- Note: {NOTE}\n- Note: covered by SHOP-2"),
     )
     .await;
 
@@ -167,7 +153,6 @@ async fn create_ticket_from_a_note_lands_in_the_same_epic() {
         (created.board_group(), created.status),
         (StatusSet::Backlog, Status::Backlog)
     );
-    assert_eq!(created.epic, t.epic, "the source ticket's epic");
     assert!(
         created.body.contains(&t.key.to_string()),
         "{}",
@@ -178,12 +163,12 @@ async fn create_ticket_from_a_note_lands_in_the_same_epic() {
 
     // A note about something a ticket covers, or one not in the reports, makes nothing.
     for note in [
-        "covered by SHOP-1.2",
+        "covered by SHOP-2",
         "Not covered by any ticket: something else",
     ] {
         let refused = app.request(create(note)).await;
         assert!(refused.is_err(), "{note}: {refused:?}");
     }
-    assert_eq!(w.board.tickets("SHOP").await.unwrap().len(), 3);
+    assert_eq!(w.board.tickets("SHOP").await.unwrap().len(), 2);
     w.stop().await;
 }

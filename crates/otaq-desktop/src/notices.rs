@@ -77,8 +77,7 @@ pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] = &[
     otaq_view::view_models::run_page::stopped_toast,
 ];
 
-/// "SHOP-40.1 merged automatically into the Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2
-/// can start" (UI-07, d0064; *11 → Success toasts*). A click opens the ticket.
+/// "SHOP-41 merged automatically into main" · "Validated · round 1 · local, not pushed · SHOP-42 can start" (UI-07, d0064; *11 → Success toasts*). A click opens the ticket.
 fn merged_automatically(event: &Event) -> Option<NewToast> {
     let Event::MergedAutomatically {
         key,
@@ -143,8 +142,8 @@ pub struct NoticesView {
 }
 
 /// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
-/// opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the agent panel, an
-/// epic's lead terminal, the next item that needs you (the Needs you strip's Next, d0114), or the board.
+/// opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the agent panel, the
+/// next item that needs you (the Needs you strip's Next, d0114), or the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "NotificationTarget")]
@@ -155,8 +154,6 @@ pub enum OpenTarget {
     Validator { project: String, ticket: String },
     /// The agent in the Project agent panel, focused.
     ProjectAgent { project: String, agent: String },
-    /// The epic's sheet on its Lead tab, the lead's terminal focused.
-    Lead { project: String, epic: String },
     /// A grouped notification or a summary: the item the Needs you strip's Next opens (NYS-03).
     NeedsYou,
     /// The board, of `project` when one is named (a tool that isn't available: its limit banner explains it).
@@ -172,10 +169,6 @@ impl From<Target> for OpenTarget {
                 ticket: key.to_string(),
             },
             Target::ProjectAgent { project, agent } => Self::ProjectAgent { project, agent },
-            Target::Lead { epic } => Self::Lead {
-                project: epic.project.to_string(),
-                epic: epic.to_string(),
-            },
             Target::NeedsYou => Self::NeedsYou,
             Target::Board { project } => Self::Board { project },
         }
@@ -440,9 +433,8 @@ impl Notices {
 
     /// The target `OTAQ_OPEN` named when the app started, once.
     /// The startup report was read: the summary banner counts the Project agents the restart ended too
-    /// ("8 sessions were interrupted · 2 conversations with Noyan ended", T-0244), and the epic leads it ended,
-    /// counted on their own ("· 1 epic lead ended", T-0289).
-    pub fn on_startup_agents(&self, ended: u32, leads_ended: u32) {
+    /// ("8 sessions were interrupted · 2 conversations with Noyan ended", T-0244).
+    pub fn on_startup_agents(&self, ended: u32) {
         {
             let mut state = self.lock();
             if let Some(Situation::SessionsInterrupted {
@@ -452,7 +444,7 @@ impl Notices {
                 agents,
                 leads,
             }) = state.summary.clone()
-                && (agents, leads) != (ended, leads_ended)
+                && agents != ended
                 && state
                     .banners
                     .rows()
@@ -464,7 +456,7 @@ impl Notices {
                     unclean,
                     at,
                     agents: ended,
-                    leads: leads_ended,
+                    leads,
                 };
                 state.summary = Some(situation.clone());
                 state.banners.raise(situation);
@@ -920,7 +912,6 @@ async fn follow(
                     if let Ok(Ok(Reply::StartupReport(report))) = report {
                         notices.on_startup_agents(
                             report.project_agents_ended.len() as u32,
-                            report.leads_ended.len() as u32,
                         );
                     }
                 }
@@ -1299,26 +1290,20 @@ mod tests {
             "the page opens the sheet"
         );
         // The startup report adds the Project agents the restart ended (T-0244): one, then two.
-        n.on_startup_agents(1, 0);
+        n.on_startup_agents(1);
         assert_eq!(
             n.view().banners[0].title,
             "4 sessions were interrupted \u{b7} 1 conversation with Noyan ended"
         );
-        n.on_startup_agents(2, 0);
+        n.on_startup_agents(2);
         assert_eq!(
             n.view().banners[0].title,
             "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended"
         );
-        // And the epic leads, counted on their own (T-0289).
-        n.on_startup_agents(2, 1);
-        assert_eq!(
-            n.view().banners[0].title,
-            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended \u{b7} 1 epic lead ended"
-        );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
         n.dismiss_banner(SituationKind::SessionsInterrupted);
         assert!(n.view().banners.is_empty());
-        n.on_startup_agents(3, 0);
+        n.on_startup_agents(3);
         assert!(
             n.view().banners.is_empty(),
             "a dismissed summary stays dismissed"
@@ -1530,10 +1515,8 @@ mod tests {
         );
         assert_eq!(
             OpenTarget::parse("SHOP-40.1"),
-            Some(OpenTarget::Ticket {
-                project: "SHOP".into(),
-                ticket: "SHOP-40.1".into()
-            })
+            None,
+            "no child keys (d0133)"
         );
         assert_eq!(OpenTarget::parse("needs_you"), Some(OpenTarget::NeedsYou));
         assert_eq!(
@@ -1550,13 +1533,7 @@ mod tests {
                 agent: "pa7".into()
             })
         );
-        assert_eq!(
-            OpenTarget::parse("lead:SHOP-40"),
-            Some(OpenTarget::Lead {
-                project: "SHOP".into(),
-                epic: "SHOP-40".into()
-            })
-        );
+        assert_eq!(OpenTarget::parse("lead:SHOP-40"), None);
         assert_eq!(
             OpenTarget::parse("board"),
             Some(OpenTarget::Board { project: None })
@@ -1579,13 +1556,8 @@ mod tests {
     fn auto_merge_and_a_cancelled_validation_show_their_toasts() {
         use otaq_core::domain::validation::{CancelledBy, cancelled_toast, merged_toast};
         let n = notices();
-        let key: TicketKey = "SHOP-40.1".parse().unwrap();
-        let (title, message) = merged_toast(
-            "SHOP-40.1",
-            "the Wishlist branch",
-            Some(1),
-            &["SHOP-40.2".into()],
-        );
+        let key: TicketKey = "SHOP-41".parse().unwrap();
+        let (title, message) = merged_toast("SHOP-41", "main", Some(1), &["SHOP-42".into()]);
         let merged = Event::MergedAutomatically {
             project: "SHOP".into(),
             key: key.clone(),
@@ -1611,15 +1583,15 @@ mod tests {
         assert_eq!(
             toasts(&view),
             [
-                "SHOP-40.1 merged automatically into the Wishlist branch",
+                "SHOP-41 merged automatically into main",
                 "Validation cancelled: SHOP-29\u{2019}s code changed"
             ]
         );
         assert_eq!(
             view.toasts[0].text.as_deref(),
-            Some("Validated · round 1 · local, not pushed · SHOP-40.2 can start")
+            Some("Validated · round 1 · local, not pushed · SHOP-42 can start")
         );
-        assert_eq!(view.toasts[0].ticket.as_deref(), Some("SHOP-40.1"));
+        assert_eq!(view.toasts[0].ticket.as_deref(), Some("SHOP-41"));
         assert_eq!(
             view.toasts[0].icon,
             Some(otaq_view::icons::IconName::GitMerge)

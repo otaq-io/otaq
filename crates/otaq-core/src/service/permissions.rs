@@ -2,19 +2,15 @@
 //! exhaustive, so a new request can't be added without saying what it does.
 
 use crate::board::batch::{BatchTicket, Ref};
-use crate::board::epic_flight::is_never_started;
 use crate::board::stage_choices::Chooser;
-use crate::board::tickets::Ticket;
+use crate::board::tickets::{Ticket, is_never_started};
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
-use crate::epic_lead::questions;
-use crate::policy::{
-    Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_in_stage,
-};
+use crate::policy::{Action, Names, TicketFacts, authorize_in_stage};
 use crate::protocol::Request;
 
 /// Checks `request` for `caller` before it runs, and returns the action it was judged as. The user passes
-/// without any lookup (`None`); every other caller (an agent, a validator, a Project agent, an epic lead) is judged
+/// without any lookup (`None`); every other caller (an agent, a validator, a Project agent) is judged
 /// by the policy.
 pub(super) async fn check(
     caller: &Caller,
@@ -26,11 +22,6 @@ pub(super) async fn check(
     }
     let action = action_for(caller, request, board).await?;
     let caller_name = match caller {
-        Caller::EpicLead { epic_id, .. } => board
-            .ticket_by_id(epic_id)
-            .await
-            .ok()
-            .map(|epic| crate::project_agents::lead::lead_name(&epic.title)),
         // Only the terminal rule names a Project agent and its project (CLI-09).
         Caller::ProjectAgent { agent, .. } if matches!(action, Action::ReadTerminal { .. }) => {
             Some(project_agent_name(board, agent).await)
@@ -104,19 +95,12 @@ async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
     )
 }
 
-/// Who sets stage choices in a request (AGM-08, AGM-11): the user, the Project agent by its name, an epic lead
-/// ("Wishlist lead"), or a ticket's agent by the agent its session runs ("Griller").
+/// Who sets stage choices in a request (AGM-08, AGM-11): the user, the Project agent by its name, or a ticket's agent by the agent its session runs ("Griller").
 pub(super) async fn chooser(caller: &Caller, board: &Board) -> Chooser {
     match caller {
         Caller::User => Chooser::User,
         Caller::ProjectAgent { agent, .. } => Chooser::ProjectAgent {
             name: project_agent_name(board, agent).await,
-        },
-        Caller::EpicLead { epic_id, epic, .. } => Chooser::EpicLead {
-            name: board.ticket_by_id(epic_id).await.map_or_else(
-                |_| format!("{epic}'s lead"),
-                |e| crate::project_agents::lead::lead_name(&e.title),
-            ),
         },
         Caller::Agent {
             ticket, session, ..
@@ -155,29 +139,16 @@ async fn project_agent_name(board: &Board, agent: &str) -> String {
 
 async fn facts(board: &Board, key: &str) -> Result<TicketFacts, BoardError> {
     let ticket = board.ticket(key).await?;
-    facts_of(board, ticket).await
+    Ok(facts_of(ticket))
 }
 
-async fn facts_of(board: &Board, ticket: Ticket) -> Result<TicketFacts, BoardError> {
-    let epic_id = match &ticket.epic {
-        Some(epic) => Some(board.ticket_id(&epic.to_string()).await?),
-        None => None,
-    };
-    Ok(TicketFacts {
+fn facts_of(ticket: Ticket) -> TicketFacts {
+    TicketFacts {
         backlog: ticket.place.is_backlog() && !ticket.has_started(),
         never_started: is_never_started(&ticket),
-        epic_id,
         id: ticket.id,
         label: ticket.key.to_string(),
         created_by: ticket.created_by,
-    })
-}
-
-/// The epic id a new ticket is created in, from the epic's key (`--parent SHOP-40`).
-async fn epic_of_new(board: &Board, epic: Option<&str>) -> Result<Option<String>, BoardError> {
-    match epic {
-        Some(key) => Ok(Some(board.ticket_id(key).await?)),
-        None => Ok(None),
     }
 }
 
@@ -188,29 +159,14 @@ async fn batch_action(
     tickets: &[BatchTicket],
     board: &Board,
 ) -> Result<Action, BoardError> {
-    // Each new ticket's epic: an existing epic's id; an epic new in the batch has none yet.
-    let mut epics = Vec::with_capacity(tickets.len());
-    for ticket in tickets {
-        epics.push(match &ticket.parent {
-            Some(parent) => match board.batch_ref(tickets, parent).await? {
-                Ref::Existing(epic) => Some(epic.id),
-                Ref::Batch(_) => None,
-            },
-            None => None,
-        });
-    }
     let new = |n: usize| TicketFacts {
         id: format!("batch:{n}"),
         label: format!("the new ticket \"{}\"", tickets[n].title),
         created_by: caller.actor(None),
         backlog: true,
-        epic_id: epics[n].clone(),
         never_started: true,
     };
-    let mut actions: Vec<Action> = epics
-        .iter()
-        .map(|epic| Action::CreateTicket { epic: epic.clone() })
-        .collect();
+    let mut actions: Vec<Action> = tickets.iter().map(|_| Action::CreateTicket).collect();
     // Choices first, so a ticket agent hears why it can't set them on a new ticket.
     for (n, ticket) in tickets.iter().enumerate() {
         if !ticket.choices.is_empty() {
@@ -221,7 +177,7 @@ async fn batch_action(
         for dep in &ticket.depends_on {
             let parent = match board.batch_ref(tickets, dep).await? {
                 Ref::Batch(m) => new(m),
-                Ref::Existing(t) => facts_of(board, *t).await?,
+                Ref::Existing(t) => facts_of(*t),
             };
             actions.push(Action::Dependency {
                 child: new(n),
@@ -254,7 +210,6 @@ async fn action_for(
         | R::TicketPrFlow(_)
         | R::TicketQuestions(_)
         | R::TicketMessages(_)
-        | R::TicketLeadLog(_)
         | R::TicketHumanAnswers(_)
         | R::TicketPrBranchCheck(_)
         | R::BoardSnapshot(_)
@@ -290,7 +245,6 @@ async fn action_for(
         | R::DecisionList(_)
         | R::TicketPrimeValidate(_)
         | R::TicketValidations(_)
-        | R::EpicClosePlan(_)
         | R::DepTree(_)
         | R::DepCycles(_)
         | R::SettingsGet
@@ -313,14 +267,9 @@ async fn action_for(
         | R::ProjectTerminalCreated(_)
         | R::ProjectTerminalList(_)
         | R::ProjectAgentList(_)
-        | R::LeadList(_)
         | R::ProjectAgentPrime(_)
         | R::ProjectAgentCreated(_) => Action::Read,
         // Only a Project agent names itself and asks with these (the handler refuses everyone else).
-        // A lead is named after its epic: `agent name` is refused with the lead's text (CLI-07).
-        R::AgentName(_) if matches!(caller, Caller::EpicLead { .. }) => {
-            Action::UserOnly("name agents")
-        }
         R::AgentName(_) | R::AgentAsk(_) | R::AgentAskHuman(_) => Action::Read,
         R::ProjectAgentAnswer(_) => Action::UserOnly("answer Noyan"),
         R::ProjectAgentSend(_) => Action::UserOnly("message Noyan"),
@@ -370,14 +319,6 @@ async fn action_for(
         // Asking changes the asker's own ticket; answering, the ticket that was asked (CLI-02).
         R::TicketAsk(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::MessageAnswer(p) => {
-            // A child's question that went to its epic's lead (LEAD-06): only that lead answers it.
-            if let Some(q) = questions::find(board, &p.id).await? {
-                return Ok(Action::LeadCommand {
-                    target: facts(board, &q.child.to_string()).await?,
-                    only: questions::ONLY_ITS_LEAD_ANSWERS,
-                    started_too: true,
-                });
-            }
             let message = board.message(&p.id).await?;
             let asker = match &message.from {
                 Some(from) => Some(facts(board, &from.to_string()).await?),
@@ -393,51 +334,14 @@ async fn action_for(
             let target = board.ticket(&p.key).await?;
             Action::ReadTerminal {
                 project: target.key.project.to_string(),
-                target: facts_of(board, target).await?,
+                target: facts_of(target),
             }
         }
         // A first comment at creation is the user's (RPT-03): the New ticket form's report.
         R::TicketCreate(input) if input.first_comment.is_some() => {
             Action::UserOnly("post a new ticket's first comment")
         }
-        R::TicketCreate(input) => Action::CreateTicket {
-            epic: epic_of_new(board, input.epic.as_deref()).await?,
-        },
-        // The lead's own commands (CLI-07): on a child of its epic; the handler refuses the user.
-        R::LeadSuggest(p) => Action::LeadCommand {
-            target: facts(board, &p.key).await?,
-            only: ONLY_A_LEAD_SUGGESTS,
-            started_too: false,
-        },
-        R::DecisionMark(p) => {
-            let id: crate::decisions::DecisionId = p.id.parse()?;
-            Action::LeadCommand {
-                target: facts(board, &id.ticket.to_string()).await?,
-                only: ONLY_A_LEAD_MARKS,
-                started_too: true,
-            }
-        }
-        R::LeadPassOn(p) => match questions::find(board, &p.id).await? {
-            Some(q) => Action::LeadCommand {
-                target: facts(board, &q.child.to_string()).await?,
-                only: questions::ONLY_A_LEAD_PASSES_ON,
-                started_too: true,
-            },
-            None => return Err(BoardError::NotFound(format!("question {}", p.id))),
-        },
-        // Its own waiting questions; the handler refuses anyone but a lead.
-        R::LeadQuestions => Action::Read,
-        R::LeadPrime(_) => Action::Read,
-        R::LeadNote(p) => Action::LeadCommand {
-            target: facts(board, &p.key).await?,
-            only: crate::epic_lead::notes::ONLY_A_LEAD_NOTES,
-            started_too: true,
-        },
-        // Reading marks the notes read: the ticket's own agent (or the user).
-        R::TicketNotes(p) => Action::ChangeTicket(facts(board, &p.key).await?),
-        R::SuggestionConfirm(_) | R::SuggestionDismiss(_) => {
-            Action::UserOnly("confirm or dismiss suggestions")
-        }
+        R::TicketCreate(_) => Action::CreateTicket,
         R::TicketCreateBatch(p) => batch_action(caller, &p.tickets, board).await?,
         R::DepAdd(p) | R::DepRemove(p) => Action::Dependency {
             child: facts(board, &p.child).await?,
@@ -483,11 +387,6 @@ async fn action_for(
         R::TicketAgentEditsSeen(_) => Action::UserOnly("mark agent edits as seen"),
         R::TicketDelete(_) => Action::UserOnly("delete tickets"),
         R::TicketRetryStart(_) => Action::UserOnly("retry starts"),
-        R::EpicMoveTo(_) => Action::UserOnly("move tickets into epics"),
-        R::EpicClose(_) => Action::UserOnly("close epics"),
-        R::EpicQueue(_) => Action::UserOnly("queue epics"),
-        R::EpicTakeBack(_) => Action::UserOnly("take back epics"),
-        R::EpicUndoQueue(_) => Action::UserOnly("take back epics"),
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
         R::TicketPark(_) => Action::UserOnly("park tickets"),
@@ -513,7 +412,6 @@ async fn action_for(
         R::ProjectAgentClose(_) | R::ProjectAgentCloseEnded(_) => {
             Action::UserOnly("close conversations with Noyan")
         }
-        R::LeadOpen(_) | R::LeadResume(_) => Action::UserOnly("open epic leads"),
         R::ProjectAgentRename(_) => Action::UserOnly("rename conversations with Noyan"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
@@ -574,7 +472,6 @@ async fn action_for(
             Action::UserOnly("open or push pull requests")
         }
         R::TicketSendBackPr(_) => Action::UserOnly("send tickets back"),
-        R::TicketAddChildFromPr(_) => Action::UserOnly("add a child from PR comments"),
         R::SessionResize(_)
         | R::SessionInput(_)
         | R::SessionDeliverNow(_)
@@ -632,9 +529,5 @@ mod tests {
             recommended: None,
         });
         assert_eq!(agent_activity(&ask, &Action::Read), AgentActivity::Acts);
-        assert_eq!(
-            agent_activity(&Request::TicketNotes(key()), &Action::UserOnly("x")),
-            AgentActivity::Acts
-        );
     }
 }

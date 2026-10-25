@@ -4,16 +4,14 @@
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
 //! - `show`: `{"ticket": Ticket, "agents": [StageAgent], "choices": [Choice], "decisions": [Decision],
-//!   "children": [Ticket]?, "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the agent each of the
-//!   ticket's stages runs, or the epic's lead ([`StageAgentJson`], AGM-05); `choices` its stages with options and
-//!   its choice for each ([`ChoiceJson`], AGM-11); `decisions` the ticket's recorded decisions (DEC-02,
-//!   `otaq_core::decisions`),
-//!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
-//!   `--long`.
+//!   "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the agent each of the ticket's stages runs
+//!   ([`StageAgentJson`], AGM-05); `choices` its stages with options and its choice for each ([`ChoiceJson`],
+//!   AGM-11); `decisions` the ticket's recorded decisions (DEC-02, `otaq_core::decisions`), `history` and
+//!   `messages` (questions between linked tickets) with `--long`.
 //! - `show --terminal` (SHL-10, d0087): `{"key", "session", "text"}`: the ticket's terminal as the user sees it,
 //!   as plain text, and the session it came from.
 //! - `list`: `[Ticket]` in key order.
-//! - `ready` / `blocked`: `[{"key", "title", "status", "ready", "waiting_for": [{"key", "status", "kind"?,
+//! - `ready` / `blocked`: `[{"key", "title", "status", "ready", "waiting_for": [{"key", "status",
 //!   "pr_number"?}]?, "parent_closed"?, "reason"?}]`; `reason` is the card's waiting text (T-0077).
 //! - `project list`: `[ProjectInfo]`; `project show`: `ProjectInfo`.
 //!
@@ -23,7 +21,7 @@ use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::readiness::Readiness;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::stage_choices::{SetBy, TicketChoices};
-use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
+use otaq_core::board::tickets::{HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Place, Priority, Status, StatusSet, TicketKey};
@@ -43,13 +41,10 @@ use crate::target;
 pub struct ShowArgs {
     pub key: Option<String>,
     pub long: bool,
-    pub children: bool,
 }
 
 pub struct ListArgs {
     pub status: Option<String>,
-    pub tree: bool,
-    pub parent: Option<String>,
     pub priority: Option<Priority>,
 }
 
@@ -68,11 +63,6 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         let key = target::resolve_key(client, data, args.key, global).await?;
         let ticket = get_ticket(client, &key.to_string()).await?;
         let tickets = list_tickets(client, ticket.key.project.as_str()).await?;
-        let children: Vec<Ticket> = tickets
-            .iter()
-            .filter(|t| t.epic.as_ref() == Some(&ticket.key))
-            .cloned()
-            .collect();
         let history = if args.long {
             match request(
                 client,
@@ -118,16 +108,7 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         let choices = ticket_choices(client, &ticket.key.to_string()).await?;
         let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices));
         if !decisions.is_empty() {
-            // Only a lead marks: its mark is named after the ticket's epic ("Marked by Wishlist lead").
-            let lead = ticket
-                .epic
-                .as_ref()
-                .and_then(|e| tickets.iter().find(|t| &t.key == e))
-                .map(|e| otaq_core::project_agents::lead::lead_name(&e.title));
-            human.push_str(&decisions_text(&decisions, lead.as_deref()));
-        }
-        if args.children {
-            human.push_str(&children_text(&ticket, &children));
+            human.push_str(&decisions_text(&decisions));
         }
         if let Some(messages) = messages.as_ref().filter(|m| !m.is_empty()) {
             human.push_str(&messages_text(messages));
@@ -141,9 +122,6 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             "choices": choices_json(&choices),
             "decisions": decisions,
         });
-        if args.children {
-            value["children"] = json!(children);
-        }
         if let Some(history) = history {
             value["history"] = json!(history);
         }
@@ -187,15 +165,11 @@ pub fn terminal(
     }))
 }
 
-/// The ticket's recorded decisions (DEC-02): ID and question, then Built, the other options, Why, the lead's mark
-/// and the outcome.
-fn decisions_text(decisions: &[otaq_core::decisions::Decision], lead: Option<&str>) -> String {
+/// The ticket's recorded decisions (DEC-02): ID and question, then Built, the other options, Why and the outcome.
+fn decisions_text(decisions: &[otaq_core::decisions::Decision]) -> String {
     let mut out = String::from("\n\nDecisions\n");
     for d in decisions {
-        out.push_str(&format!(
-            "  {}",
-            otaq_core::decisions::render(d, "    ", lead)
-        ));
+        out.push_str(&format!("  {}", otaq_core::decisions::render(d, "    ")));
     }
     out
 }
@@ -221,21 +195,8 @@ fn messages_text(messages: &[otaq_core::messages::Message]) -> String {
 
 pub fn list(args: ListArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     service::runtime()?.block_on(with_client(global, async |client, data| {
-        let project = match &args.parent {
-            Some(parent) => {
-                let key = target::resolve_key(client, data, Some(parent.clone()), global).await?;
-                key.project
-            }
-            None => target::require_project(client, data, global).await?,
-        };
+        let project = target::require_project(client, data, global).await?;
         let tickets = list_tickets(client, project.as_str()).await?;
-        let parent = match &args.parent {
-            Some(parent) => {
-                let key = target::resolve_key(client, data, Some(parent.clone()), global).await?;
-                Some(get_ticket(client, &key.to_string()).await?.key)
-            }
-            None => None,
-        };
         let status = args
             .status
             .as_deref()
@@ -243,15 +204,10 @@ pub fn list(args: ListArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             .transpose()?;
         let shown: Vec<Ticket> = tickets
             .into_iter()
-            .filter(|t| parent.as_ref().is_none_or(|p| t.epic.as_ref() == Some(p)))
             .filter(|t| status.as_ref().is_none_or(|s| s.matches(t)))
             .filter(|t| args.priority.is_none_or(|p| t.priority == p))
             .collect();
-        let human = if args.tree {
-            tree_text(&shown)
-        } else {
-            shown.iter().map(line).collect::<Vec<_>>().join("\n")
-        };
+        let human = shown.iter().map(line).collect::<Vec<_>>().join("\n");
         let keys: Vec<String> = shown.iter().map(|t| t.key.to_string()).collect();
         out.print(
             &human,
@@ -338,14 +294,13 @@ async fn request(client: &Client, request: Request) -> Result<Reply, ErrorBody> 
     client.request(request).await.map_err(client_error)
 }
 
-/// The agents a ticket's stages or an epic's lead run (`ticket.agents`).
+/// The agents a ticket's stages run (`ticket.agents`).
 pub async fn ticket_agents(client: &Client, key: &str) -> Result<TicketAgents, ErrorBody> {
     match request(
         client,
         Request::TicketAgents(TicketAgentsParams {
             key: Some(key.to_owned()),
             project: None,
-            new_epic: false,
         }),
     )
     .await?
@@ -355,8 +310,7 @@ pub async fn ticket_agents(client: &Client, key: &str) -> Result<TicketAgents, E
     }
 }
 
-/// One stage's agent in `--json` (AGM-05): `{"stage": "Dev", "agent": "Developer"}`; an epic's lead is
-/// `{"stage": "Epic lead", "agent": "Epic lead"}`. `agent` is missing when the stage names one that isn't there.
+/// One stage's agent in `--json` (AGM-05): `{"stage": "Dev", "agent": "Developer"}`. `agent` is missing when the stage names one that isn't there.
 #[derive(Debug, Serialize)]
 pub struct StageAgentJson {
     pub stage: String,
@@ -366,10 +320,6 @@ pub struct StageAgentJson {
 
 /// The stages' agents as `--json` carries them.
 pub fn agents_json(agents: &TicketAgents) -> Vec<StageAgentJson> {
-    let lead = agents.lead.as_ref().map(|a| StageAgentJson {
-        stage: "Epic lead".to_owned(),
-        agent: Some(a.name.clone()),
-    });
     agents
         .stages
         .iter()
@@ -377,7 +327,6 @@ pub fn agents_json(agents: &TicketAgents) -> Vec<StageAgentJson> {
             stage: s.stage.clone(),
             agent: s.agent.as_ref().map(|a| a.name.clone()),
         })
-        .chain(lead)
         .collect()
 }
 
@@ -428,7 +377,6 @@ pub fn choices_json(choices: &TicketChoices) -> Vec<ChoiceJson> {
                 set_by: set_by.map(|s| match s {
                     SetBy::User => "user",
                     SetBy::ProjectAgent { .. } => "project_agent",
-                    SetBy::EpicLead { .. } => "epic_lead",
                     SetBy::Agent { .. } => "agent",
                 }),
                 by: set_by.map(SetBy::who),
@@ -587,37 +535,13 @@ impl StatusFilter {
 
 /// `SHOP-18  Working               Split user full name`
 pub fn line(ticket: &Ticket) -> String {
-    let epic = if ticket.is_epic() { "epic · " } else { "" };
     format!(
-        "{:<10} P{} {:<22} {epic}{}",
+        "{:<10} P{} {:<22} {}",
         ticket.key.to_string(),
         ticket.priority.number(),
         ticket.status.label(),
         ticket.title
     )
-}
-
-/// Epics with their children indented under them; tickets of no epic as they are.
-pub fn tree_text(tickets: &[Ticket]) -> String {
-    let mut lines = Vec::new();
-    for ticket in tickets.iter().filter(|t| t.epic.is_none()) {
-        lines.push(line(ticket));
-        for child in tickets
-            .iter()
-            .filter(|t| t.epic.as_ref() == Some(&ticket.key))
-        {
-            lines.push(format!("  {}", line(child)));
-        }
-    }
-    // Children whose epic isn't in the list (filtered out) still show.
-    for orphan in tickets.iter().filter(|t| {
-        t.epic
-            .as_ref()
-            .is_some_and(|e| !tickets.iter().any(|p| &p.key == e))
-    }) {
-        lines.push(format!("  {}", line(orphan)));
-    }
-    lines.join("\n")
 }
 
 fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
@@ -635,7 +559,6 @@ pub fn show_text(
     choices: Option<&TicketChoices>,
 ) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
-    let kind = if ticket.is_epic() { "Epic · " } else { "" };
     let (status, column) = (ticket.status.label(), Column::of(ticket).label());
     // A status named like its column ("Ready for Dev") says it once.
     let column = if status == column {
@@ -643,25 +566,12 @@ pub fn show_text(
     } else {
         format!(" ({column})")
     };
-    text.push_str(&format!("Status:      {kind}{status}{column}\n"));
+    text.push_str(&format!("Status:      {status}{column}\n"));
     if let Some(signal) = ticket.signal.as_ref().and_then(|s| s.text.as_deref()) {
         text.push_str(&format!("Waiting on:  {signal}\n"));
     }
-    let inherited = if ticket.priority_inherited {
-        " (from the epic)"
-    } else {
-        ""
-    };
-    text.push_str(&format!("Priority:    {}{inherited}\n", ticket.priority));
-    match &ticket.base {
-        Base::Branch(branch) => text.push_str(&format!("Base:        {branch}\n")),
-        Base::Epic(epic) => {
-            text.push_str(&format!("Base:        from the epic's branch ({epic})\n"))
-        }
-    }
-    if let Some(epic) = &ticket.epic {
-        text.push_str(&format!("Epic:        {epic}\n"));
-    }
+    text.push_str(&format!("Priority:    {}\n", ticket.priority));
+    text.push_str(&format!("Base:        {}\n", ticket.base.branch()));
     if !ticket.depends_on.is_empty() {
         let parents: Vec<String> = ticket
             .depends_on
@@ -675,10 +585,6 @@ pub fn show_text(
     }
     if let Some(branch) = ticket.work.as_ref().and_then(|w| w.branch.as_deref()) {
         text.push_str(&format!("Branch:      {branch}\n"));
-    }
-    if !ticket.aliases.is_empty() {
-        let aliases: Vec<String> = ticket.aliases.iter().map(ToString::to_string).collect();
-        text.push_str(&format!("Also known:  {}\n", aliases.join(", ")));
     }
     let origin = if ticket.created_by.is_agent() {
         " (created by agent)"
@@ -696,18 +602,6 @@ pub fn show_text(
     }
     if !ticket.body.trim().is_empty() {
         text.push_str(&format!("\nWhat and why\n{}\n", ticket.body.trim_end()));
-    }
-    text
-}
-
-fn children_text(epic: &Ticket, children: &[Ticket]) -> String {
-    if children.is_empty() {
-        return format!("\n{} has no tickets yet\n", epic.key);
-    }
-    let mut text = String::from("\nChildren\n");
-    for child in children {
-        text.push_str(&line(child));
-        text.push('\n');
     }
     text
 }

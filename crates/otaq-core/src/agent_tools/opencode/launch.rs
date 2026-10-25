@@ -142,12 +142,11 @@ fn plugin_missing() -> LaunchError {
 }
 
 /// The session's title in the user's OpenCode session list: "Otaq · SHOP-18 · Add coupon codes" with the ticket's
-/// title, else "Otaq · SHOP-18"; "Otaq · SHOP-31" for an epic's lead, "Otaq · SHOP" for a Project agent.
+/// title, else "Otaq · SHOP-18"; "Otaq · SHOP" for a Project agent.
 pub(super) fn session_title(request: &LaunchRequest, ticket_title: Option<&str>) -> String {
     let what = request
         .ticket
         .as_ref()
-        .or(request.epic.as_ref())
         .map_or_else(|| request.project.clone(), ToString::to_string);
     match ticket_title.map(str::trim).filter(|t| !t.is_empty()) {
         Some(title) => format!("{} · {what} · {title}", naming::PRODUCT_NAME),
@@ -161,7 +160,7 @@ fn prompt_text(adapter: &OpenCode, prompt: &FirstPrompt) -> String {
 }
 
 /// Otaq's own variables for the role, as every tool gets them: the ticket and its port (a validator has no port),
-/// the role, an epic lead's epic, and PATH with the `otaq` folder first.
+/// the role, and PATH with the `otaq` folder first.
 fn otaq_env(request: &LaunchRequest, path: String) -> Result<Vec<(String, String)>, LaunchError> {
     let ticket = || {
         request
@@ -185,14 +184,6 @@ fn otaq_env(request: &LaunchRequest, path: String) -> Result<Vec<(String, String
                 naming::role_env_var(),
                 naming::ROLE_PROJECT_AGENT.to_owned(),
             ));
-        }
-        LaunchRole::EpicLead => {
-            let epic = request
-                .epic
-                .as_ref()
-                .ok_or_else(|| LaunchError("an epic lead needs its epic".to_owned()))?;
-            env.push((naming::role_env_var(), naming::ROLE_EPIC_LEAD.to_owned()));
-            env.push((naming::epic_env_var(), epic.to_string()));
         }
     }
     env.push(("PATH".to_owned(), path));
@@ -260,7 +251,6 @@ mod tests {
             cwd: "/wt/shop-web/SHOP-50".into(),
             project: "SHOP".into(),
             ticket: Some("SHOP-50".parse().unwrap()),
-            epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
@@ -454,21 +444,16 @@ mod tests {
             panic!()
         };
         assert!(step.args.last().unwrap().contains(" · SHOP\""));
-        let mut lead = project.clone();
-        lead.role = LaunchRole::EpicLead;
-        lead.epic = Some("SHOP-31".parse().unwrap());
-        lead.first_prompt = Some(FirstPrompt::Skill {
-            name: "epic-lead".into(),
+        let mut first = project.clone();
+        first.first_prompt = Some(FirstPrompt::Skill {
+            name: "noyan".into(),
             message: Some("Start with the cart".into()),
         });
-        let plan = launch(&adapter(), &lead).unwrap();
-        assert_eq!(env(&plan, &naming::epic_env_var()), Some("SHOP-31"));
+        let plan = launch(&adapter(), &first).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("{}-epic-lead Start with the cart", naming::COMMAND_NAME)
+            &format!("{}-noyan Start with the cart", naming::COMMAND_NAME)
         );
-        lead.epic = None;
-        assert!(launch(&adapter(), &lead).is_err());
     }
 
     /// d0011: never a permission or bypass flag, never a config folder that replaces the user's.

@@ -2,28 +2,23 @@
 //! (SCH-01, TKT-09; d0065, d0066).
 
 use crate::common::{Fixture, me};
-use otaq_core::board::order::{blocked_counts, fold_dev, sort_column, start_order, start_pin};
+use otaq_core::board::order::{blocked_counts, fold_dev, sort_column, start_order};
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Priority, Status, StatusSet, TicketKey};
+use otaq_core::domain::{Actor, Flags, Priority, Status, StatusSet, TicketKey};
 
 fn t(key: &str, status: Status, created_at: i64) -> Ticket {
     Ticket {
         id: key.into(),
         key: key.parse::<TicketKey>().unwrap(),
-        kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -42,8 +37,6 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 
@@ -155,65 +148,6 @@ fn start_order_pins_then_priority_then_ready_the_longest() {
         order,
         "the column shows the start order"
     );
-}
-
-fn child_of(mut ticket: Ticket, epic: &str) -> Ticket {
-    ticket.epic = Some(epic.parse().unwrap());
-    ticket
-}
-
-/// EPC-17 (d0080, d0047, d0065): a pinned epic's children start first, as if each were pinned with the epic's pin;
-/// a child pinned on its own keeps its own pin, and the later of the two counts. Ready for Dev shows the same order.
-#[test]
-fn a_pinned_epics_children_start_first() {
-    let epic = |pin: Option<i64>| {
-        let mut e = t("SHOP-40", Status::Backlog, 1);
-        e.kind = Kind::Epic;
-        e.flags.pinned_at = pin;
-        e
-    };
-    // SHOP-40 pinned, SHOP-51 not, both P3, SHOP-51 ready longer: SHOP-40.1 first.
-    let board = |epic_pin, own_51: Option<i64>| {
-        let mut shop51 = ready_at(t("SHOP-51", Status::Queued, 2), 10);
-        shop51.flags.pinned_at = own_51;
-        vec![
-            epic(epic_pin),
-            ready_at(child_of(t("SHOP-40.1", Status::Queued, 3), "SHOP-40"), 50),
-            shop51,
-        ]
-    };
-    let order = |tickets: &[Ticket]| {
-        let mut queued: Vec<&Ticket> = tickets
-            .iter()
-            .filter(|x| x.status == Status::Queued)
-            .collect();
-        queued.sort_by_cached_key(|x| start_order(x, tickets));
-        let started: Vec<String> = queued.iter().map(|x| x.key.to_string()).collect();
-        assert_eq!(
-            keys(&sort_column(StatusSet::Waiting, tickets).cards),
-            started,
-            "the column shows the start order"
-        );
-        started
-    };
-    assert_eq!(order(&board(None, None)), ["SHOP-51", "SHOP-40.1"]);
-    let pinned_epic = board(Some(100), None);
-    assert_eq!(order(&pinned_epic), ["SHOP-40.1", "SHOP-51"]);
-    assert_eq!(start_pin(&pinned_epic[1], &pinned_epic), Some(100));
-    assert_eq!(start_pin(&pinned_epic[2], &pinned_epic), None);
-    // SHOP-51 pinned later than SHOP-40: SHOP-51 first.
-    assert_eq!(
-        order(&board(Some(100), Some(200))),
-        ["SHOP-51", "SHOP-40.1"]
-    );
-    // A child's own pin, later than its epic's, counts; an earlier one gives way to the epic's.
-    let mut own = board(Some(100), Some(200));
-    own[1].flags.pinned_at = Some(300);
-    assert_eq!(start_pin(&own[1], &own), Some(300));
-    assert_eq!(order(&own), ["SHOP-40.1", "SHOP-51"]);
-    own[1].flags.pinned_at = Some(50);
-    assert_eq!(start_pin(&own[1], &own), Some(100));
-    assert_eq!(order(&own), ["SHOP-51", "SHOP-40.1"]);
 }
 
 #[test]

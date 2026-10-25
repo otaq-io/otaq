@@ -3,4 +3,4 @@
 /**
  * The List's grouping (LST-01). `ListGroupBy` on the page.
  */
-export type ListGroupBy = "stage" | "status" | "epic" | "agent";
+export type ListGroupBy = "stage" | "status" | "agent";

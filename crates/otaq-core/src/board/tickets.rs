@@ -1,20 +1,18 @@
-//! Tickets and epics: create, edit, key allocation, fields, actor and the event log (TKT-01, TKT-03; d0019, d0029,
-//! d0032, d0051, d0059).
+//! Tickets: create, edit, key allocation, fields, actor and the event log (TKT-01, TKT-03; d0019, d0029, d0032,
+//! d0051, d0059, d0133).
 //!
-//! New tickets and epics land in Backlog. Numbers increase per project and are never handed out again, even after
-//! a deletion (d0029); epic children get the epic's next `.n`, also never reused (d0039). Standalone tickets and
-//! epics store their base branch ("Start from and merge into"), the project's at creation unless overridden;
-//! epic children have none of their own and use the epic's branch (d0051, d0059). External IDs exist only on
-//! epics and standalone tickets. Every change records its actor and appends an `events` row.
+//! New tickets land in Backlog. Numbers increase per project and are never handed out again, even after a deletion
+//! (d0029). Every ticket stores its base branch ("Start from and merge into"), the project's at creation unless
+//! overridden (d0051), and may have an External ID (d0059). Every change records its actor and appends an `events`
+//! row.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{FromRow, Sqlite, Transaction};
 
-use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, BuildState, Flags, Kind, MergeCheckState, Place, Priority, ProjectKey, RemoteWarning,
+    Actor, BuildState, Flags, MergeCheckState, Place, Priority, ProjectKey, RemoteWarning,
     ResourceState, SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
@@ -25,58 +23,46 @@ use crate::store::{new_id, now_ms};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Base {
-    /// A branch of the repository: standalone tickets and epics.
+    /// A branch of the repository.
     Branch(String),
-    /// The integration branch of this epic: epic children.
-    Epic(TicketKey),
 }
 
 impl Base {
-    /// How the base reads in messages: `main`, or "the epic's branch (SHOP-40)".
+    /// The branch's name: `main`.
+    pub fn branch(&self) -> &str {
+        let Self::Branch(branch) = self;
+        branch
+    }
+
+    /// How the base reads in messages: `main`.
     pub fn describe(&self) -> String {
-        match self {
-            Self::Branch(branch) => format!("`{branch}`"),
-            Self::Epic(epic) => format!("the epic's branch ({epic})"),
-        }
+        format!("`{}`", self.branch())
     }
 }
 
-/// A ticket or epic as the board, the editor and the CLI see it.
+/// A ticket as the board, the editor and the CLI see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ticket {
     pub id: String,
     pub key: TicketKey,
-    pub kind: Kind,
     pub title: String,
     /// "What and why" (Markdown).
     pub body: String,
-    /// The effective priority: the ticket's own, else (an epic child) the epic's (TKT-09, d0065).
+    /// TKT-09, d0065.
     #[serde(default)]
     pub priority: Priority,
-    /// An epic child without a priority of its own: `priority` is the epic's and follows it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub priority_inherited: bool,
-    /// The epic this ticket belongs to.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<TicketKey>,
     /// Where it is: Backlog, waiting before an Agent stage, a stage of its flow, or Done (STG-04). In JSON
     /// `"place"` and, in or before a stage, `"stage"` (the stage's id).
     #[serde(flatten)]
     pub place: Place,
     pub status: Status,
     pub base: Base,
-    /// The base can't change any more (the ticket has been to Dev; for an epic, a child has).
+    /// The base can't change any more (the ticket has been to Dev).
     pub base_locked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
     /// Direct parents, in key order.
     pub depends_on: Vec<TicketKey>,
-    /// Old keys that still resolve to this ticket (after Move to epic, d0044).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub aliases: Vec<TicketKey>,
-    /// Epics only: the number the next child gets (child numbers are never reused, d0039).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_child_number: Option<u32>,
     pub flags: Flags,
     pub created_by: Actor,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -124,18 +110,6 @@ pub struct Ticket {
     /// After a push: the PR branch's content differs from what was reviewed (REV-06, T-0145).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pushed_differs: Option<crate::pr::verify::PushedDiff>,
-    /// Epics only: how the user queued the epic (d0080, EPC-13). `None` when it was never queued or was taken
-    /// back; `Whole` lets new children join the queue; `Single` keeps them "not queued".
-    #[serde(
-        default,
-        skip_serializing_if = "super::epic_flight::EpicQueueMode::is_none"
-    )]
-    pub epic_queue_mode: super::epic_flight::EpicQueueMode,
-    /// Epic children only: the child joined a whole-queued epic's queue when it was created, added by this actor
-    /// (the user, or the ticket whose agent ran `otaq create --parent`): "new · added by SHOP-40.2" (EPC-13).
-    /// Cleared when the child starts or is taken back.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub joined_queue_by: Option<Actor>,
 }
 
 /// The detail of a turquoise or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
@@ -209,12 +183,7 @@ impl Ticket {
         self.status.set().board_group()
     }
 
-    pub fn is_epic(&self) -> bool {
-        self.kind == Kind::Epic
-    }
-
-    /// Has this ticket ever been to Dev? Never-started tickets can be deleted and moved into an epic (d0044,
-    /// d0060).
+    /// Has this ticket ever been to Dev? Never-started tickets can be deleted (d0060).
     pub fn has_started(&self) -> bool {
         self.started_at.is_some()
     }
@@ -231,23 +200,40 @@ impl Ticket {
     }
 }
 
-/// Creates a ticket or epic in Backlog.
+/// Has this ticket been to Dev (any stage of its flow)? Pure: from its place, its status and its work (branch or
+/// worktree). A queued ticket that never reached its first stage has **not** (unlike [`Ticket::has_started`], which
+/// a queue sets). One waiting before a later Agent stage ran an earlier one. A Closed ticket counts if it was ever
+/// queued and kept that mark, or has work.
+pub fn been_to_dev(ticket: &Ticket) -> bool {
+    let worked = ticket
+        .work
+        .as_ref()
+        .is_some_and(|w| w.branch.is_some() || w.worktree.is_some());
+    match &ticket.place {
+        Place::InStage(_) | Place::Waiting(Some(_)) => true,
+        Place::Backlog => ticket.status == Status::Parked || worked,
+        Place::Waiting(None) => worked,
+        Place::Done => ticket.status == Status::Merged || worked || ticket.has_started(),
+    }
+}
+
+/// A never-started ticket: in Backlog or Ready for Dev, and it has never been to Dev ([`been_to_dev`]).
+pub fn is_never_started(ticket: &Ticket) -> bool {
+    (ticket.place.is_backlog() || ticket.place.is_waiting()) && !been_to_dev(ticket)
+}
+
+/// Creates a ticket in Backlog.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewTicketInput {
     /// The project key.
     pub project: String,
-    #[serde(default)]
-    pub kind: Kind,
     pub title: String,
     #[serde(default)]
     pub body: String,
-    /// Default: Normal for tickets and epics; an epic child without one follows its epic (d0065).
+    /// Default: Normal (d0065).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
-    /// Creates an epic child: the epic's key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<String>,
-    /// Overrides the project's base branch (standalone tickets and epics only).
+    /// Overrides the project's base branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -265,7 +251,7 @@ pub struct TicketUpdate {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
-    /// Sets the ticket's own priority (an epic child then stops following its epic).
+    /// Sets the ticket's priority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -312,7 +298,6 @@ stored_enum! {
         Unpinned = "unpinned",
         DependencyAdded = "dependency_added",
         DependencyRemoved = "dependency_removed",
-        MovedToEpic = "moved_to_epic",
         Closed = "closed",
         AgentEditsSeen = "agent_edits_seen",
         /// The start sequence finished: the agent is working (SES-01).
@@ -383,54 +368,15 @@ stored_enum! {
         MergedAutomatically = "merged_automatically",
         /// The Delivery stopped (FLW-17; AMG-03, AMG-04): payload `stop`, `message`.
         AutoMergeStopped = "auto_merge_stopped",
-        /// An epic's queue mode changed (d0080): payload `from`, `to` (`none` / `whole` / `single`). History reads
-        /// "Queued the whole epic", "Queued one child" or "Taken back".
-        EpicQueueModeSet = "epic_queue_mode_set",
-        /// A new child went straight to Ready for Dev because its epic is queued as a whole (EPC-13): payload
-        /// `epic`. History reads "Joined the queue: SHOP-40 is queued as a whole".
-        JoinedQueue = "joined_queue",
         /// `otaq decision record` (DEC-02, d0084): payload `ordinal`, `question`, `built`, `other_options`, `why`.
         /// History reads "Recorded a decision: <question>" · "Built: … · Other option: …".
         DecisionRecorded = "decision_recorded",
         /// Approve kept the ticket's open decisions (DEC-05): payload `count`, `decisions` (`ordinal`, `question`,
         /// `built`). History reads "Kept by you · 1 decision" · "Split fullName … → only in the profile form".
         DecisionsKept = "decisions_kept",
-        /// Change… on a decision (DEC-06): payload `ordinal`, `question`, `to` (`sent_back` with `text` and
-        /// `round`, or `fix_child` with `child`, `title` and `epic`). History reads "Changed by you → sent back" or
-        /// "Changed by you → SHOP-40.7".
+        /// Change… on a decision (DEC-06): payload `ordinal`, `question`, `to` (`sent_back`), `text` and `round`.
+        /// History reads "Changed by you → sent back".
         DecisionChanged = "decision_changed",
-        /// The epic reached Ready for Review and its lead ended (d0083), logged on the epic: payload `lead` (its
-        /// name). History reads "Lead ended · epic in review".
-        LeadEnded = "lead_ended",
-        /// An epic lead changed one of its epic's children (CLI-07, d0083), on the **epic**: payload `lead` (its
-        /// name), `child`, `change` (`updated`, `dep_added`, `dep_removed`, `created`) and `fields` (updated) or
-        /// `parent` (links) or `title` (created). History reads "Updated SHOP-40.3 · by Wishlist lead ·
-        /// description", "SHOP-40.3 waits for SHOP-40.4 · by Wishlist lead". The child's own event (`updated`,
-        /// `dependency_added`, …) carries `lead` too.
-        LeadChanged = "lead_changed",
-        /// The user confirmed or dismissed a lead's suggestion (LEAD-08), on the child and the epic: payload
-        /// `lead`, `child`, `kind` (close / delete), `outcome` (closed / deleted / dismissed) and `reason`.
-        /// History reads "Suggested closing SHOP-40.6 · closed by you".
-        LeadSuggestion = "lead_suggestion",
-        /// The lead marked a recorded decision (DEC-04): payload `ordinal`, `lead`, `source`, `text`. History reads
-        /// "Marked by Wishlist lead · contradicts PAY-123: “…”".
-        DecisionMarked = "decision_marked",
-        /// A child's question and its epic's lead (LEAD-06), on the child and the epic: payload `id` (the
-        /// question's), `child`, `lead` (its name), `step` (`asked`: routed to the lead; `answered` with `answer`;
-        /// `passed_on` with `reason` and `recommended`, the option's label; `handed_back`: to the user, no answer
-        /// from the lead) and `question`. History reads "SHOP-40.2 asked Wishlist lead", "Wishlist lead answered
-        /// SHOP-40.2", "Wishlist lead passed SHOP-40.2's question on to you", "SHOP-40.2's question handed back to
-        /// you · no answer from Wishlist lead".
-        LeadQuestion = "lead_question",
-        /// The lead left a note for a running child (LEAD-10, d0083), on the child and the epic: payload `lead`,
-        /// `child`, `text`. History reads "Note from Wishlist lead" · "to SHOP-40.4: “…”".
-        LeadNote = "lead_note",
-        /// A stuck child and its epic's lead (LEAD-07), on the child and the epic: payload `child`, `lead` (its
-        /// name), `stop` (validation_failed / keeps_conflicting / idle), `reason` ("Validation failed 3 times") and
-        /// `step` (`held`: the first stop went to the lead; `noted`: the lead's note answered it; `handed_back`: it
-        /// went to the user, no note from the lead). History reads "SHOP-40.3 stopped · sent to Wishlist lead",
-        /// "Wishlist lead sent its note to SHOP-40.3", "SHOP-40.3's stop handed back to you".
-        LeadStuck = "lead_stuck",
         /// The project's Template refresh command failed at this ticket's Done (M19-d, d0087): payload `message`.
         /// Done went on. History reads "Template refresh failed" · its first line.
         TemplateRefreshFailed = "template_refresh_failed",
@@ -442,11 +388,10 @@ stored_enum! {
         /// (d0121): payload `went_on` (`started` / `merged`), `branch`, `remote`, `reason` (git's). History reads
         /// "Couldn't update main from origin · started from your local main" · the reason.
         RemoteUnreachable = "remote_unreachable",
-        /// A ticket's or an epic's agent row changed (AGT-04, d0086; rows went with M32, AGM-02, and History still
-        /// reads the ones recorded before): payload `role`, `agent` (the name now; null = emptied), `from` (the name
-        /// before), `set_by` (`user` / `agent` with `picked_by` and `reason`) and, logged on an epic for a child,
-        /// `child`. History reads "Developer: Strong (set by you)", "Wishlist lead re-picked SHOP-40.3: Strong →
-        /// Light".
+        /// A ticket's agent row changed (AGT-04, d0086; rows went with M32, AGM-02, and History still reads the ones
+        /// recorded before): payload `role`, `agent` (the name now; null = emptied), `from` (the name before) and
+        /// `set_by` (`user` / `agent` with `picked_by` and `reason`). History reads "Developer: Strong (set by
+        /// you)".
         AgentRowSet = "agent_row_set",
         /// A held session started on its tool's fallback, by the user's click (AGM-03): payload `role` (the session
         /// role), `tool` and `model` (the fallback it runs on), `from_tool` and `reason` (`tool_limit`,
@@ -454,9 +399,8 @@ stored_enum! {
         FallbackUsed = "fallback_used",
         /// A ticket's stage choice changed (AGM-08): payload `stage` (its name), `stage_id`, `choice` ("Quick
         /// developer", "skip", "required"), `from` (before; null = nobody had chosen), `set_by` (`user`,
-        /// `project_agent`, `epic_lead`, `agent`), `by` ("you", "Noyan", "Wishlist lead", "Griller"),
-        /// `reason` (an agent's) and, logged on an epic for a child, `child`. History reads "Dev: Quick developer
-        /// (set by Noyan)" · "typo fix".
+        /// `project_agent`, `agent`), `by` ("you", "Noyan", "Griller") and `reason` (an agent's). History reads
+        /// "Dev: Quick developer (set by Noyan)" · "typo fix".
         StageChoiceSet = "stage_choice_set",
         /// The user's Pass on a human check that moved the card on (FLW-14, d0108): payload `stage` (its name),
         /// `stage_id`. History reads "You approved it at QA" (d0093). A Pass that offered the delivery choices logs the
@@ -512,7 +456,7 @@ pub(crate) const SELECT_TICKETS: &str =
     "SELECT t.*, p.key AS project_key FROM tickets t JOIN projects p ON p.id = t.project_id";
 
 impl Board {
-    /// Creates a ticket or epic in Backlog, or an epic child when `epic` is set.
+    /// Creates a ticket in Backlog.
     pub async fn create_ticket(
         &self,
         input: &NewTicketInput,
@@ -521,14 +465,9 @@ impl Board {
         let project = self.project(&input.project).await?;
         super::projects::refuse_in_flow_setup(&project)?;
         let title = required_title(&input.title)?;
-        let epic = match &input.epic {
-            Some(epic) => Some(self.epic_for_child(&project, epic, input).await?),
-            None => None,
-        };
-        let base_branch = match (&epic, &input.base_branch) {
-            (Some(_), _) => None,
-            (None, Some(b)) if !b.trim().is_empty() => Some(b.trim().to_owned()),
-            (None, _) => Some(project.base_branch.clone()),
+        let base_branch = match &input.base_branch {
+            Some(b) if !b.trim().is_empty() => b.trim().to_owned(),
+            _ => project.base_branch.clone(),
         };
         let external_id = non_empty(input.external_id.as_deref());
         // The first comment's text is checked before anything is created; its report is copied once the key is known.
@@ -539,59 +478,30 @@ impl Board {
             )),
             None => None,
         };
-        // A child of an epic queued as a whole joins the queue on its own (EPC-13, d0080): the user's drag of the
-        // epic is the go-ahead, whoever creates the child (the user, an agent, a Project agent).
-        let joins_queue = epic.as_ref().is_some_and(joins_epic_queue);
-        let status = if joins_queue {
-            Status::Queued
-        } else {
-            Status::Backlog
-        };
-
         let now = now_ms();
         let id = new_id();
         let mut tx = self.store.begin_write().await?;
-        let (number, child_number) = match &epic {
-            Some(epic) => (
-                epic.row.number,
-                allocate_child_number(&mut tx, &epic.row.id).await?,
-            ),
-            None => (allocate_number(&mut tx, &project.id).await?, 0),
-        };
+        let number = allocate_number(&mut tx, &project.id).await?;
         sqlx::query(
-            "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body, priority,
-                                  external_id, stage_id, state, base_branch, created_by, created_at,
-                                  updated_at, started_at, queued_at, branch_locked, joined_queue_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tickets (id, project_id, number, title, body, priority, external_id, stage_id, state,
+                                  base_branch, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(number)
-        .bind(epic.as_ref().map(|e| &e.row.id))
-        .bind(child_number)
-        .bind(input.kind.as_str())
         .bind(&title)
         .bind(&input.body)
-        // New tickets and epics are Normal; a child without one follows its epic (d0065).
-        .bind(
-            input
-                .priority
-                .or(epic.is_none().then_some(Priority::Normal))
-                .map(|p| i64::from(p.number())),
-        )
+        // New tickets are Normal (d0065).
+        .bind(i64::from(input.priority.unwrap_or_default().number()))
         .bind(&external_id)
-        // Backlog, or waiting before the first Agent stage: no stage yet.
+        // Backlog: no stage yet.
         .bind(None::<&str>)
-        .bind(status.as_str())
+        .bind(Status::Backlog.as_str())
         .bind(&base_branch)
         .bind(actor.to_string())
         .bind(now)
         .bind(now)
-        // Queued as by a drag to Ready for Dev (`Board::start`): first start, queue time and the base lock.
-        .bind(joins_queue.then_some(now))
-        .bind(joins_queue.then_some(now))
-        .bind(joins_queue)
-        .bind(joins_queue.then(|| actor.to_string()))
         .execute(&mut *tx)
         .await?;
         record_event(
@@ -599,27 +509,12 @@ impl Board {
             &id,
             EventKind::Created,
             actor,
-            json!({"kind": input.kind, "title": title}),
+            json!({"title": title}),
         )
         .await?;
-        if let (Some(epic), true) = (&epic, joins_queue) {
-            sqlx::query("UPDATE tickets SET branch_locked = TRUE WHERE id = ?")
-                .bind(&epic.row.id)
-                .execute(&mut *tx)
-                .await?;
-            let epic_key = key_from_parts(&epic.project_key, epic.row.number, 0);
-            record_event(
-                &mut tx,
-                &id,
-                EventKind::JoinedQueue,
-                actor,
-                json!({"epic": epic_key, "from": Status::Backlog, "to": Status::Queued}),
-            )
-            .await?;
-        }
         let stored = match first_comment {
             Some((body, report)) => {
-                let key = key_from_parts(&project.key, number, child_number)
+                let key = key_from_parts(&project.key, number)
                     .ok_or_else(|| BoardError::NotFound(format!("no key for ticket {id}")))?;
                 Some(
                     self.post_first_comment(&mut tx, &project, &id, &key, &body, report, actor)
@@ -636,10 +531,6 @@ impl Board {
         }
         let ticket = self.ticket_by_id(&id).await?;
         tracing::info!(key = %ticket.key, actor = %actor, "ticket created");
-        // A new child returns an epic in Review to Backlog until it is merged (EPC-05).
-        if let Some(epic) = &ticket.epic {
-            self.epic_back_to_backlog(&epic.to_string(), actor).await?;
-        }
         Ok(ticket)
     }
 
@@ -695,8 +586,8 @@ impl Board {
         self.update_ticket_by(key, update, actor, None).await
     }
 
-    /// [`Self::update_ticket`] naming who made the change in History (CMT-14): an agent's or a lead's edit records its
-    /// comment author ("Griller · Grill edited the description"); the user's needs none.
+    /// [`Self::update_ticket`] naming who made the change in History (CMT-14): an agent's edit records its comment
+    /// author ("Griller · Grill edited the description"); the user's needs none.
     pub async fn update_ticket_by(
         &self,
         key: &str,
@@ -723,31 +614,22 @@ impl Board {
             body = new.clone();
         }
 
-        // The ticket's own priority; `None` while an epic child follows its epic. Pinning never changes it.
-        let mut priority = (!ticket.priority_inherited).then_some(ticket.priority);
+        // Pinning never changes the priority.
+        let mut priority = ticket.priority;
         if let Some(new) = update.priority
-            && priority != Some(new)
+            && priority != new
         {
             changes.push(change(
                 Field::Priority,
                 Some(&ticket.priority.to_string()),
                 Some(&new.to_string()),
             ));
-            priority = Some(new);
+            priority = new;
         }
 
-        let mut base_branch = match &ticket.base {
-            Base::Branch(b) => Some(b.clone()),
-            Base::Epic(_) => None,
-        };
+        let mut base_branch = Some(ticket.base.branch().to_owned());
         if let Some(new) = &update.base_branch {
             let new = new.trim();
-            if let Base::Epic(epic) = &ticket.base {
-                return Err(BoardError::refused(
-                    Refusal::BaseFromEpic,
-                    format!("{} starts from the epic's branch ({epic})", ticket.key),
-                ));
-            }
             if new.is_empty() {
                 return Err(BoardError::refused(
                     Refusal::NoBaseBranch,
@@ -775,12 +657,6 @@ impl Board {
         if let Some(new) = &update.external_id {
             let new = non_empty(Some(new));
             if new != external_id {
-                if ticket.epic.is_some() {
-                    return Err(BoardError::refused(
-                        Refusal::ExternalIdOnChild,
-                        "Epic children have no External ID; set it on the epic",
-                    ));
-                }
                 changes.push(change(
                     Field::ExternalId,
                     external_id.as_deref(),
@@ -801,7 +677,7 @@ impl Board {
         )
         .bind(&title)
         .bind(&body)
-        .bind(priority.map(|p| i64::from(p.number())))
+        .bind(i64::from(priority.number()))
         .bind(&base_branch)
         .bind(&external_id)
         .bind(actor.to_string())
@@ -824,35 +700,26 @@ impl Board {
         self.ticket_by_id(&ticket.id).await
     }
 
-    /// A ticket by key (`SHOP-18`, `SHOP-40.1`), or by an old key kept after Move to epic (d0044).
+    /// A ticket by key (`SHOP-18`).
     pub async fn ticket(&self, key: &str) -> Result<Ticket, BoardError> {
         let id = self.ticket_id(key).await?;
         self.ticket_by_id(&id).await
     }
 
-    /// The id of the ticket a key (or an alias) names.
+    /// The id of the ticket a key names.
     pub async fn ticket_id(&self, key: &str) -> Result<String, BoardError> {
-        let unknown = || BoardError::NotFound(format!("unknown ticket {key}"));
         let parsed: TicketKey = key
             .parse()
             .map_err(|e: crate::domain::KeyError| BoardError::NotFound(e.to_string()))?;
-        let found: Option<String> = sqlx::query_scalar(
+        sqlx::query_scalar(
             "SELECT t.id FROM tickets t JOIN projects p ON p.id = t.project_id
-             WHERE p.key = ? AND t.number = ? AND t.child_number = ?",
+             WHERE p.key = ? AND t.number = ?",
         )
         .bind(parsed.project.as_str())
         .bind(i64::from(parsed.number))
-        .bind(i64::from(parsed.child.unwrap_or(0)))
         .fetch_optional(self.store.pool())
-        .await?;
-        if let Some(id) = found {
-            return Ok(id);
-        }
-        sqlx::query_scalar("SELECT ticket_id FROM ticket_key_aliases WHERE old_key = ?")
-            .bind(parsed.to_string())
-            .fetch_optional(self.store.pool())
-            .await?
-            .ok_or_else(unknown)
+        .await?
+        .ok_or_else(|| BoardError::NotFound(format!("unknown ticket {key}")))
     }
 
     /// The ticket's history, newest first (History tab, d0045).
@@ -890,11 +757,10 @@ impl Board {
         Ok(tickets.remove(0))
     }
 
-    /// Every ticket and epic of a project, by key.
+    /// Every ticket of a project, by key.
     pub async fn tickets(&self, project_key: &str) -> Result<Vec<Ticket>, BoardError> {
         let project = self.project(project_key).await?;
-        let sql =
-            format!("{SELECT_TICKETS} WHERE t.project_id = ? ORDER BY t.number, t.child_number");
+        let sql = format!("{SELECT_TICKETS} WHERE t.project_id = ? ORDER BY t.number");
         let records: Vec<TicketRecord> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(&project.id)
             .fetch_all(self.store.pool())
@@ -918,9 +784,9 @@ impl Board {
         project_id: &str,
     ) -> Result<Vec<Ticket>, BoardError> {
         let pool = self.store.pool();
-        // Every ticket of the project by id, for epic and dependency keys (links stay within a project).
-        let keys: Vec<(String, String, i64, i64, Option<i64>)> = sqlx::query_as(
-            "SELECT t.id, p.key, t.number, t.child_number, t.priority
+        // Every ticket of the project by id, for dependency keys (links stay within a project).
+        let keys: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT t.id, p.key, t.number
              FROM tickets t JOIN projects p ON p.id = t.project_id WHERE t.project_id = ?",
         )
         .bind(project_id)
@@ -929,13 +795,6 @@ impl Board {
         let deps: Vec<(String, String)> = sqlx::query_as(
             "SELECT d.ticket_id, d.depends_on_id FROM ticket_deps d
              JOIN tickets t ON t.id = d.ticket_id WHERE t.project_id = ?",
-        )
-        .bind(project_id)
-        .fetch_all(pool)
-        .await?;
-        let aliases: Vec<(String, String)> = sqlx::query_as(
-            "SELECT a.ticket_id, a.old_key FROM ticket_key_aliases a
-             JOIN tickets t ON t.id = a.ticket_id WHERE t.project_id = ? ORDER BY a.old_key",
         )
         .bind(project_id)
         .fetch_all(pool)
@@ -959,7 +818,7 @@ impl Board {
         .await?
         .into_iter()
         .collect();
-        // "answering SHOP-40.2" (MSG-03): the asker of the question a running answer session serves.
+        // "answering SHOP-42" (MSG-03): the asker of the question a running answer session serves.
         let answering: std::collections::HashMap<String, String> = sqlx::query_as(
             "SELECT m.to_ticket_id, m.from_ticket_id FROM messages m
              JOIN tickets t ON t.id = m.to_ticket_id
@@ -973,7 +832,7 @@ impl Board {
         .await?
         .into_iter()
         .collect();
-        // "asked SHOP-40.1 · waiting" (MSG-06): open questions from each ticket, oldest first, until the answer was
+        // "asked SHOP-41 · waiting" (MSG-06): open questions from each ticket, oldest first, until the answer was
         // typed into the asker's session.
         let mut asked: std::collections::HashMap<String, (String, String, u32)> =
             std::collections::HashMap::new();
@@ -1013,23 +872,16 @@ impl Board {
         .await?
         .into_iter()
         .collect();
-        // Open recorded decisions per ticket, an epic's with its children's, for the card's "N decisions" in Ready
-        // for Review (DEC-03).
-        let mut open_decisions: std::collections::HashMap<String, i64> =
-            std::collections::HashMap::new();
-        let open_rows: Vec<(String, Option<String>, i64)> = sqlx::query_as(
-            "SELECT t.id, t.epic_id, COUNT(*) FROM decisions d JOIN tickets t ON t.id = d.ticket_id
-             WHERE t.project_id = ? AND d.outcome = 'open' GROUP BY t.id, t.epic_id",
+        // Open recorded decisions per ticket, for the card's "N decisions" in Ready for Review (DEC-03).
+        let open_decisions: std::collections::HashMap<String, i64> = sqlx::query_as(
+            "SELECT t.id, COUNT(*) FROM decisions d JOIN tickets t ON t.id = d.ticket_id
+             WHERE t.project_id = ? AND d.outcome = 'open' GROUP BY t.id",
         )
         .bind(project_id)
         .fetch_all(pool)
-        .await?;
-        for (id, epic, n) in open_rows {
-            *open_decisions.entry(id).or_default() += n;
-            if let Some(epic) = epic {
-                *open_decisions.entry(epic).or_default() += n;
-            }
-        }
+        .await?
+        .into_iter()
+        .collect();
         // The latest stage end of each ticket (into a human check or not), for "Submitted by you" (d0052).
         let submits: std::collections::HashMap<String, (String, String)> = sqlx::query_as(
             "SELECT e.ticket_id, e.actor, e.payload_json FROM events e JOIN tickets t ON t.id = e.ticket_id
@@ -1075,22 +927,10 @@ impl Board {
             .collect();
         let key_of: std::collections::HashMap<&str, TicketKey> = keys
             .iter()
-            .filter_map(|(id, project, number, child, _)| {
-                Some((id.as_str(), key_from_parts(project, *number, *child)?))
+            .filter_map(|(id, project, number)| {
+                Some((id.as_str(), key_from_parts(project, *number)?))
             })
             .collect();
-        // Own priorities by id: an epic child without one follows its epic (TKT-09).
-        let own_priority: std::collections::HashMap<&str, Priority> = keys
-            .iter()
-            .filter_map(|(id, _, _, _, p)| Some((id.as_str(), Priority::from_number((*p)?)?)))
-            .collect();
-
-        // "1 unread note from Wishlist lead" (LEAD-10).
-        let unread_notes = crate::epic_lead::notes::unread_flags(self, project_id).await?;
-        // "Lead's note sent" (LEAD-07).
-        let lead_notes_sent = crate::epic_lead::stuck::note_flags(self, project_id).await?;
-        // "Updated by lead", "new · added by Wishlist lead" (LEAD-08).
-        let by_lead = crate::epic_lead::changes::by_lead_flags(self, project_id).await?;
         // "round 1 of 3": the rounds of the agent check each ticket counts, from the project's flow (d0063).
         let project_key: Option<String> =
             sqlx::query_scalar("SELECT key FROM projects WHERE id = ?")
@@ -1112,37 +952,21 @@ impl Board {
             .into_iter()
             .map(|record| {
                 let row = record.row;
-                let key = key_from_parts(&record.project_key, row.number, row.child_number)
+                let key = key_from_parts(&record.project_key, row.number)
                     .ok_or_else(|| BoardError::NotFound(format!("bad key in ticket {}", row.id)))?;
-                let epic = row
-                    .epic_id
-                    .as_deref()
-                    .and_then(|id| key_of.get(id).cloned());
-                let base = match (&epic, &row.base_branch) {
-                    (Some(epic), _) => Base::Epic(epic.clone()),
-                    (None, Some(branch)) => Base::Branch(branch.clone()),
-                    (None, None) => Base::Branch(String::new()),
-                };
+                let base = Base::Branch(row.base_branch.clone().unwrap_or_default());
                 let mut depends_on: Vec<TicketKey> = deps
                     .iter()
                     .filter(|(child, _)| *child == row.id)
                     .filter_map(|(_, parent)| key_of.get(parent.as_str()).cloned())
                     .collect();
                 depends_on.sort();
-                let ticket_aliases = aliases
-                    .iter()
-                    .filter(|(id, _)| *id == row.id)
-                    .filter_map(|(_, old)| old.parse().ok())
-                    .collect();
                 let status: Status =
                     row.state
                         .parse()
                         .map_err(|e: crate::domain::UnknownValue| {
                             BoardError::NotFound(e.to_string())
                         })?;
-                let kind: Kind = row.kind.parse().map_err(|e: crate::domain::UnknownValue| {
-                    BoardError::NotFound(e.to_string())
-                })?;
                 let sent_back = row.sent_back_at.map(|_| crate::domain::SentBack {
                     comments: sent_comments
                         .get(&(row.id.clone(), row.sent_back_round))
@@ -1173,14 +997,6 @@ impl Board {
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
-                    unread_notes: unread_notes.get(&row.id).cloned(),
-                    lead_note_sent: lead_notes_sent.get(&row.id).cloned(),
-                    by_lead: by_lead.get(&row.id).cloned(),
-                    same_file: if crate::epic_lead::overlap::is_running(status) {
-                        self.overlaps().same_file(&row.id)
-                    } else {
-                        Vec::new()
-                    },
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && (status.is_queued() || status.at_work()),
@@ -1220,9 +1036,6 @@ impl Board {
                         crate::signals::LIVE.contains(&status)
                             || status == Status::MergeConflictFixing
                     }),
-                    // Only while it waits before an Agent stage (d0124).
-                    waiting_for_lead: self.leads().waits_for_lead(&row.id)
-                        && matches!(status, Status::Queued | Status::WaitingForSlot),
                     review_entry: review_entry_flag(&row, status, &counted),
                     validation_round: failed_round_marker(&row, status, &counted),
                     validating_round: validating_round(status, &counted),
@@ -1247,24 +1060,6 @@ impl Board {
                         .filter(|_| status == Status::WaitingForYou)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
-                    asked_lead: questions
-                        .get(&row.id)
-                        .filter(|_| crate::signals::LIVE.contains(&status))
-                        .and_then(|open| {
-                            Some(crate::domain::AskedLead {
-                                lead: open.with_lead.clone()?,
-                                question: open.question.text.clone(),
-                            })
-                        }),
-                    via_lead: questions
-                        .get(&row.id)
-                        .filter(|_| {
-                            status == Status::AsksYou
-                                || (status == Status::Interrupted
-                                    && row.interrupted_from.as_deref()
-                                        == Some(Status::AsksYou.as_str()))
-                        })
-                        .and_then(|open| Some(open.question.via_lead.as_ref()?.lead.clone())),
                     ..Flags::default()
                 };
                 // While the card is in the check, or back from it, each check agent's verdict (d0130).
@@ -1365,27 +1160,15 @@ impl Board {
                     work: (work != Work::default()).then_some(work),
                     start_problem,
                     key,
-                    kind,
                     title: row.title,
                     body: row.body,
-                    priority: own_priority
-                        .get(row.id.as_str())
-                        .or_else(|| row.epic_id.as_deref().and_then(|e| own_priority.get(e)))
-                        .copied()
-                        .unwrap_or_default(),
-                    priority_inherited: row.epic_id.is_some()
-                        && !own_priority.contains_key(row.id.as_str()),
-                    epic,
+                    priority: Priority::from_number(row.priority).unwrap_or_default(),
                     place,
                     status,
                     base,
                     base_locked: row.branch_locked,
                     external_id: row.external_id,
                     depends_on,
-                    aliases: ticket_aliases,
-                    next_child_number: (kind == Kind::Epic)
-                        .then(|| u32::try_from(row.next_child_number).ok())
-                        .flatten(),
                     flags,
                     created_by: row.created_by.parse().expect("infallible"),
                     updated_by: row.updated_by.map(|a| a.parse().expect("infallible")),
@@ -1398,91 +1181,17 @@ impl Board {
                     validation_round: counted.count.shown_round(),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
                     auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
-                    epic_queue_mode: (kind == Kind::Epic)
-                        .then(|| row.epic_queue_mode.parse().ok())
-                        .flatten()
-                        .unwrap_or_default(),
-                    joined_queue_by: row
-                        .joined_queue_by
-                        .filter(|_| row.epic_id.is_some())
-                        .map(|a| a.parse().expect("infallible")),
                     id: row.id,
                 })
             })
             .collect()
     }
-
-    /// Checks that `epic` can take a new child created from `input`.
-    async fn epic_for_child(
-        &self,
-        project: &Project,
-        epic: &str,
-        input: &NewTicketInput,
-    ) -> Result<TicketRecord, BoardError> {
-        let epic_ticket = self.ticket(epic).await?;
-        if epic_ticket.key.project.as_str() != project.key {
-            return Err(BoardError::refused(
-                Refusal::OtherProject,
-                format!("{} belongs to another project", epic_ticket.key),
-            ));
-        }
-        if !epic_ticket.is_epic() {
-            return Err(BoardError::refused(
-                Refusal::NotAnEpic,
-                format!("{} isn't an epic", epic_ticket.key),
-            ));
-        }
-        if input.kind == Kind::Epic {
-            return Err(BoardError::refused(
-                Refusal::EpicInEpic,
-                "An epic can't be inside another epic",
-            ));
-        }
-        if input
-            .base_branch
-            .as_deref()
-            .is_some_and(|b| !b.trim().is_empty())
-        {
-            return Err(BoardError::refused(
-                Refusal::BaseFromEpic,
-                format!(
-                    "Epic children start from the epic's branch ({})",
-                    epic_ticket.key
-                ),
-            ));
-        }
-        if non_empty(input.external_id.as_deref()).is_some() {
-            return Err(BoardError::refused(
-                Refusal::ExternalIdOnChild,
-                "Epic children have no External ID; set it on the epic",
-            ));
-        }
-        let sql = format!("{SELECT_TICKETS} WHERE t.id = ?");
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(sql))
-            .bind(&epic_ticket.id)
-            .fetch_one(self.store.pool())
-            .await?)
-    }
 }
 
-/// Whether a new child of this epic joins the queue (EPC-13): its epic is queued as a whole and not done.
-fn joins_epic_queue(epic: &TicketRecord) -> bool {
-    epic.row.epic_queue_mode.parse::<EpicQueueMode>().ok() == Some(EpicQueueMode::Whole)
-        && epic
-            .row
-            .state
-            .parse::<Status>()
-            .is_ok_and(|s| s.set() != StatusSet::Done)
-}
-
-/// `SHOP` + 40 + 1 → `SHOP-40.1`; child number 0 means no child.
-pub(crate) fn key_from_parts(project: &str, number: i64, child: i64) -> Option<TicketKey> {
+/// `SHOP` + 40 → `SHOP-40`.
+pub(crate) fn key_from_parts(project: &str, number: i64) -> Option<TicketKey> {
     let project = ProjectKey::new(project).ok()?;
-    let number = u32::try_from(number).ok()?;
-    Some(match child {
-        0 => TicketKey::new(project, number),
-        n => TicketKey::child(project, number, u32::try_from(n).ok()?),
-    })
+    Some(TicketKey::new(project, u32::try_from(number).ok()?))
 }
 
 /// The agent check a ticket's round markers count for (FLW-13): its name, its counter and its rounds (the stage's,
@@ -1651,20 +1360,6 @@ async fn allocate_number(
          RETURNING next_ticket_number - 1",
     )
     .bind(project_id)
-    .fetch_one(&mut **tx)
-    .await?)
-}
-
-/// Takes the epic's next child number, never handed out twice within the epic (d0039).
-pub(crate) async fn allocate_child_number(
-    tx: &mut Transaction<'_, Sqlite>,
-    epic_id: &str,
-) -> Result<i64, BoardError> {
-    Ok(sqlx::query_scalar(
-        "UPDATE tickets SET next_child_number = next_child_number + 1 WHERE id = ?
-         RETURNING next_child_number - 1",
-    )
-    .bind(epic_id)
     .fetch_one(&mut **tx)
     .await?)
 }

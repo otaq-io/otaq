@@ -1,6 +1,6 @@
 //! Recorded decisions (T-0276; DEC-01, DEC-02; d0084): `decision.record` stores a numbered decision on the ticket
 //! with its History line and changes nothing else; an agent records on its own ticket only, a validator not at all;
-//! `list_for_epic` groups the children's decisions in child order; `prime` lists the ticket's own.
+//! `prime` lists the ticket's own.
 
 use otaq_core::board::tickets::EventKind;
 use otaq_core::decisions::{self, NewDecision, Outcome};
@@ -66,10 +66,6 @@ async fn record_numbers_per_ticket_logs_history_and_changes_nothing_else() {
     assert_eq!(first.why, "the description only mentions the profile form");
     assert_eq!(first.recorded_by, me());
     assert_eq!(first.outcome, Outcome::Open);
-    assert_eq!(
-        (first.mark.as_ref(), first.fix_child.as_ref()),
-        (None, None)
-    );
 
     // Several other options; fields are trimmed and empty options dropped.
     let second = decisions::record(
@@ -200,51 +196,6 @@ async fn an_agent_records_on_its_own_ticket_only_and_a_validator_not_at_all() {
             .await
             .unwrap()
             .is_empty()
-    );
-    w.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epics_decisions_are_grouped_by_child_in_child_order() {
-    let w = TestService::start().await;
-    w.shop_sample().await;
-    for key in ["SHOP-40.2", "SHOP-40.1", "SHOP-40.1"] {
-        decisions::record(&w.board, key, &split_name(), &me())
-            .await
-            .unwrap();
-    }
-    let groups = decisions::list_for_epic(&w.board, "SHOP-40").await.unwrap();
-    let shape: Vec<(String, Vec<String>)> = groups
-        .iter()
-        .map(|g| {
-            (
-                g.key.to_string(),
-                g.decisions.iter().map(|d| d.id.to_string()).collect(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        shape,
-        [
-            (
-                "SHOP-40.1".to_owned(),
-                vec!["SHOP-40.1#1".to_owned(), "SHOP-40.1#2".to_owned()]
-            ),
-            ("SHOP-40.2".to_owned(), vec!["SHOP-40.2#1".to_owned()]),
-        ]
-    );
-    let child = w.board.ticket("SHOP-40.1").await.unwrap();
-    assert_eq!(groups[0].title, child.title);
-    // A standalone ticket's decisions aren't an epic's.
-    decisions::record(&w.board, "SHOP-12", &split_name(), &me())
-        .await
-        .unwrap();
-    assert_eq!(
-        decisions::list_for_epic(&w.board, "SHOP-40")
-            .await
-            .unwrap()
-            .len(),
-        2
     );
     w.stop().await;
 }
