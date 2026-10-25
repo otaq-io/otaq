@@ -6,7 +6,7 @@
 
 The socket is $OTAQ_HOME/otaq.sock (default /tmp/otaqdemo/home). Exits 1 on an error reply, 2 on a timeout.
 Methods worth knowing: project.add {"path","key"}, ticket.move {"key","target","confirmed":true}
-(targets: backlog, ready_for_dev, dev, ready_for_review, approved, done), epic.queue {"key"},
+(targets: backlog, ready_for_dev, dev, ready_for_review, approved, done),
 ticket.merge_proposal {"key"}, ticket.local_merge {"key","message"}, ticket.start_from_scratch {"key","confirm":true},
 ticket.pin {"key"}, settings.get, settings.set <whole settings object>.
 """
