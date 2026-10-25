@@ -5,7 +5,7 @@
 //!
 //! - **Choices** ([`form_choices`], [`sheet_choices`]): a picker only for the stages with options ("Dev: Rust
 //!   developer ▾", "Review: required ▾"); the ⌘N form preselects each stage's own agent. A stage that started is
-//!   locked. Who set them: "set by the Project agent" (or "the Epic lead") above the rows; a change by a ticket's
+//!   locked. Who set them: "set by Noyan" (or "the Epic lead") above the rows; a change by a ticket's
 //!   agent says who and why in violet ("Dev: Quick developer → Rust developer · by Griller · touches session
 //!   handling"), one you made says it's yours ("… · by you"). None on a flow without options (the default flow).
 //! - **The path** ([`path`]): every stage the ticket goes through with its agent and model; stages already run with
@@ -126,7 +126,7 @@ pub struct ChoiceRow {
 #[ts(rename = "StageChoicesView")]
 pub struct ChoicesView {
     pub heading: &'static str,
-    /// "set by the Project agent", "set by the Epic lead".
+    /// "set by Noyan", "set by the Epic lead".
     pub set_by: Option<String>,
     pub rows: Vec<ChoiceRow>,
     /// The form's note under the pickers.
@@ -175,7 +175,7 @@ fn change(options: &StageOptions) -> Option<ChoiceChange> {
     })
 }
 
-/// Who set the ticket's choices when it was made: "set by the Project agent", "set by the Epic lead" (the role,
+/// Who set the ticket's choices when it was made: "set by Noyan", "set by the Epic lead" (the role,
 /// never the session's name).
 fn set_by_line(stages: &[StageOptions]) -> Option<String> {
     let by = |pick: fn(&SetBy) -> bool| {
@@ -185,7 +185,7 @@ fn set_by_line(stages: &[StageOptions]) -> Option<String> {
             .any(|c| pick(&c.set_by))
     };
     if by(|s| matches!(s, SetBy::ProjectAgent { .. })) {
-        Some("set by the Project agent".to_owned())
+        Some("set by Noyan".to_owned())
     } else if by(|s| matches!(s, SetBy::EpicLead { .. })) {
         Some("set by the Epic lead".to_owned())
     } else {
@@ -1795,7 +1795,7 @@ mod tests {
         let t = shop_29();
         let choices = sheet_choices(&t).expect("choices");
         assert_eq!(choices.heading, "Choices");
-        assert_eq!(choices.set_by.as_deref(), Some("set by the Project agent"));
+        assert_eq!(choices.set_by.as_deref(), Some("set by Noyan"));
         let locks: Vec<_> = choices.rows.iter().map(|r| r.lock.as_deref()).collect();
         assert_eq!(
             locks,

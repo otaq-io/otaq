@@ -306,12 +306,12 @@ pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>)
     }
 }
 
-/// What uses an agent, one place each (AGM-01): "every project · the Project agent", "every project · epics",
+/// What uses an agent, one place each (AGM-01): "every project · Noyan", "every project · epics",
 /// "pocket-api · Dev", "shop-web · Dev (option)".
 pub fn used_in(uses: &InUse) -> Vec<String> {
     let role = uses.role.map(|role| {
         match role {
-            Role::ProjectAgent => "every project \u{b7} the Project agent",
+            Role::ProjectAgent => "every project \u{b7} Noyan",
             Role::EpicLead => "every project \u{b7} epics",
         }
         .to_owned()
@@ -499,7 +499,7 @@ pub struct Fallbacks {
 pub struct TableRow {
     pub id: String,
     pub name: String,
-    /// "Project agent", "Epic lead": the role tag.
+    /// "Noyan", "Epic lead": the role tag.
     pub role: Option<String>,
     /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
     pub came_from: String,
@@ -637,7 +637,7 @@ pub fn section(input: &Inputs) -> Section {
     Section {
         title: "Agents".to_owned(),
         intro: "What each agent does: its instructions, its skills and its own model. Agents are shared by all your \
-                projects. Two agents hold a role: the Project agent and the Epic lead. Edits apply to the next session \
+                projects. Two agents hold a role: Noyan and the Epic lead. Edits apply to the next session \
                 that starts."
             .to_owned(),
         new_agent_label: "New agent".to_owned(),
@@ -871,7 +871,7 @@ pub mod fixtures {
         tools(&[Tool::Claude, Tool::Codex])
     }
 
-    /// The ticket file's example (T-0405, AGM-02): Planner, Epic lead, Developer, Validator (with the imported
+    /// The ticket file's example (T-0405, AGM-02): Noyan, Epic lead, Developer, Validator (with the imported
     /// `team-validate`), Strong and Light, the default model Light's, and what uses each agent (pocket-notes
     /// validates, pocket-api doesn't).
     pub fn example() -> (AgentList, Vec<InUse>) {
@@ -885,7 +885,7 @@ pub mod fixtures {
             SkillRef::Shipped("commit".into()),
         ];
         let agents = vec![
-            with(agent("planner", "Planner", Some("haiku")), &|a| {
+            with(agent("noyan", "Noyan", Some("haiku")), &|a| {
                 a.role = Some(Role::ProjectAgent);
                 a.came_from = CameFrom::AgentsFile;
                 a.instructions = "Keep tickets small".into();
@@ -929,7 +929,7 @@ pub mod fixtures {
         };
         let uses = vec![
             InUse {
-                agent: "Planner".into(),
+                agent: "Noyan".into(),
                 role: Some(Role::ProjectAgent),
                 stages: Vec::new(),
             },
@@ -1006,15 +1006,15 @@ mod tests {
             list_model(&strong, &tools, None),
             "Claude Code \u{b7} opus \u{b7} effort high"
         );
-        let mut planner = agent("p", "Planner", None);
-        planner.model = AgentModel::Default;
-        assert_eq!(list_model(&planner, &tools, None), "default");
+        let mut noyan = agent("p", "Noyan", None);
+        noyan.model = AgentModel::Default;
+        assert_eq!(list_model(&noyan, &tools, None), "default");
         let sonnet = ModelRef {
             tool: Tool::Claude,
             model: Some("sonnet".into()),
         };
         assert_eq!(
-            list_model(&planner, &tools, Some(&sonnet)),
+            list_model(&noyan, &tools, Some(&sonnet)),
             "default \u{b7} Claude Code \u{b7} sonnet"
         );
     }
@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(
             page.intro,
             "What each agent does: its instructions, its skills and its own model. Agents are shared by all your \
-             projects. Two agents hold a role: the Project agent and the Epic lead. Edits apply to the next session \
+             projects. Two agents hold a role: Noyan and the Epic lead. Edits apply to the next session \
              that starts."
         );
         assert_eq!(page.new_agent_label, "New agent");
@@ -1088,12 +1088,12 @@ mod tests {
             rows,
             [
                 (
-                    "Planner",
-                    Some("Project agent"),
+                    "Noyan",
+                    Some("Noyan"),
                     &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
                     "Claude Code \u{b7} haiku",
                     s(&["noyan"]),
-                    "every project \u{b7} the Project agent"
+                    "every project \u{b7} Noyan"
                 ),
                 (
                     "Epic lead",

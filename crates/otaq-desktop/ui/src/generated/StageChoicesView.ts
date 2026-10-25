@@ -6,7 +6,7 @@ import type { StageChoiceRow } from "./StageChoiceRow";
  */
 export type StageChoicesView = { heading: string, 
 /**
- * "set by the Project agent", "set by the Epic lead".
+ * "set by Noyan", "set by the Epic lead".
  */
 set_by: string | null, rows: Array<StageChoiceRow>, 
 /**

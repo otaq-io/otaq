@@ -9,7 +9,7 @@ import type { MenuItem } from "./MenuItem";
  */
 export type FlowSettings = { project: string, title: string, 
 /**
- * "Changed by the Project agent · yesterday".
+ * "Changed by Noyan · yesterday".
  */
 changed: string, intro: string, waiting: FlowSettingsWaiting | null, 
 /**

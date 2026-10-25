@@ -496,7 +496,7 @@ mod tests {
         assert_eq!(changes["groups"], json!([]));
         assert_eq!(
             changes["empty"]["text"],
-            "Start one from the board, or ask the Project agent."
+            "Start one from the board, or ask Noyan."
         );
 
         let body = table(&h.app, "files_view.new_ticket_body", json!({ "path": "src/a.ts" }))

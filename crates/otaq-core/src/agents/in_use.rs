@@ -1,6 +1,6 @@
 //! What uses an agent, for Delete (AGM-01, d0108): a stage or a stage option of any project's flow (in M32 each
 //! project's flow derives from the default one), Otaq's default flow itself (every project's flow derives from it,
-//! and a project that turns Validation on gets its Validate stage back), or a role. "Noyan is your Project agent.
+//! and a project that turns Validation on gets its Validate stage back), or a role. "Noyan has the Noyan role.
 //! Give the role to another agent first"; "Griller is used in shop-web · Grill. Change that stage first."
 
 use serde::{Deserialize, Serialize};
@@ -164,7 +164,7 @@ mod tests {
         };
         assert_eq!(
             noyan.refusal().unwrap(),
-            "Noyan is your Project agent. Give the role to another agent first"
+            "Noyan has the Noyan role. Give the role to another agent first"
         );
         let developer = InUse {
             agent: "Developer".into(),

@@ -3,7 +3,7 @@ import type { IconName } from "./IconName";
 
 /**
  * The rail's Project agent button (SHB-02, `s24-05`): the bot icon, tinted while the panel is open, a dot while a
- * reply waits; "Project agent" with "Open or close · ⌘L" on hover.
+ * reply waits; "Noyan" with "Open or close · ⌘L" on hover.
  */
 export type AskAgentButton = { icon: IconName, label: string, 
 /**

@@ -15,7 +15,7 @@ pub const TITLE: &str = "Keyboard shortcuts";
 pub const SETTINGS_LINK: &str = "Change shortcuts in Settings →";
 /// After the Esc key in the head.
 pub const CLOSE: &str = "close";
-pub const NOTE: &str = "Single letters work while you aren’t typing in a field, the editor, the Project agent’s box \
+pub const NOTE: &str = "Single letters work while you aren’t typing in a field, the editor, Noyan’s box \
                         or a terminal.";
 pub const NOTE_OFF: &str =
     "Single letters (j, /, g then b…) are off. Turn them on in Settings → Keyboard shortcuts.";
@@ -286,7 +286,10 @@ mod tests {
         let list = mac(&CustomKeys::default(), true);
         assert_eq!(list.title, "Keyboard shortcuts");
         assert_eq!(list.settings_link, "Change shortcuts in Settings →");
-        assert_eq!(list.note, NOTE);
+        assert_eq!(
+            list.note,
+            "Single letters work while you aren’t typing in a field, the editor, Noyan’s box or a terminal."
+        );
         let titles: Vec<Vec<&str>> = list
             .columns
             .iter()
@@ -341,8 +344,8 @@ mod tests {
                 ("Pause / Resume agents", keys(&[&["⇧⌘."]]), None),
                 ("Activity", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
                 ("Settings", keys(&[&["⌘,"]]), None),
-                ("Open / close the Project agent", keys(&[&["⌘L"]]), None),
-                ("New Project agent conversation", keys(&[&["⇧⌘L"]]), None),
+                ("Open / close Noyan", keys(&[&["⌘L"]]), None),
+                ("New conversation with Noyan", keys(&[&["⇧⌘L"]]), None),
             ]
         );
         assert_eq!(

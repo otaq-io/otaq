@@ -179,7 +179,7 @@ async fn one_agent_per_role_and_the_role_moves() {
         refusal(agents.delete(&planner.id).await),
         (
             Refusal::AgentInUse,
-            "Noyan is your Project agent. Give the role to another agent first".into()
+            "Noyan has the Noyan role. Give the role to another agent first".into()
         )
     );
     let lead = named(&agents, "Epic lead").await;
@@ -219,7 +219,7 @@ async fn one_agent_per_role_and_the_role_moves() {
         refusal(agents.move_role(Role::EpicLead, &strong.id).await),
         (
             Refusal::AgentInUse,
-            "Strong is your Project agent. Give the role to another agent first".into()
+            "Strong has the Noyan role. Give the role to another agent first".into()
         )
     );
     // Giving it the role it holds changes nothing.

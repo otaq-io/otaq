@@ -203,8 +203,8 @@ impl KeyAction {
             Self::Pause => "Pause / Resume agents",
             Self::OpenActivity => "Activity",
             Self::Settings => "Settings",
-            Self::FocusAgentPanel => "Open / close the Project agent",
-            Self::NewProjectAgent => "New Project agent conversation",
+            Self::FocusAgentPanel => "Open / close Noyan",
+            Self::NewProjectAgent => "New conversation with Noyan",
             Self::NewTicket => "New ticket",
             Self::OpenSheet | Self::CloseSheet => "Open / close the ticket",
             Self::ExpandSheet => "Full page / back to the sheet",
@@ -2221,8 +2221,8 @@ mod tests {
                         "Pause / Resume agents",
                         "Activity",
                         "Settings",
-                        "Open / close the Project agent",
-                        "New Project agent conversation",
+                        "Open / close Noyan",
+                        "New conversation with Noyan",
                     ]
                 ),
                 (

@@ -51,21 +51,22 @@ stored_enum! {
 }
 
 impl Role {
-    /// The role as people read it: "Project agent", "Epic lead".
+    /// The role as people read it: "Noyan", "Epic lead".
     pub fn label(self) -> &'static str {
         match self {
-            Self::ProjectAgent => "Project agent",
+            Self::ProjectAgent => "Noyan",
             Self::EpicLead => "Epic lead",
         }
     }
 
-    /// AGM-01's refusal of deleting the agent holding the role, or removing its role: "Noyan is your Project
-    /// agent. Give the role to another agent first".
+    /// AGM-01's refusal of deleting the agent holding the role, or removing its role: "Noyan has the Noyan role.
+    /// Give the role to another agent first", "Lead is your Epic lead. Give the role to another agent first".
     pub fn holder_refusal(self, name: &str) -> String {
-        format!(
-            "{name} is your {}. Give the role to another agent first",
-            self.label()
-        )
+        let holds = match self {
+            Self::ProjectAgent => format!("{name} has the {} role", self.label()),
+            Self::EpicLead => format!("{name} is your {}", self.label()),
+        };
+        format!("{holds}. Give the role to another agent first")
     }
 }
 
@@ -82,13 +83,13 @@ stored_enum! {
 }
 
 impl SessionRole {
-    /// "Developer", "Validator", "Epic lead", "Project agent".
+    /// "Developer", "Validator", "Epic lead", "Noyan".
     pub fn label(self) -> &'static str {
         match self {
             Self::Developer => "Developer",
             Self::Validator => "Validator",
             Self::EpicLead => "Epic lead",
-            Self::ProjectAgent => "Project agent",
+            Self::ProjectAgent => "Noyan",
         }
     }
 
@@ -598,8 +599,8 @@ impl Agents {
         })
     }
 
-    /// Deletes an agent nothing uses (AGM-01): refused for a role's agent ("Noyan is your Project agent. Give the
-    /// role to another agent first") and while a stage or a stage option names it ("Griller is used in shop-web ·
+    /// Deletes an agent nothing uses (AGM-01): refused for a role's agent ("Noyan has the Noyan role. Give the role
+    /// to another agent first") and while a stage or a stage option names it ("Griller is used in shop-web ·
     /// Grill. Change that stage first.").
     pub async fn delete(&self, id: &str) -> Result<(), BoardError> {
         let uses = self.in_use(id).await?;
@@ -831,7 +832,7 @@ mod tests {
         assert_eq!(stored, ["noyan", "epic-lead"]);
         assert_eq!(
             Role::ProjectAgent.holder_refusal("Noyan"),
-            "Noyan is your Project agent. Give the role to another agent first"
+            "Noyan has the Noyan role. Give the role to another agent first"
         );
         let sessions: Vec<&str> = SessionRole::ALL.iter().map(|r| r.as_str()).collect();
         assert_eq!(

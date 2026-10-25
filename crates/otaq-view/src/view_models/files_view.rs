@@ -49,7 +49,7 @@ pub const LOADING: &str = "Loading the tickets\u{2019} changes\u{2026}";
 /// A filter's count while the tickets' changes load ("Changed …").
 pub const COUNTING: &str = "\u{2026}";
 pub const EMPTY_TITLE: &str = "No ticket is changing files right now.";
-pub const EMPTY_TEXT: &str = "Start one from the board, or ask the Project agent.";
+pub const EMPTY_TEXT: &str = "Start one from the board, or ask Noyan.";
 pub const FIND: &str = "Find a ticket or epic";
 pub const BASE_SECTION: &str = "BASE BRANCH";
 pub const THE_DEFAULT: &str = "the default";
@@ -2233,7 +2233,7 @@ mod tests {
             (empty.title, empty.text.as_str()),
             (
                 "No ticket is changing files right now.",
-                "Start one from the board, or ask the Project agent."
+                "Start one from the board, or ask Noyan."
             )
         );
         assert_eq!(
@@ -2963,7 +2963,7 @@ mod tests {
         let empty = changes_pane(&none, &facts(), &ReviewMemory::default());
         assert_eq!(
             empty.empty.unwrap().text,
-            "Start one from the board, or ask the Project agent."
+            "Start one from the board, or ask Noyan."
         );
     }
 

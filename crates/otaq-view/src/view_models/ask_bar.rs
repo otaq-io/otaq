@@ -1,6 +1,6 @@
 //! The Ask bar and the rail's Project agent button (T-0458; SHB-02, SHB-03; d0113, d0068, d0087; *24 → Row · The
 //! Project agent* `s24-05`, *Row · The two views* `s24-03`): closed, the Project agent is a bar floating at the
-//! bottom centre of the board and the List, "Ask the project agent… ("why is checkout slow?")" with ⌘L. Typing shows
+//! bottom centre of the board and the List, "Ask Noyan… (“why is checkout slow?”)" with ⌘L. Typing shows
 //! what to ask about ("ASK ABOUT": the selected ticket, Continue "<last conversation>", New conversation); Return
 //! sends and opens the panel on the left (`agent_panel.rs`). A conversation that answered while the user wasn't
 //! looking shows "New reply" on the bar and a dot on the rail button; a click on either opens it.
@@ -25,10 +25,9 @@ use crate::keymap::KeyAction;
 use crate::view_models::agent_panel::agent_waits;
 
 /// The closed bar's text (`s24-05` "Idle").
-pub const PLACEHOLDER: &str =
-    "Ask the project agent\u{2026} (\u{201c}why is checkout slow?\u{201d})";
+pub const PLACEHOLDER: &str = "Ask Noyan\u{2026} (\u{201c}why is checkout slow?\u{201d})";
 /// The bar's text beside "New reply" (`s24-05` "A reply waiting").
-pub const SHORT_PLACEHOLDER: &str = "Ask the project agent\u{2026}";
+pub const SHORT_PLACEHOLDER: &str = "Ask Noyan\u{2026}";
 
 /// What a suggestion asks about. `AskAbout` on the page, and back in `ask_bar.send`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -69,7 +68,7 @@ pub struct Reply {
 }
 
 /// The rail's Project agent button (SHB-02, `s24-05`): the bot icon, tinted while the panel is open, a dot while a
-/// reply waits; "Project agent" with "Open or close · ⌘L" on hover.
+/// reply waits; "Noyan" with "Open or close · ⌘L" on hover.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AskAgentButton")]
 pub struct AgentButton {
@@ -184,7 +183,7 @@ fn last_conversation<'a>(
 pub fn button(open: bool, dot: bool, keys: &KeyLabels) -> AgentButton {
     AgentButton {
         icon: IconName::Bot,
-        label: "Project agent",
+        label: "Noyan",
         hint: match keys.label(KeyAction::FocusAgentPanel) {
             Some(keys) => format!("Open or close \u{b7} {keys}"),
             None => "Open or close".to_owned(),
@@ -407,7 +406,7 @@ mod tests {
         let v = view(&facts(&[], &looked, &k));
         assert_eq!(
             v.placeholder,
-            "Ask the project agent\u{2026} (\u{201c}why is checkout slow?\u{201d})"
+            "Ask Noyan\u{2026} (\u{201c}why is checkout slow?\u{201d})"
         );
         assert_eq!(v.keys.as_deref(), Some("\u{2318}L"));
         assert_eq!((v.title, v.send_keys), ("ASK ABOUT", "\u{21b5}"));
@@ -485,7 +484,7 @@ mod tests {
                 name: "Checkout slowness".into()
             })
         );
-        assert_eq!(v.short_placeholder, "Ask the project agent\u{2026}");
+        assert_eq!(v.short_placeholder, "Ask Noyan\u{2026}");
         assert!(v.button.dot && !v.button.tinted);
         // Looked at a1: b's reply is the one left.
         looked.look("a1", 300);
@@ -525,11 +524,7 @@ mod tests {
             assert_eq!((b.tinted, b.dot), (open, dot));
             assert_eq!(
                 (b.icon, b.label, b.hint.as_str()),
-                (
-                    IconName::Bot,
-                    "Project agent",
-                    "Open or close \u{b7} \u{2318}L"
-                )
+                (IconName::Bot, "Noyan", "Open or close \u{b7} \u{2318}L")
             );
         }
         assert_eq!(

@@ -202,7 +202,7 @@ pub struct AgentsPart {
     /// "CONVERSATIONS WITH NOYAN · NOT IN RESUME SELECTED · TERMINALS ARE GONE".
     pub title: &'static str,
     pub rows: Vec<AgentRow>,
-    /// "A “New agent” that had no request yet is discarded, not listed."
+    /// "A “New conversation” that had no request yet is discarded, not listed."
     pub discarded: Option<String>,
 }
 
@@ -359,11 +359,11 @@ fn agents_part(
     let discarded = match report.new_agents_discarded {
         0 => None,
         1 => Some(
-            "A \u{201c}New agent\u{201d} that had no request yet is discarded, not listed."
+            "A \u{201c}New conversation\u{201d} that had no request yet is discarded, not listed."
                 .to_owned(),
         ),
         n => Some(format!(
-            "{n} \u{201c}New agent\u{201d}s that had no request yet are discarded, not listed."
+            "{n} \u{201c}New conversation\u{201d}s that had no request yet are discarded, not listed."
         )),
     };
     (!rows.is_empty() || discarded.is_some()).then_some(AgentsPart {
@@ -874,7 +874,9 @@ mod tests {
         );
         assert_eq!(
             part.discarded.as_deref(),
-            Some("A \u{201c}New agent\u{201d} that had no request yet is discarded, not listed.")
+            Some(
+                "A \u{201c}New conversation\u{201d} that had no request yet is discarded, not listed."
+            )
         );
 
         // Only agents ended: the sheet still opens; a resumed one says so.

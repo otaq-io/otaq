@@ -273,14 +273,9 @@ mod tests {
                 row("Project 1–9", "⌘1–9", "Ctrl+1–9", "Ctrl+1–9"),
                 row("New ticket", "⌘N", "Ctrl+N", "Ctrl+Shift+N"),
                 row("Settings", "⌘,", "Ctrl+,", "Ctrl+,"),
-                row(
-                    "Open / close the Project agent",
-                    "⌘L",
-                    "Ctrl+L",
-                    "Ctrl+Shift+L"
-                ),
+                row("Open / close Noyan", "⌘L", "Ctrl+L", "Ctrl+Shift+L"),
                 (
-                    "New Project agent conversation",
+                    "New conversation with Noyan",
                     one("⇧⌘L"),
                     one("Ctrl+Shift+L"),
                     none()

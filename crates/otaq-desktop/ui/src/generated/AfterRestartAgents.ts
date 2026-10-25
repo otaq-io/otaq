@@ -10,6 +10,6 @@ export type AfterRestartAgents = {
  */
 title: string, rows: Array<AfterRestartAgent>, 
 /**
- * "A “New agent” that had no request yet is discarded, not listed."
+ * "A “New conversation” that had no request yet is discarded, not listed."
  */
 discarded: string | null, };

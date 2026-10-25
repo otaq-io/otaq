@@ -5,6 +5,6 @@
  */
 export type RunCommandAsk = { label: string, 
 /**
- * "Asks Strong (the Project agent's) to suggest a run command".
+ * "Asks Noyan (Strong) to suggest a run command".
  */
 tooltip: string, note: string, };

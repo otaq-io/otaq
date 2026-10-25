@@ -163,7 +163,7 @@ pub struct Texts {
 
 const INTRO: &str = "Every action and its keys. Click a key to record new ones: any key, a single letter, or g then a letter.";
 const LETTERS_DESCRIPTION: &str = "Keys like j, k, / and g then b. They work only while you aren\u{2019}t typing in a \
-     field, the editor, the Project agent\u{2019}s box or a terminal. Turn them off if you press keys by accident or \
+     field, the editor, Noyan\u{2019}s box or a terminal. Turn them off if you press keys by accident or \
      use speech input.";
 const TERMINALS_NOTE: &str = "A shortcut that works inside terminals takes that key from the shell or agent while a \
      terminal has focus.";
@@ -1245,6 +1245,11 @@ mod tests {
         assert!(!p.reset_all.enabled);
         assert!(p.letters.on);
         assert_eq!(p.letters.label, "Single-letter shortcuts");
+        assert!(
+            p.letters
+                .description
+                .contains("the editor, Noyan\u{2019}s box or a terminal.")
+        );
         assert_eq!(p.terminals_note, None);
         let titles: Vec<&str> = p.groups.iter().map(|g| g.title.as_str()).collect();
         assert_eq!(
@@ -1272,8 +1277,8 @@ mod tests {
             ("Pause / Resume agents", vec!["⇧⌘."]),
             ("Activity", vec!["⇧⌘U", "g then a"]),
             ("Settings", vec!["⌘,"]),
-            ("Open / close the Project agent", vec!["⌘L"]),
-            ("New Project agent conversation", vec!["⇧⌘L"]),
+            ("Open / close Noyan", vec!["⌘L"]),
+            ("New conversation with Noyan", vec!["⇧⌘L"]),
             ("New ticket", vec!["⌘N", "c"]),
             ("Open / close the ticket", vec!["↵ / Esc"]),
             ("Full page / back to the sheet", vec!["e"]),

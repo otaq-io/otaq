@@ -991,7 +991,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("Noyan", &json!("Project agent")),
+                ("Noyan", &json!("Noyan")),
                 ("Epic lead", &json!("Epic lead")),
                 ("Developer", &Value::Null),
                 ("Validator", &Value::Null),
@@ -999,7 +999,7 @@ mod tests {
         );
         assert_eq!(section["rows"][2]["skills"], json!(["work-ticket", "commit"]));
         assert_eq!(section["rows"][2]["model"], "default");
-        assert_eq!(section["rows"][0]["used_in"], "every project \u{b7} the Project agent");
+        assert_eq!(section["rows"][0]["used_in"], "every project \u{b7} Noyan");
         assert_eq!(section["default_model"]["dropdown"]["value"], "The first agent tool you connect");
         let id = |n: usize| section["rows"][n]["id"].as_str().unwrap().to_owned();
         let (noyan, developer) = (id(0), id(2));
@@ -1021,17 +1021,25 @@ mod tests {
         assert_eq!(page["name"]["problem"], "Another agent is already called Noyan");
         assert_eq!(page["draft"]["name"], "Noyan", "the refused name stays typed");
 
-        // The role: None is refused on its agent; another agent takes it, and the page says whose it was.
+        // The role: None · Noyan · Epic lead; None is refused on its agent; another agent takes it, and the page says
+        // whose it was.
         let page = ask("settings.agent_role", json!({ "id": noyan, "role": "" })).await.unwrap();
+        let options: Vec<(&str, &str)> = page["role"]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| (o["id"].as_str().unwrap(), o["label"].as_str().unwrap()))
+            .collect();
+        assert_eq!(options, [("", "None"), ("noyan", "Noyan"), ("epic-lead", "Epic lead")]);
         assert_eq!(
             page["role"]["problem"],
-            "Noyan is your Project agent. Give the role to another agent first."
+            "Noyan has the Noyan role. Give the role to another agent first."
         );
         let page = ask("settings.agent_role", json!({ "id": developer, "role": "noyan" }))
             .await
             .unwrap();
-        assert_eq!(page["role"]["moved"], "Developer is now your Project agent \u{b7} Noyan has no role");
-        assert_eq!(page["role_tag"], "Project agent");
+        assert_eq!(page["role"]["moved"], "Developer is now Noyan \u{b7} the agent Noyan has no role");
+        assert_eq!(page["role_tag"], "Noyan");
 
         // New agent: a draft until Add agent.
         let draft = ask("settings.agent", json!({ "change": { "field": "add_skill", "value": "work-ticket" } }))

@@ -354,12 +354,12 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
         Kind::Permission => (
             "notification_kinds.permission",
             "Permission prompts",
-            "Agents, validators, Project agents and epic leads.",
+            "Agents, validators, Noyan and epic leads.",
         ),
         Kind::Question => (
             "notification_kinds.question",
             "Questions",
-            "Agents, Project agents and epic leads.",
+            "Agents, Noyan and epic leads.",
         ),
         Kind::TurnEnded => ("notification_kinds.turn_ended", "Agent ended its turn", ""),
         Kind::Interrupted => ("notification_kinds.interrupted", "Session interrupted", ""),
@@ -429,7 +429,7 @@ pub struct Row {
 pub struct RowButton {
     pub label: String,
     pub icon: IconName,
-    /// "Asks Strong (the Project agent's) to suggest a run command".
+    /// "Asks Noyan (Strong) to suggest a run command".
     pub tooltip: Option<String>,
 }
 
@@ -2241,9 +2241,9 @@ mod tests {
             [
                 (
                     "Permission prompts",
-                    "Agents, validators, Project agents and epic leads."
+                    "Agents, validators, Noyan and epic leads."
                 ),
-                ("Questions", "Agents, Project agents and epic leads."),
+                ("Questions", "Agents, Noyan and epic leads."),
                 ("Agent ended its turn", ""),
                 ("Session interrupted", ""),
                 (
@@ -2965,9 +2965,7 @@ mod tests {
             Some(RowButton {
                 label: "Ask the agent".into(),
                 icon: IconName::Sparkles,
-                tooltip: Some(
-                    "Asks Strong (the Project agent\u{2019}s) to suggest a run command".into()
-                ),
+                tooltip: Some("Asks Noyan (Strong) to suggest a run command".into()),
             }),
             "the Project agent's named agent is asked (d0086)"
         );

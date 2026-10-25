@@ -72,7 +72,7 @@ pub const RESET: &str = "reset";
 pub struct Section {
     pub project: String,
     pub title: String,
-    /// "Changed by the Project agent · yesterday".
+    /// "Changed by Noyan · yesterday".
     pub changed: String,
     pub intro: String,
     pub waiting: Option<WaitingLine>,
@@ -191,14 +191,14 @@ pub fn export_file(project: &str) -> String {
     }
 }
 
-/// "Changed by the Project agent · yesterday", "Changed by you · 11:42", "Otaq’s default flow · 9 Oct" (the flow
+/// "Changed by Noyan · yesterday", "Changed by you · 11:42", "Otaq’s default flow · 9 Oct" (the flow
 /// the project got when it was added).
 pub fn changed(current: &FlowVersion, now_ms: i64) -> String {
     let when = ended_when(current.applied_at, now_ms);
     let who = match current.applied_by {
         AppliedBy::Shipped => format!("{PRODUCT_NAME}\u{2019}s default flow"),
         AppliedBy::User => "Changed by you".to_owned(),
-        AppliedBy::ProjectAgent => "Changed by the Project agent".to_owned(),
+        AppliedBy::ProjectAgent => "Changed by Noyan".to_owned(),
     };
     if when.is_empty() {
         who
@@ -519,7 +519,7 @@ mod tests {
             version: 2,
             yaml: yaml.to_owned(),
             applied_by,
-            agent_name: Some("Planner".into()),
+            agent_name: Some("Noyan".into()),
             preset: None,
             applied_at: at,
             current: true,
@@ -592,7 +592,7 @@ mod tests {
             now_ms: NOW,
         });
         assert_eq!(s.title, "Flow");
-        assert_eq!(s.changed, "Changed by the Project agent \u{b7} yesterday");
+        assert_eq!(s.changed, "Changed by Noyan \u{b7} yesterday");
         assert_eq!(
             s.columns,
             ["Stage", "Agent \u{b7} model", "Options a ticket can pick"]
