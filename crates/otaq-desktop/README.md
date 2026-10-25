@@ -25,7 +25,7 @@ and every `npm` command runs from here:
 | `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
 | `ui/src/app/`                                                                                             | the frame, the registries, the shared selection      |
 | `ui/src/components/`                                                                                      | the shared components every screen draws with        |
-| `ui/src/cards/`                                                                                           | the Ticket Card and the Epic Card                    |
+| `ui/src/cards/`                                                                                           | the Ticket Card                                      |
 | `ui/src/screens/`                                                                                         | one folder per screen, and the screens index         |
 | `ui/src/terminal/`, `src/terminal.rs`                                                                     | the terminal component every terminal screen uses    |
 | `src/api/`                                                                                                | the request table and one file per area              |
@@ -225,15 +225,17 @@ doesn't). Esc or its close button leaves it. A new shared component gets a place
 
 ## Cards
 
-The ticket card and the Epic Card (_24 · The two views_; the one-line card of BRD-03 since T-0460) are in
-`ui/src/cards/`: `import { EpicCard, TicketCard, stateOfLook } from "../../cards";`. They draw a `TicketCardView` /
-`EpicCardView`, which `otaq_view::view_models::card_page` builds from the card view models with every text already
-worded: the key (and the epic's name for an epic child), the title, one status line (its words and its dot's colour,
-`card::status_line`), who and when, the coloured edge of a card that needs you and its one action (Answer, Reply,
-Review, Decide…); the key row's hover has the full status and what the card has no room for. The pill, the model, the
-tokens and the answer options are the ticket's sheet's. The board passes the moment of interaction as a `CardState`
-(selected, chain highlighted or dimmed, dragging, hovered). `look.ts` turns each union of the view (tone, palette, epic
-child state, gallery look) into theme colours with an exhaustive switch; a variant added in Rust fails the linter and
+The ticket card (_24 · The two views_; the one-line card of BRD-03 since T-0460) is in `ui/src/cards/`:
+`import { TicketCard, stateOfLook } from "../../cards";`. It draws a `TicketCardView`, which
+`otaq_view::view_models::card_page` builds from the card view models with every text already worded: the key, the
+title, one status line (its words and its dot's colour, `card::status_line`), who and when, the coloured edge of a card
+that needs you and its one action (Answer, Reply, Review, Decide…); the key row's hover has the full status and what
+the card has no room for. A Check stage with several check agents adds a row per check agent (`CheckRound.tsx`,
+`check_agents.rs`); a build stage's pieces (d0133) add "Plan · 4 pieces" under the line and the PIECES rows, one per
+piece with its name, title and status (`Pieces.tsx`, `pieces.rs`). The pill, the model, the tokens and the answer
+options are the ticket's sheet's. The board passes the moment of interaction as a `CardState` (selected, chain
+highlighted or dimmed, dragging, hovered). `look.ts` turns each union of the view (tone, palette, gallery look) into
+theme colours with an exhaustive switch; a variant added in Rust fails the linter and
 `cards.test.ts` until it has a drawing. The gallery shows every fixture of `card_fixtures.rs`
 (`gallery.cards`) at the card width and at 1280.
 
@@ -258,8 +260,8 @@ the tab it opens on. Each sheet tab lists the contents it holds and the one it l
 - **Edit:** the menu's Edit ticket shows Overview and adds a `ticketEditRequests` entry (`ui/src/app/selection.ts`)
   Overview answers by opening its form.
 - **Dialogs opened from the sheet:** `close_ticket` and `submit_for_review` are the sheet's; `local_merge`, `send_back`,
-  `start_from_scratch`, `delete_ticket` and `move_to_epic` are opened with `{ ticket }`, `close_epic` with `{ epic }`,
-  each drawn by its own screen.
+  `send_back_pr`, `start_from_scratch`, `open_pr` and `delete_ticket` are opened with `{ ticket }`, each drawn by its
+  own screen.
 
 ## Session
 
@@ -290,8 +292,7 @@ The Needs you strip (_24 · The board_, NYS-01…NYS-03, d0114, T-0459) is `ui/s
 `<NeedsYouStrip />` under their toolbar; it shows only the open project's items, one chip each, in the order of the
 service's queue (`needs_you.list`, d0016's groups, unchanged). Requests: `strip.view` (the chips, the count, Next),
 `strip.next` (where ⌘J goes: the next item here, else the next project with items), `strip.resume_all_confirm` and
-`strip.resume_all` (Resume all's confirmation and run), `strip.suggestion` (an epic lead's suggestion confirmed or
-dismissed).
+`strip.resume_all` (Resume all's confirmation and run).
 
 - **Overlays:** `resume_all` (Resume all's confirmation with its tickets, also opened by the "sessions were
   interrupted" banner).
@@ -341,7 +342,7 @@ The board screen (`ui/src/screens/board/`, T-0220, T-0221) also fills the `heade
 field in place of its search entry. The filter is kept per project while the app runs (`filter.ts`) and sent with
 `board.view` and `board.search`; Rust parses the tokens and words the field. The card's right-click menu asks
 `board.menu` for its items and `board.menu_choose` for what a choice does: Pin, Unpin and the priorities are sent at
-once, the others open their dialog by overlay id (`delete_ticket`, `close_ticket`, `move_to_epic`, `close_epic`).
+once, the others open their dialog by overlay id (`delete_ticket`, `close_ticket`).
 **Every place that deletes a ticket** (the card menu, the sheet's "…" menu, the Project agent's summary) opens the one
 delete confirmation: `openOverlay("delete_ticket", { ticket })`.
 
