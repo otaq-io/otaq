@@ -1,7 +1,7 @@
 #!/bin/zsh
 # seed.sh: create the demo repository (pocket-notes, a tiny Node notes CLI with node:test tests and no
 # dependencies), add it as project NOTE and write its tickets: standalone tickets with priorities and a
-# dependency, plus two epics with children. Nothing is started. Needs the service from start.sh.
+# dependency, plus two bigger tickets with a Plan of pieces. Nothing is started. Needs the service from start.sh.
 # Run it once per fresh $OTAQ_DEMO; it refuses to run twice.
 set -e
 DEMO=${OTAQ_DEMO:-/tmp/otaqdemo}
@@ -131,14 +131,23 @@ $O create -P NOTE "Show each note's age in notes ls" --deps NOTE-1 -d "Print a s
 $O create -P NOTE -p 4 "Colorize output when stdout is a terminal" -d "Dim the id and age columns; no colors when piped or NO_COLOR is set."
 $O create -P NOTE "Export notes to Markdown" -d "notes export > notes.md writes one bullet per note, newest first."
 $O create -P NOTE -p 4 "Sync notes through a GitHub gist" -d "Investigate first: auth through the gh CLI, conflict handling."
-$O create -P NOTE --type epic "Tags" --stdin <<'EOF'
+cat > $DEMO/tags-plan.md <<'EOF'
+## Pieces
+
+1. Store tags on notes — waits for nothing
+   Add a tags array to each note (empty for old notes) and Store.tagged(tag).
+2. Parse #tags in notes add — waits for 1
+   Words starting with # become tags and are removed from the text.
+3. Filter with notes ls --tag — waits for 1
+   notes ls --tag errands shows only notes with that tag.
+4. Show tags in notes ls — waits for 1
+   Print tags after the text, dimmed: '  3  buy milk  #errands'.
+EOF
+$O create -P NOTE "Tags" --plan-file $DEMO/tags-plan.md --stdin <<'EOF'
 Let notes carry tags, so people can group and filter them.
 
 `notes add buy milk #errands` stores the note with the tag `errands`; `notes ls --tag errands` shows only those.
 EOF
-$O create -P NOTE --parent NOTE-7 "Store tags on notes" -d "Add a tags array to each note (empty for old notes) and Store.tagged(tag)."
-$O create -P NOTE --parent NOTE-7 --deps NOTE-7.1 "Parse #tags in notes add" -d "Words starting with # become tags and are removed from the text."
-$O create -P NOTE --parent NOTE-7 --deps NOTE-7.1 "Filter with notes ls --tag" -d "notes ls --tag errands shows only notes with that tag."
 
 # Wave 2: started later, so something is still working while you capture.
 $O create -P NOTE -p 2 "notes edit <id> <text>" -d "Replace a note's text, keep its id, tags and created time. Unknown id: 'No note #7', exit 1."
@@ -146,17 +155,24 @@ $O create -P NOTE "Pin notes to the top of notes ls" --deps NOTE-8 -d "notes pin
 $O create -P NOTE "Undo the last delete" -d "notes undo brings back the note removed by the last rm, with its id."
 $O create -P NOTE -p 4 "Shell completions for bash and zsh" -d "notes completions bash|zsh prints a script; complete commands and note ids."
 $O create -P NOTE "Fuzzy matching in notes search" -d "Rank close matches (typos, missing letters) after exact ones."
-$O create -P NOTE --parent NOTE-7 "Show tags in notes ls" -d "Print tags after the text, dimmed: '  3  buy milk  #errands'."
-$O create -P NOTE --type epic -p 2 "Notebooks" --stdin <<'EOF'
+cat > $DEMO/notebooks-plan.md <<'EOF'
+## Pieces
+
+1. Store notes in notebooks — waits for nothing
+   Each note gets a notebook (default 'inbox'); old files load into inbox. Store.inNotebook(name).
+2. notes add -n <notebook> — waits for 1
+   The -n flag picks the notebook; unknown notebooks are created.
+3. notes ls -n and notes notebooks — waits for 1
+   Filter ls by notebook; 'notes notebooks' lists names with counts.
+4. Document notebooks in the README — waits for 2, 3
+   A short section with examples.
+EOF
+$O create -P NOTE -p 2 "Notebooks" --plan-file $DEMO/notebooks-plan.md --stdin <<'EOF'
 Group notes into notebooks (`work`, `home`), so `notes ls` stays short as the list grows.
 
 - `notes add -n work "ship 0.4"` adds to a notebook; no `-n` means the default notebook
 - `notes ls -n work` lists one notebook; `notes notebooks` lists them with counts
 - old notes files load into the default notebook
 EOF
-$O create -P NOTE --parent NOTE-13 "Store notes in notebooks" -d "Each note gets a notebook (default 'inbox'); old files load into inbox. Store.inNotebook(name)."
-$O create -P NOTE --parent NOTE-13 --deps NOTE-13.1 "notes add -n <notebook>" -d "The -n flag picks the notebook; unknown notebooks are created."
-$O create -P NOTE --parent NOTE-13 --deps NOTE-13.1 "notes ls -n and notes notebooks" -d "Filter ls by notebook; 'notes notebooks' lists names with counts."
-$O create -P NOTE --parent NOTE-13 --deps NOTE-13.2,NOTE-13.3 "Document notebooks in the README" -d "A short section with examples."
 
 $O list -P NOTE

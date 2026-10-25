@@ -1,6 +1,6 @@
 ---
 name: readme-screenshots
-description: Refresh Otaq's README.md and its screenshots in docs/images/ from the real running app. Sets up a throwaway demo project (its own OTAQ_HOME, a small git repo, tickets, epics, real Claude Code agents), stages a board with work in every column, captures the app window on macOS, then updates the README text and images to match. Use this whenever the user wants new or updated README screenshots, says the screenshots or README are out of date, wants images of the app for docs, a release, a launch post or the website, or asks to "show the app" in the README, even if they don't mention the demo project or screenshots by name.
+description: Refresh Otaq's README.md and its screenshots in docs/images/ from the real running app. Sets up a throwaway demo project (its own OTAQ_HOME, a small git repo, tickets, a ticket with a Plan of pieces, real Claude Code agents), stages a board with work in every column, captures the app window on macOS, then updates the README text and images to match. Use this whenever the user wants new or updated README screenshots, says the screenshots or README are out of date, wants images of the app for docs, a release, a launch post or the website, or asks to "show the app" in the README, even if they don't mention the demo project or screenshots by name.
 ---
 
 # README screenshots for Otaq
@@ -37,8 +37,8 @@ zsh $S/start.sh
 ```
 
 It builds `otaq` and the app, starts the demo service with a clean environment, seeds the demo on the first run
-(`seed.sh`: the `pocket-notes` repo, project NOTE, ~20 tickets including the epics "Tags" NOTE-7 and "Notebooks"
-NOTE-13; nothing starts yet), then starts Vite and opens the window. Seeding comes before the window because the app
+(`seed.sh`: the `pocket-notes` repo, project NOTE, 13 tickets including "Tags" NOTE-7 and "Notebooks" NOTE-13, each
+with a Plan of four pieces; nothing starts yet), then starts Vite and opens the window. Seeding comes before the window because the app
 chooses between onboarding and the board once, at launch: if you ever see the onboarding wizard, run `start.sh` again.
 
 Why `start.sh` does what it does, in case something needs adjusting by hand:
@@ -55,33 +55,29 @@ Why `start.sh` does what it does, in case something needs adjusting by hand:
 The board is worth capturing when every column has something in it and something is visibly happening. Agents on
 this demo finish in about a minute, so stage it in waves rather than starting everything at once:
 
-1. Wave 1: `NOTE-1`, `NOTE-2`, `NOTE-4`, `NOTE-5` to Dev; `NOTE-3` to Ready for Dev (it waits for NOTE-1); queue the
-   Tags epic. Wait: `zsh $S/wait.sh "Ready for Review" NOTE-1 NOTE-2 NOTE-4 NOTE-5 NOTE-7.1` (about 5 minutes).
-2. Merge in two passes, because a ticket only starts once its parents are merged:
-   `zsh $S/merge.sh NOTE-1 NOTE-7.1`, then `wait.sh "Ready for Review" NOTE-3 NOTE-7.2`, then
-   `merge.sh NOTE-3 NOTE-7.2`. Done fills and the Tags track moves along.
-3. Open the Notebooks epic's lead: **Open lead** on its card in Backlog. The card sits low in the column; scroll the
-   column first (`shot.sh x.png scroll 180 600 -15`). The lead plans, edits children, and asks one or more questions
-   with answer options. No request reports a lead's pending question (`ticket.questions` stays empty): watch the
-   card, which says "<lead name> · asks you", and the epic panel. Capture the first question as the epic-lead shot,
-   then answer each one with **Send answer**. If the epic panel closes on its own meanwhile, reopen it from the lead
-   chip on the epic card.
-4. Wave 2, right before the board shot: `NOTE-8`, `NOTE-10`, `NOTE-12` to Dev, `NOTE-9` to Ready for Dev, queue the
-   Notebooks epic. Capture within the next minute or two, while cards still say Working or Validating.
+1. Wave 1: `NOTE-1`, `NOTE-2`, `NOTE-4`, `NOTE-5` to Dev; `NOTE-3` to Ready for Dev (it waits for NOTE-1). Wait:
+   `zsh $S/wait.sh "Ready for Review" NOTE-1 NOTE-2 NOTE-4 NOTE-5` (about 5 minutes).
+2. Merge in two passes, because a ticket only starts once the tickets it waits for are merged:
+   `zsh $S/merge.sh NOTE-1`, then `wait.sh "Ready for Review" NOTE-3`, then `merge.sh NOTE-3`. Done fills.
+3. Drag `NOTE-7` (Tags) to Dev. Its agent is in charge: it reads the Plan and may start **helpers**, one per piece,
+   each in its own worktree; their rows show inside the card ("7.1 merged · 7.2 working") and in the ticket's
+   Overview next to the Plan's pieces. Open the ticket and capture its Overview while at least one helper is working and one is merged, as the plan shot. A helper's question
+   goes to the agent in charge first; one it passes on shows in the Needs you strip as "NOTE-7 · 7.2 asks". Leave
+   NOTE-7 running; it reaches Ready for Review as one ticket when its pieces are merged.
+4. Wave 2, right before the board shot: `NOTE-8`, `NOTE-10`, `NOTE-12` and `NOTE-13` (Notebooks) to Dev, `NOTE-9` to
+   Ready for Dev. Capture within the next minute or two, while cards still say Working or Validating.
 
 **Approved stays empty**, and that's fine: only the Open PR flow puts cards there, and the demo repo has no remote
 (`ticket.move` to `approved` answers "Approve isn't available yet").
 
-If a card shows **Start interrupted** (two children of one epic starting at the same moment can collide on the epic
-branch: "cannot lock ref 'refs/heads/otaq/NOTE-7'"), retry it: `ticket.retry_start {"key":"NOTE-7.4"}`. `wait.sh`
-stops early and names the ticket when that happens.
+If a card shows **Start interrupted**, retry it: `ticket.retry_start {"key":"NOTE-8"}`. `wait.sh` stops early and
+names the ticket when that happens.
 
 The requests:
 
 ```sh
 R=(python3 -I $S/otaq_req.py)                                           # an array: zsh doesn't split strings
 "${R[@]}" ticket.move '{"key":"NOTE-1","target":"dev","confirmed":true}'      # also ready_for_dev, backlog, ...
-"${R[@]}" epic.queue '{"key":"NOTE-7"}'                                        # = dragging the epic to Ready for Dev
 "${R[@]}" ticket.pin '{"key":"NOTE-2"}'
 "${R[@]}" ticket.start_from_scratch '{"key":"NOTE-1","confirm":true}'          # after "Resume failed"
 python3 $S/otaq_req.py theme otaq-dark                                  # otaq-light, daylight, tokyo-night, dracula, ...
@@ -108,12 +104,12 @@ Shots the README uses (keep these names so the README's image links stay valid):
 
 | File | What it shows | How |
 |---|---|---|
-| `board.png` | the hero: Otaq Dark, two epic tracks, cards in every column but Approved, something working | theme `otaq-dark`, all panels closed, right after wave 2 |
+| `board.png` | the hero: Otaq Dark, cards in every column but Approved, something working (NOTE-7's helper rows) | theme `otaq-dark`, all panels closed, right after wave 2 |
 | `board-light.png` | the same board in a light theme (Daylight or Otaq Light) | switch theme, capture again |
 | `terminal.png` | an agent's Claude Code session, ideally explaining a recorded decision | **Review** on a Ready for Review card; Terminal tab |
 | `review.png` | agent summary, a recorded decision, the validation report | same panel, Diff tab, top |
 | `diff.png` | the code diff with the file list | expand the panel (⤢ in its header), collapse the three sections above the diff |
-| `epic-lead.png` | the epic panel with the lead asking a question with options | step 3 above |
+| `plan.png` | a ticket's Overview with its Plan: the pieces in order, each with its helper's status | step 3 above |
 
 Useful places in the default 1440×900 window: a panel's close ✕ at (1414, 70), expand ⤢ at (1378, 70); with a
 review card's panel open, its tabs sit on one row around y≈235–280 (Diff at x≈911). For `diff.png`, collapse the

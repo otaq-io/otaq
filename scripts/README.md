@@ -345,7 +345,7 @@ the template never saw its migration. With no schema paths, Otaq runs no git for
 - Run a database server per ticket without something like Docker, which your own Create command would start.
 
 **Project variables.** Project Settings → Environment variables lists `NAME = value` rows that Otaq sets in
-everything it starts in that project: ticket agents, the validator, Project agents and epic leads, the Project
+everything it starts in that project: ticket agents and their helpers, the validator, Noyan, the Project
 terminal, the setup command and the ticket resource commands, Run and Shell, and the git commands it runs in the
 project's repository and worktrees (so your git hooks see them too). It is empty by default. For example
 `CI = true`, so tools never wait for input or start watch mode. Another one you may want when several agents build

@@ -1,8 +1,8 @@
 # cargo-nextest settings for `cargo nextest run --workspace`, the `test` step of scripts/check.sh (decision 0056,
 # SDD §23.2). Each test runs in its own process, in parallel, as many at once as the machine has cores.
 #
-# No test groups. The tests that time a terminal or a child process (the PTY sessions, `epic_lead`,
-# `project_terminals`, the terminal typing test) passed in every one of about 80 runs of the whole suite at full
+# No test groups. The tests that time a terminal or a child process (the PTY sessions, `project_terminals`, the
+# terminal typing test) passed in every one of about 80 runs of the whole suite at full
 # parallelism on a 16-core Mac (2026-10-17). The few tests that failed now and then were waits too short for a busy
 # machine, fixed in the tests rather than given fewer threads: limiting every service test to 8 or 12 at once made a
 # run 10-35% slower and didn't stop those failures.

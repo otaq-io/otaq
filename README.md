@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/board.png" alt="The Otaq board in Otaq Dark: two epic tracks above six columns, with tickets waiting, working, in review and merged">
+  <img src="docs/images/board.png" alt="The Otaq board in Otaq Dark: six columns, with tickets waiting, working, in review and merged">
 </p>
 
 ---
@@ -112,13 +112,12 @@ default model.) The model picker reads each tool's own model list, with "always 
 a new model needs no Otaq update.
 
 - **Pick per ticket.** Every ticket has a **Developer** and a **Validator** row. `SHOP-18` can be written by Opus in
-  Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. An epic picks its **lead** the same
-  way.
-- **Defaults per role, overridable per project.** Choose which named agent writes code, validates, leads epics and
-  answers as Noyan; a project can change any of the four.
+  Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. A ticket's helpers run on the same
+  agent as the one in charge.
+- **Defaults per role, overridable per project.** Choose which named agent writes code, validates and answers as
+  Noyan; a project can change any of the three.
 - **Agents suggest agents.** Noyan's plan and an agent's proposed tickets name an agent for each ticket from your
-  notes ("Light: docs-only change"), and they create nothing until you agree. An epic lead may still add a child to its
-  running epic on its own; the card says it was added by the lead. Your own choice always wins.
+  notes ("Light: docs-only change"), and they create nothing until you agree. Your own choice always wins.
 - **Limits per tool, with fallbacks.** When one tool hits its usage limit or is logged out, only its agents wait; the
   rest keep going. The banner offers **Move waiting to…** another tool, and with **Use fallback agents automatically**
   on, waiting tickets start on each agent's fallback by themselves. A running conversation never changes tools.
@@ -128,17 +127,23 @@ a new model needs no Otaq update.
 Asking you questions, recording decisions and submitting for review all go through the `otaq` command, so they work
 the same in every tool. Cards show Working, Needs you and Idle from each tool's own hooks or plugin events.
 
-### Epics: one feature, many tickets
+### Bigger features: a Plan and helpers
 
-Bigger features become an **epic** with child tickets (`NOTE-7.1`, `NOTE-7.2`, …). Children branch from the epic's own
-integration branch and merge back into it, so the feature reaches your base branch, or a pull request, as **one**
-change when every child is done. On the board an active epic is a **track** above the columns, with one stop per
-child, so you see the whole feature at a glance.
+A bigger feature is still **one ticket** that walks the flow, with one agent in charge at each stage. The ticket can
+carry a Markdown **Plan**, written by Noyan, by a planning stage of your flow, or by you, with one **Pieces** list:
 
-An epic can have a **lead**: a read-only agent that plans the children with you, answers their questions first (and
-passes on the ones it can't, with a recommended answer), shares what each merged child learned with the ones still to
-come, and flags children that touch the same files. A child that a merge lets start waits for the lead's update
-about that merge first. It never edits code or merges anything.
+```markdown
+## Pieces
+1. Wishlist API
+2. Wishlist button — waits for 1
+```
+
+In the build stage, the agent in charge may start **helpers**: other agents, one per piece, each in its own worktree.
+It reviews each helper's work, sends it back with a note or merges it into the ticket's branch, so the feature
+reaches your base branch, or a pull request, as **one** change. Helpers are rows inside the card
+(`40.1 merged · 40.2 working`). A helper's questions go to the agent in charge, which answers them or passes them on
+to you with a note; its permission prompts come straight to you, and you answer in its terminal. The ticket takes one
+slot, and Pause, Park and a restart treat it and its helpers as one.
 
 ### Noyan and terminals
 
@@ -157,8 +162,8 @@ project.
 ![The board in the Daylight theme](docs/images/board-light.png)
 
 The board has two views, **Board** and **List**. The Board has a column per stage of the project's flow (by default
-Backlog, Ready for Dev, Dev, Validate, Review and Done); with **Lanes: Epic** each epic in flight gets a lane of its own,
-and the List groups the same tickets by stage, status, agent or epic. Above the tickets, the **Needs you** strip lists
+Backlog, Ready for Dev, Dev, Validate, Review and Done), and the List groups the same tickets by stage, status or
+agent. Above the tickets, the **Needs you** strip lists
 what waits for you. **Pause** stops every agent of a project (or of all projects) at once until you resume. Cards
 show status, priority, what they wait for (`waits for NOTE-8 to merge`), validation rounds, recorded decisions and
 conflicts with the base branch. Hover a card to highlight its dependency chain. Turquoise means "needs you", magenta means "in review".
@@ -186,16 +191,11 @@ back** with comments, returns the ticket to the same agent.
 The **Files** tab shows the diff against the commit where the ticket started (All changes, unified or split) and every
 file of the worktree, with line comments. Approve offers **Local merge** or **Open PR**.
 
-### Epics and the epic lead
+### The Plan and helpers
 
-![An epic's lead agent asking a planning question with answer options](docs/images/epic-lead.png)
-
-The epic opens as a sheet too: its Tickets tab lists the epic's tickets and their dependencies, and its Lead tab holds
-the lead's terminal. Here the lead of the
-*Notebooks* epic is planning: it has already made `NOTE-13.3` wait for `NOTE-13.2` (under **Changes by the lead**),
-and now asks a question it can't settle from the code (what plain `notes ls` should show once there are notebooks),
-with a recommended answer. You answer with a click (or in its terminal), and the children it refined start when the
-epic is dragged to Ready for Dev.
+A ticket's Overview shows its Plan, with who wrote it and its pieces in order (`13.3 · waits for 2`). While the ticket
+is in the build stage, each piece shows its helper's status, and the Files tab tags each change with the piece it came
+from. A helper waiting on you shows in the Needs you strip as `NOTE-13 · 13.2 asks`; ⌘J opens its terminal.
 
 ### Run and Shell
 
@@ -291,18 +291,36 @@ otaq list -P SHOP            # the project's tickets
 otaq create "Fix login" -p 2 --deps SHOP-12
 otaq create "Fix README typo" --developer Light   # pick its named agent
 otaq create -f plan.md       # many tickets from one Markdown file
+otaq create "Wishlist" --plan-file wishlist-plan.md   # one ticket with a Plan of pieces
+otaq update SHOP-40 --plan-file wishlist-plan.md      # replace its Plan (or --plan, --plan-stdin)
 otaq show SHOP-18
+otaq show SHOP-40 --piece 2  # one piece of the Plan
+otaq delete SHOP-41 --reason "folded into SHOP-40"   # a never-started ticket you created
 otaq dep tree SHOP-18
 otaq attach SHOP-18          # this ticket's live agent session, in your terminal
 otaq daemon status           # the background service
 ```
 
+The agent in charge of a ticket runs its helpers with `otaq helper`:
+
+```sh
+otaq helper start 2 --title "Wishlist button" --stdin   # piece 2, with a note on stdin
+otaq helper list             # each helper's piece, status and branch
+otaq helper diff 2           # what merging it would bring
+otaq helper back 2 --stdin   # send it back with a note
+otaq helper merge 2          # merge it into the ticket's branch
+otaq helper answer 2 --stdin # answer its question
+otaq helper pass-on <id> --note "a product question the Plan doesn't answer"
+otaq helper done --stdin     # a helper hands its piece back, with a summary
+```
+
 Every command takes `--json`. Run `otaq --help` for the full list.
 
-The agent's workflow lives in [`plugin/`](plugin) as skills: `work-ticket` (the main loop), `validate`, `commit`,
-`push`, `open-pr`, `address-review`, `restack`, `epic-lead` and `noyan`. Otaq gives the same skills to every
-tool, in the way that tool loads them (a Claude Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode),
-and so on). You can replace the commit, push, open-PR and validate skills with your own, globally or per project, and
+The agent's workflow lives in [`plugin/`](plugin) as skills: `work-ticket` (the main loop, for the agent in charge
+and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`, `answer-question`, `restack`, `flow`,
+`grill` and `noyan` (one ticket with a Plan, or several tickets). Otaq gives the same skills to every tool, in the
+way that tool loads them (a Claude Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode), and so
+on). You can replace the commit, push, open-PR and validate skills with your own, globally or per project, and
 the setting applies to every tool. The hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are
 unaffected.
 
