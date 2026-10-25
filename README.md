@@ -115,10 +115,10 @@ a new model needs no Otaq update.
   Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. An epic picks its **lead** the same
   way.
 - **Defaults per role, overridable per project.** Choose which named agent writes code, validates, leads epics and
-  runs the Project agent; a project can change any of the four.
-- **Agents suggest agents.** The Project agent's plan and an agent's proposed tickets name an agent for each ticket
-  from your notes ("Light: docs-only change"), and they create nothing until you agree. An epic lead may still add a
-  child to its running epic on its own; the card says it was added by the lead. Your own choice always wins.
+  answers as Noyan; a project can change any of the four.
+- **Agents suggest agents.** Noyan's plan and an agent's proposed tickets name an agent for each ticket from your
+  notes ("Light: docs-only change"), and they create nothing until you agree. An epic lead may still add a child to its
+  running epic on its own; the card says it was added by the lead. Your own choice always wins.
 - **Limits per tool, with fallbacks.** When one tool hits its usage limit or is logged out, only its agents wait; the
   rest keep going. The banner offers **Move waiting to…** another tool, and with **Use fallback agents automatically**
   on, waiting tickets start on each agent's fallback by themselves. A running conversation never changes tools.
@@ -140,10 +140,10 @@ passes on the ones it can't, with a recommended answer), shares what each merged
 come, and flags children that touch the same files. A child that a merge lets start waits for the lead's update
 about that merge first. It never edits code or merges anything.
 
-### Project agents and terminals
+### Noyan and terminals
 
-The **Project agent** waits in the Ask bar at the bottom of the board: type a message and it opens as a panel on the
-left, where a session starts on its named agent, investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
+**Noyan** waits in the Ask bar at the bottom of the board: type a message and it opens as a panel on the
+left, where a conversation starts on its named agent, investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
 your own skills. It reads code but never edits it. **Terminals** on the left rail (⇧⌘T) opens plain terminals in the
 project.
 
@@ -300,7 +300,7 @@ otaq daemon status           # the background service
 Every command takes `--json`. Run `otaq --help` for the full list.
 
 The agent's workflow lives in [`plugin/`](plugin) as skills: `work-ticket` (the main loop), `validate`, `commit`,
-`push`, `open-pr`, `address-review`, `restack`, `epic-lead` and `project-agent`. Otaq gives the same skills to every
+`push`, `open-pr`, `address-review`, `restack`, `epic-lead` and `noyan`. Otaq gives the same skills to every
 tool, in the way that tool loads them (a Claude Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode),
 and so on). You can replace the commit, push, open-PR and validate skills with your own, globally or per project, and
 the setting applies to every tool. The hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are
