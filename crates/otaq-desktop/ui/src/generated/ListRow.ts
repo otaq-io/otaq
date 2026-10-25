@@ -10,7 +10,7 @@ import type { TicketCardView } from "./TicketCardView";
  */
 export type ListRow = { 
 /**
- * The card it stands for: key, epic, title, status line, who, time, the coloured edge and the one action.
+ * The card it stands for: key, title, status line, who, time, the coloured edge and the one action.
  */
 card: TicketCardView, 
 /**
@@ -20,8 +20,4 @@ icon: IconName, palette: PillPalette, track: ListTrack,
 /**
  * Backlog rows' Start (LST-02).
  */
-start: ListRowStart | null, needs_you: boolean, 
-/**
- * An epic is focused and this isn't one of its tickets (Q55): the row dims.
- */
-dim: boolean, };
+start: ListRowStart | null, needs_you: boolean, };

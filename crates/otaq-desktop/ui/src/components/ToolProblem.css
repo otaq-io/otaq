@@ -1,7 +1,7 @@
 /*
  * A tool problem's callout (*05 → Column 3 · several tools (M23)*: the 2 px amber edge, the heading in amber, the
- * line under it, the buttons) and notice (*18 → Its tool isn't available / Its tool is at its limit*, *08 → Epic
- * lead · its tool isn't available*: a soft band with the avatar). Amber for Unavailable and Model unavailable, neutral
+ * line under it, the buttons) and notice (*18 → Its tool isn't available / Its tool is at its limit*: a soft band
+ * with the avatar). Amber for Unavailable and Model unavailable, neutral
  * for a limit; never turquoise (d0077).
  */
 .tool-problem {

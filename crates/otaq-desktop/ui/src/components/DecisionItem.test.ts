@@ -15,7 +15,6 @@ const FULL_NAME: DecisionItemView = {
   built: "only in the profile form",
   other: ["everywhere"],
   why: "the description only mentions the profile form.",
-  mark: null,
   status: null,
   change: true,
   labels: LABELS,
@@ -23,15 +22,11 @@ const FULL_NAME: DecisionItemView = {
 
 const ORDER: DecisionItemView = {
   ...FULL_NAME,
-  id: "SHOP-40.1#1",
+  id: "SHOP-41#1",
   question: "Order of saved items?",
   built: "newest first",
   other: ["in the order they were added"],
   why: "matches the order history page.",
-  mark: {
-    text: "Lead: contradicts PAY-123: “items are listed in the order they were added”.",
-    source: "PAY-123",
-  },
 };
 
 const html = (item: DecisionItemView) => renderToStaticMarkup(createElement(DecisionItem, { item }));
@@ -51,22 +46,7 @@ describe("the Decision Item draws each variant from its view", () => {
       expect(out).toContain(text);
     }
     expect(out).toContain("Change…");
-    expect(out).not.toContain("decision-mark");
     expect(out).not.toContain("decision-status");
-  });
-
-  it("with the lead's mark: a violet row with its source chip, never an error colour", () => {
-    const out = html(ORDER);
-    expect(out).toContain('class="decision-mark"');
-    expect(out).toContain("Lead: contradicts PAY-123");
-    expect(out).toContain('class="decision-source"');
-    expect(out).toContain("PAY-123");
-    expect(out).not.toContain("error");
-    const noSource = html({
-      ...ORDER,
-      mark: { text: "Lead: the page sorts the other way", source: null },
-    });
-    expect(noSource).not.toContain("decision-source");
   });
 
   it("read-only while the ticket works: no Change…", () => {
@@ -93,47 +73,29 @@ describe("the Decision Item draws each variant from its view", () => {
     expect(sent).toContain("Changed by you → sent back");
     expect(sent).toContain("corner-up-left");
     expect(sent).not.toContain("data-kept");
-    const fixed = html({
-      ...ORDER,
-      change: false,
-      status: { text: "Changed by you → SHOP-40.7", icon: "plus", kept: false },
-    });
-    expect(fixed).toContain("Changed by you → SHOP-40.7");
-    expect(fixed).toContain("decision-mark");
   });
 });
 
 describe("the Decisions list", () => {
-  it("an epic's list: the count, the hint and one head per child", () => {
+  it("a ticket's list: the count, the hint and its items in order", () => {
     const section: DecisionsSection = {
       title: "Decisions",
       count: 2,
-      hint: "Approve keeps them all · Change… adds a fix child",
-      groups: [
-        { child: { key: "SHOP-40.1", title: "Wishlist API", state: "merged" }, items: [ORDER] },
-        {
-          child: { key: "SHOP-40.4", title: "Wishlist share link", state: null },
-          items: [{ ...FULL_NAME, id: "SHOP-40.4#1" }],
-        },
-      ],
+      hint: "Approve keeps them all · Change… sends it back",
+      groups: [{ items: [FULL_NAME, ORDER] }],
     };
     const out = renderToStaticMarkup(createElement(DecisionsList, { section }));
     expect(out).toContain('class="decisions-count">2<');
-    expect(out).toContain("Approve keeps them all · Change… adds a fix child");
-    expect(out).toContain("SHOP-40.1");
-    expect(out).toContain("Wishlist API");
-    expect(out).toContain('class="decisions-child-state">merged<');
-    expect(out.indexOf("SHOP-40.1")).toBeLessThan(out.indexOf("SHOP-40.4"));
-    expect(out.match(/decisions-child-state/g)).toHaveLength(1);
+    expect(out).toContain("Approve keeps them all · Change… sends it back");
+    expect(out.indexOf(FULL_NAME.question)).toBeLessThan(out.indexOf("Order of saved items?"));
   });
 
   it("no hint after approval", () => {
     const out = renderToStaticMarkup(
       createElement(DecisionsList, {
-        section: { title: "Decisions", count: 1, hint: null, groups: [{ child: null, items: [FULL_NAME] }] },
+        section: { title: "Decisions", count: 1, hint: null, groups: [{ items: [FULL_NAME] }] },
       }),
     );
     expect(out).not.toContain("decisions-hint");
-    expect(out).not.toContain("decisions-child");
   });
 });

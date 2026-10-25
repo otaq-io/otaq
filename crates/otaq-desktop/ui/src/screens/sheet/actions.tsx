@@ -29,7 +29,6 @@ export const SHEET_EVENTS = [
   "needs_you_changed",
   "usage_changed",
   "validation_cancelled",
-  "lead_changed",
   "project_agent_changed",
   // The user's keys in its tooltips (KEY-08).
   "settings_changed",

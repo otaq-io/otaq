@@ -11,7 +11,7 @@ export type CommentRow = {
  */
 n: number, 
 /**
- * "Griller", "You", "Wishlist lead".
+ * "Griller", "You".
  */
 author: string, 
 /**

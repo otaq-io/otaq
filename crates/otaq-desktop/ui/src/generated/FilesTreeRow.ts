@@ -21,8 +21,7 @@ quiet: boolean,
  */
 opens: boolean, tags: Array<FilesTag>, 
 /**
- * An epic's file a running child is writing: that child's key, so it opens from the child's worktree
- * (`files.read`'s `child`, FTB-06).
+ * The other worktree a file opens from (`files.read`'s `child`); `None`: the ticket's own.
  */
 child: string | null, 
 /**

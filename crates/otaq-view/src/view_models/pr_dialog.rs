@@ -1,6 +1,6 @@
 //! The Open PR / Push to PR dialog (REV-10, REV-14, UI-07; d0050, d0041, d0059; *07 → Open PR · skill is
 //! preparing…, Open PR · confirmation, Open PR · pushing, Open PR · success, Open PR · invalid or taken branch name,
-//! Open PR · not logged in, Push to PR · confirmation, Open PR · epic SHOP-40*). Everything the skill proposed is
+//! Open PR · not logged in, Push to PR · confirmation*). Everything the skill proposed is
 //! editable; the branch name is checked live (debounced); Push to PR locks the branch and shows only the new
 //! commits. Nothing is pushed before the confirm click.
 
@@ -71,7 +71,6 @@ pub struct CommitField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrDialog {
     pub kind: FlowKind,
-    pub epic: bool,
     pub key: String,
     pub ticket_title: String,
     pub skill: String,
@@ -125,7 +124,6 @@ impl PrDialog {
         };
         Self {
             kind,
-            epic: false,
             key: ticket.key.to_string(),
             ticket_title: ticket.title.clone(),
             skill: skill.to_owned(),
@@ -229,14 +227,12 @@ impl PrDialog {
         };
     }
 
-    /// "Open PR for SHOP-18 Checkout API", "Open PR for epic SHOP-40 Wishlist", "Push SHOP-26 Add sitemap to PR
-    /// #481".
+    /// "Open PR for SHOP-18 Checkout API", "Push SHOP-26 Add sitemap to PR #481".
     pub fn heading(&self) -> String {
         match (self.kind, self.pr_number) {
             (FlowKind::Push, Some(n)) => {
                 format!("Push {} {} to PR #{n}", self.key, self.ticket_title)
             }
-            _ if self.epic => format!("Open PR for epic {} {}", self.key, self.ticket_title),
             _ => format!("Open PR for {} {}", self.key, self.ticket_title),
         }
     }
@@ -256,7 +252,6 @@ impl PrDialog {
             FlowKind::Push => {
                 format!("New commits ({n}) \u{b7} already pushed commits are not shown")
             }
-            FlowKind::Open if self.epic => "Commit messages (one per merged child)".to_owned(),
             FlowKind::Open if n == 1 => "Commit message (1 commit)".to_owned(),
             FlowKind::Open => format!("Commit messages ({n} commits)"),
         }
@@ -283,16 +278,12 @@ impl PrDialog {
         }
     }
 
-    /// "Into main · SHOP-18’s base branch" / "· the epic’s base branch".
+    /// "Into main · SHOP-18’s base branch".
     pub fn target_line(&self) -> String {
-        if self.epic {
-            format!("Into {} \u{b7} the epic\u{2019}s base branch", self.target)
-        } else {
-            format!(
-                "Into {} \u{b7} {}\u{2019}s base branch",
-                self.target, self.key
-            )
-        }
+        format!(
+            "Into {} \u{b7} {}\u{2019}s base branch",
+            self.target, self.key
+        )
     }
 
     /// Push & open PR is enabled only for a complete proposal with a valid, free name.

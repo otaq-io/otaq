@@ -129,7 +129,7 @@ pub struct SourceView {
     pub kind: SourceKind,
     pub title: String,
     pub subtitle: String,
-    /// An epic's key to its tags (FTB-06): "40.1 merged", "40.2 on top · its own worktree"; empty for a ticket.
+    /// The key to the tree's tags; empty while no piece changed a file.
     pub legend: Vec<TagView>,
 }
 
@@ -195,7 +195,7 @@ pub fn mark(change: &FileChange) -> MarkView {
     }
 }
 
-/// An epic child that changed a file: "40.1", "40.2 ✎" while it is writing (FTB-06).
+/// A piece of the ticket's plan that changed a file: "1", "2 ✎" while it is writing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesTag")]
 pub struct TagView {
@@ -257,8 +257,7 @@ pub struct TreeRow {
     /// A submodule is shown, never opened.
     pub opens: bool,
     pub tags: Vec<TagView>,
-    /// An epic's file a running child is writing: that child's key, so it opens from the child's worktree
-    /// (`files.read`'s `child`, FTB-06).
+    /// The other worktree a file opens from (`files.read`'s `child`); `None`: the ticket's own.
     pub child: Option<String>,
     /// The project Files view (FIL-03): one chip per ticket changing the file; empty in a ticket's tab.
     pub chips: Vec<ChipView>,
@@ -303,7 +302,7 @@ pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
 }
 
 /// The changed files as a tree, every folder open (the Changed filter, `s25-08`): folders first, then by name
-/// ignoring case, as `files.tree` orders them. A file an epic child changes on top shows once.
+/// ignoring case, as `files.tree` orders them.
 pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
     #[derive(Default)]
     struct Folder<'a> {
@@ -393,7 +392,7 @@ pub struct SearchRow {
     pub mark: Option<MarkView>,
     pub quiet: bool,
     pub tags: Vec<TagView>,
-    /// An epic's file a running child is writing: opens from that child's worktree.
+    /// As [`TreeRow::child`].
     pub child: Option<String>,
     /// The project Files view: as [`TreeRow::chips`] and [`TreeRow::branch`].
     pub chips: Vec<ChipView>,
@@ -527,12 +526,12 @@ pub fn tab_view(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesChangeRow")]
 pub struct ChangeRow {
-    /// Unique in the list: the path, and the child for an epic child's change on top.
+    /// Unique in the list: the path, and [`Self::child`] when there is one.
     pub id: String,
     pub path: String,
     /// "lib/money.ts → lib/format/money.ts" for a rename.
     pub label: String,
-    /// Epics: the running child whose worktree it comes from (`files.diff`'s `child`).
+    /// The other worktree it comes from (`files.diff`'s `child`); `None`: the ticket's own.
     pub child: Option<String>,
     pub mark: MarkView,
     /// "new file", "deleted", "renamed", "binary file · 12 KB".
@@ -547,7 +546,7 @@ pub struct ChangeRow {
     pub rows: u32,
     /// A deleted file has nothing to open.
     pub can_open: bool,
-    /// Line comments go on the ticket's own changes, not on a child's on top.
+    /// Line comments go on the ticket's own changes, not on another worktree's.
     pub commentable: bool,
     pub tags: Vec<TagView>,
 }
@@ -755,8 +754,7 @@ pub struct FilePage {
     pub lines: Vec<CodeLine>,
     /// "Binary file · 184 KB", "Showing the first 20000 lines: the file is too long to show in full."
     pub note: Option<String>,
-    /// An epic's file a running child is writing (FTB-06): "40.2’s agent (Rust developer) is writing this file in
-    /// 40.2’s own worktree; you see its change on top of the epic’s branch."
+    /// Whose agent is writing the file in another worktree; `None` while nobody is.
     pub writing: Option<String>,
 }
 
@@ -1062,7 +1060,6 @@ pub fn review_bar(
     }
     let send_back = crate::view_models::send_back::available(ticket);
     let approve = |primary: bool, keys: Option<String>| BarButton {
-        // An epic's Approve is its delivery choice on every flow (EPC-05).
         action: match custom {
             true => BarAction::Pass,
             false => BarAction::Approve,

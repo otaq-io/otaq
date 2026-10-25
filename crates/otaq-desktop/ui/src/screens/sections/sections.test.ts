@@ -57,10 +57,8 @@ describe("the sections", () => {
           id: "m1",
           answerable: true,
           question: {
-            from: "SHOP-40.2",
-            to: "SHOP-40.1",
-            from_name: null,
-            to_name: null,
+            from: "SHOP-42",
+            to: "SHOP-41",
             time: "10:42",
             text: "Which endpoint returns the wishlist?",
             status: "Sent to you",
@@ -69,9 +67,7 @@ describe("the sections", () => {
           },
           answer: {
             from: null,
-            to: "SHOP-40.2",
-            from_name: null,
-            to_name: null,
+            to: "SHOP-42",
             time: "10:43",
             text: "GET /api/wishlist",
             status: "Answered by you · 1 min",
@@ -84,7 +80,7 @@ describe("the sections", () => {
     const out = html(createElement(MessagesBody, { view }));
     for (const text of [
       "1 thread · linked tickets only",
-      "SHOP-40.1",
+      "SHOP-41",
       "GET /api/wishlist",
       ">you<",
       "Answer",

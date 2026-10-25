@@ -35,8 +35,8 @@ const tab = (
 
 export const SHEET: SheetFrame = {
   crumbs: [
-    { text: "shop-web", opens: null, key: false },
-    { text: "SHOP-19", opens: null, key: true },
+    { text: "shop-web", key: false },
+    { text: "SHOP-19", key: true },
   ],
   details: [
     {

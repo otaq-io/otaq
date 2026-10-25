@@ -445,7 +445,7 @@ fn short_question(question: &str) -> String {
     format!("{out} \u{2026}")
 }
 
-/// "description", "title · priority": the fields a lead's update changed, as History names them.
+/// "description", "title · priority": the fields an update changed, as History names them.
 fn fields(names: impl Iterator<Item = String>) -> String {
     names
         .map(|f| match f.as_str() {
@@ -495,17 +495,15 @@ fn fix_line(p: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
-/// A stage choice (AGM-08): "Dev: Quick developer (set by Noyan)" · "typo fix"; on an epic for a child,
-/// "Wishlist lead set SHOP-40.3's Dev: Quick developer".
+/// A stage choice (AGM-08): "Dev: Quick developer (set by Noyan)" · "typo fix".
 fn choice_line(p: &serde_json::Value) -> (String, Option<String>) {
     let stage = text(p, "stage").unwrap_or_default();
     let choice = text(p, "choice").unwrap_or_default();
     let by = text(p, "by").unwrap_or_else(|| "you".to_owned());
-    let reason = text(p, "reason");
-    match text(p, "child") {
-        Some(child) => (format!("{by} set {child}'s {stage}: {choice}"), reason),
-        None => (format!("{stage}: {choice} (set by {by})"), reason),
-    }
+    (
+        format!("{stage}: {choice} (set by {by})"),
+        text(p, "reason"),
+    )
 }
 
 /// `detail` with the stage Apply now's move came from, when it did: "by you · Security was removed" (APN-04).
@@ -552,7 +550,7 @@ fn quote(text: &str) -> String {
     format!("\u{201c}{out}\u{201d}")
 }
 
-/// "Rust developer · Dev", "Validator · Validate · round 2", "You", "Wishlist lead".
+/// "Rust developer · Dev", "Validator · Validate · round 2", "You".
 fn author_label(author: &CommentAuthor, facts: &Facts) -> String {
     match author {
         CommentAuthor::User { .. } => "You".to_owned(),
@@ -583,7 +581,7 @@ fn author_of(p: &serde_json::Value) -> Option<CommentAuthor> {
     serde_json::from_value(p.get("author")?.clone()).ok()
 }
 
-/// "Rust developer's", "Wishlist lead's".
+/// "Rust developer's", "your".
 fn whose(author: &CommentAuthor) -> String {
     match author {
         CommentAuthor::User { .. } => "your".to_owned(),
@@ -714,11 +712,8 @@ fn change_summary(diff: &[DiffLine]) -> String {
     }
 }
 
-/// Who made a change the event doesn't name a comment author for: "You", the lead, "SHOP-34's agent".
+/// Who made a change the event doesn't name a comment author for: "You", "SHOP-34's agent", "Noyan".
 fn changed_by(e: &HistoryEvent) -> String {
-    if let Some(lead) = text(&e.payload, "lead") {
-        return lead;
-    }
     match &e.actor {
         Actor::User(_) => "You".to_owned(),
         Actor::Agent(key) => format!("{key}\u{2019}s agent"),
@@ -786,7 +781,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             let author = author_of(p);
             let (who, mark) = match &author {
                 Some(a) => (author_label(a, facts), author_mark(a, facts)),
-                None if by_user && text(p, "lead").is_none() => ("You".to_owned(), Mark::You),
+                None if by_user => ("You".to_owned(), Mark::You),
                 None => (changed_by(e), Mark::Agent),
             };
             let others = fields(
@@ -929,11 +924,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::FixedCreatedTicket => fix_line(p),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
-            // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
             let title = match to {
-                Some(Status::Queued) if p.get("with_epic").is_some() => {
-                    "Ready for Dev with the epic".to_owned()
-                }
                 Some(s) => s.label().to_owned(),
                 None => "moved".to_owned(),
             };
@@ -985,9 +976,15 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             },
             text(p, "path"),
         ),
-        // An epic lead's edit names it and the fields: "Updated by Wishlist lead · description" (CLI-07).
-        EventKind::Updated => match text(p, "lead") {
-            Some(lead) => {
+        EventKind::Updated => match (&e.actor, author_of(p)) {
+            // Another ticket's agent fixing what it filed (d0129): "Edited by Milestone plan · SHOP-40".
+            (
+                Actor::Agent(key),
+                Some(CommentAuthor::Agent {
+                    stage: Some(stage), ..
+                }),
+            ) => {
+                let stage = facts.stages.get(&stage).cloned().unwrap_or(stage);
                 let names = p
                     .get("changes")
                     .and_then(|c| c.as_array())
@@ -996,52 +993,26 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     .filter_map(|c| text(c, "field"));
                 let changed = fields(names);
                 (
-                    format!("Updated by {lead}"),
+                    format!("Edited by {stage} \u{b7} {key}"),
                     (!changed.is_empty()).then_some(changed),
                 )
             }
-            None => match (&e.actor, author_of(p)) {
-                // Another ticket's agent fixing what it filed (d0129): "Edited by Milestone plan · SHOP-40".
-                (
-                    Actor::Agent(key),
-                    Some(CommentAuthor::Agent {
-                        stage: Some(stage), ..
-                    }),
-                ) => {
-                    let stage = facts.stages.get(&stage).cloned().unwrap_or(stage);
-                    let names = p
-                        .get("changes")
-                        .and_then(|c| c.as_array())
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|c| text(c, "field"));
-                    let changed = fields(names);
-                    (
-                        format!("Edited by {stage} \u{b7} {key}"),
-                        (!changed.is_empty()).then_some(changed),
-                    )
-                }
-                _ => ("Edited".to_owned(), Some(who(&e.actor))),
-            },
+            _ => ("Edited".to_owned(), Some(who(&e.actor))),
         },
         EventKind::Pinned => ("Pinned".to_owned(), None),
         EventKind::Unpinned => ("Unpinned".to_owned(), None),
         EventKind::DependencyAdded => (
             "Dependency added".to_owned(),
-            text(p, "parent").map(|k| match (text(p, "lead"), &e.actor) {
-                (Some(lead), _) => format!("depends on {k} \u{b7} by {lead}"),
-                (None, Actor::Agent(_)) => format!("depends on {k} \u{b7} {}", who(&e.actor)),
-                (None, _) => format!("depends on {k}"),
+            text(p, "parent").map(|k| match &e.actor {
+                Actor::Agent(_) => format!("depends on {k} \u{b7} {}", who(&e.actor)),
+                _ => format!("depends on {k}"),
             }),
         ),
         EventKind::DependencyRemoved => (
             "Dependency removed".to_owned(),
-            text(p, "parent").map(|k| match (text(p, "lead"), &e.actor) {
-                (Some(lead), _) => format!("no longer depends on {k} \u{b7} by {lead}"),
-                (None, Actor::Agent(_)) => {
-                    format!("no longer depends on {k} \u{b7} {}", who(&e.actor))
-                }
-                (None, _) => format!("no longer depends on {k}"),
+            text(p, "parent").map(|k| match &e.actor {
+                Actor::Agent(_) => format!("no longer depends on {k} \u{b7} {}", who(&e.actor)),
+                _ => format!("no longer depends on {k}"),
             }),
         ),
         // `otaq stage done` (AGM-10): the agent's reason.
@@ -1278,28 +1249,15 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 (!kept.is_empty()).then(|| kept.join(" \u{b7} ")),
             )
         }
-        // Change… (DEC-06): sent back, or a fix child in the epic's review.
-        EventKind::DecisionChanged => {
-            let changed = format!("Changed {}", who(&e.actor));
-            match text(p, "child") {
-                Some(child) => (
-                    format!("{changed} \u{2192} {child}"),
-                    Some(format!(
-                        "\u{201c}{}\u{201d} \u{b7} added in {}'s review",
-                        text(p, "title").unwrap_or_default(),
-                        text(p, "epic").unwrap_or_default()
-                    )),
-                ),
-                None => (
-                    format!("{changed} \u{2192} sent back"),
-                    Some(format!(
-                        "\u{201c}{}\u{201d} \u{b7} round {} starts",
-                        text(p, "text").unwrap_or_default(),
-                        p.get("round").and_then(|r| r.as_u64()).unwrap_or(0)
-                    )),
-                ),
-            }
-        }
+        // Change… (DEC-06): sent back.
+        EventKind::DecisionChanged => (
+            format!("Changed {} \u{2192} sent back", who(&e.actor)),
+            Some(format!(
+                "\u{201c}{}\u{201d} \u{b7} round {} starts",
+                text(p, "text").unwrap_or_default(),
+                p.get("round").and_then(|r| r.as_u64()).unwrap_or(0)
+            )),
+        ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -1350,7 +1308,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
 }
 
 /// Who an event's row shows (Q432): Otaq for what happened on its own (a restart, a start that failed, an automatic
-/// merge…), the agent for its own and its lead's doings, else you.
+/// merge…), the agent for its own doings, else you.
 fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
     let otaq = matches!(
         e.kind,
@@ -1373,9 +1331,6 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
     );
     if otaq {
         return Mark::Otaq;
-    }
-    if text(&e.payload, "lead").is_some() {
-        return comments::agent_mark(None, facts.avatars);
     }
     match e.actor {
         Actor::User(_) => Mark::You,
@@ -2061,7 +2016,7 @@ mod tests {
     fn other_description_changes_and_who_made_them() {
         let facts = Facts::default();
         let row = |e: HistoryEvent| event_row_in(&e, &facts).unwrap();
-        // Lines removed; a lead's edit; another field changed with it; an agent with no author recorded.
+        // Lines removed; another field changed with it; an agent with no author recorded.
         let removed = row(event(
             EventKind::Updated,
             MIN,
@@ -2073,16 +2028,6 @@ mod tests {
             "You edited the description \u{b7} removed Out of scope (2 lines)"
         );
         assert_eq!(removed.detail.as_deref(), Some("title"));
-        let lead = row(by_agent(
-            EventKind::Updated,
-            MIN,
-            json!({"lead": "Wishlist lead", "changes": [{"field": "body", "before": "a\nb", "after": "a\nc\nd"}]}),
-        ));
-        assert_eq!(
-            lead.title,
-            "Wishlist lead edited the description \u{b7} 2 lines changed"
-        );
-        assert_eq!(lead.mark, Mark::Agent);
         // An agent that edits or deletes its own comment.
         let own = row(by_agent(
             EventKind::CommentEdited,
@@ -2159,8 +2104,7 @@ mod tests {
         );
     }
 
-    /// Approve kept them, and Change… sent back or added a fix child (DEC-05, DEC-06; *05 → Row · Recorded
-    /// decisions (0084)*).
+    /// Approve kept them, and Change… sent back (DEC-05, DEC-06; *05 → Row · Recorded decisions (0084)*).
     #[test]
     fn kept_and_changed_decisions_read_as_the_frame() {
         let rows = rows(
@@ -2188,38 +2132,19 @@ mod tests {
                         "round": 2,
                     }),
                 ),
-                event(
-                    EventKind::DecisionChanged,
-                    3 * MIN,
-                    json!({
-                        "ordinal": 1,
-                        "question": "Order of saved items?",
-                        "to": "fix_child",
-                        "child": "SHOP-40.7",
-                        "title": "Change: list wishlist items in the order they were added",
-                        "epic": "SHOP-40",
-                    }),
-                ),
             ],
             &[],
             &[],
         );
-        assert_eq!(rows[2].title, "Kept by you \u{b7} 1 decision");
-        assert_eq!(
-            rows[2].detail.as_deref(),
-            Some("Split fullName \u{2026} \u{2192} only in the profile form")
-        );
-        assert_eq!(rows[1].title, "Changed by you \u{2192} sent back");
+        assert_eq!(rows[1].title, "Kept by you \u{b7} 1 decision");
         assert_eq!(
             rows[1].detail.as_deref(),
-            Some("\u{201c}Split fullName everywhere\u{201d} \u{b7} round 2 starts")
+            Some("Split fullName \u{2026} \u{2192} only in the profile form")
         );
-        assert_eq!(rows[0].title, "Changed by you \u{2192} SHOP-40.7");
+        assert_eq!(rows[0].title, "Changed by you \u{2192} sent back");
         assert_eq!(
             rows[0].detail.as_deref(),
-            Some(
-                "\u{201c}Change: list wishlist items in the order they were added\u{201d} \u{b7} added in SHOP-40's review"
-            )
+            Some("\u{201c}Split fullName everywhere\u{201d} \u{b7} round 2 starts")
         );
         assert_eq!(
             short_question("Order of saved items?"),
@@ -2227,7 +2152,6 @@ mod tests {
         );
     }
 
-    /// A new child of a whole-queued epic (EPC-13).
     /// T-0406 (Q263, AGM-10): "Finished Grill" and "Finished Dev" for stages that end on their way to anything but
     /// a human check, "Submitted for review" before one, and `stage done`'s "Closed · nothing to merge" with the
     /// reason.
@@ -2275,22 +2199,6 @@ mod tests {
                 ("Finished Grill", Some("Agreed: CSV.")),
             ]
         );
-    }
-
-    /// A child the epic's drag queued (d0080).
-    #[test]
-    fn a_child_queued_with_its_epic_says_so() {
-        let rows = rows(
-            &[event(
-                EventKind::Moved,
-                MIN,
-                json!({"from": "backlog", "to": "queued", "with_epic": "SHOP-45"}),
-            )],
-            &[],
-            &[],
-        );
-        assert_eq!(rows[0].title, "Ready for Dev with the epic");
-        assert_eq!(rows[0].detail.as_deref(), Some("by you"));
     }
 
     /// Q77: the exit row names the session's tool by its command.
@@ -2558,7 +2466,7 @@ mod tests {
         assert_eq!(r[1].duration, "0 min");
     }
 
-    /// AGM-08: a stage choice's line, on the ticket and (for an epic lead's choice) on the epic.
+    /// AGM-08: a stage choice's line.
     #[test]
     fn a_stage_choice_line() {
         let p = serde_json::json!({
@@ -2571,13 +2479,6 @@ mod tests {
                 "Dev: Quick developer (set by Noyan)".to_owned(),
                 Some("typo fix".to_owned())
             )
-        );
-        let p = serde_json::json!({
-            "stage": "Grill", "choice": "skip", "by": "Wishlist lead", "reason": "docs only", "child": "SHOP-40.3"
-        });
-        assert_eq!(
-            choice_line(&p).0,
-            "Wishlist lead set SHOP-40.3's Grill: skip"
         );
     }
 

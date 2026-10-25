@@ -34,10 +34,8 @@ pub const NOTHING_HINT: &str = "Search a ticket by its key (SHOP-18) or title, a
 pub const NO_TICKET_IN_REVIEW: &str = "no ticket in review";
 pub const NO_TICKET_OPEN: &str = "no ticket open";
 pub const ALREADY_FINISHED: &str = "already finished";
-pub const AN_EPIC: &str = "an epic closes with Close epic…";
 pub const NO_VALIDATION_TO_RERUN: &str = "no validation to re-run";
 pub const NO_DIFF: &str = "no diff yet";
-pub const NOT_IN_AN_EPIC: &str = "not in an epic";
 pub const NO_TERMINAL: &str = "no terminal focused";
 
 /// The rows a palette lists at most while typing.
@@ -56,28 +54,18 @@ pub struct OpenTicket {
     pub retry_validation: bool,
     /// The sheet has a Files tab.
     pub diff: bool,
-    /// An epic or one of its children.
-    pub in_epic: bool,
 }
 
 impl OpenTicket {
     pub fn of(ticket: &Ticket) -> Self {
-        let finished = matches!(ticket.status, Status::Merged | Status::ClosedNotMerged);
         Self {
             in_review: ticket.status == Status::WaitingForYou,
             send_back: send_back::available(ticket),
-            close: if close::can_close(ticket) {
-                None
-            } else if finished {
-                Some(ALREADY_FINISHED)
-            } else {
-                Some(AN_EPIC)
-            },
+            close: (!close::can_close(ticket)).then_some(ALREADY_FINISHED),
             retry_validation: sheet_actions::buttons(ticket)
                 .iter()
                 .any(|(a, _)| *a == SheetAction::RetryValidation),
             diff: sheet::tabs(ticket).contains(&SheetTab::Files),
-            in_epic: false,
         }
     }
 }
@@ -111,9 +99,6 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         // The open ticket's Files tab, else the Files view's search (FIL-11).
         A::GoToFile if context.files_view && open.is_none() => None,
         A::GoToFile => needs_open().or_else(|| (!open.is_some_and(|o| o.diff)).then_some(NO_DIFF)),
-        A::FocusEpic => {
-            needs_open().or_else(|| (!open.is_some_and(|o| o.in_epic)).then_some(NOT_IN_AN_EPIC))
-        }
         A::FindInTerminal => (!context.terminal).then_some(NO_TERMINAL),
         A::StartDev
         | A::Park
@@ -198,7 +183,6 @@ pub fn icon(action: KeyAction) -> IconName {
         A::NextNeedsYouItem => I::Hand,
         A::NextTicket => I::ArrowDown,
         A::PreviousTicket => I::ArrowUp,
-        A::FocusEpic => I::Layers,
         A::ShowShortcuts => I::Keyboard,
         A::ShowBoard => I::Columns3,
         A::ShowList => I::List,
@@ -1004,10 +988,6 @@ mod tests {
         );
         assert_eq!(words(&view(">park", &ready))[0], "action Park");
         assert_eq!(words(&view(">open diff", &ready))[0], "action Open diff");
-        assert_eq!(
-            words(&view(">focus the epic", &ready))[0],
-            "action Focus the epic of the selected card \u{b7} not in an epic"
-        );
         assert_eq!(
             words(&view(">find in terminal", &ready))[0],
             "action Find in terminal scrollback \u{b7} no terminal focused"

@@ -49,12 +49,12 @@ const VIEW: StripView = {
           target: ticket("SHOP-22"),
         },
         {
-          label: "40.4",
-          reason: "via the lead",
+          label: "SHOP-44",
+          reason: "a question",
           icon: "message-circle-question-mark",
           tone: "attn",
-          title: "SHOP-40.4 Share link · asks",
-          target: ticket("SHOP-40.4"),
+          title: "SHOP-44 Share link · asks",
+          target: ticket("SHOP-44"),
         },
         {
           label: "Agent",
@@ -65,7 +65,6 @@ const VIEW: StripView = {
           target: { kind: "agent", project: "SHOP", agent: "pa3" },
         },
       ],
-      suggestions: [],
       resume_all: null,
     },
     {
@@ -74,7 +73,6 @@ const VIEW: StripView = {
       tone: "paused",
       title: "Interrupted · 3",
       chips: [],
-      suggestions: [],
       resume_all: "Resume all",
     },
     {
@@ -92,7 +90,6 @@ const VIEW: StripView = {
           target: ticket("SHOP-18", "files"),
         },
       ],
-      suggestions: [],
       resume_all: null,
     },
   ],
@@ -172,8 +169,8 @@ describe("the strip's markup", () => {
       "Needs you · 3",
       "SHOP-22",
       "allow a command",
-      "40.4",
-      "via the lead",
+      "SHOP-44",
+      "a question",
       "Agent",
       "Interrupted · 3",
       "Resume all",
@@ -239,7 +236,7 @@ describe("pressing the strip", () => {
 });
 
 describe("opening and Next", () => {
-  it("a ticket opens on its tab in its project, its terminal focused on Session's sides and the Lead tab", () => {
+  it("a ticket opens on its tab in its project, its terminal focused on Session's sides", () => {
     const r = routes("SHOP");
     openTarget(ticket("BILL-7", "agent", "BILL"), r);
     expect(r.selection.get()).toMatchObject({ project: "BILL", ticket: "BILL-7", tab: "agent" });
@@ -247,13 +244,11 @@ describe("opening and Next", () => {
     openTarget(ticket("SHOP-18", "files"), r);
     expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-18", tab: "files" });
     expect(r.focus.get()?.seq).toBe(1);
-    openTarget(ticket("SHOP-40", "lead"), r);
-    expect(r.focus.get()).toEqual({ ticket: "SHOP-40", seq: 2 });
-    expect(r.last.get()).toEqual(ticket("SHOP-40", "lead"));
+    expect(r.last.get()).toEqual(ticket("SHOP-18", "files"));
     // A check that needs you: Session on the check's side, focused.
     openTarget(ticket("SHOP-30", "check"), r);
     expect(r.selection.get()).toMatchObject({ ticket: "SHOP-30", tab: "check" });
-    expect(r.focus.get()).toEqual({ ticket: "SHOP-30", seq: 3 });
+    expect(r.focus.get()).toEqual({ ticket: "SHOP-30", seq: 2 });
   });
 
   it("⌘J takes the keyboard from the terminal that had it: a question's terminal is asked for, a review's isn't (finding 55)", () => {

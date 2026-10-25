@@ -1,9 +1,9 @@
 // A tool problem's callout or notice (§7.2, SHL-04, AGT-05; d0086, d0077; *05 → Column 3 · several tools (M23)*,
-// *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *08 → Row · Epic lead in the epic form and panel*):
+// *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*):
 // "Model unavailable", "Codex isn't available · logged out", "Claude Code limit reached · resets 3:45 pm", the line
 // under it and its buttons (Use fallback, Change agent, Sign in…, New agent on Sonnet, Resume after reset). Amber for a
 // tool that isn't available or a model no longer listed, neutral for a limit; never turquoise (d0077). The edge look is
-// the sheet's (a 2 px edge above the rows); the band look is the agent panel's and the lead's (a soft band with the avatar).
+// the sheet's (a 2 px edge above the rows); the band look is the agent panel's (a soft band with the avatar).
 // Everything it says is `tool_problems.rs`'s; what a button does is the caller's (`onAction`).
 import type { ToolProblemAction } from "../generated/ToolProblemAction";
 import type { ToolProblemCallout as CalloutView } from "../generated/ToolProblemCallout";

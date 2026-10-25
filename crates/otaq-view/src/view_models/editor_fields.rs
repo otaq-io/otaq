@@ -80,7 +80,6 @@ pub fn refusal_title(code: Option<&str>) -> &'static str {
         Some("cycle") => "That would create a loop",
         Some("cross_base") => "Different base branches",
         Some("other_project") => "Another project",
-        Some("depends_on_own_epic") => "Part of that epic",
         Some("base_locked") => "The base is locked",
         _ => "Couldn’t save",
     }

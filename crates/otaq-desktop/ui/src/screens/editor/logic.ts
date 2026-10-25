@@ -50,7 +50,7 @@ export function formReport(box: BoxValue): Pick<EditorForm, "report" | "report_l
   return { report: undefined, report_line: undefined };
 }
 
-/** The priority the segmented control shows: the picked one, else Normal or the epic's. */
+/** The priority the segmented control shows: the picked one, else the saved one, else Normal. */
 export function shownPriority(view: EditorView, form: EditorForm): number {
   return form.priority ?? view.shown_priority;
 }

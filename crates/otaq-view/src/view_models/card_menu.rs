@@ -102,7 +102,6 @@ mod tests {
                 flow: &otaq_core::flow::default_file().flow,
                 tickets,
                 visible: None,
-                strong: None,
                 project_base: None,
                 now_ms: NOW,
                 dev_budget: None,

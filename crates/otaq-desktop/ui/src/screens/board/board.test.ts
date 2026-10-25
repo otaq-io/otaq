@@ -19,7 +19,7 @@ import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { stepSegment, Toolbar } from "./Toolbar";
-import { Column, type ColumnProps, columnOfCard, runsOf, walkOf } from "./Column";
+import { Column, type ColumnProps, columnOfCard, walkOf } from "./Column";
 import {
   aboveChip,
   type Ask,
@@ -91,8 +91,6 @@ const cardOf = (key: string): BoardCard => ({
   needs_you: false,
   card: {
     key,
-    key_label: key,
-    epic: null,
     priority: null,
     title: key,
     status: null,
@@ -340,8 +338,8 @@ describe("drops", () => {
       {
         kind: "approve",
         menu: {
-          key: "SHOP-40.1",
-          title: "Approve SHOP-40.1 Wishlist API",
+          key: "SHOP-41",
+          title: "Approve SHOP-41 Wishlist API",
           items: [],
           note: "",
           direct: "local_merge",
@@ -350,7 +348,7 @@ describe("drops", () => {
       (menu) => menus.push(menu.title),
     );
     expect(menus).toEqual([]);
-    expect(overlays.store.get()).toEqual([{ id: "local_merge", params: { ticket: "SHOP-40.1" } }]);
+    expect(overlays.store.get()).toEqual([{ id: "local_merge", params: { ticket: "SHOP-41" } }]);
   });
 
   it("a move needs nothing more; a not-yet move and a refusal are toasts", async () => {
@@ -586,7 +584,6 @@ describe("the board screen", () => {
     hidden: null,
     cards: [],
     sections: [],
-    folds: [],
     dev: null,
     add: null,
     ...over,
@@ -728,54 +725,6 @@ describe("the board screen", () => {
     expect(calm).not.toContain("board-rail-dot");
   });
 
-  const ticketCard = (key: string): BoardCard => ({
-    kind: "ticket",
-    needs_you: false,
-    card: {
-      key,
-      key_label: key,
-      epic: null,
-      priority: null,
-      title: "Child",
-      status: null,
-      blocks: null,
-      avatar: null,
-      who: null,
-      time: null,
-      edge: null,
-      action: null,
-      origin: null,
-      hover: { status: "Merged", details: [] },
-      faded: null,
-      fresh: false,
-      open_sheet: "Open panel",
-      open_sheet_keys: "↵",
-      action_note: null,
-      check: null,
-      open_terminal: "Open terminal",
-    },
-  });
-
-  it("folds an epic's merged children in Done into one line; the keyboard skips them", () => {
-    const fold = { epic: "SHOP-40", label: "Wishlist · 2 of 4 merged", keys: ["SHOP-40.1", "SHOP-40.2"] };
-    const cards = ["SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-40.5"].map(ticketCard);
-    const done = column({ id: "done", title: "Done", count: "3", cards, folds: [fold] });
-    expect(runsOf(cards, [fold]).map((r) => [r.kind, r.cards.map((c) => c.card.key)])).toEqual([
-      ["cards", ["SHOP-17"]],
-      ["fold", ["SHOP-40.1", "SHOP-40.2"]],
-      ["cards", ["SHOP-40.5"]],
-    ]);
-    expect(walkOf(done).map((c) => c.card.key)).toEqual(["SHOP-17", "SHOP-40.5"]);
-    const drawn = renderToStaticMarkup(createElement(Column, props(done)));
-    expect(drawn).toContain("Wishlist · 2 of 4 merged");
-    expect(drawn).toContain('aria-expanded="false"');
-    expect(drawn).toContain('data-card="SHOP-17"');
-    expect(drawn).toContain('data-card="SHOP-40.5"');
-    expect(drawn).not.toContain('data-card="SHOP-40.1"');
-    expect(drawn.indexOf("SHOP-17")).toBeLessThan(drawn.indexOf("Wishlist · 2 of 4"));
-    expect(drawn.indexOf("Wishlist · 2 of 4")).toBeLessThan(drawn.indexOf("SHOP-40.5"));
-  });
-
   it("outlines a column with its verdict only while dragging", () => {
     const c = column({ id: "review", title: "Review" });
     const forbidden = { kind: "forbidden", title: "Only agents", detail: null } as const;
@@ -861,8 +810,6 @@ describe("the Review column (T-0328, d0087)", () => {
     needs_you: false,
     card: {
       key,
-      key_label: key,
-      epic: null,
       priority: null,
       title: "Checkout API",
       status: null,
@@ -926,7 +873,6 @@ describe("the Review column (T-0328, d0087)", () => {
         unfold: "Unfold Approved",
       }),
     ],
-    folds: [],
     dev: null,
     add: null,
   };
@@ -1156,7 +1102,6 @@ describe("the sheet over the board (SHL-05)", () => {
       hidden: null,
       cards: id === "dev" ? [{ ...cardOf("NOTE-6") }] : [],
       sections: id === "review" ? [{ ...sectionOf("NOTE-7") }] : [],
-      folds: [],
       dev: null,
       add: null,
     }));

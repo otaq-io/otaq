@@ -461,7 +461,7 @@ impl UnsentPrompt {
 }
 
 /// "Codex can't clear a multi-line draft. Clear it in the terminal, then send again." (SES-07, Q-N): the body of the
-/// unsent-text question that offers only Keep it and cancel, also for a lead's or Project agent's answer.
+/// unsent-text question that offers only Keep it and cancel, also for a Project agent's answer.
 pub fn unclearable_note(tool: &str) -> String {
     format!(
         "{tool} can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."

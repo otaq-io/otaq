@@ -1,8 +1,7 @@
 //! Recorded decisions in the review (DEC-04, DEC-05; d0084, d0059, d0063; *07 → Row · Decision Item (0084)*, *Row ·
-//! SHOP-23 review · Decisions (0084)*, *Row · SHOP-40 epic review · Decisions (0084)*): one Decision Item per
-//! recorded decision (the question, Built, Other option, Why, the lead's mark, what the review did with it, and
-//! Change… while it is open in review), and the Decisions section on the Files tab, grouped by child for an epic.
-//! No decisions → no section.
+//! SHOP-23 review · Decisions (0084)*): one Decision Item per recorded decision (the question, Built, Other option,
+//! Why, what the review did with it, and Change… while it is open in review), and the Decisions section on the Files
+//! tab. No decisions → no section.
 
 use crate::view_models::flow_columns::place_set;
 use otaq_core::board::tickets::Ticket;
@@ -32,17 +31,7 @@ pub const LABELS: Labels = Labels {
     change: "Change\u{2026}",
 };
 
-/// The lead's mark: "Lead: contradicts PAY-123: “…”." with its source chip, violet, never red (History names the
-/// lead: "Marked by Wishlist lead").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "DecisionMarkView")]
-pub struct MarkView {
-    pub text: String,
-    pub source: Option<String>,
-}
-
-/// What the review did with it: "Kept by you · Approve, 16:40", "Changed by you → sent back · “…”",
-/// "Changed by you → SHOP-40.7".
+/// What the review did with it: "Kept by you · Approve, 16:40", "Changed by you → sent back · “…”".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DecisionStatusView")]
 pub struct StatusView {
@@ -63,28 +52,16 @@ pub struct DecisionItemView {
     /// One row per other option.
     pub other: Vec<String>,
     pub why: String,
-    pub mark: Option<MarkView>,
     pub status: Option<StatusView>,
     /// Change… is offered: only in review, while the decision is open.
     pub change: bool,
     pub labels: Labels,
 }
 
-/// The head of an epic child's group: "SHOP-40.1 Wishlist API merged".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "DecisionChildView")]
-pub struct ChildView {
-    pub key: String,
-    pub title: String,
-    /// "merged", "closed", or nothing.
-    pub state: Option<&'static str>,
-}
-
-/// The items of one ticket: the ticket itself (`child` none) or one epic child.
+/// The items of one ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DecisionGroupView")]
 pub struct GroupView {
-    pub child: Option<ChildView>,
     pub items: Vec<DecisionItemView>,
 }
 
@@ -94,7 +71,7 @@ pub struct GroupView {
 pub struct DecisionsSection {
     pub title: &'static str,
     pub count: u32,
-    /// "Approve keeps them all · Change… sends it back" (or "… adds a fix child" for an epic); only in review.
+    /// "Approve keeps them all · Change… sends it back"; only in review.
     pub hint: Option<&'static str>,
     pub groups: Vec<GroupView>,
 }
@@ -147,7 +124,6 @@ pub fn item(decision: &Decision, review: bool) -> DecisionItemView {
         built: decision.built.clone(),
         other: decision.other_options.clone(),
         why: decision.why.clone(),
-        mark: None,
         status: status_view(decision),
         change: review && decision.outcome == Outcome::Open,
         labels: LABELS,
@@ -159,7 +135,6 @@ fn groups(own: &[Decision], review: bool) -> Vec<GroupView> {
     let mut groups = Vec::new();
     if !own.is_empty() {
         groups.push(GroupView {
-            child: None,
             items: own.iter().map(|d| item(d, review)).collect(),
         });
     }
@@ -331,13 +306,12 @@ mod tests {
             Some("Approve keeps them all \u{b7} Change\u{2026} sends it back")
         );
         assert_eq!(s.groups.len(), 1);
-        assert_eq!(s.groups[0].child, None);
         let item = &s.groups[0].items[0];
         assert_eq!(item.id, "SHOP-23#1");
         assert_eq!(item.built, "only in the profile form");
         assert_eq!(item.other, ["everywhere"]);
         assert!(item.change);
-        assert_eq!((item.mark.clone(), item.status.clone()), (None, None));
+        assert_eq!(item.status, None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
-//! The PR dialogs as the Tauri page draws them (T-0227; REV-10, REV-11, REV-12, REV-13, REV-14, EPC-08, CLS-02, UI-07;
+//! The PR dialogs as the Tauri page draws them (T-0227; REV-10, REV-11, REV-12, REV-13, REV-14, CLS-02, UI-07;
 //! d0041, d0050, d0051, d0059): [`pr_dialog`] turned into plain, serialized shapes. *07 → Open PR · skill is
 //! preparing…, confirmation, pushing, success, invalid or taken branch name, not logged in, Approve · Push to PR #481,
-//! Push to PR · confirmation, Open PR · epic SHOP-40*; *05 → SHOP-26 · Approved, PR open*.
+//! Push to PR · confirmation*; *05 → SHOP-26 · Approved, PR open*.
 //!
 //! The page keeps only the fields as the user types them and the click; the dialog's state (the proposal filled once,
 //! the debounced name check) stays in [`PrDialog`].

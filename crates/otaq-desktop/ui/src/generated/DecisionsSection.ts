@@ -6,6 +6,6 @@ import type { DecisionGroupView } from "./DecisionGroupView";
  */
 export type DecisionsSection = { title: string, count: number, 
 /**
- * "Approve keeps them all · Change… sends it back" (or "… adds a fix child" for an epic); only in review.
+ * "Approve keeps them all · Change… sends it back"; only in review.
  */
 hint: string | null, groups: Array<DecisionGroupView>, };

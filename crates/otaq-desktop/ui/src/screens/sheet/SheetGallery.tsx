@@ -1,6 +1,5 @@
-// The gallery's ticket sheets (T-0464; *25 → Opening a ticket*, *Reviewing a ticket in your check*, *Epics*): the
-// header, details line, path and tabs of `gallery.sheet`'s four tickets (needs you, your check, an epic's child,
-// Backlog) at 1040 and 920 px, and one at full page. The tab bodies are left out (each tab's ticket draws its own).
+// The gallery's ticket sheets (T-0464; *25 → Opening a ticket*, *Reviewing a ticket in your check*): the header,
+// details line, path and tabs of `gallery.sheet`'s four tickets (needs you, your check, working, Backlog) at 1040 and 920 px, and one at full page. The tab bodies are left out (each tab's ticket draws its own).
 import { useCallback, useState } from "react";
 
 import { createRegistries, RegistriesContext } from "../../app/registry";

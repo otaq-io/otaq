@@ -1,12 +1,7 @@
-//! Search and filter (UI-02, EPC-01; KEY-09: `/` focuses it; *03 · Board & columns → Search & filter*): one field does
-//! both. Free text matches the key (old keys from Move to epic too), the title and the epic's title; tokens
-//! filter by state (`is:needs-you`, `is:working`, `has:run`, …), by chain (`dep:SHOP-18`) or by epic (`epic:Wishlist`).
-//! Everything combines (all must match). Non-matching cards hide; columns show "shown/total".
-//!
-//! An `epic:` token is the same as focusing the epic (EPC-18, d0080, Q55): on the board it **dims** the other cards
-//! instead of hiding them, so the board keeps its shape ([`Filter::hiding`], [`Filter::strong`]); the other words
-//! still hide. Focusing an epic (its track's name, `g` `e`) puts its token in the filter ([`Filter::focus`]); Esc takes
-//! it out ([`Filter::unfocus`]).
+//! Search and filter (UI-02; KEY-09: `/` focuses it; *03 · Board & columns → Search & filter*): one field does
+//! both. Free text matches the key and the title; tokens filter by state (`is:needs-you`, `is:working`, `has:run`,
+//! …) or by chain (`dep:SHOP-18`). Everything combines (all must match). Non-matching cards hide; columns show
+//! "shown/total".
 
 use crate::view_models::flow_columns::place_set;
 use otaq_core::board::tickets::Ticket;
@@ -224,8 +219,8 @@ impl Filter {
         })
     }
 
-    /// The suggestions under the field: every state filter, the selected ticket's chain, and each epic,
-    /// with how many cards each would show.
+    /// The suggestions under the field: every state filter and the selected ticket's chain, with how many cards
+    /// each would show.
     pub fn suggestions(
         &self,
         all: &[Ticket],
@@ -311,7 +306,6 @@ mod tests {
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-22"]);
         f.take_input("checkout");
         assert_eq!(shown(&f, &all), ["SHOP-18"], "token and text combine");
-        assert_eq!(Token::parse("epic:wish"), None);
         let mut f = Filter::default();
         f.take_input("dep:shop-20 ");
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-20"]);

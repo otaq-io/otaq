@@ -32,7 +32,7 @@ pub const NOTES: [&str; 3] = [
      leaves the terminal.",
     "Update AO (0087): the Files view is back as the third view, ⇧⌘O or g f (g f is the Files tab inside a ticket), \
      and ⌥⌘P is Go to file in both. Replaces 0058’s map (decision 0097). Open diff has no key (the palette runs it); ⌘D is Start / move to Dev. ⇧⌘T → ⌃`, ⇧⌘A → ⇧⌘L, ⇧⌘E → e, ⌘⌥1–6 → \
-     1–6, ⇧⌘G → g e, ⇧⌘D → ⌘D, ⌘K search → / (⌘K is the command palette).",
+     1–6, ⇧⌘D → ⌘D, ⌘K search → / (⌘K is the command palette).",
 ];
 
 /// One single-letter row: its name and its key. `KeyMapLetterRow` on the page.
@@ -72,7 +72,7 @@ use KeyAction::*;
 
 /// The single letters in the drawn order, with the drawn names where they say more than the title (where they work,
 /// "Go to").
-const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
+const LETTERS: [(Option<&str>, &[KeyAction]); 11] = [
     (
         Some("Next / previous ticket (panel)"),
         &[NextTicket, PreviousTicket],
@@ -88,7 +88,6 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
     (Some("Go to List"), &[ShowList]),
     (Some("Go to Activity"), &[OpenActivity]),
     (Some("Go to Terminals"), &[Terminals]),
-    (None, &[FocusEpic]),
     (None, &[NewTicket]),
     (None, &[OpenSheet, CloseSheet]),
 ];
@@ -218,7 +217,6 @@ mod tests {
                 ("Go to List", vec!["g", "l"]),
                 ("Go to Activity", vec!["g", "a"]),
                 ("Go to Terminals", vec!["g", "t"]),
-                ("Focus the epic of the selected card", vec!["g", "e"]),
                 ("New ticket", vec!["c"]),
                 ("Open / close the ticket", vec!["↵ / Esc"]),
             ]

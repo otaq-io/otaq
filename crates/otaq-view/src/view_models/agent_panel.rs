@@ -63,7 +63,7 @@ pub const COLLAPSE: &str = "Collapse";
 pub const EXAMPLES: [&str; 4] = [
     "Turn this into tickets: \u{2026}",
     "Why is a ticket stuck?",
-    "Plan an epic for \u{2026}",
+    "Plan a feature for \u{2026}",
     "Import issues from our tracker",
 ];
 
@@ -397,7 +397,7 @@ pub struct Running {
     pub notice: Option<Callout>,
 }
 
-/// One row of the switcher: a Project agent of the project (not an epic lead), with its state.
+/// One row of the switcher: a Project agent of the project, with its state.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentPanelSwitcherRow")]
 pub struct SwitcherRow {
@@ -1020,7 +1020,7 @@ mod tests {
                     "Turn this into tickets: "
                 ),
                 ("Why is a ticket stuck?", "Why is a ticket stuck?"),
-                ("Plan an epic for \u{2026}", "Plan an epic for "),
+                ("Plan a feature for \u{2026}", "Plan a feature for "),
                 (
                     "Import issues from our tracker",
                     "Import issues from our tracker"

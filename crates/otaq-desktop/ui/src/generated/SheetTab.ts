@@ -3,4 +3,4 @@
 /**
  * The sheet's tabs (SHT-02). `SheetTab` on the page, where each tab's screen registers its body.
  */
-export type SheetTab = "overview" | "session" | "files" | "activity" | "lead" | "tickets";
+export type SheetTab = "overview" | "session" | "files" | "activity";

@@ -87,19 +87,6 @@ pub fn blocked_line(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     })
 }
 
-/// DPV-01's line on an epic child shown as a row of its epic's card, short (Q448): "Blocked by SHOP-18", "Blocked by
-/// SHOP-18 and SHOP-29". The same tickets as [`blocked_line`].
-pub fn blocked_short(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
-    if !not_started(ticket) {
-        return None;
-    }
-    let parents = waiting_for(ticket, all);
-    (!parents.is_empty()).then(|| {
-        let names: Vec<String> = parents.iter().map(parent_name).collect();
-        format!("Blocked by {}", and_list(&names))
-    })
-}
-
 /// The tickets waiting for `ticket` directly: its children not done yet, in key order. None once it is done.
 pub fn waiting_children<'a>(ticket: &Ticket, all: &'a [Ticket]) -> Vec<&'a Ticket> {
     if ticket.place.is_done() {
@@ -469,7 +456,7 @@ pub struct SearchRow {
 }
 
 /// The picker's rows for `query` (key, number or title, case-insensitive) in `direction`: this project's tickets
-/// and epics (an epic can be waited for, d0046, but waits for nothing itself), not the open ticket, not one already
+/// (d0046), not the open ticket, not one already
 /// linked, not a done one; at most `limit`. A loop isn't left out: the core refuses it with DPV-04's words.
 pub fn search(
     columns: &Columns,
@@ -610,26 +597,6 @@ mod tests {
         assert_eq!(
             and_list(&["A".into(), "B".into(), "C".into()]),
             "A, B and C"
-        );
-    }
-
-    /// Q448: an epic child's row says it short, for the same tickets as the card's line.
-    #[test]
-    fn the_short_form_for_an_epic_child_row() {
-        let all = example();
-        assert_eq!(
-            blocked_short(get(&all, "SHOP-20"), &all).as_deref(),
-            Some("Blocked by SHOP-18 and SHOP-29")
-        );
-        assert_eq!(blocked_short(get(&all, "SHOP-29"), &all), None);
-        let mut merged = all.clone();
-        for t in merged.iter_mut().filter(|t| t.key.to_string() == "SHOP-18") {
-            t.status = Status::Merged;
-            t.place = Place::Done;
-        }
-        assert_eq!(
-            blocked_short(get(&merged, "SHOP-20"), &merged).as_deref(),
-            Some("Blocked by SHOP-29")
         );
     }
 
@@ -796,11 +763,6 @@ mod tests {
             keys(search(&columns, t20, &all, Direction::BlockedBy, "", 99))
                 .iter()
                 .all(|k| { !["SHOP-20", "SHOP-18", "SHOP-29", "SHOP-1"].contains(&k.as_str()) })
-        );
-        assert!(
-            !keys(search(&columns, t20, &all, Direction::Blocks, "", 99))
-                .contains(&"SHOP-40".to_owned()),
-            "an epic waits for nothing"
         );
         assert_eq!(
             refusal_text(Some("cycle"), "SHOP-20 → SHOP-29 → SHOP-20"),

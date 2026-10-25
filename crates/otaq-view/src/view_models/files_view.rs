@@ -3,9 +3,8 @@
 //! ("main · every ticket’s changes" over "the base branch · 8 tickets, 11 files"), the search box (⌥⌘P, Go to file),
 //! All · Changed 11 · Needs you 6 · Same file 1, and the tree of the project's base branch with every ticket's changes
 //! on top: a changed file carries one chip per ticket, its mark and +/−, a folder counts the changed files below it, a
-//! ticket on another base is tagged with that branch. The source bar opens the picker ("Find a ticket or epic"): BASE
-//! BRANCH, EPICS · THE EPIC’S BRANCH, TICKETS · THEIR WORKTREE and the tickets with no worktree yet; a ticket or epic
-//! picked there shows its own Files tab's tree, read-only, with "Open SHOP-29" and the back link.
+//! ticket on another base is tagged with that branch. The source bar opens the picker ("Find a ticket"): BASE BRANCH,
+//! TICKETS · THEIR WORKTREE and the tickets with no worktree yet; a ticket picked there shows its own Files tab's tree, read-only, with "Open SHOP-29" and the back link.
 //!
 //! The rows are the tab's ([`TreeRow`], [`SearchView`]), widened with the chips; the data is `board/project_files.rs`'s
 //! (`files.project_*`). The base branch is the project's setting (d0051): every label names it. The page keeps the
@@ -49,7 +48,7 @@ pub const LOADING: &str = "Loading the tickets\u{2019} changes\u{2026}";
 pub const COUNTING: &str = "\u{2026}";
 pub const EMPTY_TITLE: &str = "No ticket is changing files right now.";
 pub const EMPTY_TEXT: &str = "Start one from the board, or ask Noyan.";
-pub const FIND: &str = "Find a ticket or epic";
+pub const FIND: &str = "Find a ticket";
 pub const BASE_SECTION: &str = "BASE BRANCH";
 pub const THE_DEFAULT: &str = "the default";
 pub const TICKETS_SECTION: &str = "TICKETS \u{b7} THEIR WORKTREE";
@@ -541,7 +540,7 @@ pub fn search_view(query: &str, found: &ProjectSearch) -> SearchView {
 pub enum Pick {
     /// The base branch with every ticket's changes (the default).
     Base,
-    /// A ticket's worktree or an epic's branch: its own Files tab's tree (`files.*`).
+    /// A ticket's worktree: its own Files tab's tree (`files.*`).
     Ticket { key: String },
     /// One of your own worktrees (#43): its folder, the view's requests then read it instead of the base.
     Worktree { path: String },
@@ -552,7 +551,7 @@ pub enum Pick {
 #[ts(rename = "FilesViewPickerRow")]
 pub struct PickerRow {
     pub pick: Pick,
-    /// The ticket's key; `None` for the base branch and an epic (its key is in its title).
+    /// The ticket's key; `None` for the base branch and a worktree of yours.
     pub key: Option<String>,
     pub title: String,
     pub detail: Option<String>,
@@ -571,7 +570,7 @@ pub struct PickerSection {
 #[ts(rename = "FilesViewPicker")]
 pub struct Picker {
     pub placeholder: &'static str,
-    /// BASE BRANCH, EPICS · THE EPIC’S BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
+    /// BASE BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
     pub sections: Vec<PickerSection>,
     /// "No worktree yet: SHOP-12, SHOP-44 (Grill) … and 3 in Backlog. A ticket gets its worktree when it reaches Dev."
     pub no_worktree: Option<String>,
@@ -679,7 +678,7 @@ pub fn picker(sources: &ProjectSources, first_stage: &str) -> Picker {
     }
 }
 
-/// A ticket or an epic picked in the picker (`s28-04`, "One ticket’s worktree"): its own Files tab, read-only, with
+/// A ticket picked in the picker (`s28-04`, "One ticket’s worktree"): its own Files tab, read-only, with
 /// the back link to the base and "Open SHOP-29". `FilesViewPicked` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesViewPicked")]
@@ -2402,7 +2401,7 @@ mod tests {
         );
     }
 
-    /// `s28-04`: BASE BRANCH, the epic with its children, the tickets in flow order with stage and files, your own
+    /// `s28-04`: BASE BRANCH, the tickets in flow order with stage and files, your own
     /// worktrees (#43), the line naming the tickets with no worktree yet.
     #[test]
     fn the_picker_has_its_sections_in_order() {
@@ -2483,7 +2482,7 @@ mod tests {
             ],
         };
         let p = picker(&sources, "Dev");
-        assert_eq!(p.placeholder, "Find a ticket or epic");
+        assert_eq!(p.placeholder, "Find a ticket");
         let shown: Vec<(&str, Vec<String>)> = p
             .sections
             .iter()

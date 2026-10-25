@@ -328,22 +328,9 @@ pub struct ColumnPage {
     pub cards: Vec<BoardCard>,
     /// Review only: Ready for Review, then Approved.
     pub sections: Vec<SectionPage>,
-    /// Done only: the epics' folded merged children (EPC-16); each fold's cards follow each other in `cards`.
-    pub folds: Vec<DoneFold>,
     pub dev: Option<DevPage>,
     /// Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
     pub add: Option<String>,
-}
-
-/// An epic's merged children as one line in Done (EPC-16): "Wishlist · 4 of 6 merged". The page draws the line
-/// before the first of `keys` and hides those cards until the line is clicked (opened is the page's own, not
-/// saved).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardDoneFold")]
-pub struct DoneFold {
-    pub epic: String,
-    pub label: String,
-    pub keys: Vec<String>,
 }
 
 /// The chip of a column scrolled down: `"{n} above"`, then `" · {n} need you"` when any of them need the user. The
@@ -583,15 +570,6 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
             .into_iter()
             .map(|s| section_page(s, tickets))
             .collect(),
-        folds: view
-            .folds
-            .into_iter()
-            .map(|f| DoneFold {
-                epic: f.epic.to_string(),
-                label: f.label,
-                keys: f.keys.iter().map(ToString::to_string).collect(),
-            })
-            .collect(),
         dev,
         add: (kind == ColumnKind::Backlog).then(|| "Add ticket".to_owned()),
     }
@@ -696,7 +674,6 @@ pub fn page(
         flow: project.flow,
         tickets,
         visible: visible.as_deref(),
-        strong: None,
         project_base: Some(project.base_branch),
         now_ms,
         dev_budget: (!prefs.dev_unfolded).then(|| board::dev_budget(params.height)),
@@ -907,8 +884,8 @@ pub struct ApproveMenu {
     pub title: String,
     pub items: Vec<ApproveItem>,
     pub note: String,
-    /// The one enabled choice when there is no other (an epic child's Local merge into its epic): the page opens its
-    /// dialog straight away, without the choice (dogfood #18).
+    /// The one enabled choice when there is no other: the page opens its dialog straight away, without the choice
+    /// (dogfood #18).
     pub direct: Option<ApproveChoice>,
 }
 
@@ -2944,7 +2921,7 @@ flow:
         let pr = line_of(&page, "SHOP-26").0.unwrap();
         assert!(pr.starts_with("PR #481 open"), "{pr}");
         assert_eq!(line_of(&page, "SHOP-26").1, None);
-        // #36: the priority is the card's chip after its key, in every column, not the line's lead.
+        // #36: the priority is the card's chip after its key, in every column, not the line's first word.
         let p1 = line_of(&page, "SHOP-35").0.unwrap();
         assert!(!p1.starts_with("P1"), "{p1}");
         let chip = |key: &str| {

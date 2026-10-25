@@ -88,12 +88,11 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
       data-row={key}
       data-selected={selected || undefined}
       data-lifted={lifted || undefined}
-      data-dimmed={row.dim || undefined}
       data-edge={card.edge ?? undefined}
       style={card.edge === null ? undefined : { borderLeftColor: toneInk(card.edge).fg }}
       role="button"
       tabIndex={focusable ? 0 : -1}
-      aria-label={`${card.key_label} ${card.title}`}
+      aria-label={`${card.key} ${card.title}`}
       aria-pressed={selected}
       onPointerDown={(e) => {
         handlers.press(key, e);
@@ -109,14 +108,8 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
       <span className="list-row-icon" style={{ color: paletteInk(row.palette) }}>
         <Icon name={row.icon} size={14} />
       </span>
-      <span className="list-row-key">{card.key_label}</span>
+      <span className="list-row-key">{card.key}</span>
       <span className="list-row-title">
-        {card.epic !== null && (
-          <span className="list-row-epic">
-            <Icon name="layers" size={11} />
-            <span>{card.epic}</span>
-          </span>
-        )}
         {card.blocks === null && card.priority === null ? (
           <Tooltip text={card.title}>
             <span className="list-row-title-text">{card.title}</span>

@@ -7,7 +7,7 @@ import type { MenuItem } from "./MenuItem";
  */
 export type AgentListRow = { id: string, name: string, 
 /**
- * "Noyan", "Epic lead": the role tag.
+ * "Noyan": the role tag.
  */
 role: string | null, 
 /**

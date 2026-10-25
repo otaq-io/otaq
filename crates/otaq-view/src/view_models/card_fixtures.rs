@@ -4,7 +4,7 @@
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Flags, Priority, Status};
 
-use crate::view_models::card::{AgentFacts, CardExtras, Sleeve};
+use crate::view_models::card::{AgentFacts, CardExtras};
 
 /// "Now" for fixtures, in Unix milliseconds.
 pub const NOW: i64 = 1_791_600_000_000;
@@ -83,15 +83,6 @@ fn base() -> CardExtras {
     }
 }
 
-/// The sleeve of a SHOP-40 Wishlist child (*04 → Row · epic children & Done (0080)*).
-pub fn wishlist(pinned: bool) -> Option<Sleeve> {
-    Some(Sleeve {
-        epic_key: "SHOP-40".into(),
-        name: "Wishlist".into(),
-        pinned,
-    })
-}
-
 fn keys(list: &[&str]) -> Vec<otaq_core::domain::TicketKey> {
     list.iter()
         .map(|k| k.parse().expect("fixture key"))
@@ -116,11 +107,6 @@ pub fn variants() -> Vec<Variant> {
     };
     let asks = |question: &str| CardExtras {
         question: Some(question.into()),
-        ..base()
-    };
-    let child = |key: &str, title: &str, status| ticket(key, title, status);
-    let sleeved = || CardExtras {
-        sleeve: wishlist(false),
         ..base()
     };
     let mut out = Vec::new();
@@ -270,22 +256,20 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 20, 141_000);
     out.push(v("Validation failed · round 2 of 3", t, base()));
 
-    let mut t = child(
+    let mut t = ticket(
         "SHOP-44",
         "Wishlist share link",
         Status::MergeConflictFixing,
     );
-    t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
     t.flags.conflict_files = vec!["lib/wishlist.ts".into()];
     live(&mut t, 10, 77_000);
-    out.push(v("Merge conflict · fixing (0064)", t, sleeved()));
+    out.push(v("Merge conflict · fixing (0064)", t, base()));
 
-    let mut t = child("SHOP-44", "Wishlist share link", Status::DeliveryStopped);
+    let mut t = ticket("SHOP-44", "Wishlist share link", Status::DeliveryStopped);
     t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
     t.auto_merge_conflicts = 3;
-    t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
     t.flags.tokens = Some(64_000);
-    out.push(v("Keeps conflicting (0064)", t, sleeved()));
+    out.push(v("Keeps conflicting (0064)", t, base()));
 
     // d0120: Local merge runs the project's Merge check before main moves, then a failed one back with its agent.
     let mut t = ticket("SHOP-34", "Tax display", Status::WaitingForYou);
@@ -297,14 +281,14 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 10, 91_000);
     out.push(v("Merge check failed · fixing (0120)", t, base()));
 
-    let mut t = child("SHOP-43", "Wishlist page", Status::Queued);
+    let mut t = ticket("SHOP-43", "Wishlist page", Status::Queued);
     t.depends_on = keys(&["SHOP-42"]);
     out.push(v(
-        "Picked by the lead (0083)",
+        "Waits for a dependency",
         t,
         CardExtras {
             waits_for: Some("waits for SHOP-42 to merge".into()),
-            ..sleeved()
+            ..base()
         },
     ));
 
@@ -371,14 +355,14 @@ pub fn variants() -> Vec<Variant> {
         base(),
     ));
 
-    let mut t = child("SHOP-41", "Wishlist API", Status::Merged);
+    let mut t = ticket("SHOP-41", "Wishlist API", Status::Merged);
     t.validation_round = 1;
     t.flags.review_entry = Some(ReviewEntryFlag {
         entry: ReviewEntry::Validated,
         round: 1,
     });
     t.flags.merged_automatically = true;
-    out.push(v("Merged automatically (0064)", t, sleeved()));
+    out.push(v("Merged automatically (0064)", t, base()));
 
     let mut t = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
     t.flags.pr_number = Some(481);
@@ -410,9 +394,6 @@ pub fn variants() -> Vec<Variant> {
     }
     out
 }
-
-/// The lead's name in the fixtures.
-pub const WISHLIST_LEAD: &str = "Wishlist lead";
 
 /// The refused model's message, as Claude Code words it, straight apostrophe and all (the models report; T-0335's
 /// fixture).

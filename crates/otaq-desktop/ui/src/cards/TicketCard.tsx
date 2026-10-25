@@ -1,5 +1,4 @@
-// The one-line ticket card (BRD-03; *24 · The two views*): the key (with its epic's name on the same row for an
-// epic child) and its priority chip (P1, P2, P4), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
+// The one-line ticket card (BRD-03; *24 · The two views*): the key and its priority chip (P1, P2, P4), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
 // state's colour (a blocked ticket's in amber after a link, DPV-01), a muted "Blocks SHOP-20" when others wait for
 // it, then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
 // has a coloured edge (turquoise, the review colour for your check, red for a closed parent). The pill, the model,
@@ -212,15 +211,8 @@ function Body({
     <>
       <WithHover content={<StatusHoverCard hover={card.hover} />} selected={selected}>
         <div className="card-head">
-          <span className="card-key">{card.key_label}</span>
+          <span className="card-key">{card.key}</span>
           {card.priority !== null && <PriorityChip priority={card.priority} />}
-          <span className="card-spacer" />
-          {card.epic !== null && (
-            <span className="card-epic">
-              <Icon name="layers" size={11} />
-              <span className="card-epic-name">{card.epic}</span>
-            </span>
-          )}
         </div>
       </WithHover>
       {/* The shared tooltip goes on any press or key (T-0506), so the click or ↵ that opens the sheet hides it. */}
@@ -248,7 +240,7 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenSh
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
     <article
       className="ticket-card"
-      aria-label={`${card.key_label} ${card.title}`}
+      aria-label={`${card.key} ${card.title}`}
       data-selected={state.selected || undefined}
       data-chain={chain}
       data-dragging={state.dragging || undefined}

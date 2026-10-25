@@ -1,5 +1,5 @@
-// Where a tool problem's buttons go (§7.2, SHL-04; d0086; T-0367): the sheet's hold callouts, the agent panel's notice, the
-// lead's waiting notice and the after-restart sheet's Sign in… all send a `ToolProblemAction` (`tool_problems.rs`).
+// Where a tool problem's buttons go (§7.2, SHL-04; d0086; T-0367): the sheet's hold callouts, the agent panel's notice
+// and the after-restart sheet's Sign in… all send a `ToolProblemAction` (`tool_problems.rs`).
 // `toolProblemStep` says what one does in a place, without doing it (the tests read it); `runToolProblemAction` does
 // it. Nothing here starts an agent by itself: Use fallback is the user's click (d0086), New agent on … opens the empty
 // agent panel, which starts only when the user sends (d0087).
@@ -10,7 +10,7 @@ import type { CardActionKind } from "../../generated/CardActionKind";
 import type { SheetCardParams } from "../../generated/SheetCardParams";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 
-/** Where the callout shows: the sheet's ticket (or the epic of a lead), the agent panel's project. */
+/** Where the callout shows: the sheet's ticket, the agent panel's project. */
 export interface ToolProblemPlace {
   ticket?: string;
   project?: string;

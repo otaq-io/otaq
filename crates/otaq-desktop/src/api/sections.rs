@@ -113,14 +113,12 @@ impl From<Tone> for MessageTone {
     }
 }
 
-/// "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you"), unless it has a name.
+/// "SHOP-42 → SHOP-41 · 10:42", the text and its status; a `null` end is the user ("you").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "MessageLineView")]
 pub struct LineView {
     pub from: Option<String>,
     pub to: Option<String>,
-    pub from_name: Option<String>,
-    pub to_name: Option<String>,
     pub time: String,
     pub text: String,
     pub status: String,
@@ -133,8 +131,6 @@ impl From<Line> for LineView {
         Self {
             from: l.from.map(|k| k.to_string()),
             to: l.to.map(|k| k.to_string()),
-            from_name: l.from_name,
-            to_name: l.to_name,
             time: l.time,
             text: l.text,
             status: l.status,

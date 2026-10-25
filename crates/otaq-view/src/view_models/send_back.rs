@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn only_tickets_in_review_and_never_epics() {
+    fn only_tickets_in_review() {
         assert!(available(&ticket("SHOP-18", "t", Status::WaitingForYou)));
         assert!(!available(&ticket("SHOP-18", "t", Status::Working)));
     }

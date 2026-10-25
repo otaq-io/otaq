@@ -114,7 +114,7 @@ pub fn opening_project(projects: &[Project], wanted: Option<&str>) -> Option<Str
         .map(|p| p.key.clone())
 }
 
-/// "Skill: work-ticket · Dev", "Skill: noyan · as Noyan", "Skill: epic-lead · as epic lead".
+/// "Skill: work-ticket · Dev", "Skill: noyan · as Noyan".
 pub fn skill_heading(skill: &str, runs: &RunsAs) -> String {
     let place = match runs {
         RunsAs::Stage(stage) => stage.clone(),
@@ -450,7 +450,7 @@ mod tests {
         );
     }
 
-    /// AGR-03: the Project agent's part is named by its role, `flow` marked for flow changes; the epic lead's too.
+    /// AGR-03: the Project agent's part is named by its role, `flow` marked for flow changes.
     #[test]
     fn a_role_agent() {
         let mut r = reads(

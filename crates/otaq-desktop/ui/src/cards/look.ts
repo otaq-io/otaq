@@ -25,8 +25,6 @@ export function toneInk(tone: CardTone): Ink {
       return { fg: "var(--st-working)", bg: "var(--st-working-bg)" };
     case "review":
       return { fg: "var(--st-review)", bg: "var(--st-review-bg)" };
-    case "epic":
-      return { fg: "var(--st-investigate)", bg: "var(--st-investigate-bg)" };
     case "accent":
       return { fg: "var(--accent)", bg: "var(--accent-soft)" };
     case "secondary":
@@ -63,8 +61,6 @@ export function paletteInk(palette: PillPalette): string {
       return "var(--st-approved)";
     case "done":
       return "var(--st-done)";
-    case "epic":
-      return "var(--st-investigate)";
     case "pinned":
       return "var(--accent)";
   }
@@ -118,7 +114,6 @@ export const TONES = every<CardTone>()([
   "warning",
   "working",
   "review",
-  "epic",
   "accent",
   "secondary",
   "passed",
@@ -133,7 +128,6 @@ export const PALETTES = every<PillPalette>()([
   "queued",
   "approved",
   "done",
-  "epic",
   "pinned",
 ] as const);
 export const LOOKS = every<CardLook>()([

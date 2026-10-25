@@ -82,8 +82,7 @@
 .section-toggle:focus-visible,
 .section-link:focus-visible,
 .message-key:focus-visible,
-.history-copy:focus-visible,
-.move-choice:focus-visible {
+.history-copy:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -144,12 +143,6 @@
 
 .message-you {
   color: var(--text-secondary);
-}
-
-/* The epic lead at a thread's other end (*05 → Row · Messages · the lead (0083)*): violet, the lead's colour. */
-.message-name {
-  color: var(--st-investigate);
-  font-weight: 600;
 }
 
 .message-time {
@@ -283,117 +276,6 @@
   margin: 12px 4px;
   color: var(--text-muted);
   font: 400 12px var(--font-ui);
-}
-
-/* Epic dialogs. */
-.section-dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.section-dialog-box {
-  display: flex;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: var(--r-md);
-  background: var(--bg-column);
-  color: var(--text-primary);
-  font: 400 12px var(--font-ui);
-}
-
-.section-dialog-box > .icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--text-secondary);
-}
-
-.section-dialog-box[data-tone="paused"] {
-  background: var(--st-paused-bg);
-}
-
-.section-dialog-box[data-tone="paused"] > .icon {
-  color: var(--st-paused);
-}
-
-.section-dialog-note {
-  margin: 0;
-  color: var(--text-secondary);
-  font: 400 12px var(--font-ui);
-}
-
-.section-dialog-error {
-  margin: 0;
-  color: var(--st-error);
-  font: 400 12px var(--font-ui);
-}
-
-.move-choices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.move-choice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: none;
-  text-align: left;
-  cursor: pointer;
-}
-
-.move-choice[aria-checked="true"] {
-  border: 1.5px solid var(--focus);
-}
-
-.move-choice > .icon {
-  color: var(--st-investigate);
-}
-
-.move-choice-key {
-  color: var(--text-muted);
-  font: 400 12px var(--font-mono);
-}
-
-.move-choice-title {
-  flex: 1;
-  color: var(--text-primary);
-  font: 400 13px var(--font-ui);
-}
-
-.move-choice-progress {
-  color: var(--text-muted);
-  font: 400 11px var(--font-mono);
-}
-
-.move-keys {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: var(--r-md);
-  background: var(--st-investigate-bg);
-  font: 400 12px var(--font-mono);
-}
-
-.move-old,
-.move-arrow {
-  color: var(--text-muted);
-}
-
-.move-new {
-  color: var(--st-investigate);
-  font-weight: 600;
-}
-
-.move-alias {
-  color: var(--text-secondary);
-  font-family: var(--font-ui);
 }
 
 /* A row that opens (a description change, a comment), and the validation total under the rows (T-0238). */

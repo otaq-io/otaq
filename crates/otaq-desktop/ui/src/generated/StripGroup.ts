@@ -2,14 +2,13 @@
 import type { IconName } from "./IconName";
 import type { StripChip } from "./StripChip";
 import type { StripGroupId } from "./StripGroupId";
-import type { StripSuggestion } from "./StripSuggestion";
 import type { StripTone } from "./StripTone";
 
 /**
- * One group: its head ("Needs you · 3", "Suggestion", "Interrupted · 3", "Checks · 1") and its chips. `StripGroup` on
+ * One group: its head ("Needs you · 3", "Interrupted · 3", "Checks · 1") and its chips. `StripGroup` on
  * the page.
  */
-export type StripGroup = { id: StripGroupId, icon: IconName, tone: StripTone, title: string, chips: Array<StripChip>, suggestions: Array<StripSuggestion>, 
+export type StripGroup = { id: StripGroupId, icon: IconName, tone: StripTone, title: string, chips: Array<StripChip>, 
 /**
  * "Resume all" on Interrupted while a session can be resumed (d0045): it asks first.
  */

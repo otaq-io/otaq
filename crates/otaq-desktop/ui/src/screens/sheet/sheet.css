@@ -397,8 +397,7 @@
 
 /* Session and Files fill the body (a terminal, a diff); Overview and Activity scroll in it. */
 .sheet-body[data-tab="session"],
-.sheet-body[data-tab="files"],
-.sheet-body[data-tab="lead"] {
+.sheet-body[data-tab="files"] {
   overflow: hidden;
 }
 

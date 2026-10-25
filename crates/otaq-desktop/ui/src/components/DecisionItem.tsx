@@ -1,7 +1,6 @@
 // Decision Item and the Decisions list (DEC-04, DEC-05; d0084; *07 → Row · Decision Item (0084)*, *SHOP-23 review ·
-// Decisions*, *SHOP-40 epic review · Decisions*): an agent's recorded decision with its question, Built, Other option
-// and Why under a signpost icon in neutral colours; the lead's mark as a violet row with its source chip (never red);
-// what the review did with it; and Change… as a quiet button while the review is open. Every text and rule comes from
+// Decisions*): an agent's recorded decision with its question, Built, Other option and Why under a signpost icon in
+// neutral colours; what the review did with it; and Change… as a quiet button while the review is open. Every text and rule comes from
 // `otaq-view`'s `decision_item.rs`; the list keeps only whether it is folded.
 import { useState } from "react";
 
@@ -51,18 +50,6 @@ export function DecisionItem({ item, onChange }: DecisionItemProps) {
         ))}
         <Field label={item.labels.why} text={item.why} quiet />
       </div>
-      {item.mark && (
-        <div className="decision-mark">
-          <Icon name="bot" size={13} />
-          <span className="decision-mark-text">{item.mark.text}</span>
-          {item.mark.source !== null && (
-            <span className="decision-source">
-              <Icon name="file-text" size={10} />
-              <span>{item.mark.source}</span>
-            </span>
-          )}
-        </div>
-      )}
       {item.status && (
         <div className="decision-status" data-kept={item.status.kept || undefined}>
           <Icon name={item.status.icon} size={12} />
@@ -75,11 +62,11 @@ export function DecisionItem({ item, onChange }: DecisionItemProps) {
 
 export interface DecisionsListProps {
   section: DecisionsSection;
-  /** Change… on an item; T-0288 opens its dialog (Send back on a ticket, "Add a fix child" in an epic's review). */
+  /** Change… on an item; T-0288 opens its dialog (Send back). */
   onChange?: (item: DecisionItemView) => void;
 }
 
-/** The Decisions section: the count, the hint, and the items, under each epic child's head when grouped. */
+/** The Decisions section: the count, the hint, and the items. */
 export function DecisionsList({ section, onChange }: DecisionsListProps) {
   const [open, setOpen] = useState(true);
   return (
@@ -101,17 +88,7 @@ export function DecisionsList({ section, onChange }: DecisionsListProps) {
       </button>
       {open &&
         section.groups.map((group) => (
-          <div key={group.child?.key ?? ""} className="decisions-group">
-            {group.child && (
-              <div className="decisions-child">
-                <Icon name="layers" size={11} />
-                <span className="decisions-child-key">{group.child.key}</span>
-                <span className="decisions-child-title">{group.child.title}</span>
-                {group.child.state !== null && (
-                  <span className="decisions-child-state">{group.child.state}</span>
-                )}
-              </div>
-            )}
+          <div key={group.items[0]?.id ?? ""} className="decisions-group">
             {group.items.map((item) => (
               <DecisionItem key={item.id} item={item} onChange={onChange} />
             ))}

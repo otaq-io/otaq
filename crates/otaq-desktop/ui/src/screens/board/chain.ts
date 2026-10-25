@@ -1,5 +1,5 @@
 // The chain highlight's moment of interaction (DEP-05, T-0229; *03 → Chain highlight · hover or select SHOP-20*):
-// which card leads (the hovered one, else the selected one; none while dragging), each card's look, and the arrows
+// whose chain shows (the hovered card's, else the selected one's; none while dragging), each card's look, and the arrows
 // between members that are in view. Which cards belong to a chain is Rust's (`BoardView.chains`, sent up front).
 import type { ChainState } from "../../cards";
 import type { ChainView } from "../../generated/ChainView";
@@ -12,17 +12,15 @@ export function activeChain(
   dragging: boolean,
 ): ChainView | null {
   if (dragging) return null;
-  const lead = hovered ?? selected;
-  return lead === null ? null : (chains.find((c) => c.key === lead) ?? null);
+  const shown = hovered ?? selected;
+  return shown === null ? null : (chains.find((c) => c.key === shown) ?? null);
 }
 
-/** A card's look under the chain shown; an epic card holding a member as a row (`rows`) isn't dimmed (Q448). */
-export function chainStateOf(chain: ChainView | null, key: string, rows: readonly string[] = []): ChainState {
+/** A card's look under the chain shown. */
+export function chainStateOf(chain: ChainView | null, key: string): ChainState {
   if (chain === null) return "none";
   if (chain.key === key) return "origin";
-  return chain.members.includes(key) || rows.some((r) => chain.members.includes(r))
-    ? "highlighted"
-    : "dimmed";
+  return chain.members.includes(key) ? "highlighted" : "dimmed";
 }
 
 /** The members among `keys` (a column's cards, the Done rail's, the cards behind Dev's fold). */

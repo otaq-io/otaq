@@ -1,7 +1,6 @@
-//! The delete confirmation (TKT-08; d0060, d0018; *05 · Ticket side panel → Delete ticket · confirm, Epic
-//! dialogs → Delete epic · confirm*; *17 → Undo a created ticket*): it names the ticket, says it never
-//! started (so nothing on disk is affected), names every link that goes, and for an epic the children that go
-//! with it. Cancel is the default button; nothing is deleted without the confirm click.
+//! The delete confirmation (TKT-08; d0060, d0018; *05 · Ticket side panel → Delete ticket · confirm*; *17 → Undo a
+//! created ticket*): it names the ticket, says it never started (so nothing on disk is affected) and names every link
+//! that goes. Cancel is the default button; nothing is deleted without the confirm click.
 
 use otaq_core::board::delete::DeletePreview;
 use otaq_core::board::tickets::Ticket;

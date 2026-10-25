@@ -1,11 +1,11 @@
 //! A ticket's stage choices and its path (AGM-09, AGM-08, AGM-03; d0108's "Options" and smaller rule 5, d0093,
 //! d0077; *08 → Row · Stage choices (update AG §9)*, *05 → Row · Stage choices and path (update AG §9)*, *05 → Row ·
 //! Stage choices and path, finished and set by you*), from the facts of `ticket.choices` ([`TicketChoices`]) and
-//! `ticket.agents` ([`TicketAgents`]). They replace the Developer, Validator and Epic lead rows.
+//! `ticket.agents` ([`TicketAgents`]). They replace the Developer and Validator rows.
 //!
 //! - **Choices** ([`form_choices`], [`sheet_choices`]): a picker only for the stages with options ("Dev: Rust
 //!   developer ▾", "Review: required ▾"); the ⌘N form preselects each stage's own agent. A stage that started is
-//!   locked. Who set them: "set by Noyan" (or "the Epic lead") above the rows; a change by a ticket's
+//!   locked. Who set them: "set by Noyan" above the rows; a change by a ticket's
 //!   agent says who and why in violet ("Dev: Quick developer → Rust developer · by Griller · touches session
 //!   handling"), one you made says it's yours ("… · by you"). None on a flow without options (the default flow).
 //! - **The path** ([`path`]): every stage the ticket goes through with its agent and model; stages already run with
@@ -126,7 +126,7 @@ pub struct ChoiceRow {
 #[ts(rename = "StageChoicesView")]
 pub struct ChoicesView {
     pub heading: &'static str,
-    /// "set by Noyan", "set by the Epic lead".
+    /// "set by Noyan".
     pub set_by: Option<String>,
     pub rows: Vec<ChoiceRow>,
     /// The form's note under the pickers.
@@ -146,8 +146,7 @@ fn items(options: &StageOptions, current: &str) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The change line of a choice the user or a ticket's own agent made (the Project agent's and an epic lead's say so
-/// above the rows): "Dev: Rust developer → Quick developer · by you".
+/// The change line of a choice the user or a ticket's own agent made (the Project agent's says so above the rows): "Dev: Rust developer → Quick developer · by you".
 fn change(options: &StageOptions) -> Option<ChoiceChange> {
     let choice = options.choice.as_ref()?;
     let (who, reason, agent_made) = match &choice.set_by {
@@ -211,7 +210,7 @@ fn rows(stages: &[StageOptions], with_changes: bool) -> Vec<ChoiceRow> {
 }
 
 /// The ⌘N form's "Stage choices" under Priority (`s08-29`): one picker per stage with options, each on its stage's
-/// own agent; `None` on a flow without options (the default flow) and for an epic. `project` is the project's name.
+/// own agent; `None` on a flow without options (the default flow). `project` is the project's name.
 pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesView> {
     if choices.stages.is_empty() {
         return None;
@@ -227,7 +226,7 @@ pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesVie
 }
 
 /// The sheet's Choices (`s05-36`, `s05-38`): the ticket's choices with who set them; `None` on a flow without
-/// options and for an epic.
+/// options.
 pub fn sheet_choices(t: &TicketAgents) -> Option<ChoicesView> {
     if t.choices.is_empty() {
         return None;
@@ -438,7 +437,7 @@ fn now_at(t: &TicketAgents) -> (usize, Option<usize>) {
 }
 
 /// The ticket's path (`s05-36`, `s05-38`): the runs so far in order, where it is now, then the stages to come.
-/// `None` for an epic, and for a ticket whose flow wasn't read.
+/// `None` for a ticket whose flow wasn't read.
 pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
     if t.path.is_empty() {
         return None;
@@ -873,7 +872,7 @@ fn agent_part(t: &TicketAgents, role: SessionRole, tools: &Tools) -> Option<Stri
 }
 
 /// The sheet header's tokens by agent (VAL-14, d0086, Q-G): "Strong 182k · no validation yet", "Strong 61k · Light
-/// 23k (1 round)", "Strong 61k · Fable test 1k (no result)"; an epic's lead "Strong 48k". `None` before any agent
+/// 23k (1 round)", "Strong 61k · Fable test 1k (no result)". `None` before any agent
 /// session. The tool is never named while one tool is connected; with several, "Strong · Claude Code 58k ·
 /// Verifier · Copilot 9k (1 round)" (USG-10, d0086), the tool left out where it is the agent's name.
 pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
@@ -1004,7 +1003,7 @@ fn text(p: &serde_json::Value, field: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// A recorded role ("developer", "lead") as History says it.
+/// A recorded role ("developer", "validator") as History says it.
 fn role_label(p: &serde_json::Value) -> &'static str {
     text(p, "role")
         .and_then(|r| r.parse::<SessionRole>().ok())
@@ -1072,28 +1071,18 @@ pub fn fallback_line(p: &serde_json::Value) -> String {
 }
 
 /// A recorded row change's History line (M31's `agent_row_set`): "Developer: Strong (set by you)", "Developer: Let
-/// agents pick again (by you)"; an agent's pick "Developer: Light (picked by Checkout slowness)" with its reason; on
-/// an epic for a child "Wishlist lead picked Standard for SHOP-40.4" or "Wishlist lead re-picked SHOP-40.3: Strong →
-/// Light".
+/// agents pick again (by you)"; an agent's pick "Developer: Light (picked by Checkout slowness)" with its reason.
 pub fn row_change_line(p: &serde_json::Value) -> (String, Option<String>) {
     if let Some(line) = move_line(p) {
         return (line, None);
     }
     let role = role_label(p);
     let agent = text(p, "agent");
-    let from = text(p, "from");
     let reason = text(p, "reason");
     match (text(p, "set_by").as_deref(), text(p, "picked_by")) {
         (Some("agent"), Some(by)) => {
             let agent = agent.unwrap_or_default();
-            match (text(p, "child"), from) {
-                (Some(child), Some(from)) => (
-                    format!("{by} re-picked {child}: {from} \u{2192} {agent}"),
-                    reason,
-                ),
-                (Some(child), None) => (format!("{by} picked {agent} for {child}"), reason),
-                (None, _) => (format!("{role}: {agent} (picked by {by})"), reason),
-            }
+            (format!("{role}: {agent} (picked by {by})"), reason)
         }
         _ => match agent {
             Some(agent) => (format!("{role}: {agent} ({SET_BY_YOU})"), None),

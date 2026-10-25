@@ -11,8 +11,7 @@
 // its section (the count stays), an empty section says so, and Approved (the section with a `target` of its own) is a
 // drop target of its own. Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the
 // verdict's outline. Under the chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's
-// fold and the rail turn accent for members they hide. In Done an epic's merged children fold into one line (EPC-16):
-// a click shows their cards, another folds them; which folds are open is this screen's only.
+// fold and the rail turn accent for members they hide.
 import {
   type KeyboardEvent,
   memo,
@@ -31,7 +30,6 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardColumnKind } from "../../generated/BoardColumnKind";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
-import type { BoardDoneFold } from "../../generated/BoardDoneFold";
 import type { BoardDoneLine } from "../../generated/BoardDoneLine";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
@@ -156,7 +154,7 @@ export const CardList = memo(function CardList({
           card={card}
           column={column}
           selected={card.card.key === selected}
-          chain={chainStateOf(chain, card.card.key, [])}
+          chain={chainStateOf(chain, card.card.key)}
           lifted={card.card.key === lifted}
           focusable={card.card.key === tabStop}
           handlers={handlers}
@@ -178,60 +176,14 @@ export function cardsOf(column: BoardColumn): BoardCard[] {
     : [...column.cards, ...column.sections.flatMap((s) => s.cards)];
 }
 
-/** The cards the keyboard walks: every card but those behind a Done fold or in a folded Review section. */
+/** The cards the keyboard walks: every card but those in a folded Review section. */
 export function walkOf(column: BoardColumn, foldedSections: readonly string[] = []): BoardCard[] {
-  const folded = new Set([
-    ...column.folds.flatMap((f) => f.keys),
-    ...column.sections
+  const folded = new Set(
+    column.sections
       .filter((s) => foldedSections.includes(s.id))
       .flatMap((s) => s.cards.map((c) => c.card.key)),
-  ]);
-  return cardsOf(column).filter((c) => !folded.has(c.card.key));
-}
-
-/** A column's cards cut at its folds: runs of cards, and each fold with its cards where the first of them is. */
-export type Run =
-  { kind: "cards"; cards: BoardCard[] } | { kind: "fold"; fold: BoardDoneFold; cards: BoardCard[] };
-
-export function runsOf(cards: readonly BoardCard[], folds: readonly BoardDoneFold[]): Run[] {
-  const runs: Run[] = [];
-  for (const card of cards) {
-    const fold = folds.find((f) => f.keys.includes(card.card.key));
-    const last = runs.at(-1);
-    if (fold) {
-      if (last?.kind === "fold" && last.fold === fold) last.cards.push(card);
-      else runs.push({ kind: "fold", fold, cards: [card] });
-    } else if (last?.kind === "cards") last.cards.push(card);
-    else runs.push({ kind: "cards", cards: [card] });
-  }
-  return runs;
-}
-
-export function FoldLine({
-  fold,
-  open,
-  chain,
-  onToggle,
-}: {
-  fold: BoardDoneFold;
-  open: boolean;
-  chain: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="board-done-fold"
-      data-epic={fold.epic}
-      data-chain={chain || undefined}
-      aria-expanded={open}
-      onClick={onToggle}
-    >
-      <Icon name="layers" size={12} />
-      <span className="board-done-fold-label">{fold.label}</span>
-      <Icon name={open ? "chevron-up" : "chevron-down"} size={13} />
-    </button>
   );
+  return cardsOf(column).filter((c) => !folded.has(c.card.key));
 }
 
 export interface ColumnProps {
@@ -483,7 +435,6 @@ export function Column({
   const scroller = useRef<HTMLDivElement>(null);
   const [chip, setChip] = useState<AboveChip | null>(null);
   const [aboveKeys, setAboveKeys] = useState<string[]>([]);
-  const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
   const all = cardsOf(column);
   const walk = walkOf(column, foldedSections);
   const tabStop = walk.some((c) => c.card.key === selected) ? selected : (walk[0]?.card.key ?? null);
@@ -638,39 +589,15 @@ export function Column({
             />
           ))
         ) : (
-          runsOf(cardsOf(column), column.folds).map((run) => {
-            const list = (
-              <CardList
-                key={run.kind === "fold" ? `${run.fold.epic}:cards` : `run:${run.cards[0]?.card.key ?? ""}`}
-                cards={run.cards}
-                column={column.id}
-                selected={selected}
-                chain={chain}
-                lifted={lifted}
-                tabStop={tabStop}
-                handlers={handlers}
-              />
-            );
-            if (run.kind === "cards") return list;
-            const { epic } = run.fold;
-            const open = openFolds.has(epic);
-            return [
-              <FoldLine
-                key={`${epic}:fold`}
-                fold={run.fold}
-                open={open}
-                chain={!open && membersIn(chain, run.fold.keys).length > 0}
-                onToggle={() => {
-                  setOpenFolds((old) => {
-                    const next = new Set(old);
-                    if (!next.delete(epic)) next.add(epic);
-                    return next;
-                  });
-                }}
-              />,
-              open && list,
-            ];
-          })
+          <CardList
+            cards={cardsOf(column)}
+            column={column.id}
+            selected={selected}
+            chain={chain}
+            lifted={lifted}
+            tabStop={tabStop}
+            handlers={handlers}
+          />
         )}
         {empty && showEmptyHint && column.sections.length === 0 && (
           <div className="board-empty-column">

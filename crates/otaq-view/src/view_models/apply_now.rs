@@ -237,7 +237,7 @@ fn choice_icon(to: &DropOn, flow: Option<&Flow>) -> IconName {
 fn move_row(mv: &PlannedMove, flow: Option<&Flow>, picks: &Picks) -> MoveRow {
     let pick = picked(mv, picks);
     let picked_to = pick.map_or_else(|| mv.default.clone(), |c| c.to.clone());
-    // A line between Ready for Dev and the flow's stages (an epic has neither: no line).
+    // A line between Ready for Dev and the flow's stages.
     let first_stage = mv
         .choices
         .iter()

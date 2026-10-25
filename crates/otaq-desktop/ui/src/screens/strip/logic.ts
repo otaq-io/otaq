@@ -70,9 +70,8 @@ export function stripParams(project: string, open: StripOpen | null): StripParam
 }
 
 /**
- * Opens an item (NYS-01): its project on screen; a ticket on its tab with its terminal focused when that is the tab
- * (an epic's Lead tab is its lead's terminal); a Project agent in the panel, focused. A terminal that had the keyboard
- * loses it first, so nothing typed meanwhile reaches the ticket that was open (finding 55): the target's terminal
+ * Opens an item (NYS-01): its project on screen; a ticket on its tab with its terminal focused when that is the tab;
+ * a Project agent in the panel, focused. A terminal that had the keyboard loses it first, so nothing typed meanwhile reaches the ticket that was open (finding 55): the target's terminal
  * takes it once it opens, and a target with no terminal leaves the keyboard on the page.
  */
 export function openTarget(target: StripTarget, routes: StripRoutes = STRIP_ROUTES): void {
@@ -85,8 +84,7 @@ export function openTarget(target: StripTarget, routes: StripRoutes = STRIP_ROUT
     case "ticket":
       selectProject(target.project, routes.selection);
       openTicket(target.key, target.tab, routes.selection);
-      if (target.tab === "agent" || target.tab === "check" || target.tab === "lead")
-        requestTerminalFocus(target.key, routes.focus);
+      if (target.tab === "agent" || target.tab === "check") requestTerminalFocus(target.key, routes.focus);
       break;
     case "agent":
       showAgentInPanel(target.project, target.agent, routes.agentPanel);

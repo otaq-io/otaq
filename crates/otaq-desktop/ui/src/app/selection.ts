@@ -107,8 +107,7 @@ export function focusTerminal(session: string | null, store: Store<Selection> = 
 }
 
 /**
- * A request to give a ticket's terminal the keyboard once Session (or an epic's Lead) shows it (a notification click,
- * T-0231). Which side is the selection's (`agent`, `check`).
+ * A request to give a ticket's terminal the keyboard once Session shows it (a notification click, T-0231). Which side is the selection's (`agent`, `check`).
  */
 export interface TerminalFocusRequest {
   ticket: string;

@@ -1,12 +1,10 @@
 /*
- * The one-line ticket card (BRD-03, *24 · The two views*) and the Epic Card (*01 · Components → Epic Card*), in the
- * theme's variables only. The ticket card: padding 10/12, gap 6, radius 8, the key row 20 px, title 13.5/500 on two
- * lines, one status line 12 px with its 7 px dot, who and when 11.5 px, a 3 px coloured edge when it needs you. The Epic
- * Card keeps its own master (padding 9/10/10, radius 6). A thicker border (chain 1.5 px, the chain's own card and
+ * The one-line ticket card (BRD-03, *24 · The two views*), in the theme's variables only: padding 10/12, gap 6, radius
+ * 8, the key row 20 px, title 13.5/500 on two lines, one status line 12 px with its 7 px dot, who and when 11.5 px, a
+ * 3 px coloured edge when it needs you. A thicker border (chain 1.5 px, the chain's own card and
  * selected 2 px) is drawn as an inset shadow, so the content never moves.
  */
-.ticket-card,
-.epic-card {
+.ticket-card {
   --card-outline: var(--border-card);
   --card-ring: 0px;
   --card-ring-color: transparent;
@@ -28,47 +26,32 @@
   transition: var(--motion-colors);
 }
 
-.epic-card {
-  gap: 7px;
-}
-
-.ticket-card[data-faded],
-.epic-card[data-faded] {
+.ticket-card[data-faded] {
   background: var(--bg-column);
 }
 
 .ticket-card:hover,
-.ticket-card[data-hovered],
-.epic-card:hover,
-.epic-card[data-hovered] {
+.ticket-card[data-hovered] {
   border-color: var(--border-strong);
 }
 
-.ticket-card[data-dragging],
-.epic-card[data-dragging] {
+.ticket-card[data-dragging] {
   border-color: var(--border-strong);
 }
 
-.epic-card[data-dragging] {
-  box-shadow: var(--shadow-floating);
-}
-
-.ticket-card[data-chain="highlighted"],
-.epic-card[data-chain="highlighted"] {
+.ticket-card[data-chain="highlighted"] {
   --card-ring: 0.5px;
   --card-ring-color: var(--accent);
   border-color: var(--accent);
 }
 
-.ticket-card[data-chain="origin"],
-.epic-card[data-chain="origin"] {
+.ticket-card[data-chain="origin"] {
   --card-ring: 1px;
   --card-ring-color: var(--accent);
   border-color: var(--accent);
 }
 
-.ticket-card[data-selected],
-.epic-card[data-selected] {
+.ticket-card[data-selected] {
   --card-ring: 1px;
   --card-ring-color: var(--focus);
   border-color: var(--focus);
@@ -148,10 +131,6 @@
   color: var(--accent);
 }
 
-.card-spacer {
-  flex: 1;
-}
-
 .card-head .status-pill {
   overflow: hidden;
   flex: 0 1 auto;
@@ -196,8 +175,7 @@
 
 /* ---- Title: two lines, the rest in its tooltip ---- */
 
-.ticket-card .tooltip-anchor,
-.epic-card .tooltip-anchor {
+.ticket-card .tooltip-anchor {
   min-width: 0;
 }
 
@@ -311,32 +289,6 @@
   flex: none;
   padding: 0 8px;
   font-size: 11.5px;
-}
-
-/* The epic's name on the key's row (an epic child): a quiet chip that gives way with …. */
-.card-epic {
-  display: inline-flex;
-  overflow: hidden;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-column);
-  color: var(--text-secondary);
-}
-
-.card-epic > .icon {
-  flex: none;
-}
-
-.card-epic-name {
-  overflow: hidden;
-  min-width: 0;
-  font: 500 11px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The key row's hover: the full status and what the card has no room for, in a light hover card. */
@@ -461,183 +413,9 @@
 }
 
 .card-quick-button:focus-visible,
-.card-option:focus-visible,
-.epic-card .epic-child:focus-visible,
-.epic-card .epic-add:focus-visible,
-.epic-card .epic-toggle:focus-visible {
+.card-option:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
-}
-
-/* ---- Epic Card ---- */
-
-.card-title[data-epic] {
-  font-weight: 500;
-}
-
-.epic-card .epic-toggle {
-  display: inline-flex;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.epic-card .epic-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.epic-card .epic-segments {
-  display: flex;
-  flex: 1;
-  gap: 2px;
-}
-
-.epic-card .epic-segment {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-}
-
-.epic-card .epic-progress-text {
-  flex: none;
-  color: var(--text-secondary);
-  font: 400 11px var(--font-mono);
-}
-
-.epic-card .epic-branch {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  color: var(--text-muted);
-  font: 400 11px var(--font-mono);
-}
-
-.epic-card .epic-branch > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.epic-card .epic-children {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-
-.epic-card .epic-child {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 20px;
-  min-width: 0;
-  padding: 0 2px;
-  border: 0;
-  border-radius: 3px;
-  background: none;
-  color: var(--ink);
-  text-align: left;
-  cursor: pointer;
-}
-
-.epic-card .epic-child:hover {
-  background: var(--bg-hover);
-}
-
-/* A row that can be dragged out on its own (EPC-12): its grip shows on hover, in the card's padding left of the
-   row, so nothing moves. */
-.epic-card .epic-child[data-draggable] {
-  position: relative;
-  cursor: grab;
-}
-
-.epic-card .epic-child-grip {
-  position: absolute;
-  top: 5px;
-  left: -10px;
-  display: flex;
-  color: var(--text-muted);
-  visibility: hidden;
-}
-
-.epic-card .epic-child[data-draggable]:hover .epic-child-grip,
-.epic-card .epic-child[data-draggable]:focus-visible .epic-child-grip {
-  visibility: visible;
-}
-
-.epic-card .epic-child-key {
-  flex: none;
-  color: var(--text-muted);
-  font: 400 10.5px var(--font-mono);
-}
-
-.epic-card .epic-child-title {
-  overflow: hidden;
-  flex: 1;
-  min-width: 0;
-  color: var(--text-primary);
-  font: 400 11.5px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.epic-card .epic-child[data-finished] .epic-child-title {
-  color: var(--text-muted);
-}
-
-.epic-card .epic-child-status {
-  flex: none;
-  color: var(--ink);
-  font: 400 10.5px var(--font-ui);
-}
-
-.epic-card .epic-add {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-muted);
-  font: 400 11px var(--font-ui);
-  cursor: pointer;
-}
-
-.epic-card .epic-add:hover {
-  color: var(--text-primary);
-}
-
-/* The Lead row under the branch line (d0083, *Row · Epic Card with a lead (0083)*): 22 px, the Lead Status or Open
- * lead; child rows the lead created carry a violet "added by Wishlist lead" line (10.5 px, indented 19). */
-.epic-card .epic-lead {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  height: 22px;
-}
-
-.epic-card .epic-child-origin {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 2px 3px 19px;
-  color: var(--st-investigate);
-  font: 400 10.5px/normal var(--font-ui);
-  white-space: nowrap;
-}
-
-/* A lead that asks you turns the border turquoise, like a card that needs you. */
-.epic-card[data-lead-asks] {
-  --card-outline: var(--st-attn);
 }
 
 /* A ticket a Project agent just created: a violet glow that fades (*18 → live board feedback*, T-0243). */

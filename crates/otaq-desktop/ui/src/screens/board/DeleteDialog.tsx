@@ -1,8 +1,8 @@
-// The delete confirmation of a never-started ticket (*05 · Ticket side panel → Delete ticket · confirm*, *Epic dialogs
-// → Delete epic · confirm*; TKT-08, d0060, d0018): the `delete_ticket` overlay, one dialog for every place that
+// The delete confirmation of a never-started ticket (*05 · Ticket side panel → Delete ticket · confirm*; TKT-08, d0060,
+// d0018): the `delete_ticket` overlay, one dialog for every place that
 // deletes (the card menu, the sheet's "…" menu, the Project agent's summary): `openOverlay("delete_ticket", { ticket
 // })`. Its texts are the service's preview worded by `delete.rs` (`board.delete_dialog`): the ticket, that it never
-// started, the links that go and an epic's children. Cancel is the default; nothing is deleted without the confirm
+// started and the links that go. Cancel is the default; nothing is deleted without the confirm
 // click (`board.delete`, which toasts what went). A refusal (the ticket started) shows in the dialog.
 import { useEffect, useState } from "react";
 

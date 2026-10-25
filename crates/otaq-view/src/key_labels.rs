@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(mac.label(KeyAction::NewTicket).as_deref(), Some("⌘N"));
         assert_eq!(mac.label(KeyAction::Terminals).as_deref(), Some("⌃`"));
         assert_eq!(mac.label(KeyAction::ExpandSheet).as_deref(), Some("e"));
-        assert_eq!(mac.label(KeyAction::FocusEpic).as_deref(), Some("g e"));
+        assert_eq!(mac.label(KeyAction::ShowList).as_deref(), Some("g l"));
         assert_eq!(mac.label(KeyAction::FilterBoard).as_deref(), Some("/"));
         assert_eq!(mac.label(KeyAction::SwitchTab(3)).as_deref(), Some("3"));
         assert_eq!(mac.label(KeyAction::Project(2)).as_deref(), Some("⌘2"));
@@ -215,7 +215,7 @@ mod tests {
     fn with_letters_off_a_letter_only_action_shows_none() {
         let off = letters_off();
         assert_eq!(off.label(KeyAction::ExpandSheet), None);
-        assert_eq!(off.label(KeyAction::FocusEpic), None);
+        assert_eq!(off.label(KeyAction::ShowList), None);
         assert_eq!(off.label(KeyAction::SwitchTab(1)), None);
         assert_eq!(off.label(KeyAction::Terminals).as_deref(), Some("⌃`"));
     }

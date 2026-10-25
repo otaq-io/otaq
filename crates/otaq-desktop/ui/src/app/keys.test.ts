@@ -508,7 +508,6 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "next_ticket" }, [["⌘]", "Ctrl+]", "Ctrl+Shift+]"], letter("j")]],
   [{ action: "previous_ticket" }, [["⌘[", "Ctrl+[", "Ctrl+Shift+["], letter("k")]],
   [{ action: "filter_board" }, [letter("/")]],
-  [{ action: "focus_epic" }, [letter("g e")]],
   [{ action: "show_shortcuts" }, [letter("?")]],
   [{ action: "show_board" }, [["⇧⌘B", "Ctrl+Shift+B", ""], letter("g b")]],
   // 0097's Stop all row, Pause's (d0112): in terminals too.
@@ -688,7 +687,6 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["g", "b"], "show_board"],
       [["g", "a"], "switch_tab 4"],
       [["g", "t"], "terminals"],
-      [["g", "e"], "focus_epic"],
       [["⌘D"], "start_dev"],
       [["↵"], "open_sheet"],
       [["Esc"], "close_sheet"],

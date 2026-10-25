@@ -138,7 +138,7 @@ pub struct Selected<'a> {
 
 /// What [`view`] reads.
 pub struct Facts<'a> {
-    /// The project's open Project agents (not its epic leads).
+    /// The project's open Project agents.
     pub agents: &'a [ProjectAgent],
     pub looked: &'a Looked,
     /// The panel is open.

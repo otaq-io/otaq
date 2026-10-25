@@ -24,16 +24,12 @@ pub const OPEN_TERMINAL: &str = "Open terminal";
 pub const CARD_WIDTH: u32 = 220;
 pub const CARD_WIDTH_1280: u32 = 164;
 
-/// A ticket card for the page (BRD-03; *24 · The two views*): key and epic name, title, one status line, who and
+/// A ticket card for the page (BRD-03; *24 · The two views*): key, title, one status line, who and
 /// when, the coloured edge and one action. `faded` is the Done cards' opacity.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TicketCardView")]
 pub struct TicketCardView {
     pub key: String,
-    /// "SHOP-51 → SHOP-40.4" after Move to epic.
-    pub key_label: String,
-    /// The epic's name on the key's row, for an epic child ("Wishlist").
-    pub epic: Option<String>,
     /// The priority chip after the key: P1, P2 and P4, none for Normal (d0065; #36), in every column.
     pub priority: Option<PriorityView>,
     pub title: String,
@@ -79,8 +75,6 @@ impl TicketCardView {
         let several = check.is_some();
         Self {
             key: vm.key.to_string(),
-            key_label: vm.key_label,
-            epic: vm.sleeve.map(|s| s.name),
             priority: priority::on_card(ticket.priority).map(priority::view),
             title: vm.title,
             status: vm.one_line.line,
@@ -258,7 +252,6 @@ mod tests {
             "situation",
             "footer",
             "options",
-            "sleeve",
             "pinned",
             "outline",
         ] {

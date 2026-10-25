@@ -1,6 +1,5 @@
 // Where a terminal's file links open (d0117 point 8), by the terminal's host: a ticket's terminal (agent, validator,
-// Shell, Run) in the ticket's Files tab, an epic lead in the epic's Files tab, the Project agent and Project terminals
-// in the project's Files view. With a line, as File scrolled to it with the line marked.
+// Shell, Run) in the ticket's Files tab, the Project agent and Project terminals in the project's Files view. With a line, as File scrolled to it with the line marked.
 import { openFileIn } from "../screens/files/FilesTab";
 import { openProjectFile } from "../screens/files_view/logic";
 

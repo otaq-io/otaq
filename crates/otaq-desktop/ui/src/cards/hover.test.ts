@@ -16,8 +16,6 @@ import { RESTING } from "./look";
 // SHOP-32 of *24 · The two views*: a check out of rounds, Decide.
 const SHOP_32: TicketCardView = {
   key: "SHOP-32",
-  key_label: "SHOP-32",
-  epic: null,
   priority: null,
   title: "Address autocomplete",
   status: { text: "Security failed 3 times · unescaped SQL", dot: "attn", tone: "attention", icon: null },

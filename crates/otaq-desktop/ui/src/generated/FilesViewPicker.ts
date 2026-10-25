@@ -6,7 +6,7 @@ import type { FilesViewPickerSection } from "./FilesViewPickerSection";
  */
 export type FilesViewPicker = { placeholder: string, 
 /**
- * BASE BRANCH, EPICS · THE EPIC’S BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
+ * BASE BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
  */
 sections: Array<FilesViewPickerSection>, 
 /**

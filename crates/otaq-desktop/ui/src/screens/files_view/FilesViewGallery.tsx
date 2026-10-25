@@ -179,7 +179,7 @@ export function FilesViewGallery() {
       <Frame caption="Loading · the base at once, the counts follow" page={g.loading} rows={g.loading_rows} />
       <Frame caption="Nothing changing" page={g.empty} rows={[]} />
       <figure className="gallery-stack-tight">
-        <figcaption className="gallery-caption">The picker · Find a ticket or epic</figcaption>
+        <figcaption className="gallery-caption">The picker · Find a ticket</figcaption>
         <div className="popover" style={{ position: "relative", width: "fit-content" }}>
           <PickerBody picker={g.picker} query="" onQuery={ignore} onPick={ignore} />
         </div>
