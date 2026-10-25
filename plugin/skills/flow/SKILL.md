@@ -124,7 +124,7 @@ never in this repo:
 ## The file
 
 Two lists: `agents:` (who runs the stages) and `flow:` (the stages between Backlog and Done). Backlog, Ready for Dev
-and Done are always there, so never write them.
+(named Ready when the first Agent stage isn't Dev) and Done are always there, so never write them.
 
 ### Agents
 
@@ -145,7 +145,7 @@ agents:
 - **`role`** (rare): `noyan`. Exactly one agent holds it; leave it out unless the user
   asks to move a role.
 - **`instructions`**: Markdown, optional.
-- **`skills`**: the names of skills Otaq ships (`work-ticket`, `commit`, `validate`, `grill`, `open-pr`, `restack`, …)
+- **`skills`**: the names of skills Otaq ships (`work-ticket`, `commit`, `validate`, `product-spec`, `open-pr`, `restack`, …)
   or that an agent already has, or the absolute path of a skill folder (holding a `SKILL.md`) to import on Apply,
   for example `/Users/me/.claude/skills/security-review`. Every skill is copied into the worktree as `otaq-<name>`.
 - **`why`**: optional, one line on why the agent is there; the flow editor shows it. Otaq doesn't act on it.
@@ -156,14 +156,14 @@ agents:
 
 ```yaml
 flow:
-  - id: grill                    # optional; keep the id flow show printed, never invent one starting with _
-    name: Grill                  # unique; the column's title
+  - id: product-spec             # optional; keep the id flow show printed, never invent one starting with _
+    name: Product spec           # unique; the column's title
     kind: agent                  # agent · check · delivery
     column: own                  # own · with-previous
-    agent: Griller               # who runs it
-    skill: grill                 # the skill it runs first
+    agent: Spec writer           # who runs it
+    skill: product-spec          # the skill it runs first
     options: [skip]              # optional: other agents a ticket may pick instead, or skip
-    why: The user asked to settle tickets before any code is written.
+    why: The user asked to settle what to build before any code is written.
 ```
 
 | Field | Kinds | What it says |
@@ -183,12 +183,21 @@ flow:
 | `why` | every stage | One line on why the stage is there, naming its source (below). The flow editor shows it; Otaq doesn't act on it. |
 | `delivers` | delivery | `local` (Local merge, no agent), `pr` (runs its agent and skill), or `either` (the user picks; click mode only). |
 
-A whole example, the default flow with Grill first:
+A whole example, the stages and agents of the Spec first preset (`otaq flow presets` lists it): Backlog → Ready →
+Product spec → Tech spec → Milestone plan → Spec review → Dev → Validate → Code review → Done. Spec writer, Architect
+and Milestone planner settle the work first, and Spec review is the user's check of what they wrote. The shipped
+preset also gives the three planning stages and Spec review `options: [skip]`, so ordinary tickets can skip planning:
 
 ```yaml
 agents:
-  - name: Griller
-    skills: [grill]
+  - name: Spec writer
+    skills: [product-spec]
+    model: default
+  - name: Architect
+    skills: [tech-spec]
+    model: default
+  - name: Milestone planner
+    skills: [milestone-plan]
     model: default
   - name: Developer
     skills: [work-ticket, commit]
@@ -197,12 +206,30 @@ agents:
     skills: [validate]
     model: default
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
+    agent: Spec writer
+    skill: product-spec
+  - id: tech-spec
+    name: Tech spec
+    kind: agent
+    column: own
+    agent: Architect
+    skill: tech-spec
+  - id: milestone-plan
+    name: Milestone plan
+    kind: agent
+    column: own
+    agent: Milestone planner
+    skill: milestone-plan
+  - id: spec-review
+    name: Spec review
+    kind: check
+    by: you
+    column: own
+    fail_to: Product spec
   - id: dev
     name: Dev
     kind: agent
@@ -217,11 +244,13 @@ flow:
     agents: [Validator]
     skill: validate
     rounds: 3
-  - id: review
-    name: Review
+    fail_to: Dev
+  - id: code-review
+    name: Code review
     kind: check
     by: you
     column: own
+    fail_to: Dev
   - id: deliver
     name: Done
     kind: delivery

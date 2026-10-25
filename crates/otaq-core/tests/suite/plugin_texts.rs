@@ -244,6 +244,155 @@ fn grill_asks_writes_the_agreement_and_moves_on() {
     );
 }
 
+/// A skill's text with every run of whitespace as one space, so a phrase reads the same wherever the text wraps.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// T-0546 (d0129, d0084, d0131 Q514): `product-spec` finds where the project keeps its decisions (asking once when the
+/// notes don't say), asks one question at a time with `ask human`, commits the decisions and docs, ends with
+/// `stage next` naming what it wrote, and knows the plain Send back sentence.
+#[test]
+fn product_spec_asks_one_at_a_time_commits_and_moves_on() {
+    let cmd = naming::COMMAND_NAME;
+    let spec = flat(&read_skill("product-spec"));
+    for step in [
+        format!("{cmd} prime"),
+        "Notes every agent in".to_owned(),
+        "ask the user once".to_owned(),
+        "record the answer in the ticket's description".to_owned(),
+        format!("{cmd} update SHOP-40 --stdin"),
+        format!("{cmd} ask human"),
+        "Ask one question at a time".to_owned(),
+        "what to build, for whom and why".to_owned(),
+        format!(
+            "with the commit skill `prime` names (`{}`",
+            naming::copy_name("commit")
+        ),
+        format!("{cmd} stage next --stdin"),
+        "Product spec: decisions/0140 (the share link), DESIGN.md".to_owned(),
+        format!("Spec review sent SHOP-40 back to you with a comment. Run `{cmd} prime`."),
+        "Only when the user agrees the ticket isn't needed".to_owned(),
+    ] {
+        assert!(spec.contains(&step), "product-spec must say {step:?}");
+    }
+    let ask = spec.find(&format!("{cmd} ask human")).unwrap();
+    let commit = spec.find("**Commit everything**").unwrap();
+    let next = spec.find(&format!("{cmd} stage next --stdin")).unwrap();
+    assert!(
+        ask < commit && commit < next,
+        "ask, then commit, then stage next"
+    );
+    assert!(
+        !spec.contains(&format!("{cmd} check ")),
+        "product-spec gives no verdict"
+    );
+}
+
+/// T-0546 (d0129, d0084): `tech-spec` reads what Product spec committed, asks only where a choice changes what gets
+/// built and decides the rest, commits the architecture decisions and docs, and ends with `stage next`; when the card
+/// walks its stage again it changes only what the change touches.
+#[test]
+fn tech_spec_reads_the_product_spec_decides_commits_and_moves_on() {
+    let cmd = naming::COMMAND_NAME;
+    let spec = flat(&read_skill("tech-spec"));
+    for step in [
+        format!("{cmd} prime"),
+        "git diff main...HEAD".to_owned(),
+        "Read what Product spec committed".to_owned(),
+        "Ask the user only where a choice changes what gets built".to_owned(),
+        "Decide everything else yourself".to_owned(),
+        format!("{cmd} ask human"),
+        format!(
+            "with the commit skill `prime` names (`{}`",
+            naming::copy_name("commit")
+        ),
+        format!("{cmd} stage next --stdin"),
+        format!(
+            "SHOP-40 is back in Tech spec: Spec review sent it to Product spec, which finished. Run `{cmd} prime`."
+        ),
+    ] {
+        assert!(spec.contains(&step), "tech-spec must say {step:?}");
+    }
+    assert!(
+        !spec.contains(&format!("{cmd} check ")),
+        "tech-spec gives no verdict"
+    );
+}
+
+/// T-0546 (d0129 as d0133 refines it): `milestone-plan` writes the ticket's Plan with `update --plan-file`, files no
+/// tickets, writes the plan into the project's docs and commits, ends with `stage next`, and after a Send back starts
+/// from the Plan as it is now, keeping the user's edits and changing only what the comment asks.
+#[test]
+fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
+    let cmd = naming::COMMAND_NAME;
+    let plan = flat(&read_skill("milestone-plan"));
+    for step in [
+        format!("{cmd} prime"),
+        format!("{cmd} update SHOP-40 --plan-file \"$plan\""),
+        "**You file nothing.**".to_owned(),
+        "**File nothing**".to_owned(),
+        "they ask Noyan to file them".to_owned(),
+        "**Start from the Plan as `prime` shows it now**".to_owned(),
+        "**Keep the user's edits**".to_owned(),
+        "unless their comment says otherwise".to_owned(),
+        "**Change only what the comment asks**".to_owned(),
+        format!(
+            "with the commit skill `prime` names (`{}`",
+            naming::copy_name("commit")
+        ),
+        format!("{cmd} stage next --stdin"),
+        "Milestone plan: 4 pieces; docs/milestones/wishlist.md".to_owned(),
+    ] {
+        assert!(plan.contains(&step), "milestone-plan must say {step:?}");
+    }
+    assert!(
+        !plan.contains(&format!("{cmd} create")),
+        "milestone-plan files nothing"
+    );
+    assert!(
+        !plan.contains(&format!("{cmd} check ")),
+        "milestone-plan gives no verdict"
+    );
+    let write = plan.find("**Write the ticket's Plan**").unwrap();
+    let next = plan.find("**End your stage**").unwrap();
+    assert!(write < next, "the Plan, then stage next");
+}
+
+/// T-0546 (d0133 "The Plan has one fixed Pieces list"): the Plan `milestone-plan` shows reads with Otaq's own parser
+/// as the pieces, titles and waits it means, so the skill and `domain::plan` can't drift apart.
+#[test]
+fn the_milestone_plan_example_parses_as_its_pieces() {
+    let skill = read_skill("milestone-plan");
+    let start = skill.find("<<'PLAN'\n").expect("the Plan example") + "<<'PLAN'\n".len();
+    let end = start
+        + skill[start..]
+            .find("\nPLAN\n")
+            .expect("the Plan example's end");
+    let pieces = otaq_core::domain::plan::pieces(&skill[start..end]);
+    let read: Vec<(u32, &str, &[u32])> = pieces
+        .iter()
+        .map(|p| (p.number, p.title.as_str(), p.waits_for.as_slice()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (1, "Wishlist API", &[][..]),
+            (2, "Wishlist button", &[1][..]),
+            (3, "Wishlist page", &[1][..]),
+            (4, "Share link", &[2, 3][..]),
+        ]
+    );
+    assert!(
+        pieces.iter().all(|p| !p.text.is_empty()),
+        "each piece has its details"
+    );
+    assert_eq!(
+        otaq_core::domain::plan::order_line(&pieces).as_deref(),
+        Some("Pieces: 4 (1 \u{2192} 2, 3 \u{2192} 4)")
+    );
+}
+
 /// T-0415 (FLW-11, FLW-21; d0108 "The CLI proposes a whole document", "Every why line names its source"): `flow`
 /// reads with `flow show`, proposes with `flow propose --stdin`, waits for the answer as its next message, and
 /// documents every field of the format.
@@ -295,8 +444,8 @@ fn flow_writes_a_stages_skill_only_in_otaqs_folder() {
     }
 }
 
-/// T-0415 (FLW-11): the `flow` skill's whole example is a flow `propose` reads and the checks pass, the same as the
-/// Grill first preset.
+/// T-0415 (FLW-11), T-0546 (d0129): the `flow` skill's whole example is a flow `propose` reads and the checks pass:
+/// Spec first's stages and agents, Spec review's fails going to Product spec.
 #[test]
 fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     let flow = read_skill("flow");
@@ -305,8 +454,45 @@ fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     let end = start + flow[start..].find("```").unwrap();
     let file = otaq_core::flow::yaml::read(&flow[start..end]).expect("the example reads");
     assert_eq!(otaq_core::flow::check(&file.flow), Ok(()));
-    let grill_first = otaq_core::flow::presets::preset("grill-first.yaml").unwrap();
-    assert_eq!(file, grill_first.read());
+    let stages: Vec<&str> = file.flow.stages.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        stages,
+        [
+            "Product spec",
+            "Tech spec",
+            "Milestone plan",
+            "Spec review",
+            "Dev",
+            "Validate",
+            "Code review",
+            "Done"
+        ]
+    );
+    let agents: Vec<(&str, &[String])> = file
+        .agents
+        .iter()
+        .map(|a| (a.name.as_str(), a.skills.as_slice()))
+        .collect();
+    for (agent, skill) in [
+        ("Spec writer", "product-spec"),
+        ("Architect", "tech-spec"),
+        ("Milestone planner", "milestone-plan"),
+    ] {
+        assert!(
+            agents
+                .iter()
+                .any(|(a, s)| *a == agent && s == &[skill.to_owned()]),
+            "{agent} runs {skill}"
+        );
+    }
+    let review = file
+        .flow
+        .stages
+        .iter()
+        .find(|s| s.name == "Spec review")
+        .unwrap();
+    assert_eq!(review.fail_to.as_deref(), Some("product-spec"));
+    assert!(flow.contains("Backlog \u{2192} Ready \u{2192}\nProduct spec"));
 }
 
 /// T-0415 (FLW-21, FLW-15; d0108 rule 8, d0050): `open-pr` describes both modes: click (the user confirms in the

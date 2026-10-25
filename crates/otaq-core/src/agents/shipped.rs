@@ -27,10 +27,13 @@ pub const SKILLS: &[&str] = &[
     "commit",
     "flow",
     "grill",
+    "milestone-plan",
     "noyan",
     "open-pr",
+    "product-spec",
     "push",
     "restack",
+    "tech-spec",
     "validate",
     "work-ticket",
 ];

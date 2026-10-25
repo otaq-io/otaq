@@ -318,11 +318,11 @@ Every command takes `--json`. Run `otaq --help` for the full list.
 
 The agent's workflow lives in [`plugin/`](plugin) as skills: `work-ticket` (the main loop, for the agent in charge
 and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`, `answer-question`, `restack`, `flow`,
-`grill` and `noyan` (one ticket with a Plan, or several tickets). Otaq gives the same skills to every tool, in the
-way that tool loads them (a Claude Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode), and so
-on). You can replace the commit, push, open-PR and validate skills with your own, globally or per project, and
-the setting applies to every tool. The hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are
-unaffected.
+`product-spec`, `tech-spec`, `milestone-plan` (the Spec first preset's planning stages) and `noyan` (one ticket
+with a Plan, or several tickets). Otaq gives the same skills to every tool, in the way that tool loads them (a Claude
+Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode), and so on). You can replace the commit,
+push, open-PR and validate skills with your own, globally or per project, and the setting applies to every tool. The
+hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are unaffected.
 
 ## Architecture
 
