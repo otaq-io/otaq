@@ -65,6 +65,12 @@ impl Item {
                     // Session, on the side that needs you (the check's while it asks).
                     session_tab::lands_on(i.status)
                 },
+                // A helper's permission prompt opens its own terminal (d0133 audit 3).
+                piece: i
+                    .piece
+                    .as_ref()
+                    .filter(|w| w.kind == otaq_core::domain::PieceWaitKind::NeedsYou)
+                    .map(|w| w.label.clone()),
             },
             Self::Agent(a) => Target::Agent {
                 project: a.project.clone(),
@@ -119,11 +125,12 @@ pub fn project_order(list: &NeedsYouList) -> Vec<String> {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "StripTarget")]
 pub enum Target {
-    /// A ticket on `tab`.
+    /// A ticket on `tab`; on Session, `piece` names the helper whose terminal opens ("40.3", d0133 audit 3).
     Ticket {
         project: String,
         key: String,
         tab: Content,
+        piece: Option<String>,
     },
     /// A plain Project agent in the panel.
     Agent { project: String, agent: String },
@@ -226,6 +233,66 @@ pub struct Chip {
     /// The hover: the key, the title and the service's reason ("SHOP-22 Fix flaky login redirect · permission: …").
     pub title: String,
     pub target: Target,
+    /// A helper's question the agent in charge passed on (d0133, `s30-02`): the chip opens this first.
+    pub asks: Option<AsksPopover>,
+}
+
+/// The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, the agent in
+/// charge's note, **Answer 40.2…** and **Open in the ticket**. `StripAsks` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "StripAsks")]
+pub struct AsksPopover {
+    /// "SHOP-40 · 40.2 asks".
+    pub title: String,
+    /// "Keep the heart filled after sign-out?"
+    pub question: String,
+    /// "The agent in charge passed this to you: it's a product question the plan doesn't answer."
+    pub note: Option<String>,
+    /// "Answer 40.2…": the ticket's answer box, on Overview.
+    pub answer: String,
+    pub answer_target: Target,
+    /// "Open in the ticket": the helper's terminal.
+    pub open: String,
+    pub open_target: Target,
+}
+
+/// The popover of a ticket whose helper's question was passed on to the user; `None` otherwise.
+fn asks_popover(item: &NeedsYouItem) -> Option<AsksPopover> {
+    use otaq_core::domain::PieceWaitKind;
+    let wait = item
+        .piece
+        .as_ref()
+        .filter(|w| w.kind == PieceWaitKind::Asks)?;
+    let prefix = format!("{} asks: ", wait.label);
+    let question = wait
+        .line
+        .strip_prefix(&prefix)
+        .unwrap_or(&wait.line)
+        .trim()
+        .to_owned();
+    let mut question_chars = question.chars();
+    let question = match question_chars.next() {
+        Some(first) => first.to_uppercase().chain(question_chars).collect(),
+        None => question,
+    };
+    let ticket = |tab: Content, piece: Option<String>| Target::Ticket {
+        project: item.project.clone(),
+        key: item.key.to_string(),
+        tab,
+        piece,
+    };
+    Some(AsksPopover {
+        title: wait.chip.clone(),
+        question,
+        note: wait.note.as_deref().map(|n| {
+            let n = n.trim().trim_end_matches('.');
+            format!("The agent in charge {n}.")
+        }),
+        answer: format!("Answer {}\u{2026}", wait.label),
+        answer_target: ticket(Content::Overview, None),
+        open: "Open in the ticket".to_owned(),
+        open_target: ticket(Content::Agent, Some(wait.label.clone())),
+    })
 }
 
 /// The groups of 0016's queue. `StripGroupId` on the page.
@@ -379,7 +446,22 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         Tone::Attn,
         "a question".to_owned(),
     );
-    let (icon, tone, reason) = if item.message.is_some() {
+    let (icon, tone, reason) = if let Some(wait) = item
+        .piece
+        .as_ref()
+        .filter(|_| matches!(item.status, Status::AsksYou | Status::NeedsYou))
+    {
+        // A helper waits (d0133 audit 3): "SHOP-40 · 40.2 asks", "SHOP-40 · 40.3 needs you".
+        let reason = wait
+            .chip
+            .strip_prefix(&format!("{} \u{b7} ", item.key))
+            .unwrap_or(&wait.chip)
+            .to_owned();
+        match wait.kind {
+            otaq_core::domain::PieceWaitKind::Asks => (asks.0, asks.1, reason),
+            otaq_core::domain::PieceWaitKind::NeedsYou => (IconName::Hand, Tone::Attn, reason),
+        }
+    } else if item.message.is_some() {
         asks
     } else if item.group == NeedsYouGroup::Review {
         let reason = match item.waiting_in.as_ref().and_then(|w| w.delivers) {
@@ -407,6 +489,12 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
                 Tone::Paused,
                 "parent closed".to_owned(),
             ),
+            // A ticket whose helpers were working too is one item with its own Resume panel (d0133 audit 5).
+            Status::Interrupted if !item.helpers_to_resume.is_empty() => (
+                IconName::CirclePause,
+                Tone::Paused,
+                "interrupted".to_owned(),
+            ),
             // An interrupted session: Resume all's.
             _ => return None,
         }
@@ -418,6 +506,7 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         tone,
         title: format!("{} {} \u{b7} {}", item.key, item.title, item.reason),
         target,
+        asks: asks_popover(item),
     })
 }
 
@@ -433,6 +522,7 @@ fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         tone: Tone::Investigate,
         title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
         target,
+        asks: None,
     }
 }
 
@@ -719,6 +809,88 @@ mod tests {
             .collect()
     }
 
+    /// d0133 (`s30-02`): a helper's wait is its ticket's one chip, in the queue's place (d0016): "SHOP-40 · 40.2 asks"
+    /// with the popover (the question, the agent in charge's note, Answer 40.2…, Open in the ticket), "SHOP-40 · 40.3
+    /// needs you" opening 40.3's terminal, and "SHOP-40 interrupted" when helpers were working.
+    #[test]
+    fn a_helpers_wait_is_its_tickets_chip() {
+        use crate::view_models::pieces::fixtures::waiting;
+        let with = |asks: bool| {
+            let status = if asks {
+                Status::AsksYou
+            } else {
+                Status::NeedsYou
+            };
+            let mut t = ticket("SHOP-40", "Wishlist", status, "…");
+            t.piece = Some(waiting(asks).0);
+            item(t)
+        };
+        let items = [
+            item(ticket(
+                "SHOP-22",
+                "Fix flaky login",
+                Status::NeedsYou,
+                "permission: x",
+            )),
+            with(true),
+        ];
+        let v = draw(&items, None);
+        assert_eq!(
+            chips(&v.groups[0]),
+            ["SHOP-22 allow a command", "SHOP-40 40.2 asks"]
+        );
+        let asks = v.groups[0].chips[1].asks.clone().expect("the popover");
+        assert_eq!(asks.title, "SHOP-40 · 40.2 asks");
+        assert_eq!(asks.question, "Keep the heart filled after sign-out?");
+        assert_eq!(
+            asks.note.as_deref(),
+            Some(
+                "The agent in charge passed this to you: it’s a product question the plan doesn’t answer."
+            )
+        );
+        assert_eq!(
+            (asks.answer.as_str(), asks.open.as_str()),
+            ("Answer 40.2…", "Open in the ticket")
+        );
+        assert!(matches!(
+            asks.answer_target,
+            Target::Ticket {
+                tab: Content::Overview,
+                piece: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            asks.open_target,
+            Target::Ticket { tab: Content::Agent, piece: Some(ref p), .. } if p == "40.2"
+        ));
+        assert_eq!(v.groups[0].chips[0].asks, None);
+
+        let v = draw(&[with(false)], None);
+        assert_eq!(chips(&v.groups[0]), ["SHOP-40 40.3 needs you"]);
+        assert!(matches!(
+            v.groups[0].chips[0].target,
+            Target::Ticket { tab: Content::Agent, piece: Some(ref p), .. } if p == "40.3"
+        ));
+
+        let mut stopped = ticket(
+            "SHOP-40",
+            "Wishlist",
+            Status::Interrupted,
+            "session interrupted",
+        );
+        stopped.helpers_to_resume = vec!["40.2".into(), "40.3".into()];
+        let alone = ticket(
+            "SHOP-33",
+            "Shipping estimate",
+            Status::Interrupted,
+            "session interrupted",
+        );
+        let v = draw(&[item(stopped), item(alone)], None);
+        assert_eq!(v.groups[0].title, "Interrupted · 2");
+        assert_eq!(chips(&v.groups[0]), ["SHOP-40 interrupted"]);
+    }
+
     fn open_ticket(key: &str) -> Open {
         Open::Ticket { key: key.into() }
     }
@@ -753,7 +925,8 @@ mod tests {
             Target::Ticket {
                 project: "SHOP".into(),
                 key: "SHOP-18".into(),
-                tab: Content::Files
+                tab: Content::Files,
+                piece: None,
             }
         );
         assert_eq!(

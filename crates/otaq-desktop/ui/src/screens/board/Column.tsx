@@ -39,6 +39,7 @@ import type { DragVerdict } from "../../generated/DragVerdict";
 import type { ViewChange } from "../../generated/ViewChange";
 import { Icon } from "../../theme/Icon";
 import { columnEditorOpen, openFlowEditor } from "../flow_editor/logic";
+import { shownPiece } from "../session/terminalLogic";
 import { chainStateOf, membersIn } from "./chain";
 import { type AboveChip, aboveChip } from "./drag";
 
@@ -116,6 +117,8 @@ const CardItem = memo(function CardItem({
         card={card.card}
         state={state}
         onAction={(kind) => {
+          // A helper's permission prompt (d0133): the action opens that helper's terminal, else the agent in charge's.
+          shownPiece.set(card.card.pieces?.opens ?? null);
           handlers.action(key, kind);
         }}
         onOpenSheet={() => {

@@ -509,6 +509,7 @@ const change = (path: string, extra: Partial<FilesChangeRow> = {}): FilesChangeR
   can_open: true,
   commentable: false,
   tags: [],
+  pieces: [],
   ...extra,
 });
 

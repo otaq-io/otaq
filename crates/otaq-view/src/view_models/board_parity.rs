@@ -39,6 +39,7 @@ fn facts<'a>(name: &'static str, flow: &'a Flow) -> ProjectFacts<'a> {
         starts_held: None,
         view: Box::leak(Box::default()),
         paused: false,
+        helpers: &[],
     }
 }
 
@@ -186,6 +187,8 @@ fn drop_footer_seconds(value: &mut Value) {
                 map.remove("check");
                 // T-0540: the Plan's line (d0133), none on the default board.
                 map.remove("plan");
+                // T-0541: a build stage's piece rows (d0133), none on the default board.
+                map.remove("pieces");
             }
             map.values_mut().for_each(drop_footer_seconds);
         }

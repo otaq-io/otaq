@@ -283,6 +283,7 @@ async fn action_for(
         R::AgentsModels(_) => Action::Read,
         R::TicketAgents(_) => Action::Read,
         R::BoardAgents(_) => Action::Read,
+        R::BoardHelpers(_) => Action::Read,
         // Starts the tool: only the user's Settings → Agents asks for it.
         R::AgentsModelsRefresh(_) => Action::UserOnly("read the model lists again"),
         R::AgentsModelsRetry(_) => Action::UserOnly("read the model lists again"),

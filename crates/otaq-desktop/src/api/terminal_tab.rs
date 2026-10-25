@@ -194,6 +194,12 @@ pub struct View {
     pub typing: Option<session_tab::Typing>,
     /// Set once a check stage ran: Session's switch shows its side, one per check agent of its round (d0130).
     pub checks: Vec<Check>,
+    /// A build stage's helpers (d0133, `s30-03`): one terminal per helper that has a session, opened from Session's
+    /// list; `agent` is its piece ("40.3"), and typing goes to that helper.
+    pub helpers: Vec<Check>,
+    /// After a restart with helpers working (d0133 audit 5, `s30-02`): the ticket's one Resume, the agent in charge
+    /// and each helper it brings back.
+    pub resume: Option<otaq_view::view_models::pieces::ResumePanel>,
 }
 
 /// What `terminal_tab.view` answers: the view, or "SHOP-25 is gone." once the ticket was deleted.
@@ -419,7 +425,64 @@ pub fn view_with(
             .filter(|_| running && !recovering)
             .map(|agent| session_tab::typing_goes_to(&agent, &ticket.key)),
         checks,
+        helpers: Vec::new(),
+        resume: None,
     }
+}
+
+/// The view of a ticket whose build stage split its work (d0133, `s30-03`): the agent in charge's line ("Developer ·
+/// in charge · ~/.otaq/wt/shop-web/SHOP-40 · the ticket's branch") and a terminal per helper with a session ("Helper
+/// for 40.3 · Claude Code · sonnet · its own worktree, otaq/SHOP-40.3", "Typing goes to 40.3’s helper · SHOP-40").
+pub fn with_helpers(
+    mut view: View,
+    ticket: &Ticket,
+    sessions: &[SessionInfo],
+    helpers: &[otaq_core::helpers::Helper],
+) -> View {
+    use otaq_view::view_models::pieces;
+    let mine: Vec<&otaq_core::helpers::Helper> =
+        helpers.iter().filter(|h| h.ticket == ticket.key).collect();
+    if mine.is_empty() {
+        return view;
+    }
+    let agent = session_tab::agent_session(sessions)
+        .and_then(|s| s.agent.as_ref())
+        .map_or("Agent", |a| a.name.as_str());
+    if session_tab::agent_session(sessions).is_some() {
+        let worktree = ticket.work.as_ref().and_then(|w| w.worktree.as_deref());
+        view.line = Some(pieces::in_charge_line(agent, worktree));
+    }
+    view.resume = pieces::resume_panel(&pieces::Facts::new(ticket, helpers), agent);
+    view.helpers = mine
+        .into_iter()
+        .filter_map(|h| {
+            let session = sessions.iter().find(|s| Some(&s.id) == h.session.as_ref())?;
+            let running = session.is_running();
+            let strips = PHASES
+                .iter()
+                .flat_map(|phase| [false, true].map(|focused| (phase.clone(), focused)))
+                .map(|(phase, focused)| Strip {
+                    state: strip::tab_state(&phase, otaq_core::domain::Status::Working, false),
+                    hint: strip::hint(&phase, focused, otaq_core::domain::Status::Working, false, 0),
+                    phase,
+                    focused,
+                })
+                .collect();
+            Some(Check {
+                session: session.id.clone(),
+                label: h.label(),
+                agent: Some(h.label()),
+                terminal_label: format!("{} \u{b7} {}\u{2019}s helper terminal", ticket.key, h.label()),
+                line: pieces::helper_line(h, session.tool, model_of(session)),
+                typing: running.then(|| pieces::helper_typing(h)),
+                read_only: !running,
+                strips,
+                // A helper has no attach command of its own yet: the strip shows none.
+                attach_command: String::new(),
+            })
+        })
+        .collect();
+    view
 }
 
 async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
@@ -519,16 +582,18 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         None
     };
     let keys = super::keymap::labels(app).await;
+    let helpers = super::board::helpers(app, ticket.key.project.as_str()).await;
+    let view = view_with(
+        &ticket,
+        &sessions,
+        &rounds,
+        &checks,
+        &name,
+        before.as_ref(),
+        &keys,
+    );
     Ok(Load {
-        view: Some(view_with(
-            &ticket,
-            &sessions,
-            &rounds,
-            &checks,
-            &name,
-            before.as_ref(),
-            &keys,
-        )),
+        view: Some(with_helpers(view, &ticket, &sessions, &helpers)),
         gone,
     })
 }
@@ -817,6 +882,73 @@ mod tests {
             notes: Vec::new(),
             tokens: None,
         }
+    }
+
+    /// d0133 (`s30-02`, `s30-03`): a ticket that split its work leads with the agent in charge's line, has a terminal
+    /// per helper with a session (typing goes to that helper, no attach command), and after a restart its one Resume.
+    #[test]
+    fn a_ticket_with_helpers_has_their_terminals_and_one_resume() {
+        use otaq_core::helpers::HelperStatus;
+        use otaq_view::view_models::pieces::fixtures::helper;
+        let mut agent = session("a1", SessionState::Running, 0);
+        agent.agent = Some(otaq_core::session::SessionAgent {
+            id: "dev".into(),
+            name: "Developer".into(),
+        });
+        let mut h3 = session("h3", SessionState::Running, 5);
+        h3.kind = otaq_core::session::SessionKind::Helper;
+        h3.tool = Some(otaq_core::agent_tools::Tool::Claude);
+        h3.model = Some("sonnet".into());
+        let mut wishlist = helper("SHOP-19", 3, "Wishlist page", HelperStatus::Working);
+        wishlist.session = Some("h3".into());
+        let helpers = vec![
+            helper("SHOP-19", 1, "Wishlist API", HelperStatus::Merged),
+            wishlist,
+        ];
+        let sessions = [agent, h3];
+        let t = ticket(Status::Working);
+        let view = with_helpers(
+            view_of(&t, &sessions, &[], "shop-web", None),
+            &t,
+            &sessions,
+            &helpers,
+        );
+        assert_eq!(
+            view.line.as_deref(),
+            Some("Developer \u{b7} in charge \u{b7} /Users/me/.data/wt/shop-web/SHOP-19 \u{b7} the ticket\u{2019}s branch")
+        );
+        let [h] = view.helpers.as_slice() else {
+            panic!("one helper terminal: {:?}", view.helpers);
+        };
+        assert_eq!(h.session, "h3");
+        assert_eq!(h.agent.as_deref(), Some("19.3"));
+        assert_eq!(
+            h.line,
+            format!(
+                "Helper for 19.3 \u{b7} Claude Code \u{b7} sonnet \u{b7} its own worktree, {}",
+                otaq_core::naming::branch("SHOP-19.3")
+            )
+        );
+        assert_eq!(
+            h.typing.as_ref().map(|t| t.focused.as_str()),
+            Some("Typing goes to 19.3\u{2019}s helper \u{b7} SHOP-19")
+        );
+        assert_eq!(h.attach_command, "");
+        assert_eq!(view.resume, None);
+
+        let mut stopped = ticket(Status::Interrupted);
+        stopped.flags.helpers_to_resume = vec!["19.3".into()];
+        let view = with_helpers(
+            view_of(&stopped, &sessions, &[], "shop-web", None),
+            &stopped,
+            &sessions,
+            &helpers,
+        );
+        assert_eq!(view.resume.unwrap().title, "Resume SHOP-19");
+
+        // Without helpers: as today.
+        let plain = with_helpers(view_of(&t, &sessions, &[], "shop-web", None), &t, &sessions, &[]);
+        assert!(plain.helpers.is_empty());
     }
 
     #[test]

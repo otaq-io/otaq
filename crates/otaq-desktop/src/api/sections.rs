@@ -405,6 +405,7 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
     let facts = history::Facts {
         stages,
         avatars: tool_avatar::shown(),
+        ..history::Facts::default()
     };
     let rows = history::rows_with_rounds(&events, &sessions, &usage, &records, rounds, &facts);
     // The named agents each session ran on (AGT-05): left out when the rows can't be read.

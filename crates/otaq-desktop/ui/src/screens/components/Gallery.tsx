@@ -924,6 +924,12 @@ function Cards() {
       <Section title="29/30 · Several check agents in one Check stage · at 1280 (M44, T-0531)">
         <CardGrid cells={view.checks} width={view.width_1280} onPick={setPicked} />
       </Section>
+      <Section title="30 · The card in Dev · a row per piece (M45, T-0541)">
+        <CardGrid cells={view.pieces} width={view.width} onPick={setPicked} />
+      </Section>
+      <Section title="30 · The card in Dev · at 1280 (M45, T-0541)">
+        <CardGrid cells={view.pieces} width={view.width_1280} onPick={setPicked} />
+      </Section>
     </>
   );
 }

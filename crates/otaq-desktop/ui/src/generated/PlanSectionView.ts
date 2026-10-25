@@ -3,6 +3,7 @@ import type { DescriptionLeaveDialog } from "./DescriptionLeaveDialog";
 import type { DescriptionSaveBar } from "./DescriptionSaveBar";
 import type { PlanEmpty } from "./PlanEmpty";
 import type { PlanPieceView } from "./PlanPieceView";
+import type { PlanStatusesView } from "./PlanStatusesView";
 
 /**
  * Overview's PLAN section (`PlanSectionView` on the page).
@@ -43,4 +44,10 @@ pieces: Array<PlanPieceView>, click_to_edit: string, placeholder: string,
 /**
  * "Plan changed · Discard · Save ⌘S".
  */
-bar: DescriptionSaveBar, leave: DescriptionLeaveDialog, };
+bar: DescriptionSaveBar, leave: DescriptionLeaveDialog, 
+/**
+ * Once the ticket split its work (d0133, `s30-03`): each piece's status as Otaq records it, in its own column
+ * beside the text ("Status · from Otaq"), never part of the Plan; set by the service's helpers
+ * ([`crate::view_models::pieces::plan_statuses`]).
+ */
+statuses: PlanStatusesView | null, };

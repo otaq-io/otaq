@@ -38,6 +38,68 @@ pub struct Facts {
     /// Stage id → its name in the ticket's flow now.
     pub stages: BTreeMap<String, String>,
     pub avatars: bool,
+    /// The ticket's agent sessions' starts and agents, oldest first: who was in charge at a helper's row (d0133);
+    /// filled from the sessions by [`rows_in`].
+    pub agents: Vec<(i64, String)>,
+}
+
+/// The agent in charge at `at`: the agent of the ticket's latest agent session started by then ("Developer").
+fn in_charge_at(facts: &Facts, at: i64) -> String {
+    facts
+        .agents
+        .iter()
+        .rev()
+        .find(|(started, _)| *started <= at)
+        .map_or_else(
+            || "The agent in charge".to_owned(),
+            |(_, name)| name.clone(),
+        )
+}
+
+/// A helper's row (d0133): `who` is the agent in charge then. "Developer started a helper for 40.3" · "Wishlist page";
+/// "Developer sent 40.3 back: no empty state"; "40.3 handed its piece back" · its summary; "Developer merged 40.1" ·
+/// "Wishlist API"; "40.3 is waiting for limit reset".
+fn helper_line(p: &serde_json::Value, who: &str) -> (String, Option<String>) {
+    let label = text(p, "label").unwrap_or_default();
+    let title = text(p, "title").filter(|t| !t.is_empty());
+    let note = text(p, "note")
+        .map(|n| {
+            n.lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches('.')
+                .to_owned()
+        })
+        .filter(|n| !n.is_empty());
+    match text(p, "what").as_deref() {
+        Some("started") => (format!("{who} started a helper for {label}"), title),
+        Some("sent_back") => (
+            match note {
+                Some(note) => format!(
+                    "{who} sent {label} back: {}",
+                    crate::view_models::card::lowered(&note)
+                ),
+                None => format!("{who} sent {label} back"),
+            },
+            title,
+        ),
+        Some("handed_back") => (format!("{label} handed its piece back"), note),
+        Some("merged") => (format!("{who} merged {label}"), title),
+        Some("held") => (format!("{label} is waiting for limit reset"), title),
+        // Its questions (d0133 audit 3, d0030): who answered is in the line.
+        Some("asked") => (format!("{label} asked the agent in charge"), note),
+        Some("answered") => (format!("{who} answered {label}\u{2019}s question"), note),
+        Some("passed_on") => (
+            format!("{who} passed {label}\u{2019}s question to you"),
+            note,
+        ),
+        Some("you_answered") => (format!("You answered {label}\u{2019}s question"), note),
+        other => (
+            format!("{label} \u{b7} {}", other.unwrap_or_default()),
+            note,
+        ),
+    }
 }
 
 /// How a line of a before / after reads.
@@ -179,7 +241,8 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::PrConfirmed
         | EventKind::PrCancelled
         | EventKind::PrOpened
-        | EventKind::AutoMergeStopped => Kind::Stage,
+        | EventKind::AutoMergeStopped
+        | EventKind::Helper => Kind::Stage,
         _ => Kind::Other,
     }
 }
@@ -266,6 +329,17 @@ pub fn rows_in(
         .iter()
         .flat_map(|s| session_rows(s, usage, facts))
         .collect();
+    // Who was in charge at each helper row (d0133): the ticket's agent sessions.
+    let mut facts = facts.clone();
+    if facts.agents.is_empty() {
+        facts.agents = sessions
+            .iter()
+            .filter(|s| s.kind == SessionKind::Agent)
+            .filter_map(|s| Some((s.started_at, s.agent.as_ref()?.name.clone())))
+            .collect();
+        facts.agents.sort();
+    }
+    let facts = &facts;
     rows.extend(events.iter().filter_map(|e| event_row_in(e, facts)));
     // Newest first; a session row comes before an event at the same moment.
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -1113,28 +1187,9 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 who(&e.actor)
             )),
         ),
-        // A helper's change (d0133): "40.3 Wishlist page · merged", a note's first line under it; its questions name
-        // who answered ("40.2 Wishlist button · answered by you").
-        EventKind::Helper => {
-            let label = text(p, "label").unwrap_or_default();
-            let title = text(p, "title").unwrap_or_default();
-            let what = text(p, "what").unwrap_or_default();
-            let what = match what.as_str() {
-                "held" => "waiting for limit reset",
-                "sent_back" => "sent back",
-                "handed_back" => "handed back",
-                // Its questions (d0133 audit 3, d0030): who answered is in the line.
-                "asked" => "asked the agent in charge",
-                "answered" => "answered by the agent in charge",
-                "passed_on" => "question passed on to you",
-                "you_answered" => "answered by you",
-                other => other,
-            };
-            (
-                format!("{label} {title} \u{b7} {what}"),
-                text(p, "note").map(first_line),
-            )
-        }
+        // A helper's change (d0133, `s30-03`): "Developer started a helper for 40.3" · "Wishlist page", "Developer sent
+        // 40.3 back: no empty state", "Developer merged 40.1" · "Wishlist API"; who is the agent in charge then.
+        EventKind::Helper => helper_line(p, &in_charge_at(facts, e.at)),
         // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
         // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
         // "Moved to Review" · "by you · Security was removed".
@@ -1492,6 +1547,77 @@ mod tests {
 
     const MIN: i64 = 60_000;
 
+    /// d0133 (`s30-03`): a helper's rows name the agent in charge then, under the Stages filter: "Developer started a
+    /// helper for 40.3" · "Wishlist page", "Developer sent 40.3 back: no empty state", "Developer merged 40.1".
+    #[test]
+    fn a_helpers_rows_name_the_agent_in_charge() {
+        let mut dev = session("s1", 0, None, None);
+        dev.agent = Some(otaq_core::session::SessionAgent {
+            id: "dev".into(),
+            name: "Developer".into(),
+        });
+        let helper = |at, what: &str, label: &str, title: &str, note: Option<&str>| HistoryEvent {
+            actor: Actor::Agent("SHOP-40".parse().unwrap()),
+            ..event(
+                EventKind::Helper,
+                at,
+                serde_json::json!({"piece": 3, "label": label, "title": title, "what": what, "note": note}),
+            )
+        };
+        let events = [
+            helper(MIN, "started", "40.3", "Wishlist page", None),
+            helper(
+                2 * MIN,
+                "handed_back",
+                "40.3",
+                "Wishlist page",
+                Some("Page done, with tests."),
+            ),
+            helper(
+                3 * MIN,
+                "sent_back",
+                "40.3",
+                "Wishlist page",
+                Some("No empty state.\nAdd one."),
+            ),
+            helper(4 * MIN, "merged", "40.1", "Wishlist API", None),
+        ];
+        let rows = oldest_first(rows_in(&events, &[dev], &[], &Facts::default()));
+        let shown: Vec<(String, Option<String>, Kind)> = rows
+            .iter()
+            .filter(|r| !r.is_session)
+            .map(|r| (r.title.clone(), r.detail.clone(), r.kind))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "Developer started a helper for 40.3".to_owned(),
+                    Some("Wishlist page".to_owned()),
+                    Kind::Stage
+                ),
+                (
+                    "40.3 handed its piece back".to_owned(),
+                    Some("Page done, with tests".to_owned()),
+                    Kind::Stage
+                ),
+                (
+                    "Developer sent 40.3 back: no empty state".to_owned(),
+                    Some("Wishlist page".to_owned()),
+                    Kind::Stage
+                ),
+                (
+                    "Developer merged 40.1".to_owned(),
+                    Some("Wishlist API".to_owned()),
+                    Kind::Stage
+                ),
+            ]
+        );
+        // Without its agent session, the row still says who.
+        let alone = event_row(&events[0]).unwrap();
+        assert_eq!(alone.title, "The agent in charge started a helper for 40.3");
+    }
+
     /// A Send back names the stage the check's fails went to (d0131, d0093): "You sent it back to Product spec", with
     /// the line comments it carried and the round; an Approve is "You approved it at Spec review" (no Pass, d0093).
     #[test]
@@ -1557,6 +1683,7 @@ mod tests {
                 &Facts {
                     stages: BTreeMap::from([("plan".to_owned(), "Milestone plan".to_owned())]),
                     avatars: false,
+                    agents: Vec::new(),
                 },
             )
             .unwrap();
@@ -1833,6 +1960,7 @@ mod tests {
                 .map(|(a, b)| (a.to_owned(), b.to_owned()))
                 .collect(),
             avatars: true,
+            agents: Vec::new(),
         };
         let events = [
             by_agent(
@@ -1999,6 +2127,7 @@ mod tests {
                 .map(|(a, b)| (a.to_owned(), b.to_owned()))
                 .collect(),
             avatars: false,
+            agents: Vec::new(),
         };
         let events = [
             event(EventKind::Created, MIN, json!({})),

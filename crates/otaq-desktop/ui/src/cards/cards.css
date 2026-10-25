@@ -250,6 +250,60 @@
   white-space: nowrap;
 }
 
+/* A build stage's pieces (d0133, `s30-02`): the label, a row per piece, the status in its tone. */
+.card-pieces {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.card-pieces-label {
+  color: var(--text-muted);
+  font: 600 10.5px/1.4 var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+.card-pieces-back,
+.card-pieces-done {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 11.5px/1.35 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-piece {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.card-piece-name {
+  flex: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.card-piece-title {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-piece-status {
+  overflow: hidden;
+  min-width: 0;
+  margin-left: auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card-origin {
   overflow: hidden;
   color: var(--st-investigate);

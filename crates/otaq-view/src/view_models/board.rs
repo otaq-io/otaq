@@ -310,6 +310,8 @@ pub struct BoardInput<'a> {
     /// The project is paused (PAU-03, PAU-04; d0112): the cards the pause stopped read "Paused", and a ticket that
     /// would start waits ([`KEPT_START`]).
     pub paused: bool,
+    /// The project's helpers (`board.helpers`, d0133): a build stage's piece rows.
+    pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
 /// A ticket that waits with a kept start while its project is paused (PAU-04, `agents::kept::starts_on_resume`), in
@@ -437,6 +439,13 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         blocked: crate::view_models::dependencies::blocked_line(t, all),
         blocks: crate::view_models::dependencies::blocks(t, all),
         stage_name: crate::view_models::plan::stage_in(t, input.flow).map(str::to_owned),
+        helpers: input
+            .helpers
+            .iter()
+            .filter(|h| h.ticket == t.key)
+            .cloned()
+            .collect(),
+        next_stage: next_stage(t, input.flow),
         agent_name: match &t.created_by {
             otaq_core::domain::Actor::ProjectAgent(id) => input
                 .agent_names
@@ -454,6 +463,15 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         None => extras,
     };
     CardViewModel::from(t, &extras, input.now_ms)
+}
+
+/// The name of the stage after the one `t` is in ("4 pieces merged · moving to Validate").
+fn next_stage(t: &Ticket, flow: &Flow) -> Option<String> {
+    let otaq_core::domain::Place::InStage(id) = &t.place else {
+        return None;
+    };
+    let at = flow.stages.iter().position(|s| &s.id == id)?;
+    flow.stages.get(at + 1).map(|s| s.name.clone())
 }
 
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
@@ -792,6 +810,7 @@ mod tests {
             agent_list: None,
             starts_held: None,
             paused: false,
+            helpers: &[],
         }
     }
 

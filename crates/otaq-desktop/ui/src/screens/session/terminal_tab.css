@@ -288,3 +288,31 @@
   display: flex;
   gap: 8px;
 }
+
+/* After a restart with helpers working (d0133 audit 5, `s30-02`): one Resume, who it brings back. */
+.terminal-tab-resume {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.terminal-tab-resume-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.terminal-tab-resume-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.terminal-tab-resume-status {
+  color: var(--st-paused);
+}

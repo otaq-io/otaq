@@ -265,3 +265,36 @@ button.strip-next:focus-visible {
   flex: none;
   margin-top: 2px;
 }
+
+/* A helper's question passed on to you (d0133, `s30-02`): the chip opens it first. */
+.strip-asks {
+  z-index: 30;
+  width: 320px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.strip-asks-title {
+  color: var(--text-secondary);
+  font: 600 11.5px/1.4 var(--font-ui);
+}
+
+.strip-asks-question {
+  margin: 6px 0;
+  color: var(--text-primary);
+  font: 500 13px/1.45 var(--font-ui);
+}
+
+.strip-asks-note {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.strip-asks-buttons {
+  display: flex;
+  gap: 8px;
+}

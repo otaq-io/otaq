@@ -6,16 +6,20 @@
 // description, with Discard and Save on the label row; ⌘S inside it and ⌘↵ save, Esc discards (d0078 D4). Leaving
 // with changes asks first ("Discard your plan changes?": Save, then go on; Discard changes; Keep editing), after the
 // description's own question when both changed. Saving sends only the Plan (`editor.save` with the target `plan`); an
-// untouched one is never saved. Every word is Rust's (`PlanSectionView`, `plan.rs`).
+// untouched one is never saved. Once the ticket split its work among helpers (d0133, `s30-03`), each piece's status sits
+// in its own column beside the text ("Status · from Otaq", the sentence on hover): Otaq's record, never part of the
+// Plan, so an edit never saves it. Every word is Rust's (`PlanSectionView`, `plan.rs`, `pieces.rs`).
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { guardLeaving } from "../../app/selection";
-import { Button } from "../../components";
+import { toneInk } from "../../cards/look";
+import { Button, Tooltip } from "../../components";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorSaved } from "../../generated/EditorSaved";
 import type { EditorView } from "../../generated/EditorView";
 import type { PlanSectionView } from "../../generated/PlanSectionView";
+import type { PlanStatusesView } from "../../generated/PlanStatusesView";
 import type { SheetContent } from "../../generated/SheetContent";
 import { MarkdownEditor } from "../../markdown";
 import { request } from "../../tauri";
@@ -44,6 +48,28 @@ function Editing({
     <div ref={root} className="overview-edit">
       {children}
     </div>
+  );
+}
+
+/** Otaq's status of each piece, beside the Plan's text (d0133 audit answer 1). */
+function Statuses({ statuses }: { statuses: PlanStatusesView }) {
+  return (
+    <aside className="overview-plan-statuses" aria-label={statuses.label}>
+      <Tooltip text={statuses.hover}>
+        <span className="overview-plan-statuses-label">{statuses.label}</span>
+      </Tooltip>
+      {statuses.rows.map((row) => (
+        <div key={row.name} className="overview-plan-status">
+          <span className="overview-plan-status-name">{row.name}</span>
+          <span
+            className="overview-plan-status-chip"
+            style={{ color: toneInk(row.status.tone).fg, background: toneInk(row.status.tone).bg }}
+          >
+            {row.status.text}
+          </span>
+        </div>
+      ))}
+    </aside>
   );
 }
 
@@ -220,13 +246,16 @@ export function PlanSection({ ticket, view, plan, overviewTabs }: PlanSectionPro
             start();
           }}
         >
-          <MarkdownEditor
-            value={plan.markdown}
-            editable={false}
-            label={plan.label}
-            className="editor-read-body"
-          />
-          {plan.writing_next !== null && <p className="overview-plan-next">{plan.writing_next}</p>}
+          <div className="overview-plan-text">
+            <MarkdownEditor
+              value={plan.markdown}
+              editable={false}
+              label={plan.label}
+              className="editor-read-body"
+            />
+            {plan.writing_next !== null && <p className="overview-plan-next">{plan.writing_next}</p>}
+          </div>
+          {plan.statuses !== null && <Statuses statuses={plan.statuses} />}
         </div>
       )}
     </section>

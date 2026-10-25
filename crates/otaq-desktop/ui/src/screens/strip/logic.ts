@@ -23,6 +23,7 @@ import {
   type AgentPanelRoutes,
   showAgentInPanel,
 } from "../agent_panel/logic";
+import { shownPiece } from "../session/terminalLogic";
 
 /** Where opening an item lands: the selection, the terminal focus requests, the Project agent panel (its `selection`
  * is the same store), the last item the strip opened, and taking the keyboard out of the focused terminal. */
@@ -83,6 +84,8 @@ export function openTarget(target: StripTarget, routes: StripRoutes = STRIP_ROUT
   switch (target.kind) {
     case "ticket":
       selectProject(target.project, routes.selection);
+      // A helper's prompt opens that helper's terminal (d0133); anything else the agent in charge's.
+      shownPiece.set(target.piece);
       openTicket(target.key, target.tab, routes.selection);
       if (target.tab === "agent" || target.tab === "check") requestTerminalFocus(target.key, routes.focus);
       break;

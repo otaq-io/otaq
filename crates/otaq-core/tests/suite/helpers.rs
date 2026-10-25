@@ -672,3 +672,50 @@ async fn two_helpers_starting_together_each_load_their_skills() {
     }
     world.w.stop().await;
 }
+
+/// `board.helpers` (T-0541): the user reads every helper of the project's tickets, by ticket then piece, for the card's
+/// piece rows and the sheet's Session list; `helper.list` stays the agent in charge's.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_user_reads_the_projects_helpers() {
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{ProjectParams, Reply, Request};
+    let world = world().await;
+    let w = &world.w;
+    let (first, _, _a, first_caller) = at_work(w, "Wishlist").await;
+    let (second, _, _b, second_caller) = at_work(w, "Checkout").await;
+    start(w, &second, &second_caller, 1, "Address step").await;
+    start(w, &first, &first_caller, 2, "Wishlist button").await;
+    start(w, &first, &first_caller, 1, "Wishlist API").await;
+
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let Reply::Helpers(helpers) = client
+        .request(Request::BoardHelpers(ProjectParams {
+            project: "SHOP".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("not helpers");
+    };
+    let seen: Vec<String> = helpers
+        .iter()
+        .map(|h| format!("{} {}", h.label(), h.title))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            "1.1 Wishlist API",
+            "1.2 Wishlist button",
+            "2.1 Address step"
+        ]
+    );
+    assert!(
+        client
+            .request(Request::HelperList(otaq_core::protocol::KeyParams {
+                key: first.key.to_string(),
+            }))
+            .await
+            .is_err(),
+        "helper.list stays the agent in charge's"
+    );
+}

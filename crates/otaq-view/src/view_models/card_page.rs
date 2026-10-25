@@ -54,6 +54,8 @@ pub struct TicketCardView {
     pub check: Option<crate::view_models::check_agents::RoundView>,
     /// "Plan · 4 pieces", "Plan · 2 pieces so far": quiet, under the line (d0133, `s30-01`); none without pieces.
     pub plan: Option<String>,
+    /// A build stage's pieces, a row each (d0133, `s30-02`): "PIECES · 4", "40.2 · Wishlist button · working".
+    pub pieces: Option<crate::view_models::pieces::CardPieces>,
     /// "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
     pub origin: Option<String>,
     /// The full status and what the card has no room for.
@@ -89,6 +91,7 @@ impl TicketCardView {
             action_note: vm.one_line.action_note,
             check,
             plan: vm.plan,
+            pieces: vm.pieces.map(|p| *p),
             origin: vm.origin,
             hover: vm.hover,
             faded: vm.faded,
@@ -128,6 +131,8 @@ pub struct CardGallery {
     pub flows: Vec<GalleryCell>,
     /// *29 → On the card*, *30 → When a check agent doesn't finish*: a Check stage with two check agents (d0130).
     pub checks: Vec<GalleryCell>,
+    /// *30 → The card in Dev*: a build stage's piece rows (d0133, T-0541).
+    pub pieces: Vec<GalleryCell>,
 }
 
 pub fn gallery() -> CardGallery {
@@ -147,6 +152,7 @@ pub fn gallery() -> CardGallery {
             .iter()
             .map(cell)
             .collect(),
+        pieces: card_fixtures::piece_variants().iter().map(cell).collect(),
     }
 }
 

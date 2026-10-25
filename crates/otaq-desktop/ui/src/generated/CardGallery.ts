@@ -27,4 +27,8 @@ flows: Array<CardGalleryCell>,
 /**
  * *29 → On the card*, *30 → When a check agent doesn't finish*: a Check stage with two check agents (d0130).
  */
-checks: Array<CardGalleryCell>, };
+checks: Array<CardGalleryCell>, 
+/**
+ * *30 → The card in Dev*: a build stage's piece rows (d0133, T-0541).
+ */
+pieces: Array<CardGalleryCell>, };

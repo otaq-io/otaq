@@ -29,7 +29,7 @@ use otaq_core::board::files::{
 };
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::StatusSet;
+use otaq_core::domain::{StatusSet, TicketKey};
 use otaq_core::git::diff::FileStatus;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -195,7 +195,8 @@ pub fn mark(change: &FileChange) -> MarkView {
     }
 }
 
-/// A piece of the ticket's plan that changed a file: "1", "2 ✎" while it is writing.
+/// A piece of the ticket's plan that changed a file, by its display name (d0133 audit 2): "40.1", "40.2 ✎" while its
+/// helper is writing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesTag")]
 pub struct TagView {
@@ -203,10 +204,10 @@ pub struct TagView {
     pub writing: bool,
 }
 
-fn tags(tags: &[PieceTag]) -> Vec<TagView> {
+fn tags(key: &TicketKey, tags: &[PieceTag]) -> Vec<TagView> {
     tags.iter()
         .map(|t| {
-            let short = t.piece.to_string();
+            let short = otaq_core::domain::plan::piece_name(key, t.piece);
             let writing = t.kind == TagKind::Writing;
             TagView {
                 label: if writing {
@@ -280,7 +281,7 @@ pub struct ChipView {
 }
 
 /// A folder's entries at `depth` (`files.tree`).
-pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
+pub fn tree_rows(key: &TicketKey, entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
     entries
         .iter()
         .map(|e| TreeRow {
@@ -291,7 +292,7 @@ pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
             mark: e.change.as_ref().map(mark),
             quiet: e.kind != EntryKind::Folder && e.change.is_none() && e.tags.is_empty(),
             opens: e.kind != EntryKind::Submodule,
-            tags: tags(&e.tags),
+            tags: tags(key, &e.tags),
             child: None,
             chips: Vec::new(),
             changed_below: None,
@@ -303,7 +304,7 @@ pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
 
 /// The changed files as a tree, every folder open (the Changed filter, `s25-08`): folders first, then by name
 /// ignoring case, as `files.tree` orders them.
-pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
+pub fn changed_tree(key: &TicketKey, files: &[ChangedEntry]) -> Vec<TreeRow> {
     #[derive(Default)]
     struct Folder<'a> {
         folders: BTreeMap<(String, String), Folder<'a>>,
@@ -320,7 +321,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
         }
         folder.files.entry(order(name)).or_insert(entry);
     }
-    fn walk(folder: &Folder, prefix: &str, depth: u32, rows: &mut Vec<TreeRow>) {
+    fn walk(key: &TicketKey, folder: &Folder, prefix: &str, depth: u32, rows: &mut Vec<TreeRow>) {
         for ((_, name), inner) in &folder.folders {
             let path = format!("{prefix}{name}");
             rows.push(TreeRow {
@@ -338,7 +339,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 branch: None,
                 struck: false,
             });
-            walk(inner, &format!("{path}/"), depth + 1, rows);
+            walk(key, inner, &format!("{path}/"), depth + 1, rows);
         }
         for ((_, name), entry) in &folder.files {
             rows.push(TreeRow {
@@ -349,7 +350,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 mark: Some(mark(&change_of(entry))),
                 quiet: false,
                 opens: true,
-                tags: tags(&entry.tags),
+                tags: tags(key, &entry.tags),
                 child: None,
                 chips: Vec::new(),
                 changed_below: None,
@@ -359,7 +360,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
         }
     }
     let mut rows = Vec::new();
-    walk(&top, "", 0, &mut rows);
+    walk(key, &top, "", 0, &mut rows);
     rows
 }
 
@@ -431,7 +432,7 @@ pub(crate) fn hit_parts(text: &str, from: usize, hit: [u32; 2]) -> Vec<HitPart> 
         .collect()
 }
 
-pub fn search_view(query: &str, matches: &[FileMatch], total: u32) -> SearchView {
+pub fn search_view(key: &TicketKey, query: &str, matches: &[FileMatch], total: u32) -> SearchView {
     let rows: Vec<SearchRow> = matches
         .iter()
         .map(|m| {
@@ -448,7 +449,7 @@ pub fn search_view(query: &str, matches: &[FileMatch], total: u32) -> SearchView
                 folder: hit_parts(&m.folder, 0, m.hit),
                 mark: m.change.as_ref().map(mark),
                 quiet: m.change.is_none() && m.tags.is_empty(),
-                tags: tags(&m.tags),
+                tags: tags(key, &m.tags),
                 child: None,
                 chips: Vec::new(),
                 branch: None,
@@ -515,7 +516,7 @@ pub fn tab_view(
         filters: [ALL_FILES.to_owned(), changed_label(changed)],
         changed,
         opens_on: opens_on(ticket),
-        rows: tree_rows(top, 0),
+        rows: tree_rows(&ticket.key, top, 0),
         pick: PICK_A_FILE,
     }
 }
@@ -549,6 +550,103 @@ pub struct ChangeRow {
     /// Line comments go on the ticket's own changes, not on another worktree's.
     pub commentable: bool,
     pub tags: Vec<TagView>,
+    /// The pieces that changed it ("40.4", "40.5"): what the piece filter and By piece go by (d0133).
+    pub pieces: Vec<String>,
+}
+
+/// The files of one piece under By piece: "40.4" and the ids of the rows it changed; the last group, "Not from a
+/// piece", holds what the agent in charge changed itself. `FilesPieceGroup` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilesPieceGroup")]
+pub struct PieceGroup {
+    /// "40.4"; empty for the last group.
+    pub name: String,
+    pub label: String,
+    pub files: Vec<String>,
+}
+
+/// All changes of a ticket that split its work (d0133, `s30-04` "Which piece changed what"): the piece filter (All,
+/// "40.4", "40.5") and **By file** (the default) or **By piece**. `FilesPiecesView` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilesPiecesView")]
+pub struct PiecesView {
+    /// "PIECE" (the page sets it in capitals).
+    pub label: &'static str,
+    pub all: &'static str,
+    /// Every piece that changed a file, in order.
+    pub pieces: Vec<String>,
+    pub by_file: &'static str,
+    pub by_piece: &'static str,
+    pub groups: Vec<PieceGroup>,
+}
+
+pub const PIECE: &str = "Piece";
+pub const ALL_PIECES: &str = "All";
+pub const BY_FILE: &str = "By file";
+pub const BY_PIECE: &str = "By piece";
+pub const NOT_FROM_A_PIECE: &str = "Not from a piece";
+
+/// The piece filter and By piece, once a piece changed a file; `None` before (a ticket with no helpers).
+pub fn pieces_view(rows: &[ChangeRow]) -> Option<PiecesView> {
+    let mut pieces: Vec<String> = rows.iter().flat_map(|r| r.pieces.clone()).collect();
+    if pieces.is_empty() {
+        return None;
+    }
+    // "40.10" after "40.9": by piece number.
+    let number = |name: &str| {
+        name.rsplit('.')
+            .next()
+            .and_then(|n| n.parse::<u32>().ok())
+            .unwrap_or(u32::MAX)
+    };
+    pieces.sort_by_key(|p| number(p));
+    pieces.dedup();
+    let mut groups: Vec<PieceGroup> = pieces
+        .iter()
+        .map(|p| PieceGroup {
+            name: p.clone(),
+            label: p.clone(),
+            files: rows
+                .iter()
+                .filter(|r| r.pieces.contains(p))
+                .map(|r| r.id.clone())
+                .collect(),
+        })
+        .collect();
+    let other: Vec<String> = rows
+        .iter()
+        .filter(|r| r.pieces.is_empty())
+        .map(|r| r.id.clone())
+        .collect();
+    if !other.is_empty() {
+        groups.push(PieceGroup {
+            name: String::new(),
+            label: NOT_FROM_A_PIECE.to_owned(),
+            files: other,
+        });
+    }
+    Some(PiecesView {
+        label: PIECE,
+        all: ALL_PIECES,
+        pieces,
+        by_file: BY_FILE,
+        by_piece: BY_PIECE,
+        groups,
+    })
+}
+
+/// The review bar's words for a ticket that split its work (`s30-04`): "· the whole ticket · 9 files, +312 −1" before
+/// what it passed.
+pub fn whole_ticket_bar(mut bar: ReviewBar, files: usize, added: u32, removed: u32) -> ReviewBar {
+    let mut whole = format!("\u{b7} the whole ticket \u{b7} {}", files_label(files));
+    if let Some(c) = counts(added, removed) {
+        whole.push_str(&format!(", {c}"));
+    }
+    bar.line = match bar.line.is_empty() {
+        true => whole,
+        false => format!("{whole} {}", bar.line),
+    };
+    bar
 }
 
 /// *Binary, renamed, empty → No changes*, for a worktree.
@@ -577,6 +675,8 @@ pub struct ChangesView {
     /// Below this width Split shows as Unified.
     pub side_by_side_from: f32,
     pub files: Vec<ChangeRow>,
+    /// A ticket that split its work: the piece filter and By file · By piece (d0133); `None` otherwise.
+    pub pieces: Option<PiecesView>,
     /// The left column under the Changed filter.
     pub tree: Vec<TreeRow>,
     pub empty: Option<EmptyView>,
@@ -584,7 +684,7 @@ pub struct ChangesView {
     pub load_diff: &'static str,
 }
 
-pub fn change_row(entry: &ChangedEntry) -> ChangeRow {
+pub fn change_row(key: &TicketKey, entry: &ChangedEntry) -> ChangeRow {
     let file = &entry.file;
     let child: Option<String> = None;
     ChangeRow {
@@ -606,7 +706,12 @@ pub fn change_row(entry: &ChangedEntry) -> ChangeRow {
         can_open: file.status != FileStatus::Deleted,
         commentable: child.is_none(),
         child,
-        tags: tags(&entry.tags),
+        pieces: entry
+            .tags
+            .iter()
+            .map(|t| otaq_core::domain::plan::piece_name(key, t.piece))
+            .collect(),
+        tags: tags(key, &entry.tags),
     }
 }
 
@@ -678,6 +783,11 @@ pub fn changes_view(ticket: &Ticket, changes: &FilesChanges, memory: &ReviewMemo
             ),
         },
     });
+    let files: Vec<ChangeRow> = changes
+        .files
+        .iter()
+        .map(|e| change_row(&source.key, e))
+        .collect();
     ChangesView {
         key: ticket.key.to_string(),
         revision: revision(changes),
@@ -689,8 +799,9 @@ pub fn changes_view(ticket: &Ticket, changes: &FilesChanges, memory: &ReviewMemo
         modes: MODES,
         side_by_side: memory.side_by_side,
         side_by_side_from: vm::SIDE_BY_SIDE_FROM,
-        files: changes.files.iter().map(change_row).collect(),
-        tree: changed_tree(&changes.files),
+        pieces: pieces_view(&files),
+        files,
+        tree: changed_tree(&source.key, &changes.files),
         empty,
         open_file: OPEN_FILE,
         load_diff: LOAD_DIFF,
@@ -1135,6 +1246,7 @@ pub fn gallery() -> Gallery {
     use otaq_core::domain::{Place, Status};
     use otaq_core::git::diff::{ChangedFile, DiffLine, FileDiff, Hunk, LineKind};
 
+    let shop22: TicketKey = "SHOP-22".parse().expect("fixture key");
     let source = |key: &str| FilesSource {
         key: key.parse().expect("fixture key"),
         from: FilesFrom::Worktree,
@@ -1220,6 +1332,7 @@ pub fn gallery() -> Gallery {
         &ReviewMemory::default(),
     );
     let search = search_view(
+        &shop22,
         "log",
         &[
             FileMatch {
@@ -1334,7 +1447,7 @@ pub fn gallery() -> Gallery {
             3,
             Some("\u{2325}\u{2318}P".into()),
         ),
-        src: tree_rows(&src, 1),
+        src: tree_rows(&shop22, &src, 1),
         file,
         search,
         changes,
@@ -1487,6 +1600,7 @@ mod tests {
 
         // Opening src/: its files at depth 1, the changed one marked "M +4 −1".
         let src = tree_rows(
+            &key("SHOP-22"),
             &[
                 entry("app", "src/app", EntryKind::Folder, None),
                 entry(
@@ -1545,7 +1659,7 @@ mod tests {
             ],
             total: 2,
         };
-        let view = search_view("log", &found.matches, found.total);
+        let view = search_view(&key("SHOP-22"), "log", &found.matches, found.total);
         let text = |parts: &[HitPart]| {
             parts
                 .iter()
@@ -1569,12 +1683,12 @@ mod tests {
         );
         assert_eq!((view.empty, view.more), (None, None));
 
-        let none = search_view("chekout", &[], 0);
+        let none = search_view(&key("SHOP-22"), "chekout", &[], 0);
         assert_eq!(
             none.empty.as_deref(),
             Some("No file name matches \u{201c}chekout\u{201d}")
         );
-        let many = search_view("s", &found.matches, 120);
+        let many = search_view(&key("SHOP-22"), "s", &found.matches, 120);
         assert_eq!(
             many.more.as_deref(),
             Some("2 of 120 shown \u{b7} type more of the name")
@@ -1769,11 +1883,88 @@ mod tests {
         assert_eq!(titles, ["Your check", "1 line comment, 1 being written"]);
     }
 
-    /// A file's tags name the pieces of the plan that changed it: "1", "2 \u{270e}" while one is writing.
+    /// d0133 (`s30-04`, "Which piece changed what"): each changed file names its piece(s); the piece filter lists them,
+    /// By piece groups the files under each (a file two pieces changed is under both), what no piece changed comes
+    /// last; a ticket with no pieces has neither. The bar says it is the whole ticket.
+    #[test]
+    fn which_piece_changed_what() {
+        let tag = |piece| PieceTag {
+            piece,
+            kind: TagKind::Merged,
+        };
+        let key = key("SHOP-40");
+        let tagged = |path: &str, pieces: &[u32]| {
+            change_row(
+                &key,
+                &ChangedEntry {
+                    tags: pieces.iter().map(|p| tag(*p)).collect(),
+                    ..changed(path, 10, 1, false)
+                },
+            )
+        };
+        let rows = vec![
+            tagged("src/app/wishlist/share/page.tsx", &[4, 5]),
+            tagged("src/components/WishlistButton.tsx", &[2]),
+            tagged("src/components/ProductCard.tsx", &[]),
+            tagged("e2e/wishlist.spec.ts", &[10, 2]),
+        ];
+        assert_eq!(rows[0].pieces, ["40.4", "40.5"]);
+        let view = pieces_view(&rows).unwrap();
+        assert_eq!(view.pieces, ["40.2", "40.4", "40.5", "40.10"]);
+        assert_eq!(
+            (view.label, view.all, view.by_file, view.by_piece),
+            ("Piece", "All", "By file", "By piece")
+        );
+        let groups: Vec<(String, Vec<String>)> = view
+            .groups
+            .iter()
+            .map(|g| (g.label.clone(), g.files.clone()))
+            .collect();
+        assert_eq!(
+            groups,
+            [
+                (
+                    "40.2".to_owned(),
+                    vec![
+                        "src/components/WishlistButton.tsx".to_owned(),
+                        "e2e/wishlist.spec.ts".to_owned()
+                    ]
+                ),
+                (
+                    "40.4".to_owned(),
+                    vec!["src/app/wishlist/share/page.tsx".to_owned()]
+                ),
+                (
+                    "40.5".to_owned(),
+                    vec!["src/app/wishlist/share/page.tsx".to_owned()]
+                ),
+                ("40.10".to_owned(), vec!["e2e/wishlist.spec.ts".to_owned()]),
+                (
+                    "Not from a piece".to_owned(),
+                    vec!["src/components/ProductCard.tsx".to_owned()]
+                ),
+            ]
+        );
+        assert_eq!(pieces_view(&rows[2..3]), None);
+
+        let bar = ReviewBar {
+            title: "Your check".into(),
+            line: "\u{b7} Validate passed".into(),
+            buttons: Vec::new(),
+        };
+        assert_eq!(
+            whole_ticket_bar(bar, 9, 312, 1).line,
+            "\u{b7} the whole ticket \u{b7} 9 files, +312 \u{2212}1 \u{b7} Validate passed"
+        );
+    }
+
+    /// A file's tags name the pieces of the plan that changed it by their display names (d0133 audit 2): "40.1",
+    /// "40.2 \u{270e}" while one is writing.
     #[test]
     fn a_files_tags_name_its_pieces() {
         let tag = |piece, kind| PieceTag { piece, kind };
         let rows = tree_rows(
+            &key("SHOP-40"),
             &[
                 TreeEntry {
                     tags: vec![tag(1, TagKind::Merged), tag(2, TagKind::Writing)],
@@ -1801,7 +1992,7 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ("route.ts", vec!["1", "2 \u{270e}"], false),
+                ("route.ts", vec!["40.1", "40.2 \u{270e}"], false),
                 ("package.json", vec![], true),
             ]
         );
