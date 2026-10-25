@@ -163,7 +163,8 @@ Say yes, or change it ("1: merge pieces 2 and 3").
 ```
 
 - A **Choices** cell names each stage you set a choice for, then a colon and the agent's name or `skip`, joined with
-  " · " ("Dev: Quick developer · Review: skip"). It reads "—" when the ticket keeps every stage's own agent.
+  " · " ("Dev: Quick developer · Review: skip"). It reads "—" when the ticket keeps every stage's own agent. On a
+  flow with planning stages it starts with "skips planning" or "runs planning" (see "Planning stages" below).
 - Apply the user's changes ("2 needs a review", "drop 2"), show the table again, and wait for the go-ahead.
 - **Above about 10 tickets** (a bulk import, say 60 issues) show one proposal for the whole batch: the count line,
   then a table **without the Description column** (**# · Title · Choices**) with only the **first 10 rows**, then
@@ -179,10 +180,50 @@ Say yes, or change it ("1: merge pieces 2 and 3").
   ("typo fix → Dev: Quick developer"); `skip` only for a stage the ticket plainly doesn't need. Effort is not part of
   a proposal.
 - **If you're unsure, leave the stage's own agent**: no flag, and "—" in the Choices column.
+- **Planning stages:** see "Planning stages" below; they are skipped on ordinary work.
 - **Every choice has a reason**, passed with `--reason`; it shows on the ticket with your name. `--reason` is one
   reason for the choices in that command; repeat `--stage` for several stages.
 - The choices apply when you create the tickets, with no second approval.
 - **The user's own choice always wins**: a choice the user set is never changed back by an agent.
+
+### Planning stages
+
+Some flows plan a ticket before it is built: stages listed under **Stage choices** before the build stage, each
+with `skip`, whose agents work out what to build, how, and the plan, followed by a check of yours that reviews them
+(the Spec first flow: Product spec, Tech spec and Milestone plan, then Spec review). Read them from your project's
+**Stage choices** list; when it has no such stages, skip this section.
+
+- **Ordinary work skips planning.** On every ordinary ticket you file (a bug fix, a small feature you already
+  understand, a bigger one whose Plan you could settle with the user here), set each planning stage to `skip` with the reason "ordinary work".
+  The check after them is skipped on its own when none of them runs; don't set it.
+
+  ```sh
+  otaq create "Fix cart total rounding" --stage "Product spec=skip" --stage "Tech spec=skip" \
+    --stage "Milestone plan=skip" --reason "ordinary work" --stdin <<'BODY'
+  The cart total rounds each line before summing (lib/cart.ts:88). Round once, at the end.
+  BODY
+  ```
+
+- **Work that needs settling first runs planning:** leave the planning stages on (no `--stage` for them) when what to
+  build, for whom or how is still open (a new area of the product, a choice between designs, a change to how
+  something works). If you already know the pieces, also write a draft Plan (`--plan-file`, "Writing a Plan" above)
+  for the planning stages to start from.
+- **In the proposal table** a ticket's Choices cell says **"skips planning"** or **"runs planning"** instead of
+  listing each planning stage, then any other choices after " · " ("skips planning · Dev: Quick developer"). A
+  ticket with a draft Plan adds it: "runs planning · Plan · 3 pieces".
+
+  ```text
+  I'm proposing 2 tickets:
+    #   Title                     Description                          Choices
+    1   Fix cart total rounding   round once, after summing the lines  skips planning
+    2   Wishlist                  save products, a page to see them    runs planning · Plan · 3 pieces
+  Say yes, or change rows ("1 runs planning").
+  ```
+
+- The user's own choice wins as always: "2 skips planning" from the user is theirs (`--by-user`). A ticket the user
+  files by hand runs every stage until the user sets its skips.
+- If the CLI refuses a set of skips ("Spec review needs one of Product spec, Tech spec or Milestone plan to run;
+  it can't be skipped on this flow"), the check after the planning stages must run: leave one of them on.
 
 ### Set by the user, or by you
 

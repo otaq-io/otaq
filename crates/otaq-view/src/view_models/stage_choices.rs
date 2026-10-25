@@ -24,7 +24,9 @@ use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::mark::is_swap;
 use otaq_core::agents::store::SessionAgentRun;
 use otaq_core::agents::{Agent, ModelRef, SessionRole};
-use otaq_core::board::stage_choices::{SetBy, StageOptions, TicketChoices};
+use otaq_core::board::stage_choices::{
+    NOTHING_BEFORE_IT_RUNS, SetBy, StageOptions, TicketChoices, on_its_own_label,
+};
 use otaq_core::board::stage_runs::StageRun;
 use otaq_core::domain::{Place, Status, StatusSet};
 use otaq_core::flow::engine::RunResult;
@@ -193,6 +195,18 @@ fn rows(stages: &[StageOptions], with_changes: bool) -> Vec<ChoiceRow> {
     stages
         .iter()
         .map(|options| {
+            // A check skipped on its own (0129 row 4): "Spec review: skipped · nothing before it runs", no picker
+            // while it holds.
+            if options.on_its_own {
+                return ChoiceRow {
+                    stage_id: options.stage_id.clone(),
+                    label: format!("{}:", options.stage),
+                    value: on_its_own_label(),
+                    items: Vec::new(),
+                    lock: None,
+                    change: None,
+                };
+            }
             let value = options.label();
             ChoiceRow {
                 stage_id: options.stage_id.clone(),
@@ -358,8 +372,17 @@ fn agent_name(stage: &PathStage) -> String {
         .map_or_else(|| DASH.to_owned(), |a| a.name.clone())
 }
 
-/// "Skipped Grill (this ticket's choice)"; a skipped check of yours waits for your click at the Delivery.
-fn skipped_detail(stage: &PathStage, delivery: Option<&str>, delivered: bool) -> String {
+/// "Skipped Grill (this ticket's choice)"; a skipped check of yours waits for your click at the Delivery, unless it
+/// skipped on its own ("Skipped Spec review · nothing before it runs", 0129 row 4).
+fn skipped_detail(
+    stage: &PathStage,
+    delivery: Option<&str>,
+    delivered: bool,
+    on_its_own: bool,
+) -> String {
+    if on_its_own {
+        return format!("Skipped {} \u{b7} {NOTHING_BEFORE_IT_RUNS}", stage.stage);
+    }
     match (stage.kind, delivery) {
         (PathKind::HumanCheck, Some(at)) => format!(
             "{} skipped \u{b7} {} for your click at {at}",
@@ -449,6 +472,7 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
         .find(|s| s.kind == PathKind::Delivery)
         .map(|s| s.stage.as_str());
     let finished = t.status.is_some_and(|s| s.set() == StatusSet::Done);
+    let on_its_own = |id: &str| t.choices.iter().any(|c| c.stage_id == id && c.on_its_own);
     let (to_come_from, current) = now_at(t);
     // Runs of each stage, to number its rounds.
     let runs_of = |id: &str| t.runs.iter().filter(|r| r.stage == id).count();
@@ -514,7 +538,7 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
             RunResult::Skipped => row(
                 PathState::Skipped,
                 match stage.skipped {
-                    true => skipped_detail(stage, delivery, finished),
+                    true => skipped_detail(stage, delivery, finished, on_its_own(&stage.stage_id)),
                     false => format!("Skipped {} \u{b7} by you", stage.stage),
                 },
                 DASH.to_owned(),
@@ -614,7 +638,7 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
         let (state, detail, part) = if stage.skipped {
             (
                 PathState::Skipped,
-                skipped_detail(stage, delivery, false),
+                skipped_detail(stage, delivery, false, on_its_own(&stage.stage_id)),
                 format!("{} skipped", stage.stage),
             )
         } else {
@@ -1316,6 +1340,7 @@ pub mod fixtures {
             can_skip: true,
             choice: None,
             locked: false,
+            on_its_own: false,
         };
         vec![
             options("grill", "Grill", Some(option("Griller", "griller"))),
@@ -2016,6 +2041,32 @@ mod tests {
                 row("Review", "your check", "\u{2014}", false),
                 row("Done", "Local merge or PR, your click", "\u{2014}", false),
             ]
+        );
+    }
+
+    /// 0129 row 4: a check the ticket skips on its own reads "Review: skipped · nothing before it runs", with no
+    /// picker and no lock, and its path row says why.
+    #[test]
+    fn a_check_skipped_on_its_own_says_so() {
+        let mut t = shop_31();
+        t.choices[2].on_its_own = true;
+        let review = t.path.iter_mut().find(|s| s.stage_id == "review").unwrap();
+        review.skipped = true;
+        let choices = sheet_choices(&t).expect("choices");
+        let row = &choices.rows[2];
+        assert_eq!(
+            (row.label.as_str(), row.value.as_str()),
+            ("Review:", "skipped \u{b7} nothing before it runs")
+        );
+        assert!(row.items.is_empty() && row.lock.is_none() && row.change.is_none());
+        let p = path(&t, &tools()).expect("path");
+        let review = p.rows.iter().find(|r| r.stage == "Review").unwrap();
+        assert_eq!(
+            (review.state, review.detail.as_str()),
+            (
+                PathState::Skipped,
+                "Skipped Review \u{b7} nothing before it runs"
+            )
         );
     }
 

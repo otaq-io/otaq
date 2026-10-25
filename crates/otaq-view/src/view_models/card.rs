@@ -1347,7 +1347,8 @@ pub fn check_failed_round(
 fn arrival_tone(arrival: &Arrival) -> Tone {
     match arrival {
         Arrival::Passed { .. } => Tone::Passed,
-        Arrival::Finished { .. } => Tone::Muted,
+        // Skipped on its own (0129 row 4): nobody moved it.
+        Arrival::Finished { .. } | Arrival::SkippedOnItsOwn { .. } => Tone::Muted,
         Arrival::Skipped { .. } | Arrival::FailedMovedOn { .. } | Arrival::MovedBack => {
             Tone::Paused
         }

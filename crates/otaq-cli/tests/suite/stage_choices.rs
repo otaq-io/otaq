@@ -10,7 +10,7 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
-use otaq_core::flow::yaml;
+use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::git::testing::TempRepos;
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
@@ -21,6 +21,13 @@ const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
 /// shop-web on the test flow; `claude` is an interactive `sh` in the data folder.
 async fn world() -> TestService {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../otaq-core/tests/flows/every-kind.yaml");
+    world_on(&yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()).await
+}
+
+/// shop-web on `file`'s flow; `claude` is an interactive `sh` in the data folder.
+async fn world_on(file: &FlowFile) -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let data = home.path().join("h");
     let script = format!(
@@ -42,10 +49,7 @@ async fn world() -> TestService {
     })
     .await;
     w.add_project("shop-web").await;
-    let path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../otaq-core/tests/flows/every-kind.yaml");
-    let file = yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
-    w.board.use_flow_for_tests("SHOP", &file).await;
+    w.board.use_flow_for_tests("SHOP", file).await;
     w
 }
 
@@ -492,5 +496,109 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
         [json!({"ticket": "SHOP-3", "change": "choices_set", "choices": ["Grill: skip"]})]
     );
 
+    w.stop().await;
+}
+
+/// The Spec first preset's shape (its file is `flows/spec-first.yaml`): three skippable planning stages, then Spec
+/// review (a skippable check by you), Dev, Validate, Code review and Done.
+const SPEC_FIRST: &str = "\
+agents:
+  - name: Spec writer
+    skills: [product-spec]
+    model: default
+  - name: Architect
+    skills: [tech-spec]
+    model: default
+  - name: Milestone planner
+    skills: [milestone-plan]
+    model: default
+  - name: Developer
+    skills: [work-ticket, commit]
+    model: default
+  - name: Validator
+    skills: [validate]
+    model: default
+flow:
+  - {id: product-spec, name: Product spec, kind: agent, column: own, agent: Spec writer, skill: product-spec,
+     options: [skip]}
+  - {id: tech-spec, name: Tech spec, kind: agent, column: own, agent: Architect, skill: tech-spec, options: [skip]}
+  - {id: milestone-plan, name: Milestone plan, kind: agent, column: own, agent: Milestone planner,
+     skill: milestone-plan, options: [skip]}
+  - {id: spec-review, name: Spec review, kind: check, by: you, column: own, options: [skip], fail_to: Product spec}
+  - {id: dev, name: Dev, kind: agent, column: own, agent: Developer, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, column: own, agents: [Validator], skill: validate,
+     rounds: 3, fail_to: Dev}
+  - {id: code-review, name: Code review, kind: check, by: you, column: own, fail_to: Dev}
+  - {id: deliver, name: Done, kind: delivery, column: with-previous, agent: Developer, skill: open-pr, mode: click,
+     delivers: either}
+";
+
+/// 0129 on Spec first: `--stage` skips the three planning stages and Spec review skips on its own (`show` and
+/// `--json` say so); Spec review set to run with all three skipped is refused, naming them, and nothing is created.
+#[tokio::test(flavor = "multi_thread")]
+async fn planning_skips_on_spec_first() {
+    let w = world_on(&yaml::read(SPEC_FIRST).unwrap()).await;
+    let planning = [
+        "--stage",
+        "Product spec=skip",
+        "--stage",
+        "Tech spec=skip",
+        "--stage",
+        "Milestone plan=skip",
+    ];
+    let mut args = vec!["-P", "SHOP", "create", "Fix cart total rounding"];
+    args.extend(planning);
+    args.push("--json");
+    let created = json_of(&cb(&w, &args));
+    let choices: Vec<(&str, &str)> = created["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["stage"].as_str().unwrap(), c["choice"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        choices,
+        [
+            ("Product spec", "skip"),
+            ("Tech spec", "skip"),
+            ("Milestone plan", "skip"),
+            ("Spec review", "skipped \u{b7} nothing before it runs"),
+        ]
+    );
+    let shown = ok(&cb(&w, &["show", "SHOP-1"]));
+    assert_eq!(
+        choices_block(&shown),
+        "Choices:     Product spec: skip · set by you\n             Tech spec: skip · set by you\n             \
+         Milestone plan: skip · set by you\n             Spec review: skipped · nothing before it runs"
+    );
+
+    // Spec review set to run with nothing before it: refused, nothing created.
+    let mut args = vec!["-P", "SHOP", "create", "Saved carts"];
+    args.extend(planning);
+    args.extend(["--stage", "Spec review=required"]);
+    assert_eq!(
+        refused(&w, &args),
+        "Spec review needs one of Product spec, Tech spec or Milestone plan to run; it can't be skipped on this flow"
+    );
+    assert_eq!(w.board.tickets("SHOP").await.unwrap().len(), 1);
+    // And on the ticket while it holds.
+    assert_eq!(
+        refused(&w, &["update", "SHOP-1", "--stage", "Spec review=required"]),
+        "Spec review needs one of Product spec, Tech spec or Milestone plan to run; it can't be skipped on this flow"
+    );
+    // One planning stage back on: Spec review runs.
+    ok(&cb(
+        &w,
+        &["update", "SHOP-1", "--stage", "Tech spec=required"],
+    ));
+    let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
+    let review = shown["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["stage"] == "Spec review")
+        .unwrap()
+        .clone();
+    assert_eq!(review["choice"], "required");
     w.stop().await;
 }

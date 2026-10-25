@@ -257,6 +257,8 @@ stored_enum! {
         NotAnOption = "not_an_option",
         /// The stage has started: its choice is locked (AGM-08).
         ChoiceLocked = "choice_locked",
+        /// The choices leave a check that must run with no Agent stage before it that runs (0129 row 4).
+        StrandsCheck = "strands_check",
         /// A ticket comment over the size limit (CMT-02): the message says how long it is.
         TooLong = "too_long",
         /// A `--manual-check` with a line break: each check is one line (d0125).

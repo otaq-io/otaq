@@ -1,10 +1,10 @@
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
+    agent: Spec writer
+    skill: product-spec
     options: [skip]
   - id: dev
     name: Dev
