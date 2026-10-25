@@ -231,7 +231,7 @@ async fn the_role_agents_read_what_their_launch_gives() {
     let dir = TempDir::new().unwrap();
     let w = world(&dir).await;
     w.edit_agent("Noyan", |a| {
-        a.instructions = "Split epics into tickets of a day or less.".into();
+        a.instructions = "Split big work into tickets of a day or less.".into();
     })
     .await;
     let planner = w
