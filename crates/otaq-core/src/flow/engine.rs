@@ -152,7 +152,8 @@ pub struct At<'f, 'a> {
     pub fails: u32,
     /// The current agent check's limit ([`rounds_of`]).
     pub rounds: u32,
-    /// The stages this ticket skips: its choices of `skip` ([`crate::board::Board::ticket_skips`], AGM-08).
+    /// The stages this ticket skips: its choices of `skip` and the checks it skips on its own
+    /// ([`crate::board::Board::ticket_skips`], AGM-08, 0129 row 4).
     pub skips: &'a [String],
 }
 
@@ -195,6 +196,45 @@ fn skips_a_human_check(flow: &Flow, skipping: &[String]) -> bool {
     flow.stages
         .iter()
         .any(|s| s.is_human_check() && skips(s, skipping))
+}
+
+/// The Agent stages before the stage at `index` when the ticket runs none of them (0129 row 4): it skips each by its
+/// choices (`skips`) and none has run (`ran`: the stages with a run that wasn't skipped, as a drag back into a skipped
+/// stage runs it once). `None` when one of them runs, or no Agent stage comes before.
+pub fn nothing_runs_before<'f>(
+    flow: &'f Flow,
+    index: usize,
+    skips: &[String],
+    ran: &[String],
+) -> Option<Vec<&'f Stage>> {
+    let before: Vec<&Stage> = flow.stages[..index.min(flow.stages.len())]
+        .iter()
+        .filter(|s| s.is_agent_stage())
+        .collect();
+    let none_runs = !before.is_empty()
+        && before
+            .iter()
+            .all(|s| self::skips(s, skips) && !ran.contains(&s.id));
+    none_runs.then_some(before)
+}
+
+/// The skippable human checks a ticket skips on its own (0129 row 4, "Spec review skipped · nothing before it
+/// runs"): nothing before them runs ([`nothing_runs_before`]). `kept`: the checks the ticket chose to run
+/// ("Spec review=required"), which never skip on their own. The board adds them to the ticket's skips
+/// ([`crate::board::Board::ticket_skips`]), so the walk passes them as it passes the stages the ticket chose to skip.
+pub fn skipped_on_its_own<'f>(
+    flow: &'f Flow,
+    skips: &[String],
+    ran: &[String],
+    kept: &[String],
+) -> Vec<&'f Stage> {
+    flow.stages
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.is_human_check() && s.can_skip() && !kept.contains(&s.id))
+        .filter(|(i, _)| nothing_runs_before(flow, *i, skips, ran).is_some())
+        .map(|(_, s)| s)
+        .collect()
 }
 
 /// What a ticket's agent-check counters do.

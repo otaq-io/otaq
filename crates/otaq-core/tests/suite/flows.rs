@@ -241,7 +241,7 @@ fn each_rule_refuses_its_broken_file() {
             &[(
                 Rule::SkipLeavesNoAgent,
                 None,
-                "If Grill and Dev are both skipped, no Agent stage runs",
+                "If Product spec and Dev are both skipped, no Agent stage runs",
             )],
         ),
         (
@@ -249,7 +249,7 @@ fn each_rule_refuses_its_broken_file() {
             &[(
                 Rule::SkipStrandsHumanCheck,
                 Some("review"),
-                "If Grill is skipped, a Fail at Review has nowhere to go",
+                "If Product spec is skipped, a Fail at Review has nowhere to go",
             )],
         ),
         (
@@ -356,15 +356,18 @@ fn every_skip_combination_is_walked() {
         ["If Grill, Plan and Dev are all skipped, no Agent stage runs"]
     );
 
-    // A skippable human check still needs a running Agent stage for the times it isn't skipped.
+    // A skippable human check after only skippable Agent stages is allowed (0129 row 4: a ticket that skips them
+    // skips it too); a required one there isn't.
     let text = "flow:
-  - {name: Grill, kind: agent, agent: Griller, skill: grill, options: [skip]}
-  - {name: Look, kind: check, by: you, options: [skip]}
+  - {name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
+  - {name: Spec review, kind: check, by: you, options: [skip]}
   - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}
-  - {name: Review, kind: check, by: you}
+  - {name: Code review, kind: check, by: you}
   - {name: Done, kind: delivery, mode: click, delivers: local}
 ";
-    let problems = check(&yaml::read(text).unwrap().flow).unwrap_err();
+    assert_eq!(check(&yaml::read(text).unwrap().flow), Ok(()));
+    let required = text.replace("by: you, options: [skip]", "by: you");
+    let problems = check(&yaml::read(&required).unwrap().flow).unwrap_err();
     assert_eq!(
         problems
             .iter()
@@ -372,7 +375,7 @@ fn every_skip_combination_is_walked() {
             .collect::<Vec<_>>(),
         [(
             Rule::SkipStrandsHumanCheck,
-            "If Grill is skipped, a Fail at Look has nowhere to go"
+            "If Product spec is skipped, a Fail at Spec review has nowhere to go"
         )]
     );
 }

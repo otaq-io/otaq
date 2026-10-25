@@ -45,6 +45,9 @@ pub enum Arrival {
     },
     /// An agent check failed at its limit and the user moved it on: "Failed Security 3 times · moved by you".
     FailedMovedOn { stage: String, times: u32 },
+    /// The stage before was a check of yours the ticket skipped on its own, since no Agent stage before it ran (0129
+    /// row 4): "Skipped Spec review · nothing before it runs".
+    SkippedOnItsOwn { stage: String },
     /// It came from a later stage (a drag back, PR rework): "Moved back by you".
     MovedBack,
     /// An Agent stage finished straight into the check: "Finished Dev".
@@ -70,6 +73,10 @@ impl Arrival {
             Self::FailedMovedOn { stage, times } => {
                 format!("Failed {stage} {times} times \u{b7} moved by you")
             }
+            Self::SkippedOnItsOwn { stage } => format!(
+                "Skipped {stage} \u{b7} {}",
+                super::stage_choices::NOTHING_BEFORE_IT_RUNS
+            ),
             Self::MovedBack => "Moved back by you".to_owned(),
             Self::Finished { stage } => format!("Finished {stage}"),
         }
@@ -189,11 +196,48 @@ impl Board {
         .bind(&ticket.id)
         .fetch_all(self.store.pool())
         .await?;
-        Ok(Some(with_chooser(
+        let arrival = with_chooser(
             arrival_from(&flow, here, before),
             &before.stage,
             &skipped_by,
-        )))
+        );
+        self.on_its_own(&ticket.id, &flow, &before.stage, arrival)
+            .await
+            .map(Some)
+    }
+
+    /// A skip of a check the ticket skipped on its own says so (0129 row 4): "Skipped Spec review · nothing before
+    /// it runs".
+    async fn on_its_own(
+        &self,
+        ticket_id: &str,
+        flow: &Flow,
+        stage: &str,
+        arrival: Arrival,
+    ) -> Result<Arrival, BoardError> {
+        let Arrival::Skipped {
+            stage: name,
+            by: None,
+        } = arrival
+        else {
+            return Ok(arrival);
+        };
+        if flow
+            .stage(stage)
+            .is_some_and(|s| s.is_human_check() && s.can_skip())
+            && self
+                .skip_sets(ticket_id, flow)
+                .await?
+                .1
+                .iter()
+                .any(|s| s == stage)
+        {
+            return Ok(Arrival::SkippedOnItsOwn { stage: name });
+        }
+        Ok(Arrival::Skipped {
+            stage: name,
+            by: None,
+        })
     }
 
     /// [`Board::arrival`] for every ticket of a project that waits in a human check or at its Delivery (To deliver),
@@ -249,25 +293,29 @@ impl Board {
                 ended_at: None,
             });
         }
-        Ok(runs
-            .into_iter()
-            .filter_map(|(id, (here, runs))| {
-                let here = here?;
-                let at = runs.iter().rposition(|r| r.stage == here)?;
-                let before = runs[..at].last()?;
-                let skipped_by: Vec<(String, String)> = choices
-                    .iter()
-                    .filter(|(t, _, _)| *t == id)
-                    .map(|(_, stage, by)| (stage.clone(), by.clone()))
-                    .collect();
-                let arrival = with_chooser(
-                    arrival_from(flow, &here, before),
-                    &before.stage,
-                    &skipped_by,
-                );
-                Some((id, arrival))
-            })
-            .collect())
+        let mut arrivals = HashMap::new();
+        for (id, (here, runs)) in runs {
+            let Some(here) = here else { continue };
+            let Some(at) = runs.iter().rposition(|r| r.stage == here) else {
+                continue;
+            };
+            let Some(before) = runs[..at].last() else {
+                continue;
+            };
+            let skipped_by: Vec<(String, String)> = choices
+                .iter()
+                .filter(|(t, _, _)| *t == id)
+                .map(|(_, stage, by)| (stage.clone(), by.clone()))
+                .collect();
+            let arrival = with_chooser(
+                arrival_from(flow, &here, before),
+                &before.stage,
+                &skipped_by,
+            );
+            let arrival = self.on_its_own(&id, flow, &before.stage, arrival).await?;
+            arrivals.insert(id, arrival);
+        }
+        Ok(arrivals)
     }
 }
 

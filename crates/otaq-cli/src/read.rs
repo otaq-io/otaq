@@ -436,12 +436,21 @@ pub fn choices_json(choices: &TicketChoices) -> Vec<ChoiceJson> {
 }
 
 /// The choices someone made, one line each (AGM-11): "Choices:     Dev: Quick developer · set by Noyan · typo
-/// fix". Nothing when nobody chose.
+/// fix", and a check skipped on its own ("Spec review: skipped · nothing before it runs", 0129 row 4). Nothing when
+/// nobody chose.
 pub fn choices_text(choices: &TicketChoices) -> String {
     let mut text = String::new();
-    for stage in choices.stages.iter().filter(|s| s.choice.is_some()) {
+    for stage in choices
+        .stages
+        .iter()
+        .filter(|s| s.choice.is_some() || s.on_its_own)
+    {
         let label = if text.is_empty() { "Choices:" } else { "" };
-        let set_by = stage.choice.as_ref().map(|c| &c.set_by);
+        let set_by = stage
+            .choice
+            .as_ref()
+            .filter(|_| !stage.on_its_own)
+            .map(|c| &c.set_by);
         let mut line = format!("{}: {}", stage.stage, stage.label());
         if let Some(set_by) = set_by {
             line.push_str(&format!(" · set by {}", set_by.who()));

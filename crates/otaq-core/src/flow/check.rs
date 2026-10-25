@@ -1,4 +1,5 @@
-//! The checks on a flow (STG-02; d0108's fixed rules and smaller rule 9, the second gap review's rules 1, 2 and 6).
+//! The checks on a flow (STG-02; d0108's fixed rules and smaller rule 9, the second gap review's rules 1, 2 (as 0129
+//! row 4 refines it) and 6).
 //! Each problem names the stage and the rule in plain words, as `otaq flow propose` and the flow editor show it.
 
 use std::collections::HashSet;
@@ -33,7 +34,8 @@ pub enum Rule {
     SkipDelivery,
     /// With the skips taken, no Agent stage runs.
     SkipLeavesNoAgent,
-    /// With the skips taken, a human check has no running Agent stage before it.
+    /// With the skips taken, a required human check has no running Agent stage before it (a skippable one skips on
+    /// its own, 0129 row 4).
     SkipStrandsHumanCheck,
     /// Two stages with one id or one name, or an agent check listing one agent twice.
     Duplicate,
@@ -308,10 +310,13 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
             format!("If {} skipped, no Agent stage runs", skipped(&agents)),
         );
     }
+    // A skippable human check after only skippable Agent stages is allowed (0129 row 4): a ticket that skips every
+    // one of them skips the check too, on its own ([`super::engine::skipped_on_its_own`]).
     for (i, stage) in stages.iter().enumerate() {
         let before: Vec<&Stage> = stages[..i].iter().filter(|s| s.is_agent_stage()).collect();
         // With none before it at all, HumanCheckFirst already says so.
-        if stage.is_human_check() && !before.is_empty() && before.iter().all(|s| skippable(s)) {
+        let required = stage.is_human_check() && !stage.can_skip();
+        if required && !before.is_empty() && before.iter().all(|s| skippable(s)) {
             add(
                 Rule::SkipStrandsHumanCheck,
                 Some(stage),
@@ -339,7 +344,7 @@ pub fn fail_to_message(check: &Stage, target: &Stage) -> String {
     )
 }
 
-/// "Grill is", "Grill and Dev are both", "Grill, Plan and Dev are all".
+/// "Tech spec is", "Tech spec and Dev are both", "Product spec, Tech spec and Dev are all".
 fn skipped(stages: &[&Stage]) -> String {
     let names: Vec<&str> = stages.iter().map(|s| s.name.as_str()).collect();
     match names.as_slice() {
