@@ -132,6 +132,9 @@ pub struct CardExtras {
     pub blocked: Option<String>,
     /// Others wait for it (DPV-01): "Blocks SHOP-20", "blocks 1".
     pub blocks: Option<crate::view_models::dependencies::Blocks>,
+    /// The name of the stage it is in ([`crate::view_models::plan::stage_in`]): its Plan is being written while that
+    /// stage's agent wrote it last ("Plan · 2 pieces so far").
+    pub stage_name: Option<String>,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
@@ -556,6 +559,8 @@ pub struct CardViewModel {
     pub fresh: bool,
     /// The one-line card of BRD-03, from the parts above. Boxed: the board keeps every card's view model.
     pub one_line: Box<OneLine>,
+    /// "Plan · 4 pieces", "Plan · 2 pieces so far" (d0133, `s30-01`); none without pieces.
+    pub plan: Option<String>,
 }
 
 /// What the one-line card shows (BRD-03, *24 · The two views*) besides its key and title.
@@ -1602,6 +1607,7 @@ impl CardViewModel {
                 action_note: check_agents::action_note(ticket, &x.agents.holds),
                 ..OneLine::default()
             }),
+            plan: crate::view_models::plan::card_line(ticket, x.stage_name.as_deref()),
         }
         .with_one_line(ticket, kept.is_some(), paused)
     }

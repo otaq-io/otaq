@@ -80,6 +80,7 @@ pub mod onboarding_page;
 pub mod overview;
 pub mod palette;
 pub mod pause;
+pub mod plan;
 pub mod pr_dialog;
 pub mod pr_page;
 pub mod priority;

@@ -241,6 +241,15 @@
 }
 
 /* "Created by Checkout slowness": violet, agent-made (d0068). */
+/* "Plan · 4 pieces", quiet under the line (d0133, `s30-01`). */
+.card-plan {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11.5px/1.35 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card-origin {
   overflow: hidden;
   color: var(--st-investigate);

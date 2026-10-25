@@ -543,7 +543,11 @@ impl Board {
             &id,
             EventKind::Created,
             actor,
-            json!({"title": title}),
+            // A ticket filed with a Plan names its writer, as a Plan edit does.
+            match &plan_by {
+                Some(by) => json!({"title": title, "plan_by": by.to_string()}),
+                None => json!({"title": title}),
+            },
         )
         .await?;
         let stored = match first_comment {
@@ -738,17 +742,18 @@ impl Board {
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::Updated,
-            actor,
-            match author {
-                Some(author) => json!({ "changes": changes, "author": author }),
-                None => json!({ "changes": changes }),
-            },
-        )
-        .await?;
+        let mut payload = match author {
+            Some(author) => json!({ "changes": changes, "author": author }),
+            None => json!({ "changes": changes }),
+        };
+        // Who wrote the new Plan, as `plan_by` names it ("stage:Milestone plan"): the sheet's "Written by Milestone
+        // plan · edited by you" reads the writers back from History (d0133).
+        if plan != ticket.plan
+            && let Some(by) = &plan_by
+        {
+            payload["plan_by"] = json!(by.to_string());
+        }
+        record_event(&mut tx, &ticket.id, EventKind::Updated, actor, payload).await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
     }

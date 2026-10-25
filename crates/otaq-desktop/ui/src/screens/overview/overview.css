@@ -104,6 +104,55 @@
   gap: 8px;
 }
 
+/* ---- The PLAN under the description (d0133, `s30-01`) ---- */
+
+.overview-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* "Written by Milestone plan · 2:40 pm" after the label, muted. */
+.overview-plan-by {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-plan[data-state="reading"] .overview-hint {
+  visibility: hidden;
+}
+
+.overview-plan[data-state="reading"]:has(.overview-read:hover, .overview-read:focus-visible) .overview-hint {
+  visibility: visible;
+}
+
+/* No plan: one quiet dashed line with Write a plan. */
+.overview-plan-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.overview-plan-empty > span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* "writing the next piece…" while the planning stage writes it. */
+.overview-plan-next {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font: italic 400 12px var(--font-ui);
+}
+
 .overview-compare {
   display: flex;
   flex-direction: column;

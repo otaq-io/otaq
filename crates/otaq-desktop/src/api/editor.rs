@@ -95,6 +95,10 @@ pub enum Target {
     Description {
         key: String,
     },
+    /// The Plan edited in place in Overview (d0133, `s30-01`): the form's `body` is saved as the Plan, nothing else.
+    Plan {
+        key: String,
+    },
 }
 
 /// The form as typed: what the page keeps and sends back on save.
@@ -559,7 +563,7 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
                 ..view
             }
         }
-        Target::Edit { key } | Target::Description { key } => {
+        Target::Edit { key } | Target::Description { key } | Target::Plan { key } => {
             let ticket = found(app, &key).await?;
             let project_key = ticket.key.project.to_string();
             let info = project(app, &project_key).await?;
@@ -747,6 +751,13 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             let before = found(app, &key).await?;
             let Some(update) = EditorModel::description(&before, &params.form.body).update_input() else {
                 // Untouched: nothing is saved (Q48).
+                return Ok(SaveOutcome::Saved { key, note: None });
+            };
+            update_ticket(app, key, &before, update).await
+        }
+        Target::Plan { key } => {
+            let before = found(app, &key).await?;
+            let Some(update) = otaq_view::view_models::plan::update(&before, &params.form.body) else {
                 return Ok(SaveOutcome::Saved { key, note: None });
             };
             update_ticket(app, key, &before, update).await
@@ -1308,6 +1319,42 @@ mod tests {
             view["read"]["body_markdown"],
             "Post the cart.\n\n- [ ] show 422 errors inline"
         );
+
+        // The Plan in place (d0133, T-0540): only the Plan, as written; untouched, nothing is saved.
+        let plan = "Why.\n\n## Pieces\n\n1. Cart API\n2. Cart page \u{2014} waits for 1\n";
+        let mut planned = changed.clone();
+        planned["body"] = json!(plan);
+        let in_plan = json!({ "mode": "plan", "key": child });
+        let saved = table(&h.app, "editor.save", json!({ "target": in_plan, "form": planned }))
+            .await
+            .unwrap();
+        assert_eq!(saved["outcome"], "saved");
+        let overview = table(&h.app, "overview.view", json!({ "key": child }))
+            .await
+            .unwrap();
+        assert_eq!(overview["plan"]["markdown"], plan);
+        assert_eq!(overview["plan"]["empty"], Value::Null);
+        assert!(
+            overview["plan"]["written_by"]
+                .as_str()
+                .unwrap()
+                .starts_with("Written by you \u{b7} "),
+            "{}",
+            overview["plan"]
+        );
+        assert_eq!(overview["plan"]["pieces"][1]["waits"], "waits for 1");
+        let view = table(&h.app, "editor.open", json!({ "mode": "edit", "key": child }))
+            .await
+            .unwrap();
+        assert_eq!(
+            view["read"]["body_markdown"],
+            "Post the cart.\n\n- [ ] show 422 errors inline",
+            "the description is untouched"
+        );
+        let again = table(&h.app, "editor.save", json!({ "target": in_plan, "form": planned }))
+            .await
+            .unwrap();
+        assert_eq!(again["outcome"], "saved");
 
         let compare = table(&h.app, "editor.compare", json!({ "key": child, "field": null }))
             .await

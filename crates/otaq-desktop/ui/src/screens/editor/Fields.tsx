@@ -150,6 +150,7 @@ export function Description({
   onSave,
   caret,
   placeholder,
+  name,
 }: {
   view: EditorView;
   body: string;
@@ -164,14 +165,17 @@ export function Description({
   caret?: number;
   /** The muted text while it is empty, when not the form's ("Type / for blocks"). */
   placeholder?: string;
+  /** The field's name, when not the description's ("Plan", T-0540). */
+  name?: string;
 }) {
   const t = view.texts;
+  const fieldName = name ?? t.body;
   const mode = useSourceMode(body, openingMode(view.source_mode));
   const editor = useMarkdownEditor({
     value: mode.editorValue,
     onChange,
     placeholder: placeholder ?? t.body_placeholder,
-    label: t.body,
+    label: fieldName,
     // ⌘↵ saves the form (`useFormKeys` on the form's root): the editor leaves it, or Tiptap would add a line break.
     onKeyDown: (e) => isSaveKey(e) || undefined,
   });
@@ -231,7 +235,9 @@ export function Description({
       }
       {...(mode.on
         ? {
-            source: <SourceArea value={body} label={t.body} takeFocus={mode.switched} onChange={onChange} />,
+            source: (
+              <SourceArea value={body} label={fieldName} takeFocus={mode.switched} onChange={onChange} />
+            ),
           }
         : {})}
     />
@@ -261,7 +267,7 @@ export function Description({
         <FullView
           slot={full.slot}
           ticketKey={view.key}
-          name={t.body}
+          name={fieldName}
           title={title}
           state={t.editing}
           collapseLabel={t.collapse}

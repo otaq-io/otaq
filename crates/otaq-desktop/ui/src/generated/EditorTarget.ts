@@ -7,4 +7,4 @@ export type EditorTarget = { "mode": "create", project: string | null,
 /**
  * The description it starts with: New ticket from this file puts the file's path there (FTB-03).
  */
-body?: string, } | { "mode": "edit", key: string, } | { "mode": "description", key: string, };
+body?: string, } | { "mode": "edit", key: string, } | { "mode": "description", key: string, } | { "mode": "plan", key: string, };
