@@ -580,19 +580,50 @@ impl Starter {
             .project_git(&project.key)
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
-        let returning = Returning::of(board, ticket)
+        // The Agent stage it starts or continues in, and the stages it skips (AGM-08).
+        let flow = board
+            .effective_flow(&project.key)
+            .await
+            .map_err(|e| (StartStep::Base, e.into()))?;
+        let skips = board
+            .ticket_skips(ticket, &flow)
+            .await
+            .map_err(|e| (StartStep::Base, e.into()))?;
+        let agent_stage = resolve::agent_stage_of(&flow, ticket, &skips);
+        let returning = Returning::of(board, ticket, agent_stage.map(|s| s.id.as_str()))
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
         // Waiting before a later Agent stage, not coming back to it (Resume, Retry, a Send back's skill, Park): a new
-        // conversation in the worktree it has (STG-07).
+        // conversation in the worktree it has (STG-07), unless the ticket ran that stage before: walked again (after
+        // a Fail to an earlier stage, a drag back), it continues that stage's own conversation (d0131 row 8).
         let next_stage = matches!(ticket.place, Place::Waiting(Some(_))) && returning.is_none();
+        let rewalk = match (next_stage, agent_stage) {
+            (true, Some(stage)) => {
+                StoredConversation::of_stage(board.store().pool(), &ticket.id, &stage.id)
+                    .await
+                    .map_err(|e| (StartStep::Base, BoardError::from(e).into()))?
+                    .map(|c| (c, stage))
+            }
+            _ => None,
+        };
+        // The stage's own live session, a later stage's stopped (d0131: a Fail to an earlier stage than the live
+        // one); the previous stage's stops at the launch of the next one.
+        let own = match next_stage {
+            true => None,
+            false => own_agent_session(
+                board,
+                &inner.sessions,
+                ticket,
+                agent_stage.map(|s| s.id.as_str()),
+            )
+            .await
+            .map_err(|e| (StartStep::Base, e.into()))?,
+        };
         // The check before every launch, for a new conversation only (AGT-05, d0088: once, at session start).
-        let new_conversation = next_stage
-            || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
-                && inner
-                    .sessions
-                    .running_of(&ticket.id, SessionKind::Agent)
-                    .is_none());
+        let new_conversation = rewalk.is_none()
+            && (next_stage
+                || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
+                    && own.is_none()));
         let mut checked = None;
         if new_conversation {
             // The running agent of the Agent stage it starts (AGM-05).
@@ -819,15 +850,28 @@ impl Starter {
             .await
             .map_err(|e| (StartStep::Ports, StartError::Other(e.to_string())))?;
 
-        // 7. The agent. A session still running from an earlier attempt is reused; the previous stage's is stopped.
+        // 7. The agent. The stage's own session still running from an earlier attempt is reused; the previous
+        // stage's is stopped.
         self.mark_step(ticket, StartStep::Launch).await;
-        let running = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
-        if let Some(previous) = running.as_ref().filter(|_| next_stage)
+        if next_stage
+            && let Some(previous) = inner.sessions.running_of(&ticket.id, SessionKind::Agent)
             && let Err(e) = inner.sessions.stop(&previous.id).await
         {
             tracing::warn!(ticket = %key, error = %e, "can't stop the previous stage's session");
         }
-        if let Some(running) = running.filter(|_| !next_stage) {
+        let own = match own {
+            // Still live after the steps.
+            Some(_) => own_agent_session(
+                board,
+                &inner.sessions,
+                ticket,
+                agent_stage.map(|s| s.id.as_str()),
+            )
+            .await
+            .map_err(|e| (StartStep::Launch, e.into()))?,
+            None => None,
+        };
+        if let Some(running) = own {
             if let (Some(skill), Some(deliveries)) = (
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
@@ -872,19 +916,23 @@ impl Starter {
         // A new conversation runs on the agent resolved at the check (AGM-05: the start, Retry start, Start from
         // scratch); a resumed one on the tool, model and agent it ran on (ADP-04, d0088).
         let mut agent_new: Option<Agent> = None;
-        let (runs_on, resume, first_prompt) = match conversation {
-            Some((c, prompt)) => (RunsOn::resumed(&c), Some(c.id), prompt),
-            None => {
+        let (runs_on, resume, first_prompt) = match (conversation, rewalk) {
+            (Some((c, prompt)), _) => (RunsOn::resumed(&c), Some(c.id), prompt),
+            // Walked again: its own conversation, on the tool and model it ran on, told why it is back (d0122's
+            // first prompt, never a slash command).
+            (None, Some((c, stage))) => {
+                let text = rewalk_text(board, ticket, &flow, stage)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                (
+                    RunsOn::resumed(&c),
+                    Some(c.id),
+                    Some(FirstPrompt::Text(text)),
+                )
+            }
+            (None, None) => {
                 // The stage's own skill (Q261): `grill` for a Grill stage, `work-ticket` for Dev.
-                let flow = board
-                    .effective_flow(&project.key)
-                    .await
-                    .map_err(|e| (StartStep::Launch, e.into()))?;
-                let skips = board
-                    .ticket_skips(ticket, &flow)
-                    .await
-                    .map_err(|e| (StartStep::Launch, e.into()))?;
-                let skill = resolve::agent_stage_of(&flow, ticket, &skips)
+                let skill = agent_stage
                     .and_then(|stage| stage.skill.clone())
                     .unwrap_or_else(|| WORK_TICKET_SKILL.to_owned());
                 let runs_on = match checked {
@@ -1265,7 +1313,12 @@ impl Returning {
 }
 
 impl Returning {
-    async fn of(board: &Board, ticket: &Ticket) -> Result<Option<Self>, BoardError> {
+    /// `stage`: the Agent stage it comes back to, whose own conversation continues when it has one.
+    async fn of(
+        board: &Board,
+        ticket: &Ticket,
+        stage: Option<&str>,
+    ) -> Result<Option<Self>, BoardError> {
         let Some(row) = board.store().ticket(&ticket.id).await? else {
             return Ok(None);
         };
@@ -1282,8 +1335,11 @@ impl Returning {
                 resumed: false,
             }));
         }
-        let conversation =
-            StoredConversation::latest_agent(board.store().pool(), &ticket.id).await?;
+        let pool = board.store().pool();
+        let conversation = match stage {
+            Some(stage) => StoredConversation::coming_back_to(pool, &ticket.id, stage).await?,
+            None => StoredConversation::latest_agent(pool, &ticket.id).await?,
+        };
         Ok(Some(Self {
             skill: row.resume_skill,
             prompt: row.resume_prompt,
@@ -1291,4 +1347,86 @@ impl Returning {
             resumed: row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME),
         }))
     }
+}
+
+/// The ticket's live agent session when it is the Agent stage `stage`'s own ([`crate::session::own_stage`]; one that
+/// ran no stage yet counts as any stage's), and any live one when `stage` isn't an Agent stage. A live session of
+/// another Agent stage is stopped first: the card left that stage, and `stage`'s own conversation resumes in its place
+/// (d0131: a Fail to a stage before the live one; d0108 sessions rule 4).
+pub async fn own_agent_session(
+    board: &Board,
+    sessions: &Sessions,
+    ticket: &Ticket,
+    stage: Option<&str>,
+) -> Result<Option<SessionInfo>, BoardError> {
+    let Some(live) = sessions.running_of(&ticket.id, SessionKind::Agent) else {
+        return Ok(None);
+    };
+    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    let Some(stage) = stage.filter(|id| flow.stage(id).is_some_and(|s| s.is_agent_stage())) else {
+        return Ok(Some(live));
+    };
+    match crate::session::own_stage(board.store().pool(), &live.id).await? {
+        Some(own) if own != stage => {
+            if let Err(e) = sessions.stop(&live.id).await {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't stop the other stage's session");
+            }
+            Ok(None)
+        }
+        _ => Ok(Some(live)),
+    }
+}
+
+/// What a re-walked Agent stage's conversation is told first (d0131 row 8, d0122): why the card is back, from its
+/// stage runs. "SHOP-40 is back in Tech spec: Spec review sent it to Product spec, which finished. Run `otaq prime`.";
+/// after a drag back "…: you moved it back to Product spec, which finished. …"; else "…: Product spec finished. …".
+async fn rewalk_text(
+    board: &Board,
+    ticket: &Ticket,
+    flow: &crate::flow::Flow,
+    stage: &crate::flow::Stage,
+) -> Result<String, BoardError> {
+    let key = ticket.key.to_string();
+    let runs = board.stage_runs(&key).await?;
+    let history = board.history(&key).await?;
+    let name = |id: &str| flow.stage(id).map_or(id, |s| s.name.as_str()).to_owned();
+    // The Agent stage that just finished, and the run before its latest visit (consecutive runs are one visit).
+    let finished = runs.iter().rposition(|r| {
+        r.kind == "agent" && r.stage != stage.id && r.result == Some(RunResult::Done)
+    });
+    let why = finished.map(|at| {
+        let done = &runs[at].stage;
+        let visit = runs[..=at]
+            .iter()
+            .rposition(|r| r.stage != *done)
+            .map(|i| &runs[i]);
+        let dragged = history
+            .iter()
+            .rfind(|e| matches!(e.kind, EventKind::SentBack | EventKind::Dragged))
+            .is_some_and(|e| e.kind == EventKind::Dragged);
+        match visit {
+            Some(before) if before.result == Some(RunResult::Failed) && before.kind == "check" => {
+                format!(
+                    "{} sent it to {}, which finished",
+                    name(&before.stage),
+                    name(done)
+                )
+            }
+            Some(_) if dragged => format!("you moved it back to {}, which finished", name(done)),
+            Some(before) if before.result == Some(RunResult::Failed) => {
+                format!(
+                    "{} sent it to {}, which finished",
+                    name(&before.stage),
+                    name(done)
+                )
+            }
+            _ => format!("{} finished", name(done)),
+        }
+    });
+    let why = why.map_or_else(String::new, |why| format!(": {why}"));
+    Ok(format!(
+        "{key} is back in {}{why}. Run `{} prime`.",
+        stage.name,
+        naming::COMMAND_NAME
+    ))
 }

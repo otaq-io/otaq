@@ -293,7 +293,7 @@ impl Review {
             target,
             hand_over: check,
         };
-        let skill = action.skill();
+        let skill = super::RESTACK_SKILL;
         let full = self.limit_full().await?;
         let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
         match (&live, full) {

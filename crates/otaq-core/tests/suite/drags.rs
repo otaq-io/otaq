@@ -209,12 +209,14 @@ async fn back_to_dev_resumes_its_session_with_the_instructions() {
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(out.contains("--resume Price table-dev"), "{out}");
+    // Only instructions, no line comments: the plain sentence, no `address-review` (d0131 Q514).
     assert!(
         out.contains(
-            "address-review SHOP-1 was sent back to Dev by you with a comment. Run `otaq prime`."
+            "--resume Price table-dev SHOP-1 was sent back to Dev by you with a comment. Run `otaq prime`."
         ),
         "{out}"
     );
+    assert!(!out.contains("address-review"), "{out}");
     assert!(
         !out.contains(note),
         "the instructions are a comment, not typed: {out}"

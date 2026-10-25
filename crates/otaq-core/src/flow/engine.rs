@@ -4,8 +4,8 @@
 //!
 //! - [`step`]: what a [`Move`] does where a ticket stands: the agent's "next stage", an agent check's verdict, a
 //!   human check's Pass or Fail, a Delivery finishing, and the user's shortcuts (Skip this check, Move on anyway…).
-//!   A Fail returns the card to the nearest earlier Agent stage, which resumes its session; from there it walks
-//!   every later stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets
+//!   A Fail returns the card to the check's fails-go-to stage ([`fail_to`], d0131; the nearest earlier Agent stage the
+//!   ticket runs when it skips that one), which resumes its session; from there it walks every later stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets
 //!   them all. A human check directly followed by a click Delivery offers the delivery choices as its Pass.
 //!   Moving on into an Agent stage waits before it (STG-07): only the scheduler's [`Move::Begin`] enters it.
 //! - [`drag`]: a drag's verdict (§7.4, FLW-18): today's drag rules and a drop on any stage, by stage kind.
@@ -294,13 +294,25 @@ fn walk<'f>(
     (skipped, None)
 }
 
-/// The nearest earlier Agent stage the ticket runs: where a Fail sends it back.
+/// The nearest earlier Agent stage the ticket runs: where a drag back's nearest stage, Give it another round, Answer
+/// the agent, a Delivery's conflict, a failed Merge check and PR comments send it (d0108 smaller rule 1).
 pub fn back_to<'f>(flow: &'f Flow, from: &str, skips: &[String]) -> Option<&'f Stage> {
     let index = flow.position(from)?;
     flow.stages[..index]
         .iter()
         .rev()
         .find(|s| s.is_agent_stage() && !self::skips(s, skips))
+}
+
+/// Where a Fail at the check `check` sends this ticket (d0131): the check's fails-go-to stage ([`Flow::fail_to_of`]:
+/// its `fail_to`, else the nearest Agent stage before it), or, when the ticket skips that stage, the nearest Agent
+/// stage before the check that the ticket runs. `None` when the ticket runs no Agent stage before it.
+pub fn fail_to<'f>(flow: &'f Flow, check: &str, skips: &[String]) -> Option<&'f Stage> {
+    let named = flow.stage(check).and_then(|c| flow.fail_to_of(c));
+    match named {
+        Some(stage) if !self::skips(stage, skips) => Some(stage),
+        _ => back_to(flow, check, skips),
+    }
 }
 
 /// The first Agent stage the ticket runs: where a start takes it, and the stages it skips before it.
@@ -385,9 +397,22 @@ fn move_on<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage
     }
 }
 
-/// Back to the nearest earlier Agent stage, which resumes its session.
-fn back<'f>(at: &At<'f, '_>, from: &Stage) -> Result<Step<'f>, NotNow> {
-    let to = back_to(at.flow, &from.id, at.skips).ok_or_else(|| {
+/// Which Agent stage a move back goes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Back {
+    /// The check's fails-go-to stage ([`fail_to`]): an agent check's Fail and a human check's Fail (d0131).
+    FailTo,
+    /// The nearest earlier one ([`back_to`]): everything else that goes back (d0108 smaller rule 1).
+    Nearest,
+}
+
+/// Back to an earlier Agent stage, which resumes its session.
+fn back<'f>(at: &At<'f, '_>, from: &Stage, rule: Back) -> Result<Step<'f>, NotNow> {
+    let to = match rule {
+        Back::FailTo => fail_to(at.flow, &from.id, at.skips),
+        Back::Nearest => back_to(at.flow, &from.id, at.skips),
+    };
+    let to = to.ok_or_else(|| {
         NotNow(format!(
             "{} has no Agent stage before it to send the ticket back to",
             from.name
@@ -461,7 +486,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             let step = if at.fails + 1 >= at.rounds {
                 Step::stay(&at, Status::CheckFailed)
             } else {
-                back(&at, stage)?
+                back(&at, stage, Back::FailTo)?
             };
             step.ended(RunResult::Failed).counters(Counters::Count)
         }
@@ -469,7 +494,8 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             Step::stay(&at, Status::CheckNoResult).ended(RunResult::NoResult)
         }
         Move::CancelCheck if agent_check && checking(at.status) => {
-            let mut step = back(&at, current.expect("in a check"))?.ended(RunResult::Cancelled);
+            let mut step =
+                back(&at, current.expect("in a check"), Back::Nearest)?.ended(RunResult::Cancelled);
             step.resume = false;
             step
         }
@@ -491,10 +517,10 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             step
         }
         Move::AnotherRound if agent_check && at.status == Status::CheckFailed => {
-            back(&at, current.expect("in a check"))?
+            back(&at, current.expect("in a check"), Back::Nearest)?
         }
         Move::AnswerAgent if agent_check && at.status == Status::CheckFailed => {
-            back(&at, current.expect("in a check"))?.counters(Counters::ResetThis)
+            back(&at, current.expect("in a check"), Back::Nearest)?.counters(Counters::ResetThis)
         }
         Move::HumanPass if human_check && at.status == Status::WaitingForYou => {
             let index = at.index().expect("in a check");
@@ -509,7 +535,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             }
         }
         Move::HumanFail if human_check && at.status == Status::WaitingForYou => {
-            back(&at, current.expect("in a check"))?
+            back(&at, current.expect("in a check"), Back::FailTo)?
                 .ended(RunResult::Failed)
                 .counters(Counters::ResetAll)
         }
@@ -558,7 +584,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             .ended(RunResult::Cancelled)
         }
         Move::PrComments if is(StageKind::Delivery) && at.status == Status::PrOpen => {
-            back(&at, current.expect("in a stage"))?
+            back(&at, current.expect("in a stage"), Back::Nearest)?
                 .ended(RunResult::Cancelled)
                 .counters(Counters::ResetAll)
         }
@@ -862,6 +888,118 @@ mod tests {
         assert_eq!(
             next_human_check(&flow, DEV).map(|s| s.id.as_str()),
             Some(REVIEW)
+        );
+    }
+
+    /// The test flow: Grill (skippable) · Dev · Validate · Security · QA (its fails go to Grill) · Done.
+    fn every_kind() -> Flow {
+        let yaml = include_str!("../../tests/flows/every-kind.yaml");
+        crate::flow::yaml::read(yaml).unwrap().flow
+    }
+
+    /// Where `mv` takes a ticket in `stage` with `status` that skips `skips`.
+    fn moved(flow: &Flow, stage: &str, status: Status, skips: &[String], mv: Move) -> String {
+        let place = Place::stage_of(stage);
+        let at = At {
+            skips,
+            ..At::new(flow, &place, status)
+        };
+        let step = step(at, mv).unwrap();
+        assert!(step.resume, "{mv:?} resumes the stage it goes back to");
+        step.place.stage().unwrap().to_owned()
+    }
+
+    #[test]
+    fn a_fail_goes_to_the_checks_stage() {
+        let flow = every_kind();
+        let skip_grill = ["grill".to_owned()];
+        // Set and not skipped: QA's fails go to Grill, not the nearest (Dev).
+        assert_eq!(
+            fail_to(&flow, "qa", &[]).map(|s| s.id.as_str()),
+            Some("grill")
+        );
+        // Set and skipped: the nearest Agent stage before QA that the ticket runs.
+        assert_eq!(
+            fail_to(&flow, "qa", &skip_grill).map(|s| s.id.as_str()),
+            Some("dev")
+        );
+        // Unset: the nearest.
+        assert_eq!(
+            fail_to(&flow, "validate", &[]).map(|s| s.id.as_str()),
+            Some("dev")
+        );
+        assert_eq!(fail_to(&flow, "grill", &[]), None);
+    }
+
+    #[test]
+    fn human_and_agent_fails_alike() {
+        let mut flow = every_kind();
+        let skip_grill = ["grill".to_owned()];
+        let human = |flow: &Flow, skips: &[String]| {
+            moved(flow, "qa", Status::WaitingForYou, skips, Move::HumanFail)
+        };
+        assert_eq!(human(&flow, &[]), "grill");
+        assert_eq!(human(&flow, &skip_grill), "dev");
+        // A Validate fail in a flow where Validate's target isn't the nearest stage.
+        let agent = |flow: &Flow, skips: &[String]| {
+            moved(flow, "validate", Status::Checking, skips, Move::Fail)
+        };
+        assert_eq!(agent(&flow, &[]), "dev", "unset: the nearest");
+        flow.stages[2].fail_to = Some("grill".into());
+        assert_eq!(agent(&flow, &[]), "grill");
+        assert_eq!(agent(&flow, &skip_grill), "dev");
+        // The last allowed fail stays in the check, whatever its target.
+        let place = Place::stage_of("validate");
+        let last = At {
+            fails: 2,
+            ..At::new(&flow, &place, Status::Checking)
+        };
+        assert_eq!(step(last, Move::Fail).unwrap().status, Status::CheckFailed);
+    }
+
+    #[test]
+    fn the_other_ways_back_keep_the_nearest_stage() {
+        let mut flow = every_kind();
+        flow.stages[2].fail_to = Some("grill".into());
+        for mv in [Move::AnotherRound, Move::AnswerAgent] {
+            assert_eq!(
+                moved(&flow, "validate", Status::CheckFailed, &[], mv),
+                "dev"
+            );
+        }
+        let place = Place::stage_of("ship");
+        let pr = At::new(&flow, &place, Status::PrOpen);
+        assert_eq!(
+            step(pr, Move::PrComments).unwrap().place,
+            Place::stage_of("dev")
+        );
+        let place = Place::stage_of("validate");
+        let cancel = At::new(&flow, &place, Status::Checking);
+        assert_eq!(
+            step(cancel, Move::CancelCheck).unwrap().place,
+            Place::stage_of("dev")
+        );
+        // A drag back goes to the stage it was dropped on, whatever the checks' targets.
+        let place = Place::stage_of("qa");
+        let at = At::new(&flow, &place, Status::WaitingForYou);
+        let dev = flow.stage("dev").unwrap();
+        assert_eq!(dragged(at, dev).place, Place::stage_of("dev"));
+    }
+
+    #[test]
+    fn nowhere_to_go_names_the_check() {
+        let mut flow = every_kind();
+        // Only reachable through a ticket's skips (M46's skippable human check): here Dev turned skippable too.
+        flow.stages[1].options = vec![crate::flow::model::StageOption::Skip];
+        let skips = ["grill".to_owned(), "dev".to_owned()];
+        let place = Place::stage_of("qa");
+        let at = At {
+            skips: &skips,
+            ..At::new(&flow, &place, Status::WaitingForYou)
+        };
+        assert_eq!(
+            step(at, Move::HumanFail).unwrap_err().0,
+            "QA has no Agent stage before it to send the ticket back to"
         );
     }
 }

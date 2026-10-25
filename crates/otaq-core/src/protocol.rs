@@ -549,7 +549,7 @@ pub enum Request {
     #[serde(rename = "ticket.manual_check_tick")]
     TicketManualCheckTick(ManualCheckTickParams),
     /// Fail on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and the note go
-    /// to the nearest earlier Agent stage's session, and the ticket returns there. Answered with
+    /// to the session of the check's fails-go-to stage (d0131), and the ticket returns there. Answered with
     /// [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has unsent text (resend
     /// with `clear_first` for "Clear it and send").
     #[serde(rename = "ticket.fail")]

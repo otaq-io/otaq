@@ -406,6 +406,8 @@ async fn a_live_session_gets_the_build_back_then_the_skill() {
     let agent = w.agent_shell(&t).await;
     let worktree = t.work.clone().unwrap().worktree;
 
+    // A line comment: a code review, so the skill goes (d0131 Q514).
+    crate::common::line_comment(&w.board, &key).await;
     let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working);
@@ -443,6 +445,8 @@ async fn a_gone_session_is_resumed_with_its_build() {
     let key = t.key.to_string();
     w.record_ended_agent(&t, "0199-old-conversation").await;
 
+    // A line comment: a code review, so the skill goes (d0131 Q514).
+    crate::common::line_comment(&w.board, &key).await;
     let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working, "{:?}", after.start_problem);
@@ -566,6 +570,9 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
         .unwrap();
     let a_agent = w.agent_shell(&a).await;
     let b_agent = w.agent_shell(&b).await;
+    // Line comments: code reviews, so the skill goes (d0131 Q514).
+    crate::common::line_comment(&w.board, &a.key.to_string()).await;
+    crate::common::line_comment(&w.board, &b.key.to_string()).await;
 
     done(
         w.review
@@ -605,6 +612,8 @@ async fn a_failed_setup_on_send_back_still_delivers_the_skill() {
     let key = t.key.to_string();
     let agent = w.agent_shell(&t).await;
 
+    // A line comment: a code review, so the skill goes (d0131 Q514).
+    crate::common::line_comment(&w.board, &key).await;
     let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working);

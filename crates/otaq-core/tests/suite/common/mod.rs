@@ -96,6 +96,21 @@ impl Fixture {
     }
 }
 
+/// A line comment on `key`, waiting in a human check: the next Send back is a code review and types
+/// `address-review` (d0131 Q514).
+pub async fn line_comment(board: &Board, key: &str) {
+    board
+        .add_comment(&otaq_core::board::comments::NewComment {
+            key: key.to_owned(),
+            file: "src/lib.rs".into(),
+            line: 1,
+            side: otaq_core::board::comments::Side::New,
+            body: "Handle the empty case.".into(),
+        })
+        .await
+        .unwrap();
+}
+
 pub fn shop_input() -> NewTicketInput {
     NewTicketInput {
         project: "SHOP".into(),

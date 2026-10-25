@@ -185,13 +185,26 @@ pub struct SentBack<'a> {
     pub comment: bool,
     /// A drag back: "by you".
     pub by_you: bool,
+    /// The human check whose Send back it is ("Spec review"); `None` for a drag back or PR comments.
+    pub from: Option<&'a str>,
 }
 
 /// What a returning agent is typed or resumed with: the hand-over, never its text (CMT-05). "SHOP-18 was sent back to
 /// Dev with 2 line comments and a comment. Run `otaq prime`, then `otaq review feedback`."; "SHOP-19 was sent back to
 /// Dev by you with a comment. Run `otaq prime`." `otaq review feedback` is named when there are line or PR comments
-/// to read.
+/// to read. A human check's Send back with neither (no code review, d0131 Q514) is the plain sentence that goes
+/// without `address-review`, whatever the stage: "Spec review sent SHOP-40 back to you with a comment. Run `otaq
+/// prime`."
 pub fn sent_back_text(back: &SentBack<'_>) -> String {
+    if let Some(check) = back.from
+        && !is_code_review(back)
+    {
+        let with = if back.comment { " with a comment" } else { "" };
+        return format!(
+            "{check} sent {} back to you{with}. Run `{COMMAND_NAME} prime`.",
+            back.key
+        );
+    }
     let mut parts: Vec<String> = Vec::new();
     match back.line_comments {
         0 => {}
@@ -219,6 +232,12 @@ pub fn sent_back_text(back: &SentBack<'_>) -> String {
         "{} was sent back to {}{by}{with}. Run `{COMMAND_NAME} prime`{feedback}.",
         back.key, back.stage
     )
+}
+
+/// Whether a Send back is a code review: it carries line comments or PR comments, so `address-review` goes with it
+/// (d0131 Q514); otherwise only the plain sentence of [`sent_back_text`] does.
+pub fn is_code_review(back: &SentBack<'_>) -> bool {
+    back.line_comments > 0 || back.pr_comments
 }
 
 /// What the agent is told after a failed check (VAL-04, CMT-05): "Validate failed round 2. Run `otaq prime`." The

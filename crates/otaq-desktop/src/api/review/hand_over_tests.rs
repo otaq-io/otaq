@@ -140,7 +140,7 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
     assert!(out.contains("--resume SHOP-34-dev"), "{out}");
     assert!(
         out.contains(&format!(
-            "SHOP-34 was sent back to Dev with a comment. Run `{CMD} prime`."
+            "Review sent SHOP-34 back to you with a comment. Run `{CMD} prime`."
         )),
         "{out}"
     );

@@ -201,6 +201,26 @@ pub struct SessionTicket {
     pub key: TicketKey,
 }
 
+/// The Agent stage session `s` ran (SQL over `sessions s`): the stage of its first agent run. A session belongs to
+/// the one stage it started in; a run it was attached to later, while still live, isn't its own (a Fail that sends
+/// the card to an earlier stage opens that stage's run with the later stage's session, until it stops; d0131).
+pub const OWN_STAGE: &str =
+    "(SELECT r.stage_id FROM stage_runs r WHERE r.session_id = s.id AND r.kind = 'agent'
+                               ORDER BY r.started_at, r.rowid LIMIT 1)";
+
+/// The Agent stage the session `session` ran ([`OWN_STAGE`]), `None` when it ran none.
+pub async fn own_stage(
+    pool: &sqlx::SqlitePool,
+    session: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let sql = format!("SELECT {OWN_STAGE} FROM sessions s WHERE s.id = ?");
+    let stage: Option<Option<String>> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .bind(session)
+        .fetch_optional(pool)
+        .await?;
+    Ok(stage.flatten())
+}
+
 /// A stored conversation to continue (Resume, Park, Send back, answers; d0045, d0088): the agent tool it ran
 /// on, the tool's own id, the model and effort as launched and the agent, so Resume reopens the same tool and model
 /// (ADP-04, AGM-03) and the resumed session's row names the same agent, whatever the agent is set to now (0088).
@@ -231,10 +251,52 @@ impl StoredConversation {
 
     /// The conversation of ticket `ticket_id`'s newest agent session whose tool id is known: Resume's (STG-09).
     /// By stage run (d0108): a session that ran an Agent stage counts whatever its kind, and when the ticket is in
-    /// (or waits before) an Agent stage, that stage's own session comes first.
+    /// (or waits before) an Agent stage, that stage's own session ([`OWN_STAGE`]) comes first.
     pub async fn latest_agent(
         pool: &sqlx::SqlitePool,
         ticket_id: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        Self::newest(pool, ticket_id, None).await
+    }
+
+    /// The conversation of the newest session the ticket ran the Agent stage `stage` in ([`OWN_STAGE`]): what a
+    /// re-walked stage continues (d0131 row 8). `None` when the stage never ran in a session of its own.
+    pub async fn of_stage(
+        pool: &sqlx::SqlitePool,
+        ticket_id: &str,
+        stage: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        Self::newest(pool, ticket_id, Some(stage)).await
+    }
+
+    /// What a ticket coming back to the Agent stage `stage` continues (d0108 sessions rules 4 and 5, d0131): that
+    /// stage's own conversation; none when the stage never ran in a session of its own while others did (it starts
+    /// fresh there, as a drag back into a stage that never ran); the newest conversation when no session ran a stage
+    /// ([`Self::latest_agent`]).
+    pub async fn coming_back_to(
+        pool: &sqlx::SqlitePool,
+        ticket_id: &str,
+        stage: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        if let Some(own) = Self::of_stage(pool, ticket_id, stage).await? {
+            return Ok(Some(own));
+        }
+        let ran: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM stage_runs WHERE ticket_id = ? AND kind = 'agent' AND session_id IS NOT NULL LIMIT 1",
+        )
+        .bind(ticket_id)
+        .fetch_optional(pool)
+        .await?;
+        match ran {
+            Some(_) => Ok(None),
+            None => Self::latest_agent(pool, ticket_id).await,
+        }
+    }
+
+    async fn newest(
+        pool: &sqlx::SqlitePool,
+        ticket_id: &str,
+        stage: Option<&str>,
     ) -> Result<Option<Self>, sqlx::Error> {
         type Row = (
             String,
@@ -244,20 +306,22 @@ impl StoredConversation {
             Option<String>,
             Option<String>,
         );
-        let row: Option<Row> = sqlx::query_as(
+        let sql = format!(
             "SELECT s.tool, s.tool_session_id, s.model, s.effort, s.agent_id, s.agent_name FROM sessions s
              WHERE s.ticket_id = ?1 AND s.tool IS NOT NULL AND s.tool_session_id IS NOT NULL
                    AND COALESCE(s.end_reason, '') <> ?2
                    AND (s.kind = 'agent'
                         OR EXISTS (SELECT 1 FROM stage_runs r WHERE r.session_id = s.id AND r.kind = 'agent'))
-             ORDER BY EXISTS (SELECT 1 FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
-                              WHERE r.session_id = s.id AND r.kind = 'agent' AND r.stage_id = t.stage_id) DESC,
-                      s.started_at DESC, s.id DESC LIMIT 1",
-        )
-        .bind(ticket_id)
-        .bind(END_MODEL_REFUSED)
-        .fetch_optional(pool)
-        .await?;
+                   AND (?3 IS NULL OR {OWN_STAGE} = ?3)
+             ORDER BY COALESCE({OWN_STAGE} = (SELECT stage_id FROM tickets WHERE id = ?1), FALSE) DESC,
+                      s.started_at DESC, s.id DESC LIMIT 1"
+        );
+        let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(ticket_id)
+            .bind(END_MODEL_REFUSED)
+            .bind(stage)
+            .fetch_optional(pool)
+            .await?;
         Ok(
             row.and_then(|(tool, id, model, effort, agent_id, agent_name)| {
                 Some(Self {

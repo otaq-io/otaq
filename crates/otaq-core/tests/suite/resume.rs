@@ -263,7 +263,9 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
     let skill = format!("/{}", otaq_core::naming::copy_name("address-review"));
 
-    // Send back resumes the ended conversation with the skill; the conversation is gone.
+    // Send back (a code review: a line comment, d0131 Q514) resumes the ended conversation with the skill; the
+    // conversation is gone.
+    crate::common::line_comment(&w.board, "SHOP-1").await;
     w.review
         .fail("SHOP-1", "", None, false, &me())
         .await
@@ -284,7 +286,9 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
         String::from_utf8_lossy(&w.sessions.attach(&latest.id).unwrap().scrollback).into_owned();
     assert_eq!(
         first_prompt(&out, conversation),
-        format!("{skill} SHOP-1 was sent back to Dev. Run `otaq prime`."),
+        format!(
+            "{skill} SHOP-1 was sent back to Dev with 1 line comment. Run `otaq prime`, then `otaq review feedback`."
+        ),
         "{out}"
     );
 

@@ -882,7 +882,16 @@ impl Validation {
     /// time a validation resumes the agent (VAL-07); an automatic one (`start`) waits while the project is paused.
     async fn tell_agent(&self, ticket: &Ticket, text: &str, start: Start) {
         let inner = &self.inner;
-        let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) else {
+        // The stage the Fail sent it to (as it is now): a live session of another stage stops, its own conversation
+        // resumes (d0131).
+        let now = inner.board.ticket_by_id(&ticket.id).await.ok();
+        let stage = now.as_ref().and_then(|t| t.place.stage());
+        let own =
+            crate::start::own_agent_session(&inner.board, &inner.sessions, ticket, stage).await;
+        let Some(session) = own.unwrap_or_else(|e| {
+            tracing::warn!(key = %ticket.key, error = %e, "can't tell the stage's session");
+            None
+        }) else {
             let hook = inner.resume_agent.lock().expect("resume agent").clone();
             match hook {
                 Some(hook) => {

@@ -4,16 +4,18 @@
 //! **Pass** on any human check ([`Review::pass`]) moves the card on, or, directly before a click Delivery, offers the
 //! delivery choices (today's Approve → Local merge / Open PR).
 //!
-//! **Fail** ([`Review::fail`], Send back on the default flow) returns a ticket waiting in a human check to the nearest
-//! earlier Agent stage with the round's line comments and the note, the note posted first as the user's comment
+//! **Fail** ([`Review::fail`], Send back on the default flow) returns a ticket waiting in a human check to the check's
+//! fails-go-to stage (d0131) with the round's line comments and the note, the note posted first as the user's comment
 //! (d0034, d0108 rule 6, d0109); it then walks every later stage again. The click is the go-ahead (d0018), so it is
-//! never held, except by the optional agent limit:
-//! - the session is **live**: `/otaq-address-review` is typed into it (a copy it started with, d0118; one it didn't
+//! never held, except by the optional agent limit (with no line comments, the plain sentence goes in place of the
+//! skill and what came back, d0131 Q514: "Spec review sent SHOP-40 back to you with a comment. Run `otaq prime`."):
+//! - the stage's own session is **live**: `/otaq-address-review` is typed into it (a copy it started with, d0118; one it didn't
 //!   is named by its file, [`crate::session::deliveries::handoff_sentence`]), with what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
 //!   prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
 //!   line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
-//!   ticket's worktree with the skill and that text as its first prompt;
+//!   ticket's worktree with the skill and that text as its first prompt; a live session of a later stage (the
+//!   check's stage is an earlier one) stops first;
 //! - the agent limit is **on and full**: the ticket waits in Queued; the scheduler starts it when a slot frees,
 //!   and the skill is typed (or the conversation resumed) then.
 //!
@@ -631,9 +633,15 @@ impl Review {
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
         let inner = &self.inner;
-        let skill = action.skill();
+        let skill = action.skill(inner.board.pending_line_comments(&ticket.id).await?);
         let full = self.limit_full().await?;
-        let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        let live = match action.stage(&inner.board, ticket).await? {
+            Some(stage) => {
+                crate::start::own_agent_session(&inner.board, &inner.sessions, ticket, Some(&stage))
+                    .await?
+            }
+            None => inner.sessions.running_of(&ticket.id, SessionKind::Agent),
+        };
         if !full
             && !clear_first
             && let Some(session) = &live
@@ -653,7 +661,7 @@ impl Review {
         let key = ticket.key.to_string();
         match (&live, full) {
             (_, true) => {
-                self.record(ticket, action, Status::Queued, Some(skill), actor)
+                self.record(ticket, action, Status::Queued, skill, actor)
                     .await?;
                 inner.scheduler.wake();
             }
@@ -672,11 +680,17 @@ impl Review {
                     .as_ref()
                     .and_then(|w| w.worktree.as_deref())
                     .map(std::path::Path::new);
-                // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05).
-                let text = inner
-                    .deliveries
-                    .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
-                    .await;
+                // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05); no
+                // skill, the sentence alone.
+                let text = match skill {
+                    Some(skill) => {
+                        inner
+                            .deliveries
+                            .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
+                            .await
+                    }
+                    None => told.unwrap_or_default(),
+                };
                 // Pending for the agent once typed (d0118).
                 let typed = inner
                     .deliveries
@@ -696,7 +710,7 @@ impl Review {
                 }
             }
             (None, false) => {
-                self.record(ticket, action, Status::Queued, Some(skill), actor)
+                self.record(ticket, action, Status::Queued, skill, actor)
                     .await?;
                 match inner.starter.start(&key, actor, Start::Auto).await? {
                     StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
@@ -759,13 +773,26 @@ impl<'a> Return<'a> {
         }
     }
 
-    fn skill(&self) -> &'static str {
+    /// The skill it runs: `address-review` for a code review only (`line_comments` going with a Send back or a drag
+    /// back, or PR comments, d0131 Q514), `restack` for a conflict; `None` when the plain sentence goes alone.
+    fn skill(&self, line_comments: u32) -> Option<&'static str> {
         match self {
+            Self::SendBack { .. } | Self::DragBack(_) if line_comments == 0 => None,
             Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
-                ADDRESS_REVIEW_SKILL
+                Some(ADDRESS_REVIEW_SKILL)
             }
-            Self::Fix { .. } => RESTACK_SKILL,
+            Self::Fix { .. } => Some(RESTACK_SKILL),
         }
+    }
+
+    /// The Agent stage it returns to when that may not be the live session's (a Send back to the check's stage,
+    /// d0131; a drag back); `None` for the returns to the nearest one, whose session is the live one.
+    async fn stage(&self, board: &Board, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+        Ok(match self {
+            Self::SendBack { .. } => board.back_stage(ticket, Status::Working).await?,
+            Self::DragBack(back) => Some(back.stage.id.clone()),
+            Self::Fix { .. } | Self::PrComments { .. } => None,
+        })
     }
 
     /// What the card says while the agent hasn't picked it up (d0118).
