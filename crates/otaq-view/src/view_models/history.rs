@@ -18,6 +18,7 @@ use otaq_core::board::reports::size_label;
 use otaq_core::board::ticket_comments::CommentAuthor;
 use otaq_core::board::tickets::{EventKind, HistoryEvent};
 use otaq_core::board::validation::ValidationRecord;
+use otaq_core::domain::plan::PlanBy;
 use otaq_core::domain::{Actor, StartStep, Status};
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_core::usage::SessionUsage;
@@ -759,6 +760,57 @@ fn told(
 
 const BEFORE_AFTER: &str = "Before / after";
 
+/// A Plan change (d0133, d0109: History logs every change of the Plan, as of the description): "Milestone plan wrote
+/// the plan · 4 pieces", "You edited the plan · 1 line changed", "You cleared the plan", opening its before / after.
+/// Listed under the Description filter, the Plan being the description's neighbour. `None` without a Plan change.
+fn plan_row(e: &HistoryEvent, changes: &[serde_json::Value], facts: &Facts) -> Option<HistoryRow> {
+    let plan = changes
+        .iter()
+        .find(|c| text(c, "field").as_deref() == Some("plan"))?;
+    let p = &e.payload;
+    let before = text(plan, "before").unwrap_or_default();
+    let after = text(plan, "after").unwrap_or_default();
+    let writer = text(p, "plan_by").and_then(|by| by.parse::<PlanBy>().ok());
+    let (who, mark) = match (author_of(p), &writer) {
+        (Some(a), _) => (author_label(&a, facts), author_mark(&a, facts)),
+        (None, Some(PlanBy::User(_))) => ("You".to_owned(), Mark::You),
+        (None, _) if matches!(e.actor, Actor::User(_)) => ("You".to_owned(), Mark::You),
+        (None, Some(by)) => (by.label().to_owned(), Mark::Agent),
+        (None, None) => (changed_by(e), Mark::Agent),
+    };
+    let diff = line_diff(&before, &after);
+    let title = if after.is_empty() {
+        format!("{who} cleared the plan")
+    } else if before.is_empty() {
+        match otaq_core::domain::plan::pieces(&after).len() {
+            0 => format!("{who} wrote the plan"),
+            1 => format!("{who} wrote the plan \u{b7} 1 piece"),
+            n => format!("{who} wrote the plan \u{b7} {n} pieces"),
+        }
+    } else {
+        format!("{who} edited the plan \u{b7} {}", change_summary(&diff))
+    };
+    let others = fields(
+        changes
+            .iter()
+            .filter_map(|c| text(c, "field"))
+            .filter(|f| f != "plan"),
+    );
+    Some(told(
+        e,
+        title,
+        (!others.is_empty()).then_some(others),
+        mark,
+        Opens {
+            label: "PLAN".to_owned(),
+            caption: Some(BEFORE_AFTER.to_owned()),
+            lines: around_changes(diff, 1),
+            report: None,
+        },
+        Kind::Description,
+    ))
+}
+
 /// The rows of CMT-14: a description change, and a comment posted, edited or deleted. `None` for anything else.
 fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     let p = &e.payload;
@@ -771,9 +823,12 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     match e.kind {
         EventKind::Updated => {
             let changes = p.get("changes")?.as_array()?;
-            let body = changes
+            let Some(body) = changes
                 .iter()
-                .find(|c| text(c, "field").as_deref() == Some("body"))?;
+                .find(|c| text(c, "field").as_deref() == Some("body"))
+            else {
+                return plan_row(e, changes, facts);
+            };
             let diff = line_diff(
                 &text(body, "before").unwrap_or_default(),
                 &text(body, "after").unwrap_or_default(),

@@ -75,6 +75,7 @@ const OVERVIEW: OverviewView = {
   },
   usage_limit: null,
   before_you: null,
+  plan: null,
   manual_checks: null,
   attachments_heading: "Attachments · 2",
   attachments: [

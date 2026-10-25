@@ -15,6 +15,7 @@ use otaq_core::protocol::{
 };
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::overview::{self as vm, OverviewView};
+use otaq_view::view_models::plan;
 use otaq_view::view_models::tool_avatar;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,6 +49,7 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     FileParams::export_all(cfg)?;
     FileChip::export_all(cfg)?;
     vm::UsageLimitButton::export_all(cfg)?;
+    plan::PlanSection::export_all(cfg)?;
     TickParams::export_all(cfg)?;
     Ok(())
 }
@@ -88,6 +90,12 @@ pub struct FileChip {
     pub size: String,
 }
 
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
+
 pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, RequestError> {
     let k = || KeyParams {
         key: params.key.clone(),
@@ -123,41 +131,64 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         Ok(Reply::ManualChecks(c)) => Some(c),
         _ => None,
     };
-    let view = vm::view(
-        &params.key,
-        ticket.status,
-        &comments,
-        checks.as_ref(),
-        tool_avatar::shown(),
+    let k = || KeyParams {
+        key: params.key.clone(),
+    };
+    let (history, flow) = tokio::join!(
+        app.service.send(Request::TicketHistory(k())),
+        app.service.send(Request::FlowCurrent(ProjectParams {
+            project: ticket.key.project.to_string(),
+        })),
+    );
+    let flow = match flow {
+        Ok(Reply::FlowVersion(version)) => version.file().ok().map(|f| f.flow),
+        _ => None,
+    };
+    // The PLAN section (d0133): who wrote it comes from History; unread, the header names the last writer only.
+    let history = match history {
+        Ok(Reply::History(events)) => events,
+        _ => Vec::new(),
+    };
+    let plan = plan::section(
+        &ticket,
+        &plan::Facts {
+            stage: flow.as_ref().and_then(|f| plan::stage_in(&ticket, f)),
+            events: &history,
+            now_ms: now_ms(),
+        },
         Platform::current(),
+    );
+    let view = vm::with_plan(
+        vm::view(
+            &params.key,
+            ticket.status,
+            &comments,
+            checks.as_ref(),
+            tool_avatar::shown(),
+            Platform::current(),
+        ),
+        plan,
     );
     // A human check right after a Check stage: each check agent's verdict (d0130); unread, the review goes on without.
     let Some(check) = vm::passed_check(&ticket) else {
         return Ok(view);
     };
-    let k = || KeyParams {
-        key: params.key.clone(),
-    };
-    let (records, sessions, flow) = tokio::join!(
+    let (records, sessions) = tokio::join!(
         app.service.send(Request::TicketValidations(k())),
         app.service.send(Request::SessionList(SessionListParams {
             key: Some(params.key.clone()),
-        })),
-        app.service.send(Request::FlowCurrent(ProjectParams {
-            project: ticket.key.project.to_string(),
         })),
     );
     let (Ok(Reply::Validations(records)), Ok(Reply::Sessions(sessions))) = (records, sessions) else {
         return Ok(view);
     };
-    let rounds = match flow {
-        Ok(Reply::FlowVersion(version)) => version.file().ok().and_then(|f| {
-            let stage = f.flow.stages.iter().find(|s| s.name == check)?;
+    let rounds = flow
+        .as_ref()
+        .and_then(|f| {
+            let stage = f.stages.iter().find(|s| s.name == check)?;
             Some(otaq_core::flow::engine::rounds_of(stage, 0))
-        }),
-        _ => None,
-    }
-    .unwrap_or(otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS);
+        })
+        .unwrap_or(otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS);
     Ok(vm::with_before_you(
         view,
         check,

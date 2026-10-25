@@ -5,6 +5,7 @@ import type { DescriptionLeaveDialog } from "./DescriptionLeaveDialog";
 import type { DescriptionSaveBar } from "./DescriptionSaveBar";
 import type { ManualChecksView } from "./ManualChecksView";
 import type { OverviewUsageLimit } from "./OverviewUsageLimit";
+import type { PlanSectionView } from "./PlanSectionView";
 
 /**
  * Overview's words and its attachments: `OverviewView` on the page (`overview.view`).
@@ -31,6 +32,10 @@ usage_limit: OverviewUsageLimit | null,
  * stage with several check agents (d0130, `s30-05`); set by the service's facts ([`with_before_you`]).
  */
 before_you: BeforeYouView | null, 
+/**
+ * The PLAN section under the description (d0133, `s30-01`); set by the service's facts ([`with_plan`]).
+ */
+plan: PlanSectionView | null, 
 /**
  * "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
  */

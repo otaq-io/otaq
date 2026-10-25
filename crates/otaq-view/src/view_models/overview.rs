@@ -286,6 +286,8 @@ pub struct OverviewView {
     /// "Before you · Validate, round 1 of 3": each check agent's verdict and comment, on a human check after a Check
     /// stage with several check agents (d0130, `s30-05`); set by the service's facts ([`with_before_you`]).
     pub before_you: Option<crate::view_models::validation_report::BeforeYou>,
+    /// The PLAN section under the description (d0133, `s30-01`); set by the service's facts ([`with_plan`]).
+    pub plan: Option<crate::view_models::plan::PlanSection>,
     /// "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
     pub manual_checks: Option<ChecklistView>,
     /// "Attachments · 3"; "Attachments" with none.
@@ -325,6 +327,15 @@ pub fn with_before_you(
     view
 }
 
+/// The view with the ticket's PLAN section (d0133).
+pub fn with_plan(
+    mut view: OverviewView,
+    plan: crate::view_models::plan::PlanSection,
+) -> OverviewView {
+    view.plan = Some(plan);
+    view
+}
+
 pub fn view(
     key: &str,
     status: Status,
@@ -345,6 +356,7 @@ pub fn view(
         leave: leave_dialog(key),
         usage_limit: usage_limit(status),
         before_you: None,
+        plan: None,
         manual_checks: checks.and_then(|c| manual_checks::checklist_with(status, c, avatars)),
         attachments_heading: match attachments.len() {
             0 => ATTACHMENTS.to_owned(),

@@ -52,6 +52,8 @@ pub struct TicketCardView {
     /// A Check stage with several check agents (d0130, `s29-04`): a row per check agent under the line, which is the
     /// round's ("Validate · round 1 of 3"), and its note; the rows name the agents, so `avatar` and `who` are empty.
     pub check: Option<crate::view_models::check_agents::RoundView>,
+    /// "Plan · 4 pieces", "Plan · 2 pieces so far": quiet, under the line (d0133, `s30-01`); none without pieces.
+    pub plan: Option<String>,
     /// "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
     pub origin: Option<String>,
     /// The full status and what the card has no room for.
@@ -86,6 +88,7 @@ impl TicketCardView {
             action: vm.one_line.action,
             action_note: vm.one_line.action_note,
             check,
+            plan: vm.plan,
             origin: vm.origin,
             hover: vm.hover,
             faded: vm.faded,

@@ -95,6 +95,30 @@ describe("the leave guard (T-0465: a changed description asks first)", () => {
     openTicket("SHOP-30", undefined, s);
     expect(s.get().ticket).toBe("SHOP-30");
   });
+
+  it("asks each guard in turn: the description's, then the Plan's (T-0540)", () => {
+    const s = createSelection();
+    selectProject("SHOP", s);
+    openTicket("SHOP-40", undefined, s);
+    const asked: string[] = [];
+    const goes: (() => void)[] = [];
+    const guard = (name: string) => (_next: unknown, go: () => void) => {
+      asked.push(name);
+      goes.push(go);
+      return true;
+    };
+    const stopDescription = guardLeaving(guard("description"), s);
+    const stopPlan = guardLeaving(guard("plan"), s);
+    closeTicket(s);
+    expect(asked).toEqual(["description"]);
+    goes[0]?.();
+    expect(asked).toEqual(["description", "plan"]);
+    expect(s.get().ticket).toBe("SHOP-40");
+    goes[1]?.();
+    expect(s.get().ticket).toBeNull();
+    stopDescription();
+    stopPlan();
+  });
 });
 
 describe("the overlay stack", () => {

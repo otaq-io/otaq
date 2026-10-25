@@ -184,6 +184,8 @@ fn drop_footer_seconds(value: &mut Value) {
             if map.contains_key("action_note") {
                 map.remove("action_note");
                 map.remove("check");
+                // T-0540: the Plan's line (d0133), none on the default board.
+                map.remove("plan");
             }
             map.values_mut().for_each(drop_footer_seconds);
         }

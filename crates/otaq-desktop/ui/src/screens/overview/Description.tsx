@@ -218,6 +218,8 @@ export function DescriptionSection({ ticket, view, overview, overviewTabs }: Des
     if (!editing) return;
     const onKey = (e: KeyboardEvent) => {
       if (!isSaveDescriptionKey(e, MAC)) return;
+      // In the Plan's editor, ⌘S is the Plan's (T-0540).
+      if (e.target instanceof Element && e.target.closest(".overview-plan")) return;
       e.preventDefault();
       save();
     };

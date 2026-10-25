@@ -39,29 +39,50 @@ export function useSelection(): Selection {
 /**
  * Asked before the sheet moves away from what it shows (another ticket or tab, closing it, another project): `next` is
  * the selection the move makes, `go` makes it. Returning `true` holds the move (the guard asks first, and calls `go`
- * once the user agrees); `false` lets it happen. Overview's changed description holds it (T-0465, SHT-03).
+ * once the user agrees); `false` lets it happen. Overview's changed description holds it (T-0465, SHT-03), and its
+ * changed Plan (T-0540).
  */
 export type LeaveGuard = (next: Selection, go: () => void) => boolean;
 
-const guards = new WeakMap<Store<Selection>, LeaveGuard>();
+const guards = new WeakMap<Store<Selection>, LeaveGuard[]>();
 
-/** Sets the store's guard (one at a time: the shown Overview's). Returns the removal. */
+/** Adds a guard to the store's (the shown Overview's description and Plan). Returns the removal. */
 export function guardLeaving(guard: LeaveGuard, store: Store<Selection> = selection): () => void {
-  guards.set(store, guard);
+  guards.set(store, [...(guards.get(store) ?? []), guard]);
   return () => {
-    if (guards.get(store) === guard) guards.delete(store);
+    guards.set(
+      store,
+      (guards.get(store) ?? []).filter((g) => g !== guard),
+    );
   };
 }
 
-/** Makes the move `change`, unless the guard holds it. */
+/** Makes the move `change`, unless a guard holds it. The guards are asked in turn: one that holds the move asks
+ * first, and its `go` asks the next one, so a changed description and a changed Plan each get their question. */
 function move(store: Store<Selection>, change: (current: Selection) => Selection): void {
   const now = store.get();
   const next = change(now);
   const go = () => {
     store.update(change);
   };
-  if (next !== now && guards.get(store)?.(next, go) === true) return;
-  go();
+  if (next === now) {
+    go();
+    return;
+  }
+  const asked = guards.get(store) ?? [];
+  const from = (i: number): void => {
+    for (let at = i; at < asked.length; at++) {
+      const guard = asked[at];
+      if (
+        guard?.(next, () => {
+          from(at + 1);
+        }) === true
+      )
+        return;
+    }
+    go();
+  };
+  from(0);
 }
 
 /** What each project showed when the user left it, per store: switching back brings it back (T-0219). */

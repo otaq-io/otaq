@@ -56,6 +56,10 @@ action_note: string | null,
  */
 check: CheckRoundView | null, 
 /**
+ * "Plan · 4 pieces", "Plan · 2 pieces so far": quiet, under the line (d0133, `s30-01`); none without pieces.
+ */
+plan: string | null, 
+/**
  * "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
  */
 origin: string | null, 
