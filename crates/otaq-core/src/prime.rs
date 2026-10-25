@@ -829,6 +829,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
         t.body.trim()
     });
     out.push('\n');
+    out.push_str(&render_plan(&t.plan));
     if let Some(i) = &ctx.instructions {
         out.push_str(&i.render("Agent instructions"));
     }
@@ -1129,6 +1130,19 @@ fn render_last_comment(out: &mut String, key: &TicketKey, comment: &TicketCommen
     }
 }
 
+/// The "## Plan" section (d0133): the ticket's Plan as written, then "Pieces: 4 (1 → 2, 3 → 4)" when its Pieces
+/// list reads; nothing for a ticket with no plan.
+pub fn render_plan(plan: &str) -> String {
+    if plan.trim().is_empty() {
+        return String::new();
+    }
+    let mut out = format!("\n## Plan\n\n{}\n", plan.trim());
+    if let Some(line) = crate::domain::plan::order_line(&crate::domain::plan::pieces(plan)) {
+        out.push_str(&format!("\n{line}\n"));
+    }
+    out
+}
+
 /// The Markdown an agent reads.
 pub fn render(ctx: &PrimeContext) -> String {
     let t = &ctx.ticket;
@@ -1158,6 +1172,7 @@ pub fn render(ctx: &PrimeContext) -> String {
         out.push_str(t.body.trim());
         out.push('\n');
     }
+    out.push_str(&render_plan(&t.plan));
 
     // What the agent is told (AGM-06): its instructions, the project's notes, its stage, the earlier stages.
     if let Some(instructions) = &ctx.instructions {

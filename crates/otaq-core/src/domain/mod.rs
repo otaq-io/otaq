@@ -8,6 +8,7 @@ pub mod actor;
 pub mod flags;
 pub mod hand_off;
 pub mod key;
+pub mod plan;
 pub mod priority;
 pub mod status;
 pub mod ticket_env;

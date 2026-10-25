@@ -498,6 +498,7 @@ mod tests {
                 project: project.to_owned(),
                 title: title.into(),
                 body: String::new(),
+                plan: String::new(),
                 priority: None,
                 base_branch: None,
                 external_id: None,

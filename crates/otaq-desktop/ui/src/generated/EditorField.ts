@@ -3,4 +3,4 @@
 /**
  * A field with an agent-edit marker, and the Compare filter.
  */
-export type EditorField = "title" | "body" | "priority" | "base_branch" | "external_id";
+export type EditorField = "title" | "body" | "plan" | "priority" | "base_branch" | "external_id";

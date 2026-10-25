@@ -1555,6 +1555,10 @@ mod tests {
                 json!({"ticket": "SHOP-43", "change": "deleted", "title": "Order email"}),
                 ("Deleted SHOP-43", None),
             ),
+            (
+                json!({"ticket": "SHOP-42", "change": "edited", "fields": ["plan"]}),
+                ("Edited SHOP-42", Some("plan")),
+            ),
         ];
         for (payload, (title, detail)) in rows {
             assert_eq!(

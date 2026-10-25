@@ -5,10 +5,15 @@
 //! The note goes through the automatic-delivery queue (T-0054): it waits until the agent is idle between turns and
 //! its input line is empty. Agent edits send nothing; Queued, Parked and Backlog tickets get nothing.
 //!
+//! A Plan edit (d0133 audit answer 6) names the pieces it added, removed or edited by their display names: *"The
+//! plan changed: 40.2 edited, 40.4 removed."*; a change outside the Pieces list reads *"The plan changed."*
+//!
 //! Several saves before a delivery queue **one note each, in order** (implementation choice): each says exactly
 //! what that save changed, and they are typed one after the other when the agent is idle.
 
 use super::tickets::Ticket;
+use crate::domain::TicketKey;
+use crate::domain::plan::{Piece, piece_name, pieces};
 use crate::naming;
 
 /// The note for a change from `before` to `after`, or `None` when nothing the agent works from changed (pins,
@@ -34,6 +39,9 @@ pub fn change_parts(before: &Ticket, after: &Ticket) -> Vec<String> {
     }
     if before.body.trim() != after.body.trim() {
         parts.push(description_part(&before.body, &after.body));
+    }
+    if before.plan.trim() != after.plan.trim() {
+        parts.push(plan_part(&after.key, &before.plan, &after.plan));
     }
     let added: Vec<String> = after
         .depends_on
@@ -92,6 +100,37 @@ fn description_part(before: &str, after: &str) -> String {
     }
 }
 
+/// "The plan changed: 40.2 edited, 40.4 removed, 40.5 added." (pieces in number order), "The plan changed." when
+/// no piece changed, "The plan was cleared." when it was removed.
+fn plan_part(key: &TicketKey, before: &str, after: &str) -> String {
+    if after.trim().is_empty() {
+        return "The plan was cleared.".to_owned();
+    }
+    let old = pieces(before);
+    let new = pieces(after);
+    let find = |list: &[Piece], n: u32| list.iter().find(|p| p.number == n).cloned();
+    let mut numbers: Vec<u32> = old.iter().chain(&new).map(|p| p.number).collect();
+    numbers.sort_unstable();
+    numbers.dedup();
+    let changed: Vec<String> = numbers
+        .into_iter()
+        .filter_map(|n| {
+            let what = match (find(&old, n), find(&new, n)) {
+                (None, Some(_)) => "added",
+                (Some(_), None) => "removed",
+                (Some(a), Some(b)) if a != b => "edited",
+                _ => return None,
+            };
+            Some(format!("{} {what}", piece_name(key, n)))
+        })
+        .collect();
+    if changed.is_empty() {
+        "The plan changed.".to_owned()
+    } else {
+        format!("The plan changed: {}.", changed.join(", "))
+    }
+}
+
 /// The description's non-empty lines, trimmed, without a leading list marker ("- ", "* ", "- [ ] ").
 fn lines(text: &str) -> Vec<&str> {
     text.lines()
@@ -123,6 +162,9 @@ mod tests {
             key: "SHOP-19".parse().unwrap(),
             title: "Price table".into(),
             body: body.into(),
+            plan: String::new(),
+            plan_by: None,
+            plan_at: None,
             priority: Default::default(),
             place: crate::domain::Place::stage_of(crate::flow::default::DEV),
             status: Status::Working,
@@ -198,6 +240,59 @@ mod tests {
         unlinked.depends_on = vec!["SHOP-18".parse().unwrap()];
         assert!(note(&unlinked, &ticket("x")).contains("It no longer depends on SHOP-18."));
         assert!(note(&ticket("x"), &ticket("  ")).contains("The description was cleared."));
+    }
+
+    fn planned(plan: &str) -> Ticket {
+        let mut t = ticket("Show the prices.");
+        t.key = "SHOP-40".parse().unwrap();
+        t.plan = plan.into();
+        t
+    }
+
+    const PLAN: &str = "Why: the API first.\n\n## Pieces\n\n1. Wishlist API — waits for nothing\n\
+                        2. Wishlist button — waits for 1\n3. Wishlist page — waits for 1\n\
+                        4. Share link — waits for 2, 3\n";
+
+    #[test]
+    fn plan_changes_name_the_pieces() {
+        let cmd = naming::COMMAND_NAME;
+        let removed = PLAN.replace("4. Share link — waits for 2, 3\n", "");
+        assert_eq!(
+            note(&planned(PLAN), &planned(&removed)),
+            format!(
+                "The ticket was updated by the user. The plan changed: 40.4 removed. Run `{cmd} prime` for the \
+                 full ticket."
+            )
+        );
+        let added = format!("{PLAN}5. Export — waits for 3\n");
+        assert!(
+            note(&planned(PLAN), &planned(&added)).contains("The plan changed: 40.5 added. "),
+            "added"
+        );
+        let edited = PLAN
+            .replace(
+                "4. Share link — waits for 2, 3",
+                "4. Share link — waits for 3",
+            )
+            .replace("2. Wishlist button", "2. Wishlist heart");
+        assert!(
+            note(&planned(PLAN), &planned(&edited))
+                .contains("The plan changed: 40.2 edited, 40.4 edited. "),
+            "edited"
+        );
+        let mixed = format!("{removed}5. Export\n").replace("Wishlist page", "Wishlist list");
+        assert!(
+            note(&planned(PLAN), &planned(&mixed))
+                .contains("The plan changed: 40.3 edited, 40.4 removed, 40.5 added. ")
+        );
+        let why = PLAN.replace("the API first", "the API comes first");
+        assert!(note(&planned(PLAN), &planned(&why)).contains("The plan changed. "));
+        assert!(note(&planned(PLAN), &planned(" ")).contains("The plan was cleared. "));
+        assert!(note(&planned(""), &planned(PLAN)).contains("40.1 added, 40.2 added"));
+        assert_eq!(
+            change_note(&planned(PLAN), &planned(&format!("{PLAN}\n"))),
+            None
+        );
     }
 
     #[test]

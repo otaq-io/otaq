@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use sqlx::{FromRow, Sqlite, Transaction};
 
 use super::{Board, BoardError, Refusal};
+use crate::domain::plan::PlanBy;
 use crate::domain::{
     Actor, BuildState, Flags, MergeCheckState, Place, Priority, ProjectKey, RemoteWarning,
     ResourceState, SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
@@ -48,6 +49,15 @@ pub struct Ticket {
     pub title: String,
     /// "What and why" (Markdown).
     pub body: String,
+    /// The Plan section (Markdown, d0133): empty when the ticket has none; its pieces are
+    /// [`crate::domain::plan::pieces`].
+    #[serde(default)]
+    pub plan: String,
+    /// Who wrote the Plan last and when.
+    #[serde(default)]
+    pub plan_by: Option<PlanBy>,
+    #[serde(default)]
+    pub plan_at: Option<i64>,
     /// TKT-09, d0065.
     #[serde(default)]
     pub priority: Priority,
@@ -230,6 +240,9 @@ pub struct NewTicketInput {
     pub title: String,
     #[serde(default)]
     pub body: String,
+    /// The Plan section (d0133); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub plan: String,
     /// Default: Normal (d0065).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
@@ -251,6 +264,9 @@ pub struct TicketUpdate {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// The Plan section (d0133); an empty string removes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
     /// Sets the ticket's priority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
@@ -272,6 +288,8 @@ stored_enum! {
     pub enum Field ("field") {
         Title = "title",
         Body = "body",
+        /// The Plan section (d0133): History keeps every version, as the description's (0109).
+        Plan = "plan",
         Priority = "priority",
         BaseBranch = "base_branch",
         ExternalId = "external_id",
@@ -474,6 +492,11 @@ impl Board {
             _ => project.base_branch.clone(),
         };
         let external_id = non_empty(input.external_id.as_deref());
+        let plan_by = if input.plan.trim().is_empty() {
+            None
+        } else {
+            Some(self.plan_writer(actor, None).await)
+        };
         // The first comment's text is checked before anything is created; its report is copied once the key is known.
         let first_comment = match &input.first_comment {
             Some(c) => Some((
@@ -487,15 +510,18 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         let number = allocate_number(&mut tx, &project.id).await?;
         sqlx::query(
-            "INSERT INTO tickets (id, project_id, number, title, body, priority, external_id, stage_id, state,
-                                  base_branch, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tickets (id, project_id, number, title, body, plan, plan_by, plan_at, priority, external_id,
+                                  stage_id, state, base_branch, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(number)
         .bind(&title)
         .bind(&input.body)
+        .bind(if plan_by.is_some() { input.plan.as_str() } else { "" })
+        .bind(plan_by.as_ref().map(ToString::to_string))
+        .bind(plan_by.as_ref().map(|_| now))
         // New tickets are Normal (d0065).
         .bind(i64::from(input.priority.unwrap_or_default().number()))
         .bind(&external_id)
@@ -617,6 +643,14 @@ impl Board {
             changes.push(change(Field::Body, Some(&body), Some(new)));
             body = new.clone();
         }
+        let mut plan = ticket.plan.clone();
+        if let Some(new) = &update.plan {
+            let new = if new.trim().is_empty() { "" } else { new };
+            if new != plan {
+                changes.push(change(Field::Plan, Some(&plan), Some(new)));
+                plan = new.to_owned();
+            }
+        }
 
         // Pinning never changes the priority.
         let mut priority = ticket.priority;
@@ -673,19 +707,30 @@ impl Board {
         if changes.is_empty() {
             return Ok(ticket);
         }
+        let now = now_ms();
+        let (plan_by, plan_at) = if plan == ticket.plan {
+            (ticket.plan_by.clone(), ticket.plan_at)
+        } else if plan.is_empty() {
+            (None, None)
+        } else {
+            (Some(self.plan_writer(actor, author).await), Some(now))
+        };
         let mut tx = self.store.begin_write().await?;
         sqlx::query(
-            "UPDATE tickets SET title = ?, body = ?, priority = ?, base_branch = ?, external_id = ?,
-                                updated_by = ?, updated_at = ?
+            "UPDATE tickets SET title = ?, body = ?, plan = ?, plan_by = ?, plan_at = ?, priority = ?,
+                                base_branch = ?, external_id = ?, updated_by = ?, updated_at = ?
              WHERE id = ?",
         )
         .bind(&title)
         .bind(&body)
+        .bind(&plan)
+        .bind(plan_by.as_ref().map(ToString::to_string))
+        .bind(plan_at)
         .bind(i64::from(priority.number()))
         .bind(&base_branch)
         .bind(&external_id)
         .bind(actor.to_string())
-        .bind(now_ms())
+        .bind(now)
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
@@ -702,6 +747,42 @@ impl Board {
         .await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
+    }
+
+    /// Who writes the Plan (`plan_by`, d0133): the user, Noyan, or a ticket's agent by the name of the stage it writes
+    /// from ("Milestone plan"): its comment author's stage, else the stage its ticket is in.
+    async fn plan_writer(
+        &self,
+        actor: &Actor,
+        author: Option<&super::ticket_comments::CommentAuthor>,
+    ) -> PlanBy {
+        let Actor::Agent(key) = actor else {
+            return PlanBy::of(actor, None);
+        };
+        let from_author = match author {
+            Some(super::ticket_comments::CommentAuthor::Agent {
+                stage: Some(stage), ..
+            }) => Some(stage.clone()),
+            _ => None,
+        };
+        let stage = match from_author {
+            Some(stage) => Some(stage),
+            None => self
+                .ticket(&key.to_string())
+                .await
+                .ok()
+                .and_then(|t| t.place.stage_id().map(str::to_owned)),
+        };
+        let name = match &stage {
+            Some(id) => self
+                .effective_flow(key.project.as_str())
+                .await
+                .ok()
+                .and_then(|flow| flow.stage(id).map(|s| s.name.clone()))
+                .or_else(|| Some(id.clone())),
+            None => None,
+        };
+        PlanBy::of(actor, name.as_deref())
     }
 
     /// A ticket by key (`SHOP-18`).
@@ -1166,6 +1247,9 @@ impl Board {
                     key,
                     title: row.title,
                     body: row.body,
+                    plan: row.plan,
+                    plan_by: row.plan_by.map(|by| by.parse().expect("infallible")),
+                    plan_at: row.plan_at,
                     priority: Priority::from_number(row.priority).unwrap_or_default(),
                     place,
                     status,

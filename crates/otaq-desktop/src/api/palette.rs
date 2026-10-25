@@ -178,6 +178,7 @@ mod tests {
                 project: project.into(),
                 title: title.into(),
                 body: String::new(),
+                plan: String::new(),
                 priority: None,
                 base_branch: None,
                 external_id: None,

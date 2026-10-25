@@ -25,6 +25,17 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// The Plan of `create` and `update` (d0133): Markdown with one "Pieces" list ("1. Wishlist API — waits for nothing").
+#[derive(Debug, Default, Args)]
+pub struct PlanFlags {
+    /// The ticket's Plan (short); use --plan-file for anything longer
+    #[arg(long, value_name = "TEXT")]
+    pub plan: Option<String>,
+    /// Read the Plan (Markdown) from a file
+    #[arg(long, value_name = "PATH", conflicts_with = "plan")]
+    pub plan_file: Option<PathBuf>,
+}
+
 /// The stage choices of `create` and `update` (AGM-11, d0108): a stage with options (by name or id) and one of its
 /// options.
 #[derive(Debug, Default, Args)]
@@ -137,6 +148,9 @@ pub enum Command {
         /// With --stage: which check agent's terminal, when the check has several: `--agent "Security reviewer"`
         #[arg(long, value_name = "AGENT", requires = "stage")]
         agent: Option<String>,
+        /// Only piece N of the ticket's Plan (`show SHOP-40 --piece 3` prints 40.3)
+        #[arg(long, value_name = "N", conflicts_with_all = ["long", "terminal"])]
+        piece: Option<u32>,
     },
     /// List the current project's tickets (-P to name the project)
     List {
@@ -169,6 +183,8 @@ pub enum Command {
         /// Read the description (Markdown) from stdin
         #[arg(long)]
         stdin: bool,
+        #[command(flatten)]
+        plan: PlanFlags,
         /// Create every ticket of a Markdown file (### headings), all or nothing
         #[arg(short = 'f', long = "file", value_name = "FILE")]
         file: Option<PathBuf>,
@@ -191,6 +207,11 @@ pub enum Command {
         /// Read the new description (Markdown) from stdin
         #[arg(long)]
         stdin: bool,
+        #[command(flatten)]
+        plan: PlanFlags,
+        /// Read the new Plan (Markdown) from stdin
+        #[arg(long, conflicts_with_all = ["stdin", "plan", "plan_file"])]
+        plan_stdin: bool,
         #[command(flatten)]
         choices: ChoiceFlags,
     },

@@ -8,6 +8,9 @@
 //!   ([`StageAgentJson`], AGM-05); `choices` its stages with options and its choice for each ([`ChoiceJson`],
 //!   AGM-11); `decisions` the ticket's recorded decisions (DEC-02, `otaq_core::decisions`), `history` and
 //!   `messages` (questions between linked tickets) with `--long`.
+//!   `Ticket` carries the Plan (`plan`, `plan_by`, `plan_at`; d0133).
+//! - `show --piece N` (d0133): `{"key", "name", "number", "title", "waits_for", "text"}`: piece N of the ticket's
+//!   Plan (`name` "40.3").
 //! - `show --terminal` (SHL-10, d0087): `{"key", "session", "text"}`: the ticket's terminal as the user sees it,
 //!   as plain text, and the session it came from.
 //! - `list`: `[Ticket]` in key order.
@@ -129,6 +132,50 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             value["messages"] = json!(messages);
         }
         out.print(human.trim_end(), &value, Some(&ticket.key.to_string()));
+        Ok(())
+    }))
+}
+
+/// `otaq show <KEY> --piece <N>` (d0133 audit answer 2): one piece of the ticket's Plan, found as a piece of its
+/// ticket ("40.3 · Wishlist page"), with what it waits for and its text.
+pub fn show_piece(
+    key: Option<String>,
+    number: u32,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    use otaq_core::domain::plan::{piece, piece_name};
+    service::runtime()?.block_on(with_client(global, async |client, data| {
+        let key = target::resolve_key(client, data, key, global).await?;
+        let ticket = get_ticket(client, &key.to_string()).await?;
+        let Some(p) = piece(&ticket.plan, number) else {
+            return Err(ErrorBody::new(
+                ErrorKind::NotFound,
+                format!("{}'s plan has no piece {number}", ticket.key),
+            ));
+        };
+        let name = piece_name(&ticket.key, p.number);
+        let mut human = format!("{name} · {}\n", p.title);
+        if !p.waits_for.is_empty() {
+            let waits: Vec<String> = p
+                .waits_for
+                .iter()
+                .map(|n| piece_name(&ticket.key, *n))
+                .collect();
+            human.push_str(&format!("Waits for: {}\n", waits.join(", ")));
+        }
+        if !p.text.is_empty() {
+            human.push_str(&format!("\n{}\n", p.text));
+        }
+        let value = json!({
+            "key": ticket.key,
+            "name": name,
+            "number": p.number,
+            "title": p.title,
+            "waits_for": p.waits_for,
+            "text": p.text,
+        });
+        out.print(human.trim_end(), &value, Some(&name));
         Ok(())
     }))
 }
@@ -602,6 +649,14 @@ pub fn show_text(
     }
     if !ticket.body.trim().is_empty() {
         text.push_str(&format!("\nWhat and why\n{}\n", ticket.body.trim_end()));
+    }
+    if !ticket.plan.trim().is_empty() {
+        let by = ticket
+            .plan_by
+            .as_ref()
+            .map(|by| format!(" (written by {})", by.label()))
+            .unwrap_or_default();
+        text.push_str(&format!("\nPlan{by}\n{}\n", ticket.plan.trim_end()));
     }
     text
 }

@@ -26,6 +26,7 @@ mod onboarding;
 mod open_pr;
 mod open_questions;
 mod opencode_hook;
+mod plan;
 mod pr;
 mod prime;
 mod project_agent_attention;

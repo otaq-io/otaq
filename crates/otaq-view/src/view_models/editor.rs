@@ -237,6 +237,8 @@ impl EditorModel {
             external_id: (!self.external_id.trim().is_empty())
                 .then(|| self.external_id.trim().to_owned()),
             first_comment: self.first_comment(),
+            // The editor's Plan comes with T-0540.
+            plan: String::new(),
         })
     }
 

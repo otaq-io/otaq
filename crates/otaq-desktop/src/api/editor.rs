@@ -231,6 +231,8 @@ pub struct ReadView {
 pub enum EditorField {
     Title,
     Body,
+    /// The Plan section (d0133).
+    Plan,
     Priority,
     BaseBranch,
     ExternalId,
@@ -241,6 +243,7 @@ impl EditorField {
         match field {
             Field::Title => Self::Title,
             Field::Body => Self::Body,
+            Field::Plan => Self::Plan,
             Field::Priority => Self::Priority,
             Field::BaseBranch => Self::BaseBranch,
             Field::ExternalId => Self::ExternalId,
@@ -251,6 +254,7 @@ impl EditorField {
         match self {
             Self::Title => Field::Title,
             Self::Body => Field::Body,
+            Self::Plan => Field::Plan,
             Self::Priority => Field::Priority,
             Self::BaseBranch => Field::BaseBranch,
             Self::ExternalId => Field::ExternalId,
