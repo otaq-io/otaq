@@ -438,12 +438,30 @@ pub struct SpawnSpec {
 pub struct Prepared<'a> {
     sessions: &'a Sessions,
     step: Option<PrepareStep>,
+    project_agent: Option<String>,
+    id: Option<String>,
 }
 
 impl Prepared<'_> {
+    /// The session runs for the Project agent `agent` (its `sessions.project_agent_id`, d0068) from its first
+    /// instant: its processes are that Project agent's callers before the program can run `otaq`.
+    pub fn for_project_agent(mut self, agent: &str) -> Self {
+        self.project_agent = Some(agent.to_owned());
+        self
+    }
+
+    /// The session's id, chosen by the caller ahead ([`crate::store::new_id`]), so that its own records can name the
+    /// session before the program can run `otaq` (a helper's row, d0133).
+    pub fn with_id(mut self, id: String) -> Self {
+        self.id = Some(id);
+        self
+    }
+
     /// Runs the step, if any, then [`Sessions::spawn`].
     pub async fn spawn(self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
-        self.sessions.spawn_with(self.step.as_ref(), spec).await
+        self.sessions
+            .spawn_with(self.step.as_ref(), self.project_agent, self.id, spec)
+            .await
     }
 }
 
@@ -594,8 +612,8 @@ pub type ThemeProvider = Arc<
 struct Live {
     info: Mutex<SessionInfo>,
     ticket_id: Option<String>,
-    /// The Project agent the session runs for (d0068), once [`Sessions::set_project_agent`] said so.
-    project_agent: Mutex<Option<String>>,
+    /// The Project agent the session runs for (d0068), from its start ([`Prepared::for_project_agent`]).
+    project_agent: Option<String>,
     /// The skill copies in its folder when it started (`otaq-address-review`…), once
     /// [`Sessions::set_started_skills`] said so (d0118): its tool read those, and only those, at its start.
     started_skills: Mutex<Vec<String>>,
@@ -701,6 +719,8 @@ impl Sessions {
         Prepared {
             sessions: self,
             step,
+            project_agent: None,
+            id: None,
         }
     }
 
@@ -708,12 +728,14 @@ impl Sessions {
     /// the same ticket is refused, and so is an automatic start ([`Start::Auto`]) in a paused project (the backstop of
     /// PAU-04: its caller keeps the start for Resume).
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
-        self.spawn_with(None, spec).await
+        self.spawn_with(None, None, None, spec).await
     }
 
     async fn spawn_with(
         &self,
         prepare: Option<&PrepareStep>,
+        project_agent: Option<String>,
+        id: Option<String>,
         spec: SpawnSpec,
     ) -> Result<SessionInfo, SessionError> {
         if spec.kind == SessionKind::Agent
@@ -796,23 +818,8 @@ impl Sessions {
         ) {
             command.env(key, value);
         }
-        let mut child = pty
-            .slave
-            .spawn_command(command)
-            .map_err(|e| SessionError::Spawn(format!("can't start {}: {e}", spec.program)))?;
-        // The reader only sees end-of-file once every slave handle is closed.
-        drop(pty.slave);
-        let reader = pty
-            .master
-            .try_clone_reader()
-            .map_err(|e| SessionError::Spawn(e.to_string()))?;
-        let writer = pty
-            .master
-            .take_writer()
-            .map_err(|e| SessionError::Spawn(e.to_string()))?;
-
         let info = SessionInfo {
-            id: new_id(),
+            id: id.unwrap_or_else(new_id),
             kind: spec.kind,
             project: spec.project_key.clone(),
             ticket: spec.ticket.as_ref().map(|t| t.key.clone()),
@@ -829,49 +836,75 @@ impl Sessions {
             model_ran: None,
             size: Some(spec.size),
         };
-        // A terminal of no project (an agent tool's Sign in…, d0086) lives in memory only.
-        let inserted = if spec.project_id.is_empty() {
-            Ok(())
-        } else {
+        // The row, then the program, then the session in the map with nothing awaited in between: the program may
+        // run `otaq` (a hook, `otaq flow propose`) at once, and its caller is found in the map (its Project agent
+        // too) and recorded against the row. A terminal of no project (an agent tool's Sign in…, d0086) lives in
+        // memory only.
+        let stored = !spec.project_id.is_empty();
+        if stored {
             sqlx::query(
-            "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, tool, tool_session_id, model, state,
-                                   started_at, agent_id, agent_name, effort, fallback_from, fallback_reason)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&info.id)
-        .bind(&spec.project_id)
-        .bind(spec.ticket.as_ref().map(|t| t.id.clone()))
-        .bind(info.kind.as_str())
-        .bind(child.process_id().map(|pid| pid.to_string()))
-        .bind(info.tool.map(Tool::as_str))
-        .bind(&info.tool_session_id)
-        .bind(&info.model)
-        .bind(info.state.as_str())
-        .bind(info.started_at)
-        .bind(info.agent.as_ref().map(|a| &a.id))
-        .bind(info.agent.as_ref().map(|a| &a.name))
-        .bind(&info.effort)
-        .bind(info.fallback.as_ref().map(|f| f.tool.as_str()))
-        .bind(info.fallback.as_ref().map(|f| f.reason.as_str()))
-        .execute(self.inner.store.pool())
-        .await
-        .map(drop)
-        };
-        if let Err(e) = inserted {
-            let _ = child.kill();
-            return Err(SessionError::Store(e.into()));
+                "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, model, state, started_at,
+                                       agent_id, agent_name, effort, fallback_from, fallback_reason, project_agent_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&info.id)
+            .bind(&spec.project_id)
+            .bind(spec.ticket.as_ref().map(|t| t.id.clone()))
+            .bind(info.kind.as_str())
+            .bind(info.tool.map(Tool::as_str))
+            .bind(&info.tool_session_id)
+            .bind(&info.model)
+            .bind(info.state.as_str())
+            .bind(info.started_at)
+            .bind(info.agent.as_ref().map(|a| &a.id))
+            .bind(info.agent.as_ref().map(|a| &a.name))
+            .bind(&info.effort)
+            .bind(info.fallback.as_ref().map(|f| f.tool.as_str()))
+            .bind(info.fallback.as_ref().map(|f| f.reason.as_str()))
+            .bind(&project_agent)
+            .execute(self.inner.store.pool())
+            .await
+            .map_err(|e| SessionError::Store(e.into()))?;
         }
-
+        let started = (|| {
+            let child = pty
+                .slave
+                .spawn_command(command)
+                .map_err(|e| SessionError::Spawn(format!("can't start {}: {e}", spec.program)))?;
+            // The reader only sees end-of-file once every slave handle is closed.
+            drop(pty.slave);
+            let reader = pty
+                .master
+                .try_clone_reader()
+                .map_err(|e| SessionError::Spawn(e.to_string()))?;
+            let writer = pty
+                .master
+                .take_writer()
+                .map_err(|e| SessionError::Spawn(e.to_string()))?;
+            Ok((child, reader, writer, pty.master))
+        })();
+        let (mut child, reader, writer, master) = match started {
+            Ok(started) => started,
+            Err(e) => {
+                if stored {
+                    let _ = sqlx::query("DELETE FROM sessions WHERE id = ?")
+                        .bind(&info.id)
+                        .execute(self.inner.store.pool())
+                        .await;
+                }
+                return Err(e);
+            }
+        };
         let (ended, _) = watch::channel(false);
         let live = Arc::new(Live {
             info: Mutex::new(info.clone()),
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
-            project_agent: Mutex::new(None),
+            project_agent,
             started_skills: Mutex::new(Vec::new()),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
             killer: Mutex::new(child.clone_killer()),
-            master: Mutex::new(pty.master),
+            master: Mutex::new(master),
             writer: Mutex::new(writer),
             output: Mutex::new(Output {
                 scrollback: Scrollback::new(self.inner.scrollback_limit),
@@ -889,6 +922,15 @@ impl Sessions {
             .lock()
             .expect("sessions lock")
             .insert(info.id.clone(), live.clone());
+        if stored
+            && let Err(e) = sqlx::query("UPDATE sessions SET pty_id = ? WHERE id = ?")
+                .bind(child.process_id().map(|pid| pid.to_string()))
+                .bind(&info.id)
+                .execute(self.inner.store.pool())
+                .await
+        {
+            tracing::warn!(session = %info.id, error = %e, "can't record the session's process");
+        }
 
         let (drained, drained_rx) = std::sync::mpsc::channel::<()>();
         let reading = live.clone();
@@ -1057,8 +1099,6 @@ impl Sessions {
         // A Project agent's session is focused like a ticket's (ATT-03, d0068), under its own key.
         let project_agent = live
             .project_agent
-            .lock()
-            .expect("session project agent")
             .as_ref()
             .map(|agent| format!("project-agent:{agent}"));
         let Some(ticket_id) = live.ticket_id.as_deref().or(project_agent.as_deref()) else {
@@ -1177,23 +1217,6 @@ impl Sessions {
                     ticket_id: l.ticket_id.clone()?,
                 })
             })
-    }
-
-    /// Records that the session runs for the Project agent `agent` (its `sessions.project_agent_id`); from then on
-    /// its processes are that Project agent's callers.
-    pub async fn set_project_agent(&self, id: &str, agent: &str) -> Result<(), SessionError> {
-        sqlx::query("UPDATE sessions SET project_agent_id = ? WHERE id = ?")
-            .bind(agent)
-            .bind(id)
-            .execute(self.inner.store.pool())
-            .await
-            .map_err(|e| SessionError::Store(e.into()))?;
-        *self
-            .live(id)?
-            .project_agent
-            .lock()
-            .expect("session project agent") = Some(agent.to_owned());
-        Ok(())
     }
 
     /// Records the skill copies (`otaq-work-ticket`, `otaq-address-review`…) written into the session's folder right
@@ -1638,11 +1661,7 @@ impl Live {
             pid: self.pid?,
             session: info.id.clone(),
             project: info.project.clone(),
-            agent: self
-                .project_agent
-                .lock()
-                .expect("session project agent")
-                .clone()?,
+            agent: self.project_agent.clone()?,
         })
     }
 

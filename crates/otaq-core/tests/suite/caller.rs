@@ -317,6 +317,124 @@ async fn processes_inside_a_project_agent_session_are_that_project_agent() {
     w.stop().await;
 }
 
+/// A Project agent's session is that agent from the moment its program starts: a tool that runs `otaq flow propose`
+/// as its first act is the agent, not the user (M45 fix: the agent was recorded only after the start returned, so a
+/// fast tool's proposal was sometimes the user's).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_agent_session_is_the_agent_from_its_start() {
+    let w = World::new().await;
+    sqlx::query(
+        "INSERT INTO project_agents (id, project_id, tool, state, created_at)
+         VALUES ('pa-1', ?, 'claude', 'running', 1)",
+    )
+    .bind(&w.project_id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let info = w
+        .sessions
+        .prepared(None)
+        .for_project_agent("pa-1")
+        .spawn(SpawnSpec {
+            kind: SessionKind::ProjectAgent,
+            start: Start::User,
+            project_id: w.project_id.clone(),
+            project_key: "SHOP".into(),
+            ticket: None,
+            program: "sh".into(),
+            args: vec!["-c".into(), "exec sleep 30".into()],
+            cwd: w.repo.clone(),
+            env: Vec::new(),
+            size: TerminalSize::default(),
+            tool: None,
+            tool_session_id: None,
+            model: None,
+            agent: None,
+            effort: None,
+            fallback: None,
+            theme: None,
+        })
+        .await
+        .unwrap();
+    // Nothing awaited since the start: the session already is the agent's, in memory and in its row.
+    let roots = w.sessions.project_agent_roots();
+    assert_eq!(roots.len(), 1, "{roots:?}");
+    assert_eq!(
+        caller::resolve(Some(roots[0].pid), &w.sessions),
+        Caller::ProjectAgent {
+            project: "SHOP".into(),
+            agent: "pa-1".into(),
+            session: info.id.clone(),
+        }
+    );
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT project_agent_id FROM sessions WHERE id = ?")
+            .bind(&info.id)
+            .fetch_one(w.board.store().pool())
+            .await
+            .unwrap();
+    assert_eq!(stored.as_deref(), Some("pa-1"));
+    w.sessions.stop(&info.id).await.unwrap();
+    w.stop().await;
+}
+
+/// A helper's session is that helper from the moment its program starts, under the id its row was given ahead
+/// (d0133): `otaq helper done` as its first act finds its row by that session.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_helper_session_is_the_helper_from_its_start() {
+    let w = World::new().await;
+    let ticket = &w.tickets[0];
+    let id = otaq_core::store::new_id();
+    let info = w
+        .sessions
+        .prepared(None)
+        .with_id(id.clone())
+        .spawn(SpawnSpec {
+            kind: SessionKind::Helper,
+            start: Start::User,
+            project_id: w.project_id.clone(),
+            project_key: "SHOP".into(),
+            ticket: Some(SessionTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            }),
+            program: "sh".into(),
+            args: vec!["-c".into(), "exec sleep 30".into()],
+            cwd: w.repo.clone(),
+            env: Vec::new(),
+            size: TerminalSize::default(),
+            tool: Some(otaq_core::agent_tools::Tool::Claude),
+            tool_session_id: None,
+            model: None,
+            agent: None,
+            effort: None,
+            fallback: None,
+            theme: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(info.id, id);
+    // Nothing awaited since the start.
+    let root = w
+        .sessions
+        .agent_roots()
+        .into_iter()
+        .find(|r| r.session == id)
+        .expect("the helper's root");
+    assert_eq!(
+        caller::resolve(Some(root.pid), &w.sessions),
+        Caller::Helper {
+            ticket: ticket.key.clone(),
+            ticket_id: ticket.id.clone(),
+            session: id.clone(),
+        }
+    );
+    w.sessions.stop(&id).await.unwrap();
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn shell_project_and_run_sessions_are_the_user() {
     let w = World::new().await;

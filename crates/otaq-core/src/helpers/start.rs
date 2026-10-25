@@ -245,22 +245,34 @@ impl Helpers {
                 &name,
             )
             .await;
+        // The row names the session before its program starts: a helper that runs `otaq helper done` at once is
+        // found by its session ([`super::Helpers::helper_of`]).
+        let session_id = crate::store::new_id();
         let launched = match made {
-            Ok(()) => {
-                self.launch(ticket, &project, &path, piece, title, &runs_on, &agent)
+            Ok(()) => match store::set_session(pool, &id, Some(&session_id)).await {
+                Ok(()) => {
+                    self.launch(
+                        ticket, &project, &path, piece, title, &runs_on, &agent, session_id,
+                    )
                     .await
-            }
+                }
+                Err(e) => Err(e.into()),
+            },
             Err(e) => Err(e),
         };
         let session = match launched {
             Ok(session) => session,
             Err(e) => {
-                // Never started: the row goes, so the same command runs it again (its worktree is reused).
+                // Never started: the row goes, so the same command runs it again (its worktree is reused); a row
+                // kept names its previous session again.
                 if fresh {
                     sqlx::query("DELETE FROM helpers WHERE id = ?")
                         .bind(&id)
                         .execute(pool)
                         .await?;
+                } else {
+                    let previous = before.as_ref().and_then(|h| h.session.as_deref());
+                    store::set_session(pool, &id, previous).await?;
                 }
                 return Err(e);
             }
@@ -368,6 +380,7 @@ impl Helpers {
         title: &str,
         runs_on: &RunsOn,
         agent: &crate::agents::Agent,
+        session_id: String,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let port = inner
@@ -414,6 +427,7 @@ impl Helpers {
         let session = inner
             .sessions
             .prepared(launched.prepare)
+            .with_id(session_id)
             .spawn(SpawnSpec {
                 kind: SessionKind::Helper,
                 start: Start::Auto,

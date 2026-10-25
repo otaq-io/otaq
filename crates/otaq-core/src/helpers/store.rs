@@ -179,6 +179,21 @@ pub async fn set_status(
     Ok(())
 }
 
+/// The helper's latest session (`None`: none yet), named before the session starts.
+pub async fn set_session(
+    pool: &SqlitePool,
+    id: &str,
+    session: Option<&str>,
+) -> Result<(), StoreError> {
+    sqlx::query("UPDATE helpers SET session_id = ?, updated_at = ? WHERE id = ?")
+        .bind(session)
+        .bind(now_ms())
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// A helper's session started: working, with this session.
 pub async fn started(
     pool: &SqlitePool,

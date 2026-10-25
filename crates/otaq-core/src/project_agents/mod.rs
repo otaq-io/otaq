@@ -1248,6 +1248,7 @@ impl ProjectAgents {
         let sessions = &self.inner.sessions;
         let session = sessions
             .prepared(launched.prepare)
+            .for_project_agent(id)
             .spawn(SpawnSpec {
                 kind: SessionKind::ProjectAgent,
                 start,
@@ -1267,10 +1268,6 @@ impl ProjectAgents {
                 fallback: runs_on.fallback.clone(),
                 theme: Some(launched.theme),
             })
-            .await
-            .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        sessions
-            .set_project_agent(&session.id, id)
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         // The agent tool exiting on its own ends the agent; the service stopping doesn't (the next start reconciles);
