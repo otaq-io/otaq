@@ -241,6 +241,27 @@ fn work_ticket_teaches_answer_options() {
     );
 }
 
+/// T-0546 (d0129, d0084, d0061): the planning stages that grill the user teach both forms of a question.
+#[test]
+fn the_spec_skills_teach_answer_options() {
+    assert_teaches_answer_options(
+        "product-spec",
+        "--option \"Anyone with the link\" --note \"Easy to send in a chat; anyone who gets the link sees the list.\" \
+         --option \"Signed-in friends\" --note \"Private, but each friend needs an account first: fewer people will look.\" \
+         --recommended 1",
+        "Question 2 of about 4.",
+    );
+    assert_teaches_answer_options(
+        "tech-spec",
+        "--option \"Links never expire\" --note \"Simplest; an old link keeps working until the list is deleted.\" \
+         --option \"Expire after 30 days\" --note \"Safer, but friends get a 'link expired' page and ask for a new one.\" \
+         --recommended 1",
+        "Question 2 of 2.",
+    );
+    let (_, plan) = skill("milestone-plan");
+    assert_every_ask_human_reads_stdin(&plan);
+}
+
 /// T-0376 (DEC-07, d0084): work-ticket checks the ticket for gaps before any code, asks what changes what gets
 /// built one question at a time with a note on every option, and asks nothing about a clear ticket.
 #[test]
@@ -529,6 +550,9 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     let ends_stage = [
         WORK_TICKET_SKILL,
         "grill",
+        "product-spec",
+        "tech-spec",
+        "milestone-plan",
         "validate",
         "address-review",
         "restack",
