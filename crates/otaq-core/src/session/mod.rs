@@ -1331,6 +1331,15 @@ impl Sessions {
         Some((info, output.scrollback.contents().0, output.size))
     }
 
+    /// The session `id`'s kept output and its terminal's size, while it is in memory (running or just ended): one
+    /// check agent's of several (d0130 row 17).
+    pub fn output_of_session(&self, id: &str) -> Option<(SessionInfo, Vec<u8>, TerminalSize)> {
+        let live = self.live(id).ok()?;
+        let info = live.info.lock().expect("session info").clone();
+        let output = live.output.lock().expect("session output");
+        Some((info, output.scrollback.contents().0, output.size))
+    }
+
     /// Every stored session of a ticket, newest first, with the size of the running one.
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(

@@ -253,6 +253,13 @@ fn runs_on(
 pub enum Scope<'a> {
     /// A ticket's Agent stage or agent check, an epic's lead.
     Ticket { id: &'a str, key: &'a TicketKey },
+    /// One check agent of a ticket's agent check (`agent`, as its round's row names it): its hold is its own, the
+    /// round's other check agents run on (d0130 row 17).
+    Check {
+        id: &'a str,
+        key: &'a TicketKey,
+        agent: &'a str,
+    },
     /// A project's Project agent (its first message), with the project's name for the mark.
     Project { id: &'a str, name: &'a str },
 }
@@ -265,17 +272,46 @@ impl<'a> Scope<'a> {
         }
     }
 
+    /// `ticket`'s check agent `agent`; `None` (a round whose agents weren't named) is the ticket's.
+    pub fn check(ticket: &'a Ticket, agent: Option<&'a str>) -> Self {
+        match agent {
+            Some(agent) => Self::Check {
+                id: &ticket.id,
+                key: &ticket.key,
+                agent,
+            },
+            None => Self::ticket(ticket),
+        }
+    }
+
     fn hold_scope(self) -> HoldScope<'a> {
         match self {
             Self::Ticket { id, .. } => HoldScope::Ticket(id),
+            Self::Check { id, agent, .. } => HoldScope::Check { ticket: id, agent },
             Self::Project { id, .. } => HoldScope::Project(id),
+        }
+    }
+
+    /// The ticket's id and key, for a ticket's scope.
+    fn ticket_of(self) -> Option<(&'a str, &'a TicketKey)> {
+        match self {
+            Self::Ticket { id, key } | Self::Check { id, key, .. } => Some((id, key)),
+            Self::Project { .. } => None,
+        }
+    }
+
+    /// The check agent of a check agent's scope.
+    fn check_agent(self) -> Option<&'a str> {
+        match self {
+            Self::Check { agent, .. } => Some(agent),
+            Self::Ticket { .. } | Self::Project { .. } => None,
         }
     }
 
     /// Where a mark says it happened: the key, or the project.
     fn on(self) -> String {
         match self {
-            Self::Ticket { key, .. } => key.to_string(),
+            Self::Ticket { key, .. } | Self::Check { key, .. } => key.to_string(),
             Self::Project { name, .. } => name.to_owned(),
         }
     }
@@ -417,7 +453,7 @@ impl LaunchGate {
                 fallback,
             } => {
                 store.clear_agent_hold(scope.hold_scope(), role).await?;
-                if let (Some(from), Scope::Ticket { id, key }) = (&fallback, scope) {
+                if let (Some(from), Some((id, key))) = (&fallback, scope.ticket_of()) {
                     self.record_fallback(id, key, role, from, &on).await?;
                 }
                 Ok(Gated::Launch(runs_on(agent, on, model, fallback)))
@@ -504,7 +540,7 @@ impl LaunchGate {
     ) -> Result<(), BoardError> {
         let store = self.inner.board.store();
         let (ticket_id, project_id) = match scope {
-            Scope::Ticket { id, .. } => (Some(id.to_owned()), None),
+            Scope::Ticket { id, .. } | Scope::Check { id, .. } => (Some(id.to_owned()), None),
             Scope::Project { id, .. } => (None, Some(id.to_owned())),
         };
         store
@@ -513,6 +549,7 @@ impl LaunchGate {
                 ticket_id,
                 project_id,
                 role,
+                check_agent: scope.check_agent().map(str::to_owned),
                 reason: held.blocked.reason(),
                 tool: held.on.tool,
                 model: held.on.model.clone(),
@@ -534,7 +571,7 @@ impl LaunchGate {
         {
             self.inner.events.publish(Event::AgentsChanged);
         }
-        if let Scope::Ticket { id, key } = scope {
+        if let Some((id, key)) = scope.ticket_of() {
             if role == SessionRole::Developer {
                 // Already held (a lift that holds again): the reason may have changed.
                 sqlx::query(
@@ -591,25 +628,83 @@ impl LaunchGate {
     }
 
     /// **Use fallback** (`ticket.use_fallback`, the user's click; AGM-03): the ticket's held session starts on its
-    /// tool's fallback. Refused when nothing is held, for a Project agent, without a fallback, or when the fallback
-    /// can't start either (the ticket stays waiting).
-    pub async fn use_fallback(&self, key: &str) -> Result<(), BoardError> {
+    /// tool's fallback; with `agent`, that held check agent's only (d0130 row 17: the round's others are left as they
+    /// are). Refused when nothing is held (or `agent` isn't), for a Project agent, without a fallback, when the
+    /// fallback can't start either (the ticket stays waiting), or without `agent` while several check agents are
+    /// held.
+    pub async fn use_fallback(&self, key: &str, agent: Option<&str>) -> Result<(), BoardError> {
         let board = &self.inner.board;
         let store = board.store();
         let ticket = board.ticket(key).await?;
         let key = ticket.key.to_string();
-        let hold = store
+        let waiting: Vec<AgentHold> = store
             .ticket_holds(&ticket.id)
             .await?
             .into_iter()
-            .find(|h| takes_fallback(h.role) && still_waits(&ticket, h.role))
-            .ok_or_else(|| {
-                BoardError::refused(Refusal::MoveRefused, format!("{key} isn't waiting"))
-            })?;
+            .filter(|h| takes_fallback(h.role) && still_waits(&ticket, h.role))
+            .collect();
+        let hold = match agent.map(str::trim) {
+            Some(agent) => waiting.into_iter().find(|h| {
+                h.check_agent
+                    .as_deref()
+                    .is_some_and(|a| a.to_lowercase() == agent.to_lowercase())
+            }),
+            None => {
+                let checks = waiting.iter().filter(|h| h.check_agent.is_some()).count();
+                if checks > 1 {
+                    return Err(BoardError::refused(
+                        Refusal::MoveRefused,
+                        format!("{key} has {checks} check agents held; name one"),
+                    ));
+                }
+                waiting.into_iter().next()
+            }
+        };
+        let hold = hold.ok_or_else(|| {
+            let what = match agent {
+                Some(agent) => format!("{key}'s {} isn't waiting", agent.trim()),
+                None => format!("{key} isn't waiting"),
+            };
+            BoardError::refused(Refusal::MoveRefused, what)
+        })?;
         self.usable_fallback(hold.tool).await?;
-        store.ask_fallback(&ticket.id, hold.role).await?;
-        tracing::info!(%key, role = %hold.role, tool = %hold.tool, "use fallback");
+        store.ask_fallback(&hold.id).await?;
+        tracing::info!(%key, role = %hold.role, check_agent = ?hold.check_agent, tool = %hold.tool, "use fallback");
         self.release(hold.role, &ticket).await
+    }
+
+    /// A check agent's checker hit its tool's limit while its round's other check agents run on (d0130 row 17): it
+    /// waits as a check agent held before its launch does, its hold offering the tool's fallback (Use fallback) or,
+    /// with none usable, Skip this check. `tool` is the one it ran on, at its limit now whatever the limit's record
+    /// says yet.
+    pub async fn hold_at_limit(
+        &self,
+        role: SessionRole,
+        scope: Scope<'_>,
+        agent: &Agent,
+        tool: Tool,
+    ) -> Result<(), BoardError> {
+        let store = self.inner.board.store();
+        let mut facts = self.facts().await?;
+        facts.at_limit.insert(tool);
+        let own = self.model_of(agent).await?;
+        let on = if own.tool == tool {
+            own
+        } else {
+            ModelRef { tool, model: None }
+        };
+        let decision = decide(
+            agent,
+            &on,
+            &store.fallbacks().await?,
+            &facts,
+            false,
+            takes_fallback(role),
+        );
+        if let Decision::Hold(held) = decision {
+            self.write_hold(role, scope, &held).await?;
+        }
+        Ok(())
     }
 
     /// **Use fallback now** (`limits.use_fallback_now`, the banner's click; AGM-03): every ticket waiting on `tool`
@@ -630,7 +725,7 @@ impl LaunchGate {
             if !takes_fallback(hold.role) || !still_waits(&ticket, hold.role) {
                 continue;
             }
-            store.ask_fallback(&ticket.id, hold.role).await?;
+            store.ask_fallback(&hold.id).await?;
             self.release(hold.role, &ticket).await?;
             started.push(ticket.key);
         }
@@ -720,7 +815,7 @@ impl LaunchGate {
         if super::pause::is_paused(store, ticket.key.project.as_str()).await? {
             return Ok(false);
         }
-        let scope = Scope::ticket(&ticket);
+        let scope = Scope::check(&ticket, hold.check_agent.as_deref());
         if !still_waits(&ticket, hold.role) {
             store
                 .clear_agent_hold(scope.hold_scope(), hold.role)
@@ -731,7 +826,15 @@ impl LaunchGate {
         if hold.role == SessionRole::Developer && ticket.status != Status::Held {
             return Ok(false);
         }
-        let agent = resolve::session_agent(board, &ticket, hold.role).await?;
+        // A check agent's own agent (d0130), by the name its round's row gives it.
+        let named = match &hold.check_agent {
+            Some(name) => resolve::named(store, name).await?,
+            None => None,
+        };
+        let agent = match named {
+            Some(agent) => agent,
+            None => resolve::session_agent(board, &ticket, hold.role).await?,
+        };
         let on = self.model_of(&agent).await?;
         let decision = decide(
             &agent,

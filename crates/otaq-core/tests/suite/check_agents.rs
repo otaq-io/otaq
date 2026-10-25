@@ -460,3 +460,463 @@ async fn one_check_agent_works_as_before() {
 fn agent_info(w: &TestService, id: &str) -> SessionInfo {
     w.sessions.info(id).unwrap()
 }
+
+// T-0528 (d0130 row 17, d0108's fallback paragraph and rule 9's Retry, 0063): the user's actions on a round of
+// several check agents, holds and fallback per held agent, a restart mid-round.
+
+use otaq_core::agent_tools::Tool;
+use otaq_core::agents::{AgentHold, AgentModel, Fallbacks, HoldReason, ModelRef, SessionRole};
+use otaq_core::domain::ValidationAction;
+use otaq_core::usage::limit::{LimitHit, LimitKind};
+
+/// The user's `action` on the ticket's check.
+async fn act(w: &TestService, t: &Ticket, action: ValidationAction) -> Result<Ticket, String> {
+    w.validation
+        .user_action(&t.key.to_string(), action, "", &Actor::User("me".into()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Until none of the ticket's checkers runs.
+async fn no_checkers(w: &TestService, t: &Ticket) {
+    for _ in 0..500 {
+        if w.sessions
+            .running_all_of(&t.id, SessionKind::Validator)
+            .is_empty()
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("{}'s checkers still run", t.key);
+}
+
+/// How many checker sessions the agent `name` has had for the ticket.
+async fn checker_runs(w: &TestService, t: &Ticket, name: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sessions WHERE ticket_id = ? AND kind = 'validator' AND agent_name = ?",
+    )
+    .bind(&t.id)
+    .bind(name)
+    .fetch_one(w.board.store().pool())
+    .await
+    .unwrap()
+}
+
+/// The ticket's checker holds: (check agent, reason, whether it offers Skip this check).
+async fn check_holds(w: &TestService, t: &Ticket) -> Vec<(Option<String>, HoldReason, bool)> {
+    w.board
+        .store()
+        .ticket_holds(&t.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|h: &AgentHold| h.role == SessionRole::Validator)
+        .map(|h| {
+            let skip = otaq_core::validation::skip_at_limit(&h);
+            (h.check_agent, h.reason, skip)
+        })
+        .collect()
+}
+
+async fn until_status(w: &TestService, t: &Ticket, want: Status) -> Ticket {
+    for _ in 0..500 {
+        let now = ticket(w, t).await;
+        if now.status == want {
+            return now;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!(
+        "{} never became {want}: {}",
+        t.key,
+        ticket(w, t).await.status
+    );
+}
+
+/// Security reviewer runs on Codex, at its limit: its checker is held before its launch, the Validator's runs.
+async fn codex_at_its_limit(w: &TestService) {
+    w.set_agent_model(
+        "Security reviewer",
+        AgentModel::Tool {
+            tool: Tool::Codex,
+            model: None,
+        },
+    )
+    .await;
+    let hit = LimitHit {
+        kind: LimitKind::Session,
+        text: "You've hit your usage limit.".into(),
+    };
+    w.plan_limit
+        .record_hit(Tool::Codex, &hit, otaq_core::store::now_ms())
+        .await
+        .unwrap();
+}
+
+async fn fallbacks(w: &TestService, fallbacks: Fallbacks) {
+    w.board.store().set_fallbacks(&fallbacks).await.unwrap();
+}
+
+/// Retry after "ended without a verdict" re-runs only the agent without one; the other's pass stands, and the stage
+/// passes once the re-run passes (one round, counted once).
+#[tokio::test(flavor = "multi_thread")]
+async fn retry_reruns_only_the_check_agent_without_a_verdict() {
+    let world = world().await;
+    let w = &world.w;
+    let (t, _) = in_dev(w, "Search notes").await;
+    let security = into_security(w, &t).await;
+    w.validation
+        .validator_signal(&t.id, &security[0].id, &Signal::TurnEnded)
+        .await
+        .unwrap();
+    let ended = verdict(w, &t, &security[1], true, "Search matches.")
+        .await
+        .unwrap();
+    assert_eq!(at(&ended), (Some("security"), Status::CheckNoResult));
+
+    let retried = act(w, &t, ValidationAction::Retry).await.unwrap();
+    assert_eq!(at(&retried), (Some("security"), Status::Checking));
+    let again = checkers(w, &t, 1).await;
+    assert_eq!(
+        agents(&again),
+        ["Security reviewer"],
+        "only the one without a verdict"
+    );
+    assert_eq!(
+        checker_runs(w, &t, "Validator").await,
+        2,
+        "Validate's and Security's"
+    );
+    let passed = verdict(w, &t, &again[0], true, "No unescaped SQL.")
+        .await
+        .unwrap();
+    assert_eq!(at(&passed), (Some("qa"), Status::WaitingForYou));
+    assert_eq!(counter(w, &t, "security").await, (0, Some(1)));
+    let records = w.board.validations(&t.key.to_string()).await.unwrap();
+    let security_records: Vec<_> = records
+        .iter()
+        .filter(|r| r.round == 1 && r.agent.is_some())
+        .take(3)
+        .map(|r| (r.agent.as_deref(), r.outcome))
+        .collect();
+    assert_eq!(
+        security_records,
+        [
+            (Some("Security reviewer"), Some(ValidationOutcome::Pass)),
+            (Some("Security reviewer"), Some(ValidationOutcome::NoResult)),
+            (Some("Validator"), Some(ValidationOutcome::Pass)),
+        ],
+        "History: the re-run beside the round's two"
+    );
+    world.w.stop().await;
+}
+
+/// Stop this check stops every checker of the round, nothing counted; Skip this check skips the whole stage
+/// (Delivery in click mode after).
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_stops_both_and_skip_skips_the_stage() {
+    let world = world().await;
+    let w = &world.w;
+    let (t, _) = in_dev(w, "Search notes").await;
+    let security = into_security(w, &t).await;
+    verdict(w, &t, &security[0], true, "No unescaped SQL.")
+        .await
+        .unwrap();
+    let stopped = act(w, &t, ValidationAction::Stop).await.unwrap();
+    no_checkers(w, &t).await;
+    assert_ne!(stopped.status, Status::Checking);
+    assert_eq!(counter(w, &t, "security").await, (0, None), "not counted");
+
+    w.force_stage(&t, "dev", Status::Working).await;
+    into_security(w, &t).await;
+    let skipped = act(w, &t, ValidationAction::Skip).await.unwrap();
+    no_checkers(w, &t).await;
+    assert_eq!(at(&skipped), (Some("qa"), Status::WaitingForYou));
+    assert!(
+        w.board
+            .forced_click_reason(&skipped)
+            .await
+            .unwrap()
+            .is_some(),
+        "Delivery in click mode after a skip"
+    );
+    world.w.stop().await;
+}
+
+/// d0130 row 17: one check agent held for its tool's limit, the other runs on and passes; the round waits for the
+/// held one ("Waiting for limit reset"), Use fallback moves only it, and the stage passes on its verdict. The ticket
+/// holds one slot however many checkers it runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_held_the_other_passes_and_use_fallback_moves_only_the_held_one() {
+    let world = world().await;
+    let w = &world.w;
+    let (t, _) = in_dev(w, "Search notes").await;
+    submit(w, &t).await;
+    let validator = checkers(w, &t, 1).await.remove(0);
+    codex_at_its_limit(w).await;
+    fallbacks(
+        w,
+        [(
+            Tool::Codex,
+            ModelRef {
+                tool: Tool::Claude,
+                model: None,
+            },
+        )]
+        .into(),
+    )
+    .await;
+    verdict(w, &t, &validator, true, "Validate: all good.")
+        .await
+        .unwrap();
+    let running = checkers(w, &t, 1).await;
+    assert_eq!(
+        agents(&running),
+        ["Validator"],
+        "the held one waits, the other runs"
+    );
+    assert_eq!(
+        check_holds(w, &t).await,
+        [(
+            Some("Security reviewer".into()),
+            HoldReason::ToolLimit,
+            false
+        )]
+    );
+    assert_eq!(
+        at(&ticket(w, &t).await),
+        (Some("security"), Status::Checking)
+    );
+    assert_eq!(w.scheduler.status().await.unwrap().holding, 1, "one slot");
+
+    let waits = verdict(w, &t, &running[0], true, "Search matches.")
+        .await
+        .unwrap();
+    assert_eq!(at(&waits), (Some("security"), Status::WaitingForLimitReset));
+    let e = act(w, &t, ValidationAction::Skip).await.unwrap_err();
+    assert!(e.contains("use the fallback instead"), "{e}");
+    let e = w
+        .gate
+        .use_fallback(&t.key.to_string(), Some("Validator"))
+        .await
+        .unwrap_err();
+    assert!(
+        e.to_string().contains("SHOP-1's Validator isn't waiting"),
+        "{e}"
+    );
+
+    w.gate
+        .use_fallback(&t.key.to_string(), Some("security reviewer"))
+        .await
+        .unwrap();
+    let moved = checkers(w, &t, 1).await;
+    assert_eq!(agents(&moved), ["Security reviewer"]);
+    assert_eq!(moved[0].tool, Some(Tool::Claude), "on its tool's fallback");
+    assert_eq!(
+        checker_runs(w, &t, "Validator").await,
+        2,
+        "the other isn't run again"
+    );
+    assert_eq!(
+        until_status(w, &t, Status::Checking).await.place.stage(),
+        Some("security")
+    );
+    let passed = verdict(w, &t, &moved[0], true, "No unescaped SQL.")
+        .await
+        .unwrap();
+    assert_eq!(at(&passed), (Some("qa"), Status::WaitingForYou));
+    assert!(check_holds(w, &t).await.is_empty());
+    world.w.stop().await;
+}
+
+/// A held check agent with no usable fallback offers Skip this check (0108's fallback paragraph); the round ends
+/// skipped, the card moves past the stage.
+#[tokio::test(flavor = "multi_thread")]
+async fn held_with_no_fallback_offers_skip() {
+    let world = world().await;
+    let w = &world.w;
+    let (t, _) = in_dev(w, "Search notes").await;
+    submit(w, &t).await;
+    let validator = checkers(w, &t, 1).await.remove(0);
+    codex_at_its_limit(w).await;
+    verdict(w, &t, &validator, true, "Validate: all good.")
+        .await
+        .unwrap();
+    let running = checkers(w, &t, 1).await;
+    assert_eq!(
+        check_holds(w, &t).await,
+        [(
+            Some("Security reviewer".into()),
+            HoldReason::ToolLimit,
+            true
+        )]
+    );
+    let e = w
+        .gate
+        .use_fallback(&t.key.to_string(), Some("Security reviewer"))
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("has no fallback"), "{e}");
+    verdict(w, &t, &running[0], true, "Search matches.")
+        .await
+        .unwrap();
+    let skipped = act(w, &t, ValidationAction::Skip).await.unwrap();
+    assert_eq!(at(&skipped), (Some("qa"), Status::WaitingForYou));
+    assert!(check_holds(w, &t).await.is_empty());
+    let records = w.board.validations(&t.key.to_string()).await.unwrap();
+    assert_eq!(
+        records[0].outcome,
+        Some(ValidationOutcome::Skipped),
+        "the round ends skipped"
+    );
+    world.w.stop().await;
+}
+
+/// A checker that hits its tool's limit mid-round while the other runs on waits held for it (not Waiting for limit
+/// reset while the other runs, nor an interrupted round); its Use fallback starts a fresh checker for it only.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_limit_mid_round_holds_only_that_check_agent() {
+    let world = world().await;
+    let w = &world.w;
+    let (t, _) = in_dev(w, "Search notes").await;
+    let security = into_security(w, &t).await;
+    fallbacks(
+        w,
+        [(
+            Tool::Claude,
+            ModelRef {
+                tool: Tool::Codex,
+                model: None,
+            },
+        )]
+        .into(),
+    )
+    .await;
+    let hit = LimitHit {
+        kind: LimitKind::Session,
+        text: "You've hit your session limit".into(),
+    };
+    w.validation
+        .validator_signal(
+            &t.id,
+            &security[0].id,
+            &Signal::LimitReached {
+                hit: hit.clone(),
+                resets_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    // The service records the tool's limit after the checker's signal.
+    w.plan_limit
+        .record_hit(Tool::Claude, &hit, otaq_core::store::now_ms())
+        .await
+        .unwrap();
+    let left = checkers(w, &t, 1).await;
+    assert_eq!(left[0].id, security[1].id, "the other runs on");
+    assert_eq!(
+        at(&ticket(w, &t).await),
+        (Some("security"), Status::Checking)
+    );
+    assert_eq!(
+        check_holds(w, &t).await,
+        [(
+            Some("Security reviewer".into()),
+            HoldReason::ToolLimit,
+            false
+        )]
+    );
+    w.gate
+        .use_fallback(&t.key.to_string(), Some("Security reviewer"))
+        .await
+        .unwrap();
+    let both = checkers(w, &t, 2).await;
+    let fresh = both.iter().find(|s| s.id != security[1].id).unwrap();
+    assert_eq!(fresh.tool, Some(Tool::Codex));
+    verdict(w, &t, fresh, true, "No unescaped SQL.")
+        .await
+        .unwrap();
+    let passed = verdict(w, &t, &security[1], true, "Search matches.")
+        .await
+        .unwrap();
+    assert_eq!(at(&passed), (Some("qa"), Status::WaitingForYou));
+    world.w.stop().await;
+}
+
+/// One checker's Working doesn't clear another's Needs you (the turquoise stays while one still asks).
+#[tokio::test(flavor = "multi_thread")]
+async fn one_checkers_work_leaves_the_others_question() {
+    let world = world().await;
+    let w = &world.w;
+    let (t, _) = in_dev(w, "Search notes").await;
+    let security = into_security(w, &t).await;
+    let asks = Signal::NeedsYou {
+        prompt: "Allow Bash: cargo test?".into(),
+    };
+    let works = Signal::Working { prompt: None };
+    w.validation
+        .validator_signal(&t.id, &security[0].id, &asks)
+        .await
+        .unwrap();
+    assert_eq!(ticket(w, &t).await.status, Status::CheckerNeedsYou);
+    w.validation
+        .validator_signal(&t.id, &security[1].id, &works)
+        .await
+        .unwrap();
+    assert_eq!(
+        ticket(w, &t).await.status,
+        Status::CheckerNeedsYou,
+        "the other checker's Working leaves the question"
+    );
+    w.validation
+        .validator_signal(&t.id, &security[0].id, &works)
+        .await
+        .unwrap();
+    assert_eq!(ticket(w, &t).await.status, Status::Checking);
+    world.w.stop().await;
+}
+
+/// A restart mid-round interrupts it; Resume restarts every check agent fresh, the verdict given before the restart
+/// not kept (0063).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_mid_round_restarts_every_check_agent() {
+    let World { w, _dir: dir } = world().await;
+    let (t, _) = in_dev(&w, "Search notes").await;
+    let security = into_security(&w, &t).await;
+    verdict(&w, &t, &security[0], true, "No unescaped SQL.")
+        .await
+        .unwrap();
+    let launch = stand_in::launch(&dir.path().join("bin"), dir.path());
+    let w = w
+        .restart_with(move |config| ServiceConfig {
+            launch: Some(launch),
+            ..config
+        })
+        .await;
+    let interrupted = ticket(&w, &t).await;
+    assert_eq!(
+        (interrupted.status, interrupted.interrupted_from),
+        (Status::Interrupted, Some(Status::Checking))
+    );
+    w.review
+        .resume(&t.key.to_string(), &Actor::User("me".into()))
+        .await
+        .unwrap();
+    let fresh = checkers(&w, &t, 2).await;
+    assert_eq!(agents(&fresh), ["Security reviewer", "Validator"]);
+    verdict(&w, &t, &fresh[1], true, "Search matches.")
+        .await
+        .unwrap();
+    assert_eq!(
+        at(&ticket(&w, &t).await),
+        (Some("security"), Status::Checking),
+        "the pass before the restart isn't kept"
+    );
+    let passed = verdict(&w, &t, &fresh[0], true, "No unescaped SQL.")
+        .await
+        .unwrap();
+    assert_eq!(at(&passed), (Some("qa"), Status::WaitingForYou));
+    w.stop().await;
+    drop(dir);
+}

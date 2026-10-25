@@ -222,6 +222,10 @@ pub struct CardHold {
     pub model: Option<String>,
     /// The agent it would have started ("Developer").
     pub agent: Option<String>,
+    /// The held check agent of a round of several, as its stage lists it: Use fallback moves it only (d0130 row
+    /// 17, `ticket.use_fallback`'s `agent`). `None` for every other hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_agent: Option<String>,
     /// Its agent's id, for Open agent….
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
@@ -253,6 +257,7 @@ impl CardHold {
             tool: hold.tool,
             model: hold.model.clone(),
             agent: agent.map(|a| a.name.clone()),
+            check_agent: hold.check_agent.clone(),
             agent_id: hold.agent_id.clone(),
             can_use_fallback: hold.fallback_tool.is_some() && !hold.fallback_held,
             fallback: fallbacks.get(&hold.tool).cloned(),

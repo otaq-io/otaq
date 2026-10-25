@@ -1058,9 +1058,10 @@ pub enum Request {
     /// refused when it has none or it can't start either. Replies with [`Reply::StartedOnFallback`].
     #[serde(rename = "limits.use_fallback_now")]
     LimitsUseFallbackNow(ToolParams),
-    /// `{"key": "SHOP-31"}`: **Use fallback** for a ticket waiting on its tool or its model (AGM-03).
+    /// `{"key": "SHOP-31"}`: **Use fallback** for a ticket waiting on its tool or its model (AGM-03);
+    /// `{"key": "SHOP-33", "agent": "Performance reviewer"}` for that held check agent only (d0130 row 17).
     #[serde(rename = "ticket.use_fallback")]
-    TicketUseFallback(KeyParams),
+    TicketUseFallback(UseFallbackParams),
     /// `{}` or `{"record": {"kind": "ticket", "key": "NOTE-2"}}`: the command palette's recent items (KEY-06, d0097),
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
@@ -1699,13 +1700,28 @@ pub struct KeyParams {
     pub key: String,
 }
 
+/// `{"key": "SHOP-31"}` or `{"key": "SHOP-33", "agent": "Performance reviewer"}`: **Use fallback** (AGM-03).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UseFallbackParams {
+    pub key: String,
+    /// The held check agent of the ticket's agent check, as its stage lists it (any case); `None`: the ticket's held
+    /// session, refused while several check agents are held (d0130 row 17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
 /// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "stage": "security"}`: the session of the
-/// agent running that stage (its id or name, any case), refused unless the ticket is in it (FLW-20).
+/// agent running that stage (its id or name, any case), refused unless the ticket is in it (FLW-20);
+/// `{"key": "SHOP-33", "stage": "validate", "agent": "Security reviewer"}`: one check agent's of a stage that has
+/// several (d0130 row 17).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalParams {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
+    /// With `stage`: the check agent, as the stage lists it (any case); needed when the stage has several.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// The answer to `ticket.terminal`: the screen and the lines above it as plain text
@@ -1857,6 +1873,10 @@ pub struct SessionTarget {
     /// refused unless the ticket is in it (FLW-20); `kind` is then not given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
+    /// With `stage`: the check agent of an agent check, as the stage lists it (any case), its running checker, else
+    /// its last one; needed when the stage has several ("Validate has 2 check agents; add --agent", d0130 row 17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     /// A project's key, for its Project terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,

@@ -752,6 +752,7 @@ pub mod fixtures {
             id: format!("h-{agent}"),
             ticket_id: Some("t".into()),
             project_id: None,
+            check_agent: None,
             role,
             reason,
             tool,

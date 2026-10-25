@@ -338,12 +338,26 @@ impl Shared {
                 {
                     tracing::warn!(session, error = %e, "can't apply the validator's hook");
                 }
-                if let Signal::LimitReached { hit, resets_at } = &signal
-                    && let Err(e) = plan_limit
-                        .hit(tool, hit, *resets_at, &ticket_id, now_ms())
+                if let Signal::LimitReached { hit, resets_at } = &signal {
+                    // A check agent held while its round's others run on doesn't stop the ticket (d0130 row 17):
+                    // the limit is recorded, the ticket isn't marked as one it stopped.
+                    let waits = plan_limit
+                        .board()
+                        .ticket_by_id(&ticket_id)
                         .await
-                {
-                    tracing::warn!(error = %e, "can't record the plan limit");
+                        .is_ok_and(|t| t.status == crate::domain::Status::WaitingForLimitReset);
+                    let recorded = if waits {
+                        plan_limit
+                            .hit(tool, hit, *resets_at, &ticket_id, now_ms())
+                            .await
+                    } else {
+                        plan_limit
+                            .record_hit_reset(tool, hit, *resets_at, now_ms())
+                            .await
+                    };
+                    if let Err(e) = recorded {
+                        tracing::warn!(error = %e, "can't record the plan limit");
+                    }
                 }
             });
             return;

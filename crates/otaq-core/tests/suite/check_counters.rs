@@ -447,6 +447,7 @@ async fn held_at_limit(
             id: new_id(),
             ticket_id: Some(t.id.clone()),
             project_id: None,
+            check_agent: None,
             role,
             reason: HoldReason::ToolLimit,
             tool: Tool::Claude,

@@ -539,26 +539,29 @@ async fn write_skills(
     Ok(())
 }
 
-/// Where an agent hold belongs: a ticket's (or epic's) session, or a project's Project agent.
+/// Where an agent hold belongs: a ticket's (or epic's) session, one check agent of a ticket's agent check (d0130
+/// row 17), or a project's Project agent. A ticket's scope covers every check agent of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldScope<'a> {
     Ticket(&'a str),
+    Check { ticket: &'a str, agent: &'a str },
     Project(&'a str),
 }
 
 impl Store {
-    /// Holds `hold`'s session (SCH-04 `[M23]`): one row per ticket (or project) and session role, replacing an
-    /// earlier hold of it. A hold that stays for the same reason keeps its `since` and the user's Use fallback.
+    /// Holds `hold`'s session (SCH-04 `[M23]`): one row per ticket (or project), session role and check agent,
+    /// replacing an earlier hold of it. A hold that stays for the same reason keeps its `since` and the user's Use
+    /// fallback.
     pub async fn set_agent_hold(&self, hold: &AgentHold) -> Result<(), StoreError> {
         let conflict = if hold.ticket_id.is_some() {
-            "(ticket_id, role) WHERE ticket_id IS NOT NULL"
+            "(ticket_id, role, check_agent) WHERE ticket_id IS NOT NULL"
         } else {
             "(project_id, role) WHERE project_id IS NOT NULL"
         };
         let sql = format!(
             "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, agent_id, fallback_tool,
-                                      fallback_held, fallback_asked, since)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      fallback_held, fallback_asked, since, check_agent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT {conflict} DO UPDATE SET
                  since = CASE WHEN agent_holds.reason = excluded.reason THEN agent_holds.since
                               ELSE excluded.since END,
@@ -580,24 +583,19 @@ impl Store {
             .bind(hold.fallback_held)
             .bind(hold.fallback_asked)
             .bind(hold.since)
+            .bind(hold.check_agent.as_deref().unwrap_or_default())
             .execute(self.pool())
             .await?;
         Ok(())
     }
 
-    /// The user's Use fallback on a ticket's held session: its next start launches on its tool's fallback.
-    pub async fn ask_fallback(
-        &self,
-        ticket_id: &str,
-        role: SessionRole,
-    ) -> Result<bool, StoreError> {
-        let done = sqlx::query(
-            "UPDATE agent_holds SET fallback_asked = TRUE WHERE ticket_id = ? AND role = ?",
-        )
-        .bind(ticket_id)
-        .bind(role.as_str())
-        .execute(self.pool())
-        .await?;
+    /// The user's Use fallback on one held session (the hold `hold_id`): its next start launches on its tool's
+    /// fallback; a round's other check agents are left as they are (d0130 row 17).
+    pub async fn ask_fallback(&self, hold_id: &str) -> Result<bool, StoreError> {
+        let done = sqlx::query("UPDATE agent_holds SET fallback_asked = TRUE WHERE id = ?")
+            .bind(hold_id)
+            .execute(self.pool())
+            .await?;
         Ok(done.rows_affected() > 0)
     }
 
@@ -607,30 +605,38 @@ impl Store {
         scope: HoldScope<'_>,
         role: SessionRole,
     ) -> Result<bool, StoreError> {
-        let (column, id) = match scope {
-            HoldScope::Ticket(id) => ("ticket_id", id),
-            HoldScope::Project(id) => ("project_id", id),
+        let (column, id, agent) = match scope {
+            HoldScope::Ticket(id) => ("ticket_id", id, None),
+            HoldScope::Check { ticket, agent } => ("ticket_id", ticket, Some(agent)),
+            HoldScope::Project(id) => ("project_id", id, None),
         };
-        let sql = format!("DELETE FROM agent_holds WHERE {column} = ? AND role = ?");
+        let sql = format!(
+            "DELETE FROM agent_holds WHERE {column} = ? AND role = ? AND (? IS NULL OR check_agent = ?)"
+        );
         let done = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(id)
             .bind(role.as_str())
+            .bind(agent)
+            .bind(agent)
             .execute(self.pool())
             .await?;
         Ok(done.rows_affected() > 0)
     }
 
-    /// The hold of `role` in `scope`, if any.
+    /// The hold of `role` in `scope`, if any (a ticket's scope: its first of that role).
     pub async fn agent_hold(
         &self,
         scope: HoldScope<'_>,
         role: SessionRole,
     ) -> Result<Option<AgentHold>, StoreError> {
-        let holds = match scope {
-            HoldScope::Ticket(id) => self.ticket_holds(id).await?,
-            HoldScope::Project(id) => self.project_holds(id).await?,
+        let (holds, agent) = match scope {
+            HoldScope::Ticket(id) => (self.ticket_holds(id).await?, None),
+            HoldScope::Check { ticket, agent } => (self.ticket_holds(ticket).await?, Some(agent)),
+            HoldScope::Project(id) => (self.project_holds(id).await?, None),
         };
-        Ok(holds.into_iter().find(|h| h.role == role))
+        Ok(holds
+            .into_iter()
+            .find(|h| h.role == role && agent.is_none_or(|a| h.check_agent.as_deref() == Some(a))))
     }
 
     /// The holds of a ticket or an epic, by role.
@@ -692,6 +698,7 @@ struct AgentHoldRecord {
     fallback_held: bool,
     fallback_asked: bool,
     since: i64,
+    check_agent: String,
 }
 
 impl AgentHoldRecord {
@@ -704,6 +711,7 @@ impl AgentHoldRecord {
             id: self.id,
             ticket_id: self.ticket_id,
             project_id: self.project_id,
+            check_agent: Some(self.check_agent).filter(|a| !a.is_empty()),
             model: self.model,
             agent_id: self.agent_id,
             fallback_tool: self.fallback_tool.and_then(|t| t.parse().ok()),

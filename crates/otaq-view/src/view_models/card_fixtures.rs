@@ -886,6 +886,7 @@ pub fn hold(
         tool,
         model: model.map(str::to_owned),
         agent: Some(agent.to_owned()),
+        check_agent: None,
         agent_id: None,
         fallback: fallback.map(|tool| otaq_core::agents::ModelRef { tool, model: None }),
         can_use_fallback,

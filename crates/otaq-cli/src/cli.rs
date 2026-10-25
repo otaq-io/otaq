@@ -108,6 +108,9 @@ pub enum Command {
         /// The agent running this stage of the ticket's flow (its name or id): `--stage security` while it checks
         #[arg(long, value_name = "STAGE")]
         stage: Option<String>,
+        /// With --stage: which check agent, when the check has several: `--agent "Security reviewer"`
+        #[arg(long, value_name = "AGENT", requires = "stage")]
+        agent: Option<String>,
     },
     /// The current ticket's context for its agent: details, parents, rules and your Agent instructions
     Prime {
@@ -144,6 +147,9 @@ pub enum Command {
         /// With --terminal: the terminal of the agent running this stage (its name or id) instead
         #[arg(long, value_name = "STAGE", requires = "terminal")]
         stage: Option<String>,
+        /// With --stage: which check agent's terminal, when the check has several: `--agent "Security reviewer"`
+        #[arg(long, value_name = "AGENT", requires = "stage")]
+        agent: Option<String>,
     },
     /// List the current project's tickets (-P to name the project)
     List {
@@ -925,20 +931,35 @@ mod tests {
     fn attach_takes_an_optional_key() {
         let cli = parse(&["attach", "SHOP-18"]).unwrap();
         assert!(
-            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: None }) if k == "SHOP-18")
+            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: None, agent: None }) if k == "SHOP-18")
         );
         let cli = parse(&["attach"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Attach {
                 key: None,
-                stage: None
+                stage: None,
+                agent: None
             })
         ));
         let cli = parse(&["attach", "SHOP-29", "--stage", "security"]).unwrap();
         assert!(
-            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: Some(s) }) if k == "SHOP-29" && s == "security")
+            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: Some(s), agent: None }) if k == "SHOP-29" && s == "security")
         );
+        // d0130 row 17: one check agent of several, only with --stage.
+        let cli = parse(&[
+            "attach",
+            "SHOP-33",
+            "--stage",
+            "validate",
+            "--agent",
+            "Security reviewer",
+        ])
+        .unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Attach { stage: Some(s), agent: Some(a), .. }) if s == "validate" && a == "Security reviewer")
+        );
+        assert!(parse(&["attach", "SHOP-33", "--agent", "Security reviewer"]).is_err());
         let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
         assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
         // FLW-20: `--validator` is gone, with no alias.
@@ -954,11 +975,26 @@ mod tests {
             cli.command,
             Some(Command::Show { key: Some(ref k), terminal: true, stage: Some(ref s), .. }) if k == "NOTE-6" && s == "Security"
         ));
+        let cli = parse(&[
+            "show",
+            "SHOP-33",
+            "--terminal",
+            "--stage",
+            "validate",
+            "--agent",
+            "Validator",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Show { agent: Some(ref a), .. }) if a == "Validator"
+        ));
         for wrong in [
             &["show", "--terminal", "--long"][..],
             &["show", "--terminal", "--children"],
             &["show", "--stage", "security"],
             &["show", "NOTE-6", "--terminal", "--validator"],
+            &["show", "NOTE-6", "--terminal", "--agent", "Validator"],
         ] {
             assert!(parse(wrong).is_err(), "{wrong:?}");
         }
