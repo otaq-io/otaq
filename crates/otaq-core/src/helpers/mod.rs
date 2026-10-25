@@ -8,8 +8,8 @@
 //!   after a dot: "40.3" is how the piece is shown), seeded as a start seeds (d0082: the ticket's own worktree build
 //!   first, else the warm build), the env files and the setup command as a start runs them, its own `$PORT`, the
 //!   agent's skills and the hand-off skills copied (d0118), then a fresh session of the stage's agent on the tool
-//!   and model the agent in charge runs on (Q513 may add a pick), told "You are the helper for piece 3 of SHOP-40,
-//!   Wishlist page. …" with `OTAQ_PIECE=3`. The note on stdin is posted as a comment "To 40.3: …". A tool at its limit
+//!   and model the agent in charge runs on (Q513 may add a pick), running the stage's skill (its "As a helper" part)
+//!   followed by "You are the helper for piece 3 of SHOP-40, Wishlist page. …", with `OTAQ_PIECE=3`. The note on stdin is posted as a comment "To 40.3: …". A tool at its limit
 //!   (or not available) holds the helper ("Waiting for limit reset"); it starts once the hold lifts
 //!   ([`Helpers::start_held`]);
 //! - `otaq helper list`, `otaq helper diff <n>` (the helper's branch against the ticket's);
@@ -50,7 +50,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::agent_tools::Adapters;
+use crate::agent_tools::{Adapters, FirstPrompt};
 use crate::agents::gate::LaunchGate;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
@@ -211,6 +211,29 @@ pub fn first_prompt(ticket: &TicketKey, piece: u32, title: &str) -> String {
         "You are the helper for piece {piece} of {ticket}, {title}. Work only on this piece in this worktree. Run `{} prime`.",
         naming::COMMAND_NAME
     )
+}
+
+impl Helpers {
+    /// A fresh helper session's first prompt: the stage's own skill (`work-ticket` on the default flow, as the agent in
+    /// charge started with; its "As a helper" part applies with `OTAQ_PIECE` set), followed by `message`.
+    pub(super) async fn skill_prompt(
+        &self,
+        ticket: &Ticket,
+        message: String,
+    ) -> Result<FirstPrompt, BoardError> {
+        let flow = self
+            .inner
+            .board
+            .effective_flow(ticket.key.project.as_str())
+            .await?;
+        let name = crate::agents::resolve::agent_stage_of(&flow, ticket, &[])
+            .and_then(|stage| stage.skill.clone())
+            .unwrap_or_else(|| crate::agent_tools::WORK_TICKET_SKILL.to_owned());
+        Ok(FirstPrompt::Skill {
+            name,
+            message: Some(message),
+        })
+    }
 }
 
 /// What the agent in charge is told when a helper hands its piece back: "40.3 handed its piece back: Page done, with

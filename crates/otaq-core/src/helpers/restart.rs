@@ -193,10 +193,16 @@ impl Helpers {
         };
         let first = match &conversation {
             Some(_) => FirstPrompt::Text(prompt),
-            None => FirstPrompt::Text(format!(
-                "{} {prompt}",
-                super::first_prompt(&ticket.key, helper.piece, &helper.title)
-            )),
+            None => {
+                self.skill_prompt(
+                    ticket,
+                    format!(
+                        "{} {prompt}",
+                        super::first_prompt(&ticket.key, helper.piece, &helper.title)
+                    ),
+                )
+                .await?
+            }
         };
         // Its row names the new session before the program starts (an immediate `otaq` command finds it); a resume
         // that fails names the previous one again.

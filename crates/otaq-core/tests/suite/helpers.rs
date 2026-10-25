@@ -661,6 +661,8 @@ async fn two_helpers_starting_together_each_load_their_skills() {
                 .unwrap()
                 .to_owned();
             assert!(line.contains(" otaq-restack "), "round {round}: {line}");
+            // The stage's skill too: the helper runs it, with OTAQ_PIECE set (T-0539).
+            assert!(line.contains(" otaq-work-ticket "), "round {round}: {line}");
             loaded.push(line);
         }
         assert_eq!(loaded[0], loaded[1], "round {round}");

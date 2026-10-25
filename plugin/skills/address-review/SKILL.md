@@ -27,6 +27,16 @@ before.
    comments, the user's comment in `prime` is all the feedback.
 4. **Fix every comment**, the user's comment included. If a comment is unclear, or you disagree with it, ask the user
    (see below) instead of guessing. Keep to the feedback and the ticket; file anything else as a new ticket.
+
+   **Built by helpers?** When the ticket's Plan has pieces, you are its agent in charge: fix a small comment yourself,
+   or start a helper for a larger fix with the next free piece number (piece 5 when the Plan has 4), then check and
+   merge its work as for any piece (`otaq helper diff 5`, the project's tests in its worktree, `otaq helper merge 5`):
+
+   ```sh
+   otaq helper start 5 --title "Fixing the review" --stdin <<'NOTE'
+   The review asks for the page size from settings (lib/search.ts:12). Run `otaq prime` for the comments.
+   NOTE
+   ```
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.

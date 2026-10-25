@@ -28,7 +28,8 @@ the worktree: your check runs' output goes there (see "Long output").
    run, what matters in this project) and they apply to every check below. They never allow you to change anything.
 3. **Check the change against the description.** Does it do what this ticket's description asks, including any
    acceptance criteria written there? When none are written, infer reasonable ones from the description. After a Send
-   back, also check that **each review comment** was addressed.
+   back, also check that **each review comment** was addressed. When helpers built the ticket's pieces (its Plan),
+   the diff already holds every merged piece: judge the whole ticket against its description and Plan, not one piece.
 4. **Run the checks.** Run the checks the Agent instructions name (tests, lint, build). When they name none, run the
    project's obvious ones if you can find them (for example `cargo test`, `npm test`, `make check`). Send each run's
    output to a file in `$OTAQ_RESOURCE_DIR` and search it (see "Long output"). Checks may write ignored files
@@ -39,7 +40,7 @@ the worktree: your check runs' output goes there (see "Long output").
    example `src/cart.ts:42: the total ignores the discount`. Keep it short and concrete: the full check run goes in
    the attached report, never in the comment (at most 2,000 characters).
    - A gap **covered by a linked ticket** is a **note**, never a failure:
-     `Note: UI for adding items: covered by SHOP-40.2`.
+     `Note: UI for adding items: covered by SHOP-41`.
    - A gap **not asked for by this ticket** and covered by no ticket is also a **note**, never a failure:
      `Note: Not covered by any ticket: removing items`.
    - Only gaps against **this ticket's** description, failing checks and leftovers fail it.
@@ -59,7 +60,7 @@ the worktree: your check runs' output goes there (see "Long output").
    otaq check pass --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
      --manual-check "In Safari, the discount shows on the checkout page after a reload" <<'VERDICT'
    Pass: the discount applies to the total; `npm test` passes (run attached); no leftovers.
-   Note: UI for adding items: covered by SHOP-40.2
+   Note: UI for adding items: covered by SHOP-41
    VERDICT
    ```
 

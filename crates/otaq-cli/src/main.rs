@@ -19,6 +19,8 @@ mod pr;
 mod prime;
 mod read;
 mod service;
+#[cfg(test)]
+mod skill_commands;
 mod statusline;
 mod target;
 mod write;

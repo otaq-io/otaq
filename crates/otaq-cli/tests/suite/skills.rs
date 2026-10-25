@@ -1,13 +1,10 @@
-//! The plugin's skills only teach commands the CLI has (T-0140): every `otaq <command> [<subcommand>]` written in
-//! a skill is accepted by the built CLI (`--help` on it succeeds).
+//! The commands each plugin skill teaches (T-0140, T-0286, T-0539). That every command and flag a skill names exists
+//! in the CLI is checked against clap's command tree, in the binary's own `skill_commands` tests.
 
 use std::path::Path;
-use std::process::Command;
 
 use otaq_core::agent_tools::claude::find_plugin_dir;
 use otaq_core::naming;
-
-const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
 /// The command words after each `otaq ` in a text: lowercase words, up to two.
 fn commands(text: &str) -> Vec<Vec<String>> {
@@ -36,40 +33,6 @@ fn commands(text: &str) -> Vec<Vec<String>> {
 }
 
 #[test]
-fn every_command_a_skill_names_exists() {
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills");
-    let mut checked = 0;
-    for entry in std::fs::read_dir(&skills).unwrap() {
-        let folder = entry.unwrap().path();
-        if !folder.is_dir() {
-            continue;
-        }
-        let file = folder.join("SKILL.md");
-        let text = std::fs::read_to_string(&file).unwrap();
-        for words in commands(&text) {
-            let ok = Command::new(CB)
-                .args(&words)
-                .arg("--help")
-                .output()
-                .unwrap()
-                .status
-                .success();
-            assert!(
-                ok,
-                "{}: `{} {}` isn't a command",
-                file.display(),
-                naming::COMMAND_NAME,
-                words.join(" ")
-            );
-            checked += 1;
-        }
-    }
-    assert!(checked > 20, "only {checked} commands found");
-}
-
-#[test]
 fn command_words_are_found() {
     let cmd = naming::COMMAND_NAME;
     let text = format!(
@@ -85,7 +48,7 @@ fn command_words_are_found() {
     );
 }
 
-/// T-0286: the commands the work-ticket skill teaches are among those checked above; T-0409 (AGM-10): work-ticket
+/// T-0286: the commands the work-ticket skill teaches; T-0409 (AGM-10): work-ticket
 /// ends its stage with `stage next`, or `stage done` with nothing to deliver. T-0445 (CMT-09): it reads reports with
 /// `report`. T-0534 (d0133): no skill names the lead's commands any more.
 #[test]
@@ -119,4 +82,26 @@ fn the_work_ticket_commands_are_checked() {
             "{skill}: notes"
         );
     }
+    // T-0539 (d0133): the agent in charge runs its helpers, a helper hands its piece back; a Send back may start a
+    // helper; Noyan writes a Plan.
+    for command in [
+        "helper start",
+        "helper list",
+        "helper diff",
+        "helper merge",
+        "helper back",
+        "helper answer",
+        "helper pass-on",
+        "helper done",
+        "ask human",
+    ] {
+        assert!(work.contains(&command.to_owned()), "work-ticket: {command}");
+    }
+    assert!(named("address-review").contains(&"helper start".to_owned()));
+    let noyan = std::fs::read_to_string(skills.join("noyan").join("SKILL.md")).unwrap();
+    assert!(noyan.contains("--plan-file"), "noyan: --plan-file");
+    assert!(
+        noyan.contains("Wishlist   Plan \u{b7} 3 pieces"),
+        "noyan: the table's Plan row"
+    );
 }
