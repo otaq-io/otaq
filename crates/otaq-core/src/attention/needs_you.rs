@@ -25,7 +25,7 @@ use super::notify::{self, ItemId, Kind, Notifier, OsNotification, PermissionStat
 use crate::agent_tools::Tool;
 use crate::agent_tools::connected::ConnectedTools;
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
-use crate::board::questions::{Choice, format_answer};
+use crate::board::questions::{AnsweredVia, Choice, format_answer};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
@@ -163,6 +163,8 @@ struct Inner {
     blocked_wake: std::sync::OnceLock<Arc<Notify>>,
     /// The Project agents that wait for the user (set by the service).
     project_agents: Mutex<Option<crate::project_agents::ProjectAgents>>,
+    /// The helpers, whose passed-on questions the user answers here (set by the service, d0133).
+    helpers: std::sync::OnceLock<crate::helpers::Helpers>,
     /// The tools that aren't available while tickets wait on them or moved off them, since when (USG-10):
     /// notified once each.
     unavailable: Mutex<HashMap<Tool, i64>>,
@@ -208,6 +210,7 @@ impl NeedsYouQueue {
                 blocked: std::sync::atomic::AtomicBool::new(false),
                 blocked_wake: std::sync::OnceLock::new(),
                 project_agents: Mutex::new(None),
+                helpers: std::sync::OnceLock::new(),
                 unavailable: Mutex::new(HashMap::new()),
                 available_at: Mutex::new(HashMap::new()),
                 started_at: now_ms(),
@@ -258,6 +261,11 @@ impl NeedsYouQueue {
     /// The Project agents whose waits are needs-you items (d0068).
     pub fn set_project_agents(&self, agents: crate::project_agents::ProjectAgents) {
         *self.inner.project_agents.lock().expect("project agents") = Some(agents);
+    }
+
+    /// The helpers whose passed-on questions are answered here (d0133 audit 3).
+    pub fn set_helpers(&self, helpers: crate::helpers::Helpers) {
+        let _ = self.inner.helpers.set(helpers);
     }
 
     /// Every needs-you item with the counts (`needs_you.list`).
@@ -575,6 +583,23 @@ impl NeedsYouQueue {
             _ => None,
         };
         let text = answer_text(question.as_ref(), choice)?;
+        // A helper's question the agent in charge passed on: the answer is the helper's (d0133 audit 3).
+        if let (Some(q), Some(helpers)) = (&question, inner.helpers.get())
+            && let Some(helper) = helpers.of_question(&q.id).await?
+        {
+            return self
+                .answer_helper(
+                    helpers,
+                    &ticket,
+                    waiting.how,
+                    &helper,
+                    &q.id,
+                    &text,
+                    clear,
+                    actor,
+                )
+                .await;
+        }
         let session = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
         let delivery = match (waiting.how, session) {
             (Waiting::Live, Some(session)) => {
@@ -614,6 +639,70 @@ impl NeedsYouQueue {
         }
         inner.signals.answered(&ticket.id).await?;
         tracing::info!(ticket = %ticket.key, ?delivery, "needs-you answer");
+        Ok(delivery)
+    }
+}
+
+impl NeedsYouQueue {
+    /// The user's answer to a helper's passed-on question (d0133 audit 3): typed into the helper's session as the
+    /// user's click (d0048); for an Interrupted ticket, kept as what the helper is told first and the ticket resumed.
+    /// The question closes with the answer, logged as the user's (d0030).
+    #[allow(clippy::too_many_arguments)]
+    async fn answer_helper(
+        &self,
+        helpers: &crate::helpers::Helpers,
+        ticket: &Ticket,
+        how: Waiting,
+        helper: &crate::helpers::Helper,
+        question: &str,
+        text: &str,
+        clear: bool,
+        actor: &Actor,
+    ) -> Result<Delivery, BoardError> {
+        let inner = &self.inner;
+        let delivery = match how {
+            Waiting::Live => {
+                let session = helper
+                    .session
+                    .as_deref()
+                    .and_then(|s| inner.sessions.info(s).ok())
+                    .filter(|info| info.is_running())
+                    .ok_or_else(|| {
+                        BoardError::refused(
+                            Refusal::SessionEnded,
+                            format!("{}'s helper session has ended", helper.label()),
+                        )
+                    })?;
+                let typed = if clear {
+                    inner
+                        .deliveries
+                        .clear_and_send(&session.id, Some(text))
+                        .await
+                } else {
+                    inner.deliveries.deliver_from_click(&session.id, text).await
+                };
+                typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?
+            }
+            Waiting::Interrupted => {
+                crate::helpers::store::set_resume_prompt(
+                    inner.board.store().pool(),
+                    &helper.id,
+                    Some(text),
+                )
+                .await?;
+                helpers
+                    .user_answered(helper, question, text, AnsweredVia::Box)
+                    .await?;
+                inner.review.resume(&ticket.key.to_string(), actor).await?;
+                return Ok(Delivery::Sent { count: 1 });
+            }
+        };
+        if matches!(delivery, Delivery::Sent { .. }) {
+            helpers
+                .user_answered(helper, question, text, AnsweredVia::Box)
+                .await?;
+            tracing::info!(ticket = %ticket.key, piece = helper.piece, "needs-you answer to a helper");
+        }
         Ok(delivery)
     }
 }
@@ -816,6 +905,8 @@ mod tests {
             message: None,
             change_agent: None,
             waiting_in: None,
+            piece: None,
+            helpers_to_resume: Vec::new(),
         }
     }
 

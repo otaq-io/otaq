@@ -102,6 +102,11 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
             .map_err(client_error)?
         {
             Reply::Ticket(t) => *t,
+            // A helper's question goes to the agent in charge first (d0133).
+            Reply::Helper(reply) => {
+                out.print(&reply.text, &reply, Some(&reply.helper.label()));
+                return Ok(());
+            }
             other => return Err(unexpected(&other)),
         };
         out.print(

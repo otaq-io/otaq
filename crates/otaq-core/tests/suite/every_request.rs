@@ -253,6 +253,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::HelperDiff(_)
         | Request::HelperBack(_)
         | Request::HelperMerge(_)
+        | Request::HelperAnswer(_)
+        | Request::HelperPassOn(_)
         | Request::HelperDone(_)
         | Request::HelperPrime(_)
         | Request::ValidationVerdict(_)

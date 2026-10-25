@@ -7,66 +7,62 @@ use crate::domain::{ProjectKey, TicketKey};
 use crate::store::{StoreError, new_id, now_ms};
 
 const COLUMNS: &str = "h.id, h.piece, h.title, h.branch, h.worktree, h.session_id, h.status, h.note, \
-                       h.held_reason, h.port, h.started_at, h.updated_at, h.merged_at, h.files_json, \
+                       h.held_reason, h.port, h.started_at, h.updated_at, h.merged_at, h.files_json, h.prompt, \
+                       h.resume_prompt, \
+                       (SELECT q.helper_state FROM human_questions q WHERE q.helper_id = h.id \
+                        AND q.answered_at IS NULL ORDER BY q.asked_at DESC, q.id DESC LIMIT 1) AS asked, \
                        p.key, t.number";
 
-type Row = (
-    String,
-    i64,
-    String,
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<i64>,
-    i64,
-    i64,
-    Option<i64>,
-    Option<String>,
-    String,
-    i64,
-);
+#[derive(sqlx::FromRow)]
+struct Row {
+    id: String,
+    piece: i64,
+    title: String,
+    branch: String,
+    worktree: String,
+    session_id: Option<String>,
+    status: String,
+    note: Option<String>,
+    held_reason: Option<String>,
+    port: Option<i64>,
+    started_at: i64,
+    updated_at: i64,
+    merged_at: Option<i64>,
+    files_json: Option<String>,
+    prompt: Option<String>,
+    resume_prompt: Option<String>,
+    asked: Option<String>,
+    key: String,
+    number: i64,
+}
 
 /// A row as a [`Helper`]; `None` for a value no build writes (a row is skipped then, as other stores do).
 fn helper(row: Row) -> Option<Helper> {
-    let (
-        id,
-        piece,
-        title,
-        branch,
-        worktree,
-        session,
-        status,
-        note,
-        held_reason,
-        port,
-        started_at,
-        updated_at,
-        merged_at,
-        files,
-        project,
-        number,
-    ) = row;
     Some(Helper {
-        ticket: TicketKey::new(ProjectKey::new(&project).ok()?, u32::try_from(number).ok()?),
-        id,
-        piece: u32::try_from(piece).ok()?,
-        title,
-        branch,
-        worktree,
-        session,
-        status: status.parse().ok()?,
-        note,
-        held_reason,
-        port: port.and_then(|p| u16::try_from(p).ok()),
-        started_at,
-        updated_at,
-        merged_at,
-        files: files
+        ticket: TicketKey::new(
+            ProjectKey::new(&row.key).ok()?,
+            u32::try_from(row.number).ok()?,
+        ),
+        id: row.id,
+        piece: u32::try_from(row.piece).ok()?,
+        title: row.title,
+        branch: row.branch,
+        worktree: row.worktree,
+        session: row.session_id,
+        status: row.status.parse().ok()?,
+        note: row.note,
+        held_reason: row.held_reason,
+        port: row.port.and_then(|p| u16::try_from(p).ok()),
+        started_at: row.started_at,
+        updated_at: row.updated_at,
+        merged_at: row.merged_at,
+        files: row
+            .files_json
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default(),
+        prompt: row.prompt,
+        resume_prompt: row.resume_prompt,
+        asked: row.asked.and_then(|a| a.parse().ok()),
     })
 }
 
@@ -237,5 +233,109 @@ pub async fn free_ports(pool: &SqlitePool, ticket_id: &str) -> Result<(), StoreE
         .bind(ticket_id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+/// Every helper of a project's tickets, by ticket and piece (the board's cards read their waits and Resume's set).
+pub async fn of_project(pool: &SqlitePool, project_id: &str) -> Result<Vec<Helper>, StoreError> {
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {COLUMNS} FROM helpers h JOIN tickets t ON t.id = h.ticket_id \
+         JOIN projects p ON p.id = t.project_id WHERE t.project_id = ? ORDER BY t.number, h.piece"
+    )))
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().filter_map(helper).collect())
+}
+
+/// The helper's tool showed a permission prompt (d0133 audit 3): open until the helper moves on or its session ends.
+pub async fn set_prompt(pool: &SqlitePool, id: &str, prompt: &str) -> Result<(), StoreError> {
+    sqlx::query(
+        "UPDATE helpers SET prompt = ?, prompt_at = COALESCE(CASE WHEN prompt = ? THEN prompt_at END, ?) WHERE id = ?",
+    )
+    .bind(prompt)
+    .bind(prompt)
+    .bind(now_ms())
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The helper's prompt was answered (or its session ended): the prompt it had, if one was open.
+pub async fn clear_prompt(pool: &SqlitePool, id: &str) -> Result<Option<String>, StoreError> {
+    let prompt: Option<Option<String>> =
+        sqlx::query_scalar("SELECT prompt FROM helpers WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    let Some(prompt) = prompt.flatten() else {
+        return Ok(None);
+    };
+    let cleared = sqlx::query(
+        "UPDATE helpers SET prompt = NULL, prompt_at = NULL WHERE id = ? AND prompt IS NOT NULL",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok((cleared.rows_affected() == 1).then_some(prompt))
+}
+
+/// Every open prompt of the ticket's helpers closes (their sessions stopped).
+pub async fn clear_prompts(pool: &SqlitePool, ticket_id: &str) -> Result<(), StoreError> {
+    sqlx::query("UPDATE helpers SET prompt = NULL, prompt_at = NULL WHERE ticket_id = ?")
+        .bind(ticket_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// The ticket's helpers with an open prompt, the longest open first (the one the ticket shows).
+pub async fn open_prompts(pool: &SqlitePool, ticket_id: &str) -> Result<Vec<Helper>, StoreError> {
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {COLUMNS} FROM helpers h JOIN tickets t ON t.id = h.ticket_id JOIN projects p ON p.id = t.project_id \
+         WHERE h.ticket_id = ? AND h.prompt IS NOT NULL ORDER BY h.prompt_at, h.piece"
+    )))
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().filter_map(helper).collect())
+}
+
+/// What the helper is told first when it resumes (`None` clears it).
+pub async fn set_resume_prompt(
+    pool: &SqlitePool,
+    id: &str,
+    prompt: Option<&str>,
+) -> Result<(), StoreError> {
+    sqlx::query("UPDATE helpers SET resume_prompt = ? WHERE id = ?")
+        .bind(prompt)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// The helper `id`.
+pub async fn by_id(pool: &SqlitePool, id: &str) -> Result<Option<Helper>, StoreError> {
+    let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(select("h.id = ?")))
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.and_then(helper))
+}
+
+/// A helper's conversation resumed in `session` (d0133 audit 5): its status stays (working or sent back), and what
+/// waited to be told first is gone.
+pub async fn resumed(pool: &SqlitePool, id: &str, session: &str) -> Result<(), StoreError> {
+    sqlx::query(
+        "UPDATE helpers SET session_id = ?, resume_prompt = NULL, prompt = NULL, prompt_at = NULL, updated_at = ?
+         WHERE id = ?",
+    )
+    .bind(session)
+    .bind(now_ms())
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }

@@ -258,3 +258,79 @@ async fn the_user_and_other_sessions_are_refused() {
     );
     w.stop().await;
 }
+
+/// T-0538 (d0133 audit 3): a helper's `otaq ask human` goes to the agent in charge, who passes one question on with
+/// `helper pass-on <id> --note` (the card turns turquoise) and answers the next with `helper answer <n> --stdin`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_helpers_question_goes_to_the_agent_in_charge() {
+    let w = TestService::start_with(helpers_are_shells).await;
+    let (t, _, agent) = at_work(&w).await;
+    let ran = agent
+        .run(&format!("'{CB}' helper start 2 --title 'Wishlist button'"))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let helper = w.helpers.of_ticket(&t.id).await.unwrap().remove(0);
+    let me = helper_shell(&w, helper.session.as_deref().unwrap()).await;
+
+    let ran = me
+        .run_with_stdin(
+            &format!(
+                "'{CB}' ask human --option 'Logged-in users only' --option 'Guests too' --stdin"
+            ),
+            "Can guests save items?",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert!(
+        ran.stdout
+            .starts_with("Asked the agent in charge (1.2's question)"),
+        "{ran:?}"
+    );
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    let ran = agent.run(&format!("'{CB}' helper list")).await;
+    assert!(
+        ran.stdout.contains("asked \u{b7} in charge is answering"),
+        "{ran:?}"
+    );
+
+    let id = otaq_core::helpers::questions::open_of(w.board.store().pool(), &helper.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .question
+        .id;
+    let ran = agent
+        .run(&format!(
+            "'{CB}' helper pass-on {id} --note \"it's a product question the plan doesn't answer\""
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert!(
+        ran.stdout
+            .starts_with("Passed 1.2's question on to the user."),
+        "{ran:?}"
+    );
+    let card = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(card.status, Status::AsksYou);
+    assert_eq!(
+        card.flags.piece_wait.unwrap().note.as_deref(),
+        Some("passed this to you: it's a product question the plan doesn't answer")
+    );
+    // A helper can't pass its own question on.
+    let ran = me.run(&format!("'{CB}' helper pass-on {id}")).await;
+    assert_ne!(ran.status, 0, "{ran:?}");
+
+    let ran = me
+        .run_with_stdin(&format!("'{CB}' ask human --stdin"), "Which icon?")
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ran = agent.run(&format!("'{CB}' helper answer 2")).await;
+    assert_ne!(ran.status, 0);
+    assert!(ran.stderr.contains("helper answer 2 --stdin"), "{ran:?}");
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' helper answer 2 --stdin"), "A heart.")
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert!(ran.stdout.starts_with("Answered 1.2's question"), "{ran:?}");
+    w.stop().await;
+}

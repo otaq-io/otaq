@@ -1,7 +1,8 @@
 //! `otaq helper …` (d0133, T-0537): the agent in charge's helpers. `start <n> --title "<piece>" [--stdin]` starts the
 //! helper of piece `n` (the note on stdin is its first comment), `list` prints each helper's piece, title, status,
 //! branch and last activity, `diff <n>` its branch against the ticket's, `back <n> --stdin` sends it back with a note,
-//! `merge <n>` merges its piece into the ticket's branch. A helper (`$OTAQ_PIECE` set) runs `done --stdin` to hand its
+//! `merge <n>` merges its piece into the ticket's branch, `answer <n> --stdin` answers its question and `pass-on <id>
+//! [--note …]` passes it on to the user (T-0538). A helper (`$OTAQ_PIECE` set) runs `done --stdin` to hand its
 //! piece back. They work on `$OTAQ_TICKET`; the service refuses anyone but the agent in charge (or the helper).
 //!
 //! `--json` prints the helper (`otaq_core::helpers::Helper`) with the text as `{"helper", "text"}`, `list --json` the
@@ -14,8 +15,8 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::helpers::{Helper, piece_env_var};
 use otaq_core::naming;
 use otaq_core::protocol::{
-    ErrorBody, ErrorKind, HelperNoteParams, HelperPieceParams, HelperStartParams, KeyParams, Reply,
-    Request,
+    ErrorBody, ErrorKind, HelperNoteParams, HelperPassOnParams, HelperPieceParams,
+    HelperStartParams, KeyParams, Reply, Request,
 };
 
 use crate::cli::GlobalArgs;
@@ -58,6 +59,23 @@ pub enum HelperCommand {
         /// The piece's number
         piece: u32,
     },
+    /// Answer the helper's question with the answer on stdin, typed into its session when it is idle
+    Answer {
+        /// The piece's number
+        piece: u32,
+        /// Read the answer from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Pass the helper's question on to the user (its id is in the note that told you about it), with why
+    #[command(name = "pass-on")]
+    PassOn {
+        /// The question's id
+        id: String,
+        /// Why it is the user's: "it's a product question the plan doesn't answer"
+        #[arg(long)]
+        note: Option<String>,
+    },
     /// Hand your piece back to the agent in charge with a summary on stdin (helpers only); refused while files are
     /// uncommitted
     Done {
@@ -93,12 +111,20 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
                 "give the note on stdin: `{cmd} helper back {piece} --stdin`"
             )));
         }
+        HelperCommand::Answer {
+            stdin: false,
+            piece,
+        } => {
+            return Err(usage(format!(
+                "give the answer on stdin: `{cmd} helper answer {piece} --stdin`"
+            )));
+        }
         HelperCommand::Done { stdin: false } => {
             return Err(usage(format!(
                 "give your summary on stdin: `{cmd} helper done --stdin`"
             )));
         }
-        HelperCommand::Back { .. } | HelperCommand::Done { .. } => {
+        HelperCommand::Back { .. } | HelperCommand::Answer { .. } | HelperCommand::Done { .. } => {
             let text = read_stdin()?;
             if text.is_empty() {
                 return Err(usage("the text on stdin is empty"));
@@ -130,6 +156,14 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
                 piece,
                 text: text.unwrap_or_default(),
             }),
+            HelperCommand::Answer { piece, .. } => Request::HelperAnswer(HelperNoteParams {
+                key,
+                piece,
+                text: text.unwrap_or_default(),
+            }),
+            HelperCommand::PassOn { id, note } => {
+                Request::HelperPassOn(HelperPassOnParams { key, id, note })
+            }
             HelperCommand::Done { .. } => Request::HelperDone(HelperNoteParams {
                 key,
                 piece: std::env::var(piece_env_var())
@@ -186,7 +220,7 @@ fn render_list(helpers: &[Helper]) -> String {
                     Some(reason) if h.status == otaq_core::helpers::HelperStatus::Held => {
                         format!("{} ({reason})", h.status.label())
                     }
-                    _ => h.status.label().to_owned(),
+                    _ => h.row_status(),
                 },
                 h.branch.clone(),
                 ago(now - h.updated_at),

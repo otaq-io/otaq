@@ -1113,7 +1113,8 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 who(&e.actor)
             )),
         ),
-        // A helper's change (d0133): "40.3 Wishlist page · merged", a note's first line under it.
+        // A helper's change (d0133): "40.3 Wishlist page · merged", a note's first line under it; its questions name
+        // who answered ("40.2 Wishlist button · answered by you").
         EventKind::Helper => {
             let label = text(p, "label").unwrap_or_default();
             let title = text(p, "title").unwrap_or_default();
@@ -1122,6 +1123,11 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 "held" => "waiting for limit reset",
                 "sent_back" => "sent back",
                 "handed_back" => "handed back",
+                // Its questions (d0133 audit 3, d0030): who answered is in the line.
+                "asked" => "asked the agent in charge",
+                "answered" => "answered by the agent in charge",
+                "passed_on" => "question passed on to you",
+                "you_answered" => "answered by you",
                 other => other,
             };
             (

@@ -1561,6 +1561,8 @@ pub(super) async fn handle(
         | Request::HelperDiff(_)
         | Request::HelperBack(_)
         | Request::HelperMerge(_)
+        | Request::HelperAnswer(_)
+        | Request::HelperPassOn(_)
         | Request::HelperDone(_)
         | Request::HelperPrime(_) => return None,
     };
@@ -1644,6 +1646,15 @@ async fn ask_human(
     }
     validate_options(&p.options, p.recommended)?;
     crate::board::questions::validate_notes(&p.options, &p.notes)?;
+    // A helper's question goes to the agent in charge first (d0133 audit 3); its turn's Stop isn't Idle.
+    if let Caller::Helper { session, .. } = caller {
+        let reply = shared
+            .helpers
+            .ask(caller, &p.question, &p.options, &p.notes, p.recommended)
+            .await?;
+        shared.signals.mark_submitted_or_asked(session);
+        return Ok(Reply::Helper(Box::new(reply)));
+    }
     let board = &shared.board;
     let ticket = board.ticket(&p.key).await?;
     // During Open PR / Push to PR the skill reports what went wrong (a rejected push, a missing login) to the

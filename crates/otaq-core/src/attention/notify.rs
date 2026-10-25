@@ -1003,6 +1003,8 @@ mod tests {
             message: None,
             change_agent: None,
             waiting_in: None,
+            piece: None,
+            helpers_to_resume: Vec::new(),
         }
     }
 

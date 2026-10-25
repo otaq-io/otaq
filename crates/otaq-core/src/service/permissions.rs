@@ -306,6 +306,10 @@ async fn action_for(
         }
         R::TicketSetChoice(p) => Action::SetChoices(facts(board, &p.key).await?),
         R::TicketChoices(_) => Action::Read,
+        // A helper asks the agent in charge (d0133 audit 3): its own ticket only.
+        R::TicketAskHuman(p) if matches!(caller, Caller::Helper { .. }) => {
+            Action::AskInCharge(facts(board, &p.key).await?)
+        }
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),
@@ -321,7 +325,8 @@ async fn action_for(
         | R::HelperMerge(crate::protocol::HelperPieceParams { key, .. }) => {
             Action::Helpers(facts(board, key).await?)
         }
-        R::HelperBack(p) => Action::Helpers(facts(board, &p.key).await?),
+        R::HelperBack(p) | R::HelperAnswer(p) => Action::Helpers(facts(board, &p.key).await?),
+        R::HelperPassOn(p) => Action::Helpers(facts(board, &p.key).await?),
         // A helper hands its own piece back and reads its prime; the handler finds its piece by its session.
         R::HelperDone(p) => Action::HandBack(facts(board, &p.key).await?),
         R::HelperPrime(_) => Action::Read,

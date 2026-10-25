@@ -1,5 +1,5 @@
-//! Helper requests (d0133, T-0537): the agent in charge's `otaq helper start|list|diff|back|merge` and a helper's
-//! `otaq helper done` and `otaq prime`. [`crate::helpers::Helpers`] checks who asks: the policy let the ticket's own
+//! Helper requests (d0133, T-0537, T-0538): the agent in charge's `otaq helper
+//! start|list|diff|back|merge|answer|pass-on` and a helper's `otaq helper done` and `otaq prime`. [`crate::helpers::Helpers`] checks who asks: the policy let the ticket's own
 //! agent and its helpers through ([`super::permissions`]), and the user passes the policy unchecked, so the handlers
 //! refuse everyone but the agent in charge (or the helper) themselves.
 
@@ -34,6 +34,10 @@ pub(super) async fn handle(
             .map_err(|e| error_body(&e)),
         Request::HelperBack(p) => one(helpers.back(caller, &p.key, p.piece, &p.text).await),
         Request::HelperMerge(p) => one(helpers.merge(caller, &p.key, p.piece).await),
+        Request::HelperAnswer(p) => one(helpers.answer(caller, &p.key, p.piece, &p.text).await),
+        Request::HelperPassOn(p) => one(helpers
+            .pass_on(caller, &p.key, &p.id, p.note.as_deref())
+            .await),
         Request::HelperDone(p) => {
             let done = helpers.done(caller, &p.text).await;
             // A hand-back is a helper's own: its turn's Stop is no Idle (T-0538 reports a helper's idle).

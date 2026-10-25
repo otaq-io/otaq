@@ -108,6 +108,13 @@ impl Helpers {
             };
             let lock = self.lock_of(&ticket.id);
             let _one = lock.lock().await;
+            // Read again under the lock: a start running meanwhile (its row is `held` until its session runs) has
+            // started it already, and a second session would run beside the first.
+            match store::of_piece(pool, &ticket.id, helper.piece).await? {
+                Some(now)
+                    if now.status == HelperStatus::Held && self.live_session(&now).is_none() => {}
+                _ => continue,
+            }
             match self
                 .start_piece(&ticket, &in_charge, helper.piece, &helper.title, None)
                 .await
@@ -252,7 +259,16 @@ impl Helpers {
             Ok(()) => match store::set_session(pool, &id, Some(&session_id)).await {
                 Ok(()) => {
                     self.launch(
-                        ticket, &project, &path, piece, title, &runs_on, &agent, session_id,
+                        ticket,
+                        &project,
+                        &path,
+                        piece,
+                        title,
+                        &runs_on,
+                        &agent,
+                        session_id,
+                        None,
+                        FirstPrompt::Text(first_prompt(&ticket.key, piece, title)),
                     )
                     .await
                 }
@@ -369,9 +385,11 @@ impl Helpers {
         Ok(())
     }
 
-    /// The helper's port, skills and session: a fresh conversation in its worktree, told its piece.
+    /// The helper's port, skills and session `session_id` (its row names it already) in its worktree: a fresh
+    /// conversation told its piece, or (`resume`, the tool's conversation id) its own conversation continued (d0133
+    /// audit 5), `first` its first prompt.
     #[allow(clippy::too_many_arguments)]
-    async fn launch(
+    pub(super) async fn launch(
         &self,
         ticket: &Ticket,
         project: &crate::store::projects::Project,
@@ -381,6 +399,8 @@ impl Helpers {
         runs_on: &RunsOn,
         agent: &crate::agents::Agent,
         session_id: String,
+        resume: Option<String>,
+        first: FirstPrompt,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let port = inner
@@ -396,7 +416,7 @@ impl Helpers {
                 worktree,
                 inner.adapters.shipped_skills(),
                 Some(agent),
-                Some(FirstPrompt::Text(first_prompt(&ticket.key, piece, title))),
+                Some(first),
                 &project.key,
             )
             .await;
@@ -411,7 +431,7 @@ impl Helpers {
                     ticket: Some(ticket.key.clone()),
                     port,
                     first_prompt,
-                    resume: None,
+                    resume,
                     model: runs_on.model.clone(),
                     effort: runs_on.effort.clone(),
                     title: Some(format!(

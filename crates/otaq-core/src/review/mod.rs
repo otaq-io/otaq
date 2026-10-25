@@ -159,6 +159,8 @@ struct Inner {
     finished_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Run for every parked ticket before its ports are freed (Q30: Park stops Run).
     parked_hooks: Mutex<Vec<finish::FinishedHook>>,
+    /// Run when a drag stopped the ticket's agent where the card was (d0133: its helpers stop with it).
+    drag_stopped_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Resumes a ticket interrupted while it validated: a fresh validation, not the agent (d0063).
     validation_resume: Mutex<Option<resume::ValidationResume>>,
 }
@@ -184,6 +186,7 @@ impl Review {
                 ticket_env,
                 finished_hooks: Mutex::new(Vec::new()),
                 parked_hooks: Mutex::new(Vec::new()),
+                drag_stopped_hooks: Mutex::new(Vec::new()),
                 validation_resume: Mutex::new(None),
                 sessions,
                 deliveries,

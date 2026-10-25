@@ -143,7 +143,17 @@ struct Inner {
     resources: Resources,
     /// The check before every launch (set once the service has it; unset, nothing is checked).
     gate: OnceLock<LaunchGate>,
+    /// Run once a ticket's agent came back in its own conversation (d0133: its helpers resume with it).
+    resumed_hooks: Mutex<Vec<ResumedHook>>,
 }
+
+/// Run once a ticket's agent came back in its own conversation (Resume, Retry, un-park): the ticket's id and its new
+/// session's (d0133 audit 5: the helpers that were working resume with it).
+pub type ResumedHook = Arc<
+    dyn Fn(String, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
 
 impl Starter {
     pub fn new(
@@ -169,8 +179,18 @@ impl Starter {
                 ticket_env: OnceLock::new(),
                 resources: Resources::default(),
                 gate: OnceLock::new(),
+                resumed_hooks: Mutex::new(Vec::new()),
             }),
         }
+    }
+
+    /// Registers what runs once a ticket's agent came back in its own conversation (d0133: its helpers resume).
+    pub fn on_resumed(&self, hook: ResumedHook) {
+        self.inner
+            .resumed_hooks
+            .lock()
+            .expect("resumed hooks")
+            .push(hook);
     }
 
     /// Gives the starter the service's deliveries, for skills a returning ticket still has to run in a live
@@ -419,6 +439,13 @@ impl Starter {
         start: Start,
     ) -> Result<StartOutcome, BoardError> {
         let key = ticket.key.to_string();
+        // Resume, Retry and un-park continue the agent's own conversation: what worked beside it comes back too.
+        let came_back = match self.inner.board.store().ticket(&ticket.id).await {
+            Ok(Some(row)) => {
+                row.parked || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME)
+            }
+            _ => false,
+        };
         match self.steps(ticket, actor, start).await {
             Ok(Done::Started(session)) => {
                 self.set_state(
@@ -459,6 +486,17 @@ impl Starter {
                     && let Err(e) = recovery.agent_session_ended(&now).await
                 {
                     tracing::warn!(ticket = %key, error = %e, "can't record the agent's exit");
+                }
+                if came_back {
+                    let hooks = self
+                        .inner
+                        .resumed_hooks
+                        .lock()
+                        .expect("resumed hooks")
+                        .clone();
+                    for hook in hooks {
+                        hook(ticket.id.clone(), session.id.clone()).await;
+                    }
                 }
                 Ok(StartOutcome::Started(session))
             }

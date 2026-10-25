@@ -320,6 +320,14 @@ pub enum Request {
     /// [`Reply::Helper`].
     #[serde(rename = "helper.merge")]
     HelperMerge(HelperPieceParams),
+    /// `otaq helper answer <n> --stdin` (d0133 audit 3): the agent in charge answers its helper's question; typed into
+    /// the helper when it is idle. Answered with [`Reply::Helper`].
+    #[serde(rename = "helper.answer")]
+    HelperAnswer(HelperNoteParams),
+    /// `otaq helper pass-on <id> [--note …]` (d0133 audit 3): the agent in charge passes its helper's question on to
+    /// the user. Answered with [`Reply::Helper`].
+    #[serde(rename = "helper.pass_on")]
+    HelperPassOn(HelperPassOnParams),
     /// `otaq helper done --stdin` from a helper: its piece back to the agent in charge. Answered with
     /// [`Reply::Helper`].
     #[serde(rename = "helper.done")]
@@ -1589,8 +1597,19 @@ pub struct HelperPieceParams {
     pub piece: u32,
 }
 
-/// `{"key": "SHOP-40", "piece": 3, "text": "…"}`: `otaq helper back` (the note) and `otaq helper done` (the summary;
-/// its piece is the caller's own, `piece` ignored).
+/// `{"key": "SHOP-40", "id": "…", "note": "…"}`: `otaq helper pass-on`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperPassOnParams {
+    pub key: String,
+    /// The question's id, as the note to the agent in charge names it.
+    pub id: String,
+    /// "it's a product question the plan doesn't answer": shown to the user as "passed this to you: …".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// `{"key": "SHOP-40", "piece": 3, "text": "…"}`: `otaq helper back` (the note), `otaq helper answer` (the answer) and
+/// `otaq helper done` (the summary; its piece is the caller's own, `piece` ignored).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperNoteParams {
     pub key: String,
@@ -1968,6 +1987,8 @@ impl Request {
             Self::HelperDiff(_) => "helper.diff",
             Self::HelperBack(_) => "helper.back",
             Self::HelperMerge(_) => "helper.merge",
+            Self::HelperAnswer(_) => "helper.answer",
+            Self::HelperPassOn(_) => "helper.pass_on",
             Self::HelperDone(_) => "helper.done",
             Self::HelperPrime(_) => "helper.prime",
             Self::ValidationVerdict(_) => "validation.verdict",

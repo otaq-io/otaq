@@ -164,6 +164,13 @@ pub struct NeedsYouItem {
     /// Group 3: the stage it waits in (FLW-14: each row names its stage).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_in: Option<WaitingIn>,
+    /// A helper of the ticket waits (d0133 audit 3): the item reads "SHOP-40 · 40.2 asks" (with the agent in charge's
+    /// note) or "SHOP-40 · 40.3 needs you", and the chip and ⌘J open that helper's terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub piece: Option<crate::domain::PieceWait>,
+    /// Interrupted: the helpers Resume brings back with the agent in charge ("40.2", "40.3"; d0133 audit 5).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub helpers_to_resume: Vec<String>,
 }
 
 /// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
@@ -234,6 +241,8 @@ pub fn needs_you_items_with(
                     message: None,
                     change_agent: change_agent(ticket),
                     waiting_in,
+                    piece: ticket.flags.piece_wait.clone(),
+                    helpers_to_resume: ticket.flags.helpers_to_resume.clone(),
                 })
             })
         })
@@ -300,6 +309,12 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
         .and_then(|s| s.text.as_deref())
         .map(str::trim)
         .filter(|t| !t.is_empty());
+    // A helper's wait reads as its piece's (d0133 audit 3): "40.2 asks: …", "40.3 needs you: allow …".
+    if let Some(wait) = &ticket.flags.piece_wait
+        && matches!(ticket.status, Status::AsksYou | Status::NeedsYou)
+    {
+        return wait.line.clone();
+    }
     match ticket.status {
         Status::AsksYou => {
             let question = ticket.question.as_ref().map(|q| q.text.trim()).or(signal);
@@ -317,7 +332,14 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
             Some(line) => format!("idle · ended its turn: “{line}”"),
             None => "idle · ended its turn without a message".into(),
         },
-        Status::Interrupted => "session interrupted".into(),
+        // "session interrupted · 2 helpers were working" (d0133 audit 5): Resume brings them back too.
+        Status::Interrupted => match ticket.flags.helpers_to_resume.len() {
+            0 => "session interrupted".into(),
+            n => format!(
+                "session interrupted \u{b7} {}",
+                crate::helpers::restart::helpers_were_working(n)
+            ),
+        },
         Status::ResumeFailed => "resume failed".into(),
         Status::StartInterrupted => match &ticket.start_problem {
             // Start failed on the model (AGT-05): shown as Start interrupted, with its own word.
@@ -460,6 +482,8 @@ impl Board {
                 }),
                 change_agent: None,
                 waiting_in: None,
+                piece: None,
+                helpers_to_resume: Vec::new(),
             });
         }
         for item in &mut items {

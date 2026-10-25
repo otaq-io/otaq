@@ -15,7 +15,10 @@ pub mod ticket_env;
 pub mod validation;
 
 pub use actor::Actor;
-pub use flags::{CheckAgentFlag, CheckRoundFlag, Flag, Flags, MergeCheckState, SentBack};
+pub use flags::{
+    CheckAgentFlag, CheckRoundFlag, Flag, Flags, MergeCheckState, PieceWait, PieceWaitKind,
+    SentBack,
+};
 pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};

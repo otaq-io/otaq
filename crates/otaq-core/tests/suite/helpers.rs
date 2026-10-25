@@ -532,7 +532,19 @@ async fn the_plan_limit_holds_a_helper() {
     assert!(w.helpers.running_sessions(&t.id).is_empty());
 
     w.plan_limit.resume_tool(Tool::Claude).await.unwrap();
-    assert_eq!(w.helpers.start_held().await.unwrap(), 1);
+    // The lift starts it (the gate's restarts) or this call does; whichever comes second finds nothing left to start,
+    // never a second session beside the first (T-0538).
+    let started = w.helpers.start_held().await.unwrap();
+    assert!(started <= 1, "{started}");
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while w.helpers.running_sessions(&t.id).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the held helper starts");
+    assert_eq!(w.helpers.start_held().await.unwrap(), 0);
+    assert_eq!(w.helpers.running_sessions(&t.id).len(), 1);
     let now = &w.helpers.of_ticket(&t.id).await.unwrap()[0];
     assert_eq!(now.status, HelperStatus::Working);
     assert!(Path::new(&now.worktree).exists());
