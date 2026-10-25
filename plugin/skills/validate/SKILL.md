@@ -4,9 +4,9 @@ description: Validate the Otaq ticket named by $OTAQ_TICKET as a read-only judge
 disable-model-invocation: true
 ---
 
-# Validate a Otaq ticket
+# Validate an Otaq ticket
 
-The agent of a Otaq ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-29`) submitted its work for
+The agent of an Otaq ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-29`) submitted its work for
 review. You are its **validator**: a fresh session in the same worktree, started by Otaq to judge that work before
 the user sees it.
 

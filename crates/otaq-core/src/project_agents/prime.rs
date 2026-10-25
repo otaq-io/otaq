@@ -101,10 +101,10 @@ impl Board {
 /// The Markdown a Project agent reads.
 pub fn render(ctx: &ProjectPrime) -> String {
     let cmd = naming::COMMAND_NAME;
-    let mut out = format!("# Project agent · {} ({})\n\n", ctx.name, ctx.project);
+    let mut out = format!("# Noyan · {} ({})\n\n", ctx.name, ctx.project);
     out.push_str(&format!(
-        "You are a {} Project agent in {}, the user's own checkout. You investigate and file tickets; agents \
-         build them later in their own worktrees.\n",
+        "You are Noyan, the planning agent of this {} project, in {}, the user's own checkout. You investigate \
+         and file tickets; agents build them later in their own worktrees.\n",
         naming::PRODUCT_NAME,
         ctx.repo_path
     ));
@@ -147,10 +147,10 @@ pub fn render(ctx: &ProjectPrime) -> String {
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
     let rules = [
-        "Follow the Project agent instructions and the project's notes below. They add to these rules.".to_owned(),
+        "Follow Noyan’s instructions and the project's notes below. They add to these rules.".to_owned(),
         format!(
-            "Right after you read the user's first request, name yourself: `{cmd} agent name \"<3–4 words>\"`. \
-             Rename yourself only when the user asks (`--rename`)."
+            "Right after you read the user's first request, name this conversation: \
+             `{cmd} agent name \"<3–4 words>\"`. Rename it only when the user asks (`--rename`)."
         ),
         "Read and run code in this checkout and in the ticket worktrees above, but never edit files and never \
          commit: code changes go through tickets."
@@ -173,7 +173,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
     }
 
     if let Some(instructions) = &ctx.instructions {
-        out.push_str(&instructions.render("Project agent instructions"));
+        out.push_str(&instructions.render("Noyan’s instructions"));
     }
     out
 }
@@ -216,7 +216,7 @@ mod tests {
             repo_path: "/src/shop-web".into(),
             tickets: vec![started, epic, child],
             instructions: Some(Instructions {
-                agent: Some("Planner".into()),
+                agent: Some("Noyan".into()),
                 own: "Use my /import-github skill.".into(),
                 project: "shop-web".into(),
                 notes: "Ask before touching the payment code.".into(),
@@ -226,10 +226,10 @@ mod tests {
         let cmd = naming::COMMAND_NAME;
         let product = naming::PRODUCT_NAME;
         let expected = format!(
-            "# Project agent · shop-web (SHOP)
+            "# Noyan · shop-web (SHOP)
 
-You are a {product} Project agent in /src/shop-web, the user's own checkout. You investigate and file tickets; agents \
-build them later in their own worktrees.
+You are Noyan, the planning agent of this {product} project, in /src/shop-web, the user's own checkout. You \
+investigate and file tickets; agents build them later in their own worktrees.
 
 ## Tickets
 
@@ -240,19 +240,19 @@ build them later in their own worktrees.
 
 ## {product}'s rules
 
-1. Follow the Project agent instructions and the project's notes below. They add to these rules.
-2. Right after you read the user's first request, name yourself: `{cmd} agent name \"<3–4 words>\"`. Rename \
-yourself only when the user asks (`--rename`).
+1. Follow Noyan’s instructions and the project's notes below. They add to these rules.
+2. Right after you read the user's first request, name this conversation: `{cmd} agent name \"<3–4 words>\"`. \
+Rename it only when the user asks (`--rename`).
 3. Read and run code in this checkout and in the ticket worktrees above, but never edit files and never commit: \
 code changes go through tickets.
 4. Create tickets with `{cmd} create \"Title\" --stdin` (long text on stdin), several at once with `{cmd} create -f \
 <file>`; epics with `--type epic`, children with `--parent`, priority with `-p`.
-5. Edit, link (`{cmd} dep add`) and prioritise only tickets still in Backlog; anything else is refused (\"Project \
-agents can only change Backlog tickets\"). If the CLI refuses, tell the user what you would need.
+5. Edit, link (`{cmd} dep add`) and prioritise only tickets still in Backlog; anything else is refused (\"Noyan can \
+only change Backlog tickets\"). If the CLI refuses, tell the user what you would need.
 6. Ask a ticket's agent with `{cmd} ask <KEY> --stdin`; ask the user with `{cmd} ask human --stdin` (with \
 `--option` when there are clear alternatives), then end your turn.
 
-## Project agent instructions (Planner)
+## Noyan’s instructions (Noyan)
 
 Use my /import-github skill.
 

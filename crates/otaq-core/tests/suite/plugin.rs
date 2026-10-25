@@ -635,8 +635,8 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
 }
 
 /// T-0202 (PLG-09, PLG-01, PLG-02, PLG-05; d0068, d0040): the noyan skill is user-invoked only (the session
-/// starts with it), reads `prime --project` first, follows the Project agent instructions, names itself after the
-/// first request, investigates without editing or committing, files Backlog tickets with the CLI (long text on
+/// starts with it), reads `prime --project` first, follows Noyan’s instructions, names this conversation after
+/// the first request, investigates without editing or committing, files Backlog tickets with the CLI (long text on
 /// stdin, batches with `create -f`), uses the user's skills for imports, asks with `ask <KEY>` and `ask human`, and
 /// tells the user what it would need when the CLI refuses.
 #[test]
@@ -649,13 +649,13 @@ fn project_agent_investigates_and_files_backlog_tickets() {
     let cmd = naming::COMMAND_NAME;
     let order = [
         format!("`{cmd} prime --project`"),
-        "Follow the Project agent instructions".to_owned(),
+        "Follow Noyan’s instructions".to_owned(),
         "Imports from trackers use the user's own\n   skills**".to_owned(),
         "the text after\n   this skill's invocation".to_owned(),
         "without waiting for another prompt".to_owned(),
         "Right after you\n   read the first request".to_owned(),
         format!("{cmd} agent name \"Checkout slowness\""),
-        "Rename yourself only when the user asks".to_owned(),
+        "Rename it only when the user asks".to_owned(),
         "ticket worktrees".to_owned(),
         "**Never edit files and never commit**".to_owned(),
         format!("{cmd} create \"Slow checkout query\" -p 2 --deps SHOP-19 --stdin"),
@@ -943,7 +943,7 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         "You are the one who splits epics: the epic's lead only runs the plan you write",
         "**Decide the shape, then propose before you create.**",
         "## One ticket, several, or an epic",
-        "sent by the epic card's **Split with the Project agent**",
+        "sent by the epic card's **Split with Noyan**",
         "### Write the plan into the epic",
         "the epic's description **is the plan**: what the epic delivers, then one line per child with why it exists and why it comes where it does, then the sources",
         &format!("{cmd} create \"Wishlist\" --type epic --stdin <<'BODY'"),
@@ -985,7 +985,7 @@ fn epic_lead_points_splits_to_the_project_agent_and_changes_choices_after_a_merg
         "**you don't plan an epic from scratch**",
         "The epic's description **is the plan**",
         "**If the user asks you to split the epic, or to split it again**",
-        "say that the Project agent does that (from the Ask bar, or Split with the Project agent on an epic card with no children), and end your turn",
+        "say that Noyan does that (from the Ask bar, or Split with Noyan on an epic card with no children), and end your turn",
         "**Keeping the plan current is yours:**",
         "## Stage choices",
         "## Checking the plan",

@@ -172,6 +172,10 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agent_primes_creates_and_asks_the_user() {
     let w = world().await;
+    w.edit_agent("Noyan", |a| {
+        a.instructions = "Split into tickets of about one day.".into();
+    })
+    .await;
     let opened = w
         .project_agents
         .open("SHOP", "Look around the checkout code")
@@ -182,8 +186,12 @@ async fn a_project_agent_primes_creates_and_asks_the_user() {
     let ran = agent.run(&format!("'{CB}' prime --project")).await;
     assert_eq!(ran.status, 0, "{ran:?}");
     assert!(
+        ran.stdout.starts_with("# Noyan · shop-web (SHOP)\n"),
+        "{ran:?}"
+    );
+    assert!(
         ran.stdout
-            .starts_with("# Project agent · shop-web (SHOP)\n"),
+            .ends_with("## Noyan’s instructions (Noyan)\n\nSplit into tickets of about one day.\n"),
         "{ran:?}"
     );
 

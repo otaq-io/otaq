@@ -251,7 +251,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    // AGM-02: the Project agent instructions are the Project agent role's agent's own.
+    // AGM-02: Noyan’s instructions are the Project agent role's agent's own.
     w.edit_agent("Noyan", |a| {
         a.instructions = "Split into tickets of about one day.".into();
     })
@@ -268,10 +268,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         serde_json::from_value(answer["reply"]["project_prime"].clone())
             .unwrap_or_else(|e| panic!("{e}: {answer}"));
     let text = otaq_core::project_agents::prime::render(&prime);
-    assert!(
-        text.starts_with("# Project agent · shop-web (SHOP)\n"),
-        "{text}"
-    );
+    assert!(text.starts_with("# Noyan · shop-web (SHOP)\n"), "{text}");
     assert_eq!(prime.tickets.len(), 43, "every ticket and epic");
     assert!(
         text.contains(
@@ -293,9 +290,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     );
     assert!(text.contains(BACKLOG_ONLY), "{text}");
     assert!(
-        text.ends_with(
-            "## Project agent instructions (Noyan)\n\nSplit into tickets of about one day.\n"
-        ),
+        text.ends_with("## Noyan’s instructions (Noyan)\n\nSplit into tickets of about one day.\n"),
         "{text}"
     );
     w.stop().await;

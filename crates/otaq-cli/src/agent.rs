@@ -767,7 +767,7 @@ async fn check_being_judged(client: &otaq_core::client::Client, key: &str) -> St
     )
 }
 
-/// `otaq agent name "<name>" [--rename]` (PAG-04): a Project agent names itself; refused anywhere else, a
+/// `otaq agent name "<name>" [--rename]` (PAG-04): a Project agent names its conversation; refused anywhere else, a
 /// second time without `--rename`, and over the user's own name.
 pub fn name(name: &str, rename: bool, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;

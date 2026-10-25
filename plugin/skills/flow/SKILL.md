@@ -1,14 +1,14 @@
 ---
 name: flow
-description: Change an Otaq project's board flow as its Project agent - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a why line that names its source, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.
+description: Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a why line that names its source, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.
 disable-model-invocation: true
 ---
 
 # Change the project's flow
 
-You are a **Project agent** of an Otaq project, and the user wants its **flow** changed: the stages a ticket walks
+You are **Noyan** of an Otaq project, and the user wants its **flow** changed: the stages a ticket walks
 between Backlog and Done, and the agents that run them. They started you with this skill (by typing in the flow
-editor's Project agent panel, opened with **Change flow…**, or by typing `/flow`), they asked your agent tool for a
+editor's Noyan panel, opened with **Change flow…**, or by typing `/flow`), they asked your agent tool for a
 new project's first flow (see "A first flow"), or they just asked ("add a Security check after Validate").
 
 **You never change the live flow.** You write the whole flow file and **propose** it; it lands in the user's flow
@@ -24,7 +24,7 @@ editor as the draft, each stage you changed marked, and nothing changes until th
 
    It prints the project's applied flow and the agents it names, as the file `propose` reads (`--json` prints the
    same as JSON). This is your starting point: change it, don't start from nothing.
-2. **Follow the Project agent instructions** that `prime --project` prints. They add to these steps; they never
+2. **Follow Noyan’s instructions**, which `prime --project` prints. They add to these steps; they never
    remove proposing before anything changes (step 5) or waiting for the answer (step 6).
 3. **Understand the request.** If it leaves something open that changes the flow (which agent, which model, what a
    check looks for), ask the user one question at a time with `otaq ask human --stdin` (2–4 options with notes when
