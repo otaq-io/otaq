@@ -860,6 +860,63 @@ mod tests {
         assert_eq!(v.flow.summary, "6 steps \u{b7} in use");
     }
 
+    /// T-0529 (d0130, d0131): a second check agent on Validate and Review's fails sent to Grill go through the draft
+    /// (the change line names the agents), apply, and read back from the flow in use.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn check_agents_and_fails_go_to_apply() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let apply = |proposal: u32| {
+            request(
+                &h.app,
+                "flow_editor.apply",
+                json!({ "project": "SHOP", "from": "project", "proposal": proposal }),
+            )
+        };
+        request(
+            &h.app,
+            "flow_editor.pick",
+            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "grill-first.yaml" } }),
+        )
+        .await
+        .unwrap();
+        apply(load(&h, None).await.proposal).await.unwrap();
+
+        for edit in [
+            json!({ "edit": "add_check_agent", "stage": "validate", "agent": "Developer" }),
+            json!({ "edit": "fail_to", "stage": "review", "to": "grill" }),
+        ] {
+            request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
+                .await
+                .unwrap();
+        }
+        let v = load(&h, Some("validate")).await;
+        let line = v.flow.change_line.as_deref().unwrap_or_default();
+        assert!(
+            line.starts_with(
+                "Validate now runs Validator and Developer side by side. It applies at once: the next round of a \
+                 ticket at Validate runs both."
+            ),
+            "{line}"
+        );
+        assert!(v.footer.apply_enabled, "{:?}", v.footer.reason);
+        apply(v.proposal).await.unwrap();
+
+        let v = load(&h, Some("validate")).await;
+        assert_eq!(v.proposal, 0, "applied");
+        let step = |name: &str| v.flow.steps.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(step("Validate").who.as_deref(), Some("2 check agents"));
+        assert_eq!(step("Validate").fails_to.as_deref(), Some("fails go to Dev"));
+        assert_eq!(step("Review").fails_to.as_deref(), Some("fails go to Grill"));
+        let agents = v.flow.details.unwrap().check_agents.unwrap();
+        assert_eq!(
+            agents.rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            ["Validator", "Developer"]
+        );
+    }
+
     /// FED-05, FED-06: Plan picked in a new stage keeps Apply off ("Plan needs a skill"); one of the user's imported
     /// skills picked for it turns Apply on, and applying gives it to the stage's agent.
     #[tokio::test(flavor = "multi_thread")]
