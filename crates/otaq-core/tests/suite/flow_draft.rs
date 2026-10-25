@@ -30,11 +30,11 @@ fn models() -> FixedModels {
     FixedModels::sample()
 }
 
-fn planner() -> ProposedBy {
+fn noyan() -> ProposedBy {
     ProposedBy::ProjectAgent {
         agent: "pa-1".into(),
         session: "session-1".into(),
-        name: "Planner".into(),
+        name: "Checkout slowness".into(),
         tool: otaq_core::agent_tools::Tool::Claude,
     }
 }
@@ -178,18 +178,14 @@ async fn an_agents_proposal_lands_in_the_draft_with_marks() {
                 yaml: doc,
                 file: None,
             },
-            &planner(),
+            &noyan(),
             &models(),
         )
         .await
         .unwrap();
     let draft = w.board.draft(&key, &models()).await.unwrap();
     assert_eq!(draft.proposal.id, proposal.id, "the draft holds it");
-    assert_eq!(
-        draft.proposal.proposed_by,
-        planner(),
-        "the answer goes to it"
-    );
+    assert_eq!(draft.proposal.proposed_by, noyan(), "the answer goes to it");
     let marks: Vec<(&str, Mark, &str)> = draft
         .marks
         .iter()
@@ -198,9 +194,9 @@ async fn an_agents_proposal_lands_in_the_draft_with_marks() {
     assert_eq!(
         marks,
         [
-            ("Plan", Mark::Added, "Planner"),
-            ("Visual check", Mark::New, "Planner"),
-            ("Security", Mark::Changed, "Planner"),
+            ("Plan", Mark::Added, "Checkout slowness"),
+            ("Visual check", Mark::New, "Checkout slowness"),
+            ("Security", Mark::Changed, "Checkout slowness"),
         ]
     );
     assert_eq!(

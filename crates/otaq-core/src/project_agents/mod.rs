@@ -5,12 +5,12 @@
 //! - **Open** takes the user's first message (d0087: sending it is the go-ahead) and starts an agent session with
 //!   the Project agent role and the noyan skill with that message as its first prompt, no ticket
 //!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). The message is its first request from the start: there is
-//!   no empty "New agent" session. The check before every launch runs first (SCH-04 `[M23]`,
+//!   no empty "New conversation" session. The check before every launch runs first (SCH-04 `[M23]`,
 //!   [`crate::agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
 //!   refuses the message with the reason and holds the Project agent (no fallback, Q-B); the message stays in the
 //!   agent panel for the user to send again. A Resume is refused while the usage limit holds. They never count toward the
 //!   agent limit, which counts tickets (SCH-03).
-//! - **Naming** (PAG-04): "New agent" until named. The agent names itself once with `otaq agent name`; a second
+//! - **Naming** (PAG-04): "New conversation" until named. The agent names itself once with `otaq agent name`; a second
 //!   call needs `--rename` (the user asked for it). If it hasn't by the end of its first turn after the first request
 //!   (the message it opened with), the request's first words become its name. The user's rename always wins: the
 //!   agent can't change it.
@@ -54,7 +54,7 @@ use crate::store::projects::Project;
 use crate::store::{new_id, now_ms};
 
 /// What an unnamed Project agent is called.
-pub const NEW_AGENT: &str = "New agent";
+pub const NEW_AGENT: &str = "New conversation";
 
 /// How many ended Project agents a project lists (PAG-06).
 pub const RECENT: i64 = 10;
@@ -64,7 +64,7 @@ const FALLBACK_WORDS: usize = 4;
 const NAME_MAX_CHARS: usize = 40;
 
 /// What starts a Project agent on the `flow` skill instead of its own (FLW-11): `/flow` as the first message, alone
-/// or before a request ("/flow add a Security check"). Settings → Flow's **Change with the Project agent** sends it.
+/// or before a request ("/flow add a Security check"). Settings → Flow's **Change with Noyan** sends it.
 pub const FLOW_COMMAND: &str = "/flow";
 
 /// The skill a first message runs and the request it carries: `/flow …` runs `flow`, anything else the noyan
@@ -81,13 +81,13 @@ pub fn first_skill(message: &str) -> (&'static str, Option<String>) {
 }
 
 /// Why `project_agent.open` without words is refused: the first message is the go-ahead (d0087).
-pub const EMPTY_MESSAGE: &str = "Type a message to start the Project agent";
+pub const EMPTY_MESSAGE: &str = "Type a message to start a conversation with Noyan";
 
 /// Why no Project agent opens while the plan's usage limit holds (SCH-04).
-pub const LIMIT_REFUSAL: &str = "Usage limit reached · Project agents open once it resets";
+pub const LIMIT_REFUSAL: &str = "Usage limit reached · Noyan opens once it resets";
 
 /// `agent name`, and `ask` without a ticket, from anything but a Project agent.
-pub const ONLY_A_PROJECT_AGENT: &str = "Only a Project agent can do this";
+pub const ONLY_A_PROJECT_AGENT: &str = "Only Noyan can do this";
 
 /// The size a Project agent starts with until a terminal attaches.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -132,9 +132,9 @@ pub struct ProjectAgent {
     pub id: String,
     /// The project's key.
     pub project: String,
-    /// Its name, or "New agent".
+    /// Its name, or "New conversation".
     pub name: String,
-    /// Where the name came from; none while it is "New agent".
+    /// Where the name came from; none while it is "New conversation".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_source: Option<NameSource>,
     pub state: AgentState,
@@ -200,7 +200,7 @@ pub struct ProjectAgentList {
 pub struct StartupAgents {
     /// Running Project agents that are now "Ended by restart", by id.
     pub ended: Vec<String>,
-    /// "New agent"s that never got a request and were discarded. Only rows from before d0087 (every agent now
+    /// "New conversation"s that never got a request and were discarded. Only rows from before d0087 (every agent now
     /// opens with its first request), so in practice always 0.
     pub discarded: u32,
     /// Running epic leads that are now "Ended by restart", by id: counted on their own in the reboot summary
@@ -385,7 +385,7 @@ impl ProjectAgents {
     }
 
     /// The startup reconcile (REC-01, d0068): running Project agents ended with the previous service and show
-    /// "Ended by restart · Resume". A "New agent" that never got a request disappears: unreachable since d0087
+    /// "Ended by restart · Resume". A "New conversation" that never got a request disappears: unreachable since d0087
     /// (open records the first request), kept to tidy rows a data folder may still hold from before.
     pub async fn startup(&self) -> Result<StartupAgents, BoardError> {
         let pool = self.inner.board.store().pool();
@@ -764,13 +764,13 @@ impl ProjectAgents {
         match agent.name_source {
             Some(NameSource::User) => {
                 return refuse(format!(
-                    "The user named this Project agent \"{}\"; their name stays",
+                    "The user named this conversation \"{}\"; their name stays",
                     agent.name
                 ));
             }
             Some(NameSource::Agent) if !rename => {
                 return refuse(format!(
-                    "This Project agent is already named \"{}\". Rename it only when the user asks \
+                    "This conversation is already named \"{}\". Rename it only when the user asks \
                      (`{} agent name --rename \"<name>\"`)",
                     agent.name,
                     naming::COMMAND_NAME
@@ -1161,7 +1161,7 @@ impl ProjectAgents {
         .bind(&project.id)
         .fetch_all(pool)
         .await?;
-        // `first_request IS NOT NULL` leaves out "New agent"s that never got a request: unreachable since d0087
+        // `first_request IS NOT NULL` leaves out "New conversation"s that never got a request: unreachable since d0087
         // (open records it), kept for rows a data folder may still hold from before.
         let recent: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "{SELECT} WHERE a.project_id = ? AND a.state <> ? AND a.first_request IS NOT NULL
@@ -1190,7 +1190,7 @@ impl ProjectAgents {
             .bind(id)
             .fetch_optional(self.inner.board.store().pool())
             .await?
-            .ok_or_else(|| BoardError::NotFound(format!("no Project agent {id}")))?;
+            .ok_or_else(|| BoardError::NotFound(format!("no conversation with Noyan {id}")))?;
         self.agent(row).await
     }
 
@@ -1591,7 +1591,7 @@ fn clean_name(name: &str) -> Result<String, BoardError> {
     if name.is_empty() {
         return Err(BoardError::refused(
             Refusal::EmptyField,
-            "A Project agent's name can't be empty",
+            "A conversation’s name can’t be empty",
         ));
     }
     Ok(name)

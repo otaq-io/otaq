@@ -37,7 +37,7 @@ pub enum Arrival {
         round: Option<u32>,
     },
     /// The stage before was skipped (Skip this check, a skip choice, a check with no result moved on): "Skipped
-    /// Security · by you"; `by` names the agent whose choice skipped it ("Skipped Grill · by Planner", Q305).
+    /// Security · by you"; `by` names the agent whose choice skipped it ("Skipped Grill · by Griller", Q305).
     Skipped {
         stage: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

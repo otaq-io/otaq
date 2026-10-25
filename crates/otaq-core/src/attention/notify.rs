@@ -396,7 +396,7 @@ fn sentence(text: &str) -> String {
     }
 }
 
-/// The notifications for waiting Project agents (PAG-07): "Project agent asks a question" / "needs permission" ·
+/// The notifications for waiting Project agents (PAG-07): "Noyan asks a question" / "needs permission" ·
 /// "shop-web · <agent name>", the question or prompt as the body. Once per wait, like tickets' items; focused agents
 /// raise no item, so they never notify. An epic's lead (LEAD-11) is named instead: "Wishlist lead asks a question" ·
 /// "shop-web · Wishlist" (the epic's title from `epic_titles`, by key; else its key).
@@ -434,7 +434,7 @@ pub fn plan_agents(
                     Target::Lead { epic: epic.clone() },
                 ),
                 None => (
-                    format!("Project agent {what}"),
+                    format!("Noyan {what}"),
                     i.name.clone(),
                     Target::ProjectAgent {
                         project: i.project.clone(),
@@ -1071,7 +1071,7 @@ mod tests {
         }
     }
 
-    /// T-0201 (PAG-07, ATT-11), T-0371 (d0090): a waiting Project agent notifies once per wait: "Project agent needs
+    /// T-0201 (PAG-07, ATT-11), T-0371 (d0090): a waiting Project agent notifies once per wait: "Noyan needs
     /// permission" · "shop-web · <agent name>" · the prompt; a click opens it in the agent panel. The switch off posts
     /// nothing.
     #[test]
@@ -1086,12 +1086,12 @@ mod tests {
             shown(&out),
             [
                 (
-                    "Project agent needs permission",
+                    "Noyan needs permission",
                     "shop-web · Checkout slowness",
                     "Allow pnpm test?"
                 ),
                 (
-                    "Project agent asks a question",
+                    "Noyan asks a question",
                     "shop-web · Checkout slowness",
                     "Profile in production too?"
                 ),

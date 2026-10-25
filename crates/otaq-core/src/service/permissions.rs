@@ -140,7 +140,7 @@ pub(super) async fn chooser(caller: &Caller, board: &Board) -> Chooser {
     }
 }
 
-/// A Project agent's name ("New agent" until named, PAG-04).
+/// A Project agent's name ("New conversation" until named, PAG-04).
 async fn project_agent_name(board: &Board, agent: &str) -> String {
     let name: Option<(Option<String>,)> =
         sqlx::query_as("SELECT name FROM project_agents WHERE id = ?")
@@ -322,8 +322,8 @@ async fn action_for(
             Action::UserOnly("name agents")
         }
         R::AgentName(_) | R::AgentAsk(_) | R::AgentAskHuman(_) => Action::Read,
-        R::ProjectAgentAnswer(_) => Action::UserOnly("answer Project agents"),
-        R::ProjectAgentSend(_) => Action::UserOnly("message Project agents"),
+        R::ProjectAgentAnswer(_) => Action::UserOnly("answer Noyan"),
+        R::ProjectAgentSend(_) => Action::UserOnly("message Noyan"),
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
@@ -508,13 +508,13 @@ async fn action_for(
         }
         R::ProjectTerminalClose(_) => Action::UserOnly("close terminals"),
         R::ProjectAgentOpen(_) | R::ProjectAgentResume(_) => {
-            Action::UserOnly("open Project agents")
+            Action::UserOnly("open conversations with Noyan")
         }
         R::ProjectAgentClose(_) | R::ProjectAgentCloseEnded(_) => {
-            Action::UserOnly("close Project agents")
+            Action::UserOnly("close conversations with Noyan")
         }
         R::LeadOpen(_) | R::LeadResume(_) => Action::UserOnly("open epic leads"),
-        R::ProjectAgentRename(_) => Action::UserOnly("rename Project agents"),
+        R::ProjectAgentRename(_) => Action::UserOnly("rename conversations with Noyan"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),

@@ -59,7 +59,7 @@ pub enum MessageState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageAgent {
     pub id: String,
-    /// Its current name ("Checkout slowness", or "New agent").
+    /// Its current name ("Checkout slowness", or "New conversation").
     pub name: String,
 }
 
@@ -89,11 +89,11 @@ pub struct Message {
 }
 
 impl Message {
-    /// Who asked, for people: "SHOP-20", or "Project agent Checkout slowness".
+    /// Who asked, for people: "SHOP-20", or "Noyan · Checkout slowness".
     pub fn asker(&self) -> String {
         match (&self.from, &self.from_agent) {
             (Some(key), _) => key.to_string(),
-            (None, Some(agent)) => format!("Project agent {}", agent.name),
+            (None, Some(agent)) => format!("Noyan · {}", agent.name),
             (None, None) => "someone".to_owned(),
         }
     }

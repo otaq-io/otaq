@@ -29,7 +29,7 @@ use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::store::now_ms;
 
 /// Who may propose (FLW-03, user decision 2026-10-20): a ticket's agent, a check and an epic lead are refused.
-pub const ONLY_A_PROJECT_AGENT_OR_YOU: &str = "Only a Project agent or you can propose a flow";
+pub const ONLY_A_PROJECT_AGENT_OR_YOU: &str = "Only Noyan or you can propose a flow";
 
 /// What `flow.propose` proposes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,7 +304,7 @@ impl Board {
             .ok_or_else(|| BoardError::NotFound(format!("Proposal {id} isn't open any more")))?;
         if by == ProposedBy::User {
             return Err(refuse(format!(
-                "Proposal {id} isn't from a Project agent: nobody to ask"
+                "Proposal {id} isn't from Noyan: nobody to ask"
             )));
         }
         self.drop_proposal(id).await?;

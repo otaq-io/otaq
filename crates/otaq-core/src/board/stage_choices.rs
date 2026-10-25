@@ -126,11 +126,11 @@ pub enum SetBy {
 }
 
 impl SetBy {
-    /// "you", "the Project agent", "Wishlist lead", "Griller".
+    /// "you", "Noyan", "Wishlist lead", "Griller".
     pub fn who(&self) -> String {
         match self {
             Self::User => "you".to_owned(),
-            Self::ProjectAgent { .. } => "the Project agent".to_owned(),
+            Self::ProjectAgent { .. } => "Noyan".to_owned(),
             Self::EpicLead { name, .. } | Self::Agent { name, .. } => name.clone(),
         }
     }
@@ -1011,7 +1011,7 @@ mod tests {
         };
         let agent_choice = StageChoice {
             set_by: SetBy::ProjectAgent {
-                name: "Planner".into(),
+                name: "Noyan".into(),
                 reason: "typo fix".into(),
             },
             ..user_choice.clone()
@@ -1039,8 +1039,8 @@ mod tests {
             ran: &dev_ran,
             ..fresh
         };
-        let planner = Chooser::ProjectAgent {
-            name: "Planner".into(),
+        let noyan = Chooser::ProjectAgent {
+            name: "Noyan".into(),
         };
         let griller = Chooser::TicketAgent {
             name: "Griller".into(),
@@ -1069,23 +1069,23 @@ mod tests {
                 refused(Refusal::ChoiceLocked, locked),
             ),
             (
-                "Project agent at creation, with a reason",
-                judged(fresh, None, &planner, false, Some("typo fix")),
+                "Noyan at creation, with a reason",
+                judged(fresh, None, &noyan, false, Some("typo fix")),
                 Ok(()),
             ),
             (
                 "agent, no reason",
-                judged(fresh, None, &planner, false, Some(" ")),
+                judged(fresh, None, &noyan, false, Some(" ")),
                 refused(Refusal::EmptyField, SAY_WHY),
             ),
             (
                 "agent over the user's choice",
-                judged(fresh, Some(&user_choice), &planner, false, Some("x")),
+                judged(fresh, Some(&user_choice), &noyan, false, Some("x")),
                 refused(Refusal::NotAllowed, set_by_you),
             ),
             (
                 "agent over the user's choice, in the user's words",
-                judged(fresh, Some(&user_choice), &planner, true, None),
+                judged(fresh, Some(&user_choice), &noyan, true, None),
                 Ok(()),
             ),
             (

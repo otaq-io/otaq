@@ -1,6 +1,6 @@
 //! A stage's skill the Project agent writes (FED-06; d0115 "Stage templates fill the shape, the user supplies the
 //! skill", d0092, d0023; `s27-06`): the user's **Ask the agent to write it** sends the Project agent "Write a skill
-//! for the Plan stage: …", and the field says "Being written by the Project agent…" ([`super::draft::SkillWriting`]).
+//! for the Plan stage: …", and the field says "Being written by Noyan…" ([`super::draft::SkillWriting`]).
 //!
 //! The agent writes **only in a folder Otaq gives it** (`otaq flow write-skill <stage>`, `flow.write_skill`):
 //! `$OTAQ_HOME/skill-writes/<KEY>/<stage id>/`, never the project's checkout or a worktree. When it is done

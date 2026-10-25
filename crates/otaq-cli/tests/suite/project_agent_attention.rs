@@ -165,7 +165,7 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
     assert_eq!(
         titles(&recorder, 1).await,
         [(
-            "Project agent needs permission".to_owned(),
+            "Noyan needs permission".to_owned(),
             "shop-web · Import GitHub issues".to_owned(),
             "Allow gh issue list?".to_owned()
         )]
@@ -207,7 +207,7 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
     assert_eq!(
         all[1],
         (
-            "Project agent asks a question".to_owned(),
+            "Noyan asks a question".to_owned(),
             "shop-web · Import GitHub issues".to_owned(),
             "Import closed issues too?".to_owned()
         )

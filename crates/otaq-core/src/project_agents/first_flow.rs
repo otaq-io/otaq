@@ -512,7 +512,7 @@ mod tests {
         // The role's agent on Claude Code's opus with an effort: neither goes to the asked tool.
         let agent = Agent {
             id: "pa".into(),
-            name: "Project agent".into(),
+            name: "Noyan".into(),
             instructions: String::new(),
             skills: Vec::new(),
             imported: Vec::new(),
