@@ -244,7 +244,7 @@ impl Signals {
             }
             // A validator or Project agent (0086: any Copilot terminal showing Needs you): its wait came from
             // the tool's prompt event; the key moves it on as the tool's own new turn would.
-            Caller::Validator { .. } | Caller::ProjectAgent { .. } => {
+            Caller::Validator { .. } | Caller::Helper { .. } | Caller::ProjectAgent { .. } => {
                 if !prompting && !answering {
                     return Ok(());
                 }

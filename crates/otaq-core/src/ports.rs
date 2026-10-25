@@ -96,6 +96,40 @@ impl PortPool {
         Ok(TicketPorts { agent, run })
     }
 
+    /// The port of the ticket's helper for `piece` (d0133: a helper's dev server never takes the ticket's): the one it
+    /// holds, else the lowest free port, stored on its row (which must exist).
+    pub async fn allocate_helper(&self, ticket_id: &str, piece: u32) -> Result<u16, PortError> {
+        let _guard = self.lock.lock().await;
+        let held: Option<Option<i64>> =
+            sqlx::query_scalar("SELECT port FROM helpers WHERE ticket_id = ? AND piece = ?")
+                .bind(ticket_id)
+                .bind(i64::from(piece))
+                .fetch_optional(self.store.pool())
+                .await
+                .map_err(StoreError::from)?;
+        let held = held.ok_or_else(|| PortError::NoSuchTicket(format!("{ticket_id}.{piece}")))?;
+        if let Some(port) = to_port(held) {
+            return Ok(port);
+        }
+        let taken = self.held_ports().await?;
+        let port = self
+            .range
+            .clone()
+            .filter(|port| !taken.contains(port))
+            .find(|port| is_free_on_machine(*port))
+            .ok_or_else(|| PortError::Exhausted {
+                range: self.range.clone(),
+            })?;
+        sqlx::query("UPDATE helpers SET port = ? WHERE ticket_id = ? AND piece = ?")
+            .bind(i64::from(port))
+            .bind(ticket_id)
+            .bind(i64::from(piece))
+            .execute(self.store.pool())
+            .await
+            .map_err(StoreError::from)?;
+        Ok(port)
+    }
+
     /// Releases both of the ticket's ports; other tickets may get them from now on.
     pub async fn free(&self, ticket_id: &str) -> Result<(), PortError> {
         let _guard = self.lock.lock().await;
@@ -110,11 +144,12 @@ impl PortPool {
         Ok(())
     }
 
-    /// Every port some ticket holds.
+    /// Every port some ticket or helper holds.
     async fn held_ports(&self) -> Result<HashSet<u16>, PortError> {
         let rows: Vec<(Option<i64>, Option<i64>)> = sqlx::query_as(
             "SELECT agent_port, run_port FROM tickets
-             WHERE agent_port IS NOT NULL OR run_port IS NOT NULL",
+             WHERE agent_port IS NOT NULL OR run_port IS NOT NULL
+             UNION ALL SELECT port, NULL FROM helpers WHERE port IS NOT NULL",
         )
         .fetch_all(self.store.pool())
         .await

@@ -17,6 +17,7 @@ const TABLES: &[&str] = &[
     "events",
     "flow_proposals",
     "flow_waiting",
+    "helpers",
     "human_questions",
     "limit_windows",
     "manual_checks",
@@ -695,6 +696,26 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!(changes, r#"["QA after Security"]"#);
+
+    // A helper of the ticket, by piece (d0133, T-0537); a second row for the same piece is refused.
+    let helper = "INSERT INTO helpers (id, ticket_id, piece, title, branch, worktree, status, started_at, updated_at)
+                  VALUES (?, ?, 3, 'Wishlist page', 'b', 'w', 'working', ?, ?)";
+    sqlx::query(helper)
+        .bind(new_id())
+        .bind(&t18.id)
+        .bind(at)
+        .bind(at)
+        .execute(pool)
+        .await
+        .unwrap();
+    let again = sqlx::query(helper)
+        .bind(new_id())
+        .bind(&t18.id)
+        .bind(at)
+        .bind(at)
+        .execute(pool)
+        .await;
+    assert!(again.is_err());
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

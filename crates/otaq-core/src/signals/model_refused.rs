@@ -129,7 +129,9 @@ impl Signals {
         };
         let named = mark::model_named(stored.model_ran.as_deref(), stored.model.as_deref(), model);
         let on = match caller {
-            Caller::Agent { ticket, .. } | Caller::Validator { ticket, .. } => ticket.to_string(),
+            Caller::Agent { ticket, .. }
+            | Caller::Validator { ticket, .. }
+            | Caller::Helper { ticket, .. } => ticket.to_string(),
             Caller::ProjectAgent { .. } | Caller::User => stored.project_name.clone(),
         };
         let tool = self.inner.adapters.get(tool).display_name();

@@ -16,6 +16,7 @@ mod decision;
 mod deps;
 mod fixes;
 mod flow;
+mod helpers;
 mod hook;
 mod install_local;
 mod limit;

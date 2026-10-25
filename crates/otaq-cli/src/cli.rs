@@ -294,6 +294,10 @@ pub enum Command {
     /// Rename the ticket's branch (`branch rename <name>`); refused once it was pushed
     #[command(subcommand)]
     Branch(BranchCommand),
+    /// Helpers of the agent in charge: `helper start <n> --title …`, `list`, `diff <n>`, `back <n> --stdin`, `merge <n>`;
+    /// a helper's `helper done --stdin`
+    #[command(subcommand)]
+    Helper(crate::helper::HelperCommand),
     /// Add, remove or show dependencies
     #[command(subcommand)]
     Dep(DepCommand),

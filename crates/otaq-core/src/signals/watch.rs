@@ -463,7 +463,8 @@ impl Signals {
                 .await
                 .is_ok_and(|t| t.status == Status::Working),
             Caller::ProjectAgent { session, .. } => !self.is_idle_between_turns(session),
-            Caller::Validator { .. } | Caller::User => false,
+            // A helper's turns never move its ticket (d0133).
+            Caller::Validator { .. } | Caller::Helper { .. } | Caller::User => false,
         }
     }
 }
@@ -485,17 +486,5 @@ pub(super) fn caller_of(sessions: &Sessions, session: &str) -> Option<Caller> {
         .agent_roots()
         .into_iter()
         .find(|r| r.session == session)?;
-    Some(if root.kind == crate::session::SessionKind::Validator {
-        Caller::Validator {
-            ticket: root.ticket,
-            ticket_id: root.ticket_id,
-            session: root.session,
-        }
-    } else {
-        Caller::Agent {
-            ticket: root.ticket,
-            ticket_id: root.ticket_id,
-            session: root.session,
-        }
-    })
+    Some(Caller::of_root(root))
 }

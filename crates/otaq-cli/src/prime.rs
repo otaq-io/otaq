@@ -1,5 +1,5 @@
 //! `otaq prime` (PLG-02; d0032, d0040): the current ticket's context for its agent, as Markdown. Every skill
-//! runs it first. `--validate` prints the validator's context instead (d0063); `--project` a Project agent's (d0068).
+//! runs it first; a helper (`$OTAQ_PIECE` set) gets its piece's context (d0133). `--validate` prints the validator's context instead (d0063); `--project` a Project agent's (d0068).
 //! `--json` prints the context itself (`otaq_core::prime::PrimeContext`).
 
 use otaq_core::data_dir::DataDir;
@@ -22,6 +22,25 @@ pub fn run(
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, key, global).await?;
+        // A helper (`$OTAQ_PIECE` set, d0133): its piece first.
+        if !validate && std::env::var_os(otaq_core::helpers::piece_env_var()).is_some() {
+            let context = match client
+                .request(Request::HelperPrime(KeyParams {
+                    key: key.to_string(),
+                }))
+                .await
+                .map_err(client_error)?
+            {
+                Reply::HelperPrime(context) => *context,
+                other => return Err(unexpected(&other)),
+            };
+            out.print(
+                otaq_core::helpers::prime::render(&context).trim_end(),
+                &context,
+                Some(&context.helper.label()),
+            );
+            return Ok(());
+        }
         // `--validate`: what the ticket's validator works from (VAL-10, d0063).
         if validate {
             let context = match client

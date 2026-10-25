@@ -44,6 +44,11 @@
 //! agents and validators are refused ("NOTE-5's agent can't read NOTE-6's terminal"). Nobody types into another
 //! session through it: it writes nothing.
 //!
+//! A **helper** caller (a piece's session, d0133) reads anything and hands its piece back (`otaq helper done`);
+//! everything else is refused: "a helper works on its piece; the agent in charge moves the ticket" ([`helper_may`]).
+//! Starting, sending back and merging helpers ([`Action::Helpers`]) is the ticket's own agent's; the service then
+//! checks that it is the agent in charge, the ticket's live Agent-stage session ([`crate::helpers`]).
+//!
 //! [`authorize`] is the one policy function; the service maps every request to an [`Action`] before running it.
 
 use crate::board::{BoardError, Refusal};
@@ -71,6 +76,13 @@ pub fn project_terminal_refusal(agent: &str, project: &str) -> String {
     let apostrophe = if project.ends_with('s') { "'" } else { "'s" };
     format!("{agent} can only read {project}{apostrophe} tickets")
 }
+
+/// Every refusal of a helper (d0133): it works on its piece; the ticket is the agent in charge's.
+pub const HELPER_ONLY_ITS_PIECE: &str =
+    "a helper works on its piece; the agent in charge moves the ticket";
+
+/// The refusal of `otaq helper done` from anyone but a helper.
+pub const ONLY_A_HELPER_HANDS_BACK: &str = "Only a helper hands back its piece";
 
 /// How a caller and its project are named in refusals: a Project agent's own name and its project's name
 /// ("pocket-notes"). Without them the refusal falls back to "Noyan" and the project's key.
@@ -143,6 +155,11 @@ pub enum Action {
         target: TicketFacts,
         own: Option<bool>,
     },
+    /// Starts, lists, reads, sends back or merges this ticket's helpers (`otaq helper start|list|diff|back|merge`,
+    /// d0133): the ticket's own agent (the service checks it is the agent in charge).
+    Helpers(TicketFacts),
+    /// `otaq helper done`: a helper hands its piece of this ticket back.
+    HandBack(TicketFacts),
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. A Project
@@ -192,6 +209,9 @@ pub fn authorize_in_stage(
             )),
             _ => refuse(crate::flow::propose::ONLY_A_PROJECT_AGENT_OR_YOU.to_owned()),
         };
+    }
+    if let Caller::Helper { ticket_id, .. } = caller {
+        return helper_may(ticket_id, action);
     }
     if let Caller::Validator {
         ticket, ticket_id, ..
@@ -296,6 +316,12 @@ pub fn authorize_in_stage(
             target.label
         )),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
+        Action::Helpers(target) if target.id == *ticket_id => Ok(()),
+        Action::Helpers(target) => refuse(format!(
+            "{ticket}'s agent can't run {}'s helpers",
+            target.label
+        )),
+        Action::HandBack(_) => refuse(ONLY_A_HELPER_HANDS_BACK.to_owned()),
         Action::Verdict(_) | Action::ProposeFlow { .. } => {
             unreachable!("handled above")
         }
@@ -318,6 +344,19 @@ pub fn may_fix(ticket: &TicketKey, target: &TicketFacts) -> Result<(), String> {
             "{} was created by {}; {me} can only change tickets it created",
             target.label,
             creator_name(creator)
+        )),
+    }
+}
+
+/// What a helper of the ticket `ticket_id` may do (d0133): read anything and hand its own piece back; nothing else.
+fn helper_may(ticket_id: &str, action: &Action) -> Result<(), BoardError> {
+    match action {
+        Action::Read => Ok(()),
+        Action::HandBack(target) if target.id == ticket_id => Ok(()),
+        Action::All(actions) => actions.iter().try_for_each(|a| helper_may(ticket_id, a)),
+        _ => Err(BoardError::refused(
+            Refusal::NotAllowed,
+            HELPER_ONLY_ITS_PIECE,
         )),
     }
 }

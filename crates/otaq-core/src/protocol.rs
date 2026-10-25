@@ -302,6 +302,31 @@ pub enum Request {
     /// [`Reply::StageEnded`].
     #[serde(rename = "ticket.stage_done")]
     TicketStageDone(StageEndParams),
+    /// `otaq helper start <n> --title … [--stdin]` (d0133): the agent in charge starts the helper of piece `n`.
+    /// Answered with [`Reply::Helper`].
+    #[serde(rename = "helper.start")]
+    HelperStart(HelperStartParams),
+    /// `otaq helper list`: the ticket's helpers (the agent in charge's). Answered with [`Reply::Helpers`].
+    #[serde(rename = "helper.list")]
+    HelperList(KeyParams),
+    /// `otaq helper diff <n>`: the helper's branch against the ticket's. Answered with [`Reply::HelperDiff`].
+    #[serde(rename = "helper.diff")]
+    HelperDiff(HelperPieceParams),
+    /// `otaq helper back <n> --stdin`: the note typed into the helper when it is idle. Answered with
+    /// [`Reply::Helper`].
+    #[serde(rename = "helper.back")]
+    HelperBack(HelperNoteParams),
+    /// `otaq helper merge <n>`: the free rebase and the squash into the ticket's branch. Answered with
+    /// [`Reply::Helper`].
+    #[serde(rename = "helper.merge")]
+    HelperMerge(HelperPieceParams),
+    /// `otaq helper done --stdin` from a helper: its piece back to the agent in charge. Answered with
+    /// [`Reply::Helper`].
+    #[serde(rename = "helper.done")]
+    HelperDone(HelperNoteParams),
+    /// `otaq prime` from a helper (`OTAQ_PIECE` set): its piece first. Answered with [`Reply::HelperPrime`].
+    #[serde(rename = "helper.prime")]
+    HelperPrime(KeyParams),
     /// `otaq check pass|fail --stdin`: an agent check's verdict and report (VAL-03, AGM-10; its check session
     /// only).
     #[serde(rename = "validation.verdict")]
@@ -1547,6 +1572,33 @@ pub struct UsageParams {
 }
 
 /// `{"key": "SHOP-18"}` (a ticket) or `{"key": "SHOP"}` (a project).
+/// `{"key": "SHOP-40", "piece": 3, "title": "Wishlist page", "note": "…"}`: `otaq helper start` (d0133).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperStartParams {
+    pub key: String,
+    pub piece: u32,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// `{"key": "SHOP-40", "piece": 3}`: `otaq helper diff|merge`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperPieceParams {
+    pub key: String,
+    pub piece: u32,
+}
+
+/// `{"key": "SHOP-40", "piece": 3, "text": "…"}`: `otaq helper back` (the note) and `otaq helper done` (the summary;
+/// its piece is the caller's own, `piece` ignored).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperNoteParams {
+    pub key: String,
+    #[serde(default)]
+    pub piece: u32,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyParams {
     pub key: String,
@@ -1911,6 +1963,13 @@ impl Request {
             Self::DecisionChange(_) => "decision.change",
             Self::TicketStageNext(_) => "ticket.stage_next",
             Self::TicketStageDone(_) => "ticket.stage_done",
+            Self::HelperStart(_) => "helper.start",
+            Self::HelperList(_) => "helper.list",
+            Self::HelperDiff(_) => "helper.diff",
+            Self::HelperBack(_) => "helper.back",
+            Self::HelperMerge(_) => "helper.merge",
+            Self::HelperDone(_) => "helper.done",
+            Self::HelperPrime(_) => "helper.prime",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
             Self::TicketValidations(_) => "ticket.validations",
@@ -2077,6 +2136,11 @@ pub enum Reply {
     /// The answer to `ticket.stage_next` and `ticket.stage_done` (AGM-10): the ticket and what the agent is told
     /// ("Finished Dev. Validate is running; …").
     StageEnded(Box<crate::board::review::StageEnded>),
+    /// A helper command's answer: the helper after it and what the agent is told (d0133).
+    Helper(Box<crate::helpers::HelperReply>),
+    Helpers(Vec<crate::helpers::Helper>),
+    HelperDiff(Box<crate::helpers::HelperDiff>),
+    HelperPrime(Box<crate::helpers::prime::HelperPrime>),
     Validations(Vec<crate::board::validation::ValidationRecord>),
     Tickets(Vec<Ticket>),
     Readiness(Vec<Readiness>),

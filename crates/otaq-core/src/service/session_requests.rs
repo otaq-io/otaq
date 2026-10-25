@@ -78,8 +78,8 @@ pub(super) async fn handle(
             }
             let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
             // Enter in the ticket's terminal is the user's answer: the needs-you label clears (ATT-02). Not in its
-            // Shell tab or Run, which are "not the agent". In the agent's own terminal the first line sent answers
-            // an open question (d0119).
+            // Shell tab or Run, which are "not the agent", nor in a helper's (its prompts are T-0538's). In the agent's
+            // own terminal the first line sent answers an open question (d0119).
             let info = sessions.info(&p.session).ok();
             let line = effect
                 .sent
@@ -90,7 +90,9 @@ pub(super) async fn handle(
                 && let Some(info) = info.as_ref().filter(|i| {
                     !matches!(
                         i.kind,
-                        crate::session::SessionKind::Shell | crate::session::SessionKind::Run
+                        crate::session::SessionKind::Shell
+                            | crate::session::SessionKind::Run
+                            | crate::session::SessionKind::Helper
                     )
                 })
                 && let Some(key) = &info.ticket

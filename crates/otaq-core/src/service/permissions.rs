@@ -107,6 +107,9 @@ pub(super) async fn chooser(caller: &Caller, board: &Board) -> Chooser {
         }
         | Caller::Validator {
             ticket, session, ..
+        }
+        | Caller::Helper {
+            ticket, session, ..
         } => {
             let name: Option<Option<String>> =
                 sqlx::query_scalar("SELECT agent_name FROM sessions WHERE id = ?")
@@ -311,6 +314,17 @@ async fn action_for(
             Action::ChangeTicket(facts(board, &p.key).await?)
         }
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
+        // The ticket's own agent runs its helpers; the handler checks it is the agent in charge (d0133).
+        R::HelperStart(crate::protocol::HelperStartParams { key, .. })
+        | R::HelperList(crate::protocol::KeyParams { key })
+        | R::HelperDiff(crate::protocol::HelperPieceParams { key, .. })
+        | R::HelperMerge(crate::protocol::HelperPieceParams { key, .. }) => {
+            Action::Helpers(facts(board, key).await?)
+        }
+        R::HelperBack(p) => Action::Helpers(facts(board, &p.key).await?),
+        // A helper hands its own piece back and reads its prime; the handler finds its piece by its session.
+        R::HelperDone(p) => Action::HandBack(facts(board, &p.key).await?),
+        R::HelperPrime(_) => Action::Read,
         R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),
         R::TicketCreateFromNote(_) => Action::UserOnly("create tickets from validation notes"),
         R::TicketPrPropose(p) => Action::ChangeTicket(facts(board, &p.key).await?),

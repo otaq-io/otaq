@@ -330,6 +330,8 @@ pub enum Gated {
 #[derive(Clone)]
 pub struct Restarts {
     pub validation: crate::validation::Validation,
+    /// Held helpers start once their tool can (d0133 audit 4).
+    pub helpers: crate::helpers::Helpers,
 }
 
 /// The check in the service. Cheap to clone.
@@ -491,6 +493,26 @@ impl LaunchGate {
         };
         self.write_hold(role, scope, &held).await?;
         Ok(Some(*held))
+    }
+
+    /// Why a helper can't start on `tool` now (d0133 audit 4: the plan-limit hold applies to starting a helper): its
+    /// tool isn't available ("Codex isn't available · logged out") or is at its limit ("Claude Code limit reached").
+    /// `None` when it can start. A helper runs the model its agent in charge runs, so the model isn't checked again,
+    /// and nothing is written: the helper's own row holds it ([`crate::helpers`]).
+    pub async fn helper_blocked(&self, tool: Tool) -> Result<Option<String>, BoardError> {
+        let facts = self.facts().await?;
+        if let Some(reason) = facts.unavailable.get(&tool) {
+            return Ok(Some(
+                NotAvailable {
+                    reason: reason.clone(),
+                }
+                .message(tool),
+            ));
+        }
+        Ok(facts
+            .at_limit
+            .contains(&tool)
+            .then(|| format!("{} limit reached", tool.display_name())))
     }
 
     /// Asks for a lift soon: a hold was just written with everything it holds (a held Developer's ticket is Held),
@@ -756,8 +778,13 @@ impl LaunchGate {
         for &reason in HoldReason::ALL {
             holds.extend(store.holds_for(reason).await?);
         }
+        // Held helpers keep their own rows, not agent holds: they start here once their tool can.
+        let helpers = match self.inner.restarts.get() {
+            Some(restarts) => restarts.helpers.start_held().await?,
+            None => 0,
+        };
         if holds.is_empty() {
-            return Ok(0);
+            return Ok(helpers);
         }
         let fallbacks = store.fallbacks().await?;
         let mut started = 0;

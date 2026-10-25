@@ -4,9 +4,11 @@
 //!
 //! Groups:
 //! - **Sessions**: running sessions whose ticket is gone, finished (Done) or back in Backlog.
-//! - **Worktrees**: folders under `<data>/wt/<repo>/` that no unfinished ticket uses.
-//! - **Branches**: `otaq/*` branches in a project's repository that no ticket names. The user's own branches
-//!   are never candidates.
+//! - **Worktrees**: folders under `<data>/wt/<repo>/` that no unfinished ticket uses. A helper's worktree (d0133) is in
+//!   use while its ticket is unfinished and its piece isn't merged; one left behind (a crash before its merge, a
+//!   finished ticket's with uncommitted files) is listed under its ticket.
+//! - **Branches**: `otaq/*` branches in a project's repository that no ticket names (an unfinished ticket's helpers'
+//!   branches count as named). The user's own branches are never candidates.
 //! - **Ports**: ports still held by tickets that are Done or in Backlog.
 //! - **Kept worktrees**: Done / Closed tickets whose worktree was kept because of uncommitted changes (REC-05).
 //!   Deleting one discards those changes, so it is deleted only when listed explicitly.
@@ -123,6 +125,20 @@ impl Cleanup {
         }
     }
 
+    /// Every helper of these tickets, with its ticket (d0133).
+    async fn helper_rows<'a>(
+        &self,
+        tickets: &'a [Ticket],
+    ) -> Result<Vec<(crate::helpers::Helper, &'a Ticket)>, BoardError> {
+        let mut rows = Vec::new();
+        for ticket in tickets {
+            let helpers =
+                crate::helpers::store::of_ticket(self.board.store().pool(), &ticket.id).await?;
+            rows.extend(helpers.into_iter().map(|h| (h, ticket)));
+        }
+        Ok(rows)
+    }
+
     /// Every leftover, grouped. Reads only.
     pub async fn scan(&self) -> Result<Vec<CleanupItem>, BoardError> {
         let now = now_ms();
@@ -177,9 +193,36 @@ impl Cleanup {
             .filter_map(|(t, _)| t.work.as_ref()?.worktree.as_deref())
             .map(normalized)
             .collect();
+        let helpers = self.helper_rows(&tickets).await?;
         for folder in worktree_folders(&self.data.worktrees_dir()) {
             let path = normalized(&folder.display().to_string());
             if in_use.contains(&path) || kept.contains(&path) {
+                continue;
+            }
+            // A helper's worktree: in use while it works on an unfinished ticket; left behind, listed under it.
+            if let Some((helper, ticket)) = helpers
+                .iter()
+                .find(|(h, _)| normalized(&h.worktree) == path)
+            {
+                let why = if ticket.place.is_done() {
+                    format!("{} is {}", ticket.key, ticket.status.label())
+                } else if helper.status == crate::helpers::HelperStatus::Merged {
+                    format!("{} was merged", helper.label())
+                } else {
+                    continue;
+                };
+                items.push(CleanupItem {
+                    group: CleanupGroup::Worktrees,
+                    id: folder.display().to_string(),
+                    label: format!("{} \u{b7} {} {}", ticket.key, helper.label(), helper.title),
+                    project: Some(ticket.key.project.to_string()),
+                    ticket: Some(ticket.key.clone()),
+                    path: Some(folder.display().to_string()),
+                    size_bytes: Some(folder_size(&folder)),
+                    age_ms: modified_age(&folder, now),
+                    why,
+                    uncommitted: Vec::new(),
+                });
                 continue;
             }
             let repo = folder
@@ -211,6 +254,14 @@ impl Cleanup {
                 .iter()
                 .filter(|t| t.key.project.as_str() == project.key)
                 .filter_map(|t| t.work.as_ref()?.branch.as_deref())
+                .chain(
+                    helpers
+                        .iter()
+                        .filter(|(_, t)| {
+                            t.key.project.as_str() == project.key && !t.place.is_done()
+                        })
+                        .map(|(h, _)| h.branch.as_str()),
+                )
                 .collect();
             let refs = git
                 .run(

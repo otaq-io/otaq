@@ -294,6 +294,12 @@ impl Signals {
             self.track_turn(session, &signal);
             return Ok(signal);
         }
+        // A helper's turn is tracked too (a note to it waits for its turn to end), but never moves its ticket:
+        // the agent in charge does (d0133).
+        if let Caller::Helper { session, .. } = caller {
+            self.track_turn(session, &signal);
+            return Ok(signal);
+        }
         let Caller::Agent {
             ticket_id, session, ..
         } = caller
@@ -361,6 +367,9 @@ impl Signals {
             }
             | Caller::Validator {
                 ticket, ticket_id, ..
+            }
+            | Caller::Helper {
+                ticket, ticket_id, ..
             } => self.inner.events.publish(Event::TicketChanged {
                 project: ticket.project.to_string(),
                 id: ticket_id.clone(),
@@ -418,7 +427,9 @@ impl Signals {
             return Ok(());
         }
         let on = match caller {
-            Caller::Agent { ticket, .. } | Caller::Validator { ticket, .. } => ticket.to_string(),
+            Caller::Agent { ticket, .. }
+            | Caller::Validator { ticket, .. }
+            | Caller::Helper { ticket, .. } => ticket.to_string(),
             Caller::ProjectAgent { .. } | Caller::User => project,
         };
         let asked = asked.unwrap_or_default();
@@ -438,8 +449,9 @@ impl Signals {
     /// The hook's session as stored: its tool, and what the adapter may need (its tool id and working folder).
     async fn stored_session(&self, session: &str) -> Result<StoredSession, BoardError> {
         let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT s.tool, s.tool_session_id, COALESCE(t.worktree_path, p.repo_path) FROM sessions s
+            "SELECT s.tool, s.tool_session_id, COALESCE(h.worktree, t.worktree_path, p.repo_path) FROM sessions s
              LEFT JOIN tickets t ON t.id = s.ticket_id LEFT JOIN projects p ON p.id = s.project_id
+             LEFT JOIN helpers h ON h.session_id = s.id
              WHERE s.id = ?",
         )
         .bind(session)
@@ -651,6 +663,7 @@ fn session_of(caller: &Caller) -> Option<&str> {
     match caller {
         Caller::Agent { session, .. }
         | Caller::Validator { session, .. }
+        | Caller::Helper { session, .. }
         | Caller::ProjectAgent { session, .. } => Some(session),
         Caller::User => None,
     }

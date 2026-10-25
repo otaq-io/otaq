@@ -49,6 +49,13 @@ pub enum Caller {
         ticket_id: String,
         session: String,
     },
+    /// A process inside a helper's session (d0133): it works on one piece of its ticket and hands it back to the
+    /// agent in charge; it never moves the ticket ([`crate::helpers`]).
+    Helper {
+        ticket: TicketKey,
+        ticket_id: String,
+        session: String,
+    },
     /// A process inside a Project agent's session (d0068): it investigates and files Backlog tickets.
     ProjectAgent {
         /// The project's key.
@@ -64,11 +71,37 @@ impl Caller {
         matches!(self, Self::Agent { .. })
     }
 
-    /// The ticket of an agent or validator caller.
+    /// The ticket of an agent, validator or helper caller.
     pub fn ticket(&self) -> Option<&TicketKey> {
         match self {
-            Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => Some(ticket),
+            Self::Agent { ticket, .. }
+            | Self::Validator { ticket, .. }
+            | Self::Helper { ticket, .. } => Some(ticket),
             Self::User | Self::ProjectAgent { .. } => None,
+        }
+    }
+
+    /// The caller a running ticket session's processes are: its validator for a validator session, a helper for a
+    /// helper's, else the ticket's agent (an Agent stage's, an answer or delivery session; [`by_stage`] refines it).
+    pub fn of_root(root: crate::session::AgentRoot) -> Self {
+        use crate::session::SessionKind;
+        let (ticket, ticket_id, session) = (root.ticket, root.ticket_id, root.session);
+        match root.kind {
+            SessionKind::Validator => Self::Validator {
+                ticket,
+                ticket_id,
+                session,
+            },
+            SessionKind::Helper => Self::Helper {
+                ticket,
+                ticket_id,
+                session,
+            },
+            _ => Self::Agent {
+                ticket,
+                ticket_id,
+                session,
+            },
         }
     }
 
@@ -76,7 +109,7 @@ impl Caller {
     pub fn project_agent(&self) -> Option<(&str, &str)> {
         match self {
             Self::ProjectAgent { agent, session, .. } => Some((agent, session)),
-            Self::User | Self::Agent { .. } | Self::Validator { .. } => None,
+            Self::User | Self::Agent { .. } | Self::Validator { .. } | Self::Helper { .. } => None,
         }
     }
 
@@ -86,7 +119,9 @@ impl Caller {
     /// hand.
     pub fn actor(&self, requested: Option<&str>) -> Actor {
         match self {
-            Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => {
+            Self::Agent { ticket, .. }
+            | Self::Validator { ticket, .. }
+            | Self::Helper { ticket, .. } => {
                 let own = Actor::Agent(ticket.clone());
                 if let Some(requested) = requested
                     && requested.parse::<Actor>().ok().as_ref() != Some(&own)
@@ -136,19 +171,9 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
     let by_ancestry = ancestry
         .into_iter()
         .find_map(|ancestor| roots.iter().find(|r| r.pid == ancestor).cloned());
-    match by_ancestry.or_else(|| sessions.agent_root_holding(pid)) {
-        Some(root) if root.kind == crate::session::SessionKind::Validator => Caller::Validator {
-            ticket: root.ticket,
-            ticket_id: root.ticket_id,
-            session: root.session,
-        },
-        Some(root) => Caller::Agent {
-            ticket: root.ticket,
-            ticket_id: root.ticket_id,
-            session: root.session,
-        },
-        None => Caller::User,
-    }
+    by_ancestry
+        .or_else(|| sessions.agent_root_holding(pid))
+        .map_or(Caller::User, Caller::of_root)
 }
 
 /// The stage a ticket's session ran in, from its stage run (STG-05).

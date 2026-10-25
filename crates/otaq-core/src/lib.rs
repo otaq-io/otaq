@@ -14,6 +14,7 @@ pub mod domain;
 pub mod flow;
 pub mod git;
 pub mod glob;
+pub mod helpers;
 pub mod ipc;
 pub mod local_time;
 pub mod logging;
