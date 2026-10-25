@@ -236,7 +236,7 @@ pub struct ModelField {
 #[ts(rename = "AgentRoleField")]
 pub struct RoleField {
     pub label: String,
-    /// None · Noyan · Epic lead; ids `""`, `noyan`, `epic-lead`.
+    /// None · Noyan; ids `""`, `noyan`.
     pub options: Vec<Choice>,
     pub hint: String,
     /// After a move: "Strong is now Noyan · the agent Noyan has no role".
@@ -369,8 +369,8 @@ pub const DEFAULT_MODEL: &str = "Default model";
 pub const TOOL_DEFAULT_EFFORT: &str = "Tool default";
 pub const NEW_AGENT: &str = "New agent";
 
-/// After a role moved: "Strong is now Noyan · the agent Noyan has no role", "Strong is now your Epic lead · Lead has
-/// no role". An agent named as the role is "the agent Noyan".
+/// After a role moved: "Strong is now Noyan · the agent Noyan has no role", "Strong is now Noyan · Planner has no
+/// role". An agent named as the role is "the agent Noyan".
 pub fn moved_line(role: Role, to: &str, from: Option<&str>) -> String {
     let now = match role {
         Role::ProjectAgent => format!("{to} is now {}", role.label()),
@@ -760,7 +760,7 @@ mod tests {
     }
 
     /// One agent's page (`s15-58` "One agent", "Giving a role to another agent"): the fields in order, the role with
-    /// None · Noyan · Epic lead and the line after a move, used in, and the note.
+    /// None · Noyan and the line after a move, used in, and the note.
     #[test]
     fn one_agents_page_with_its_role_skills_and_used_in() {
         let (list, uses) = example();

@@ -18,7 +18,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
     match method {
         "gallery.wanted" => reply(&wanted(std::env::var_os(env_var()).as_deref())),
         "gallery.view" => reply(&gallery::view()),
-        // The card grids (T-0218): every Ticket Card and Epic Card variant from the fixtures.
+        // The card grids (T-0218): every Ticket Card variant from the fixtures.
         "gallery.cards" => reply(&card_page::gallery()),
         // Every Decision Item variant and the two review lists (T-0287).
         "gallery.decisions" => reply(&decision_item::gallery()),
@@ -77,7 +77,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
         // The answer options' notes in the sheet and the card's hover card (T-0375).
         "gallery.option_notes" => reply(&super::sheet::notes_gallery()),
-        // 25 · The ticket sheet's header, details line and path: needs you, your check, an epic's child, Backlog
+        // 25 · The ticket sheet's header, details line and path: needs you, your check, working, Backlog
         // (T-0464).
         "gallery.sheet" => reply(&super::sheet::sheet_gallery()),
         // 25 · Overview's attachments and description words for SHOP-22 (T-0465).

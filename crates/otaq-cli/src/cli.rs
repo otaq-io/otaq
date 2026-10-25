@@ -112,7 +112,7 @@ pub enum Command {
         #[arg(long, value_name = "AGENT", requires = "stage")]
         agent: Option<String>,
     },
-    /// The current ticket's context for its agent: details, parents, rules and your Agent instructions
+    /// The current ticket's context for its agent: details, dependencies, rules and your Agent instructions
     Prime {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
@@ -746,7 +746,7 @@ mod tests {
     /// The `otaq ask human …` commands in a skill's fenced code blocks, as argument lists: a `\` line end joins the
     /// next line, quotes group words, and the command ends at its heredoc (`<<'QUESTION'`).
     fn fenced_ask_examples(text: &str) -> Vec<Vec<String>> {
-        let lead = format!("{} ask human", naming::COMMAND_NAME);
+        let start = format!("{} ask human", naming::COMMAND_NAME);
         let (mut fenced, mut found, mut command) = (false, Vec::new(), None::<String>);
         for line in text.lines().map(str::trim) {
             if line.starts_with("```") {
@@ -758,7 +758,7 @@ mod tests {
             }
             let Some(mut so_far) = command
                 .take()
-                .or_else(|| line.starts_with(&lead).then(String::new))
+                .or_else(|| line.starts_with(&start).then(String::new))
             else {
                 continue;
             };
@@ -816,10 +816,6 @@ mod tests {
         let mut checked = 0;
         for entry in std::fs::read_dir(&skills).unwrap() {
             let folder = entry.unwrap().path();
-            // The epic lead's skill goes with T-0534 (d0133); its `ask human --pass-on` is gone from the CLI.
-            if folder.ends_with("epic-lead") {
-                continue;
-            }
             let file = folder.join("SKILL.md");
             let Ok(text) = std::fs::read_to_string(&file) else {
                 continue;
@@ -927,7 +923,7 @@ mod tests {
         assert!(parse(&["attach", "SHOP-29", "--validator"]).is_err());
     }
 
-    /// `show --terminal` (SHL-10): not with `--long` or `--children`; `--stage` only with it; `--validator` is gone
+    /// `show --terminal` (SHL-10): not with `--long`; `--stage` only with it; `--validator` is gone
     /// (FLW-20).
     #[test]
     fn show_terminal_stands_alone() {
@@ -952,7 +948,6 @@ mod tests {
         ));
         for wrong in [
             &["show", "--terminal", "--long"][..],
-            &["show", "--terminal", "--children"],
             &["show", "--stage", "security"],
             &["show", "NOTE-6", "--terminal", "--validator"],
             &["show", "NOTE-6", "--terminal", "--agent", "Validator"],

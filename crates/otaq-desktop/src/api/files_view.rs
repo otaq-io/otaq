@@ -1,6 +1,6 @@
 //! `files_view.*`: the project Files view (FIL-01…FIL-10; d0087; `s28-03`…`s28-10`). The project's base branch from
 //! git with every ticket's changes on top (`files.project_*`, `board/project_files.rs`): the left column with its
-//! filters and counts, a folder as it opens, the search by name, the picker's sources, a picked ticket or epic as its
+//! filters and counts, a folder as it opens, the search by name, the picker's sources, a picked ticket as its
 //! own Files tab, read-only (its tree, files and All changes come from `files.*`), a picked file with Changed by and
 //! one ticket's Diff, and All changes grouped by ticket. The tickets' titles, lines and tools are their board cards'
 //! (`board::ticket_card`). What it says is `otaq-view`'s `files_view.rs`.
@@ -227,7 +227,7 @@ pub async fn sources(app: &App, params: ProjectOnly) -> Result<vm::Picker, Reque
     }
 }
 
-/// A ticket or an epic picked in the picker, in the shown project.
+/// A ticket picked in the picker, in the shown project.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FilesViewPickedParams")]
 pub struct PickedParams {

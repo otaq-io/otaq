@@ -12,7 +12,7 @@ use otaq_view::view_models::limit_banner::{
     FALLBACK_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, fallback_toast, resumed,
 };
 use otaq_view::view_models::restart::RestartDialog;
-use otaq_view::view_models::toasts::{NewToast, ToastAction, ToastLevel};
+use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -35,7 +35,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             app.notices.hold_toast(hold.id, hold.held);
             Ok(Value::Null)
         }
-        "notices.toast_action" => toast_action(app, parse(params)?).await,
         "notices.restart_dialog" => {
             let (working, waiting) = app.notices.agent_counts();
             reply(&RestartDialog { working, waiting }.view())
@@ -110,13 +109,6 @@ pub struct ToastId {
 pub struct HoldToast {
     pub id: u64,
     pub held: bool,
-}
-
-/// `{"id": 3, "label": "Undo", "action": {"kind": "undo_epic_queue", …}}`: the user pressed a toast's button.
-#[derive(Debug, Clone, Deserialize, TS)]
-pub struct ToastPress {
-    pub id: u64,
-    pub action: ToastAction,
 }
 
 /// `{"target": {"kind": "ticket", "key": "SHOP-22"}}`: an `open_from_notification` event's target, as the service
@@ -300,16 +292,6 @@ async fn resume_all(app: &App) -> Result<Value, RequestError> {
             RESUME_ALL_FAILED,
             Some(e.message),
         ));
-    }
-    Ok(Value::Null)
-}
-
-/// A toast's button, on the user's click: the toast goes, and what the action did shows in its place (EPC-15).
-async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestError> {
-    app.notices.dismiss_toast(press.id);
-    // No toast offers an action any more (the epic queue's Undo went with epics, d0133).
-    match press.action {
-        ToastAction::UndoEpicQueue { .. } => {}
     }
     Ok(Value::Null)
 }

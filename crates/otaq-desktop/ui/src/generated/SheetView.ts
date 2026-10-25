@@ -81,11 +81,11 @@ sheet: SheetFrame,
  */
 live_agent: boolean, 
 /**
- * The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options and for an epic.
+ * The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options.
  */
 choices: StageChoicesView | null, 
 /**
- * The ticket's path (AGM-09): every stage with its agent and model; none for an epic.
+ * The ticket's path (AGM-09): every stage with its agent and model.
  */
 path: TicketPathView | null, 
 /**

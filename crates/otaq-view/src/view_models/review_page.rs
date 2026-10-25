@@ -162,7 +162,6 @@ pub struct ApproveFacts<'a> {
     pub ticket: &'a Ticket,
     pub tickets: &'a [Ticket],
     pub target: &'a str,
-    pub into_epic: bool,
     pub message: &'a str,
     pub repo: &'a str,
     /// The project's own base branch (a ticket on another one shows it locked).
@@ -177,7 +176,7 @@ pub struct ApproveFacts<'a> {
 
 pub fn approve_view(f: ApproveFacts) -> ApproveView {
     let ticket = f.ticket;
-    let other_base = !f.into_epic && f.target != f.project_base;
+    let other_base = f.target != f.project_base;
     ApproveView {
         key: ticket.key.to_string(),
         menu: f.menu,
@@ -215,7 +214,7 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
         },
         merging: MergingView {
             title: ap::confirm_title(ticket),
-            steps: ap::merging_steps(f.target, f.into_epic),
+            steps: ap::merging_steps(f.target),
             label: "Merging\u{2026}",
             note: format!(
                 "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
@@ -520,7 +519,6 @@ mod tests {
             ticket: t,
             tickets: all,
             target,
-            into_epic: false,
             message: "SHOP-18: Checkout API",
             repo: "/nowhere/code/shop-web",
             project_base: "main",

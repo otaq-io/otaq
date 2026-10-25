@@ -325,7 +325,7 @@ pub async fn review(app: &App, params: Params) -> Result<ReviewNotes, RequestErr
     })
 }
 
-/// The ticket's line comments; they can be added only while it waits in your check (epics take none, EPC-05).
+/// The ticket's line comments; they can be added only while it waits in your check.
 pub async fn comments(app: &App, params: Params) -> Result<vm::CommentsView, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let (list, (to, _)) = tokio::join!(

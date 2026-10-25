@@ -1,6 +1,5 @@
 // Toast (*01 · Components → Overlays & feedback*): a 340 px floating card with a coloured icon, a title, a line of
-// text, an optional action link or one or two action buttons (the epic queue toast's "Undo", EPC-15) and a close
-// button. Stacking and time-outs are the toast host's (`toasts.rs`,
+// text, an optional action link and a close button. Stacking and time-outs are the toast host's (`toasts.rs`,
 // T-0231).
 import type { IconName } from "../generated/IconName";
 import { Icon } from "../theme/Icon";
@@ -24,14 +23,12 @@ export interface ToastProps {
   iconTone?: ToastIconTone;
   /** A link after the text ("Copy command"). */
   action?: ToastActionProps;
-  /** Buttons after the title: "Undo", or "Turn on for epic children" and "Undo" (*03 → epic flows 2, 9, 12*). */
-  actions?: readonly ToastActionProps[];
   /** Makes the title a button that opens what the toast is about (its ticket). */
   onOpen?: () => void;
   onClose?: () => void;
 }
 
-export function Toast({ kind, title, text, icon, iconTone, action, actions, onOpen, onClose }: ToastProps) {
+export function Toast({ kind, title, text, icon, iconTone, action, onOpen, onClose }: ToastProps) {
   const name = icon ?? (kind === "success" ? "circle-check" : "triangle-alert");
   return (
     <div className="toast" role={kind === "error" ? "alert" : "status"}>
@@ -46,15 +43,6 @@ export function Toast({ kind, title, text, icon, iconTone, action, actions, onOp
             </button>
           ) : (
             <span className="toast-title">{title}</span>
-          )}
-          {actions && actions.length > 0 && (
-            <span className="toast-actions">
-              {actions.map((a) => (
-                <button key={a.label} type="button" className="toast-action" onClick={a.onClick}>
-                  {a.label}
-                </button>
-              ))}
-            </span>
           )}
         </span>
         {(text || action) && (

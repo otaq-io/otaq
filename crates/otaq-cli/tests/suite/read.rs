@@ -251,7 +251,7 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
         serde_json::json!({"key": "SHOP-22", "session": session.id, "text": "Allow rm -rf .next?\n\n  1. Yes"})
     );
 
-    // Not with --long or --children: a usage error.
+    // Not with --long, and `--children` is gone (d0133): a usage error.
     for extra in ["--long", "--children"] {
         let out = cb(&w, &["show", "SHOP-22", "--terminal", extra, "--json"]);
         assert_eq!(out.status.code(), Some(2), "{extra}");

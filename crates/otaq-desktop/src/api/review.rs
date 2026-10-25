@@ -169,7 +169,6 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         ticket: &ticket,
         tickets: &all,
         target: &proposal.target,
-        into_epic: false,
         message: &proposal.message,
         repo: &repo,
         project_base: &project_base,

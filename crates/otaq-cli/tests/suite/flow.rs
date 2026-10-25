@@ -267,7 +267,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     w.stop().await;
 }
 
-/// A ticket's agent, its check and an epic lead are refused; a Project agent and the user pass.
+/// A ticket's agent and its check are refused; a Project agent and the user pass.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_a_project_agent_or_the_user_may_propose() {
     let w = world().await;

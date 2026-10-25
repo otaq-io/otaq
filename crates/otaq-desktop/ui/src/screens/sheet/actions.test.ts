@@ -138,7 +138,7 @@ describe("a board card's button", () => {
   });
 
   it("the cards of checks and deliveries (FLW-13…FLW-16)", () => {
-    for (const kind of ["move_on_anyway", "skip_check", "add_child_from_pr"] as const)
+    for (const kind of ["move_on_anyway", "skip_check"] as const)
       expect(cardRoute(kind)).toEqual({ kind: "service" });
     expect(cardRoute("pass")).toEqual({ kind: "pass" });
     expect(cardRoute("fail")).toEqual({ kind: "overlay", id: "send_back" });

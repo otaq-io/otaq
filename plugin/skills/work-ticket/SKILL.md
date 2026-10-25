@@ -26,9 +26,7 @@ time.
 3. **Check the ticket before you build** (see "Check the ticket first" below). If something that changes what gets
    built is open, ask before you write any code.
 4. **Plan, then implement** until the ticket is done, as its description describes. Keep to the ticket; file anything
-   else as a new ticket (see below) instead of doing it here. **Run `otaq notes` each time you start a new step**
-   and act on what it says: in an epic, the epic's lead leaves notes there for you (for example "the API returns
-   `items[]`, not `list`").
+   else as a new ticket (see below) instead of doing it here.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
@@ -51,7 +49,7 @@ time.
    checks, so after a failed check or a Send back list again the ones that still apply.
 
    If you learned something a later ticket should know (an API shape, a trap, a file others will touch), end the
-   comment with a line that starts `Notes for later tickets:`. In an epic, the lead reads it and passes it on.
+   comment with a line that starts `Notes for later tickets:`.
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message says only that ("Validate failed round 2. Run `otaq prime`."): run

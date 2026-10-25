@@ -490,8 +490,6 @@ mod tests {
         assert_eq!(history.copy_hint, "Copy session ID");
     }
 
-    /// A question the lead passed on, and one it handed back, are also answered `ask human` questions: each shows
-    /// once, as the lead's thread, on the epic and on the child (T-0290 fix). An unrelated answer of the user's stays.
     async fn create(h: &Harness, project: &str, title: &str) -> String {
         match h
             .app

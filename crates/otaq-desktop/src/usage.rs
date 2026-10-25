@@ -316,10 +316,8 @@ const FEATURES: &[&str] = &[
     // The Needs you strip.
     "strip.next",
     "strip.resume_all",
-    // Epics.
+    // The ticket's sections.
     "sections.create_from_note",
-    "sections.move_to_epic",
-    "sections.close_epic",
     "sections.answer_message",
     // Terminals, agents and Run.
     "drawer.new",

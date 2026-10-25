@@ -293,10 +293,9 @@ pub struct View {
     pub read: Option<ReadView>,
     /// The description opens as its raw Markdown source, the mode last chosen with the "Markdown" toggle (d0078 D9).
     pub source_mode: bool,
-    /// "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow
-    /// and for an epic (the page hides it once Type is Epic).
+    /// "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow.
     pub choices: Option<ChoicesView>,
-    /// Create only: the report place under the description (RPT-03; the page hides it once Type is Epic).
+    /// Create only: the report place under the description (RPT-03).
     pub report: Option<ReportField>,
 }
 
@@ -637,7 +636,7 @@ impl Refusal {
     pub fn of(error: &RequestError, field: RefusalField) -> Self {
         let code = error.refusal.as_deref();
         let field = match code {
-            Some("cross_base" | "base_locked" | "base_from_epic") if field == RefusalField::Form => {
+            Some("cross_base" | "base_locked") if field == RefusalField::Form => {
                 RefusalField::Base
             }
             _ => field,

@@ -156,7 +156,6 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "use_validator_fallback":
     case "move_on_anyway": // FLW-13: after the last failed round.
     case "skip_check": // FLW-13: a check at the plan limit with no fallback.
-    case "add_child_from_pr": // FLW-16: an epic's PR comments as a child.
     case "stop_merge_check": // d0120: Stop on "Merging · running the merge check".
       return { kind: "service" };
     case "pass":

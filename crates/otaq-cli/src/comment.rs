@@ -12,7 +12,7 @@
 //! # `--json` shapes
 //!
 //! `comment`, `comment edit` and `comment delete` print the comment with its ticket's key: `{"key", "n", "author":
-//! {"kind": "user" | "agent" | "lead", …}, "stage_name"?, "body", "report"?: {"bytes", "lines"}, "posted_at",
+//! {"kind": "user" | "agent", …}, "stage_name"?, "body", "report"?: {"bytes", "lines"}, "posted_at",
 //! "edited_at"?}`; `comments` prints `{"key", "comments": [...]}`; `report` prints `{"key", "n", "path", "info":
 //! {"bytes", "lines"}, "deleted"?}` (never the report's text).
 

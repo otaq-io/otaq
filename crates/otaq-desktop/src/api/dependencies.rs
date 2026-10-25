@@ -86,7 +86,7 @@ pub struct ViewParams {
     pub key: String,
 }
 
-/// The section, or `null` for a ticket that is gone or an epic.
+/// The section, or `null` for a ticket that is gone.
 pub async fn view(app: &App, params: ViewParams) -> Result<Option<Section>, RequestError> {
     let Some((ticket, all)) = with_project(app, &params.key).await? else {
         return Ok(None);

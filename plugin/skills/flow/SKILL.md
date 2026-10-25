@@ -142,7 +142,7 @@ agents:
   agent that already exists (in `flow show`, or one the user has) is reused by its name. Changing a shared agent
   changes it everywhere it is used, and the flow editor lists those projects; to change it for this project only, add a
   new agent with its own name.
-- **`role`** (rare): `noyan` or `epic-lead`. Exactly one agent holds each role; leave it out unless the user
+- **`role`** (rare): `noyan`. Exactly one agent holds it; leave it out unless the user
   asks to move a role.
 - **`instructions`**: Markdown, optional.
 - **`skills`**: the names of skills Otaq ships (`work-ticket`, `commit`, `validate`, `grill`, `open-pr`, `restack`, …)
