@@ -76,8 +76,6 @@ function Part({
     case "overview":
     case "files":
     case "activity":
-    case "lead":
-    case "tickets":
       return <TerminalTab key="agent" ticket={ticket} side="agent" head={head} />;
   }
 }

@@ -6,9 +6,6 @@
 //!
 //! Each option's note (ATT-17, d0061), its pros and cons, rides on its row whole ([`OptionRow::note`]): never cut,
 //! shown under the label in Needs you and the sheet, in the light hover card on the card.
-//!
-//! A question an epic's lead passed on (LEAD-06, d0083; *10 → Row · Epic lead items (0083)*): the lead's option is the
-//! recommended one, marked "Recommended by the lead" with the lead's reason under it, after the option's own note.
 
 use otaq_core::board::questions::{Choice, HumanQuestion};
 
@@ -33,23 +30,16 @@ pub struct OptionRow {
     /// The option's own note, its pros and cons (ATT-17): "Opens in any editor; one file per note, no attachments.".
     /// Whole, never cut. `None` for Other… and an option without one.
     pub note: Option<String>,
-    /// The recommended row of a passed-on question: the lead's reason ("PAY-123 only mentions signed-in users."),
-    /// shown after [`Self::note`].
-    pub lead_reason: Option<String>,
 }
 
 /// The mark on the recommended option.
 pub const RECOMMENDED: &str = "Recommended";
-/// The mark when the epic's lead passed the question on (LEAD-06).
-pub const RECOMMENDED_BY_LEAD: &str = "Recommended by the lead";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnswerOptions {
     /// Each option's label with its note (ATT-17), in order.
     options: Vec<(String, Option<String>)>,
     recommended: Option<u32>,
-    /// The lead's reason for the recommended option, when the lead passed the question on.
-    lead_reason: Option<String>,
     pub pick: Option<Pick>,
 }
 
@@ -67,7 +57,6 @@ impl AnswerOptions {
                 .map(|(i, label)| (label.clone(), question.notes.get(i).cloned().flatten()))
                 .collect(),
             recommended: question.recommended,
-            lead_reason: None,
             pick: question.recommended.map(Pick::Option),
         })
     }
@@ -109,10 +98,6 @@ impl AnswerOptions {
                     picked: self.pick == Some(Pick::Option(n)),
                     other: false,
                     note: note.clone(),
-                    lead_reason: self
-                        .lead_reason
-                        .clone()
-                        .filter(|_| self.recommended == Some(n)),
                 }
             })
             .collect();
@@ -123,7 +108,6 @@ impl AnswerOptions {
             picked: self.pick == Some(Pick::Other),
             other: true,
             note: None,
-            lead_reason: None,
         });
         rows
     }
@@ -151,8 +135,8 @@ pub fn heading(key: &impl std::fmt::Display) -> String {
 }
 
 /// The Gallery's questions with notes (ATT-17; *m26-tickets.md → The example*): NOTE-1's four options, one note
-/// about 300 characters long and one option without a note; and a question an epic's lead passed on, with notes and
-/// the lead's reason (CHANGES-2026-10-18-ab §1).
+/// about 300 characters long and one option without a note; and a two-option question with notes
+/// (CHANGES-2026-10-18-ab §1).
 pub fn note_samples() -> [HumanQuestion; 2] {
     let note = |text: &str| Some(text.to_owned());
     let asks = HumanQuestion {
@@ -177,8 +161,8 @@ pub fn note_samples() -> [HumanQuestion; 2] {
         ],
         asked_at: 0,
     };
-    let passed = HumanQuestion {
-        id: "q-notes-lead".into(),
+    let invoice = HumanQuestion {
+        id: "q-notes-invoice".into(),
         text: "Which invoice export should the first version have?".into(),
         options: vec!["CSV only".into(), "CSV and PDF".into()],
         recommended: Some(1),
@@ -190,7 +174,7 @@ pub fn note_samples() -> [HumanQuestion; 2] {
         ],
         asked_at: 0,
     };
-    [asks, passed]
+    [asks, invoice]
 }
 
 #[cfg(test)]
@@ -297,10 +281,6 @@ mod tests {
                 Some(long.as_str()),
                 None
             ]
-        );
-        assert!(
-            rows.iter().all(|r| r.lead_reason.is_none()),
-            "the lead's reason stays apart"
         );
         q.notes = Vec::new();
         assert!(

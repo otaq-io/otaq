@@ -82,7 +82,7 @@ export interface OverlayParams {
   blocked: BlockedDialog;
   /** Send back with PR comments and an optional note (FLW-16, T-0424). */
   send_back_pr: { ticket: string };
-  /** Change… on a recorded decision (T-0288): Send back on a ticket, Add a fix child in an epic's review. */
+  /** Change… on a recorded decision (T-0288): Send back. */
   change_decision: { id: string };
   /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
   local_merge: { ticket: string; menu?: boolean };

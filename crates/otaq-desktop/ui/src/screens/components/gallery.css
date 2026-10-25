@@ -348,21 +348,6 @@
   gap: 6px;
 }
 
-/* The Lead tab cells (T-0290): the sheet's default width, a fixed height so the terminal well has room. */
-.gallery-lead-tab {
-  width: 660px;
-  height: 420px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
-
-/* The Needs you strip's suggestion drawn open in place (T-0459): not fixed over the page. */
-.gallery-strip-suggestion.popover {
-  position: static;
-  width: fit-content;
-}
-
 /* T-0375: the sheet's question bar at the sheet's default width, and a card's hover card drawn open in place. */
 .gallery-option-notes-sheet {
   width: 480px;

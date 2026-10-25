@@ -12,8 +12,6 @@ const html = (element: ReactElement) => renderToStaticMarkup(element);
 // SHOP-22 of *24 · The two views* as `card_page.rs` serves it (BRD-03): one status line, who, the edge, one action.
 const SHOP_22: TicketCardView = {
   key: "SHOP-22",
-  key_label: "SHOP-22",
-  epic: null,
   priority: null,
   title: "Fix flaky login redirect",
   status: { text: "Needs you: allow rm -rf .next?", dot: "attn", tone: "attention", icon: null },
@@ -34,12 +32,10 @@ const SHOP_22: TicketCardView = {
   open_terminal: "Open terminal",
 };
 
-// SHOP-29: working, an epic child, no action.
+// SHOP-29: working, no action.
 const SHOP_29: TicketCardView = {
   ...SHOP_22,
   key: "SHOP-29",
-  key_label: "SHOP-29",
-  epic: "Checkout",
   title: "Coupon field",
   status: { text: "Working · back from Security", dot: "working", tone: "secondary", icon: null },
   blocks: null,
@@ -84,9 +80,9 @@ describe("the one-line card draws its view (BRD-03)", () => {
     expect(out).not.toContain("status-pill");
   });
 
-  it("a working epic child: its epic's name on the key's row, calm words, the time, no edge and no button", () => {
+  it("a working card: calm words, the time, no edge and no button", () => {
     const out = html(createElement(TicketCard, { card: SHOP_29 }));
-    expect(out).toContain('<span class="card-epic-name">Checkout</span>');
+    expect(out).toContain('<span class="card-key">SHOP-29</span>');
     expect(out).toContain('style="color:var(--text-secondary)">Working · back from Security</span>');
     expect(out).toContain('<span class="card-time">8m</span>');
     expect(out).not.toContain("data-edge");
@@ -101,7 +97,6 @@ describe("the one-line card draws its view (BRD-03)", () => {
     );
     expect(out).not.toContain("card-status");
     expect(out).not.toContain("card-who");
-    expect(out).not.toContain("card-epic");
   });
 
   it("the hover shows the full status and what the card has no room for, from the key's row", () => {

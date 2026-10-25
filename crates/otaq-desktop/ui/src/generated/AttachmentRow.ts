@@ -14,7 +14,7 @@ n: number, name: string,
  */
 size: string, mark: CommentMark, 
 /**
- * "Rust developer · Dev", "You", "You · at creation" (RPT-03), "Wishlist lead".
+ * "Rust developer · Dev", "You", "You · at creation" (RPT-03).
  */
 who: string, 
 /**

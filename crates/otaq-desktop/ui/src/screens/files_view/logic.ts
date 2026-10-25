@@ -27,7 +27,7 @@ export interface ViewState {
   mode: FilesFileMode | null;
   /** Diff's ticket, as chosen in "of SHOP-29 ▾"; `null`: the one the file starts on. */
   diffOf: string | null;
-  /** A ticket or epic picked in the picker (its key); `null`: the base branch with every ticket's changes. */
+  /** A ticket picked in the picker (its key); `null`: the base branch with every ticket's changes. */
   picked: string | null;
   /** One of your own worktrees picked in the picker (its folder; #43): the view shows its tree instead of the base,
    * read-only. */
@@ -130,7 +130,7 @@ export function openProjectFile(project: string, path: string, line: number | nu
   filesViewWanted.update((w) => ({ project, n: (w?.n ?? 0) + 1 }));
 }
 
-/** A row picked in the picker: the base, a ticket or epic, or one of your worktrees. Moving between the base and a
+/** A row picked in the picker: the base, a ticket, or one of your worktrees. Moving between the base and a
  * worktree starts its tree afresh (their paths differ). */
 export function withPick(state: ViewState, pick: FilesViewPick): ViewState {
   const worktree = pick.kind === "worktree" ? pick.path : null;

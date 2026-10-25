@@ -3,7 +3,7 @@ import type { PillView } from "./PillView";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
- * One row of the switcher: a Project agent of the project (not an epic lead), with its state.
+ * One row of the switcher: a Project agent of the project, with its state.
  */
 export type AgentPanelSwitcherRow = { id: string, name: string, unnamed: boolean, pill: PillView, 
 /**

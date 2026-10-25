@@ -10,7 +10,7 @@ import type { DecisionsSection } from "../../generated/DecisionsSection";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 
-/** A decision recorded, kept or changed, or a mark, changes the ticket or its epic. */
+/** A decision recorded, kept or changed changes the ticket. */
 export const DECISION_EVENTS = ["ticket_changed", "card_status_changed"] as const;
 
 export function TicketDecisions({ ticket }: TicketProps) {

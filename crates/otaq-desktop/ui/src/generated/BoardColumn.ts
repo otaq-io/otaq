@@ -6,7 +6,6 @@ import type { BoardColumnMenuItem } from "./BoardColumnMenuItem";
 import type { BoardColumnRail } from "./BoardColumnRail";
 import type { BoardColumnTooltip } from "./BoardColumnTooltip";
 import type { BoardDevSections } from "./BoardDevSections";
-import type { BoardDoneFold } from "./BoardDoneFold";
 import type { BoardFoldedStage } from "./BoardFoldedStage";
 import type { BoardReviewSection } from "./BoardReviewSection";
 import type { IconName } from "./IconName";
@@ -69,11 +68,7 @@ cards: Array<BoardCard>,
 /**
  * Review only: Ready for Review, then Approved.
  */
-sections: Array<BoardReviewSection>, 
-/**
- * Done only: the epics' folded merged children (EPC-16); each fold's cards follow each other in `cards`.
- */
-folds: Array<BoardDoneFold>, dev: BoardDevSections | null, 
+sections: Array<BoardReviewSection>, dev: BoardDevSections | null, 
 /**
  * Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
  */

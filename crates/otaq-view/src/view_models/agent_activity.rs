@@ -50,10 +50,10 @@ pub fn fresh_from_project_agent(ticket: &Ticket, now_ms: i64) -> bool {
 /// A ticket an agent created, as the service told it (`created_by_agent`, #47).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Created {
-    /// Who created it, as the toast names it: "DEMO-7" (a ticket's agent) or "Wishlist lead".
+    /// Who created it, as the toast names it: "DEMO-7" (a ticket's agent).
     pub by: String,
     pub key: TicketKey,
-    /// Where it landed: Backlog, or Ready for Dev in its epic's queue.
+    /// Where it landed: Backlog, or Ready for Dev.
     pub status: Status,
 }
 
@@ -259,7 +259,7 @@ mod tests {
                 t0 + Duration::from_millis(100 * n as u64),
             );
         }
-        batch.add(made("Wishlist lead", "DEMO-45", Status::Queued), t0);
+        batch.add(made("DEMO-8", "DEMO-45", Status::Queued), t0);
         let toasts = batch.take_if_quiet(t0 + Duration::from_secs(5));
         let shown: Vec<(&str, Option<&str>)> = toasts
             .iter()
@@ -274,7 +274,7 @@ mod tests {
                 ),
                 (
                     "Ticket created by agent",
-                    Some("Wishlist lead created DEMO-45 \u{2192} Ready for Dev")
+                    Some("DEMO-8 created DEMO-45 \u{2192} Ready for Dev")
                 ),
             ]
         );

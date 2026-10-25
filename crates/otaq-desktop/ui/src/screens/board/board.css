@@ -1,8 +1,7 @@
 /*
  * The board (*24 · The two views*): the toolbar on top (`.board-toolbar`), then the columns of the flow, which share
  * the main area's width (BRD-02), each at least `--column-width` (the view's `min_column_width`, 180 px), 16 px around
- * and 12 px between them; each column scrolls by itself under its pinned header. With Lanes: Epic (`.board-lanes`,
- * EPL-01) the headers sit once on top and the lanes scroll under them. When they don't fit, the board scrolls
+ * and 12 px between them; each column scrolls by itself under its pinned header. When they don't fit, the board scrolls
  * sideways and the "7 more stages" pill sits at its right edge. While the sheet is open over the
  * board, `.board-under-sheet` adds its width of room after the columns, so any column can scroll to the uncovered
  * left part (*x9qiI*) without the columns changing width. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
@@ -326,13 +325,6 @@
 /* The card's place while it is lifted (*Drag · over an allowed column*: the origin at 35%). */
 .board-card[data-lifted] {
   opacity: 0.35;
-}
-
-/* A focused epic (EPC-18, Q55; *03 → epic flows 2 → 6*): the other cards and Done lines stay in place, faded. */
-.board-card[data-dimmed],
-.board-done-fold[data-dimmed] {
-  opacity: 0.3;
-  transition: opacity var(--motion-fast) var(--ease-in-out);
 }
 
 .board-fold,
@@ -685,7 +677,7 @@
   transform: rotate(-2deg);
 }
 
-/* A row of the epic card or a "not queued" chip, dragged out on its own (*03 → epic flows 3 → 8 · Dragged row*). */
+/* A List row while it is dragged. */
 .board-ghost-row {
   position: absolute;
   top: -14px;
@@ -716,47 +708,6 @@
   color: var(--text-primary);
   font: 400 11.5px var(--font-ui);
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* *03 → epic flows 1 → 3 · Dragged track handle*: an epic lifted by its lane's head (EPC-14, EPL-01). */
-.board-ghost-lane {
-  position: absolute;
-  top: -15px;
-  left: -100px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  box-sizing: border-box;
-  max-width: 280px;
-  height: 30px;
-  padding: 0 8px;
-  border: 1.5px solid var(--accent);
-  border-radius: 6px;
-  background: var(--accent-soft);
-  box-shadow: var(--shadow-floating);
-  transform: rotate(-2deg);
-}
-
-.board-ghost-lane-icon {
-  display: flex;
-  flex: none;
-  color: var(--st-investigate);
-}
-
-.board-ghost-lane-name {
-  overflow: hidden;
-  min-width: 0;
-  color: var(--text-primary);
-  font: 600 12px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.board-ghost-lane-detail {
-  flex: none;
-  color: var(--text-muted);
-  font: 400 11px var(--font-ui);
   white-space: nowrap;
 }
 
@@ -793,7 +744,7 @@
   white-space: nowrap;
 }
 
-/* A take back's second line ("SHOP-45.1 keeps running", *epic flows 1 → 3*). */
+/* The drop hint's words and its second line. */
 .board-drop-hint-text {
   display: flex;
   flex-direction: column;
@@ -1210,236 +1161,6 @@ button.board-search-option[data-highlighted] {
 
 .board-chip[data-chain] > .icon {
   color: var(--accent);
-}
-
-/* An epic's merged children folded in Done (EPC-16, *01 · Components → Done Fold*). */
-.board-done-fold {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 7px 8px;
-  border: none;
-  border-radius: calc(var(--r-md) + 1px);
-  background: var(--st-investigate-bg);
-  color: var(--st-investigate);
-  opacity: 0.8;
-  text-align: left;
-  cursor: pointer;
-}
-
-.board-done-fold:hover,
-.board-done-fold[aria-expanded="true"] {
-  opacity: 1;
-}
-
-.board-done-fold[data-chain] {
-  outline: 1px solid var(--accent);
-}
-
-.board-done-fold:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.board-done-fold > .icon {
-  display: inline-flex;
-  flex: none;
-}
-
-.board-done-fold-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  font: 500 11.5px/1.3 var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/*
- * Lanes: Epic (EPL-01, `s24-06`): the columns' headers once on top (they are the drop targets, so a drop anywhere
- * down a column lands on it), then a lane per epic on the column colour, "No epic" last: its head (fold chevron, the
- * violet epic icon, name, "PAY-123 · 5 tickets", the 140 px bar of merged children, the lead on the right), then its
- * cells under the columns, with the same widths and gaps as the headers. The lanes scroll under the headers.
- */
-.board-lanes {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  min-width: calc(
-    var(--open-columns, 5) * var(--column-width) + var(--rail-columns, 0) * var(--rail-width, 52px) +
-      (var(--open-columns, 5) + var(--rail-columns, 0) - 1) * 12px
-  );
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.board-lane-headers {
-  position: sticky;
-  z-index: 2;
-  top: 0;
-  display: flex;
-  flex: none;
-  align-items: flex-start;
-  gap: 12px;
-  padding-bottom: 2px;
-  background: var(--bg-app);
-}
-
-.board-lane-header {
-  display: flex;
-  flex: 1 0 var(--column-width);
-  flex-direction: column;
-  gap: 2px;
-  box-sizing: border-box;
-  min-width: var(--column-width);
-  padding: 2px 6px 4px;
-  border-radius: var(--r-lg);
-}
-
-.board-lane-headers > .board-rail {
-  padding: 6px 4px;
-}
-
-.board-lane-headers > .board-done-line {
-  align-self: center;
-}
-
-.board-lane {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  border-radius: 10px;
-  background: var(--bg-column);
-}
-
-.board-lane-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-}
-
-.board-lane-head[data-epic] {
-  cursor: grab;
-}
-
-.board-lane-head[data-dimmed] {
-  opacity: 0.3;
-}
-
-.board-lane-fold {
-  display: flex;
-  flex: none;
-  padding: 2px;
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.board-lane-fold:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.board-lane-fold:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.board-lane-icon {
-  display: flex;
-  flex: none;
-  color: var(--st-investigate);
-}
-
-.board-lane-pin {
-  display: flex;
-  flex: none;
-  color: var(--text-muted);
-}
-
-.board-lane-name {
-  overflow: hidden;
-  min-width: 0;
-  color: var(--text-primary);
-  font: 600 13.5px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.board-lane-detail {
-  flex: none;
-  color: var(--text-muted);
-  font: 400 12px var(--font-ui);
-  white-space: nowrap;
-}
-
-.board-lane-progress {
-  display: flex;
-  flex: none;
-  width: 140px;
-  height: 6px;
-  margin-left: 8px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: var(--border);
-}
-
-.board-lane-progress-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: var(--st-approved);
-}
-
-.board-lane-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 99px;
-  background: var(--st-attn);
-}
-
-.board-lane-cells {
-  display: flex;
-  gap: 12px;
-  padding-bottom: 10px;
-}
-
-.board-lane-cell {
-  display: flex;
-  flex: 1 0 var(--column-width);
-  flex-direction: column;
-  gap: 8px;
-  box-sizing: border-box;
-  min-width: var(--column-width);
-  min-height: 24px;
-  padding: 0 6px;
-  border-radius: var(--r-lg);
-}
-
-.board-lane-cell[data-collapsed] {
-  flex: none;
-  width: var(--rail-width, 52px);
-  min-width: 0;
-}
-
-.board-lane-header[data-verdict="allowed"],
-.board-lane-cell[data-verdict="allowed"] {
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.board-lane-header[data-verdict="forbidden"],
-.board-lane-cell[data-verdict="forbidden"] {
-  box-shadow: inset 0 0 0 2px var(--st-error);
-  cursor: not-allowed;
 }
 
 /* A narrow window: the bar gives way first. */

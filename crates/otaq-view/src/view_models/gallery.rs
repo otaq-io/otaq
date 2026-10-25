@@ -96,7 +96,6 @@ fn live_label(status: Status) -> Option<&'static str> {
         Status::Conflicts => Some("Conflicts with main"),
         Status::Running => Some("Serving :4020"),
         Status::Asked => Some("Asked SHOP-40.1"),
-        Status::Epic => Some("Epic · 1 of 3 merged"),
         Status::ValidationFailed => Some("Validation failed 3 times"),
         Status::AutoMergeStopped => Some("Keeps conflicting"),
         Status::Validated => Some("Validated · round 2"),

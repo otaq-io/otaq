@@ -7,7 +7,7 @@ import type { ApproveItem } from "./ApproveItem";
  */
 export type ApproveMenu = { key: string, title: string, items: Array<ApproveItem>, note: string, 
 /**
- * The one enabled choice when there is no other (an epic child's Local merge into its epic): the page opens its
- * dialog straight away, without the choice (dogfood #18).
+ * The one enabled choice when there is no other: the page opens its dialog straight away, without the choice
+ * (dogfood #18).
  */
 direct: ApproveChoice | null, };

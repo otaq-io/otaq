@@ -4,18 +4,14 @@
 //! Review and Approved), each with its own count and its own cards in its status set's order, and the column counts
 //! both. Ready for Dev shows the queued cards (d0066); an agent column (Dev) the cards that need the user (and pins)
 //! on top, then the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027);
-//! epic cards in Backlog; and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
+//! and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
 //! board, the service and the tests agree.
 //!
 //! T-0460 (BRD-02): one width rule ([`COLUMN_MIN_WIDTH`], [`fits`], [`columns_after`] for the "7 more stages" pill)
 //! replaces the long-flow folding and the stage strip; a column is folded ([`is_folded`]) from its ⋯ or by Fold empty
 //! columns (the project's view preferences), Done at first.
 //!
-//! Each child is on the board exactly once (EPC-11, d0080, EPL-01): an epic is a card in Backlog only in its Card
-//! place and a delivery card in Review / Done; in flight its children are its cards, each naming the epic (and with
-//! Lanes: Epic they sit in its lane, `lanes.rs`). An epic child in Backlog is a row of the epic card while the epic
-//! is one, else a card of its own. In Done an epic's merged children fold into one line (EPC-16, [`DoneFold`]); its
-//! closed children stay cards.
+//! One card per ticket in every column (d0133).
 
 use otaq_core::agents::{Agent, AgentList, AgentModel};
 use otaq_core::board::order::{ColumnOrder, fold_dev};
@@ -127,7 +123,7 @@ pub struct ColumnView {
     pub icon: IconName,
     /// The icon in the muted colour (FLW-12: a flow that isn't the default's shape); else in its status colour.
     pub quiet_icon: bool,
-    /// "12" or, with a filter, "3/12" (T-0038); with an epic focused, its cards over all (Q55). Review: both
+    /// "12" or, with a filter, "3/12" (T-0038). Review: both
     /// sections. An agent column with a folded stage: its own stage's cards ("Dev 3 · Validating 1").
     pub count: String,
     /// The stages folded into the column, each with its count: an agent column's header names them; a human
@@ -153,30 +149,6 @@ pub struct ColumnView {
     pub needs_you: usize,
     /// Cards a filter hides in this column ("6 hidden by filter").
     pub hidden: usize,
-    /// Done only: one line per epic over its merged children, which follow each other in `cards` from where the
-    /// first of them sorts.
-    pub folds: Vec<DoneFold>,
-}
-
-/// An epic's merged children folded into one line in Done (EPC-16; *01 · Components → Done Fold*): "Wishlist · 4
-/// of 6 merged", merged out of all its children. A click shows the cards; the column counts the line as one.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DoneFold {
-    pub epic: TicketKey,
-    pub label: String,
-    /// The folded cards, in column order.
-    pub keys: Vec<TicketKey>,
-}
-
-/// Folds the merged epic children among `keys` (a column's cards in order): each epic's merged children move up
-/// to where the first of them sorts, and get a [`DoneFold`]. Closed children and other cards stay where they are.
-pub fn done_folds(keys: &[TicketKey], _all: &[Ticket]) -> (Vec<TicketKey>, Vec<DoneFold>) {
-    (keys.to_vec(), Vec::new())
-}
-
-/// How many items `keys` make with their folds: a fold is one.
-fn items(keys: &[TicketKey], folds: &[DoneFold]) -> usize {
-    keys.len() - folds.iter().map(|f| f.keys.len() - 1).sum::<usize>()
 }
 
 /// A column's icon and empty hint (FLW-12): by the kind of the stage that owns it. `quiet` is a flow that isn't the
@@ -314,9 +286,6 @@ pub struct BoardInput<'a> {
     pub tickets: &'a [Ticket],
     /// Tickets shown (a filter, T-0038); `None` shows all.
     pub visible: Option<&'a [TicketKey]>,
-    /// Tickets at full strength while an epic is focused (an `epic:` filter, Q55): the others are shown dimmed and
-    /// the counts count only these. `None`: nothing dims.
-    pub strong: Option<&'a [TicketKey]>,
     pub project_base: Option<&'a str>,
     pub now_ms: i64,
     /// Dev's card budget; `None` when the user unfolded Dev.
@@ -350,13 +319,10 @@ pub const KEPT_START: &str = "Paused \u{b7} starts when you resume";
 /// One state's cards, in its order, with what its count counts.
 struct StateCards {
     order: ColumnOrder,
-    folds: Vec<DoneFold>,
-    /// Items over all (a Done fold is one).
+    /// Cards over all.
     total: usize,
-    /// Items the filter shows.
+    /// Cards the filter shows.
     visible: usize,
-    /// Items at full strength while an epic is focused.
-    strong: Option<usize>,
 }
 
 impl StateCards {
@@ -376,34 +342,27 @@ impl StateCards {
         let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
             keys.iter().filter(|k| of.contains(k)).cloned().collect()
         };
-        let (shown_cards, folds) = done_folds(&keep(&full, shown), all);
-        let every = full;
-        let total = items(&every, &done_folds(&every, all).1);
-        let visible = items(&shown_cards, &folds);
-        let strong = input.strong.map(|strong| {
-            let full = keep(&shown_cards, &strong.iter().collect::<Vec<_>>());
-            items(&full, &done_folds(&full, all).1)
-        });
+        let shown_cards = keep(&full, shown);
+        let total = full.len();
+        let visible = shown_cards.len();
         Self {
             order: ColumnOrder {
                 // The core's order type; the board only reads its cards.
                 column: StatusSet::AgentStage,
                 cards: shown_cards,
             },
-            folds,
             total,
             visible,
-            strong,
         }
     }
 }
 
-/// "12", "3/12" under a filter, or the focused epic's items over all.
-fn count_text(visible: usize, total: usize, strong: Option<usize>, filtered: bool) -> String {
-    match strong {
-        Some(n) => format!("{n}/{total}"),
-        None if filtered => format!("{visible}/{total}"),
-        None => total.to_string(),
+/// "12", or "3/12" under a filter.
+fn count_text(visible: usize, total: usize, filtered: bool) -> String {
+    if filtered {
+        format!("{visible}/{total}")
+    } else {
+        total.to_string()
     }
 }
 
@@ -537,7 +496,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 title: column.title.clone(),
                 icon,
                 quiet_icon: quiet,
-                count: count_text(own.visible, own.total, own.strong, filtered),
+                count: count_text(own.visible, own.total, filtered),
                 folded: Vec::new(),
                 tooltip: header_tooltip(column, input.agent_list),
                 total: whole.total,
@@ -549,7 +508,6 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 collapsed: is_folded(id, column.kind, whole.total, input.folded, input.fold_empty),
                 needs_you: needs_you_in(&columns, id, all, &cards),
                 hidden: whole.total - whole.visible,
-                folds: Vec::new(),
             };
             view.folded = column
                 .parts
@@ -559,7 +517,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 .map(|(part, s)| FoldedView {
                     tag: folded_tag(part.stage),
                     name: part.stage.name.clone(),
-                    count: count_text(s.visible, s.total, s.strong, filtered),
+                    count: count_text(s.visible, s.total, filtered),
                 })
                 .collect();
             match column.kind {
@@ -578,7 +536,6 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 }
                 _ => {
                     view.cards = entries(&whole.order.cards);
-                    view.folds = whole.folds;
                 }
             }
             view
@@ -731,7 +688,7 @@ fn section(
         } else {
             "Ready for Review"
         },
-        count: count_text(state.visible, state.total, state.strong, filtered),
+        count: count_text(state.visible, state.total, filtered),
         cards: entries(&state.order.cards),
         hidden: state.total - state.visible,
         empty: if approved {
@@ -823,7 +780,6 @@ mod tests {
             flow: &otaq_core::flow::default_file().flow,
             tickets,
             visible: None,
-            strong: None,
             project_base: Some("main"),
             now_ms: NOW,
             dev_budget: budget,
@@ -995,7 +951,7 @@ mod tests {
 
     /// SHL-06, FLW-01: six columns (Validate has its own); Review counts both sections.
     #[test]
-    fn six_columns_with_counts_and_epics_in_backlog() {
+    fn six_columns_with_counts() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
         let titles: Vec<_> = columns.iter().map(|c| c.title.as_str()).collect();
@@ -1265,30 +1221,10 @@ mod tests {
             visible: Some(&visible),
             ..input(&tickets, None)
         });
-        assert_eq!(columns[0].count, "1/2", "the epic's row is not a card");
+        assert_eq!(columns[0].count, "1/2");
         assert_eq!(columns[0].hidden, 1);
         assert_eq!(columns[2].count, "1/7");
         assert_eq!(keys(&columns[2].dev.as_ref().unwrap().top), ["SHOP-22"]);
-    }
-
-    /// Q55: a focused epic dims the other cards; they stay in their columns, nothing says "hidden", and the count
-    /// counts the cards at full strength.
-    #[test]
-    fn a_focused_epic_dims_and_counts_its_cards() {
-        let tickets = board();
-        let strong: Vec<TicketKey> = vec!["SHOP-40".parse().unwrap()];
-        let columns = build(&BoardInput {
-            strong: Some(&strong),
-            ..input(&tickets, None)
-        });
-        assert_eq!(
-            keys(&columns[0].cards),
-            ["SHOP-24", "SHOP-40"],
-            "dimmed, not hidden"
-        );
-        assert_eq!(columns[0].count, "1/2");
-        assert_eq!(columns[0].hidden, 0);
-        assert_eq!(columns[2].count, "0/7");
     }
 
     /// FLW-12 on the default flow: today's icons in their status colours, but Validate's shield (FLW-01); a tooltip

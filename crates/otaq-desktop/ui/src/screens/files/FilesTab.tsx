@@ -66,8 +66,8 @@ export const FILES_EVENTS = ["card_status_changed", "ticket_changed"] as const;
 
 const ignore = () => undefined;
 
-/** A changed file's section in All changes: its path, and the running child's key for an epic child's change on top
- * (Rust's `FilesChangeRow.id`). */
+/** A changed file's section in All changes: its path, and the other worktree's key when it comes from one (Rust's
+ * `FilesChangeRow.id`). */
 function changeId(row: FilesTreeRow): string {
   return row.child === null ? row.path : `${row.path}\u0000${row.child}`;
 }
@@ -264,7 +264,7 @@ export function SearchResults({
 }: {
   found: FilesSearchView;
   selected: number;
-  /** The match's path, and the running child writing it on an epic (its worktree's version opens). */
+  /** The match's path, and the other worktree it comes from, if any (that worktree's version opens). */
   onOpen: (path: string, child: string | null) => void;
 }) {
   return (
@@ -349,7 +349,7 @@ function Tree({
   }, [ticket, keep]);
   const press = (row: FilesTreeRow) => {
     if (row.kind !== "folder") {
-      // An epic's file a running child is writing opens from that child's worktree (FTB-06).
+      // A file from another worktree opens from that worktree.
       onState((s) => openFile(s, { path: row.path, child: row.child, mode: null }));
       return;
     }
@@ -1045,7 +1045,7 @@ export function FilesTabBody({
           </div>
         </div>
         {view.source.legend.length > 0 && (
-          // An epic's key to its tags (FTB-06): "40.1 merged", "40.2 on top · its own worktree".
+          // The key to the tree's tags.
           <div className="files-legend">
             {view.source.legend.map((t) => (
               <span
@@ -1118,7 +1118,7 @@ export function FilesTabBody({
   );
 }
 
-/** The project Files view's picked ticket or epic (FIL-07): its tab, read-only, with the view's back link and note. */
+/** The project Files view's picked ticket (FIL-07): its tab, read-only, with the view's back link and note. */
 export interface ReadOnlyTab {
   head: ReactNode;
   note: ReactNode;

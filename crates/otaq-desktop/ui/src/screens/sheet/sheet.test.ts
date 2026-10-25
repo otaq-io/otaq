@@ -39,9 +39,9 @@ describe("the sheet's tabs (SHT-02)", () => {
     expect(shownSheetTab(TABS, "run", "overview")?.tab).toBe("session");
     expect(shownSheetTab(TABS, "files", "overview")?.tab).toBe("files");
     expect(shownSheetTab(TABS, "activity", "overview")?.tab).toBe("activity");
-    // An epic has no Session: its agent asked for falls back to the tab it opens on.
-    const epic = TABS.filter((t) => t.tab !== "session");
-    expect(shownSheetTab(epic, "agent", "overview")?.tab).toBe("overview");
+    // Without a Session tab, its agent asked for falls back to the tab it opens on.
+    const noSession = TABS.filter((t) => t.tab !== "session");
+    expect(shownSheetTab(noSession, "agent", "overview")?.tab).toBe("overview");
     // No check ran: the check asked for falls back too.
     expect(shownSheetTab(TABS, "check", "overview")?.tab).toBe("overview");
   });
@@ -154,21 +154,6 @@ describe("the sheet", () => {
     expect(loads()).toEqual({ key: "SHOP-19", opened: false });
     // Sliding out: nothing is taken.
     expect(sheetViewLoads("SHOP-19", false)()).toEqual({ key: "SHOP-19", opened: false });
-  });
-
-  it("an epic child's crumb opens the epic", () => {
-    const html = render({
-      ...VIEW,
-      sheet: {
-        ...SHEET,
-        crumbs: [
-          { text: "shop-web", opens: null, key: false },
-          { text: "Wishlist", opens: "SHOP-40", key: false },
-          { text: "40.2", opens: null, key: true },
-        ],
-      },
-    });
-    expect(html).toContain('<button type="button" class="sheet-crumb sheet-crumb-link">Wishlist</button>');
   });
 
   it("fills the sheet slot and registers the ticket's dialogs; each tab's body is its own screen's", () => {

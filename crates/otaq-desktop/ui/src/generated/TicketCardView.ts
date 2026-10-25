@@ -10,18 +10,10 @@ import type { PriorityView } from "./PriorityView";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
- * A ticket card for the page (BRD-03; *24 · The two views*): key and epic name, title, one status line, who and
+ * A ticket card for the page (BRD-03; *24 · The two views*): key, title, one status line, who and
  * when, the coloured edge and one action. `faded` is the Done cards' opacity.
  */
 export type TicketCardView = { key: string, 
-/**
- * "SHOP-51 → SHOP-40.4" after Move to epic.
- */
-key_label: string, 
-/**
- * The epic's name on the key's row, for an epic child ("Wishlist").
- */
-epic: string | null, 
 /**
  * The priority chip after the key: P1, P2 and P4, none for Normal (d0065; #36), in every column.
  */

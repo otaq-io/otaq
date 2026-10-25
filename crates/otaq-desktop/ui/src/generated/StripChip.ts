@@ -9,11 +9,11 @@ import type { StripTone } from "./StripTone";
  */
 export type StripChip = { 
 /**
- * "SHOP-22", "40.4" (an epic's child by its number), "Agent".
+ * "SHOP-22", "Agent".
  */
 label: string, 
 /**
- * "allow a command", "a question", "decide", "your check", "via the lead".
+ * "allow a command", "a question", "decide", "your check".
  */
 reason: string, icon: IconName, tone: StripTone, 
 /**

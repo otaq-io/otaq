@@ -96,7 +96,6 @@ pub fn on_connect(
         at: local_hhmm(status.started_at),
         // The startup report adds them once it is read (`with_agents`).
         agents: 0,
-        leads: 0,
     })
 }
 
@@ -408,8 +407,8 @@ fn skipped(tickets: &[&Ticket], runs: &Runs) -> Vec<String> {
     lines
 }
 
-/// "8 sessions were interrupted · 2 conversations with Noyan ended · 1 epic lead ended" (*16 → Epic lead after a restart*).
-pub fn title(sessions: usize, agents: usize, leads: usize) -> String {
+/// "8 sessions were interrupted · 2 conversations with Noyan ended" (*16 → Opening after a reboot*).
+pub fn title(sessions: usize, agents: usize) -> String {
     let sessions = match sessions {
         0 => None,
         1 => Some("1 session was interrupted".to_owned()),
@@ -417,25 +416,18 @@ pub fn title(sessions: usize, agents: usize, leads: usize) -> String {
     };
     sessions
         .into_iter()
-        .chain(ended(agents, leads))
+        .chain(ended(agents))
         .collect::<Vec<_>>()
         .join(" \u{b7} ")
 }
 
-/// What the restart ended besides tickets, each counted on its own (d0068, d0083): "2 conversations with Noyan
-/// ended", "1 epic lead ended". Epic leads aren't Project agents in the count, and aren't in Resume selected.
-pub fn ended(agents: usize, leads: usize) -> Vec<String> {
-    let agents = match agents {
+/// What the restart ended besides tickets (d0068): "2 conversations with Noyan ended".
+pub fn ended(agents: usize) -> Option<String> {
+    match agents {
         0 => None,
         1 => Some("1 conversation with Noyan ended".to_owned()),
         n => Some(format!("{n} conversations with Noyan ended")),
-    };
-    let leads = match leads {
-        0 => None,
-        1 => Some("1 epic lead ended".to_owned()),
-        n => Some(format!("{n} epic leads ended")),
-    };
-    [agents, leads].into_iter().flatten().collect()
+    }
 }
 
 /// The sheet for this service start, or `None` once it interrupted nothing. `tickets`: the ones `report` names,
@@ -541,11 +533,7 @@ pub fn summary_with(
         ));
     }
     Some(SummaryPage {
-        title: title(
-            report.interrupted.len(),
-            report.project_agents_ended.len(),
-            0,
-        ),
+        title: title(report.interrupted.len(), report.project_agents_ended.len()),
         text: "Only Dev tickets that were working become Interrupted. Each one can resume its session on the tool it \
                started on in the same worktree; resuming uses tokens, so it needs your click.",
         rows,
@@ -814,21 +802,16 @@ mod tests {
             ["SHOP-29"],
             "agents aren't in Resume selected"
         );
-        assert_eq!(
-            title(4, 0, 1),
-            "4 sessions were interrupted \u{b7} 1 epic lead ended"
-        );
-        assert_eq!(
-            title(4, 0, 2),
-            "4 sessions were interrupted \u{b7} 2 epic leads ended"
-        );
         // d0128: the conversations with Noyan are counted, one or several.
         assert_eq!(
-            title(4, 2, 1),
-            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended \u{b7} 1 epic lead ended"
+            title(4, 2),
+            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended"
         );
-        assert_eq!(ended(1, 0), ["1 conversation with Noyan ended"]);
-        assert_eq!(ended(2, 0), ["2 conversations with Noyan ended"]);
+        assert_eq!(ended(1).as_deref(), Some("1 conversation with Noyan ended"));
+        assert_eq!(
+            ended(2).as_deref(),
+            Some("2 conversations with Noyan ended")
+        );
         let part = page.agents.unwrap();
         assert_eq!(
             part.title,

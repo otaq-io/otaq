@@ -1269,7 +1269,6 @@ mod tests {
             ("Next item that needs you", vec!["⌘J"]),
             ("Next / previous ticket", vec!["⌘] / ⌘[", "j / k"]),
             ("Filter the board", vec!["/"]),
-            ("Focus the epic of the selected card", vec!["g then e"]),
             ("Show all shortcuts", vec!["?"]),
             ("Board", vec!["⇧⌘B", "g then b"]),
             ("List", vec!["g then l"]),

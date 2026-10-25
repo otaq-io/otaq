@@ -47,7 +47,7 @@ pub const EDITING: &str = "editing";
 pub enum Mark {
     /// The user: a person icon on the accent tint.
     You,
-    /// An agent or a lead whose tool is known, once avatars show (SHL-08).
+    /// An agent whose tool is known, once avatars show (SHL-08).
     Tool { avatar: ToolAvatarView },
     /// An agent while avatars are hidden (one tool connected) or its tool isn't known: a plain agent mark.
     Agent,
@@ -73,7 +73,7 @@ pub struct ReportChip {
 pub struct CommentRow {
     /// Its number on the ticket: what Edit, Delete and Open send.
     pub n: u32,
-    /// "Griller", "You", "Wishlist lead".
+    /// "Griller", "You".
     pub author: String,
     /// The user's own: tinted with the accent.
     pub mine: bool,
@@ -341,7 +341,7 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
     }
 }
 
-/// An agent's or a lead's mark: its tool's avatar once avatars show, else the plain agent mark (also History's, CMT-14).
+/// An agent's mark: its tool's avatar once avatars show, else the plain agent mark (also History's, CMT-14).
 pub fn agent_mark(tool: Option<otaq_core::agent_tools::Tool>, avatars: bool) -> Mark {
     match tool.filter(|_| avatars) {
         Some(tool) => Mark::Tool {

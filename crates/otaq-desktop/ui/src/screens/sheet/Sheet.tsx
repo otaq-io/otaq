@@ -1,7 +1,7 @@
 // The ticket sheet (SHT-01, SHT-02; T-0464; *25 → Opening a ticket*, *Full page, and with the agent open*): 1040 px
 // over the board (920 px beside the Project agent; only the board dims), or the whole main area at full page (⤢,
 // "← Board"). The header: breadcrumb, title and status, Move… (the drag's columns), ⋯ (the ticket's menu), ⤢ and ✕;
-// the details line (Assignee, Model, Working, Priority, Branch, Epic, External ID; a value with a menu changes it, the
+// the details line (Assignee, Model, Working, Priority, Branch, External ID; a value with a menu changes it, the
 // External ID copies, Q416); the flow
 // path; the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
 // registered in `sheetTabs`. It comes in as the drawer of 0095 (the frame's sheet layer). Everything it says is Rust's
@@ -21,7 +21,7 @@ import {
 import { mainWidth, shellLayout, toggleExpanded } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
-import { closeTicket, openTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
+import { closeTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { CheckRoundRows } from "../../cards";
 import { AnchoredMenu, IconButton, StatusPill, Tabs, ToolAvatar, Tooltip } from "../../components";
@@ -185,8 +185,7 @@ function CopyValue({
 }
 
 /**
- * One value of the details line; with a menu (Priority, the stage's agent before it starts), a link (Epic) or a copy
- * (External ID).
+ * One value of the details line; with a menu (Priority, the stage's agent before it starts) or a copy (External ID).
  */
 function DetailValue({ view, detail }: { view: SheetView; detail: SheetDetail }) {
   const anchor = useRef<HTMLButtonElement>(null);
@@ -210,19 +209,6 @@ function DetailValue({ view, detail }: { view: SheetView; detail: SheetDetail })
       <CopyValue label={detail.label} text={change.text} hint={change.hint} copied={change.copied}>
         {content}
       </CopyValue>
-    );
-  }
-  if (change.kind === "open") {
-    return (
-      <button
-        type="button"
-        className="sheet-detail-content sheet-detail-button"
-        onClick={() => {
-          openTicket(change.key);
-        }}
-      >
-        {content}
-      </button>
     );
   }
   return (
@@ -350,22 +336,9 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
               {crumbs.map((crumb, i) => (
                 <span key={`${String(i)}-${crumb.text}`} className="sheet-crumb-part">
                   {(i > 0 || fullPage) && <span className="sheet-crumb-sep">/</span>}
-                  {crumb.opens === null ? (
-                    <span className="sheet-crumb" data-key={crumb.key || undefined}>
-                      {crumb.text}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="sheet-crumb sheet-crumb-link"
-                      data-key={crumb.key || undefined}
-                      onClick={() => {
-                        if (crumb.opens !== null) openTicket(crumb.opens);
-                      }}
-                    >
-                      {crumb.text}
-                    </button>
-                  )}
+                  <span className="sheet-crumb" data-key={crumb.key || undefined}>
+                    {crumb.text}
+                  </span>
                 </span>
               ))}
             </nav>

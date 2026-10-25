@@ -26,7 +26,7 @@ pub struct BuildAsideLine {
 }
 
 /// The line for `ticket` now: set aside while it waits in a human check or Delivery with its build freed, bringing
-/// back while a Send back, Run or Shell fetches it; none otherwise (an epic has no build of its own).
+/// back while a Send back, Run or Shell fetches it; none otherwise.
 pub fn line(ticket: &Ticket) -> Option<BuildAsideLine> {
     let work = ticket.work.as_ref()?;
     work.worktree.as_ref()?;

@@ -1,6 +1,6 @@
-// The Open PR / Push to PR dialog (REV-10, REV-11, REV-12, REV-14, EPC-08, UI-07; *07 → Open PR · skill is
-// preparing…, confirmation, pushing, invalid or taken branch name, not logged in, Approve · Push to PR #481, Push to PR ·
-// confirmation, Open PR · epic SHOP-40*) and the PR box of an open PR (REV-13, *05 → SHOP-26 · Approved, PR open*).
+// The Open PR / Push to PR dialog (REV-10, REV-11, REV-12, REV-14, UI-07; *07 → Open PR · skill is preparing…,
+// confirmation, pushing, invalid or taken branch name, not logged in, Approve · Push to PR #481, Push to PR ·
+// confirmation*) and the PR box of an open PR (REV-13, *05 → SHOP-26 · Approved, PR open*).
 // The dialog's state lives in Rust (`src/api/pr.rs`); this file keeps the fields as typed, asks the flow again while
 // the skill works, and times the branch name's check. Nothing is pushed before the confirm click.
 import { useCallback, useEffect, useRef, useState } from "react";

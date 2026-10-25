@@ -158,14 +158,6 @@
   text-overflow: ellipsis;
 }
 
-.list-row-epic {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-secondary);
-  font: 500 11px var(--font-ui);
-}
-
 .list-row-title-line {
   display: flex;
   align-items: center;
@@ -254,32 +246,4 @@
 .list-row-action {
   display: flex;
   justify-content: flex-end;
-}
-
-/* Group by Epic (EPL-02): an epic's parent row, its children indented under it. */
-.list-parent .list-row-title-text {
-  font-weight: 600;
-}
-
-.list-parent-fold {
-  display: flex;
-  margin: -4px;
-  padding: 4px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.list-parent-fold:hover {
-  background: var(--bg-hover);
-}
-
-.list-parent-fold:focus-visible {
-  outline: 2px solid var(--focus);
-}
-
-.list-family > .list-row:not(.list-parent) {
-  padding-left: 38px;
 }

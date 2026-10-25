@@ -28,7 +28,7 @@ pub enum ApproveChoice {
     PushToPr,
 }
 
-/// "Approve SHOP-18 Checkout API", "Approve epic SHOP-40 Wishlist", "Push SHOP-26 Add sitemap to PR #481".
+/// "Approve SHOP-18 Checkout API", "Push SHOP-26 Add sitemap to PR #481".
 pub fn menu_title(ticket: &Ticket) -> String {
     if let Some(n) = ticket.flags.pr_number {
         format!("Push {} {} to PR #{n}", ticket.key, ticket.title)
@@ -85,8 +85,7 @@ fn keys(keys: &[TicketKey]) -> String {
         .join(", ")
 }
 
-/// The menu: Local merge always; Open PR only on delivery units (standalone tickets and epics, never epic
-/// children, d0059). With the built-in Open PR skill and no detected provider, Open PR is disabled with "PR provider
+/// The menu: Local merge always; Open PR (d0059). With the built-in Open PR skill and no detected provider, Open PR is disabled with "PR provider
 /// not detected" (REV-11). A ticket with an open PR offers only Push to PR #N (REV-14, d0041).
 pub fn options(
     ticket: &Ticket,

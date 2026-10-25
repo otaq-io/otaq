@@ -174,23 +174,12 @@ describe("the project Files view (FIL-03, FIL-04, s28-03)", () => {
 });
 
 const PICKER: FilesViewPicker = {
-  placeholder: "Find a ticket or epic",
+  placeholder: "Find a ticket",
   sections: [
     {
       title: "BASE BRANCH",
       rows: [
         { pick: { kind: "base" }, key: null, title: "main · every ticket’s changes", detail: "the default" },
-      ],
-    },
-    {
-      title: "EPICS · THE EPIC’S BRANCH",
-      rows: [
-        {
-          pick: { kind: "ticket", key: "SHOP-40" },
-          key: null,
-          title: "Wishlist · SHOP-40",
-          detail: "40.1 merged · 40.2 on top",
-        },
       ],
     },
     {
@@ -215,22 +204,22 @@ const PICKER: FilesViewPicker = {
 };
 
 describe("the picker (FIL-07, s28-04)", () => {
-  it("lists the base branch, the epics and the tickets, then the ones with no worktree", () => {
+  it("lists the base branch and the tickets, then the ones with no worktree", () => {
     const out = renderToStaticMarkup(
       createElement(PickerBody, { picker: PICKER, query: "", onQuery: ignore, onPick: ignore }),
     );
-    expect(out).toMatch(/BASE BRANCH.*EPICS · THE EPIC’S BRANCH.*TICKETS · THEIR WORKTREE/);
-    expect(out).toContain("40.1 merged · 40.2 on top");
+    expect(out).toMatch(/BASE BRANCH.*TICKETS · THEIR WORKTREE/);
+    expect(out).toContain("Dev · 3 files");
     expect(out).toContain("No worktree yet: SHOP-12 (Grill).");
-    expect(out).toContain('placeholder="Find a ticket or epic"');
+    expect(out).toContain('placeholder="Find a ticket"');
   });
 
   it("filters by key or title as it is typed, dropping empty sections", () => {
-    expect(pickerSections(PICKER, "").length).toBe(3);
+    expect(pickerSections(PICKER, "").length).toBe(2);
     const coupon = pickerSections(PICKER, "coupon");
     expect(coupon.map((s) => s.title)).toEqual(["TICKETS · THEIR WORKTREE"]);
     expect(coupon[0]?.rows.map((r) => r.key)).toEqual(["SHOP-29"]);
-    expect(pickerSections(PICKER, "shop-40")[0]?.rows[0]?.title).toBe("Wishlist · SHOP-40");
+    expect(pickerSections(PICKER, "shop-22")[0]?.rows[0]?.title).toBe("Fix flaky login redirect");
   });
 });
 

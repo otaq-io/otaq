@@ -110,12 +110,6 @@ button.strip-chip {
   cursor: pointer;
 }
 
-button.strip-chip[data-suggestion] {
-  gap: 4px;
-  outline: 1px solid var(--strip-tone);
-  outline-offset: -1px;
-}
-
 button.strip-chip:hover {
   filter: brightness(0.96);
 }
@@ -230,41 +224,6 @@ button.strip-next:focus-visible {
   flex: 1;
 }
 
-/* "Wishlist lead suggests" under a suggestion's chip (`s24-12`). */
-.strip-suggestion {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 330px;
-  max-width: calc(100vw - 32px);
-}
-
-.strip-suggestion-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.strip-suggestion-head > .icon {
-  color: var(--st-investigate);
-}
-
-.strip-suggestion-text {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12.5px;
-  line-height: 1.45;
-  overflow-wrap: break-word;
-}
-
-.strip-suggestion-buttons {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 /* Resume all's confirmation: the sessions it resumes, and the ones it leaves out. */
 .strip-resume-list {
   display: flex;
@@ -305,22 +264,4 @@ button.strip-next:focus-visible {
 .strip-resume-left-out .icon {
   flex: none;
   margin-top: 2px;
-}
-
-/* The line a lead's suggestion adds to the close and delete confirmations. */
-.strip-suggested-by {
-  display: flex;
-  gap: 8px;
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border-radius: var(--r-md);
-  background: var(--st-investigate-bg);
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
-.strip-suggested-by > .icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--st-investigate);
 }

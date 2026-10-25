@@ -1,7 +1,7 @@
-//! The agent tools as the sheet, the agent panel, the epic lead and recovery see them, and what they say about a tool that
+//! The agent tools as the sheet, the agent panel and recovery see them, and what they say about a tool that
 //! can't start or continue an agent (AGT-04, AGT-05, AGT-08, SHL-04, USG-10, §7.2; d0086, d0087, d0088, d0077;
-//! *05 → Column 3 · several tools (M23)*, *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *08 → Row ·
-//! Epic lead in the epic form and panel (0086 · V)*, *16 → Row · Recovery per tool (0086)*).
+//! *05 → Column 3 · several tools (M23)*, *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *16 → Row ·
+//! Recovery per tool (0086)*).
 //!
 //! - **The tools** ([`Tools`]): which are connected, each one's state and active limit, and each one's cached model
 //!   list. With one tool connected every screen reads as M22: no tool names, no avatars ([`Tools::several`]).
@@ -405,7 +405,7 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
     }
 }
 
-/// Every held role's callout, in the order of the rows (Developer, Validator, Epic lead).
+/// Every held role's callout, in the order of the rows (Developer, Validator).
 pub fn hold_callouts(holds: &[AgentHold], agents: &[Agent], tools: &Tools) -> Vec<Callout> {
     let mut holds: Vec<&AgentHold> = holds.iter().collect();
     holds.sort_by_key(|h| SessionRole::ALL.iter().position(|r| *r == h.role));

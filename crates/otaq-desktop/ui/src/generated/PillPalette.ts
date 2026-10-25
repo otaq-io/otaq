@@ -3,4 +3,4 @@
 /**
  * Which pair of status colours a status uses. `PillPalette` on the page, where each picks its two variables.
  */
-export type PillPalette = "attn" | "error" | "review" | "paused" | "working" | "queued" | "approved" | "done" | "epic" | "pinned";
+export type PillPalette = "attn" | "error" | "review" | "paused" | "working" | "queued" | "approved" | "done" | "pinned";

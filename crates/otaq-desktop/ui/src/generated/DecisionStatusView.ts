@@ -2,8 +2,7 @@
 import type { IconName } from "./IconName";
 
 /**
- * What the review did with it: "Kept by you · Approve, 16:40", "Changed by you → sent back · “…”",
- * "Changed by you → SHOP-40.7".
+ * What the review did with it: "Kept by you · Approve, 16:40", "Changed by you → sent back · “…”".
  */
 export type DecisionStatusView = { text: string, icon: IconName, 
 /**

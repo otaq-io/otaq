@@ -4,4 +4,4 @@ import type { MenuItem } from "./MenuItem";
 /**
  * What a click on a detail does.
  */
-export type SheetDetailChange = { "kind": "priority", items: Array<MenuItem>, } | { "kind": "choice", stage: string, items: Array<MenuItem>, } | { "kind": "open", key: string, } | { "kind": "copy", text: string, hint: string, copied: string, };
+export type SheetDetailChange = { "kind": "priority", items: Array<MenuItem>, } | { "kind": "choice", stage: string, items: Array<MenuItem>, } | { "kind": "copy", text: string, hint: string, copied: string, };

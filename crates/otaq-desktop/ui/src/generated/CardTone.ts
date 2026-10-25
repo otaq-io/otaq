@@ -3,4 +3,4 @@
 /**
  * A colour of the situation line (its edge and its text) or of a hover's icon. `CardTone` on the page.
  */
-export type CardTone = "muted" | "attention" | "error" | "warning" | "working" | "review" | "epic" | "accent" | "secondary" | "passed" | "paused";
+export type CardTone = "muted" | "attention" | "error" | "warning" | "working" | "review" | "accent" | "secondary" | "passed" | "paused";

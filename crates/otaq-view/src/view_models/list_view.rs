@@ -138,7 +138,7 @@ pub enum Entry {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListRow")]
 pub struct Row {
-    /// The card it stands for: key, epic, title, status line, who, time, the coloured edge and the one action.
+    /// The card it stands for: key, title, status line, who, time, the coloured edge and the one action.
     pub card: TicketCardView,
     /// The status icon before the key: the status pill's icon and colour.
     pub icon: IconName,
@@ -147,8 +147,6 @@ pub struct Row {
     /// Backlog rows' Start (LST-02).
     pub start: Option<RowStart>,
     pub needs_you: bool,
-    /// An epic is focused and this isn't one of its tickets (Q55): the row dims.
-    pub dim: bool,
 }
 
 /// Start on a Backlog row: the drop on `target` (the first agent column) that ⌘D sends from the Board.
@@ -290,8 +288,7 @@ fn this_week(ticket: &Ticket, now_ms: i64) -> bool {
 }
 
 /// `t`'s row on `columns`' flow (LST-01): its card from [`board::ticket_card`], its status icon and track, Start
-/// on a Backlog row (the drop on `start`, the first agent column) and whether it needs you. The epic sheet's Tickets
-/// tab draws its children with it (SHT-07).
+/// on a Backlog row (the drop on `start`, the first agent column) and whether it needs you.
 pub fn row(input: &BoardInput, columns: &Columns, start: Option<&DropTargetId>, t: &Ticket) -> Row {
     let card = TicketCardView::from_vm(board::ticket_card(input, t), t);
     let pill = PillView::of(status::shown(t));
@@ -316,7 +313,6 @@ pub fn row(input: &BoardInput, columns: &Columns, start: Option<&DropTargetId>, 
                 target: target.clone(),
             }),
         needs_you: needs_you(t),
-        dim: input.strong.is_some_and(|strong| !strong.contains(&t.key)),
     }
 }
 
@@ -788,7 +784,6 @@ flow:
             flow,
             tickets,
             visible: None,
-            strong: None,
             project_base: Some("main"),
             now_ms: NOW,
             dev_budget: None,

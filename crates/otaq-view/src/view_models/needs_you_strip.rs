@@ -1,9 +1,8 @@
-//! The Needs you strip (T-0459; NYS-01, NYS-02, NYS-03; d0114, d0016, d0024, d0083, d0093; *24 → Row · The two
+//! The Needs you strip (T-0459; NYS-01, NYS-02, NYS-03; d0114, d0016, d0024, d0093; *24 → Row · The two
 //! views* `s24-03`, *Row · Needs you: the next project, and every group* `s24-12`): under the board's toolbar, in both
 //! views, the open project's needs-you items as chips, in the queue's order (d0016) and its groups: what needs you
-//! ("Needs you · 3": questions, permission prompts, Idle, a lead passing on a child's question, a waiting Project agent
-//! or epic lead), the epic leads' suggestions ("Suggestion", Confirm · Not now), Interrupted ("Interrupted · 3" with
-//! Resume all), then your checks ("Checks · 1"). "Needs you · 0 here" when the project has none.
+//! ("Needs you · 3": questions, permission prompts, Idle, a waiting Project agent), Interrupted ("Interrupted · 3"
+//! with Resume all), then your checks ("Checks · 1"). "Needs you · 0 here" when the project has none.
 //!
 //! **Next (⌘J)** opens the item after the open one in this project; after this project's last item it reads "Next ·
 //! billing-api, 1" and goes to the next project with items, in the rail's order, opening its first. It never moves on
@@ -14,7 +13,7 @@
 
 use otaq_core::attention::needs_you::NeedsYouList;
 use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
-use otaq_core::domain::{Status, TicketKey};
+use otaq_core::domain::Status;
 use otaq_core::flow::model::Delivers;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::{Deserialize, Serialize};
@@ -24,7 +23,7 @@ use crate::icons::IconName;
 use crate::view_models::session_tab;
 use crate::view_models::sheet::Content;
 
-/// One thing in the strip: a ticket's item, or a Project agent (an epic lead included) waiting for the user.
+/// One thing in the strip: a ticket's item, or a Project agent waiting for the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     Ticket(Box<NeedsYouItem>),
@@ -54,7 +53,7 @@ impl Item {
         }
     }
 
-    /// What opening it shows: a ticket on its tab, an epic lead on its epic's Lead tab, a Project agent in the panel.
+    /// What opening it shows: a ticket on its tab, a Project agent in the panel.
     pub fn target(&self) -> Target {
         match self {
             Self::Ticket(i) => Target::Ticket {
@@ -85,8 +84,8 @@ impl Item {
 }
 
 /// Every item of every project, in the strip's order: the service's queue order (by group, then the tickets that
-/// block more, the oldest first; d0016), with the waiting Project agents and epic leads after the tickets of the
-/// first group (LEAD-11, NYS-02).
+/// block more, the oldest first; d0016), with the waiting Project agents after the tickets of the first group
+/// (NYS-02).
 pub fn items(list: &NeedsYouList) -> Vec<Item> {
     let at = list
         .items
@@ -120,7 +119,7 @@ pub fn project_order(list: &NeedsYouList) -> Vec<String> {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "StripTarget")]
 pub enum Target {
-    /// A ticket (or an epic, on its Lead tab) on `tab`.
+    /// A ticket on `tab`.
     Ticket {
         project: String,
         key: String,
@@ -218,9 +217,9 @@ pub enum Tone {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "StripChip")]
 pub struct Chip {
-    /// "SHOP-22", "40.4" (an epic's child by its number), "Agent".
+    /// "SHOP-22", "Agent".
     pub label: String,
-    /// "allow a command", "a question", "decide", "your check", "via the lead".
+    /// "allow a command", "a question", "decide", "your check".
     pub reason: String,
     pub icon: IconName,
     pub tone: Tone,
@@ -229,50 +228,17 @@ pub struct Chip {
     pub target: Target,
 }
 
-/// Which confirmation a suggestion's Confirm opens: Close ticket (d0044) or Delete (d0060). `StripSuggestionDialog`
-/// on the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "StripSuggestionDialog")]
-pub enum SuggestionDialog {
-    Close,
-    Delete,
-}
-
-/// An epic lead's suggestion (LEAD-08; `s24-12`): the chip "Close 40.6?" opens "Wishlist lead suggests", the lead's
-/// reason, Not now (dismiss) and Confirm (the usual confirmation, with the suggestion's line). `StripSuggestion` on
-/// the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "StripSuggestion")]
-pub struct Suggestion {
-    pub id: String,
-    /// The child it is about.
-    pub ticket: String,
-    /// "Close 40.6?".
-    pub label: String,
-    /// "Wishlist lead suggests".
-    pub heading: String,
-    /// The lead's reason.
-    pub text: String,
-    pub not_now: &'static str,
-    pub confirm: &'static str,
-    pub dialog: SuggestionDialog,
-    /// "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”", added to the confirmation.
-    pub line: String,
-}
-
 /// The groups of 0016's queue. `StripGroupId` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "StripGroupId")]
 pub enum GroupId {
     NeedsYou,
-    Suggestions,
     Interrupted,
     Checks,
 }
 
-/// One group: its head ("Needs you · 3", "Suggestion", "Interrupted · 3", "Checks · 1") and its chips. `StripGroup` on
+/// One group: its head ("Needs you · 3", "Interrupted · 3", "Checks · 1") and its chips. `StripGroup` on
 /// the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "StripGroup")]
@@ -282,7 +248,6 @@ pub struct Group {
     pub tone: Tone,
     pub title: String,
     pub chips: Vec<Chip>,
-    pub suggestions: Vec<Suggestion>,
     /// "Resume all" on Interrupted while a session can be resumed (d0045): it asks first.
     pub resume_all: Option<&'static str>,
 }
@@ -340,7 +305,6 @@ pub fn view(
             tone: Tone::Attn,
             title: format!("Needs you \u{b7} {}", needs_you.len()),
             chips: needs_you,
-            suggestions: Vec::new(),
             resume_all: None,
         });
     }
@@ -356,7 +320,6 @@ pub fn view(
             title: format!("Interrupted \u{b7} {}", stopped.len()),
             // Interrupted sessions are counted in the head and resumed together; the rest keep a chip.
             chips: stopped.into_iter().filter_map(chip).collect(),
-            suggestions: Vec::new(),
             resume_all: resumable.then_some("Resume all"),
         });
     }
@@ -368,7 +331,6 @@ pub fn view(
             tone: Tone::Review,
             title: format!("Checks \u{b7} {}", checks.len()),
             chips: checks,
-            suggestions: Vec::new(),
             resume_all: None,
         });
     }
@@ -402,16 +364,7 @@ pub fn view(
     }
 }
 
-/// A key as a chip shows it: an epic's child by its number ("40.4"), any other ticket whole ("SHOP-22").
-pub fn short_key(key: &TicketKey) -> String {
-    let text = key.to_string();
-    match text.split_once('-') {
-        Some((_, number)) if number.contains('.') => number.to_owned(),
-        _ => text,
-    }
-}
-
-/// An item's chip; `None` for an interrupted session, which Resume all covers, and for a suggestion (its own chip).
+/// An item's chip; `None` for an interrupted session, which Resume all covers.
 fn chip(item: &Item) -> Option<Chip> {
     match item {
         Item::Ticket(t) => ticket_chip(t, item.target()),
@@ -459,7 +412,7 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         }
     };
     Some(Chip {
-        label: short_key(&item.key),
+        label: item.key.to_string(),
         reason,
         icon,
         tone,
@@ -1097,11 +1050,6 @@ mod tests {
         );
         assert_eq!(resume_all_dialog(&items, None).unwrap().included.len(), 4);
         assert_eq!(resume_all_dialog(&shop_web(), Some("SHOP")), None);
-    }
-
-    #[test]
-    fn a_key_shows_whole() {
-        assert_eq!(short_key(&"SHOP-22".parse().unwrap()), "SHOP-22");
     }
 
     /// The service's list as it arrives: tickets in queue order, the agents apart.

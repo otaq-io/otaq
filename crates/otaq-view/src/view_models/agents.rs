@@ -494,7 +494,7 @@ pub struct Fallbacks {
 pub struct TableRow {
     pub id: String,
     pub name: String,
-    /// "Noyan", "Epic lead": the role tag.
+    /// "Noyan": the role tag.
     pub role: Option<String>,
     /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
     pub came_from: String,
@@ -632,8 +632,7 @@ pub fn section(input: &Inputs) -> Section {
     Section {
         title: "Agents".to_owned(),
         intro: "What each agent does: its instructions, its skills and its own model. Agents are shared by all your \
-                projects. Two agents hold a role: Noyan and the Epic lead. Edits apply to the next session \
-                that starts."
+                projects. One agent holds a role: Noyan. Edits apply to the next session that starts."
             .to_owned(),
         new_agent_label: "New agent".to_owned(),
         more_label: "More agent actions".to_owned(),
@@ -866,7 +865,7 @@ pub mod fixtures {
         tools(&[Tool::Claude, Tool::Codex])
     }
 
-    /// The ticket file's example (T-0405, AGM-02): Noyan, Epic lead, Developer, Validator (with the imported
+    /// The ticket file's example (T-0405, AGM-02): Noyan, Developer, Validator (with the imported
     /// `team-validate`), Strong and Light, the default model Light's, and what uses each agent (pocket-notes
     /// validates, pocket-api doesn't).
     pub fn example() -> (AgentList, Vec<InUse>) {
@@ -1019,8 +1018,7 @@ mod tests {
         assert_eq!(
             page.intro,
             "What each agent does: its instructions, its skills and its own model. Agents are shared by all your \
-             projects. Two agents hold a role: Noyan and the Epic lead. Edits apply to the next session \
-             that starts."
+             projects. One agent holds a role: Noyan. Edits apply to the next session that starts."
         );
         assert_eq!(page.new_agent_label, "New agent");
         let more: Vec<(&str, &str)> = page

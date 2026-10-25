@@ -10,7 +10,7 @@
 //! - **Situation line:** one line with a 2 px edge in the state's colour, mono only for a command. The flag that
 //!   wins the head says its words here first; every flag that loses the head joins it with " · " in the flag order
 //!   ("Allow rm -rf .next? · also running :4022"), then the quiet facts that never take the head (waits, background
-//!   work, messages waiting, the lead's markers, the review entry, the diff).
+//!   work, messages waiting, the review entry, the diff).
 //! - **Origin line** of a card an agent created ("Created by Noyan · Checkout slowness", violet, d0068).
 //! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
@@ -20,12 +20,12 @@
 //!   (the sheet and the form show the choices), and nothing names an agent while there is only one (d0086).
 //! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
-//! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you (also via lead) / Idle
+//! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you / Idle
 //! → Interrupted · Resume fail · Start failed · Parent closed · Conflicts ×3 · Diverged · Dirty repo · Failed ×3 · No
 //! result → Limit (neutral) → Validating… · Conflict → the review outcome (Validated · Skipped · Did not pass · PR
 //! #481 · Closed) → :port (running) → Working. Turquoise stays the needs-you family's (d0077); Limit is neutral; the
-//! tool never takes the slot. Everything else (Queued waits, Parked · has work, a quiet agent, Asked SHOP-40.1,
-//! Updated by lead, Merged automatically…) goes to the situation line only (Q-D).
+//! tool never takes the slot. Everything else (Queued waits, Parked · has work, a quiet agent, Asked SHOP-41,
+//! Merged automatically…) goes to the situation line only (Q-D).
 //!
 //! **Several tools** (M23, d0086, d0087; *04 → Variants · several tools (M23)*, the fallback cards of *Ticket Card
 //! v2 · all variants*): once two tools are connected the head's avatar shows the tool of whoever has the turn. A
@@ -73,8 +73,6 @@ pub const VALIDATOR_ASKS: &str = "Validator asks";
 pub struct CardExtras {
     /// The project's base branch; a ticket on another base says so ("on release/2.3").
     pub project_base: Option<String>,
-    /// The epic child's name line (EPC-09, BRD-03): its epic's name and the epic's pin.
-    pub sleeve: Option<Sleeve>,
     /// Queued: what it waits for ("waits for SHOP-20 to merge", T-0077, T-0083).
     pub waits_for: Option<String>,
     /// A parent only waits for the user's merge (Review, PR open).
@@ -96,8 +94,6 @@ pub struct CardExtras {
     /// Working in background: what runs ("test run, 1 helper agent · 6 min") or a wakeup time.
     pub background: Option<String>,
     pub background_wakeup: bool,
-    /// The key the ticket had before Move to epic.
-    pub old_key: Option<TicketKey>,
     /// Lines added, removed and files changed (Review).
     pub diff: Option<(u32, u32, u32)>,
     /// The PR provider's name ("GitHub").
@@ -118,7 +114,7 @@ pub struct CardExtras {
     pub agents: AgentFacts,
     /// Two or more agent tools are connected (`board.agents`'s `connected`): the head shows the avatar (SHL-08).
     pub several_tools: bool,
-    /// What its Delivery delivers, from its project's flow (an epic child always merges locally; FLW-15): a To
+    /// What its Delivery delivers, from its project's flow (FLW-15): a To
     /// deliver card is "Ready to merge" or "Ready for PR".
     pub delivers: Option<Delivers>,
     /// The agent of its project's Delivery stage, who opens and pushes the PR: "Opened by Shipper · 2 h ago".
@@ -237,17 +233,6 @@ impl CardExtras {
     }
 }
 
-/// What an epic child's card says of its epic (EPC-09, BRD-03): the epic's name on the key's row ("Wishlist"); the
-/// "2 of 4" band is gone (EPL-01). A pinned epic's children follow its pin (EPC-17). No sleeve: a standalone ticket.
-/// `CardSleeve` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CardSleeve")]
-pub struct Sleeve {
-    pub epic_key: String,
-    pub name: String,
-    pub pinned: bool,
-}
-
 /// The hint on an unblocked Backlog card.
 pub const READY_TO_START: &str = "Ready to start";
 
@@ -264,7 +249,6 @@ pub enum Tone {
     Warning,
     Working,
     Review,
-    Epic,
     Accent,
     /// Secondary text (the situation's words next to a coloured edge).
     Secondary,
@@ -279,17 +263,10 @@ impl Tone {
     /// The text's colour next to an edge of this tone: red, amber and violet lines are coloured, the rest calm.
     fn text(self) -> Tone {
         match self {
-            Tone::Error | Tone::Warning | Tone::Epic => self,
+            Tone::Error | Tone::Warning => self,
             _ => Tone::Secondary,
         }
     }
-}
-
-/// The epic card's status pill (the Epic Card keeps its own anatomy).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pill {
-    pub legend: Legend,
-    pub label: String,
 }
 
 /// A small card shown on hover (*04 → Row · Unread notes & same file (0083 · T) → HOVER*; *03 → 25*): an icon and a
@@ -304,7 +281,7 @@ pub struct Hover {
     pub sections: Vec<HoverSection>,
 }
 
-/// One section of a [`Hover`]: an optional mono eyebrow ("LEAD'S VIEW") and its text. `CardHoverSection` on the
+/// One section of a [`Hover`]: an optional mono eyebrow ("SHOP-18 · lib/cart.ts") and its text. `CardHoverSection` on the
 /// page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardHoverSection")]
@@ -411,14 +388,12 @@ pub enum Outline {
     Attention,
     /// Red: a closed parent blocks it.
     Error,
-    /// Violet: a never-started child the epic's lead added ("new · added by Wishlist lead", LEAD-08).
-    Epic,
 }
 
 /// Where a flag stands in the race for the head slot, highest first (*Flag order* `Uuk99`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank {
-    /// Validator · Needs you · Asks you (also via lead) · Idle: turquoise.
+    /// Validator · Needs you · Asks you · Idle: turquoise.
     NeedsYou,
     /// Interrupted · Resume fail · Start failed · Parent closed · Conflicts ×3 · Diverged · Dirty repo · Failed ×3 ·
     /// No result.
@@ -484,7 +459,7 @@ pub struct Situation {
     pub text_tone: Tone,
     /// Mono: the whole line is a command ("Allow rm -rf .next?").
     pub mono: bool,
-    /// The lead's note, the files both children changed, the schema paths: shown on hover, in order.
+    /// The files both tickets changed, the schema paths: shown on hover, in order.
     pub hovers: Vec<Hover>,
 }
 
@@ -560,13 +535,10 @@ pub struct StatusLine {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardViewModel {
     pub key: TicketKey,
-    /// "SHOP-51 → SHOP-40.4" after Move to epic.
-    pub key_label: String,
     /// The avatar of whoever has the turn; `None` while avatars are hidden or nobody has a session yet.
     pub avatar: Option<ToolAvatarView>,
     pub pinned: bool,
-    /// The Priority chip after the key: P1, P2 and P4; `None` for Normal (TKT-09, d0065). An epic child shows the
-    /// priority it follows from its epic the same way.
+    /// The Priority chip after the key: P1, P2 and P4; `None` for Normal (TKT-09, d0065).
     pub priority: Option<Priority>,
     pub flag: Option<HeadFlag>,
     pub title: String,
@@ -575,8 +547,6 @@ pub struct CardViewModel {
     pub origin: Option<String>,
     pub footer: Option<Footer>,
     pub hover: StatusHover,
-    /// The epic child's sleeve (EPC-09); `None` for a standalone ticket.
-    pub sleeve: Option<Sleeve>,
     pub outline: Outline,
     /// Done cards fade back: the opacity.
     pub faded: Option<f32>,
@@ -588,7 +558,7 @@ pub struct CardViewModel {
     pub one_line: Box<OneLine>,
 }
 
-/// What the one-line card shows (BRD-03, *24 · The two views*) besides its key, epic and title.
+/// What the one-line card shows (BRD-03, *24 · The two views*) besides its key and title.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OneLine {
     /// The one status line: the head flag's words and the situation's, joined ([`status_line`]).
@@ -1008,7 +978,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             ),
             Tone::Attention,
         ),
-        // "Keeps conflicting with main" / "… with the epic's branch" after 3 conflicts in a row (FLW-17, `s03-46`), or
+        // "Keeps conflicting with main" after 3 conflicts in a row (FLW-17, `s03-46`), or
         // the Local merge's message.
         Status::DeliveryStopped => {
             let n = ticket.auto_merge_conflicts.max(1);
@@ -1203,13 +1173,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Merged if flags.delivered_without_checks => {
             Part::quiet(validation::DELIVERED_WITHOUT_CHECKS, Tone::Paused)
         }
-        Status::Merged if flags.merged_automatically => Part::quiet(
-            match &x.sleeve {
-                Some(s) => format!("{} \u{b7} {}", validation::MERGED_AUTOMATICALLY, s.name),
-                None => validation::MERGED_AUTOMATICALLY.to_owned(),
-            },
-            Tone::Muted,
-        ),
+        Status::Merged if flags.merged_automatically => {
+            Part::quiet(validation::MERGED_AUTOMATICALLY.to_owned(), Tone::Muted)
+        }
         Status::Parked => Part::quiet(PARKED, Tone::Warning),
         Status::WaitingForSlot => Part::quiet(WAITING_FOR_SLOT, Tone::Muted),
         Status::Queued if flags.resuming_conversation => {
@@ -1447,7 +1413,7 @@ fn pr_opened_line(ticket: &Ticket, x: &CardExtras, now_ms: i64) -> String {
     }
 }
 
-/// "Keeps conflicting with main", "Keeps conflicting with the epic's branch" (FLW-17, `s03-46`).
+/// "Keeps conflicting with main" (FLW-17, `s03-46`).
 fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
     let target = ticket
         .flags
@@ -1604,10 +1570,6 @@ impl CardViewModel {
         };
         Self {
             key: ticket.key.clone(),
-            key_label: match &x.old_key {
-                Some(old) => format!("{old} \u{2192} {}", ticket.key),
-                None => ticket.key.to_string(),
-            },
             avatar: avatars.then(|| turn(ticket, status, x)).flatten(),
             pinned: flags.is_pinned(),
             priority: priority::on_card(ticket.priority),
@@ -1617,7 +1579,6 @@ impl CardViewModel {
             origin: origin(ticket, x),
             footer,
             hover,
-            sleeve: x.sleeve.clone(),
             outline,
             faded: match status {
                 // "Delivered without checks" is said at full strength (`s03-48`).
@@ -1839,16 +1800,16 @@ pub fn status_line(
         (None, Some(words)) => words,
         (Some(flag), None) => flag_words(flag),
         (Some(flag), Some(words)) => {
-            let lead = flag_words(flag);
+            let head = flag_words(flag);
             let words = words
                 .strip_prefix("validator: ")
                 .map_or(words.clone(), str::to_owned);
-            if says(&words, &lead) {
+            if says(&words, &head) {
                 words
             } else if matches!(flag.rank, Rank::NeedsYou | Rank::Stopped) {
-                format!("{lead}: {}", lowered(&words))
+                format!("{head}: {}", lowered(&words))
             } else {
-                format!("{lead} \u{b7} {words}")
+                format!("{head} \u{b7} {words}")
             }
         }
     };
@@ -1880,12 +1841,12 @@ fn flag_words(flag: &HeadFlag) -> String {
     }
 }
 
-/// Whether `words` already say `lead` ("Merge conflict · fixing" says "Conflict"; "Security failed 3 times" says
+/// Whether `words` already say `head` ("Merge conflict · fixing" says "Conflict"; "Security failed 3 times" says
 /// "Failed 3 times").
-fn says(words: &str, lead: &str) -> bool {
+fn says(words: &str, head: &str) -> bool {
     let words = words.to_lowercase();
-    let lead = lead.to_lowercase();
-    let stem = lead.trim_end_matches('s');
+    let head = head.to_lowercase();
+    let stem = head.trim_end_matches('s');
     !stem.is_empty() && words.contains(stem)
 }
 
@@ -2164,7 +2125,7 @@ fn marker(ticket: &Ticket) -> Option<Part> {
     crate::view_models::queue::started_line(ticket).map(|line| Part::quiet(line, Tone::Working))
 }
 
-/// MSG-06, LEAD-06: the question this ticket's agent asked another agent or its lead, calm, never turquoise.
+/// MSG-06: the question this ticket's agent asked another agent, calm, never turquoise.
 fn asked_parts(flags: &otaq_core::domain::Flags) -> Vec<Part> {
     let mut parts = Vec::new();
     if let Some(text) = asked_meta(flags) {
@@ -3007,7 +2968,7 @@ mod tests {
                 "Keeps conflicting (0064)",
                 Some("Conflicts ×3"),
                 // FLW-17 (`s03-46`).
-                Some("Keeps conflicting with {epic branch}"),
+                Some("Keeps conflicting with main"),
                 Some("[Open]"),
             ),
             (
@@ -3023,7 +2984,7 @@ mod tests {
                 Some("91k 10s"),
             ),
             (
-                "Picked by the lead (0083)",
+                "Waits for a dependency",
                 None,
                 Some("waits for SHOP-42 to merge"),
                 None,
@@ -3056,7 +3017,7 @@ mod tests {
             (
                 "Merged automatically (0064)",
                 None,
-                Some("Merged automatically · Wishlist"),
+                Some("Merged automatically"),
                 None,
             ),
             (
@@ -3083,10 +3044,7 @@ mod tests {
             let (_, vm) = variant(name);
             assert_eq!(flag_of(&vm), *flag, "{name}: flag");
             // The name is spelled out only in `otaq_core::naming` (d0028).
-            let situation = situation.map(|s| {
-                s.replace("{epic branch}", &otaq_core::naming::branch("SHOP-40"))
-                    .replace("{pr line}", &pr_not_watched())
-            });
+            let situation = situation.map(|s| s.replace("{pr line}", &pr_not_watched()));
             assert_eq!(line(&vm), situation.as_deref(), "{name}: situation");
             assert_eq!(foot(&vm).as_deref(), *footer, "{name}: footer");
             assert_eq!(vm.avatar, None, "{name}: one tool, no avatar");
@@ -4324,7 +4282,7 @@ mod tests {
         assert_ne!(vm.outline, Outline::Attention);
     }
 
-    /// MSG-06, LEAD-06: asking another agent or the lead is calm, on the situation line.
+    /// MSG-06: asking another agent is calm, on the situation line.
     #[test]
     fn asked_another_agent() {
         let mut t = ticket("SHOP-42", "Wishlist button", Status::Working);
@@ -4679,8 +4637,6 @@ mod tests {
         assert_eq!(vm.outline, Outline::Normal, "the agent has it");
         assert_eq!(vm.one_line.action, None);
     }
-
-    // T-0291's lead rows, on the v2 card (LEAD-06…LEAD-10).
 
     /// "Sent back · 1 decision changed · round 2" (DEC-06); no line comments, "Sent back · round 2" (#20).
     #[test]

@@ -1,13 +1,12 @@
 //! The ticket sheet (SHT-01, SHT-02; d0087, d0095, d0097; canvas `s25-02`, `s25-03`, `s25-10`): a 1040 px sheet over
 //! the board (920 px beside the agent panel), or the whole content area at full page (⤢, "← Board"). Its header is
-//! the breadcrumb (project / [epic /] key), the title and status, **Move…** and ⋯; under it the **details line**
-//! (Assignee, Model, Working, Priority, Branch, Epic, External ID) and the flow path; then the tabs **Overview ·
-//! Session · Files · Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a` (an epic: Overview · Tickets · Lead · Files ·
-//! Activity, SHT-07, `epic_sheet.rs`). Files carries its count ("Files 3", Q421, [`FilesCounts`]).
+//! the breadcrumb (project / key), the title and status, **Move…** and ⋯; under it the **details line** (Assignee,
+//! Model, Working, Priority, Branch, External ID) and the flow path; then the tabs **Overview · Session · Files ·
+//! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a`. Files carries its count ("Files 3", Q421, [`FilesCounts`]).
 //!
 //! What the sheet shows is a [`Content`]: a tab, or one side of Session's switch (Agent, the check's agent, Run, Shell;
 //! `session_tab.rs`, T-0466). Each tab's screen registers its body: Overview (`overview.rs`, T-0465), Session, Files
-//! (`files_tab.rs`, T-0468), Activity (`history.rs`, T-0466) and an epic's Lead.
+//! (`files_tab.rs`, T-0468) and Activity (`history.rs`, T-0466).
 
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
@@ -59,10 +58,6 @@ pub enum SheetTab {
     Session,
     Files,
     Activity,
-    /// An epic's lead (d0083), in the place of a ticket's Session.
-    Lead,
-    /// An epic's children as List rows (SHT-07).
-    Tickets,
 }
 
 impl SheetTab {
@@ -72,8 +67,6 @@ impl SheetTab {
             Self::Session => "Session",
             Self::Files => "Files",
             Self::Activity => "Activity",
-            Self::Lead => "Lead",
-            Self::Tickets => "Tickets",
         }
     }
 
@@ -83,20 +76,16 @@ impl SheetTab {
             Self::Session => IconName::SquareTerminal,
             Self::Files => IconName::FolderOpen,
             Self::Activity => IconName::History,
-            Self::Lead => IconName::Bot,
-            Self::Tickets => IconName::List,
         }
     }
 
-    /// Its key's number: `1`–`4`, and `g o` / `g s` / `g f` / `g a` (KeyAction::SwitchTab). An epic's Lead takes
-    /// Session's; its Tickets has no key of its own (Q-A: `SwitchTab` goes to 4).
+    /// Its key's number: `1`–`4`, and `g o` / `g s` / `g f` / `g a` (KeyAction::SwitchTab).
     pub fn number(self) -> Option<u8> {
         match self {
             Self::Overview => Some(1),
-            Self::Session | Self::Lead => Some(2),
+            Self::Session => Some(2),
             Self::Files => Some(3),
             Self::Activity => Some(4),
-            Self::Tickets => None,
         }
     }
 
@@ -108,8 +97,6 @@ impl SheetTab {
             Self::Session => &[Content::Agent, Content::Check, Content::Run, Content::Shell],
             Self::Files => &[Content::Files],
             Self::Activity => &[Content::Activity],
-            Self::Lead => &[Content::Lead],
-            Self::Tickets => &[Content::Tickets],
         }
     }
 }
@@ -130,10 +117,6 @@ pub enum Content {
     Shell,
     Files,
     Activity,
-    /// An epic's lead (d0083).
-    Lead,
-    /// An epic's children (SHT-07).
-    Tickets,
 }
 
 /// The sheet's tabs for `ticket`, in order: Overview · Session · Files · Activity.
@@ -161,13 +144,11 @@ pub fn opens_on(ticket: &Ticket) -> SheetTab {
     }
 }
 
-/// One crumb of the breadcrumb: the project, the epic (opens it), the key.
+/// One crumb of the breadcrumb: the project, the key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetCrumb")]
 pub struct Crumb {
     pub text: String,
-    /// The ticket a click opens (the epic's crumb).
-    pub opens: Option<String>,
     /// The key, in the mono font.
     pub key: bool,
 }
@@ -177,12 +158,10 @@ pub fn breadcrumb(ticket: &Ticket, project: &str) -> Vec<Crumb> {
     vec![
         Crumb {
             text: project.to_owned(),
-            opens: None,
             key: false,
         },
         Crumb {
             text: ticket.key.to_string(),
-            opens: None,
             key: true,
         },
     ]
@@ -197,8 +176,6 @@ pub enum DetailChange {
     Priority { items: Vec<MenuItem> },
     /// The stage's agent before it starts (`sheet.set_choice`, AGM-08).
     Choice { stage: String, items: Vec<MenuItem> },
-    /// The epic: opens its sheet.
-    Open { key: String },
     /// The External ID (Q416): a click copies `text`; the tooltip then says `copied`.
     Copy {
         text: String,
@@ -418,7 +395,7 @@ pub const EXTERNAL_ID: &str = "External ID";
 pub const COPY_EXTERNAL_ID: &str = "Copy External ID";
 pub const COPIED: &str = "Copied";
 
-/// External ID "PAY-123" (Q416), only when the ticket or epic has one: a click copies it.
+/// External ID "PAY-123" (Q416), only when the ticket has one: a click copies it.
 fn external_id(ticket: &Ticket) -> Option<Detail> {
     let id = ticket
         .external_id
@@ -944,8 +921,7 @@ mod tests {
         assert_eq!(minutes_label(65 * MIN), "1 h 5 min");
     }
 
-    /// Tabs: a ticket's four, numbered 1–4; an epic's Overview · Lead · Activity with Files in review; Overview on
-    /// open; what each one shows.
+    /// Tabs: a ticket's four, numbered 1–4; Overview on open; what each one shows.
     #[test]
     fn tabs_their_numbers_and_the_tab_on_open() {
         let t = ticket("SHOP-22", "Fix flaky login redirect", Status::Working);

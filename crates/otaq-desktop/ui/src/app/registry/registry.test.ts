@@ -69,8 +69,8 @@ describe("a registry", () => {
 });
 
 describe("the fixed ids", () => {
-  it("sheet tabs: Overview · Session · Files · Activity and an epic's Lead (SHT-02)", () => {
-    expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity", "lead", "tickets"]);
+  it("sheet tabs: Overview · Session · Files · Activity (SHT-02)", () => {
+    expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity"]);
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
@@ -92,10 +92,6 @@ describe("the fixed ids", () => {
         case "overview":
         case "activity":
           return tab;
-        case "lead":
-          return "bot";
-        case "tickets":
-          return "list";
       }
     };
     const kind = (id: OverlayId): string => {
@@ -140,17 +136,8 @@ describe("the fixed ids", () => {
           return "page";
       }
     };
-    const contents: SheetContent[] = [
-      "overview",
-      "agent",
-      "check",
-      "run",
-      "shell",
-      "files",
-      "activity",
-      "lead",
-    ];
-    expect(contents.map(tabIcon)).toHaveLength(8);
+    const contents: SheetContent[] = ["overview", "agent", "check", "run", "shell", "files", "activity"];
+    expect(contents.map(tabIcon)).toHaveLength(7);
     expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(25);
   });
 });

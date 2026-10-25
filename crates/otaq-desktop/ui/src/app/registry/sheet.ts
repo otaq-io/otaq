@@ -1,23 +1,14 @@
 // The ticket sheet's tabs and Overview's sections (SHT-02, T-0464). The sheet (`screens/sheet`) draws the tab bar from
 // Rust's `sheet` view and shows the body registered for the shown tab in `sheetTabs`: Overview (`screens/overview`),
-// Session (`screens/session`), Files (`screens/files`), Activity (`screens/activity`), an epic's Lead
-// (`screens/lead_tab`) and its Tickets (`screens/epic`).
+// Session (`screens/session`), Files (`screens/files`) and Activity (`screens/activity`).
 import type { ComponentType } from "react";
 
 import type { SheetTab } from "../../generated/SheetTab";
 
-/** The sheet's tabs (an epic's Lead takes Session's place, and it has Tickets). */
-export const SHEET_TABS: readonly SheetTab[] = [
-  "overview",
-  "session",
-  "files",
-  "activity",
-  "lead",
-  "tickets",
-];
+/** The sheet's tabs. */
+export const SHEET_TABS: readonly SheetTab[] = ["overview", "session", "files", "activity"];
 
-/** Overview's sections, in order (the epic's children are its own Overview's grid and Tickets tab, SHT-07; the
- * Messages are Activity's): DEPENDENCIES (DPV-04, `screens/dependencies`). */
+/** Overview's sections, in order (the Messages are Activity's): DEPENDENCIES (DPV-04, `screens/dependencies`). */
 export const SHEET_SECTIONS = ["dependencies"] as const;
 
 /** The box under Overview's top while the ticket's PR is open (T-0227, *05 → SHOP-26 · Approved, PR open*). */

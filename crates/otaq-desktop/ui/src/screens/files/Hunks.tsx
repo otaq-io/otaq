@@ -53,8 +53,8 @@ export function toastError(title: string, error: unknown) {
   request("notices.toast", toast).catch(ignore);
 }
 
-/** What the comment parts need, passed down unchanged. `comments` null: lines take no comments (a child's change on
- * top of an epic, the Approve dialog). */
+/** What the comment parts need, passed down unchanged. `comments` null: lines take no comments (another worktree's
+ * change, the Approve dialog). */
 export interface CommentContext {
   ticket: string;
   comments: FilesComments | undefined;

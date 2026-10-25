@@ -85,7 +85,7 @@
   white-space: nowrap;
 }
 
-/* An epic's key to its tags (FTB-06, `s25-11`): "40.1 merged" green, "40.2 on top · its own worktree" working. */
+/* The key to the tree's tags: a merged piece green, one being written working. */
 .files-legend {
   display: flex;
   flex-wrap: wrap;
@@ -99,7 +99,7 @@
   font: 500 11px var(--font-ui);
 }
 
-/* A file a running child is writing on top of the epic's branch: whose change it is. */
+/* A file being written in another worktree: whose change it is. */
 .files-writing {
   display: flex;
   align-items: flex-start;

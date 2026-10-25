@@ -7,7 +7,7 @@ import type { FilesTag } from "./FilesTag";
  */
 export type FilesChangeRow = { 
 /**
- * Unique in the list: the path, and the child for an epic child's change on top.
+ * Unique in the list: the path, and [`Self::child`] when there is one.
  */
 id: string, path: string, 
 /**
@@ -15,7 +15,7 @@ id: string, path: string,
  */
 label: string, 
 /**
- * Epics: the running child whose worktree it comes from (`files.diff`'s `child`).
+ * The other worktree it comes from (`files.diff`'s `child`); `None`: the ticket's own.
  */
 child: string | null, mark: FilesMark, 
 /**
@@ -43,6 +43,6 @@ rows: number,
  */
 can_open: boolean, 
 /**
- * Line comments go on the ticket's own changes, not on a child's on top.
+ * Line comments go on the ticket's own changes, not on another worktree's.
  */
 commentable: boolean, tags: Array<FilesTag>, };

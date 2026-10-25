@@ -273,7 +273,7 @@ export function TerminalTabBody({
   );
 }
 
-/** "Before the restart"'s texts, as Rust words them (a ticket's Terminal tab, an epic's Lead tab). */
+/** "Before the restart"'s texts, as Rust words them (a ticket's Terminal tab). */
 export interface BeforeRestartTexts {
   title: string;
   source: string;
@@ -285,7 +285,7 @@ export interface BeforeRestartTexts {
 
 /**
  * "Before the restart" (REC-02, d0045): the last messages and actions from Claude's saved conversation, read-only,
- * and the ended line with Resume. The epic's Lead tab shows its lead's the same way (T-0290).
+ * and the ended line with Resume.
  */
 export function BeforeRestart({
   before,

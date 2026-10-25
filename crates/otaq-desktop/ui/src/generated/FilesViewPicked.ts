@@ -2,7 +2,7 @@
 import type { FilesTabView } from "./FilesTabView";
 
 /**
- * A ticket or an epic picked in the picker (`s28-04`, "One ticket’s worktree"): its own Files tab, read-only, with
+ * A ticket picked in the picker (`s28-04`, "One ticket’s worktree"): its own Files tab, read-only, with
  * the back link to the base and "Open SHOP-29". `FilesViewPicked` on the page.
  */
 export type FilesViewPicked = { key: string, 

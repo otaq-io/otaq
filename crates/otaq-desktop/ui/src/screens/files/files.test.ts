@@ -187,41 +187,36 @@ function body(view: FilesTabView, extra: Partial<Parameters<typeof FilesTabBody>
 }
 
 describe("the Files tab", () => {
-  it("shows an epic's branch with the key to its tags, and a running child's file with whose change it is (FTB-06)", () => {
-    const epic: FilesTabView = {
+  it("shows the key to the tree's tags, and a file from another worktree with whose change it is", () => {
+    const tagged: FilesTabView = {
       ...SHOP_22,
       key: "SHOP-40",
       source: {
         kind: "branch",
-        title: "Wishlist’s branch",
-        subtitle: "otaq/PAY-123 · what its tickets merged",
+        title: "SHOP-40’s branch",
+        subtitle: "otaq/SHOP-40 · from main",
         legend: [
-          { label: "40.1 merged", writing: false },
-          { label: "40.2 on top · its own worktree", writing: true },
+          { label: "1 merged", writing: false },
+          { label: "2 being written", writing: true },
         ],
       },
       rows: [
         row("src/components/WishlistButton.tsx", {
           quiet: false,
-          tags: [{ label: "40.2 ✎", writing: true }],
-          child: "SHOP-40.2",
+          tags: [{ label: "2 ✎", writing: true }],
+          child: "SHOP-41",
         }),
       ],
     };
-    const out = body(epic);
-    for (const text of [
-      "Wishlist’s branch",
-      "otaq/PAY-123 · what its tickets merged",
-      "40.1 merged",
-      "40.2 ✎",
-    ]) {
+    const out = body(tagged);
+    for (const text of ["SHOP-40’s branch", "otaq/SHOP-40 · from main", "1 merged", "2 ✎"]) {
       expect(out).toContain(text);
     }
-    expect(out).toContain('data-writing="true">40.2 on top · its own worktree');
+    expect(out).toContain('data-writing="true">2 being written');
     const page: FilesFilePage = {
       path: "src/components/WishlistButton.tsx",
-      child: "SHOP-40.2",
-      subtitle: "40.2’s change, on top of the epic’s branch · not merged yet",
+      child: "SHOP-41",
+      subtitle: "SHOP-41’s change · not merged yet",
       modes: ["File", "Diff"],
       opens_in: "file",
       split_modes: ["Unified", "Split"],
@@ -233,13 +228,13 @@ describe("the Files tab", () => {
       new_ticket_body: "",
       lines: [],
       note: null,
-      writing: "40.2’s agent (Rust developer) is writing this file in 40.2’s own worktree.",
+      writing: "SHOP-41’s agent (Rust developer) is writing this file in its own worktree.",
     };
     const file = renderToStaticMarkup(
       createElement(FileBody, {
         ticket: "SHOP-40",
         page,
-        file: { path: page.path, child: "SHOP-40.2", mode: "file" },
+        file: { path: page.path, child: "SHOP-41", mode: "file" },
         ctx: {} as CommentContext,
         width: 1200,
         onMode: ignore,
@@ -247,7 +242,7 @@ describe("the Files tab", () => {
       }),
     );
     expect(file).toContain('class="files-writing"');
-    expect(file).toContain("40.2’s agent (Rust developer) is writing this file");
+    expect(file).toContain("SHOP-41’s agent (Rust developer) is writing this file");
   });
 
   it("a picked file's Diff keeps Split and has the Unified · Split toggle (dogfood #61)", () => {

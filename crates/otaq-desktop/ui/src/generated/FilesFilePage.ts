@@ -37,7 +37,6 @@ new_ticket_body: string, lines: Array<FilesCodeLine>,
  */
 note: string | null, 
 /**
- * An epic's file a running child is writing (FTB-06): "40.2’s agent (Rust developer) is writing this file in
- * 40.2’s own worktree; you see its change on top of the epic’s branch."
+ * Whose agent is writing the file in another worktree; `None` while nobody is.
  */
 writing: string | null, };

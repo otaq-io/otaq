@@ -1,7 +1,6 @@
 //! The sheet's Overview (SHT-03, RPT-02; d0109, d0078, d0061, d0099; canvas `s25-03` Overview, `s25-04` editing in
 //! place, `s25-05` attachments). Top to bottom on the left: what the ticket needs from you (the sheet's answer box and
-//! action bar, T-0464's), the **description** shown as it reads, the sections not yet moved elsewhere (Epic, Stack,
-//! Messages), and the comments; on the right the **Attachments** column.
+//! action bar, T-0464's), the **description** shown as it reads, the sections not yet moved elsewhere (Stack, Messages), and the comments; on the right the **Attachments** column.
 //!
 //! - **The description in place:** hovering it says "Click to edit"; a click turns it into the editor (d0078) with
 //!   "Editing · Esc to discard, ⌘S to save" on its label row. Once the text differs from what is saved
@@ -195,7 +194,7 @@ pub struct AttachmentRow {
     /// "3 KB".
     pub size: String,
     pub mark: Mark,
-    /// "Rust developer · Dev", "You", "You · at creation" (RPT-03), "Wishlist lead".
+    /// "Rust developer · Dev", "You", "You · at creation" (RPT-03).
     pub who: String,
     /// The user's own (RPT-01: marked from you).
     pub mine: bool,

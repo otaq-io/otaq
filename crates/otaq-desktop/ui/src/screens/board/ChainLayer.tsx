@@ -37,10 +37,7 @@ function boxesOf(keys: Iterable<string>, board: HTMLElement, origin: DOMRect): M
   const boxes = new Map<string, Box>();
   for (const key of keys) {
     if (boxes.has(key)) continue;
-    // A card, or an epic child shown as a row of its epic's card (Q448).
-    const card = board.querySelector<HTMLElement>(
-      `[data-card="${CSS.escape(key)}"], [data-chain-row="${CSS.escape(key)}"]`,
-    );
+    const card = board.querySelector<HTMLElement>(`[data-card="${CSS.escape(key)}"]`);
     if (!card) continue;
     const box = relative(card.getBoundingClientRect(), origin);
     const scroller = card.closest<HTMLElement>(".board-column-cards");

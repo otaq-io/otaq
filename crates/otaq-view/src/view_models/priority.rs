@@ -56,8 +56,7 @@ pub fn short(priority: Priority) -> String {
     format!("P{}", priority.number())
 }
 
-/// The chip a card shows after its key: P1, P2 and P4; nothing for Normal. An epic child shows its effective
-/// (possibly inherited) priority the same way.
+/// The chip a card shows after its key: P1, P2 and P4; nothing for Normal.
 pub fn on_card(priority: Priority) -> Option<Priority> {
     (priority != Priority::Normal).then_some(priority)
 }
@@ -107,7 +106,7 @@ pub fn menu_items(current: Priority) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The request that gives `key` its own priority (an epic child then stops following its epic).
+/// The request that sets `key`'s priority.
 pub fn request(key: &TicketKey, priority: Priority) -> Request {
     Request::TicketUpdate(TicketUpdateParams {
         key: key.to_string(),
@@ -116,11 +115,6 @@ pub fn request(key: &TicketKey, priority: Priority) -> Request {
             ..TicketUpdate::default()
         },
     })
-}
-
-/// The form's hint for an epic child that follows its epic: "follows SHOP-40 until set · decides start order…".
-pub fn inherited_hint(epic: &TicketKey) -> String {
-    format!("follows {epic} until set · decides start order among ready tickets")
 }
 
 #[cfg(test)]

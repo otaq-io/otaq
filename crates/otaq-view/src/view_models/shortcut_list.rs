@@ -316,11 +316,6 @@ mod tests {
                     None
                 ),
                 ("Filter the board", keys(&[&["/"]]), None),
-                (
-                    "Focus the epic of the selected card",
-                    keys(&[&["g", "e"]]),
-                    None
-                ),
                 ("Show all shortcuts", keys(&[&["?"]]), None),
             ]
         );
@@ -450,11 +445,6 @@ mod tests {
                 ("Next item that needs you", keys(&[&["⌘J"]]), None),
                 ("Next / previous ticket", keys(&[&["⌘] / ⌘["]]), None),
                 ("Filter the board", keys(&[&["/"]]), Some("off")),
-                (
-                    "Focus the epic of the selected card",
-                    keys(&[&["g", "e"]]),
-                    Some("off")
-                ),
                 ("Show all shortcuts", keys(&[&["?"]]), Some("off")),
             ]
         );
@@ -516,7 +506,7 @@ mod tests {
             ] {
                 assert!(!titles(&list).contains(&title), "{title}");
             }
-            assert_eq!(titles(&list).len(), 27);
+            assert_eq!(titles(&list).len(), 26);
         }
         let list = mac(&CustomKeys(vec![replaced(KeyAction::Park, 0, "g p")]), true);
         let park = row_of(&list, "Park").unwrap();

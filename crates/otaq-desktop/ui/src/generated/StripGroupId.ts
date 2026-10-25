@@ -3,4 +3,4 @@
 /**
  * The groups of 0016's queue. `StripGroupId` on the page.
  */
-export type StripGroupId = "needs_you" | "suggestions" | "interrupted" | "checks";
+export type StripGroupId = "needs_you" | "interrupted" | "checks";

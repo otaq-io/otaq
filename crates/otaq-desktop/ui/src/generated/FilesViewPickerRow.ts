@@ -6,6 +6,6 @@ import type { FilesViewPick } from "./FilesViewPick";
  */
 export type FilesViewPickerRow = { pick: FilesViewPick, 
 /**
- * The ticket's key; `None` for the base branch and an epic (its key is in its title).
+ * The ticket's key; `None` for the base branch and a worktree of yours.
  */
 key: string | null, title: string, detail: string | null, };

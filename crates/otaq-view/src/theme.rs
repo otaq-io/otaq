@@ -404,7 +404,6 @@ pub enum Palette {
     Queued,
     Approved,
     Done,
-    Epic,
     Pinned,
 }
 
@@ -434,7 +433,6 @@ pub enum Status {
     Done,
     Merged,
     ClosedNotMerged,
-    Epic,
     Pinned,
     // M12 (d0063, d0064, d0066): *Status Legend → Pills · M12*, in [`Status::M12`].
     ValidatorNeedsYou,
@@ -451,13 +449,10 @@ pub enum Status {
     MergedAutomatically,
     ReadyToStart,
     ProjectAgent,
-    // M17 (d0083): the epic lead's card states (*04 → Row · Epic children & the lead (0083)*).
-    AskedLead,
-    UpdatedByLead,
 }
 
 impl Status {
-    pub const ALL: [Status; 25] = [
+    pub const ALL: [Status; 24] = [
         Self::NeedsYou,
         Self::AsksYou,
         Self::Idle,
@@ -481,7 +476,6 @@ impl Status {
         Self::Done,
         Self::Merged,
         Self::ClosedNotMerged,
-        Self::Epic,
         Self::Pinned,
     ];
 
@@ -533,7 +527,6 @@ impl Status {
             Self::Done => (T::Done, P::Done, I::CircleCheck),
             Self::Merged => (T::Done, P::Done, I::GitMerge),
             Self::ClosedNotMerged => (T::Done, P::Done, I::CircleSlash),
-            Self::Epic => (T::Done, P::Epic, I::Layers),
             Self::Pinned => (T::Done, P::Pinned, I::Pin),
             Self::ValidatorNeedsYou => (T::NeedsYou, P::Attn, I::Hand),
             Self::ValidationFailed => (T::NeedsYou, P::Attn, I::ShieldX),
@@ -550,14 +543,10 @@ impl Status {
             Self::MergedAutomatically => (T::Done, P::Done, I::GitMerge),
             Self::ReadyToStart => (T::Done, P::Queued, I::CirclePlay),
             Self::ProjectAgent => (T::Done, P::Queued, I::Bot),
-            // Calm, ranked with "Asked SHOP-40.1" (MSG-06): never turquoise.
-            Self::AskedLead => (T::Working, P::Working, I::Bot),
-            Self::UpdatedByLead => (T::Done, P::Epic, I::Pencil),
         }
     }
 
-    /// The legend's label. Labels with live parts ("Serving :4020", "Asked SHOP-40.1", "Epic · 1 / 3 merged",
-    /// "Conflicts with main") are completed by the views that know those values.
+    /// The legend's label. Labels with live parts ("Serving :4020", "Asked SHOP-41", "Conflicts with main") are completed by the views that know those values.
     pub fn label(self) -> &'static str {
         match self {
             Self::NeedsYou => "Needs you",
@@ -583,7 +572,6 @@ impl Status {
             Self::Done => "Done",
             Self::Merged => "Merged",
             Self::ClosedNotMerged => "Closed · not merged",
-            Self::Epic => "Epic",
             Self::Pinned => "Pinned",
             Self::ValidatorNeedsYou => otaq_core::domain::validation::VALIDATOR_NEEDS_YOU,
             Self::ValidationFailed => "Validation failed",
@@ -599,8 +587,6 @@ impl Status {
             Self::MergedAutomatically => otaq_core::domain::validation::MERGED_AUTOMATICALLY,
             Self::ReadyToStart => "Ready to start",
             Self::ProjectAgent => "by Noyan",
-            Self::AskedLead => "Asked lead",
-            Self::UpdatedByLead => "Updated by lead",
         }
     }
 }

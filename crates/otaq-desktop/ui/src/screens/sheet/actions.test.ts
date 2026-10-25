@@ -376,7 +376,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
     expect(out).toContain("Dev: Quick developer → Rust developer · by Griller · touches session handling");
     expect(out).toContain(PATH.summary);
     expect(out).toContain('data-state="running" data-current="true"');
-    // On the default flow only the path shows; an epic shows neither.
+    // On the default flow only the path shows; without a path, neither.
     const only = render({ ...VIEW, path: PATH });
     expect(only).not.toContain('class="stage-choices"');
     expect(only).toContain("ticket-path");

@@ -308,7 +308,6 @@ async fn owner_facts(
         flow: &flow,
         tickets: &tickets,
         visible: None,
-        strong: None,
         project_base: None,
         now_ms: otaq_core::store::now_ms(),
         dev_budget: None,

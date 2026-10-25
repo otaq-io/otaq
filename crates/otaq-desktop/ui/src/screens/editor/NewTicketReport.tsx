@@ -36,7 +36,7 @@ export interface ReportAttach {
 
 /**
  * The form's report and the file drops on `root` (the form's body). `onChange` gets the form's fields for it
- * (`formReport`); `enabled` is false for an epic, which takes none.
+ * (`formReport`); `enabled` is false while the form takes no report.
  */
 export function useReportAttach(
   root: RefObject<HTMLElement | null>,

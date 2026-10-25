@@ -196,11 +196,13 @@ mod tests {
         let mut t = ticket("SHOP-42", "Wishlist page", Status::DeliveryStopped);
         t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
         t.auto_merge_conflicts = 3;
-        let epic = otaq_core::naming::branch("SHOP-40");
-        t.flags.conflicts_with = Some(epic.clone());
+        let target = otaq_core::naming::branch("SHOP-40");
+        t.flags.conflicts_with = Some(target.clone());
         assert_eq!(
             stop_message(&t),
-            Some(format!("Keeps conflicting with {epic} (3 tries in a row)."))
+            Some(format!(
+                "Keeps conflicting with {target} (3 tries in a row)."
+            ))
         );
         t.auto_merge_stop = Some(AutoMergeStop::BaseDiverged);
         t.flags.conflicts_with = None;

@@ -7,6 +7,6 @@ import type { FilesTag } from "./FilesTag";
  */
 export type FilesSourceView = { kind: FilesSourceKind, title: string, subtitle: string, 
 /**
- * An epic's key to its tags (FTB-06): "40.1 merged", "40.2 on top · its own worktree"; empty for a ticket.
+ * The key to the tree's tags; empty while no piece changed a file.
  */
 legend: Array<FilesTag>, };

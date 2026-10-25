@@ -13,7 +13,7 @@ export type FilesSearchRow = { path: string, name: Array<FilesHitPart>,
  */
 folder: Array<FilesHitPart>, mark: FilesMark | null, quiet: boolean, tags: Array<FilesTag>, 
 /**
- * An epic's file a running child is writing: opens from that child's worktree.
+ * As [`TreeRow::child`].
  */
 child: string | null, 
 /**

@@ -1,7 +1,6 @@
 // The Messages section (MSG-01, MSG-03, MSG-06; d0030; *05 → Messages · agent-to-agent (SHOP-40.2), Message
 // states, Dark · Messages*): each question between this ticket and its linked tickets with its answer and status
-// line, oldest first. A key opens that ticket; a question sent to the user (Needs you) is answered here. The epic lead's threads
-// (T-0290, *05 → Row · Messages · the lead (0083)*) name the lead at their other end ("SHOP-40.2 → Wishlist lead").
+// line, oldest first. A key opens that ticket; a question sent to the user (Needs you) is answered here.
 import { useCallback, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
@@ -17,8 +16,7 @@ import { SECTION_EVENTS } from "./logic";
 
 const ignore = () => undefined;
 
-function End({ ticket, name, you }: { ticket: string | null; name: string | null; you: string }) {
-  if (name !== null) return <span className="message-name">{name}</span>;
+function End({ ticket, you }: { ticket: string | null; you: string }) {
   if (ticket === null) return <span className="message-you">{you}</span>;
   return (
     <button
@@ -37,10 +35,10 @@ function LineRow({ line, you }: { line: MessageLineView; you: string }) {
   return (
     <div className="message-line">
       <div className="message-route">
-        <Icon name={line.from === null && line.from_name === null ? "user" : "bot"} size={12} />
-        <End ticket={line.from} name={line.from_name} you={you} />
+        <Icon name={line.from === null ? "user" : "bot"} size={12} />
+        <End ticket={line.from} you={you} />
         <Icon name="arrow-right" size={11} />
-        <End ticket={line.to} name={line.to_name} you={you} />
+        <End ticket={line.to} you={you} />
         <span className="message-time">{line.time}</span>
       </div>
       <p className="message-text">{line.text}</p>

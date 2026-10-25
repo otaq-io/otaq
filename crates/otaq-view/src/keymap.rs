@@ -87,8 +87,6 @@ pub enum KeyAction {
     PreviousTicket,
     /// Focus the header's board filter (KEY-09).
     FilterBoard,
-    /// Focus the epic of the selected card (EPC-18, d0080): the same as its `epic:` filter.
-    FocusEpic,
     /// The `?` shortcut list (KEY-07).
     ShowShortcuts,
     /// The Board view of the main area (d0087), its Board view (BRD-01).
@@ -110,14 +108,14 @@ pub enum KeyAction {
     OpenSheet,
     CloseSheet,
     ExpandSheet,
-    /// The ticket sheet's tabs 1–4: Overview, Session (an epic's Lead), Files, Activity (SHT-02); `1`–`4` and `g o` /
+    /// The ticket sheet's tabs 1–4: Overview, Session, Files, Activity (SHT-02); `1`–`4` and `g o` /
     /// `g s` / `g f` / `g a`.
     SwitchTab(u8),
     NextTab,
     PreviousTab,
     Approve,
     SendBack,
-    /// Start / move to Dev (also queues an epic, d0080).
+    /// Start / move to Dev.
     StartDev,
     /// No key in the base map (the palette runs it), as the four after it.
     Park,
@@ -144,7 +142,6 @@ impl KeyAction {
             Self::NextTicket,
             Self::PreviousTicket,
             Self::FilterBoard,
-            Self::FocusEpic,
             Self::ShowShortcuts,
             Self::ShowBoard,
             Self::ShowList,
@@ -196,7 +193,6 @@ impl KeyAction {
             Self::NextNeedsYouItem => "Next item that needs you",
             Self::NextTicket | Self::PreviousTicket => "Next / previous ticket",
             Self::FilterBoard => "Filter the board",
-            Self::FocusEpic => "Focus the epic of the selected card",
             Self::ShowShortcuts => "Show all shortcuts",
             Self::ShowBoard => "Board",
             Self::ShowList => "List",
@@ -225,12 +221,11 @@ impl KeyAction {
         }
     }
 
-    /// The action's name in the `g` hint (design `s02-30`): the view in a word ("Board", "Epic"), else its title (a
+    /// The action's name in the `g` hint (design `s02-30`): the view in a word ("Board", "Terminals"), else its title (a
     /// custom `g` `p` shows "Park").
     pub fn hint_name(self) -> &'static str {
         match self {
             Self::Terminals => "Terminals",
-            Self::FocusEpic => "Epic",
             _ => self.title(),
         }
     }
@@ -245,7 +240,6 @@ impl KeyAction {
             | Self::NextTicket
             | Self::PreviousTicket
             | Self::FilterBoard
-            | Self::FocusEpic
             | Self::ShowShortcuts => KeyGroup::MovingAround,
             Self::ShowBoard
             | Self::ShowList
@@ -301,7 +295,6 @@ impl KeyAction {
             Self::NextTicket => vec![k("⌘]", "Ctrl+]", "Ctrl+Shift+]"), letter("j")],
             Self::PreviousTicket => vec![k("⌘[", "Ctrl+[", "Ctrl+Shift+["), letter("k")],
             Self::FilterBoard => vec![letter("/")],
-            Self::FocusEpic => vec![letter("g e")],
             Self::ShowShortcuts => vec![letter("?")],
             Self::ShowBoard => vec![k("⇧⌘B", "Ctrl+Shift+B", ""), letter("g b")],
             Self::ShowList => vec![letter("g l")],
@@ -395,15 +388,14 @@ pub struct SequenceHint {
     pub name: &'static str,
 }
 
-/// The base map's sequences in the order the hint shows them ("g → b Board · l List · a Activity · t Terminals · e
-/// Epic", 0097; Files after List, FIL-11); the user's own sequences for other actions follow, in the map's order.
-const HINT_ORDER: [KeyAction; 6] = [
+/// The base map's sequences in the order the hint shows them ("g → b Board · l List · a Activity · t Terminals", 0097;
+/// Files after List, FIL-11); the user's own sequences for other actions follow, in the map's order.
+const HINT_ORDER: [KeyAction; 5] = [
     KeyAction::ShowBoard,
     KeyAction::ShowList,
     KeyAction::ShowFiles,
     KeyAction::OpenActivity,
     KeyAction::Terminals,
-    KeyAction::FocusEpic,
 ];
 
 /// **The typing hint** (d0126): shown when letters came too fast with nothing focused, so they ran nothing.
@@ -1163,7 +1155,6 @@ mod tests {
                 &["Ctrl+Shift+["],
             ),
             row(FilterBoard, &["/"], &["/"], &[]),
-            row(FocusEpic, &["g e"], &["g e"], &[]),
             row(ShowShortcuts, &["?"], &["?"], &[]),
             row(ShowBoard, &["⇧⌘B", "g b"], &["Ctrl+Shift+B", "g b"], &[]),
             row(ShowList, &["g l"], &["g l"], &[]),
@@ -2208,7 +2199,6 @@ mod tests {
                         "Next item that needs you",
                         "Next / previous ticket",
                         "Filter the board",
-                        "Focus the epic of the selected card",
                         "Show all shortcuts",
                     ]
                 ),
@@ -2321,7 +2311,7 @@ mod tests {
         };
         assert_eq!(
             texts(&CustomKeys::default()),
-            "b Board · l List · f Files · a Activity · t Terminals · e Epic"
+            "b Board · l List · f Files · a Activity · t Terminals"
         );
         let change = |action, slot, change| CustomKey {
             action,
@@ -2338,7 +2328,7 @@ mod tests {
         );
         assert_eq!(
             texts(&CustomKeys(vec![park.clone()])),
-            "b Board · l List · f Files · a Activity · t Terminals · e Epic · p Park"
+            "b Board · l List · f Files · a Activity · t Terminals · p Park"
         );
         let custom = CustomKeys(vec![
             park,
@@ -2353,7 +2343,7 @@ mod tests {
         ]);
         assert_eq!(
             texts(&custom),
-            "b Board · l List · f Files · n Terminals · e Epic · p Park"
+            "b Board · l List · f Files · n Terminals · p Park"
         );
         // Windows/Linux: the same letters (they never work in a terminal).
         assert_eq!(

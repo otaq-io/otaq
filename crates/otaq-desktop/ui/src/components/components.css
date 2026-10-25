@@ -53,10 +53,7 @@
 .status-pill[data-palette="done"] {
   --pill-fg: var(--st-done);
 }
-.status-pill[data-palette="epic"] {
-  --pill-fg: var(--st-investigate);
-  --pill-bg: var(--st-investigate-bg);
-}
+
 .status-pill[data-palette="pinned"] {
   --pill-fg: var(--accent);
   --pill-bg: var(--accent-soft);
@@ -1325,8 +1322,8 @@
   fill: light-dark(#0e9c8e, #14b8a6);
 }
 
-/* Decision Item (*07 → Row · Decision Item (0084)*): a recorded decision in neutral colours under a signpost; the
-   lead's mark is violet (agent activity), never red; Kept by you takes the approved colour on its icon only. */
+/* Decision Item (*07 → Row · Decision Item (0084)*): a recorded decision in neutral colours under a signpost; Kept by
+   you takes the approved colour on its icon only. */
 .decision-item {
   display: flex;
   flex-direction: column;
@@ -1395,43 +1392,6 @@
   color: var(--text-secondary);
 }
 
-.decision-mark {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 7px 9px;
-  border-radius: var(--r-md);
-  background: var(--st-investigate-bg);
-}
-
-.decision-mark > .icon {
-  flex: none;
-  margin-top: 1px;
-  color: var(--st-investigate);
-}
-
-.decision-mark-text {
-  flex: 1;
-  min-width: 0;
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.decision-source {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border: 1px solid var(--st-investigate);
-  border-radius: var(--r-sm);
-  color: var(--st-investigate);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-
 .decision-status {
   display: flex;
   align-items: center;
@@ -1446,7 +1406,7 @@
   color: var(--st-approved);
 }
 
-/* The Decisions list (*SHOP-23 review · Decisions*, *SHOP-40 epic review · Decisions*): count, hint, child groups. */
+/* The Decisions list (*SHOP-23 review · Decisions*): count, hint, items. */
 .decisions {
   display: flex;
   flex-direction: column;
@@ -1507,33 +1467,4 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.decisions-child {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.decisions-child > .icon {
-  color: var(--st-investigate);
-}
-
-.decisions-child-key {
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.decisions-child-title {
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.decisions-child-state {
-  color: var(--text-muted);
-  font-family: var(--font-ui);
-  font-size: 11px;
 }

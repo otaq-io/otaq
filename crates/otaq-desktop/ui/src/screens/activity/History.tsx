@@ -6,7 +6,7 @@
 // (VAL-12) and the validation total. Description changes and comments open under the row: a before / after
 // ("DESCRIPTION", "COMMENT"; a description edit opens by itself), or what a comment said with its report, which opens
 // in the report view (a deleted comment's too). The rows, their kinds and the filters are Rust's (`sections.history`,
-// `history.rs`); the page keeps the filter picked and the rows opened. Above them, the Messages between the ticket and its linked tickets or its epic's lead (MSG-01;
+// `history.rs`); the page keeps the filter picked and the rows opened. Above them, the Messages between the ticket and its linked tickets (MSG-01;
 // the old panel's section, SHT-01, T-0469), when there are any.
 import { Fragment, useCallback, useState } from "react";
 

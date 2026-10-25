@@ -354,12 +354,12 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
         Kind::Permission => (
             "notification_kinds.permission",
             "Permission prompts",
-            "Agents, validators, Noyan and epic leads.",
+            "Agents, validators and Noyan.",
         ),
         Kind::Question => (
             "notification_kinds.question",
             "Questions",
-            "Agents, Noyan and epic leads.",
+            "Agents and Noyan.",
         ),
         Kind::TurnEnded => ("notification_kinds.turn_ended", "Agent ended its turn", ""),
         Kind::Interrupted => ("notification_kinds.interrupted", "Session interrupted", ""),
@@ -985,7 +985,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             row(
                 "base_branch",
                 "Base branch",
-                "Prefilled from the remote’s default branch (origin/HEAD); editable. Tickets and epics branch from here, and Local merge squashes into it.",
+                "Prefilled from the remote’s default branch (origin/HEAD); editable. Tickets branch from here, and Local merge squashes into it.",
                 Control::Branch {
                     value: info.base_branch.clone(),
                     search: MenuSearch::branches(),
@@ -2239,11 +2239,8 @@ mod tests {
         assert_eq!(
             labels,
             [
-                (
-                    "Permission prompts",
-                    "Agents, validators, Noyan and epic leads."
-                ),
-                ("Questions", "Agents, Noyan and epic leads."),
+                ("Permission prompts", "Agents, validators and Noyan."),
+                ("Questions", "Agents and Noyan."),
                 ("Agent ended its turn", ""),
                 ("Session interrupted", ""),
                 (

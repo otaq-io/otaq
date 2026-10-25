@@ -5,4 +5,4 @@
  * the selection names it (`run`: Session on Run) and links ask for one (a toast's "Send back to resolve →", a
  * needs-you chip).
  */
-export type SheetContent = "overview" | "agent" | "check" | "run" | "shell" | "files" | "activity" | "lead" | "tickets";
+export type SheetContent = "overview" | "agent" | "check" | "run" | "shell" | "files" | "activity";

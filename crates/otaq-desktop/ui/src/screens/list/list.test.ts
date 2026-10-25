@@ -26,8 +26,6 @@ function row(
   return {
     card: {
       key,
-      key_label: key,
-      epic: null,
       priority: null,
       title,
       status: null,
@@ -59,7 +57,6 @@ function row(
     },
     start: null,
     needs_you: false,
-    dim: false,
     ...extra,
   };
 }

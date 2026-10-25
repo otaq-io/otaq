@@ -173,8 +173,7 @@ impl<'f> Columns<'f> {
         if let Some(stage) = self.flow.stage(id) {
             return Some(stage);
         }
-        // An epic at the implicit Review epic stop (a flow without a human check, d0108 rule 7) waits right before
-        // the Delivery, so it shows with it.
+        // A stage the flow doesn't have: the ticket shows where its status belongs.
         let targets: &[DropTarget] = match ticket.status.set() {
             StatusSet::HumanCheck => &[DropTarget::ReadyForReview, DropTarget::Approved],
             StatusSet::Delivery => &[DropTarget::Approved],
@@ -311,7 +310,7 @@ pub fn keeps_default_look(flow: &Flow) -> bool {
 /// The kind of place `ticket` is in, as the set of statuses it allows (STG-04): Backlog, waiting, Done, or the
 /// kind of its stage. The stage is looked up in the default flow, whose ids every project's flow uses in M31 (the
 /// derived flow only drops Validate); a stage it doesn't know goes by the status's own set. Cards and sheets decide
-/// by it rather than by a column (STG-08): an epic in its human check is "in review" whatever its status.
+/// by it rather than by a column (STG-08).
 pub fn place_set(ticket: &Ticket) -> StatusSet {
     match &ticket.place {
         Place::Backlog => StatusSet::Backlog,
