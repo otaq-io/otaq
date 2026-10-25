@@ -994,6 +994,7 @@ mod tests {
                 project: project.key.clone(),
                 title: "Price table".into(),
                 body: String::new(),
+                plan: String::new(),
                 priority: None,
                 base_branch: None,
                 external_id: None,

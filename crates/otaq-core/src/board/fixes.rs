@@ -68,6 +68,7 @@ pub fn edited_fields(before: &Ticket, after: &Ticket) -> Vec<Field> {
     [
         (Field::Title, before.title != after.title),
         (Field::Body, before.body != after.body),
+        (Field::Plan, before.plan != after.plan),
         (Field::Priority, before.priority != after.priority),
         (Field::BaseBranch, before.base != after.base),
         (Field::ExternalId, before.external_id != after.external_id),

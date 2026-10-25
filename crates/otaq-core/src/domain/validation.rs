@@ -55,6 +55,8 @@ pub enum CancelledBy {
     Code,
     /// The user edited the description.
     Description,
+    /// The user edited the Plan (d0133).
+    Plan,
 }
 
 /// The cancel toast (frame *11 → Success toasts*): "Validation cancelled: SHOP-29’s code changed" · "Round not
@@ -63,6 +65,7 @@ pub fn cancelled_toast(key: &str, by: CancelledBy) -> (String, String) {
     let what = match by {
         CancelledBy::Code => "code",
         CancelledBy::Description => "description",
+        CancelledBy::Plan => "plan",
     };
     (
         format!("Validation cancelled: {key}’s {what} changed"),
@@ -357,6 +360,10 @@ mod tests {
         assert_eq!(
             cancelled_toast("SHOP-29", CancelledBy::Description).0,
             "Validation cancelled: SHOP-29’s description changed"
+        );
+        assert_eq!(
+            cancelled_toast("SHOP-29", CancelledBy::Plan).0,
+            "Validation cancelled: SHOP-29’s plan changed"
         );
     }
 

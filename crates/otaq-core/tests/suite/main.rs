@@ -91,6 +91,7 @@ mod park;
 mod pause;
 mod pause_starts;
 mod permissions;
+mod plan;
 mod plan_limit;
 mod plugin;
 mod plugin_texts;

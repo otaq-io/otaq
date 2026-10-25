@@ -624,11 +624,16 @@ impl Validation {
         Ok(())
     }
 
-    /// The user saved a change to the ticket (SES-08). A description edit while it validates cancels the
-    /// validation (VAL-08); a title-only edit doesn't.
+    /// The user saved a change to the ticket (SES-08). A description or Plan edit (d0133) while it validates cancels
+    /// the validation (VAL-08); a title-only edit doesn't.
     pub async fn ticket_edited(&self, before: &Ticket, after: &Ticket) -> Result<(), BoardError> {
-        if validating(after.status) && before.body.trim() != after.body.trim() {
+        if !validating(after.status) {
+            return Ok(());
+        }
+        if before.body.trim() != after.body.trim() {
             self.cancel(after, CancelledBy::Description).await?;
+        } else if before.plan.trim() != after.plan.trim() {
+            self.cancel(after, CancelledBy::Plan).await?;
         }
         Ok(())
     }

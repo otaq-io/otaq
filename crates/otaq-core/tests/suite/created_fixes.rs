@@ -202,3 +202,40 @@ async fn an_agent_fixes_the_never_started_tickets_it_created() {
     );
     w.stop().await;
 }
+
+/// A Plan edit by the agent that created the ticket is logged on the creating ticket as "Edited SHOP-2 · plan" (d0133).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plan_fix_is_logged_on_the_creating_ticket() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Checkout redesign").await;
+    let agent = w.agent_shell(&shop1).await;
+    ok(&send(
+        &w,
+        &agent,
+        "ticket.create",
+        json!({"project": "SHOP", "title": "Cart page"}),
+    )
+    .await);
+    ok(&send(
+        &w,
+        &agent,
+        "ticket.update",
+        json!({"key": "SHOP-2", "plan": "## Pieces\n1. Cart API\n2. Cart page — waits for 1"}),
+    )
+    .await);
+    let fixes: Vec<Value> = w
+        .board
+        .history("SHOP-1")
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == EventKind::FixedCreatedTicket)
+        .map(|e| e.payload)
+        .collect();
+    assert_eq!(
+        fixes,
+        [json!({"ticket": "SHOP-2", "change": "edited", "fields": ["plan"]})]
+    );
+    w.stop().await;
+}

@@ -573,6 +573,36 @@ async fn a_cancel_and_stop_this_check_on_security_count_nothing() {
     w.stop().await;
 }
 
+/// A Plan edit cancels a running check as a description edit does (d0133: "the description or the Plan" in 0063); a
+/// title-only edit doesn't.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plan_edit_cancels_a_check() {
+    let w = world(|_| {}).await;
+    let t = in_dev(&w, "Search notes").await;
+    submit(&w, &t).await;
+    let before = verdict(&w, &t, true).await;
+    assert_eq!(at(&before), (Some("security"), Status::Checking));
+    let mut retitled = before.clone();
+    retitled.title = "Search all notes".into();
+    w.validation
+        .ticket_edited(&before, &retitled)
+        .await
+        .unwrap();
+    assert_eq!(
+        at(&ticket(&w, &t).await),
+        (Some("security"), Status::Checking)
+    );
+    let mut after = before.clone();
+    after.plan = "## Pieces\n1. Search titles".into();
+    w.validation.ticket_edited(&before, &after).await.unwrap();
+    assert_eq!(at(&ticket(&w, &t).await), (Some("dev"), Status::Working));
+    assert_eq!(
+        runs_of(&w, &t, "security").await,
+        [Some(RunResult::Cancelled), Some(RunResult::Cancelled)]
+    );
+    w.stop().await;
+}
+
 /// Q344: what Dev's session is told names the check, not "Validation": Security's fail ("Security failed round 1. Run
 /// `otaq prime`.", the findings being Security's comment, CMT-05) and Security's cancel when the description changes.
 #[tokio::test(flavor = "multi_thread")]

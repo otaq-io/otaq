@@ -13,6 +13,9 @@
 //! Each `Ticket` also carries `"agents"`: the agent each stage runs, and `"choices"`: its stage choices, as `show
 //! --json` has them (`crate::read::StageAgentJson`, `crate::read::ChoiceJson`; AGM-05, AGM-11).
 //!
+//! **The Plan** (d0133): `--plan <text>` or `--plan-file <path>`, and on `update` also `--plan-stdin` (`--stdin` stays
+//! the description's); an empty Plan removes it.
+//!
 //! **Stage choices** (AGM-11, d0108, d0087): `--stage "<stage>=<agent|skip>"` (repeatable; `required` sets a
 //! skippable stage back), `--reason` for an agent's choice, `--by-user` when the user named them. The service judges
 //! who may set which (`otaq_core::board::stage_choices`).
@@ -28,7 +31,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::domain::Priority;
 use otaq_core::protocol::{BatchParams, ErrorBody, ErrorKind, Reply, Request, TicketUpdateParams};
 
-use crate::cli::{ChoiceFlags, GlobalArgs};
+use crate::cli::{ChoiceFlags, GlobalArgs, PlanFlags};
 use crate::output::Output;
 use crate::read::{self, unexpected};
 use crate::service::{self, client_error, internal};
@@ -40,6 +43,7 @@ pub struct CreateArgs {
     pub priority: Option<Priority>,
     pub deps: Vec<String>,
     pub stdin: bool,
+    pub plan: PlanFlags,
     pub file: Option<PathBuf>,
     pub choices: ChoiceFlags,
 }
@@ -50,6 +54,8 @@ pub struct UpdateArgs {
     pub description: Option<String>,
     pub priority: Option<Priority>,
     pub stdin: bool,
+    pub plan: PlanFlags,
+    pub plan_stdin: bool,
     pub choices: ChoiceFlags,
 }
 
@@ -78,14 +84,30 @@ fn body(description: Option<String>, stdin: bool) -> Result<Option<String>, Erro
     match (description, stdin) {
         (Some(_), true) => Err(usage("give the description with -d or --stdin, not both")),
         (Some(d), false) => Ok(Some(d)),
-        (None, true) => {
-            let mut text = String::new();
-            std::io::stdin()
-                .read_to_string(&mut text)
-                .map_err(|e| internal(format!("can't read stdin: {e}")))?;
-            Ok(Some(text.trim_end().to_owned()))
-        }
+        (None, true) => read_stdin().map(Some),
         (None, false) => Ok(None),
+    }
+}
+
+fn read_stdin() -> Result<String, ErrorBody> {
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+    Ok(text.trim_end().to_owned())
+}
+
+/// The Plan from `--plan`, `--plan-file` or (`update` only) `--plan-stdin`; clap keeps them apart.
+fn plan(flags: &PlanFlags, stdin: bool) -> Result<Option<String>, ErrorBody> {
+    if stdin {
+        return read_stdin().map(Some);
+    }
+    match (&flags.plan, &flags.plan_file) {
+        (Some(text), _) => Ok(Some(text.clone())),
+        (None, Some(file)) => std::fs::read_to_string(file)
+            .map(|text| Some(text.trim_end().to_owned()))
+            .map_err(|e| usage(format!("can't read {}: {e}", file.display()))),
+        (None, None) => Ok(None),
     }
 }
 
@@ -100,6 +122,8 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 || args.priority.is_some()
                 || args.description.is_some()
                 || args.stdin
+                || args.plan.plan.is_some()
+                || args.plan.plan_file.is_some()
                 || !choices.is_empty()
             {
                 return Err(usage(
@@ -126,6 +150,7 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 id: None,
                 title,
                 body,
+                plan: plan(&args.plan, false)?.unwrap_or_default(),
                 priority: args.priority,
                 depends_on: args.deps.clone(),
                 choices,
@@ -215,6 +240,7 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
     let update = TicketUpdate {
         title: args.title,
         body,
+        plan: plan(&args.plan, args.plan_stdin)?,
         priority: args.priority,
         choices,
         by_user: args.choices.by_user,
@@ -225,7 +251,9 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
         ..update.clone()
     };
     if fields == TicketUpdate::default() {
-        return Err(usage("nothing to change: give --title, -d, -p or --stdin"));
+        return Err(usage(
+            "nothing to change: give --title, -d, -p, --stdin or --plan",
+        ));
     }
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;

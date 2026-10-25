@@ -54,6 +54,11 @@ fn main() -> ExitCode {
             agent,
             ..
         }) => read::terminal(key, stage, agent, &cli.global, &out),
+        Some(Command::Show {
+            key,
+            piece: Some(piece),
+            ..
+        }) => read::show_piece(key, piece, &cli.global, &out),
         Some(Command::Show { key, long, .. }) => {
             read::show(read::ShowArgs { key, long }, &cli.global, &out)
         }
@@ -68,6 +73,7 @@ fn main() -> ExitCode {
             priority,
             deps,
             stdin,
+            plan,
             file,
             choices,
         }) => write::create(
@@ -77,6 +83,7 @@ fn main() -> ExitCode {
                 priority,
                 deps,
                 stdin,
+                plan,
                 file,
                 choices,
             },
@@ -89,6 +96,8 @@ fn main() -> ExitCode {
             description,
             priority,
             stdin,
+            plan,
+            plan_stdin,
             choices,
         }) => write::update(
             write::UpdateArgs {
@@ -97,6 +106,8 @@ fn main() -> ExitCode {
                 description,
                 priority,
                 stdin,
+                plan,
+                plan_stdin,
                 choices,
             },
             &cli.global,

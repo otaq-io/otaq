@@ -44,6 +44,9 @@ pub struct BatchTicket {
     pub title: String,
     #[serde(default)]
     pub body: String,
+    /// The Plan section (d0133; `create --plan`); a file's tickets have none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub plan: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
     /// What it depends on: batch IDs or keys.
@@ -151,6 +154,7 @@ impl Board {
                 project: project.to_owned(),
                 title: ticket.title.clone(),
                 body: ticket.body.clone(),
+                plan: ticket.plan.clone(),
                 priority: ticket.priority,
                 ..Default::default()
             };
