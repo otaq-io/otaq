@@ -85,7 +85,7 @@ pub struct DraftMemory {
     pub written: Vec<WrittenSkill>,
 }
 
-/// A stage whose skill the Project agent is writing (FED-06, `s27-06`: "Being written by the Project agent…" with
+/// A stage whose skill the Project agent is writing (FED-06, `s27-06`: "Being written by Noyan…" with
 /// Stop): from the user's **Ask the agent to write it** until the agent hands the folder in, or the user stops it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillWriting {

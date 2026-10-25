@@ -340,7 +340,7 @@ pub struct StartupReport {
     /// Project agents the restart ended, by id: "Ended by restart · Resume" (d0068).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub project_agents_ended: Vec<String>,
-    /// "New agent"s that never got a request: gone after the restart.
+    /// "New conversation"s that never got a request: gone after the restart.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub new_agents_discarded: u32,
     /// Epic leads the restart ended, by id: "Ended by restart · Resume", counted on their own ("1 epic lead

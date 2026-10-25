@@ -269,7 +269,7 @@ async fn the_agent_names_itself_once_and_the_users_rename_wins() {
     );
     assert_eq!(code, Some(Refusal::NotAllowed));
     assert!(
-        text.starts_with("This Project agent is already named \"Checkout slowness\""),
+        text.starts_with("This conversation is already named \"Checkout slowness\""),
         "{text}"
     );
     let renamed = w
@@ -296,7 +296,7 @@ async fn the_agent_names_itself_once_and_the_users_rename_wins() {
         assert_eq!(code, Some(Refusal::NotAllowed));
         assert_eq!(
             text,
-            "The user named this Project agent \"Slow checkout\"; their name stays"
+            "The user named this conversation \"Slow checkout\"; their name stays"
         );
     }
     // Nor does the first turn's fallback overwrite it.
@@ -427,7 +427,7 @@ async fn end_agent_ends_it_into_recently_ended_and_asks_first_mid_turn() {
     assert_eq!(code, Some(Refusal::NeedsConfirmation));
     assert_eq!(
         text,
-        "New agent is in the middle of a turn. Stop it and close it?"
+        "New conversation is in the middle of a turn. Stop it and close it?"
     );
     w.project_agents.close(&busy.id, true).await.unwrap();
     let busy = w.project_agents.get(&busy.id).await.unwrap();

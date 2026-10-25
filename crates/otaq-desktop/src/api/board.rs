@@ -287,7 +287,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
                 let name = agent_names
                     .iter()
                     .find(|(agent, _)| agent == id)
-                    .map_or("Project agent", |(_, name)| name.as_str());
+                    .map_or("Noyan", |(_, name)| name.as_str());
                 Some(AgentFilter::of(id, name, &created))
             }
             _ => None,

@@ -81,7 +81,7 @@ async fn a_project_agent_names_itself_once_and_nobody_else_can() {
         e["error"]["message"]
             .as_str()
             .unwrap()
-            .starts_with("This Project agent is already named \"Checkout slowness\""),
+            .starts_with("This conversation is already named \"Checkout slowness\""),
         "{e}"
     );
     let ran = agent

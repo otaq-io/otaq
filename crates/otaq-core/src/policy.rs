@@ -23,8 +23,8 @@
 //! A **Project agent** caller (d0068, PAG-02) reads anything, creates tickets (always in Backlog, incl. epics,
 //! children, External ID and priority), and edits, links and prioritises tickets **still in Backlog** (never
 //! started); it asks a ticket's agent and the user with its own commands, and names itself. Everything else
-//! (move, start, approve, merge, close, delete, edit a started ticket) is refused: "Project agents can only change
-//! Backlog tickets".
+//! (move, start, approve, merge, close, delete, edit a started ticket) is refused: "Noyan can only change Backlog
+//! tickets".
 //!
 //! An **epic lead** caller (d0083, CLI-07, LEAD-08) reads anything; edits, links and prioritises its own epic's
 //! **never-started** children ([`lead_may_change`]); creates children of its epic; and runs `note`, `answer`,
@@ -67,7 +67,7 @@ pub fn lead_refusal(lead: &str, epic: &TicketKey) -> String {
 }
 
 /// Every refusal of a comment from a Project agent (CMT-04).
-pub const PROJECT_AGENT_NO_COMMENTS: &str = "Project agents can read comments, not write them";
+pub const PROJECT_AGENT_NO_COMMENTS: &str = "Noyan can read comments, not write them";
 
 /// The refusal of an epic lead's comment outside its epic (CMT-04): "Wishlist lead can only comment on SHOP-40 and
 /// its children".
@@ -102,8 +102,8 @@ pub fn project_terminal_refusal(agent: &str, project: &str) -> String {
 }
 
 /// How a caller and its project are named in refusals: an epic lead's "Wishlist lead", a Project agent's own name
-/// and its project's name ("pocket-notes"). Without them the refusal falls back to "SHOP-40's lead", "The Project
-/// agent" and the project's key.
+/// and its project's name ("pocket-notes"). Without them the refusal falls back to "SHOP-40's lead", "Noyan" and
+/// the project's key.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Names<'a> {
     pub caller: Option<&'a str>,
@@ -238,7 +238,7 @@ pub fn authorize_in_stage(
             Caller::ProjectAgent { project: own, .. } if own == project => Ok(()),
             Caller::ProjectAgent { project: own, .. } => refuse(format!(
                 "{} can only propose a flow for its own project, {}",
-                names.caller.unwrap_or("The Project agent"),
+                names.caller.unwrap_or("Noyan"),
                 names.project.unwrap_or(own)
             )),
             _ => refuse(crate::flow::propose::ONLY_A_PROJECT_AGENT_OR_YOU.to_owned()),
@@ -345,7 +345,7 @@ pub fn authorize_in_stage(
             Action::Read | Action::CreateTicket { .. } => Ok(()),
             Action::ReadTerminal { project: of, .. } if of == project => Ok(()),
             Action::ReadTerminal { .. } => refuse(project_terminal_refusal(
-                names.caller.unwrap_or("The Project agent"),
+                names.caller.unwrap_or("Noyan"),
                 names.project.unwrap_or(project),
             )),
             Action::EditTicket(target) | Action::SetChoices(target) if target.backlog => Ok(()),
@@ -977,7 +977,7 @@ mod tests {
         );
         assert_eq!(
             message(authorize(&project_agent, &read(&other, "API"))).as_deref(),
-            Some("The Project agent can only read NOTE's tickets")
+            Some("Noyan can only read NOTE's tickets")
         );
 
         let lead = Caller::EpicLead {
@@ -1087,9 +1087,9 @@ mod tests {
         };
         let rows: Vec<(&str, &Caller, &TicketFacts, Option<&str>)> = vec![
             ("user, a started ticket", &Caller::User, &started, None),
-            ("Project agent, Backlog", &project_agent, &backlog, None),
+            ("Noyan, Backlog", &project_agent, &backlog, None),
             (
-                "Project agent, Ready for Dev",
+                "Noyan, Ready for Dev",
                 &project_agent,
                 &ready,
                 Some(BACKLOG_ONLY),

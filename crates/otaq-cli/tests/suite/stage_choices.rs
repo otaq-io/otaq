@@ -304,13 +304,13 @@ async fn a_project_agents_choices_and_the_users_words() {
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Dev: Quick developer · set by the Project agent · typo fix"
+        "Choices:     Dev: Quick developer · set by Noyan · typo fix"
     );
     let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
     assert_eq!(
         shown["choices"][1],
         json!({"stage": "Dev", "choice": "Quick developer", "set_by": "project_agent",
-               "by": "the Project agent", "reason": "typo fix", "locked": false,
+               "by": "Noyan", "reason": "typo fix", "locked": false,
                "options": ["Rust developer", "Quick developer"]})
     );
     // Without a reason: refused, nothing created.

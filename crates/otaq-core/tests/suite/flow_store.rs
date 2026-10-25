@@ -75,7 +75,7 @@ async fn versions_are_kept_in_order_and_the_current_one_runs() {
             &NewFlowVersion {
                 yaml: naming::DEFAULT_FLOW_YAML.to_owned(),
                 applied_by: AppliedBy::ProjectAgent,
-                agent_name: Some("Planner".into()),
+                agent_name: Some("Checkout slowness".into()),
                 preset: None,
             },
         )
@@ -83,7 +83,7 @@ async fn versions_are_kept_in_order_and_the_current_one_runs() {
         .unwrap();
     assert_eq!(
         (by_agent.version, by_agent.agent_name.as_deref()),
-        (3, Some("Planner"))
+        (3, Some("Checkout slowness"))
     );
     f.board.edit_flow_for_tests("SHOP", with_rounds(5)).await;
     let running = f.board.effective_flow("SHOP").await.unwrap();

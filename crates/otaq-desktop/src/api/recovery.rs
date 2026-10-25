@@ -252,7 +252,7 @@ pub async fn resume_agent(app: &App, p: IdParams) -> Result<(), RequestError> {
     if let Err(e) = app.service.send(Request::ProjectAgentResume(p)).await {
         app.notices.toast(NewToast::new(
             ToastLevel::Error,
-            "The Project agent didn\u{2019}t resume",
+            "Noyan didn\u{2019}t resume",
             Some(e.message),
         ));
     }

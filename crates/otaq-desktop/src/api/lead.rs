@@ -189,7 +189,7 @@ mod tests {
             Reply::Ticket(t) => t.key.to_string(),
             other => panic!("{other:?}"),
         };
-        // No children (LEAD-13, d0091): Split with the Project agent, with the agent panel's first message.
+        // No children (LEAD-13, d0091): Split with Noyan, with the agent panel's first message.
         let load = request(&h.app, "lead.view", json!({ "key": epic }))
             .await
             .unwrap();

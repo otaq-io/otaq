@@ -148,7 +148,7 @@ pub enum Request {
     #[serde(rename = "service.status")]
     ServiceStatus,
     /// What this start of the service found (REC-01, REC-06): the interrupted tickets (and which were validating),
-    /// the Project agents a restart ended and the unused "New agent"s it discarded. Answered with
+    /// the Project agents a restart ended and the unused "New conversation"s it discarded. Answered with
     /// [`Reply::StartupReport`].
     #[serde(rename = "service.startup_report")]
     StartupReport,
@@ -743,7 +743,7 @@ pub enum Request {
     #[serde(rename = "flow.draft_update")]
     FlowDraftUpdate(crate::flow::draft::DraftUpdateParams),
     /// `otaq flow write-skill <stage> [--done]` (FED-06): `{"project", "stage"}` gives the folder the Project agent
-    /// writes the stage's skill in (the field: "Being written by the Project agent…"); with `"done": true` the folder
+    /// writes the stage's skill in (the field: "Being written by Noyan…"); with `"done": true` the folder
     /// is imported as Otaq's own copy and lands in the draft as the stage's skill. Answered with
     /// [`Reply::SkillWrite`].
     #[serde(rename = "flow.write_skill")]
@@ -964,8 +964,8 @@ pub enum Request {
     /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
     #[serde(rename = "agents.duplicate")]
     AgentsDuplicate(IdParams),
-    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Noyan is
-    /// your Project agent. Give the role to another agent first") and while a stage names it ("Griller is used in
+    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Noyan has
+    /// the Noyan role. Give the role to another agent first.") and while a stage names it ("Griller is used in
     /// shop-web · Grill. Change that stage first.").
     #[serde(rename = "agents.delete")]
     AgentsDelete(IdParams),

@@ -126,7 +126,7 @@ pub enum ProposedBy {
         agent: String,
         /// Its session, where the answer goes.
         session: String,
-        /// Its name ("Checkout slowness"), for "Changed by the Project agent".
+        /// Its name ("Checkout slowness"), for "Changed by Noyan".
         name: String,
         /// The agent tool it runs on: "Recommended by OpenCode" during Flow setup (ASK-03).
         tool: Tool,

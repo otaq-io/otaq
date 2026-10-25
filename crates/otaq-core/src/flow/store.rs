@@ -21,7 +21,7 @@ use crate::naming;
 use crate::store::{Store, StoreError, now_ms};
 
 stored_enum! {
-    /// Who applied a flow version ("Changed by the Project agent · yesterday").
+    /// Who applied a flow version ("Changed by Noyan · yesterday").
     pub enum AppliedBy ("applied by") {
         /// Nobody: the shipped default flow a project gets when it is added (version 1).
         Shipped = "shipped",

@@ -225,7 +225,7 @@ async fn the_list_says_how_each_card_got_into_its_check() {
     ran(&w, &skipped, "grill", RunResult::Skipped, None).await;
     sqlx::query(
         "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, by_name, reason, set_at)
-         VALUES (?, 'grill', 'skip', 'project_agent', 'Planner', 'a typo', 0)",
+         VALUES (?, 'grill', 'skip', 'project_agent', 'Checkout slowness', 'a typo', 0)",
     )
     .bind(&skipped.id)
     .execute(w.board.store().pool())
@@ -250,11 +250,11 @@ async fn the_list_says_how_each_card_got_into_its_check() {
     );
     assert_eq!(
         label("SHOP-2").as_deref(),
-        Some("Skipped Grill \u{b7} by Planner")
+        Some("Skipped Grill \u{b7} by Checkout slowness")
     );
     assert_eq!(
         arrival(&w, "SHOP-2").await.as_deref(),
-        Some("Skipped Grill \u{b7} by Planner")
+        Some("Skipped Grill \u{b7} by Checkout slowness")
     );
     assert_eq!(label("SHOP-3").as_deref(), Some("Passed QA"));
     assert_eq!(

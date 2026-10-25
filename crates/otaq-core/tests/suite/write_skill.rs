@@ -153,7 +153,7 @@ async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
     // Handing in an empty folder is refused, and the folder stays for the agent to fix.
     let empty = w
         .board
-        .skill_written(&key, "plan", "Planner")
+        .skill_written(&key, "plan", "Checkout slowness")
         .await
         .unwrap_err();
     assert!(empty.to_string().contains("SKILL.md"), "{empty}");
@@ -162,7 +162,7 @@ async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
     write_plan_skill(&folder);
     let written = w
         .board
-        .skill_written(&key, "plan", "Planner")
+        .skill_written(&key, "plan", "Checkout slowness")
         .await
         .unwrap();
     assert_eq!(written.skill.as_deref(), Some("plan-ticket"));
@@ -177,7 +177,7 @@ async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
     assert!(draft.writing.is_empty());
     assert_eq!(draft.written.len(), 1);
     assert_eq!(draft.written[0].skill, "plan-ticket");
-    assert_eq!(draft.written[0].by, "Planner");
+    assert_eq!(draft.written[0].by, "Checkout slowness");
     assert_eq!(draft.written[0].copy, copies[0]);
     let file = yaml::read(&draft.proposal.yaml).unwrap();
     assert_eq!(
@@ -351,7 +351,7 @@ async fn a_tickets_agent_cant_write_a_stages_skill() {
         answer["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("Only a Project agent or you"),
+            .contains("Only Noyan or you"),
         "{answer}"
     );
     assert!(!w.data.root().join("skill-writes").exists());

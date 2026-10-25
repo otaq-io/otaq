@@ -440,8 +440,8 @@ impl Notices {
 
     /// The target `OTAQ_OPEN` named when the app started, once.
     /// The startup report was read: the summary banner counts the Project agents the restart ended too
-    /// ("8 sessions were interrupted · 2 Project agents ended", T-0244), and the epic leads it ended, counted on
-    /// their own ("· 1 epic lead ended", T-0289).
+    /// ("8 sessions were interrupted · 2 conversations with Noyan ended", T-0244), and the epic leads it ended,
+    /// counted on their own ("· 1 epic lead ended", T-0289).
     pub fn on_startup_agents(&self, ended: u32, leads_ended: u32) {
         {
             let mut state = self.lock();
@@ -1298,7 +1298,12 @@ mod tests {
             Some(OPENED + 1_000),
             "the page opens the sheet"
         );
-        // The startup report adds the Project agents the restart ended (T-0244).
+        // The startup report adds the Project agents the restart ended (T-0244): one, then two.
+        n.on_startup_agents(1, 0);
+        assert_eq!(
+            n.view().banners[0].title,
+            "4 sessions were interrupted \u{b7} 1 conversation with Noyan ended"
+        );
         n.on_startup_agents(2, 0);
         assert_eq!(
             n.view().banners[0].title,

@@ -210,7 +210,7 @@ pub async fn send(app: &App, params: SendParams) -> Result<String, RequestError>
         Ok(Reply::ProjectAgent(agent)) => Ok(agent.id),
         Ok(other) => Err(unexpected("project_agent.open", &other)),
         Err(e) => {
-            toast_error(app, "The Project agent didn\u{2019}t start", &e);
+            toast_error(app, "Noyan didn\u{2019}t start", &e);
             Err(e)
         }
     }
@@ -238,7 +238,7 @@ pub async fn rename(app: &App, params: RenameParams) -> Result<(), RequestError>
         }))
         .await
     {
-        toast_error(app, "The Project agent wasn\u{2019}t renamed", &e);
+        toast_error(app, "The conversation wasn\u{2019}t renamed", &e);
         return Err(e);
     }
     Ok(())
@@ -270,7 +270,7 @@ async fn find_agent(app: &App, project: &str, id: &str) -> Result<ProjectAgent, 
         .into_iter()
         .chain(list.recent)
         .find(|a| a.id == id)
-        .ok_or_else(|| RequestError::plain(format!("no such Project agent: {id}")))
+        .ok_or_else(|| RequestError::plain(format!("no such conversation with Noyan: {id}")))
 }
 
 pub async fn end(app: &App, params: EndParams) -> Result<Ended, RequestError> {
@@ -290,7 +290,7 @@ pub async fn end(app: &App, params: EndParams) -> Result<Ended, RequestError> {
             })
         }
         Err(e) => {
-            toast_error(app, "The Project agent didn\u{2019}t end", &e);
+            toast_error(app, "Noyan didn\u{2019}t end", &e);
             Err(e)
         }
     }
@@ -337,7 +337,7 @@ pub async fn resume(app: &App, params: ResumeParams) -> Result<String, RequestEr
         Ok(Reply::ProjectAgent(agent)) => Ok(agent.id),
         Ok(other) => Err(unexpected("project_agent.resume", &other)),
         Err(e) => {
-            toast_error(app, "The Project agent didn\u{2019}t resume", &e);
+            toast_error(app, "Noyan didn\u{2019}t resume", &e);
             Err(e)
         }
     }

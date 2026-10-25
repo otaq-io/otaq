@@ -322,7 +322,7 @@ async fn its_questions_reach_a_ticket_and_the_user_and_the_answers_come_back() {
         .unwrap();
     w.wait_for_output(
         &ticket_agent.session,
-        "Project agent New agent asks you (question",
+        "Noyan · New conversation asks you (question",
     )
     .await;
     let answered = send(
