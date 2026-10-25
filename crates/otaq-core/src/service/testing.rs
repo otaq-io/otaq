@@ -525,13 +525,17 @@ impl TestService {
         }
     }
 
-    /// Waits until the session's output contains `needle` (30 s at most) and returns the output so far.
+    /// Waits until the session's output contains `needle` (30 s at most) and returns the output so far; on a
+    /// timeout the panic shows what it printed.
     pub async fn wait_for_output(&self, session: &str, needle: &str) -> String {
         let sessions = self.sessions.clone();
+        let output = || {
+            let attached = sessions.attach(session).expect("session in memory");
+            String::from_utf8_lossy(&attached.scrollback).into_owned()
+        };
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
-                let attached = sessions.attach(session).expect("session in memory");
-                let text = String::from_utf8_lossy(&attached.scrollback).into_owned();
+                let text = output();
                 if text.contains(needle) {
                     return text;
                 }
@@ -539,7 +543,12 @@ impl TestService {
             }
         })
         .await
-        .unwrap_or_else(|_| panic!("the session never printed {needle:?}"))
+        .unwrap_or_else(|_| {
+            panic!(
+                "the session never printed {needle:?}; it printed:\n{}",
+                output()
+            )
+        })
     }
 
     /// Gives `ticket` its branch and worktree as the start sequence does; returns the worktree.

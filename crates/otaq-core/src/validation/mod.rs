@@ -1526,17 +1526,46 @@ impl Validation {
         let mut held: Option<Box<Held>> = None;
         let mut failed: Vec<(String, BoardError)> = Vec::new();
         let mut first_error: Option<BoardError> = None;
+        // Each check agent's agent and launch, after the check before every launch.
+        let mut ready = Vec::new();
         for (row, name) in todo {
             match self
-                .start_one(
-                    &ticket,
-                    stage.as_ref(),
-                    row.as_deref(),
-                    name.as_deref(),
-                    start,
-                )
+                .ready_one(&ticket, stage.as_ref(), name.as_deref())
                 .await
             {
+                Ok(Ok((agent, runs_on))) => ready.push((row, name, agent, runs_on)),
+                Ok(Err(h)) => {
+                    held.get_or_insert(h);
+                }
+                Err(e) => match row {
+                    Some(row) => failed.push((row, e)),
+                    None => first_error = Some(e),
+                },
+            }
+        }
+        // Every checker's skills are in place before any of their tools starts (d0118): a tool reads its skill
+        // folders only at start, and a shared copy being replaced for the next checker is briefly missing.
+        let mut prompts = Vec::with_capacity(ready.len());
+        for (_, _, agent, _) in &ready {
+            prompts.push(self.copy_skills(&ticket, agent).await);
+        }
+        for ((row, name, agent, runs_on), prompt) in ready.into_iter().zip(prompts) {
+            let launched = match prompt {
+                Ok(prompt) => {
+                    self.launch_one(
+                        &ticket,
+                        row.as_deref(),
+                        name.as_deref(),
+                        &agent,
+                        runs_on,
+                        prompt,
+                        start,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
+            };
+            match launched {
                 Ok(ValidatorStart::Started(session)) => started.push(*session),
                 Ok(ValidatorStart::Held(h)) => {
                     held.get_or_insert(h);
@@ -1583,16 +1612,14 @@ impl Validation {
         Ok(ValidatorStart::Started(Box::new(started.remove(0))))
     }
 
-    /// One check agent's checker (`name`, as the stage lists it; `None`: the ticket's check agent) for its row of
-    /// the round (`row`), after the check before every launch.
-    async fn start_one(
+    /// One check agent's agent (`name`, as the stage lists it; `None`: the ticket's check agent) and how it launches,
+    /// after the check before every launch; `Err` the hold that keeps it.
+    async fn ready_one(
         &self,
         ticket: &Ticket,
         stage: Option<&crate::flow::Stage>,
-        row: Option<&str>,
         name: Option<&str>,
-        start: Start,
-    ) -> Result<ValidatorStart, BoardError> {
+    ) -> Result<Result<(crate::agents::Agent, RunsOn), Box<Held>>, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         // Every round resolves its agent again: the agent's model may change between rounds (AGM-05, d0088).
@@ -1615,12 +1642,27 @@ impl Validation {
                 .await?
             {
                 Gated::Launch(runs_on) => runs_on,
-                Gated::Held(held) => return Ok(ValidatorStart::Held(held)),
+                Gated::Held(held) => return Ok(Err(held)),
             },
             None => RunsOn::agent(&agent, board.store().default_model().await?.as_ref()),
         };
+        Ok(Ok((agent, runs_on)))
+    }
+
+    /// One check agent's checker for its row of the round (`row`), its skills already copied (`first_prompt`).
+    #[allow(clippy::too_many_arguments)]
+    async fn launch_one(
+        &self,
+        ticket: &Ticket,
+        row: Option<&str>,
+        name: Option<&str>,
+        agent: &crate::agents::Agent,
+        runs_on: RunsOn,
+        first_prompt: Option<FirstPrompt>,
+        start: Start,
+    ) -> Result<ValidatorStart, BoardError> {
         match self
-            .launch_validator(ticket, runs_on, &agent, row, start)
+            .launch_validator(ticket, runs_on, row, first_prompt, start)
             .await
         {
             Ok(session) => Ok(ValidatorStart::Started(Box::new(session))),
@@ -1628,9 +1670,13 @@ impl Validation {
             Err(_) if self.kept(ticket, start).await? => Ok(ValidatorStart::Kept),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
-                if let Some(gate) = inner.gate.get()
+                if let Some(gate) = self.inner.gate.get()
                     && let Some(held) = gate
-                        .after_failed_launch(SessionRole::Validator, scope, &agent)
+                        .after_failed_launch(
+                            SessionRole::Validator,
+                            Scope::check(ticket, name),
+                            agent,
+                        )
                         .await?
                 {
                     return Ok(ValidatorStart::Held(Box::new(held)));
@@ -1640,18 +1686,9 @@ impl Validation {
         }
     }
 
-    async fn launch_validator(
-        &self,
-        ticket: &Ticket,
-        runs_on: RunsOn,
-        agent: &crate::agents::Agent,
-        row: Option<&str>,
-        start: Start,
-    ) -> Result<SessionInfo, BoardError> {
-        let inner = &self.inner;
-        let board = &inner.board;
-        inner.adapters.unavailable(runs_on.tool)?;
-        let worktree = ticket
+    /// The ticket's worktree, where its checkers run.
+    fn worktree_of(ticket: &Ticket) -> Result<PathBuf, BoardError> {
+        ticket
             .work
             .as_ref()
             .and_then(|w| w.worktree.clone())
@@ -1661,11 +1698,20 @@ impl Validation {
                     Refusal::MoveRefused,
                     format!("{} has no worktree to validate", ticket.key),
                 )
-            })?;
-        // The check's own skill (Q261, every check agent's: Q516) and every skill of its agent, written into the
-        // worktree first by one name (several check agents share the copies, d0118)
-        // (AGM-07): only ignored paths change, so the round's recorded head and tracked files stay as they were
-        // (VAL-02).
+            })
+    }
+
+    /// A checker's first prompt, once the check's own skill (Q261, every check agent's: Q516) and every skill of
+    /// `agent` are written into the worktree by one name (several check agents share the copies, d0118; AGM-07):
+    /// only ignored paths change, so the round's recorded head and tracked files stay as they were (VAL-02).
+    async fn copy_skills(
+        &self,
+        ticket: &Ticket,
+        agent: &crate::agents::Agent,
+    ) -> Result<Option<FirstPrompt>, BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
+        let worktree = Self::worktree_of(ticket)?;
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         let skips = board.ticket_skips(ticket, &flow).await?;
         let skill = resolve::check_stage_of(&flow, ticket, &skips)
@@ -1675,7 +1721,7 @@ impl Validation {
                     .own_skill()
                     .to_owned()
             });
-        let first_prompt = board
+        Ok(board
             .copy_for_session(
                 &worktree,
                 inner.adapters.shipped_skills(),
@@ -1687,7 +1733,21 @@ impl Validation {
                 crate::skills::Marker::Worktree,
             )
             .await
-            .0;
+            .0)
+    }
+
+    async fn launch_validator(
+        &self,
+        ticket: &Ticket,
+        runs_on: RunsOn,
+        row: Option<&str>,
+        first_prompt: Option<FirstPrompt>,
+        start: Start,
+    ) -> Result<SessionInfo, BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
+        inner.adapters.unavailable(runs_on.tool)?;
+        let worktree = Self::worktree_of(ticket)?;
         let launched = inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
