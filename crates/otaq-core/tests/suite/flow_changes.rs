@@ -152,7 +152,7 @@ async fn each_refusal_names_its_stage_or_agent() {
         .map(|e| e.unwrap().path())
         .collect();
     broken.sort();
-    assert_eq!(broken.len(), 22);
+    assert_eq!(broken.len(), 25);
     for path in broken {
         let text = std::fs::read_to_string(&path).unwrap();
         let message = refusal(propose_as(&w, &key, &text, planner()).await);
@@ -188,7 +188,7 @@ async fn each_refusal_names_its_stage_or_agent() {
     let reviewer = "agents:\n  - name: Security reviewer\n    skills: [security-review]\n    model: claude:gpt-9\n";
     let doc = format!(
         "{reviewer}flow:\n  - name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: \
-         Security\n    kind: check\n    by: agent\n    agent: Security reviewer\n    skill: security-review\n    \
+         Security\n    kind: check\n    by: agent\n    agents: [Security reviewer]\n    skill: security-review\n    \
          rounds: 2\n  - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
          with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n"
     );
@@ -382,7 +382,7 @@ async fn the_diff_says_what_changes_and_when() {
         .iter_mut()
         .find(|s| s.id == "security")
         .unwrap()
-        .agent = Some("Validator".into());
+        .agents = vec!["Validator".into()];
     let proposal = propose_as(&w, &key, &stages_only(&strict), planner())
         .await
         .unwrap();
@@ -396,7 +396,7 @@ async fn the_diff_says_what_changes_and_when() {
     assert_eq!(
         security,
         [
-            "Security \u{b7} agent: Security reviewer \u{2192} Validator \u{2014} applies when Security next starts"
+            "Security \u{b7} agents: Security reviewer, Validator \u{2192} Validator \u{2014} applies when Security next starts"
         ]
     );
     assert!(!proposal.diff.waits);

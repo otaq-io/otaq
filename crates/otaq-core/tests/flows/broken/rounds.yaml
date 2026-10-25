@@ -10,7 +10,7 @@ flow:
     kind: check
     by: agent
     column: with-previous
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 7
   - id: deliver

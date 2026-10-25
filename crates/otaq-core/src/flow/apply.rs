@@ -685,14 +685,7 @@ impl Board {
     pub(crate) async fn document(&self, flow: &Flow) -> Result<String, BoardError> {
         let stored = self.store().agents().await?;
         let mut agents: Vec<FlowAgent> = Vec::new();
-        let named = flow.stages.iter().flat_map(|s| {
-            s.agent
-                .iter()
-                .chain(s.options.iter().filter_map(|o| match o {
-                    StageOption::Agent(name) => Some(name),
-                    StageOption::Skip => None,
-                }))
-        });
+        let named = flow.stages.iter().flat_map(Stage::every_agent);
         for name in named {
             if let Some(agent) = stored
                 .iter()
@@ -1032,7 +1025,7 @@ impl Board {
             }
         }
         let chose = agent.map_or_else(|| "The agent it chose".to_owned(), |a| a.name);
-        let runs = stage.agent.clone().unwrap_or_default();
+        let runs = stage.agents_line();
         let mut tx = self.store().begin_write().await?;
         sqlx::query("DELETE FROM ticket_stage_choices WHERE ticket_id = ? AND stage_id = ?")
             .bind(&ticket.id)

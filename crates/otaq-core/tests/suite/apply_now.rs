@@ -394,7 +394,15 @@ async fn a_merged_waiting_change_counts_whole() {
 
     let plan = plan(&w).await;
     assert_eq!(plan.removed, names(&["Grill", "Security"]));
-    assert_eq!(plan.changes.len(), 2, "{:?}", plan.changes);
+    // QA's fails went to Grill: with Grill gone they go to the nearest Agent stage (d0131), and the preview says so.
+    assert_eq!(
+        plan.changes,
+        [
+            "QA's fails go to the nearest Agent stage now",
+            "Grill removed",
+            "Security removed"
+        ],
+    );
     let keys: Vec<String> = plan.moves.iter().map(|m| m.ticket.to_string()).collect();
     assert_eq!(keys, ["SHOP-1", "SHOP-2"]);
     w.stop().await;

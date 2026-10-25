@@ -1285,7 +1285,8 @@ fn agent_of(stage: &Stage, choices: &[StageOptions]) -> Option<String> {
             Choice::Agent { name, .. } => Some(name.clone()),
             Choice::Usual | Choice::Skip => None,
         });
-    picked.or_else(|| stage.agent.clone())
+    // T-0527: every check agent (one agent here: an agent check's first).
+    picked.or_else(|| stage.named_agents().next().cloned())
 }
 
 /// "Then it goes on to Security, Review and Done as usual.": the stages after `to` the ticket runs.
@@ -3408,8 +3409,8 @@ mod tests {
 flow:
   - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
   - {id: pr, name: PR open, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
 ";
@@ -3423,11 +3424,11 @@ flow:
   - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
   - {id: plan, name: Plan, kind: agent, agent: Planner, skill: plan}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, agents: [Validator], skill: validate, rounds: 3}
   - {id: tests, name: Tests, kind: agent, agent: Test runner, skill: e2e}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
-  - {id: perf, name: Perf, kind: check, by: agent, agent: Perf reviewer, skill: perf, rounds: 3}
-  - {id: a11y, name: A11y, kind: check, by: agent, agent: A11y reviewer, skill: a11y, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
+  - {id: perf, name: Perf, kind: check, by: agent, agents: [Perf reviewer], skill: perf, rounds: 3}
+  - {id: a11y, name: A11y, kind: check, by: agent, agents: [A11y reviewer], skill: a11y, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
   - {id: pr, name: PR, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}

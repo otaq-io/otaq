@@ -28,10 +28,11 @@ fn unknown(stage: &Stage, name: &str) -> BoardError {
     )
 }
 
-/// The stage's agent (AGM-05): the agent `stage` names. Refused for a stage that runs no agent, or names one that
-/// isn't there.
+/// The stage's agent (AGM-05): the agent `stage` names, an agent check's first check agent. Refused for a stage that
+/// runs no agent, or names one that isn't there.
 pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardError> {
-    let Some(name) = &stage.agent else {
+    // T-0527: every check agent (an agent check runs one session, its first check agent's, until the round of N).
+    let Some(name) = stage.agent.as_ref().or(stage.check_agents().first()) else {
         return Err(BoardError::refused(
             Refusal::UnknownAgent,
             format!("{} runs no agent", stage.name),
@@ -40,6 +41,14 @@ pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardErr
     named(board.store(), name)
         .await?
         .ok_or_else(|| unknown(stage, name))
+}
+
+/// Whether `stage` itself names `agent` (its agent, or one of an agent check's check agents), by name ignoring case
+/// as [`named`] looks it up.
+pub fn stage_names(stage: &Stage, agent: &Agent) -> bool {
+    stage
+        .named_agents()
+        .any(|name| name.trim().to_lowercase() == agent.name.to_lowercase())
 }
 
 /// The running agent of `ticket` in the stage `stage_id` (AGM-05): the ticket's choice for it (AGM-08), else the
@@ -139,7 +148,7 @@ pub async fn delivery_agent(board: &Board, project: &str) -> Result<Agent, Board
     let stage = flow
         .stages
         .iter()
-        .find(|s| s.is_delivery() && s.agent.is_some())
+        .find(|s| s.is_delivery() && s.has_agent())
         .or_else(|| flow.first_agent_stage())
         .ok_or_else(|| BoardError::NotFound(format!("{project}'s flow has no agent to deliver")))?;
     stage_agent(board, stage).await

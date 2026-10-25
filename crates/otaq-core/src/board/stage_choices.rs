@@ -83,12 +83,13 @@ pub enum Choice {
     Skip,
 }
 
-/// How a stage's usual choice reads: its agent ("Rust developer", "Griller" on a skippable Grill), or "required" for a
-/// stage that runs no agent (a human check; FLW-22, Q290).
+/// How a stage's usual choice reads: its agent ("Rust developer", "Griller" on a skippable Grill), an agent check's
+/// check agents ("Security reviewer + Performance reviewer", d0130), or "required" for a stage that runs no agent (a
+/// human check; FLW-22, Q290).
 fn usual_word(stage: &Stage) -> String {
-    match &stage.agent {
-        Some(agent) => agent.clone(),
-        None => REQUIRED.to_owned(),
+    match stage.has_agent() {
+        true => stage.agents_line(),
+        false => REQUIRED.to_owned(),
     }
 }
 
@@ -501,7 +502,8 @@ impl Board {
                 agent_id: resolve::named(self.store(), name).await?.map(|a| a.id),
             })
         };
-        let usual = match &stage.agent {
+        // T-0527: every check agent (the usual choice is one agent: an agent check's first).
+        let usual = match stage.named_agents().next() {
             Some(name) => Some(resolve(name).await?),
             None => None,
         };
@@ -886,6 +888,7 @@ mod tests {
             },
             column: Default::default(),
             agent: agent.map(Into::into),
+            agents: Vec::new(),
             skill: None,
             options: options
                 .iter()
@@ -895,6 +898,7 @@ mod tests {
                 })
                 .collect(),
             rounds: None,
+            fail_to: None,
             delivery: None,
             why: None,
         }

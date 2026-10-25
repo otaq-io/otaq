@@ -966,7 +966,7 @@ mod tests {
             &file,
             "agents:\n  - name: Security reviewer\n    skills: [security-review]\n    model: default\nflow:\n  - \
              name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: Security\n    \
-             kind: check\n    by: agent\n    agent: Security reviewer\n    skill: security-review\n    rounds: 2\n  \
+             kind: check\n    by: agent\n    agents: [Security reviewer]\n    skill: security-review\n    rounds: 2\n  \
              - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
              with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n",
         )

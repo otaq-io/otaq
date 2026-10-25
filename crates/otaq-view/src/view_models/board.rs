@@ -675,8 +675,9 @@ fn folded_tag(stage: &Stage) -> String {
 pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option<HeaderTooltip> {
     let (owner, folded) = column.parts.split_first()?;
     let stage = owner.stage;
+    // T-0527: every check agent (one tool and model here: an agent check's first).
     let agent = |s: &Stage| -> Option<&Agent> {
-        let name = s.agent.as_deref()?;
+        let name = s.named_agents().next()?;
         agents?
             .agents
             .iter()
@@ -713,7 +714,7 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
     for part in folded {
         let s = part.stage;
         let mut line: Vec<String> = vec![s.name.clone()];
-        line.extend(s.agent.clone());
+        line.extend(s.has_agent().then(|| s.agents_line()));
         line.extend(agent(s).and_then(|a| runs_on(a, agents?)));
         line.push(format!("shown in {}", stage.name));
         detail.push(line.join(" \u{b7} "));
@@ -737,7 +738,7 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
         _ => {}
     }
     if runs_agent && !stage.is_human_check() {
-        title.extend(stage.agent.clone());
+        title.extend(stage.has_agent().then(|| stage.agents_line()));
         title.extend(stage.skill.clone());
     }
     Some(HeaderTooltip {
@@ -1717,7 +1718,7 @@ mod tests {
         assert_eq!(tip(2).detail, ["Claude Code · sonnet", "Options: skip"]);
         assert_eq!(
             tip(4).title,
-            "Security · Security reviewer · security-review"
+            "Security · Security reviewer + Validator · security-review"
         );
         assert_eq!(tip(4).detail, ["Claude Code · opus · up to 2 rounds"]);
         assert_eq!(tip(5).title, "QA · your check");
@@ -1744,8 +1745,8 @@ mod tests {
 flow:
   - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill, options: [skip]}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
   - {id: docs, name: Docs, kind: agent, agent: Doc writer, skill: docs}

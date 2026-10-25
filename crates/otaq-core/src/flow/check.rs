@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use super::model::{Column, Delivers, DeliveryMode, Flow, Stage};
+use super::model::{Column, Delivers, DeliveryMode, Flow, Stage, StageKind};
 
 /// The rounds an agent check may have (d0063): 1–5; anything else is a [`Rule::Rounds`] problem.
 pub const VALIDATION_ROUNDS: std::ops::RangeInclusive<u32> = 1..=5;
@@ -35,12 +35,16 @@ pub enum Rule {
     SkipLeavesNoAgent,
     /// With the skips taken, a human check has no running Agent stage before it.
     SkipStrandsHumanCheck,
-    /// Two stages with one id or one name.
+    /// Two stages with one id or one name, or an agent check listing one agent twice.
     Duplicate,
     /// A stage or a stage option names an agent that isn't one of the agents (AGM-01).
     UnknownAgent,
     /// An Agent stage or an agent check with no skill (FED-06: "Plan needs a skill").
     NeedsSkill,
+    /// A check's fails go to a stage that isn't an Agent stage before it (d0131).
+    FailTo,
+    /// An agent check with no check agent (d0130: one or more).
+    NoCheckAgent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,16 +68,12 @@ pub fn unknown_agent_message(stage: &Stage, name: &str) -> String {
     )
 }
 
-/// The agents a flow names (AGM-01: a stage's `agent` and its options' agents), each against `known` (whether an
-/// agent of that name is there); a problem per unknown name, in stage order.
+/// The agents a flow names (AGM-01: a stage's `agent`, an agent check's check agents and its options' agents), each
+/// against `known` (whether an agent of that name is there); a problem per unknown name, in stage order.
 pub fn check_agents(flow: &Flow, known: impl Fn(&str) -> bool) -> Result<(), Vec<Problem>> {
     let mut problems = Vec::new();
     for stage in &flow.stages {
-        let options = stage.options.iter().filter_map(|o| match o {
-            super::model::StageOption::Agent(name) => Some(name),
-            super::model::StageOption::Skip => None,
-        });
-        for name in stage.agent.iter().chain(options) {
+        for name in stage.every_agent() {
             if !known(name) {
                 problems.push(Problem {
                     rule: Rule::UnknownAgent,
@@ -124,6 +124,32 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
                     stage.name
                 ),
             );
+        }
+    }
+
+    for stage in stages.iter().filter(|s| s.is_agent_check()) {
+        let agents = stage.check_agents();
+        if agents.is_empty() {
+            add(
+                Rule::NoCheckAgent,
+                Some(stage),
+                format!(
+                    "{} is an agent check with no check agent: name one or more",
+                    stage.name
+                ),
+            );
+        }
+        for (i, agent) in agents.iter().enumerate() {
+            if agents[..i].iter().any(|a| a.eq_ignore_ascii_case(agent)) {
+                add(
+                    Rule::Duplicate,
+                    Some(stage),
+                    format!(
+                        "{} lists {agent} twice: each check agent runs once",
+                        stage.name
+                    ),
+                );
+            }
         }
     }
 
@@ -253,6 +279,23 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
         }
     }
 
+    // Where each check's fails go (d0131): an Agent stage before it. A target no stage has any more is the nearest
+    // one again (a flow file can't name one; the flow editor's removed stage, [`super::yaml`]).
+    for (i, stage) in stages.iter().enumerate() {
+        let target = stage
+            .fail_to
+            .as_deref()
+            .filter(|_| matches!(stage.kind, StageKind::Check { .. }))
+            .and_then(|id| flow.stage(id));
+        let Some(target) = target else {
+            continue;
+        };
+        let fits = target.is_agent_stage() && flow.position(&target.id).is_some_and(|t| t < i);
+        if !fits {
+            add(Rule::FailTo, Some(stage), fail_to_message(stage, target));
+        }
+    }
+
     // Skips. A rule broken by some combination of skips is broken by the combination that skips every skippable
     // Agent stage up to that point and nothing else (more skips only remove running Agent stages; a skipped human
     // check has nothing to send back), so checking those cases covers every combination, and names the smallest.
@@ -286,6 +329,14 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
     } else {
         Err(problems)
     }
+}
+
+/// "Spec review's fails go to Validate, which isn't an Agent stage before it".
+pub fn fail_to_message(check: &Stage, target: &Stage) -> String {
+    format!(
+        "{}'s fails go to {}, which isn't an Agent stage before it",
+        check.name, target.name
+    )
 }
 
 /// "Grill is", "Grill and Dev are both", "Grill, Plan and Dev are all".

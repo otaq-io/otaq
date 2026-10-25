@@ -113,11 +113,9 @@ impl Board {
         };
         let mut skills = Vec::new();
         let flow = self.effective_flow(&info.key).await?;
-        for stage in flow.stages.iter().filter(|s| s.agent.is_some()) {
-            let runs_it = crate::agents::resolve::stage_agent(self, stage)
-                .await
-                .is_ok_and(|a| a.id == agent.id);
-            if !runs_it {
+        // Every stage naming it, an agent check's check agents each (d0130).
+        for stage in &flow.stages {
+            if !crate::agents::resolve::stage_names(stage, &agent) {
                 continue;
             }
             let name = self.stage_skill(&info.key, stage).await?;

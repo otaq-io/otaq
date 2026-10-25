@@ -20,17 +20,17 @@ pub fn posted_for(stage: &str) -> String {
 
 /// "Dev · Rust developer": the stage and its agent, or the stage alone without one.
 fn dotted(stage: &Stage) -> String {
-    match &stage.agent {
-        Some(agent) => format!("{} \u{b7} {agent}", stage.name),
-        None => stage.name.clone(),
+    match stage.has_agent() {
+        true => format!("{} \u{b7} {}", stage.name, stage.agents_line()),
+        false => stage.name.clone(),
     }
 }
 
 /// "Dev (Rust developer)".
 fn bracketed(stage: &Stage) -> String {
-    match &stage.agent {
-        Some(agent) => format!("{} ({agent})", stage.name),
-        None => stage.name.clone(),
+    match stage.has_agent() {
+        true => format!("{} ({})", stage.name, stage.agents_line()),
+        false => stage.name.clone(),
     }
 }
 

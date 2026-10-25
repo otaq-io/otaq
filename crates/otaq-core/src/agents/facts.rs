@@ -118,12 +118,13 @@ async fn path_of(
 ) -> Result<Vec<PathStage>, BoardError> {
     let mut path = Vec::with_capacity(flow.stages.len());
     for (index, stage) in flow.stages.iter().enumerate() {
-        let agent = match &stage.agent {
-            Some(_) => match board.chosen_agent(ticket, stage).await? {
+        // T-0527: every check agent (one agent per stage here: an agent check's first).
+        let agent = match stage.has_agent() {
+            true => match board.chosen_agent(ticket, stage).await? {
                 Some(chosen) => Some(chosen),
                 None => resolve::stage_agent(board, stage).await.ok(),
             },
-            None => None,
+            false => None,
         };
         path.push(PathStage {
             stage_id: stage.id.clone(),
@@ -266,7 +267,8 @@ impl CardHold {
 async fn stage_agents(board: &Board, project: &str) -> Result<Vec<StageAgent>, BoardError> {
     let flow = board.effective_flow(project).await?;
     let mut stages = Vec::new();
-    for stage in flow.stages.iter().filter(|s| s.agent.is_some()) {
+    // T-0527: every check agent (one agent per stage here: an agent check's first).
+    for stage in flow.stages.iter().filter(|s| s.has_agent()) {
         stages.push(StageAgent {
             stage_id: stage.id.clone(),
             stage: stage.name.clone(),

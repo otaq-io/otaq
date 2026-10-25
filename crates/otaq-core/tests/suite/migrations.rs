@@ -1682,6 +1682,18 @@ async fn every_state_moves_to_its_place_and_stage() {
     // The board reads each place.
     let data = otaq_core::data_dir::DataDir::new(path.parent().unwrap().join("home"));
     let board = otaq_core::board::Board::new(store.clone(), None, data);
+    // 0050 stored the default flow with `agent:` on Validate, which d0130 no longer reads (no conversion, T-0525): an
+    // error naming why, never a panic. The board reads the places once the flow is today's.
+    let refused = board.tickets("NOTE").await.unwrap_err().to_string();
+    assert!(
+        refused.contains("an agent check lists its agents: `agents: [Validator]`"),
+        "{refused}"
+    );
+    sqlx::query("UPDATE project_flows SET yaml = ?")
+        .bind(naming::DEFAULT_FLOW_YAML)
+        .execute(store.pool())
+        .await
+        .unwrap();
     let tickets = board.tickets("NOTE").await.unwrap();
     let place = |state: &str, n: usize| {
         let t = tickets
@@ -1994,10 +2006,12 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
 }
 
 /// The default flow as 0050 stored it for the projects already there: before T-0415 named `open-pr` on its Delivery
-/// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill).
+/// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill), and before d0130's
+/// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525).
 fn default_as_0050_stored() -> String {
-    let stored =
-        naming::DEFAULT_FLOW_YAML.replace("    skill: open-pr\n    mode: click", "    mode: click");
+    let stored = naming::DEFAULT_FLOW_YAML
+        .replace("    skill: open-pr\n    mode: click", "    mode: click")
+        .replace("    agents: [Validator]\n", "    agent: Validator\n");
     assert_ne!(stored, naming::DEFAULT_FLOW_YAML);
     stored
 }

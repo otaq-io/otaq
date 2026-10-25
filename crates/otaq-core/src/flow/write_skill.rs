@@ -71,26 +71,35 @@ fn detach(file: &mut FlowFile, path: &str) {
     }
 }
 
-/// Gives the skill folder `path` to the agent of the stage `stage_id` in the document (only to it): the stage's agent
-/// joins the document's agents, as stored, when it isn't there.
+/// Gives the skill folder `path` to the agents of the stage `stage_id` in the document (only to them; an agent check's
+/// check agents each, since each runs the stage's skill): each joins the document's agents, as stored, when it isn't
+/// there.
 fn attach(file: &mut FlowFile, stage_id: &str, path: &str, stored: &[Agent]) {
     detach(file, path);
-    let Some(name) = file.flow.stage(stage_id).and_then(|s| s.agent.clone()) else {
-        return;
-    };
+    let names: Vec<String> = file
+        .flow
+        .stage(stage_id)
+        .map(|s| s.named_agents().cloned().collect())
+        .unwrap_or_default();
+    for name in names {
+        attach_to(file, &name, path, stored);
+    }
+}
+
+fn attach_to(file: &mut FlowFile, name: &str, path: &str, stored: &[Agent]) {
     let at = match file
         .agents
         .iter()
-        .position(|a| a.name.eq_ignore_ascii_case(&name))
+        .position(|a| a.name.eq_ignore_ascii_case(name))
     {
         Some(at) => at,
         None => {
             let agent = stored
                 .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(&name))
+                .find(|a| a.name.eq_ignore_ascii_case(name))
                 .map_or_else(
                     || FlowAgent {
-                        name: name.clone(),
+                        name: name.to_owned(),
                         model: "default".to_owned(),
                         ..FlowAgent::default()
                     },
@@ -105,7 +114,7 @@ fn attach(file: &mut FlowFile, stage_id: &str, path: &str, stored: &[Agent]) {
 
 /// A stage an agent runs (only those have a skill).
 fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
-    if stage.agent.is_some() {
+    if stage.has_agent() {
         return Ok(());
     }
     Err(BoardError::refused(

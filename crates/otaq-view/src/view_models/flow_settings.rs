@@ -234,10 +234,11 @@ pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<Stag
         .iter()
         .enumerate()
         .map(|(i, stage)| {
-            let (agent, model) = match (stage.kind, &stage.agent) {
+            // T-0527: every check agent (an agent check's agents on one line, its first's model).
+            let (agent, model) = match (stage.kind, stage.named_agents().next()) {
                 (StageKind::Check { by: CheckBy::You }, _) => ("You".to_owned(), None),
                 (_, Some(name)) => (
-                    name.clone(),
+                    stage.agents_line(),
                     find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref())),
                 ),
                 (_, None) => (NONE.to_owned(), None),
@@ -641,7 +642,7 @@ mod tests {
                 (
                     "Security",
                     "Check \u{b7} agent \u{b7} 2 rounds",
-                    "Security reviewer",
+                    "Security reviewer + Validator",
                     Some("Claude Code \u{b7} opus"),
                     "\u{2014}"
                 ),

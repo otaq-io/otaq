@@ -36,8 +36,9 @@ pub struct Flow {
 }
 
 /// One stage. Which fields are set depends on the kind ([`crate::flow::yaml`] refuses the others):
-/// `agent` and `skill` for an Agent stage and an agent check, `agent` (and an optional `skill`) for a Delivery that
-/// can open a PR; `rounds` for an agent check; `delivery` for the Delivery stage.
+/// `agent` and `skill` for an Agent stage, `agent` (and an optional `skill`) for a Delivery that can open a PR;
+/// `agents`, `skill` and `rounds` for an agent check (d0130); `fail_to` for a check (d0131); `delivery` for the
+/// Delivery stage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stage {
     /// Permanent: kept as written, so a rename changes nothing (d0108). Otaq writes it; a file without one gets
@@ -46,13 +47,20 @@ pub struct Stage {
     pub name: String,
     pub kind: StageKind,
     pub column: Column,
+    /// The agent of an Agent stage or a Delivery that can open a PR; never an agent check's ([`Self::agents`]).
     pub agent: Option<String>,
+    /// An agent check's check agents, one or more (d0130), side by side, each running the stage's skill; empty on
+    /// every other kind. Read them with [`Self::check_agents`].
+    pub agents: Vec<String>,
     pub skill: Option<String>,
     /// What a ticket may pick instead of the usual agent: another agent, or skipping the stage (its choices,
     /// [`crate::board::stage_choices`]).
     pub options: Vec<StageOption>,
-    /// An agent check's fails in a row before the card stops for the user (1–5).
+    /// An agent check's fails in a row before the card stops for the user (1–5), whichever check agent failed.
     pub rounds: Option<u32>,
+    /// A check's "fails go to" stage, by id (d0131), so it follows a rename; `None` for the nearest Agent stage
+    /// before the check. Resolve it with [`Flow::fail_to_of`].
+    pub fail_to: Option<String>,
     pub delivery: Option<Delivery>,
     /// Why the flow has this stage, naming its source ("From 41 /security-review runs in shop-web"): the flow editor's
     /// why line (FLW-04). The engine and the checks never read it.
@@ -203,6 +211,45 @@ impl Stage {
         (self.is_agent_stage() || self.is_agent_check()) && self.skill.is_none()
     }
 
+    /// An agent check's check agents (d0130), in the flow's order; empty for every other kind.
+    pub fn check_agents(&self) -> &[String] {
+        &self.agents
+    }
+
+    /// Every agent the stage itself names (not its options): an Agent stage's or a Delivery's agent, an agent check's
+    /// check agents.
+    pub fn named_agents(&self) -> impl Iterator<Item = &String> {
+        self.agent.iter().chain(&self.agents)
+    }
+
+    /// The agents of the stage's options (another agent a ticket may pick).
+    pub fn option_agents(&self) -> impl Iterator<Item = &String> {
+        self.options.iter().filter_map(|o| match o {
+            StageOption::Agent(name) => Some(name),
+            StageOption::Skip => None,
+        })
+    }
+
+    /// Every agent the stage names: [`Self::named_agents`], then its options' ([`Self::option_agents`]).
+    pub fn every_agent(&self) -> impl Iterator<Item = &String> {
+        self.named_agents().chain(self.option_agents())
+    }
+
+    /// The agents the stage itself names, as one line: "Developer", "Security reviewer + Performance reviewer" (an
+    /// agent check's, d0130); empty when it names none.
+    pub fn agents_line(&self) -> String {
+        self.named_agents()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" + ")
+    }
+
+    /// The stage names an agent of its own: an Agent stage, a Delivery that can open a PR, an agent check with a check
+    /// agent.
+    pub fn has_agent(&self) -> bool {
+        self.named_agents().next().is_some()
+    }
+
     /// The flow lets a ticket skip this stage.
     pub fn can_skip(&self) -> bool {
         self.options.contains(&StageOption::Skip)
@@ -216,6 +263,19 @@ impl Flow {
 
     pub fn position(&self, id: &str) -> Option<usize> {
         self.stages.iter().position(|s| s.id == id)
+    }
+
+    /// Where a Fail at the check `check` goes (d0131): its `fail_to` stage when that is an Agent stage before it, else
+    /// the nearest Agent stage before it. `None` when it has none before it, which [`crate::flow::check`] refuses.
+    /// Skips aren't looked at: the engine resolves those per ticket.
+    pub fn fail_to_of(&self, check: &Stage) -> Option<&Stage> {
+        let at = self.position(&check.id)?;
+        let before = &self.stages[..at];
+        check
+            .fail_to
+            .as_deref()
+            .and_then(|id| before.iter().find(|s| s.id == id && s.is_agent_stage()))
+            .or_else(|| before.iter().rev().find(|s| s.is_agent_stage()))
     }
 
     /// The first Agent stage, which Ready for Dev waits before.
