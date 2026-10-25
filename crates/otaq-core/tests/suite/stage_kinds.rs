@@ -121,6 +121,16 @@ async fn a_restart_by_stage_kind() {
     let qa = w.create("SHOP", "Export as CSV").await; // SHOP-2
     let security = w.create("SHOP", "Search notes").await; // SHOP-3
     let dev = w.create("SHOP", "Rate limit the export").await; // SHOP-4
+    // SHOP-4 skips Grill: its session starts in Dev, the stage it is resumed in (a session belongs to the stage it
+    // started in).
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
+         VALUES (?, 'grill', 'skip', 'user', 1)",
+    )
+    .bind(&dev.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
     for key in ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4"] {
         start_agent(&w, key).await;
     }
@@ -352,13 +362,17 @@ async fn rights_follow_the_stage_run() {
     w.stop().await;
 }
 
-/// A QA Send back with the only slot full waits before Dev (the nearest earlier Agent stage, not Grill, the flow's
-/// first); when the slot frees it Begins in Dev and resumes Dev's conversation (not a new one, not Grill's newer).
+/// A QA Send back with the only slot full waits before Dev (QA's fails set to the nearest earlier Agent stage, not
+/// Grill, the flow's first); when the slot frees it Begins in Dev and resumes Dev's conversation (not a new one, not
+/// Grill's newer).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
     let w = TestService::start_with(launch).await;
     w.add_project("shop-web").await;
-    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let mut file = every_kind_file();
+    let qa = file.flow.position("qa").unwrap();
+    file.flow.stages[qa].fail_to = None;
+    w.board.use_flow_for_tests("SHOP", &file).await;
     w.board
         .set_global_settings(&GlobalSettings {
             agent_limits: AgentLimits {

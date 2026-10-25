@@ -561,7 +561,8 @@ impl<'f> Card<'f> {
 }
 
 /// A Security fail returns to Dev (its session resumes) and the card walks Validate, Security and QA again; each
-/// check counts its own fails, Security stops at its 2; a QA Fail resets every counter.
+/// check counts its own fails, Security stops at its 2; a QA Fail goes to Grill (its `fail_to`) and resets every
+/// counter.
 #[test]
 fn a_fail_walks_every_later_stage_again() {
     let flow = every_kind();
@@ -616,11 +617,16 @@ fn a_fail_walks_every_later_stage_again() {
         (card.at(), card.status),
         (Some("qa"), Status::WaitingForYou)
     );
-    // A QA Fail: back to Dev, every counter at 0.
+    // A QA Fail: back to Grill, where QA's fails go (d0131), every counter at 0; from there every later stage again,
+    // Dev included.
     let fail = card.apply(Move::HumanFail);
     assert_eq!(fail.counters, Counters::ResetAll);
-    assert_eq!(card.at(), Some("dev"));
+    assert!(fail.resume, "Grill's session resumes with the comments");
+    assert_eq!(card.at(), Some("grill"));
     assert!(card.fails.values().all(|n| *n == 0) || card.fails.is_empty());
+    card.apply(Move::NextStage);
+    assert_eq!(card.place, Place::Waiting(Some("dev".into())));
+    card.apply(Move::Begin);
     card.apply(Move::NextStage);
     card.apply(Move::Pass);
     card.apply(Move::Fail);
@@ -634,7 +640,7 @@ fn a_fail_walks_every_later_stage_again() {
         stages,
         [
             "grill", "dev", "validate", "security", "dev", "validate", "dev", "validate",
-            "security", "qa", "dev", "validate", "security"
+            "security", "qa", "grill", "dev", "validate", "security"
         ]
     );
 }

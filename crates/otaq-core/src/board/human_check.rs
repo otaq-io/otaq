@@ -5,8 +5,9 @@
 //!   the delivery choices (today's Approve → Local merge / Open PR) and the card stays; otherwise it moves to the next
 //!   stage the ticket runs. [`Board::record_pass`] writes a move that starts no checker (the next human check, the
 //!   wait before an Agent stage, a Delivery); [`crate::review::Review::pass`] carries the Pass out, a checker included.
-//! - The **Fail** is Send back's bookkeeping ([`super::send_back`]): the nearest earlier Agent stage resumes with the
-//!   comments, every agent check's counter restarts, and the card walks every later stage again.
+//! - The **Fail** is Send back's bookkeeping ([`super::send_back`]): the check's fails-go-to stage
+//!   ([`crate::flow::engine::fail_to`], d0131) resumes with the comments, every agent check's counter restarts, and
+//!   the card walks every later stage again.
 //! - [`Board::arrival`]: "Passed Security · round 2", "Skipped Security · by you", "Moved back by you", read from the
 //!   ticket's stage runs (STG-05), so every way in (a check's pass, a skip, a drag back, PR rework) is covered
 //!   without a column of its own.

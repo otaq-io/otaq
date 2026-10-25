@@ -314,15 +314,25 @@ async fn a_pass_into_an_agent_check_starts_its_checker() {
     w.stop().await;
 }
 
-/// Fail at QA: Dev's conversation resumes with the address-review skill and the comments, the check counter
-/// restarts, and the card walks Validate and Security again before QA.
+/// Fail at QA of a ticket that skips Grill (QA's fails go to Grill): back to the nearest Agent stage it runs, Dev,
+/// whose conversation resumes with the address-review skill (a line comment goes with it) and the comments; the check
+/// counter restarts, and the card walks Validate and Security again before QA.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     let w = world().await;
     w.board.use_flow_for_tests("SHOP", &every_kind()).await;
     let t = at(&w, "Export as CSV", "dev", Status::Working).await;
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
+         VALUES (?, 'grill', 'skip', 'user', 1)",
+    )
+    .bind(&t.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
     ended_session(&w, &t, "dev-conversation").await;
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
+    crate::common::line_comment(&w.board, "SHOP-1").await;
     // Both checks counted fails (each its own, T-0417).
     sqlx::query(
         "INSERT INTO check_counters (ticket_id, stage_id, fails, updated_at)

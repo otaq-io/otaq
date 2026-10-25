@@ -28,8 +28,9 @@ fn me() -> Actor {
 ///   its turn (the Stop hook);
 /// - the agent's first start: reads `prime`, commits, `stage next`; once the check has failed it exits (the ticket is
 ///   Interrupted);
-/// - a resumed agent: the same, then works again on each line typed into its terminal (Send back's
-///   `/otaq-address-review`), saving the prime it read each time.
+/// - a resumed agent: the same, then works again on each Send back typed into its terminal (with no line comments
+///   the plain sentence, "Review sent SHOP-1 back to you…", d0131 Q514; else `/otaq-address-review`), saving the
+///   prime it read each time.
 fn stand_in(state: &Path) -> String {
     let state = state.display();
     let data_var = otaq_core::data_dir::DataDir::env_var();
@@ -64,7 +65,7 @@ case "$*" in
 *--resume*)
     work fix
     while IFS= read -r line; do
-        case "$line" in *otaq-address-review*) work review ;; esac
+        case "$line" in *otaq-address-review* | *"back to you"*) work review ;; esac
     done
     exec sleep 60
     ;;
@@ -221,7 +222,8 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     let out = w.wait_for_output(&agent.id, "ARGS").await;
     assert!(out.contains(&format!("--resume {conversation}")), "{out}");
 
-    // Send back: the live session gets `/otaq-address-review`, ends its stage again; the check passes → Review.
+    // Send back: the live session gets the plain sentence (only a note), ends its stage again; the check passes →
+    // Review.
     w.review
         .fail(&key, "Also the tax", None, false, &me())
         .await

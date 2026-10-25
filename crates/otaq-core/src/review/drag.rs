@@ -35,7 +35,7 @@ use crate::validation::Validation;
 pub(crate) struct Back<'a> {
     /// The user's instructions as their comment, if they wrote any.
     pub(super) hand_over: Option<&'a HandOver>,
-    stage: &'a Stage,
+    pub(super) stage: &'a Stage,
     /// How the run of the stage it leaves ends: failed from a human check (its Fail), cancelled elsewhere.
     ended: RunResult,
     event: serde_json::Value,
@@ -70,6 +70,7 @@ impl Back<'_> {
                         stage: &self.stage.name,
                         by_you: true,
                         pr_comments: false,
+                        from: None,
                     }),
                     fresh: false,
                 },
@@ -331,6 +332,7 @@ impl Review {
                         stage: &to.name,
                         by_you: true,
                         pr_comments: false,
+                        from: None,
                     }),
                     fresh: true,
                 },
@@ -450,14 +452,9 @@ impl Review {
         Ok(())
     }
 
-    /// The stage whose run a session ran, if it ran one.
+    /// The Agent stage a session ran, if it ran one ([`crate::session::own_stage`]).
     pub(super) async fn session_stage(&self, session: &str) -> Result<Option<String>, BoardError> {
-        Ok(sqlx::query_scalar(
-            "SELECT stage_id FROM stage_runs WHERE session_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
-        )
-        .bind(session)
-        .fetch_optional(self.inner.board.store().pool())
-        .await?)
+        Ok(crate::session::own_stage(self.inner.board.store().pool(), session).await?)
     }
 }
 

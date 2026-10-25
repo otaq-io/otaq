@@ -282,14 +282,40 @@ pub fn rows_with_rounds(
     rounds: u32,
     facts: &Facts,
 ) -> Vec<HistoryRow> {
-    let events: Vec<HistoryEvent> = events
-        .iter()
-        .filter(|e| e.kind != EventKind::ValidationEnded)
-        .cloned()
-        .collect();
-    let mut rows = rows_in(&events, sessions, usage, facts);
+    // A failed round that sent the ticket back names its check and the stage (d0131) on each failing agent's record:
+    // "Validate failed · back to Dev" · "round 2 · Security reviewer · agent submitted". Its round's event ended it,
+    // within moments of the round's end.
+    let sent_back = |r: &ValidationRecord| {
+        if r.outcome != Some(otaq_core::domain::ValidationOutcome::Fail) {
+            return None;
+        }
+        let ended = r.ended_at?;
+        events
+            .iter()
+            .filter(|e| e.kind == EventKind::ValidationEnded)
+            .filter(|e| e.payload.get("round").and_then(|v| v.as_u64()) == Some(u64::from(r.round)))
+            .filter(|e| (e.at - ended).abs() < 5_000)
+            .min_by_key(|e| (e.at - ended).abs())
+            .and_then(|e| Some((text(&e.payload, "check")?, text(&e.payload, "back_to")?)))
+    };
+    let mut rows = {
+        let events: Vec<HistoryEvent> = events
+            .iter()
+            .filter(|e| e.kind != EventKind::ValidationEnded)
+            .cloned()
+            .collect();
+        rows_in(&events, sessions, usage, facts)
+    };
     rows.extend(records.iter().map(|r| {
-        let round = validation_report::round_row(r, rounds);
+        let mut round = validation_report::round_row(r, rounds);
+        if let Some((check, stage)) = sent_back(r) {
+            round.title = format!("{check} failed \u{b7} back to {stage}");
+            let parts: Vec<String> = std::iter::once(format!("round {}", r.round))
+                .chain(r.agent.clone())
+                .chain(round.detail)
+                .collect();
+            round.detail = Some(parts.join(" \u{b7} "));
+        }
         // The check's agent ran the round: its tool's avatar, from its session.
         let tool = sessions
             .iter()
@@ -1365,13 +1391,23 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             },
             text(p, "url"),
         ),
+        // "Sent back to Product spec" · "by you", the stage the check's fails go to (d0131); with line comments
+        // "by you · 2 comments · round 1".
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
             let plural = if n == 1 { "" } else { "s" };
+            let title = match text(p, "stage") {
+                Some(stage) => format!("Sent back to {stage}"),
+                None => "Sent back".to_owned(),
+            };
+            let by = who(&e.actor);
             (
-                "Sent back".to_owned(),
-                Some(format!("{n} comment{plural} · round {round}")),
+                title,
+                Some(match n {
+                    0 => by,
+                    n => format!("{by} \u{b7} {n} comment{plural} \u{b7} round {round}"),
+                }),
             )
         }
     };
@@ -1519,6 +1555,27 @@ mod tests {
 
     const MIN: i64 = 60_000;
 
+    /// A Send back names the stage the check's fails went to (d0131): "Sent back to Product spec" · "by you", with
+    /// the line comments it carried and the round.
+    #[test]
+    fn a_send_back_names_its_stage() {
+        let row = |payload| {
+            let row = event_row(&event(EventKind::SentBack, 0, payload)).unwrap();
+            (row.title, row.detail.unwrap())
+        };
+        assert_eq!(
+            row(json!({"round": 1, "comments": 0, "to": "working", "stage": "Product spec"})),
+            ("Sent back to Product spec".into(), "by you".into())
+        );
+        assert_eq!(
+            row(json!({"round": 2, "comments": 3, "to": "working", "stage": "Dev"})),
+            (
+                "Sent back to Dev".into(),
+                "by you \u{b7} 3 comments \u{b7} round 2".into()
+            )
+        );
+    }
+
     /// #47: the ticket whose agent filed another one says so, under All.
     #[test]
     fn a_ticket_s_agent_created_another() {
@@ -1557,6 +1614,49 @@ mod tests {
             row.detail.as_deref(),
             Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
         );
+    }
+
+    /// A failed round that sent the ticket back names its check and where it went (d0131), the nearest stage or not.
+    #[test]
+    fn a_failed_round_names_where_it_went() {
+        use otaq_core::domain::ValidationOutcome;
+        use otaq_core::domain::validation::ValidationTrigger;
+        let record = |round| ValidationRecord {
+            agent: None,
+            round,
+            trigger: ValidationTrigger::Agent,
+            outcome: Some(ValidationOutcome::Fail),
+            started_at: 20 * MIN,
+            ended_at: Some(24 * MIN),
+            duration_ms: Some(4 * MIN),
+            session: None,
+            report: Some("a.ts:1: wrong".into()),
+            notes: Vec::new(),
+            tokens: None,
+        };
+        let title = |back_to: &str| {
+            let rows = rows_with_rounds(
+                &[event(
+                    EventKind::ValidationEnded,
+                    24 * MIN + 3,
+                    json!({ "round": 2, "outcome": "fail", "check": "Validate", "back_to": back_to }),
+                )],
+                &[],
+                &[],
+                &[record(2)],
+                3,
+                &Facts::default(),
+            );
+            (rows[0].title.clone(), rows[0].detail.clone().unwrap())
+        };
+        assert_eq!(
+            title("Dev"),
+            (
+                "Validate failed \u{b7} back to Dev".into(),
+                "round 2 \u{b7} agent submitted".into()
+            )
+        );
+        assert_eq!(title("Grill").0, "Validate failed \u{b7} back to Grill");
     }
 
     /// One entry per validation round in place of its bare event, sorted with the rest (VAL-12).
@@ -1632,6 +1732,36 @@ mod tests {
         );
         let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(titles, ["Round 1 · failed", "Round 1 · passed"]);
+        // The round sent the ticket back (d0131): the failing agent's entry names the check and where it went.
+        let rows = rows_with_rounds(
+            &[event(
+                EventKind::ValidationEnded,
+                24 * MIN,
+                json!({ "round": 1, "outcome": "fail", "check": "Security", "back_to": "Grill" }),
+            )],
+            &[],
+            &[],
+            &[
+                record("Security reviewer", ValidationOutcome::Fail),
+                record("Validator", ValidationOutcome::Pass),
+            ],
+            3,
+            &Facts::default(),
+        );
+        let rows: Vec<_> = rows
+            .iter()
+            .map(|r| (r.title.as_str(), r.detail.as_deref().unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "Security failed \u{b7} back to Grill",
+                    "round 1 \u{b7} Security reviewer \u{b7} agent submitted"
+                ),
+                ("Round 1 · passed", "agent submitted")
+            ]
+        );
     }
 
     fn agent(name: &str, stage: &str, round: Option<u32>, tool: Tool) -> serde_json::Value {

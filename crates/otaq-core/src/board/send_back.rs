@@ -1,14 +1,15 @@
-//! The bookkeeping of a ticket returning from a human check to the nearest earlier Agent stage (REV-04, GIT-03,
-//! FLW-14; d0034, d0038, d0108 rule 6): on the default flow, Ready for Review to Dev.
+//! The bookkeeping of a ticket returning from a human check to the check's fails-go-to stage (REV-04, GIT-03,
+//! FLW-14; d0034, d0038, d0108 rule 6, d0131): on the default flow, Ready for Review to Dev.
 //!
 //! **Fail** (Send back on the default flow) bundles the round's pending line comments and the optional note: the note
 //! is the user's ticket comment (CMT-05), posted first, the line comments get `sent_at`, a `reviews` row records the
 //! action and the round, `sent_back_round` becomes that round and the card shows "Sent back · N comments · round K"
-//! until the ticket next reaches Ready for Review. The ticket goes to Dev: Agent Working when its live session gets
-//! the skill at once, otherwise Queued with the skill to run once the agent is live again (`resume_skill`) and what
-//! it is told (`resume_prompt`: "SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq prime`,
-//! then `otaq review feedback`.", never the note). Typing and resuming are the caller's job
-//! ([`crate::review::Review`]).
+//! until the ticket next reaches Ready for Review. The ticket goes to that stage: Agent Working when its live session
+//! gets the skill at once, otherwise Queued with the skill to run once the agent is live again (`resume_skill`) and
+//! what it is told (`resume_prompt`: "SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
+//! prime`, then `otaq review feedback`.", never the note). With no line comments the skill doesn't go (d0131 Q514):
+//! only the plain sentence ("Spec review sent SHOP-40 back to you with a comment. Run `otaq prime`."), typed or
+//! resumed with. Typing and resuming are the caller's job ([`crate::review::Review`]).
 
 use serde_json::json;
 
@@ -48,6 +49,8 @@ pub(crate) struct Tell<'a> {
     pub stage: &'a str,
     pub by_you: bool,
     pub pr_comments: bool,
+    /// The human check whose Send back it is ([`SentBack::from`]).
+    pub from: Option<&'a str>,
 }
 
 /// What a Send back sent.
@@ -82,6 +85,12 @@ impl Board {
     ) -> Result<SentRound, BoardError> {
         let stage = self.back_stage(ticket, to).await?;
         let name = self.back_stage_name(ticket).await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let check = ticket
+            .place
+            .stage()
+            .and_then(|id| flow.stage(id))
+            .map(|s| s.name.clone());
         self.send_back_to(
             ticket,
             SentBackTo {
@@ -95,6 +104,7 @@ impl Board {
                     stage: &name,
                     by_you: false,
                     pr_comments: false,
+                    from: check.as_deref(),
                 }),
                 fresh: false,
             },
@@ -114,7 +124,7 @@ impl Board {
             .map_or_else(|| "Dev".to_owned(), |s| s.name.clone()))
     }
 
-    /// A Send back's bookkeeping into `back.stage` (Fail's nearest earlier Agent stage, or the stage a drag back
+    /// A Send back's bookkeeping into `back.stage` (the Fail's fails-go-to stage, or the stage a drag back
     /// chose, FLW-18): the user's comment is posted, the pending line comments are sent and the review recorded (the
     /// agent reads them with `otaq review feedback`), the open run ends as `back.ended`, every agent check's counter
     /// restarts, and the ticket is `back.to` there. History gets Sent back, or the drag's own event.
@@ -133,10 +143,14 @@ impl Board {
         Ok(sent)
     }
 
-    /// Where a Send back takes the ticket: the nearest earlier Agent stage, as the flow engine says (a human
-    /// check's Fail, STG-06). Queued (`to`, the limit is full), it waits before that stage instead
+    /// Where a Send back takes the ticket: the check's fails-go-to stage, as the flow engine says (a human check's
+    /// Fail, STG-06, d0131). Queued (`to`, the limit is full), it waits before that stage instead
     /// ([`waits_before`]): Ready for Dev before the flow's first.
-    async fn back_stage(&self, ticket: &Ticket, to: Status) -> Result<Option<String>, BoardError> {
+    pub(crate) async fn back_stage(
+        &self,
+        ticket: &Ticket,
+        to: Status,
+    ) -> Result<Option<String>, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let stage = match self
             .moved(ticket, Status::WaitingForYou, Move::HumanFail)
@@ -149,6 +163,18 @@ impl Board {
             true => stage.and_then(|id| waits_before(&flow, &id)),
             false => stage,
         })
+    }
+
+    /// The line comments waiting to go with the next Send back: with any, it is a code review and `address-review`
+    /// goes with it (d0131 Q514).
+    pub async fn pending_line_comments(&self, ticket_id: &str) -> Result<u32, BoardError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM review_comments WHERE ticket_id = ? AND sent_at IS NULL",
+        )
+        .bind(ticket_id)
+        .fetch_one(self.store.pool())
+        .await?;
+        Ok(u32::try_from(n).unwrap_or(u32::MAX))
     }
 
     /// The round of the latest Send back, if there was one.
@@ -219,20 +245,25 @@ pub(crate) async fn send_back_in(
             pr_comments: tell.pr_comments,
             comment: posted.is_some(),
             by_you: tell.by_you,
+            from: tell.from,
         })
     });
-    // What a queued or fresh start begins with: the skill (or the stage's own) followed by the told text.
-    if resume_skill.is_some() || fresh {
+    // What a queued or fresh start begins with: the skill (or the stage's own) followed by the told text; with no
+    // skill (no code review, d0131 Q514) the told text alone, as a resumed conversation's first prompt.
+    let plain = resume_skill.is_none() && !fresh && to.is_queued();
+    if resume_skill.is_some() || fresh || plain {
         sqlx::query(
             "UPDATE tickets SET resume_prompt = ?,
                                 resume_skill = CASE WHEN ? THEN NULL ELSE resume_skill END,
-                                return_mode = CASE WHEN ? THEN ? ELSE return_mode END
+                                return_mode = CASE WHEN ? THEN ? WHEN ? THEN ? ELSE return_mode END
              WHERE id = ?",
         )
         .bind(told.as_deref())
         .bind(fresh)
         .bind(fresh)
         .bind(crate::recovery::RETURN_SCRATCH)
+        .bind(plain)
+        .bind(crate::recovery::RETURN_RESUME)
         .bind(&ticket.id)
         .execute(&mut **tx)
         .await?;
@@ -242,10 +273,12 @@ pub(crate) async fn send_back_in(
         stage_runs::mark_handed_over(tx, &ticket.id).await?;
     }
     let note = hand_over.map_or("", |h| h.body.as_str());
+    // History's "Sent back to Product spec · by you" names the stage (d0131).
+    let named = tell.map(|t| t.stage);
     let (kind, payload) = event.unwrap_or_else(|| {
         (
             EventKind::SentBack,
-            json!({ "round": round, "comments": comments, "note": note, "to": to }),
+            json!({ "round": round, "comments": comments, "note": note, "to": to, "stage": named }),
         )
     });
     record_event(tx, &ticket.id, kind, actor, payload).await?;

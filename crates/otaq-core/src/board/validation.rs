@@ -744,6 +744,17 @@ impl Board {
         let step = close.step;
         let outcome = step.outcome.unwrap_or(ValidationOutcome::NoResult);
         let review = step.enters_review();
+        // History's "Validate failed · back to Dev" (d0131): the check and the stage a Fail sent the ticket to.
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let named = |place: &Place| {
+            place
+                .stage()
+                .and_then(|id| flow.stage(id))
+                .map(|s| s.name.clone())
+        };
+        let back_to = (outcome == ValidationOutcome::Fail && step.to == Status::Working)
+            .then(|| named(&step.place))
+            .flatten();
         sqlx::query(
             "UPDATE validations SET ended_at = ?, outcome = ?, reason = ?, notes_json = COALESCE(notes_json, '[]')
              WHERE ticket_id = ? AND COALESCE(round_id, id) = ? AND ended_at IS NULL",
@@ -798,7 +809,8 @@ impl Board {
             &ticket.id,
             EventKind::ValidationEnded,
             actor,
-            json!({"round": round.round, "outcome": outcome, "counted": outcome.counts()}),
+            json!({"round": round.round, "outcome": outcome, "counted": outcome.counts(),
+                   "check": named(&ticket.place), "back_to": back_to}),
         )
         .await?;
         Ok(())

@@ -57,6 +57,7 @@ mod epic_take_back;
 mod epics;
 mod events;
 mod every_request;
+mod fails_go_to;
 mod files;
 mod flow_changes;
 mod flow_draft;

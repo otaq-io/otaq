@@ -461,9 +461,13 @@ async fn a_queued_send_back_keeps_what_the_agent_is_told() {
         .unwrap();
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert!(w.status(&t.key.to_string()).await.is_queued());
+    // No line comments: no skill, the plain sentence alone (d0131 Q514).
     assert_eq!(
-        row.resume_prompt.as_deref(),
-        Some("SHOP-2 was sent back to Dev with a comment. Run `otaq prime`.")
+        (row.resume_skill.as_deref(), row.resume_prompt.as_deref()),
+        (
+            None,
+            Some("Review sent SHOP-2 back to you with a comment. Run `otaq prime`.")
+        )
     );
     assert_eq!(
         comments(&w, &t.key.to_string()).await[0].body,
@@ -481,6 +485,7 @@ fn back() -> SentBack<'static> {
         pr_comments: false,
         comment: false,
         by_you: false,
+        from: None,
     }
 }
 
@@ -541,6 +546,33 @@ fn the_sent_back_texts() {
             ..back()
         }),
         "SHOP-19 was sent back to Dev by you with a comment. Run `otaq prime`."
+    );
+    // A human check's Send back with no code review: the plain sentence, whatever the stage (d0131 Q514).
+    assert_eq!(
+        sent_back_text(&SentBack {
+            key: "SHOP-40",
+            stage: "Product spec",
+            comment: true,
+            from: Some("Spec review"),
+            ..back()
+        }),
+        "Spec review sent SHOP-40 back to you with a comment. Run `otaq prime`."
+    );
+    assert_eq!(
+        sent_back_text(&SentBack {
+            from: Some("Review"),
+            ..back()
+        }),
+        "Review sent SHOP-18 back to you. Run `otaq prime`."
+    );
+    assert_eq!(
+        sent_back_text(&SentBack {
+            line_comments: 2,
+            from: Some("Review"),
+            ..back()
+        }),
+        "SHOP-18 was sent back to Dev with 2 line comments. Run `otaq prime`, then `otaq review feedback`.",
+        "a code review keeps its form, after address-review"
     );
     assert_eq!(
         check_failed_text("Validate", 2),
@@ -634,7 +666,11 @@ async fn send_back_and_a_human_fail_rearm_the_gate() {
     for flow in ["default", "every-kind"] {
         let w = world().await;
         if flow == "every-kind" {
-            w.board.use_flow_for_tests("SHOP", &every_kind()).await;
+            // QA's fails to the nearest Agent stage, the live Dev (its own `fail_to` is Grill).
+            let mut file = every_kind();
+            let qa = file.flow.position("qa").unwrap();
+            file.flow.stages[qa].fail_to = None;
+            w.board.use_flow_for_tests("SHOP", &file).await;
         }
         let t = w.create("SHOP", "Export orders as CSV").await;
         w.give_worktree(&t).await;

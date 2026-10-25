@@ -160,6 +160,8 @@ async fn send_back_into_a_live_session_runs_address_review_on_each_tool() {
         );
         in_review(&w, &t, "login.ts").await;
         let key = t.key.to_string();
+        // A line comment: a code review, so the skill goes (d0131 Q514).
+        crate::common::line_comment(&w.board, &key).await;
         w.review
             .fail(&key, "Keep the old URL working.", None, false, &me())
             .await
@@ -274,6 +276,7 @@ async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     in_review(&w, &t, "login.ts").await;
     w.sessions.stop(&session.id).await.unwrap();
     let key = t.key.to_string();
+    crate::common::line_comment(&w.board, &key).await;
     w.review
         .fail(&key, "Keep the old URL working.", None, false, &me())
         .await

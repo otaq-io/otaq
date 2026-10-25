@@ -627,6 +627,7 @@ impl Board {
             pr_comments: true,
             comment: posted.is_some(),
             by_you: false,
+            from: None,
         });
         if resume_skill.is_some() {
             sqlx::query("UPDATE tickets SET resume_prompt = ? WHERE id = ?")
