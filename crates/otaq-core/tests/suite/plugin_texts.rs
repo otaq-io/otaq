@@ -153,15 +153,15 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// T-0416 (FLW-21): the Project agent and the epic lead read a running check's terminal with `--stage`.
+/// T-0416 (FLW-21): Noyan reads a running check's terminal with `--stage`.
 #[test]
 fn the_reading_skills_teach_the_stage_terminal() {
     let cmd = naming::COMMAND_NAME;
     let readers: Vec<_> = skill_files()
         .into_iter()
-        .filter(|(n, _)| n == "noyan" || n == "epic-lead")
+        .filter(|(n, _)| n == "noyan")
         .collect();
-    assert_eq!(readers.len(), 2);
+    assert_eq!(readers.len(), 1);
     for (name, path) in readers {
         let text = std::fs::read_to_string(path).unwrap();
         assert!(

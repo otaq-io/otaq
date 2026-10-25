@@ -231,7 +231,7 @@ pub struct AgentAdd {
     pub draft: agent_page::Draft,
 }
 
-/// `settings.agent_role`: the role as stored (`noyan`, `epic-lead`), or empty for None.
+/// `settings.agent_role`: the role as stored (`noyan`), or empty for None.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentRoleSet {
     pub id: String,

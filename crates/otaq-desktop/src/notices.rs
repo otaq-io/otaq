@@ -436,30 +436,20 @@ impl Notices {
     /// ("8 sessions were interrupted · 2 conversations with Noyan ended", T-0244).
     pub fn on_startup_agents(&self, ended: u32) {
         {
-            let mut state = self.lock();
-            if let Some(Situation::SessionsInterrupted {
-                count,
-                unclean,
-                at,
-                agents,
-                leads,
-            }) = state.summary.clone()
-                && agents != ended
-                && state
-                    .banners
-                    .rows()
-                    .iter()
-                    .any(|r| r.kind == SituationKind::SessionsInterrupted)
+            let mut guard = self.lock();
+            let state = &mut *guard;
+            let shown = state
+                .banners
+                .rows()
+                .iter()
+                .any(|r| r.kind == SituationKind::SessionsInterrupted);
+            if let Some(situation) = state.summary.as_mut()
+                && let Situation::SessionsInterrupted { agents, .. } = situation
+                && *agents != ended
+                && shown
             {
-                let situation = Situation::SessionsInterrupted {
-                    count,
-                    unclean,
-                    at,
-                    agents: ended,
-                    leads,
-                };
-                state.summary = Some(situation.clone());
-                state.banners.raise(situation);
+                *agents = ended;
+                state.banners.raise(situation.clone());
             }
         }
         self.publish();
@@ -539,7 +529,7 @@ impl Notices {
         self.publish();
     }
 
-    /// A ticket's agent or an epic lead created a ticket (`created_by_agent`, #47): it joins the batch the tick turns
+    /// A ticket's agent created a ticket (`created_by_agent`, #47): it joins the batch the tick turns
     /// into one toast once the burst is over.
     pub fn on_created_by_agent(&self, created: Created, now: Instant) {
         self.lock().creations.add(created, now);
@@ -1533,7 +1523,6 @@ mod tests {
                 agent: "pa7".into()
             })
         );
-        assert_eq!(OpenTarget::parse("lead:SHOP-40"), None);
         assert_eq!(
             OpenTarget::parse("board"),
             Some(OpenTarget::Board { project: None })

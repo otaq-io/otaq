@@ -367,8 +367,6 @@ pub enum CardActionKind {
     OpenPr,
     /// A PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
     SendBackPr,
-    /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
-    AddChildFromPr,
     /// An agent check's last round failed (FLW-13): on to the next stage; its Delivery waits for a click.
     MoveOnAnyway,
     /// A check out of rounds (BRD-03): the card's one action opens the ticket, where Move on anyway, another round

@@ -13,7 +13,7 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it, the **comments** too. Its "Resolve first"
-   section names the **target** to rebase onto (for example `main`, `develop`, or the epic's branch) and the
+   section names the **target** to rebase onto (for example `main` or `develop`) and the
    conflicting files. Otaq refuses to end your stage until you have run it: "Run `otaq prime` first: SHOP-19 has 3
    comments you haven't read.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step

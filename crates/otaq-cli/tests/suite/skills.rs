@@ -9,11 +9,6 @@ use otaq_core::naming;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
-/// The skill folder and the commands the epic's removal took out of the CLI (d0133); T-0534 rewrites the skills that
-/// still name them, and these go with it.
-const REMOVED_EPIC_LEAD: &str = "epic-lead";
-const REMOVED_COMMANDS: &[&str] = &["notes"];
-
 /// The command words after each `otaq ` in a text: lowercase words, up to two.
 fn commands(text: &str) -> Vec<Vec<String>> {
     let lead = format!("{} ", naming::COMMAND_NAME);
@@ -48,15 +43,12 @@ fn every_command_a_skill_names_exists() {
     let mut checked = 0;
     for entry in std::fs::read_dir(&skills).unwrap() {
         let folder = entry.unwrap().path();
-        if !folder.is_dir() || folder.ends_with(REMOVED_EPIC_LEAD) {
+        if !folder.is_dir() {
             continue;
         }
         let file = folder.join("SKILL.md");
         let text = std::fs::read_to_string(&file).unwrap();
         for words in commands(&text) {
-            if REMOVED_COMMANDS.contains(&words[0].as_str()) {
-                continue;
-            }
             let ok = Command::new(CB)
                 .args(&words)
                 .arg("--help")
@@ -93,11 +85,11 @@ fn command_words_are_found() {
     );
 }
 
-/// T-0286: the M17 commands the epic-lead, work-ticket and commit skills teach are among those checked above; T-0409
-/// (AGM-10): work-ticket ends its stage with `stage next`, or `stage done` with nothing to deliver. T-0445 (CMT-09):
-/// the lead posts `comment`s, and both read reports with `report`.
+/// T-0286: the commands the work-ticket skill teaches are among those checked above; T-0409 (AGM-10): work-ticket
+/// ends its stage with `stage next`, or `stage done` with nothing to deliver. T-0445 (CMT-09): it reads reports with
+/// `report`. T-0534 (d0133): no skill names the lead's commands any more.
 #[test]
-fn the_lead_and_decision_commands_are_checked() {
+fn the_work_ticket_commands_are_checked() {
     let skills = find_plugin_dir(Path::new("/nonexistent"))
         .expect("the repository's plugin folder")
         .join("skills");
@@ -107,29 +99,9 @@ fn the_lead_and_decision_commands_are_checked() {
             .map(|words| words.join(" "))
             .collect::<Vec<_>>()
     };
-    let lead = named("epic-lead");
-    for command in [
-        "prime",
-        "create",
-        "update",
-        "dep add",
-        "dep remove",
-        "decision mark",
-        "note",
-        "questions",
-        "answer",
-        "ask human",
-        "suggest close",
-        "suggest delete",
-        "comment",
-        "report",
-    ] {
-        assert!(lead.contains(&command.to_owned()), "epic-lead: {command}");
-    }
     let work = named("work-ticket");
     for command in [
         "prime",
-        "notes",
         "decision record",
         "stage next",
         "stage done",
@@ -137,5 +109,14 @@ fn the_lead_and_decision_commands_are_checked() {
     ] {
         assert!(work.contains(&command.to_owned()), "work-ticket: {command}");
     }
-    assert!(named("commit").contains(&"notes".to_owned()));
+    assert!(
+        !skills.join("epic-lead").exists(),
+        "the epic-lead skill is gone"
+    );
+    for skill in ["work-ticket", "commit"] {
+        assert!(
+            !named(skill).contains(&"notes".to_owned()),
+            "{skill}: notes"
+        );
+    }
 }

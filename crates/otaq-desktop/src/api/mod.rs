@@ -61,9 +61,7 @@ pub use keymap::Keymap;
 #[cfg(test)]
 pub use layout::AgentPanelWidthParams as LayoutAgentPanelWidthParams;
 #[cfg(test)]
-pub use notices::{
-    DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId, ToastPress,
-};
+pub use notices::{DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId};
 #[cfg(test)]
 pub use onboarding::export_flow_setup_page_types;
 #[cfg(test)]

@@ -517,8 +517,7 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
 }
 
 /// T-0445 (CMT-09, CMT-08; d0109): the shipped skills keep the hand-over short and long output in reports. Each says
-/// to send long command output to a file in `$OTAQ_RESOURCE_DIR` (the epic lead, which has no ticket, to a folder outside
-/// the repository), never the worktree, to search it and never print it in full or retype it, and how to read a report
+/// to send long command output to a file in `$OTAQ_RESOURCE_DIR`, never the worktree, to search it and never print it in full or retype it, and how to read a report
 /// (`report <KEY> <N> --path`). The skills that end a stage keep `prime` first, say Otaq refuses the stage end without
 /// it, and attach the run with `--report-file`. No skill pipes anything into an `otaq` command: stdin carries only the
 /// short text, from a heredoc.
@@ -533,19 +532,14 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
         "address-review",
         "restack",
     ];
-    for name in ends_stage
-        .iter()
-        .chain(&["answer-question", "commit", "epic-lead"])
-    {
+    for name in ends_stage.iter().chain(&["answer-question", "commit"]) {
         let (_, body) = skill(name);
         let text = flat(&body);
         assert!(
             text.contains("never print it in full or retype it"),
             "{name}: the long-output rule"
         );
-        if *name != "epic-lead" {
-            assert!(text.contains(&resource), "{name}: {resource}");
-        }
+        assert!(text.contains(&resource), "{name}: {resource}");
         if *name != "commit" {
             assert!(
                 text.contains(&format!("$({cmd} report ")) && text.contains(" --path)\""),
@@ -610,18 +604,6 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     for gone in ["the user's note", "general note"] {
         assert!(!review.contains(gone), "address-review still says {gone:?}");
     }
-    let (_, lead) = skill("epic-lead");
-    let lead = flat(&lead);
-    for needle in [
-        &format!("{cmd} comment SHOP-40.2 --stdin <<'COMMENT'"),
-        "**later stages**",
-        "the agent running now doesn't see it (that is what a note is for, step 6)",
-        "at most one note to a running child",
-        "last comment",
-    ] {
-        assert!(lead.contains(needle), "epic-lead must say {needle:?}");
-    }
-    assert!(!lead.contains("summary"), "epic-lead still reads a summary");
     // Stdin carries only short text from a heredoc: nothing is piped into an `otaq` command.
     for name in skill_names() {
         let (_, body) = skill(&name);
@@ -660,7 +642,6 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         "**Never edit files and never commit**".to_owned(),
         format!("{cmd} create \"Slow checkout query\" -p 2 --deps SHOP-19 --stdin"),
         format!("`{cmd} create -f tickets.md`"),
-        "--parent".to_owned(),
         "**still in Backlog**".to_owned(),
         format!("`{cmd} dep add SHOP-35 SHOP-19`"),
         format!("`{cmd} ask SHOP-18 --stdin`"),
@@ -701,16 +682,15 @@ fn heredoc(body: &str, from: &str, tag: &str) -> String {
         .join("\n")
 }
 
-/// T-0286 (DEC-01, LEAD-10; d0084, d0083, d0040): work-ticket reads its notes at each new step, records a product
-/// question it can go on without (the example parses as a complete decision), asks only when it can't go on, lets
-/// the Agent instructions add to the rule, and ends its submit summary with notes for later tickets.
+/// T-0286 (DEC-01; d0084, d0040): work-ticket records a product question it can go on without (the example parses
+/// as a complete decision), asks only when it can't go on, lets the Agent instructions add to the rule, and ends its
+/// submit summary with notes for later tickets. T-0534 (d0133): there are no lead notes to read.
 #[test]
-fn work_ticket_records_product_choices_and_reads_its_notes() {
+fn work_ticket_records_product_choices() {
     let (_, body) = skill(WORK_TICKET_SKILL);
     let cmd = naming::COMMAND_NAME;
     let order = [
         format!("`{cmd} prime`"),
-        format!("Run `{cmd} notes` each time you start a new step"),
         COMMIT_STEP.to_owned(),
         format!("{cmd} stage next --stdin"),
         "Notes for later tickets:".to_owned(),
@@ -733,18 +713,15 @@ fn work_ticket_records_product_choices_and_reads_its_notes() {
     assert_eq!(decision.built, "only in the profile form");
 }
 
-/// T-0286 (LEAD-10, d0083): the Commit skill reads the lead's notes before it stages anything.
+/// T-0534 (d0133): the Commit skill starts with `git status`; there are no lead notes to read first.
 #[test]
-fn the_commit_skill_reads_notes_first() {
+fn the_commit_skill_starts_with_git_status() {
     let (_, body) = skill("commit");
     let cmd = naming::COMMAND_NAME;
-    let notes = body
-        .find(&format!("Run `{cmd} notes` first"))
-        .expect("notes");
     let status = body.find("`git status`").expect("status");
     let add = body.find("git add -A").expect("add");
-    assert!(notes < status && status < add, "notes → status → add");
-    assert!(body.contains("apply it to your work before you commit"));
+    assert!(status < add, "status → add");
+    assert!(!body.contains(&format!("{cmd} notes")), "no lead notes");
 }
 
 /// A skill's body with every run of whitespace as one space, so a phrase reads the same wherever the text wraps.
@@ -752,25 +729,24 @@ fn flat(body: &str) -> String {
     body.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// T-0339 (PAG-03; d0087), T-0409 (AGM-12, AGM-09; d0108): the noyan skill proposes two or more tickets, or
-/// an epic, with a table (# · Title · Description · Choices; the short table above about 10), creates one explicit
+/// T-0339 (PAG-03; d0087), T-0409 (AGM-12, AGM-09; d0108): the noyan skill proposes two or more tickets with a
+/// table (# · Title · Description · Choices; the short table above about 10), creates one explicit
 /// ticket at once with its choice in the reply, sets stage choices by difficulty with a reason ("typo fix → Dev: Quick
 /// developer"), tells *set by you* from its own choice, and leaves the Choices column out when no stage has options
-/// (the default flow). The real flags only. T-0376 (PAG-08, d0091): it decides the shape and writes the plan into the
-/// epic.
+/// (the default flow). The real flags only. T-0376 (PAG-08, d0091): it decides the shape. T-0534 (d0133): no epic.
 #[test]
 fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
     let (_, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
     let text = flat(&body);
     let cmd = naming::COMMAND_NAME;
     for needle in [
-        "Two or more tickets, or an epic:** propose first, then wait for the user's go-ahead",
+        "Two or more tickets:** propose first, then wait for the user's go-ahead",
         "One ticket the user asked for explicitly**",
         &format!(
             "{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --reason \"typo fix\" --stdin"
         ),
         "\"Created SHOP-41 · typo fix → Dev: Quick developer\"",
-        "\"I'm proposing one epic and 2 tickets\"",
+        "\"I'm proposing 2 tickets\"",
         "**# · Title · Description · Choices**",
         "2 Order detail page items, totals, reorder Dev: Quick developer · Review: skip",
         "change any row by its number",
@@ -790,19 +766,8 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         "a choice the user set is never changed back by an agent",
         "**A choice the user named** (\"2 needs a review\", \"use Quick developer for all of these\", \"keep these choices\") is the user's: add `--by-user`",
         "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it yours",
-        &format!(
-            "`{cmd} create \"Order history\" --type epic --stdin` with the plan as its description"
-        ),
-        "You are the one who splits epics: the epic's lead only runs the plan you write",
         "**Decide the shape, then propose before you create.**",
-        "## One ticket, several, or an epic",
-        "sent by the epic card's **Split with Noyan**",
-        "### Write the plan into the epic",
-        "the epic's description **is the plan**: what the epic delivers, then one line per child with why it exists and why it comes where it does, then the sources",
-        &format!("{cmd} create \"Wishlist\" --type epic --stdin <<'BODY'"),
-        &format!("(`{cmd} update SHOP-40 --stdin`), keeping what the user wrote above it"),
-        "--parent SHOP-42",
-        "There is no `--epic` flag",
+        "## One ticket or several",
         "- **Stage:** Dev=Quick developer · typo fix",
         "When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
         "Otaq shows no dialog for it",
@@ -813,7 +778,9 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         !text.contains("--agent ") && !text.contains("--why "),
         "old flags"
     );
-    assert!(!text.contains("create --epic"), "no --epic flag");
+    for gone in ["epic", "--parent", "--type", "lead"] {
+        assert!(!text.contains(gone), "noyan still says {gone:?}");
+    }
     for gone in [
         "Agent column",
         "\"Use for\"",

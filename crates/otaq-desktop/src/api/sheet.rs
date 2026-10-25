@@ -403,9 +403,9 @@ pub struct View {
     pub sheet: SheetFrame,
     /// The ticket's agent session runs.
     pub live_agent: bool,
-    /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options and for an epic.
+    /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options.
     pub choices: Option<ChoicesView>,
-    /// The ticket's path (AGM-09): every stage with its agent and model; none for an epic.
+    /// The ticket's path (AGM-09): every stage with its agent and model.
     pub path: Option<PathView>,
     /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
     pub open_agent: Option<String>,
@@ -1542,10 +1542,6 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         // FLW-13: Move on anyway after the last failed round; Skip this check at the plan limit with no fallback.
         CardActionKind::MoveOnAnyway => (validation(V::MoveOnAnyway), format!("{key} can\u{2019}t be moved on")),
         CardActionKind::SkipCheck => (validation(V::Skip), format!("{key}\u{2019}s check can\u{2019}t be skipped")),
-        // No card shows it since the epic type left (d0133).
-        CardActionKind::AddChildFromPr => {
-            return Err(RequestError::plain(format!("{key} has no PR comments to add")));
-        }
         // A held role's fallback takes it (AGT-08, T-0362).
         CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
             Request::TicketUseFallback(otaq_core::protocol::UseFallbackParams {
@@ -1719,7 +1715,7 @@ pub async fn remove_dependency(app: &App, params: ParentParams) -> Result<(), Re
 }
 
 /// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the sheets and the cards of
-/// NOTE-1's question and of the question the Sharing lead passed on.
+/// NOTE-1's and NOTE-11's questions.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "OptionNotesGallery")]
 pub struct NotesGallery {
@@ -1783,7 +1779,7 @@ pub fn notes_gallery() -> NotesGallery {
 
 /// The sheet's header and details line for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
 /// connected: SHOP-22 needing you in Dev on Rust developer (Codex · gpt-5.5, 3 minutes, 64k tokens), SHOP-18 in your
-/// check for 12 minutes, the Wishlist epic's 40.2 working, and SHOP-41 in Backlog with Grill's agent to pick.
+/// check for 12 minutes, SHOP-24 working, and SHOP-41 in Backlog with Grill's agent to pick.
 pub fn sheet_gallery() -> Vec<View> {
     use otaq_core::agents::SessionRole;
     use otaq_core::board::tickets::Work;
@@ -1912,8 +1908,8 @@ mod tests {
             only.body,
             "Codex can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
         );
-        let lead = Unsent::asking("Wishlist lead".into(), "…".into(), Some("Copilot"));
-        assert_eq!(lead.clear, None);
+        let asking = Unsent::asking("Noyan".into(), "…".into(), Some("Copilot"));
+        assert_eq!(asking.clear, None);
     }
 
     fn agent(state: SessionState) -> SessionInfo {

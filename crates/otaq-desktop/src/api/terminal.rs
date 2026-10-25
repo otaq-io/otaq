@@ -405,7 +405,7 @@ mod tests {
         )
     }
 
-    /// d0117 point 4: a program's colour question gets exactly one answer. A read-only terminal (an epic lead's)
+    /// d0117 point 4: a program's colour question gets exactly one answer. A read-only terminal
     /// doesn't answer, so the service does, with the theme's background (Otaq Dark, none picked yet); a terminal
     /// that answers keeps the service silent (this page stands in for xterm.js and answers nothing, so the program
     /// reads nothing).

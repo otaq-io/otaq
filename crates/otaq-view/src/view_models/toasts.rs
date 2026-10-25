@@ -37,24 +37,6 @@ pub enum ToastLink {
         ticket: String,
         tab: Option<Content>,
     },
-    /// One or two buttons after the title: "Undo", or "Turn on for epic children" and "Undo" (EPC-15). A press
-    /// is sent back with `notices.toast_action` and replaces the toast.
-    Actions { actions: Vec<ToastButton> },
-}
-
-/// A toast's button and what pressing it does.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct ToastButton {
-    pub label: String,
-    pub action: ToastAction,
-}
-
-/// What a toast's button asks the app to do, on the user's click.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ToastAction {
-    /// The queue toast's Undo: `epic.undo_queue` with what the queue moved (T-0264).
-    UndoEpicQueue { epic: String, keys: Vec<String> },
 }
 
 /// A toast to show, as a screen or the app asks for it. Its wording comes from the view models or the service.

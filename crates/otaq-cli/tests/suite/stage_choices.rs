@@ -376,9 +376,9 @@ async fn a_project_agents_choices_and_the_users_words() {
 }
 
 /// A ticket's agent sets its own ticket's later stages with a reason (AGM-11), not a stage that started, nor another
-/// ticket; an epic lead its unstarted children (CLI-07), logged on the epic too.
+/// ticket.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_ticket_agent_and_an_epic_lead() {
+async fn a_ticket_agent_sets_its_own_later_stages() {
     let w = world().await;
     let me = Actor::User("me".into());
     let other = w.create("SHOP", "Other ticket").await; // SHOP-1

@@ -87,12 +87,11 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DismissBanner::export_all(&cfg)?;
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
-    crate::api::ToastPress::export_all(&cfg)?;
     crate::api::NotificationOpen::export_all(&cfg)?;
     // T-0364: Move waiting to… on the usage-limit banner's lines; their gallery.
     otaq_view::view_models::limit_banner::Gallery::export_all(&cfg)?;
     crate::notices::OpenTarget::export_all(&cfg)?;
-    // Also writes the Ticket Card and Epic Card shapes it is made of.
+    // Also writes the Ticket Card shapes it is made of.
     otaq_view::view_models::card_page::CardGallery::export_all(&cfg)?;
     // The sheet (T-0222): the view writes its header, buttons, tabs and callouts; then the requests' own types.
     crate::api::SheetLoad::export_all(&cfg)?;

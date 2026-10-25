@@ -40,11 +40,10 @@ unsaved_warning: string | null, read: EditorReadView | null,
  */
 source_mode: boolean, 
 /**
- * "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow
- * and for an epic (the page hides it once Type is Epic).
+ * "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow.
  */
 choices: StageChoicesView | null, 
 /**
- * Create only: the report place under the description (RPT-03; the page hides it once Type is Epic).
+ * Create only: the report place under the description (RPT-03).
  */
 report: EditorReportField | null, };

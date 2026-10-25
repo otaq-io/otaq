@@ -70,7 +70,7 @@ async fn check(app: &App, params: FileLinkCheck) -> Result<Option<String>, Reque
 }
 
 /// The folder `session` works in, as the service started it: a ticket's sessions (its agent, validator, Shell, Run)
-/// in the ticket's worktree; the Project agent, an epic lead and Project terminals in the project's folder. `None`
+/// in the ticket's worktree; Noyan and Project terminals in the project's folder. `None`
 /// for a session of neither (an agent tool's Sign in…) or a ticket without a worktree.
 async fn folder(app: &App, session: &str) -> Result<Option<PathBuf>, RequestError> {
     let info = match app

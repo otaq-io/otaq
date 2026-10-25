@@ -196,15 +196,13 @@ pub fn check_failed_help(key: &TicketKey, target: &str) -> String {
 }
 
 /// The steps the "Merging…" state lists (*Local merge · rebasing onto main…*).
-pub fn merging_steps(target: &str, into_epic: bool) -> Vec<String> {
-    let mut steps = Vec::new();
-    if !into_epic {
-        steps.push(format!("Fetch {target} and bring it up to date"));
-    }
-    steps.push(format!("Rebase onto {target}"));
-    steps.push(format!("Squash into {target}"));
-    steps.push("Start waiting tickets whose dependencies are all merged".to_owned());
-    steps
+pub fn merging_steps(target: &str) -> Vec<String> {
+    vec![
+        format!("Fetch {target} and bring it up to date"),
+        format!("Rebase onto {target}"),
+        format!("Squash into {target}"),
+        "Start waiting tickets whose dependencies are all merged".to_owned(),
+    ]
 }
 
 /// What the sheet shows after the click.
@@ -429,8 +427,7 @@ mod tests {
             "SHOP-20 Checkout page still waits for SHOP-19 to merge; it starts from main once both parents are \
              merged. The worktree for SHOP-18 is removed unless it has uncommitted changes."
         );
-        assert_eq!(merging_steps("main", false).len(), 4);
-        assert_eq!(merging_steps("epic-branch", true).len(), 3, "no fetch");
+        assert_eq!(merging_steps("main").len(), 4);
     }
 
     #[test]

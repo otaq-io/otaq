@@ -179,7 +179,6 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
       options: [
         { id: "", label: "None", selected: true },
         { id: "noyan", label: "Noyan", selected: false },
-        { id: "epic-lead", label: "Epic lead", selected: false },
       ],
       hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it.",
       moved: null,
@@ -400,7 +399,6 @@ describe("one agent's page", () => {
         options: [
           { id: "", label: "None", selected: false },
           { id: "noyan", label: "Noyan", selected: true },
-          { id: "epic-lead", label: "Epic lead", selected: false },
         ],
         moved: "Strong is now Noyan · the agent Noyan has no role",
       },

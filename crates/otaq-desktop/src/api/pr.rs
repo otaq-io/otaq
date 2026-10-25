@@ -1,6 +1,6 @@
 //! `pr.*`: Open PR, Push to PR and the PR open box (REV-10, REV-11, REV-12, REV-13, REV-14, EPC-08, CLS-02, UI-07;
-//! d0041, d0050, d0051, d0059; *07 → Open PR · …, Approve · Push to PR #481, Push to PR · confirmation, Open PR · epic
-//! SHOP-40*; *05 → SHOP-26 · Approved, PR open*). The dialog's state is a `pr_dialog::PrDialog` per ticket, kept in
+//! d0041, d0050, d0051, d0059; *07 → Open PR · …, Approve · Push to PR #481, Push to PR · confirmation*;
+//! *05 → SHOP-26 · Approved, PR open*). The dialog's state is a `pr_dialog::PrDialog` per ticket, kept in
 //! the app between requests (the proposal fills the fields once; the branch name's check is debounced by edit
 //! number); the page sends each edit and draws `pr_page`'s view. Nothing is pushed before `pr.confirm`.
 

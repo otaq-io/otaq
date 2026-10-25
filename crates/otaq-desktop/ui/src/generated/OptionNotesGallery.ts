@@ -4,6 +4,6 @@ import type { TicketCardView } from "./TicketCardView";
 
 /**
  * The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the sheets and the cards of
- * NOTE-1's question and of the question the Sharing lead passed on.
+ * NOTE-1's and NOTE-11's questions.
  */
 export type OptionNotesGallery = { sheets: Array<SheetView>, cards: Array<TicketCardView>, };
