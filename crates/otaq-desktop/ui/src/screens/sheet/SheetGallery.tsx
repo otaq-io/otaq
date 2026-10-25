@@ -29,9 +29,7 @@ export function SheetGallery() {
         {first && (
           <>
             <figure className="gallery-stack-tight sheet-gallery">
-              <figcaption className="gallery-caption">
-                {first.key} · 920 px, beside the Project agent
-              </figcaption>
+              <figcaption className="gallery-caption">{first.key} · 920 px, beside Noyan</figcaption>
               <SheetBody view={first} tab="run" fullPage={false} width={920} />
             </figure>
             <figure className="gallery-stack-tight sheet-gallery sheet-gallery-full">

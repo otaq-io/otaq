@@ -40,7 +40,7 @@
   color: var(--st-investigate);
 }
 
-/* "Project agent", then the conversation's switcher as a pill (`s24-05`). */
+/* "Noyan", then the conversation's switcher as a pill (`s24-05`). */
 .agent-panel-label {
   flex: none;
   font: 600 13.5px/18px var(--font-ui);

@@ -69,7 +69,7 @@ describe("the sheet's tabs (SHT-02)", () => {
     expect(steppedSheetTab([], undefined, 1)).toBeUndefined();
   });
 
-  it("is 1040 px, 920 px beside the Project agent, and never wider than the main area less its margins", () => {
+  it("is 1040 px, 920 px beside Noyan, and never wider than the main area less its margins", () => {
     expect(sheetWidth(SHEET, false, 1376)).toBe(1040);
     expect(sheetWidth(SHEET, true, 976)).toBe(920);
     expect(sheetWidth(SHEET, true, 896)).toBe(860);
@@ -225,7 +225,7 @@ describe("the sheet's keys (0097, SHT-02)", () => {
     done();
   });
 
-  it("Esc in the Project agent's panel is left to the agent panel; the sheet stays open", () => {
+  it("Esc in Noyan's panel is left to the agent panel; the sheet stays open", () => {
     openTicket("SHOP-19");
     const { app, done } = mount(VIEW);
     const panel = document.body.appendChild(document.createElement("div"));

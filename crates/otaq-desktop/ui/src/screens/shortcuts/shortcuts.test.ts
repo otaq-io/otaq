@@ -19,7 +19,7 @@ const VIEW: ShortcutListView = {
   title: "Keyboard shortcuts",
   settings_link: "Change shortcuts in Settings →",
   close: "close",
-  note: "Single letters work while you aren’t typing in a field, the editor, the Project agent’s box or a terminal.",
+  note: "Single letters work while you aren’t typing in a field, the editor, Noyan’s box or a terminal.",
   or: "or",
   then: "then",
   columns: [

@@ -54,7 +54,7 @@ const EMPTY: AgentPanelView = {
   opens_on: null,
   header: {
     icon: "bot",
-    label: "Project agent",
+    label: "Noyan",
     title: "New conversation",
     unnamed: false,
     switcher: false,
@@ -68,7 +68,7 @@ const EMPTY: AgentPanelView = {
   },
   empty: {
     line: { avatar: null, agent: "Claude Code", note: "· starts when you send", rename: null },
-    title: "Ask the Project agent",
+    title: "Ask Noyan",
     text: "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets.",
     examples: [
       { label: "Turn this into tickets: …", fill: "Turn this into tickets: " },
@@ -84,7 +84,7 @@ const EMPTY: AgentPanelView = {
   running: null,
   switcher: { rows: [], new_label: "New conversation", new_keys: "⇧⌘L" },
   menu: [],
-  recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended Project agents yet." },
+  recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended conversations yet." },
 };
 
 /** "Which tickets wait on NOTE-5?" running, its terminal attached. */
@@ -179,19 +179,14 @@ afterEach(() => {
 describe("the empty agent panel", () => {
   it("says what it will start, and nothing runs until Send", () => {
     show(EMPTY);
-    for (const text of [
-      "Ask the Project agent",
-      "Claude Code",
-      "· starts when you send",
-      "Enter starts Claude Code",
-    ]) {
+    for (const text of ["Ask Noyan", "Claude Code", "· starts when you send", "Enter starts Claude Code"]) {
       expect(box.textContent).toContain(text);
     }
     expect(textarea().placeholder).toBe("Ask about pocket-notes, or describe work…");
     expect(ask).not.toHaveBeenCalled();
   });
 
-  it("Enter sends once and switches to the new agent; Shift+Enter is a new line", async () => {
+  it("Enter sends once and switches to the new conversation; Shift+Enter is a new line", async () => {
     let answer: (id: string) => void = () => undefined;
     ask.mockImplementation(
       () =>
@@ -419,13 +414,13 @@ describe("a running agent", () => {
               resume: "Resume",
             },
           ],
-          empty: "No ended Project agents yet.",
+          empty: "No ended conversations yet.",
         },
         onResume: () => undefined,
       }),
     );
     expect(recent).toContain("Footer audit");
-    expect(recent).not.toContain("No ended Project agents yet.");
+    expect(recent).not.toContain("No ended conversations yet.");
   });
 });
 
@@ -512,7 +507,7 @@ describe("a tool problem's notice (M23)", () => {
     expect(shownAgents.get()).toEqual({ NOTE: "a2" });
   });
 
-  it("+ drops the choice: the empty agent panel starts on the Project agent default again", () => {
+  it("+ drops the choice: the empty agent panel starts on Noyan’s default agent again", () => {
     startNewAgentOn("NOTE", "sonnet");
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
     newProjectAgent();

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// The empty board's hints are buttons (d0126, finding 5 of the 2026-10-24 dogfood report): "⌘L ask the Project agent"
+// The empty board's hints are buttons (d0126, finding 5 of the 2026-10-24 dogfood report): "⌘L ask Noyan"
 // runs what ⌘L runs (the panel opens with its box focused), so the keyboard never stays on the board.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -13,11 +13,11 @@ import { EmptyBoard } from "./EmptyBoard";
 
 const VIEW: EmptyBoardView = {
   title: "demo-repository is ready",
-  text: "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself.",
+  text: "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself.",
   buttons: [{ label: "New ticket", icon: "plus", primary: true, action: { action: "new_ticket" } }],
   hints: [
     { keys: "⌘N", label: "new ticket", action: { action: "new_ticket" } },
-    { keys: "⌘L", label: "ask the Project agent", action: { action: "focus_agent_panel" } },
+    { keys: "⌘L", label: "ask Noyan", action: { action: "focus_agent_panel" } },
   ],
 };
 
@@ -49,7 +49,7 @@ afterEach(() => {
 
 it("each hint is a button that runs its key's action", () => {
   const hints = [...box.querySelectorAll<HTMLButtonElement>("button.board-empty-hint")];
-  expect(hints.map((b) => b.textContent)).toEqual(["⌘Nnew ticket", "⌘Lask the Project agent"]);
+  expect(hints.map((b) => b.textContent)).toEqual(["⌘Nnew ticket", "⌘Lask Noyan"]);
   act(() => {
     hints[1]?.click();
   });

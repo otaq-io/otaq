@@ -180,7 +180,7 @@ describe("the terminal component's file paths", () => {
     expect(openProjectFile).not.toHaveBeenCalled();
   });
 
-  it("open the project's Files view from the Project agent", async () => {
+  it("open the project's Files view from Noyan", async () => {
     const term = mount({ kind: "project", project: "SHOP" });
     const link = await pathLink(term.providers);
     link?.activate(click(true), link.text);

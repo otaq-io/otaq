@@ -62,7 +62,7 @@ const VIEW: StripView = {
           reason: "a question",
           icon: "bot",
           tone: "investigate",
-          title: "Project agent “Checkout slowness” · asks",
+          title: "Noyan · Checkout slowness · asks",
           target: { kind: "agent", project: "SHOP", agent: "pa3" },
         },
       ],
@@ -326,7 +326,7 @@ describe("opening and Next", () => {
     expect(r.blur).toHaveBeenCalledTimes(2);
   });
 
-  it("a Project agent opens in the panel, focused", () => {
+  it("a conversation with Noyan opens in the panel, focused", () => {
     const r = routes("SHOP");
     openTarget({ kind: "agent", project: "SHOP", agent: "pa3" }, r);
     expect(r.agentPanel.shown.get()).toEqual({ SHOP: "pa3" });

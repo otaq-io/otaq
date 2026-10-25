@@ -784,7 +784,7 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     expect(run(MAC_0097, ["1", "j"], at("digits")).ran).toEqual(["next_ticket"]);
   });
 
-  it("knows where somebody types: fields, the editor, the Project agent's box, menus, lists and dialogs", () => {
+  it("knows where somebody types: fields, the editor, Noyan's box, menus, lists and dialogs", () => {
     const element = (tagName: string, inside: string | null = null, attrs: Record<string, string> = {}) => ({
       tagName,
       isContentEditable: tagName === "EDITABLE",

@@ -157,7 +157,7 @@ import "./gallery.css";
 const SHELL_PREVIEW = (() => {
   const app = createRegistries();
   const named = (name: string) => () => <div className="frame-placeholder">{name}</div>;
-  app.slots.register("agent_panel", { Component: named("Project agent panel") });
+  app.slots.register("agent_panel", { Component: named("Noyan panel") });
   app.slots.register("ask_bar", { Component: named("Ask bar") });
   return app;
 })();
@@ -182,7 +182,7 @@ function ShellFrames() {
         <figure key={`${String(width)}${String(open)}`} className="gallery-shell">
           <figcaption>
             {width} × {height}
-            {open ? " · Project agent open (⌘L)" : ""}
+            {open ? " · Noyan open (⌘L)" : ""}
           </figcaption>
           <div className="gallery-shell-box" style={{ width: width / 2, height: height / 2 }}>
             <div className="frame gallery-shell-frame" style={{ width, height }}>
@@ -1779,7 +1779,7 @@ function AgentPanelSection() {
   if (!view) return null;
   const running = view.states.find((s) => s.view.agent !== null)?.view;
   return (
-    <Section title="18 · Project agent panel: empty, running, waiting, ended, ended by restart, switcher, … menu (T-0330)">
+    <Section title="18 · Noyan panel: empty, running, waiting, ended, ended by restart, switcher, … menu (T-0330)">
       <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-start" }}>
         {view.states.map((state) => (
           <div key={state.name} className="gallery-stack-tight">
@@ -1817,14 +1817,14 @@ const loadAskBar = () => request("gallery.ask_bar") as Promise<AskBarGallery>;
 
 /**
  * *24 → Row · The Project agent* `s24-05` (T-0458): the Ask bar closed, typing with "ASK ABOUT", a reply waiting, and
- * the rail's Project agent button in each state (tinted while open, a dot while a reply waits).
+ * the rail's Noyan button in each state (tinted while open, a dot while a reply waits).
  */
 function AskBarSection() {
   const { view, error } = useServiceView(loadAskBar, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="24 · The Ask bar and the rail's Project agent button (T-0458)">
+    <Section title="24 · The Ask bar and the rail's Noyan button (T-0458)">
       <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-end" }}>
         {view.states.map((state) => (
           <div key={state.name} className="gallery-stack-tight gallery-ask">

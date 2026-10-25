@@ -162,17 +162,17 @@ describe("the rail", () => {
     expect(out).toContain('aria-label="Add project"');
   });
 
-  it("ends with the Project agent, Terminals, Cleanup and Settings, which open their screens as Terminals and Settings do", () => {
+  it("ends with Noyan, Terminals, Cleanup and Settings, which open their screens as Terminals and Settings do", () => {
     const agent: AskAgentButton = {
       icon: "bot",
-      label: "Project agent",
+      label: "Noyan",
       hint: "Open or close · ⌘L",
       tinted: false,
       dot: true,
     };
     const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL, agent }));
     const order = [
-      'aria-label="Project agent"',
+      'aria-label="Noyan"',
       'class="rail-rule"',
       'aria-label="Terminals"',
       'aria-label="Cleanup"',

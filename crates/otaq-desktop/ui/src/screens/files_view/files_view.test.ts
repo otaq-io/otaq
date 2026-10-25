@@ -163,13 +163,13 @@ describe("the project Files view (FIL-03, FIL-04, s28-03)", () => {
         source: { ...PAGE.source, subtitle: "the base branch · no ticket is changing files" },
         empty: {
           title: "No ticket is changing files right now.",
-          text: "Start one from the board, or ask the Project agent.",
+          text: "Start one from the board, or ask Noyan.",
         },
       },
       [],
     );
     expect(empty).toContain("No ticket is changing files right now.");
-    expect(empty).toContain("Start one from the board, or ask the Project agent.");
+    expect(empty).toContain("Start one from the board, or ask Noyan.");
   });
 });
 

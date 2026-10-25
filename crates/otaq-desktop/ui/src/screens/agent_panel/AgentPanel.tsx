@@ -2,7 +2,7 @@
 // *18 · Project agents & terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states
 // (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent*): the `agent_panel` slot, 420 px
 // (or as dragged, T-0502) between the rail and the main area while open. It shows one conversation, or the empty panel
-// "Ask the Project agent" whose first message starts one (d0087). Its header has "Project agent", the switcher (the
+// "Ask Noyan" whose first message starts one (d0087). Its header has "Noyan", the switcher (the
 // conversation ▾), the state pill, …, Recently ended, +, Expand (T-0502) and the close icon; then the agent line,
 // Created and changed, its real terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L
 // and Esc (outside the terminal) fold it back into the Ask bar. Everything it says comes from `agent_panel.view`.

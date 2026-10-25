@@ -98,10 +98,10 @@ const SECTION: AgentsSectionView = {
   fallbacks: null,
   columns: ["Name", "Model", "Skills", "Used in"],
   rows: [
-    row("planner", "Planner", {
-      role: "Project agent",
+    row("noyan", "Noyan", {
+      role: "Noyan",
       came_from: "From Otaq’s agents file",
-      used_in: "every project · the Project agent",
+      used_in: "every project · Noyan",
     }),
     row("validator", "Validator", { used_in: "pocket-notes · Validate" }),
     row("strong", "Strong", { came_from: "Added by you" }),
@@ -178,7 +178,7 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
       label: "Role",
       options: [
         { id: "", label: "None", selected: true },
-        { id: "noyan", label: "Project agent", selected: false },
+        { id: "noyan", label: "Noyan", selected: false },
         { id: "epic-lead", label: "Epic lead", selected: false },
       ],
       hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it.",
@@ -314,7 +314,7 @@ describe("the Agents page", () => {
       "Used in",
     ]);
     expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(3);
-    expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Project agent");
+    expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Noyan");
     expect(document.body.textContent).toContain("From Otaq’s agents file");
   });
 
@@ -394,15 +394,15 @@ describe("one agent's page", () => {
     const role = agentPage().role;
     if (!role) throw new Error("a saved agent has a role field");
     const moved = agentPage({
-      role_tag: "Project agent",
+      role_tag: "Noyan",
       role: {
         ...role,
         options: [
           { id: "", label: "None", selected: false },
-          { id: "noyan", label: "Project agent", selected: true },
+          { id: "noyan", label: "Noyan", selected: true },
           { id: "epic-lead", label: "Epic lead", selected: false },
         ],
-        moved: "Strong is now your Project agent · Planner has no role",
+        moved: "Strong is now Noyan · the agent Noyan has no role",
       },
     });
     const calls = await openAgent(agentPage(), { "settings.agent_role": () => moved });
@@ -410,11 +410,11 @@ describe("one agent's page", () => {
       "settings.agent",
       { id: "strong", duplicate: null, draft: null, change: null },
     ]);
-    click(byText('[role="radio"]', "Project agent"));
+    click(byText('[role="radio"]', "Noyan"));
     await settle();
     expect(calls).toContainEqual(["settings.agent_role", { id: "strong", role: "noyan" }]);
     expect(document.querySelector(".settings-agent-moved")?.textContent).toBe(
-      "Strong is now your Project agent · Planner has no role",
+      "Strong is now Noyan · the agent Noyan has no role",
     );
   });
 
