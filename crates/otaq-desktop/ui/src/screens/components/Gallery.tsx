@@ -1002,6 +1002,12 @@ function Cards() {
       <Section title="03 · Cards in a check and a delivery · any flow (M33, T-0424)">
         <CardGrid cells={view.flows} width={view.width} onPick={setPicked} />
       </Section>
+      <Section title="29/30 · Several check agents in one Check stage · on the card (M44, T-0531)">
+        <CardGrid cells={view.checks} width={view.width} onPick={setPicked} />
+      </Section>
+      <Section title="29/30 · Several check agents in one Check stage · at 1280 (M44, T-0531)">
+        <CardGrid cells={view.checks} width={view.width_1280} onPick={setPicked} />
+      </Section>
     </>
   );
 }

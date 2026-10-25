@@ -5,6 +5,7 @@ import type { CardSignal } from "./CardSignal";
 import type { CardStatusHover } from "./CardStatusHover";
 import type { CardStatusLine } from "./CardStatusLine";
 import type { CardTone } from "./CardTone";
+import type { CheckRoundView } from "./CheckRoundView";
 import type { PriorityView } from "./PriorityView";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
@@ -53,6 +54,15 @@ edge: CardTone | null,
  * The card's one action (Answer, Reply, Review, Decide…).
  */
 action: CardAction | null, 
+/**
+ * After the action, the one check agent it acts on: "for Performance only", "re-runs Performance only" (d0130).
+ */
+action_note: string | null, 
+/**
+ * A Check stage with several check agents (d0130, `s29-04`): a row per check agent under the line, which is the
+ * round's ("Validate · round 1 of 3"), and its note; the rows name the agents, so `avatar` and `who` are empty.
+ */
+check: CheckRoundView | null, 
 /**
  * "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
  */

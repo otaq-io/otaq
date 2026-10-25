@@ -1105,6 +1105,8 @@ impl Board {
         let check_counts = super::validation::project_check_counts(pool, project_id).await?;
         // How cards came to wait in a human check or at their Delivery (FLW-14).
         let mut arrivals = self.project_arrivals(project_id, &flow).await?;
+        // Each ticket's latest round of a Check stage with several check agents (d0130).
+        let check_rounds = project_check_rounds(pool, project_id).await?;
 
         records
             .into_iter()
@@ -1265,7 +1267,34 @@ impl Board {
                         .and_then(|open| Some(open.question.via_lead.as_ref()?.lead.clone())),
                     ..Flags::default()
                 };
-                if flags.validation_round.is_some() || status == Status::CheckFailed {
+                // While the card is in the check, or back from it, each check agent's verdict (d0130).
+                flags.check_round = check_rounds
+                    .get(&row.id)
+                    .filter(|_| {
+                        flags.validation_round.is_some()
+                            || matches!(
+                                status,
+                                Status::Checking
+                                    | Status::CheckerNeedsYou
+                                    | Status::CheckNoResult
+                                    | Status::CheckFailed
+                                    | Status::WaitingForLimitReset
+                            )
+                    })
+                    .cloned()
+                    .map(|mut round| {
+                        round.back_in = flags
+                            .validation_round
+                            .and(place.stage())
+                            .and_then(|id| flow.stage(id))
+                            .filter(|s| s.is_agent_stage())
+                            .map(|s| s.name.clone());
+                        round
+                    });
+                // One verdict is one checker's: a round of several says each agent's on the card instead.
+                if (flags.validation_round.is_some() || status == Status::CheckFailed)
+                    && flags.check_round.is_none()
+                {
                     flags.verdict = verdicts
                         .get(&row.id)
                         .and_then(|body| first_line(body.as_deref()?));
@@ -1534,6 +1563,74 @@ fn validating_round(
             of: counted.rounds,
         }
     })
+}
+
+/// Each ticket's latest validation round of the project when two or more check agents check in it (d0130): every
+/// agent's latest row in the stage's order, with its session's tool and model, and whether a change already cancelled
+/// a round with that number.
+async fn project_check_rounds(
+    pool: &sqlx::SqlitePool,
+    project_id: &str,
+) -> Result<std::collections::HashMap<String, crate::domain::CheckRoundFlag>, BoardError> {
+    type Row = (
+        String,
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT v.ticket_id, COALESCE(v.round_id, v.id), v.round, v.agent, v.outcome, s.tool,
+                COALESCE(s.model_ran, s.model)
+         FROM validations v JOIN tickets t ON t.id = v.ticket_id
+         LEFT JOIN sessions s ON s.id = v.session_id
+         WHERE t.project_id = ? ORDER BY v.started_at, v.rowid",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+    let mut by_ticket: std::collections::HashMap<String, Vec<Row>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        by_ticket.entry(row.0.clone()).or_default().push(row);
+    }
+    Ok(by_ticket
+        .into_iter()
+        .filter_map(|(ticket, rows)| {
+            let (_, latest, round, ..) = rows.last()?.clone();
+            let mut agents: Vec<crate::domain::CheckAgentFlag> = Vec::new();
+            for (_, _, _, agent, outcome, tool, model) in rows.iter().filter(|r| r.1 == latest) {
+                let flag = crate::domain::CheckAgentFlag {
+                    name: agent.clone()?,
+                    tool: tool.as_deref().and_then(|t| t.parse().ok()),
+                    model: model.clone(),
+                    outcome: outcome.as_deref().and_then(|o| o.parse().ok()),
+                };
+                // A re-run adds a row for its agent: the latest counts.
+                match agents.iter_mut().find(|a| a.name == flag.name) {
+                    Some(slot) => *slot = flag,
+                    None => agents.push(flag),
+                }
+            }
+            let cancelled = crate::domain::ValidationOutcome::Cancelled.as_str();
+            let again = rows
+                .iter()
+                .any(|r| r.1 != latest && r.2 == round && r.4.as_deref() == Some(cancelled));
+            (agents.len() > 1).then(|| {
+                (
+                    ticket,
+                    crate::domain::CheckRoundFlag {
+                        round: u32::try_from(round).unwrap_or(0),
+                        agents,
+                        again,
+                        back_in: None,
+                    },
+                )
+            })
+        })
+        .collect())
 }
 
 /// A comment's first line with text, trimmed: what a card shows of a verdict.

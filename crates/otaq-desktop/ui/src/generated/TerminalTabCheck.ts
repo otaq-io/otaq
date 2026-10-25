@@ -8,9 +8,14 @@ import type { TerminalTabStrip } from "./TerminalTabStrip";
  */
 export type TerminalTabCheck = { session: string, 
 /**
- * Its agent's name, Session's switch's label: "Validator", "Security reviewer".
+ * Its agent's name, Session's switch's label: "Validator", "Security reviewer", "Security reviewer ✓" for one of
+ * several check agents with its verdict (d0130).
  */
 label: string, 
+/**
+ * One of several check agents: its name as the stage lists it, as Session's switch's part names it.
+ */
+agent: string | null, 
 /**
  * The terminal's accessible name: "SHOP-19 · Security reviewer terminal".
  */
@@ -32,6 +37,7 @@ read_only: boolean,
  */
 strips: Array<TerminalTabStrip>, 
 /**
- * `otaq attach SHOP-19 --stage security` while it runs.
+ * `otaq attach SHOP-19 --stage security` while it runs; `otaq attach SHOP-33 --stage validate --agent "Security
+ * reviewer"` for one of several check agents (d0130 row 17).
  */
 attach_command: string, };

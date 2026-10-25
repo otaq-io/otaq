@@ -424,6 +424,9 @@ pub struct View {
     /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
     /// on the Overview and at the top of the Run and Shell.
     pub build_aside: Option<BuildAsideLine>,
+    /// A Check stage with several check agents (d0130, `s29-04`): "Validate · round 1 of 3" with a row per check
+    /// agent ("CC Security passed"), under the flow path; Stop this check and Skip this check stay in the menu.
+    pub check_round: Option<otaq_view::view_models::check_agents::RoundView>,
 }
 
 /// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
@@ -728,7 +731,26 @@ pub fn view_of(f: &Facts) -> View {
         path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
         build_aside: build_aside::line(ticket),
+        check_round: check_round(f),
     }
+}
+
+/// The sheet's block for a check of several agents, with each held agent's hold (d0130 row 17) and who resumes once
+/// the round failed.
+fn check_round(f: &Facts) -> Option<otaq_view::view_models::check_agents::RoundView> {
+    let holds: Vec<otaq_core::agents::facts::CardHold> = f
+        .agents
+        .map(|t| {
+            t.holds
+                .iter()
+                .map(|h| otaq_core::agents::facts::CardHold::of(h, &t.agents, &Default::default()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let fixer = session_tab::agent_session(f.sessions)
+        .and_then(|s| s.agent.as_ref())
+        .map(|a| a.name.as_str());
+    otaq_view::view_models::check_agents::view(f.ticket, &holds, fixer)
 }
 
 /// The sheet's frame for `f`'s ticket, with Session's switch and the tabs' dots.
@@ -744,11 +766,11 @@ fn sheet_of(f: &Facts) -> SheetFrame {
         })
         .unwrap_or_default();
     let runs = f.agents.map_or(&[][..], |a| a.runs.as_slice());
-    let check = session_tab::check_side(ticket, f.sessions, runs, &stages);
+    let checks = session_tab::check_sides(ticket, f.sessions, runs, &stages);
     let parts = session_tab::parts(&session_tab::Facts {
         ticket,
         sessions: f.sessions,
-        check: check.as_ref(),
+        checks: &checks,
         run: f.run,
     });
     let tabs = sheet::tabs(ticket)
@@ -756,7 +778,12 @@ fn sheet_of(f: &Facts) -> SheetFrame {
         .map(|tab| {
             let (contents, lands_on, parts, dot) = match tab {
                 SheetTab::Session => (
-                    parts.iter().map(|p| p.content).collect(),
+                    {
+                        // One check side per check agent, one content (d0130).
+                        let mut contents: Vec<Content> = parts.iter().map(|p| p.content).collect();
+                        contents.dedup();
+                        contents
+                    },
                     session_tab::lands_on(ticket.status),
                     parts.clone(),
                     session_tab::tab_dot(&parts),
@@ -1654,7 +1681,10 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
             Request::TicketUseFallback(otaq_core::protocol::UseFallbackParams {
                 key: params.key.clone(),
-                agent: None,
+                agent: match params.kind {
+                    CardActionKind::UseValidatorFallback => held_check_agent(app, &params.key).await,
+                    _ => None,
+                },
             }),
             format!("{key} didn\u{2019}t start on its fallback"),
         ),
@@ -1679,6 +1709,18 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
             Err(e)
         }
     }
+}
+
+/// The held check agent the card's Use fallback names ("for Performance only", d0130 row 17): the first held one whose
+/// fallback can take it; `None` with none (one check agent: the ticket's own hold).
+async fn held_check_agent(app: &App, key: &str) -> Option<String> {
+    let agents = super::editor::agent_facts(app, super::editor::of_ticket(key)).await?;
+    agents
+        .holds
+        .iter()
+        .filter(|h| h.role == otaq_core::agents::SessionRole::Validator)
+        .filter(|h| h.fallback_tool.is_some() && !h.fallback_held)
+        .find_map(|h| h.check_agent.clone())
 }
 
 /// What `sheet.send_again` takes: the ticket, and whether the terminal's typed line is cleared first.

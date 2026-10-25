@@ -5,4 +5,13 @@ import type { SheetContent } from "./SheetContent";
 /**
  * One button of the switch: "Agent", "Security reviewer", "Run", "Shell".
  */
-export type SessionPartView = { content: SheetContent, label: string, dot: SessionDot | null, };
+export type SessionPartView = { content: SheetContent, 
+/**
+ * "Security reviewer ✓" (d0130: each check agent's side with its verdict).
+ */
+label: string, dot: SessionDot | null, 
+/**
+ * A check agent's side of a check of several agents: its name as the stage lists it, which `terminal_tab.view`'s
+ * checks are found by; `None` for every other part and for a check of one agent.
+ */
+agent: string | null, };

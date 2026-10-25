@@ -29,6 +29,7 @@ pub mod card_fixtures;
 pub mod card_menu;
 pub mod card_page;
 pub mod chain;
+pub mod check_agents;
 pub mod check_dialogs;
 pub mod cleanup;
 pub mod clock;

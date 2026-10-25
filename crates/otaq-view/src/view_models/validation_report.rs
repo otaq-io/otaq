@@ -241,6 +241,42 @@ fn outcome_look(outcome: Option<ValidationOutcome>) -> (IconName, Palette) {
     }
 }
 
+/// The check agents of `r`'s round among `records` (d0130: one record per agent per round): more than one, and a
+/// verdict's History entry names its agent ("Round 1 · Security reviewer failed").
+fn agents_in_round(r: &ValidationRecord, records: &[ValidationRecord]) -> usize {
+    let mut agents: Vec<&str> = records
+        .iter()
+        .filter(|o| o.round == r.round)
+        .filter_map(|o| o.agent.as_deref())
+        .collect();
+    agents.sort_unstable();
+    agents.dedup();
+    agents.len()
+}
+
+/// [`round_row`] among the ticket's `records`: with several check agents in the round, a verdict's entry names its
+/// agent ("Round 1 · Security reviewer passed", d0130), so History keeps one report per agent per round.
+pub fn round_row_in(r: &ValidationRecord, rounds: u32, records: &[ValidationRecord]) -> RoundRow {
+    let row = round_row(r, rounds);
+    let Some(agent) = r
+        .agent
+        .as_deref()
+        .filter(|_| agents_in_round(r, records) > 1)
+    else {
+        return row;
+    };
+    let title = match r.outcome {
+        Some(ValidationOutcome::Pass) => format!("Round {} \u{b7} {agent} passed", r.round),
+        Some(ValidationOutcome::Fail) => format!("Round {} \u{b7} {agent} failed", r.round),
+        Some(ValidationOutcome::NoResult) => {
+            format!("Round {} \u{b7} {agent} ended without a verdict", r.round)
+        }
+        None => format!("Round {} \u{b7} {agent} checking\u{2026}", r.round),
+        _ => row.title.clone(),
+    };
+    RoundRow { title, ..row }
+}
+
 /// The History entry of one round; `rounds` is the project's Validation rounds (the last failed round isn't sent to
 /// the agent: the card turns turquoise).
 pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
@@ -444,6 +480,133 @@ pub fn review(
     })
 }
 
+/// One check agent's block of "Before you" (`s30-05`): "CC Security reviewer passed · opus", its comment and Open
+/// terminal (its side of Session). `BeforeYouAgent` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BeforeYouAgent")]
+pub struct BeforeYouAgent {
+    pub avatar: Option<crate::view_models::tool_avatar::ToolAvatarView>,
+    /// "Security reviewer", as the stage lists it: Session's side Open terminal shows.
+    pub name: String,
+    /// "passed", "failed".
+    pub verdict: String,
+    pub step: crate::view_models::check_agents::Step,
+    /// "· opus".
+    pub model: Option<String>,
+    /// Its verdict's comment ("No risky code. The new endpoint checks the session…").
+    pub comment: Option<String>,
+    pub open_terminal: &'static str,
+}
+
+/// "Before you" on a human check after a Check stage with several check agents (d0130, `s30-05`): "Before you ·
+/// Validate, round 1 of 3", "2 check agents · both passed", and a block per agent. `BeforeYouView` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BeforeYouView")]
+pub struct BeforeYou {
+    pub heading: String,
+    pub summary: String,
+    pub agents: Vec<BeforeYouAgent>,
+}
+
+/// "both passed", "all three passed", "1 passed · 1 failed".
+fn verdicts_summary(passed: usize, failed: usize) -> String {
+    const WORDS: [&str; 9] = [
+        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    ];
+    match (passed, failed) {
+        (2, 0) => "both passed".to_owned(),
+        (n, 0) => match WORDS.get(n.saturating_sub(2)) {
+            Some(word) => format!("all {word} passed"),
+            None => format!("all {n} passed"),
+        },
+        (0, 2) => "both failed".to_owned(),
+        (p, f) => format!("{p} passed \u{b7} {f} failed"),
+    }
+}
+
+/// "Before you" for a ticket in a human check, from its rounds (newest first) and sessions: the latest round with a
+/// verdict from every check agent, when two or more checked in it (d0130); `check` names the stage ("Validate"),
+/// `rounds` its rounds limit. None with one agent: the review reads as today.
+pub fn before_you(
+    check: &str,
+    records: &[ValidationRecord],
+    sessions: &[otaq_core::session::SessionInfo],
+    rounds: u32,
+    avatars: bool,
+) -> Option<BeforeYou> {
+    let latest = records.iter().find(|r| {
+        matches!(
+            r.outcome,
+            Some(ValidationOutcome::Pass | ValidationOutcome::Fail)
+        )
+    })?;
+    // Each agent's newest verdict of that round; the records come newest first, the stage's order kept.
+    let mut agents: Vec<&ValidationRecord> = Vec::new();
+    for r in records.iter().filter(|r| {
+        r.round == latest.round
+            && matches!(
+                r.outcome,
+                Some(ValidationOutcome::Pass | ValidationOutcome::Fail)
+            )
+    }) {
+        if r.agent.is_some() && !agents.iter().any(|a| a.agent == r.agent) {
+            agents.push(r);
+        }
+    }
+    if agents.len() < 2 {
+        return None;
+    }
+    // The stage's order: a round's records start together (ties keep the store's order); a re-run comes after.
+    agents.sort_by_key(|r| r.started_at);
+    let passed = agents
+        .iter()
+        .filter(|a| a.outcome == Some(ValidationOutcome::Pass))
+        .count();
+    Some(BeforeYou {
+        heading: format!(
+            "Before you \u{b7} {check}, round {} of {}",
+            latest.round,
+            rounds.max(latest.round)
+        ),
+        summary: format!(
+            "{} check agents \u{b7} {}",
+            agents.len(),
+            verdicts_summary(passed, agents.len() - passed)
+        ),
+        agents: agents
+            .into_iter()
+            .map(|r| {
+                let session = sessions
+                    .iter()
+                    .find(|s| r.session.as_deref() == Some(s.id.as_str()));
+                let model = session.and_then(|s| s.model_ran.as_deref().or(s.model.as_deref()));
+                let pass = r.outcome == Some(ValidationOutcome::Pass);
+                BeforeYouAgent {
+                    avatar: session
+                        .and_then(|s| s.tool)
+                        .filter(|_| avatars)
+                        .map(|t| crate::view_models::tool_avatar::ToolAvatarView::of(t, model)),
+                    name: r.agent.clone().unwrap_or_default(),
+                    verdict: if pass { "passed" } else { "failed" }.to_owned(),
+                    step: if pass {
+                        crate::view_models::check_agents::Step::Passed
+                    } else {
+                        crate::view_models::check_agents::Step::Failed
+                    },
+                    model: model.map(|m| format!("\u{b7} {m}")),
+                    comment: r
+                        .report
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|c| !c.is_empty())
+                        .map(str::to_owned),
+                    open_terminal: crate::view_models::card_page::OPEN_TERMINAL,
+                }
+            })
+            .collect(),
+    })
+}
+
 /// The toast after Create ticket (*11 → Success toasts*): "Created SHOP-41 from a validation note" with
 /// "“Not covered by any ticket: refunds endpoint” → Backlog, prefilled from the note".
 pub fn created_toast(created: &TicketKey, note: &str) -> (String, String) {
@@ -484,6 +647,113 @@ mod tests {
                 reasoning: None,
             }),
         }
+    }
+
+    /// d0130 (`s30-05`): a human check after two check agents shows each one's verdict, tool and model, comment and
+    /// Open terminal; History names each agent's entry; one agent reads as today.
+    #[test]
+    fn before_you_shows_each_check_agents_verdict() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::session::{SessionInfo, SessionKind, SessionState};
+        let agent = |name: &str, session: &str, outcome, report: &str, at: i64| ValidationRecord {
+            agent: Some(name.into()),
+            session: Some(session.into()),
+            started_at: at,
+            ..record(1, Some(outcome), report)
+        };
+        let session = |id: &str, tool, model: &str| SessionInfo {
+            id: id.into(),
+            kind: SessionKind::Validator,
+            project: "SHOP".into(),
+            ticket: Some("SHOP-33".parse().unwrap()),
+            state: SessionState::Ended,
+            started_at: 0,
+            ended_at: Some(1),
+            end_reason: None,
+            tool: Some(tool),
+            tool_session_id: None,
+            model: Some(model.into()),
+            agent: None,
+            effort: None,
+            fallback: None,
+            model_ran: None,
+            size: None,
+        };
+        // Newest first: Performance's verdict came last.
+        let records = [
+            agent(
+                "Performance reviewer",
+                "perf",
+                ValidationOutcome::Pass,
+                "The estimate is cached per zone for 10 minutes.",
+                2,
+            ),
+            agent(
+                "Security reviewer",
+                "sec",
+                ValidationOutcome::Pass,
+                "No risky code. The new endpoint checks the session.",
+                1,
+            ),
+        ];
+        let sessions = [
+            session("sec", Tool::Claude, "opus"),
+            session("perf", Tool::Codex, "gpt-5.5"),
+        ];
+        let view = before_you("Validate", &records, &sessions, 3, true).expect("two agents");
+        assert_eq!(view.heading, "Before you · Validate, round 1 of 3");
+        assert_eq!(view.summary, "2 check agents · both passed");
+        let blocks: Vec<_> = view
+            .agents
+            .iter()
+            .map(|a| {
+                (
+                    a.avatar.as_ref().map(|v| v.letters.as_str()),
+                    a.name.as_str(),
+                    a.verdict.as_str(),
+                    a.model.as_deref(),
+                    a.open_terminal,
+                )
+            })
+            .collect();
+        assert_eq!(
+            blocks,
+            [
+                (
+                    Some("CC"),
+                    "Security reviewer",
+                    "passed",
+                    Some("· opus"),
+                    "Open terminal"
+                ),
+                (
+                    Some("CX"),
+                    "Performance reviewer",
+                    "passed",
+                    Some("· gpt-5.5"),
+                    "Open terminal"
+                ),
+            ]
+        );
+        assert_eq!(
+            view.agents[0].comment.as_deref(),
+            Some("No risky code. The new endpoint checks the session.")
+        );
+        let titles: Vec<String> = records
+            .iter()
+            .map(|r| round_row_in(r, 3, &records).title)
+            .collect();
+        assert_eq!(
+            titles,
+            [
+                "Round 1 · Performance reviewer passed",
+                "Round 1 · Security reviewer passed"
+            ]
+        );
+        // One check agent: no block, and today's History entry.
+        let one = [agent("Validator", "v", ValidationOutcome::Pass, "ok", 1)];
+        assert_eq!(before_you("Validate", &one, &sessions, 3, true), None);
+        assert_eq!(round_row_in(&one[0], 3, &one).title, "Round 1 · passed");
     }
 
     fn text(segments: &[Segment]) -> String {

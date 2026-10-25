@@ -12,7 +12,9 @@ import { session } from ".";
 import {
   answers,
   bodyOf,
+  checkOf,
   isNarrow,
+  partShown,
   scrolledLabel,
   sessionOf,
   shownPhase,
@@ -71,25 +73,28 @@ const VIEW: TerminalTabView = {
     focused: "Typing goes to Rust developer · SHOP-19",
     unfocused: "Click to type to Rust developer · SHOP-19",
   },
-  check: null,
+  checks: [],
 };
 
 /** In a check: the Security reviewer's own strips, worded so the tests tell them from the agent's. */
 const CHECKING: TerminalTabView = {
   ...VIEW,
-  check: {
-    session: "v1",
-    label: "Security reviewer",
-    terminal_label: "SHOP-19 · Security reviewer terminal",
-    line: "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19",
-    typing: {
-      focused: "Typing goes to Security reviewer · SHOP-19",
-      unfocused: "Click to type to Security reviewer · SHOP-19",
+  checks: [
+    {
+      session: "v1",
+      label: "Security reviewer",
+      agent: null,
+      terminal_label: "SHOP-19 · Security reviewer terminal",
+      line: "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19",
+      typing: {
+        focused: "Typing goes to Security reviewer · SHOP-19",
+        unfocused: "Click to type to Security reviewer · SHOP-19",
+      },
+      read_only: false,
+      strips: strips().map((s) => ({ ...s, state: { ...s.state, label: `check ${s.state.label}` } })),
+      attach_command: "otaq attach SHOP-19 --stage security",
     },
-    read_only: false,
-    strips: strips().map((s) => ({ ...s, state: { ...s.state, label: `check ${s.state.label}` } })),
-    attach_command: "otaq attach SHOP-19 --stage security",
-  },
+  ],
 };
 
 const LIVE: TerminalState = { ...INITIAL_STATE, phase: "live" };
@@ -132,6 +137,41 @@ describe("the agent's and the check's sides (SHT-04)", () => {
     expect(html).toContain("otaq attach SHOP-19 --stage security");
     expect(html).not.toContain("agent :4019");
     expect(html).not.toContain("Instructions: shop-web");
+  });
+});
+
+describe("one terminal per check agent (d0130)", () => {
+  const [security] = CHECKING.checks;
+  if (security === undefined) throw new Error("a check");
+  const two: TerminalTabView = {
+    ...CHECKING,
+    checks: [
+      { ...security, agent: "Security reviewer", label: "Security reviewer ✓" },
+      {
+        ...security,
+        session: "v2",
+        agent: "Performance reviewer",
+        label: "Performance reviewer",
+        attach_command: 'otaq attach SHOP-33 --stage validate --agent "Performance reviewer"',
+      },
+    ],
+  };
+  it("shows the chosen check agent's terminal, else the first", () => {
+    expect(checkOf(two, "Performance reviewer")?.session).toBe("v2");
+    expect(sessionOf(two, "check", "Performance reviewer")).toBe("v2");
+    expect(sessionOf(two, "check", null)).toBe("v1");
+    expect(sessionOf(two, "check", "Gone reviewer")).toBe("v1");
+    expect(checkOf(VIEW)).toBeNull();
+  });
+  it("checks the switch's part of the agent shown", () => {
+    const parts = [
+      { content: "agent", agent: null },
+      { content: "check", agent: "Security reviewer" },
+      { content: "check", agent: "Performance reviewer" },
+    ];
+    const shown = (agent: string | null) => parts.map((p) => partShown(p, "check", agent, parts));
+    expect(shown("Performance reviewer")).toEqual([false, false, true]);
+    expect(shown(null)).toEqual([false, true, false]);
   });
 });
 

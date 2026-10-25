@@ -13,6 +13,7 @@ const part = (content: SheetContent, label: string, dot: SessionPartView["dot"] 
   content,
   label,
   dot,
+  agent: null,
 });
 
 const SWITCHES: {

@@ -21,6 +21,7 @@ mod change_note;
 mod changed_since_review;
 mod check_agents;
 mod check_counters;
+mod check_round_flags;
 mod checkout_skills;
 mod checkpoint;
 mod cleanup;

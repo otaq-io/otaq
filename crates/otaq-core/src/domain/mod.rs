@@ -15,8 +15,8 @@ pub mod validation;
 
 pub use actor::Actor;
 pub use flags::{
-    AskedLead, ByLead, Flag, Flags, LeadNoteSent, MergeCheckState, SameFile, SentBack, StuckStop,
-    UnreadNotes,
+    AskedLead, ByLead, CheckAgentFlag, CheckRoundFlag, Flag, Flags, LeadNoteSent, MergeCheckState,
+    SameFile, SentBack, StuckStop, UnreadNotes,
 };
 pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};

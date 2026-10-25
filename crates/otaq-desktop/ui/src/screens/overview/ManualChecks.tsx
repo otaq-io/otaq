@@ -3,7 +3,7 @@
 // publishes `ticket_changed`, so the list follows; it never blocks Approve. Its words are Rust's (`ManualChecksView`).
 import { useState } from "react";
 
-import { Checkbox } from "../../components";
+import { Checkbox, ToolAvatar } from "../../components";
 import type { ManualChecksView } from "../../generated/ManualChecksView";
 import type { ManualCheckTickParams } from "../../generated/ManualCheckTickParams";
 import { asRequestError } from "../../service";
@@ -31,7 +31,10 @@ export function ManualChecks({ ticket, view }: { ticket: string; view: ManualChe
               tick(item.n, ticked);
             }}
           />
-          <span className="manual-check-source">{item.source}</span>
+          <span className="manual-check-source">
+            {item.avatar && <ToolAvatar avatar={item.avatar} />}
+            {item.source}
+          </span>
         </div>
       ))}
       {error !== null && (

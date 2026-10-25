@@ -10,7 +10,9 @@
 use std::path::PathBuf;
 
 use otaq_core::board::reports::{open_report, size_label};
-use otaq_core::protocol::{KeyParams, ManualCheckTickParams, Reply, Request};
+use otaq_core::protocol::{
+    KeyParams, ManualCheckTickParams, ProjectParams, Reply, Request, SessionListParams,
+};
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::overview::{self as vm, OverviewView};
 use otaq_view::view_models::tool_avatar;
@@ -94,8 +96,8 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         app.service.send(Request::TicketGet(k())),
         app.service.send(Request::TicketManualChecks(k())),
     );
-    let status = match ticket? {
-        Reply::Ticket(t) => t.status,
+    let ticket = match ticket? {
+        Reply::Ticket(t) => *t,
         other => {
             return Err(RequestError::plain(format!(
                 "unexpected reply to ticket.get: {other:?}"
@@ -121,13 +123,48 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         Ok(Reply::ManualChecks(c)) => Some(c),
         _ => None,
     };
-    Ok(vm::view(
+    let view = vm::view(
         &params.key,
-        status,
+        ticket.status,
         &comments,
         checks.as_ref(),
         tool_avatar::shown(),
         Platform::current(),
+    );
+    // A human check right after a Check stage: each check agent's verdict (d0130); unread, the review goes on without.
+    let Some(check) = vm::passed_check(&ticket) else {
+        return Ok(view);
+    };
+    let k = || KeyParams {
+        key: params.key.clone(),
+    };
+    let (records, sessions, flow) = tokio::join!(
+        app.service.send(Request::TicketValidations(k())),
+        app.service.send(Request::SessionList(SessionListParams {
+            key: Some(params.key.clone()),
+        })),
+        app.service.send(Request::FlowCurrent(ProjectParams {
+            project: ticket.key.project.to_string(),
+        })),
+    );
+    let (Ok(Reply::Validations(records)), Ok(Reply::Sessions(sessions))) = (records, sessions) else {
+        return Ok(view);
+    };
+    let rounds = match flow {
+        Ok(Reply::FlowVersion(version)) => version.file().ok().and_then(|f| {
+            let stage = f.flow.stages.iter().find(|s| s.name == check)?;
+            Some(otaq_core::flow::engine::rounds_of(stage, 0))
+        }),
+        _ => None,
+    }
+    .unwrap_or(otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS);
+    Ok(vm::with_before_you(
+        view,
+        check,
+        &records,
+        &sessions,
+        rounds,
+        tool_avatar::shown(),
     ))
 }
 

@@ -410,3 +410,19 @@
 .sheet-gallery-full > .sheet {
   width: 1376px;
 }
+
+/* A Check stage with several check agents (d0130, `s29-04`): "Validate · round 1 of 3" and a row per agent, under the
+   flow path. */
+.sheet-check-round {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 0 24px 8px;
+}
+
+.sheet-check-round-title {
+  color: var(--text-secondary);
+  font: 500 12px var(--font-ui);
+}
