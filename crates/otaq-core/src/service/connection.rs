@@ -478,6 +478,8 @@ async fn respond(
         | Request::HelperDiff(_)
         | Request::HelperBack(_)
         | Request::HelperMerge(_)
+        | Request::HelperAnswer(_)
+        | Request::HelperPassOn(_)
         | Request::HelperDone(_)
         | Request::HelperPrime(_)) => match helper_requests::handle(request, who, shared).await {
             Ok(reply) => (reply, Then::Continue),

@@ -541,6 +541,36 @@ impl Signals {
         Ok(state.and_then(|s| s.parse().ok()))
     }
 
+    /// A helper's wait changed (d0133 audit 3): its prompt opened or closed (`ended_prompt`, the line the ticket showed
+    /// for it), or its question was passed on to the user or answered. The ticket's status follows.
+    pub async fn helper_wait_changed(
+        &self,
+        ticket_id: &str,
+        ended_prompt: Option<String>,
+    ) -> Result<(), BoardError> {
+        self.apply(ticket_id, &Input::HelperWait { ended_prompt })
+            .await
+    }
+
+    /// The line of the ticket's helper prompt that has been open the longest, of a helper whose session still runs:
+    /// "40.3 needs you: allow …" (d0133 audit 3).
+    async fn helper_prompt(&self, ticket_id: &str) -> Result<Option<String>, BoardError> {
+        let open =
+            crate::helpers::store::open_prompts(self.inner.board.store().pool(), ticket_id).await?;
+        Ok(open.into_iter().find_map(|helper| {
+            let running = helper
+                .session
+                .as_deref()
+                .and_then(|s| self.inner.sessions.info(s).ok())
+                .is_some_and(|info| info.is_running());
+            let prompt = helper.prompt.as_deref().filter(|_| running)?;
+            Some(crate::helpers::waits::needs_you_line(
+                &helper.label(),
+                prompt,
+            ))
+        }))
+    }
+
     /// The user answered the agent from Needs you (or the card or sheet): the needs-you label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
@@ -593,6 +623,7 @@ impl Signals {
             .open_user_question(ticket_id)
             .await?
             .map(|q| q.text);
+        let helper_prompt = self.helper_prompt(ticket_id).await?;
         let before = SignalState {
             status,
             text,
@@ -603,6 +634,7 @@ impl Signals {
                 || status == Status::CheckerNeedsYou
                 || (behind && status.is_agent_waiting()),
             question,
+            helper_prompt,
         };
         let after = transition(&before, input, now_ms());
         if after == before {

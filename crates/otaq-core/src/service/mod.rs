@@ -248,6 +248,10 @@ impl Shared {
             }
             self.after_signal(caller, tool, signal);
         }
+        // A helper's prompt and its Idle (d0133 audit 3).
+        if let Err(e) = self.helpers.after_signals(caller, signals).await {
+            tracing::warn!(error = %e, "can't apply the helper's hook");
+        }
     }
 
     /// The watcher of the agents' own files (ADP-07): a read's limit windows are recorded as `tool`'s, its other
@@ -327,7 +331,8 @@ impl Shared {
             return;
         }
         // A helper's turn ended: a note waiting for it may go now. Its limit is recorded as the tool's; it never stops
-        // the ticket (the agent in charge is the ticket's agent, d0133). Its questions and idle are T-0538's.
+        // the ticket (the agent in charge is the ticket's agent, d0133). Its prompt and idle follow in
+        // `after_signals`.
         if let Caller::Helper { session, .. } = caller {
             if let Signal::LimitReached { hit, resets_at } = signal {
                 let plan_limit = self.plan_limit.clone();
@@ -716,6 +721,19 @@ impl Service {
         );
         helpers.set_seeder(helper_seeder);
         helpers.set_gate(gate.clone());
+        helpers.set_signals(signals.clone());
+        // Resume and un-park continue the agent in charge, then the helpers that were working (d0133 audit 5).
+        {
+            let helpers = helpers.clone();
+            starter.on_resumed(Arc::new(move |ticket, session| {
+                let helpers = helpers.clone();
+                Box::pin(async move {
+                    if let Err(e) = helpers.resume_after(&ticket, &session).await {
+                        tracing::warn!(ticket, error = %e, "can't resume the helpers");
+                    }
+                })
+            }));
+        }
         let review = Review::new(
             board.clone(),
             config.data.clone(),
@@ -981,6 +999,25 @@ impl Service {
             validation: validation.clone(),
             helpers: helpers.clone(),
         });
+        // Park and a drag back stop every helper with the agent in charge and keep their worktrees (d0133 audit 5);
+        // Park returns their ports too.
+        for parked in [true, false] {
+            let helpers = helpers.clone();
+            let hook: crate::review::finish::FinishedHook = Arc::new(move |ticket| {
+                let (helpers, id) = (helpers.clone(), ticket.id.clone());
+                Box::pin(async move {
+                    if let Err(e) = helpers.stopped_with_ticket(&id, parked).await {
+                        tracing::warn!(ticket = id, error = %e, "can't stop the helpers");
+                    }
+                })
+            });
+            if parked {
+                review.on_ticket_parked(hook);
+            } else {
+                review.on_agent_stopped_by_drag(hook);
+            }
+        }
+        needs_you.set_helpers(helpers.clone());
         // Done ends the helpers, removes their worktrees left behind and their branches (d0133, d0018).
         {
             let helpers = helpers.clone();

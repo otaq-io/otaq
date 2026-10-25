@@ -61,6 +61,9 @@ pub struct HumanQuestion {
 pub(crate) struct OpenQuestion {
     pub ticket_id: String,
     pub question: HumanQuestion,
+    /// A helper's question the agent in charge passed on (d0133 audit 3): the helper, and the agent in charge's note.
+    pub helper_id: Option<String>,
+    pub pass_on_note: Option<String>,
 }
 
 /// An `ask human` question with the user's answer, for the Messages section.
@@ -191,6 +194,9 @@ struct QuestionRow {
 const QUESTION_COLUMNS: &str =
     "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at";
 const QUESTION_FROM: &str = "human_questions q";
+/// The ticket's questions to the user (d0133 audit 3): its agent's own, and a helper's once the agent in charge
+/// passed it on. A helper's question still with the agent in charge, or answered by it, never is.
+pub(crate) const FOR_THE_USER: &str = "(q.helper_id IS NULL OR q.helper_state = 'passed_on')";
 
 impl From<QuestionRow> for HumanQuestion {
     fn from(row: QuestionRow) -> Self {
@@ -254,7 +260,7 @@ impl Board {
     ) -> Result<Option<HumanQuestion>, BoardError> {
         let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.ticket_id = ? AND q.answered_at IS NULL
-             ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
+             AND {FOR_THE_USER} ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
         )))
         .bind(ticket_id)
         .fetch_optional(self.store().pool())
@@ -262,8 +268,8 @@ impl Board {
         Ok(row.map(Into::into))
     }
 
-    /// The user sent `line` in the ticket's agent terminal while its question was open (d0119): the line is its
-    /// answer. Returns the question it answered; `None` (nothing closed) for an empty line or no open question.
+    /// The user sent `line` in the ticket's agent terminal while its agent's question was open (d0119): the line is
+    /// its answer. Returns the question it answered; `None` (nothing closed) for an empty line or no open question.
     pub async fn answer_in_terminal(
         &self,
         ticket_id: &str,
@@ -273,7 +279,15 @@ impl Board {
         if line.is_empty() {
             return Ok(None);
         }
-        let Some(question) = self.open_user_question(ticket_id).await? else {
+        // Its own agent's question only: a helper's passed-on one is answered in the helper's terminal (d0133).
+        let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.ticket_id = ? AND q.answered_at IS NULL
+             AND q.helper_id IS NULL ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
+        )))
+        .bind(ticket_id)
+        .fetch_optional(self.store().pool())
+        .await?;
+        let Some(question) = row.map(HumanQuestion::from) else {
             return Ok(None);
         };
         self.close_question(&question.id, Some(line), AnsweredVia::Terminal)
@@ -340,10 +354,10 @@ impl Board {
             asked_at: now_ms(),
         };
         let mut tx = self.store().begin_write().await?;
-        // A new question replaces the agent's older open one (d0119).
+        // A new question replaces the agent's older open one (d0119); a helper's are its own (d0133).
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE human_questions SET answered_at = ?, answered_via = ?
-             WHERE {owner_column} = ? AND answered_at IS NULL"
+             WHERE {owner_column} = ? AND answered_at IS NULL AND helper_id IS NULL"
         )))
         .bind(question.asked_at)
         .bind(AnsweredVia::Replaced.as_str())
@@ -376,12 +390,15 @@ impl Board {
         #[derive(sqlx::FromRow)]
         struct Row {
             ticket_id: String,
+            helper_id: Option<String>,
+            pass_on_note: Option<String>,
             #[sqlx(flatten)]
             question: QuestionRow,
         }
         let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {QUESTION_COLUMNS}, q.ticket_id FROM {QUESTION_FROM} JOIN tickets t ON t.id = q.ticket_id
-             WHERE t.project_id = ? AND q.answered_at IS NULL ORDER BY q.asked_at DESC, q.id DESC"
+            "SELECT {QUESTION_COLUMNS}, q.ticket_id, q.helper_id, q.pass_on_note FROM {QUESTION_FROM} JOIN tickets t ON t.id = q.ticket_id
+             WHERE t.project_id = ? AND q.answered_at IS NULL AND {FOR_THE_USER}
+             ORDER BY q.asked_at DESC, q.id DESC"
         )))
         .bind(project_id)
         .fetch_all(self.store().pool())
@@ -391,6 +408,8 @@ impl Board {
             .map(|row| OpenQuestion {
                 ticket_id: row.ticket_id,
                 question: row.question.into(),
+                helper_id: row.helper_id,
+                pass_on_note: row.pass_on_note,
             })
             .collect())
     }
@@ -409,8 +428,10 @@ impl Board {
         ticket_id: &str,
     ) -> Result<Vec<HumanAnswer>, BoardError> {
         let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
-            "SELECT question, answer, asked_at, answered_at FROM human_questions
-             WHERE ticket_id = ? AND answered_at IS NOT NULL AND answer IS NOT NULL ORDER BY asked_at, id",
+            "SELECT q.question, q.answer, q.asked_at, q.answered_at FROM human_questions q
+             WHERE q.ticket_id = ? AND q.answered_at IS NOT NULL AND q.answer IS NOT NULL
+               AND (q.helper_id IS NULL OR q.helper_state = 'passed_on')
+             ORDER BY q.asked_at, q.id",
         )
         .bind(ticket_id)
         .fetch_all(self.store().pool())
@@ -433,7 +454,7 @@ impl Board {
     ) -> Result<Option<HumanQuestion>, BoardError> {
         let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.ticket_id = ? AND q.answered_at IS NULL
-             ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
+             AND {FOR_THE_USER} ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
         )))
         .bind(ticket_id)
         .fetch_optional(self.store().pool())

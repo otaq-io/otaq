@@ -449,7 +449,28 @@ impl Review {
         if stops && let Err(e) = inner.sessions.stop(&session.id).await {
             tracing::warn!(ticket = %ticket.key, error = %e, "can't stop the agent before the drag");
         }
+        // The ticket is one (d0133 audit 5): its helpers stop with the agent in charge, worktrees kept.
+        if stops {
+            let stopped = super::finish::FinishedTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+                status: ticket.status,
+            };
+            let hooks = inner.drag_stopped_hooks.lock().expect("drag hooks").clone();
+            for hook in hooks {
+                hook(&stopped).await;
+            }
+        }
         Ok(())
+    }
+
+    /// Registers a hook run when a drag stopped the ticket's agent where the card was (its helpers stop too).
+    pub fn on_agent_stopped_by_drag(&self, hook: super::finish::FinishedHook) {
+        self.inner
+            .drag_stopped_hooks
+            .lock()
+            .expect("drag hooks")
+            .push(hook);
     }
 
     /// The Agent stage a session ran, if it ran one ([`crate::session::own_stage`]).

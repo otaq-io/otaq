@@ -15,6 +15,11 @@
 //!
 //! Only tickets whose agent is at work ([`super::LIVE`]) change status; the last signal moves for any ticket.
 //!
+//! - **A helper's prompt shows too** (d0133 audit 3): while a helper of the ticket has a permission prompt open
+//!   ([`SignalState::helper_prompt`], read from the store), the ticket is Needs you with "40.3 needs you: allow …"
+//!   unless its own agent's prompt shows; a helper's question the agent in charge passed on is the ticket's open
+//!   question. When either ends ([`Input::HelperWait`]) the ticket shows what its own agent does again.
+//!
 //! **While the ticket validates** (d0063) the agent's Stop never makes it Idle (it was told to end its turn) and
 //! nothing else of the agent's moves it, except a request for the user: a permission prompt or a question turns
 //! the card turquoise, and once the user answers it shows Validating… again.
@@ -41,6 +46,9 @@ pub struct SignalState {
     pub validating: bool,
     /// The ticket's open question to the user (d0119), read from the store; never written with the state.
     pub question: Option<String>,
+    /// The line of a helper's open permission prompt ("40.3 needs you: allow …", d0133), read from the store; never
+    /// written with the state.
+    pub helper_prompt: Option<String>,
 }
 
 impl Default for SignalState {
@@ -53,6 +61,7 @@ impl Default for SignalState {
             last_signal_at: None,
             validating: false,
             question: None,
+            helper_prompt: None,
         }
     }
 }
@@ -70,12 +79,18 @@ pub enum Input {
     Enter,
     /// The user answered from Needs you, the card or the sheet (ATT-02, ATT-08): clears like Enter.
     Answered,
+    /// A helper's wait changed (d0133 audit 3): its prompt opened or closed (`ended_prompt`: the line the ticket showed
+    /// for the one that closed), or its passed-on question was asked or answered. Only the ticket's holds move.
+    HelperWait { ended_prompt: Option<String> },
 }
 
 /// The state after `input` at `now` (Unix milliseconds).
 pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
     let mut next = state.clone();
-    if !matches!(input, Input::Enter | Input::Answered) {
+    if !matches!(
+        input,
+        Input::Enter | Input::Answered | Input::HelperWait { .. }
+    ) {
         next.last_signal_at = Some(now);
     }
     if state.validating {
@@ -150,6 +165,16 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
                 working(&mut next);
             }
         }
+        // The helper's wait the ticket showed is over: its prompt's line, or a question no longer open.
+        Input::HelperWait { ended_prompt } => {
+            let prompt_ended = state.status == Status::NeedsYou
+                && ended_prompt.is_some()
+                && state.text == *ended_prompt;
+            let question_ended = state.status == Status::AsksYou && state.question.is_none();
+            if prompt_ended || question_ended {
+                working(&mut next);
+            }
+        }
     }
     // The open question holds Asks you; only a permission prompt shows on top of it (d0119).
     if let Some(question) = &state.question
@@ -164,6 +189,20 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
             Some(now)
         };
         next.status = Status::AsksYou;
+        next.text = text;
+        next.wakeup_at = None;
+    }
+    // A helper's open prompt shows unless the ticket's own agent's does (d0133 audit 3).
+    if let Some(prompt) = &state.helper_prompt
+        && next.status != Status::NeedsYou
+    {
+        let text = Some(prompt.clone());
+        next.since = if state.status == Status::NeedsYou && state.text == text {
+            state.since
+        } else {
+            Some(now)
+        };
+        next.status = Status::NeedsYou;
         next.text = text;
         next.wakeup_at = None;
     }
@@ -235,6 +274,7 @@ mod tests {
             wakeup_at: None,
             validating: false,
             question: None,
+            helper_prompt: None,
         }
     }
 

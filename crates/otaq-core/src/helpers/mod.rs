@@ -27,16 +27,21 @@
 //!
 //! **One slot per ticket** (d0133 audit 4, d0016, d0108): the scheduler counts tickets, so helpers never take a slot.
 //! Their tokens count on the ticket and in today's total ([`crate::usage::TicketUsage::helpers`]). A helper's
-//! hooks never move the ticket (questions, prompts and idle are T-0538's); its worktree left behind shows in Cleanup
-//! under its ticket, and the ticket's Done removes what is left ([`Helpers::finished`]).
+//! hooks never move the ticket on their own: its questions go to the agent in charge first ([`questions`]), its
+//! permission prompts straight to the user and its Idle to the agent in charge ([`waits`]); Pause, Park, a drag back
+//! and a restart treat the ticket as one ([`restart`]). Its worktree left behind shows in Cleanup under its ticket,
+//! and the ticket's Done removes what is left ([`Helpers::finished`]).
 //!
 //! Nothing here starts without the agent in charge's command, inside a stage the user started: the stage's start is
 //! the go-ahead, as a check's start is.
 
 pub mod merge;
 pub mod prime;
+pub mod questions;
+pub mod restart;
 pub mod start;
 pub mod store;
+pub mod waits;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -123,12 +128,43 @@ pub struct Helper {
     /// Merged: the paths its squash touched (the Files tab's piece tags).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+    /// Its tool's permission prompt while it is open (d0133 audit 3: it goes straight to the user).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// What it is told first when it resumes, instead of "Carry on with piece 3" (the user's answer to its question
+    /// given while the ticket was Interrupted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_prompt: Option<String>,
+    /// Its open question, and where it stands: with the agent in charge, or passed on to the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<questions::HelperQuestionState>,
 }
 
 impl Helper {
     /// How the piece is shown: "40.3".
     pub fn label(&self) -> String {
         piece_label(&self.ticket, self.piece)
+    }
+
+    /// Its row's status in `otaq helper list` and the sheet: "needs you" while its prompt is open, "asked · in
+    /// charge is answering" while its question is with the agent in charge, "asked · waiting for you" once passed on,
+    /// else its status ("working", "sent back"…).
+    pub fn row_status(&self) -> String {
+        use questions::HelperQuestionState as Q;
+        if self.prompt.is_some() {
+            return "needs you".to_owned();
+        }
+        match self.asked {
+            Some(Q::WithInCharge) => "asked \u{b7} in charge is answering".to_owned(),
+            Some(Q::PassedOn) => "asked \u{b7} waiting for you".to_owned(),
+            _ => self.status.label().to_owned(),
+        }
+    }
+
+    /// Whether Resume (and un-park) brings it back (d0133 audit 5): it was working or sent back. Being reviewed,
+    /// merged or held, it isn't.
+    pub fn resumes(&self) -> bool {
+        matches!(self.status, HelperStatus::Working | HelperStatus::SentBack)
     }
 }
 
@@ -223,6 +259,9 @@ struct Inner {
     gate: OnceLock<LaunchGate>,
     /// One helper start or merge at a time per ticket: git's worktree and branch steps share the repository.
     working: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The ticket's status follows a helper's passed-on question and its prompt (set by the service; unset, it
+    /// doesn't).
+    signals: OnceLock<crate::signals::Signals>,
 }
 
 impl Helpers {
@@ -247,6 +286,7 @@ impl Helpers {
                 seeder: OnceLock::new(),
                 gate: OnceLock::new(),
                 working: Mutex::new(HashMap::new()),
+                signals: OnceLock::new(),
             }),
         }
     }
@@ -259,6 +299,12 @@ impl Helpers {
     /// Gives the helpers the service's check before a launch (the plan limit, d0020).
     pub fn set_gate(&self, gate: LaunchGate) {
         let _ = self.inner.gate.set(gate);
+    }
+
+    /// Gives the helpers the service's signals: a helper's passed-on question and its prompt make the ticket's status
+    /// (d0133 audit 3).
+    pub fn set_signals(&self, signals: crate::signals::Signals) {
+        let _ = self.inner.signals.set(signals);
     }
 
     pub fn board(&self) -> &Board {
@@ -328,7 +374,8 @@ impl Helpers {
             .running_all_of(ticket_id, SessionKind::Helper)
     }
 
-    /// Stops every running helper session of the ticket; their rows and worktrees stay.
+    /// Stops every running helper session of the ticket; their rows (and statuses) and worktrees stay, so resuming
+    /// the ticket picks them up (d0133 audit 5). Their open prompts close with their sessions.
     pub async fn stop_all(&self, ticket_id: &str) -> Result<(), BoardError> {
         for session in self.running_sessions(ticket_id) {
             self.inner
@@ -337,6 +384,7 @@ impl Helpers {
                 .await
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
+        store::clear_prompts(self.inner.board.store().pool(), ticket_id).await?;
         Ok(())
     }
 

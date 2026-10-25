@@ -78,7 +78,7 @@ pub(super) async fn handle(
             }
             let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
             // Enter in the ticket's terminal is the user's answer: the needs-you label clears (ATT-02). Not in its
-            // Shell tab or Run, which are "not the agent", nor in a helper's (its prompts are T-0538's). In the agent's
+            // Shell tab or Run, which are "not the agent", nor in a helper's (its own waits, below). In the agent's
             // own terminal the first line sent answers an open question (d0119).
             let info = sessions.info(&p.session).ok();
             let line = effect
@@ -102,6 +102,16 @@ pub(super) async fn handle(
                 if let Err(e) = shared.signals.enter(&id, line).await {
                     tracing::warn!(session = p.session, error = %e, "can't clear the signal");
                 }
+            }
+            // Enter in a helper's terminal answers its permission prompt there, or its passed-on question (d0133 audit
+            // 3, d0119).
+            if effect.enters > 0
+                && info
+                    .as_ref()
+                    .is_some_and(|i| i.kind == crate::session::SessionKind::Helper)
+                && let Err(e) = shared.helpers.enter(&p.session, line).await
+            {
+                tracing::warn!(session = p.session, error = %e, "can't clear the helper's wait");
             }
             // Enter in a Project agent's terminal answers its permission prompt (ATT-02, d0068), or its open question
             // (d0119).

@@ -160,6 +160,8 @@ pub enum Action {
     Helpers(TicketFacts),
     /// `otaq helper done`: a helper hands its piece of this ticket back.
     HandBack(TicketFacts),
+    /// `otaq ask human` from a helper: its question goes to this ticket's agent in charge (d0133 audit 3).
+    AskInCharge(TicketFacts),
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. A Project
@@ -321,7 +323,7 @@ pub fn authorize_in_stage(
             "{ticket}'s agent can't run {}'s helpers",
             target.label
         )),
-        Action::HandBack(_) => refuse(ONLY_A_HELPER_HANDS_BACK.to_owned()),
+        Action::HandBack(_) | Action::AskInCharge(_) => refuse(ONLY_A_HELPER_HANDS_BACK.to_owned()),
         Action::Verdict(_) | Action::ProposeFlow { .. } => {
             unreachable!("handled above")
         }
@@ -352,7 +354,7 @@ pub fn may_fix(ticket: &TicketKey, target: &TicketFacts) -> Result<(), String> {
 fn helper_may(ticket_id: &str, action: &Action) -> Result<(), BoardError> {
     match action {
         Action::Read => Ok(()),
-        Action::HandBack(target) if target.id == ticket_id => Ok(()),
+        Action::HandBack(target) | Action::AskInCharge(target) if target.id == ticket_id => Ok(()),
         Action::All(actions) => actions.iter().try_for_each(|a| helper_may(ticket_id, a)),
         _ => Err(BoardError::refused(
             Refusal::NotAllowed,

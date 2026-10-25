@@ -35,6 +35,37 @@ impl MergeCheckState {
     }
 }
 
+/// What a helper of the ticket waits for the user with (d0133 audit 3): its question, once the agent in charge passed
+/// it on, or its tool's permission prompt, which goes straight to the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PieceWaitKind {
+    /// "SHOP-40 · 40.2 asks": the question the agent in charge passed on.
+    Asks,
+    /// "SHOP-40 · 40.3 needs you": its permission prompt, answered in its own terminal (d0011, d0016).
+    NeedsYou,
+}
+
+/// The helper of the ticket that waits for the user (d0133 audit 3): the card's line, the chip and the Needs you item
+/// name its piece, and ⌘J and the chip open its terminal. Not a flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceWait {
+    pub piece: u32,
+    /// How the piece is shown: "40.3".
+    pub label: String,
+    pub kind: PieceWaitKind,
+    /// The helper's session: the terminal ⌘J and the chip open. `None` once it ended (a restart).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// "SHOP-40 · 40.2 asks", "SHOP-40 · 40.3 needs you".
+    pub chip: String,
+    /// "40.2 asks: Can guests save items?", "40.3 needs you: Allow `rm -rf .next`?".
+    pub line: String,
+    /// Asks: the agent in charge's note, "passed this to you: it's a product question the plan doesn't answer".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
 /// One check agent of the ticket's latest round of a Check stage with several (d0130): "Security passed",
 /// "Performance running".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +238,14 @@ pub struct Flags {
     /// card's meta row.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub open_decisions: u32,
+    /// A helper waits for the user (d0133 audit 3): its passed-on question (Asks you) or its permission prompt (Needs
+    /// you). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub piece_wait: Option<PieceWait>,
+    /// Interrupted or Parked: the helpers Resume (or un-park) brings back, those that were working or sent back
+    /// ("40.2", "40.3"; d0133 audit 5): "Interrupted · 2 helpers were working". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub helpers_to_resume: Vec<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -345,6 +384,16 @@ mod tests {
             ready_to_start: true,
             your_turn: true,
             open_decisions: 1,
+            piece_wait: Some(PieceWait {
+                piece: 3,
+                label: "40.3".into(),
+                kind: PieceWaitKind::NeedsYou,
+                session: Some("s3".into()),
+                chip: "SHOP-40 \u{b7} 40.3 needs you".into(),
+                line: "40.3 needs you: Allow `rm -rf .next`?".into(),
+                note: None,
+            }),
+            helpers_to_resume: vec!["40.2".into()],
         }
     }
 

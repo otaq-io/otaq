@@ -1014,6 +1014,15 @@ impl Board {
         for open in self.open_questions(project_id).await? {
             questions.entry(open.ticket_id.clone()).or_insert(open);
         }
+        // The tickets' helpers (d0133): which one waits for the user, and which ones Resume brings back.
+        let mut helpers: std::collections::HashMap<TicketKey, Vec<crate::helpers::Helper>> =
+            std::collections::HashMap::new();
+        for helper in crate::helpers::store::of_project(pool, project_id).await? {
+            helpers
+                .entry(helper.ticket.clone())
+                .or_default()
+                .push(helper);
+        }
         let agent_edited: std::collections::HashSet<String> = self
             .tickets_updated_by_agent(project_id)
             .await?
@@ -1188,6 +1197,21 @@ impl Board {
                         .get(&row.id)
                         .and_then(|body| first_line(body.as_deref()?));
                 }
+                let own_helpers = helpers.get(&key).map(Vec::as_slice).unwrap_or_default();
+                flags.piece_wait = crate::helpers::restart::piece_wait(
+                    own_helpers,
+                    status,
+                    row.interrupted_from.as_deref().and_then(|s| s.parse().ok()),
+                    row.signal_text.as_deref(),
+                    questions.get(&row.id).map(|open| {
+                        (
+                            open.helper_id.as_deref(),
+                            open.question.text.as_str(),
+                            open.pass_on_note.as_deref(),
+                        )
+                    }),
+                );
+                flags.helpers_to_resume = crate::helpers::restart::to_resume(own_helpers, status);
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
                     branch: row.branch_name,

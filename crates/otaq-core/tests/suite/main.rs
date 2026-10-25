@@ -65,6 +65,7 @@ mod git;
 mod hand_off_pending;
 mod hand_overs;
 mod handoffs;
+mod helper_waits;
 mod helpers;
 mod human_answers;
 mod human_checks;
