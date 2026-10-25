@@ -441,12 +441,13 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
         "against the description".to_owned(),
         "infer reasonable ones".to_owned(),
         "**each review comment**".to_owned(),
+        "the diff already holds every merged piece".to_owned(),
         "Run the checks".to_owned(),
         "obvious ones".to_owned(),
         "leftovers and out-of-scope edits".to_owned(),
         "one line per finding, with its file and line".to_owned(),
         "**covered by a linked ticket** is a **note**, never a failure".to_owned(),
-        "Note: UI for adding items: covered by SHOP-40.2".to_owned(),
+        "Note: UI for adding items: covered by SHOP-41".to_owned(),
         "**not asked for by this ticket**".to_owned(),
         "Note: Not covered by any ticket: removing items".to_owned(),
         format!("{cmd} check fail --stdin"),
@@ -713,6 +714,49 @@ fn work_ticket_records_product_choices() {
     assert_eq!(decision.built, "only in the profile form");
 }
 
+/// T-0539 (d0133): with a Plan's pieces, work-ticket's agent in charge starts helpers in the plan's order, reads each
+/// hand-back's diff, runs the project's tests in the helper's worktree, merges or sends back, answers or passes on a
+/// helper's question (recording a product choice it settled, d0084), follows a Plan change and ends its stage once
+/// every piece is merged; with `OTAQ_PIECE` set, a helper builds its piece, commits, asks through `ask human` and hands
+/// back with `helper done`.
+#[test]
+fn work_ticket_runs_helpers_as_the_agent_in_charge() {
+    let (_, body) = skill(WORK_TICKET_SKILL);
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        "**Is `$OTAQ_PIECE` set**".to_owned(),
+        "**When `prime` shows a Plan with pieces**".to_owned(),
+        "## With a Plan: work as the agent in charge".to_owned(),
+        "commit nothing yourself but the merges".to_owned(),
+        "A piece can start once every piece it waits for is merged".to_owned(),
+        format!("{cmd} helper start 1 --title \"Wishlist API\""),
+        format!("{cmd} helper diff 3"),
+        "Run the project's tests in the helper's worktree".to_owned(),
+        format!("{cmd} helper merge 3"),
+        format!("{cmd} helper back 3 --stdin"),
+        format!("{cmd} helper answer 3 --stdin"),
+        format!("{cmd} decision record"),
+        format!("{cmd} helper pass-on"),
+        "**The Plan changed**".to_owned(),
+        "once every piece is merged".to_owned(),
+        format!("{cmd} stage next"),
+        format!("{cmd} helper start 5 --title \"Fixing the Validate report\""),
+        "## As a helper".to_owned(),
+        "**Build only your piece**".to_owned(),
+        "otaq-commit".to_owned(),
+        format!("{cmd} ask human --stdin"),
+        format!("{cmd} helper done --stdin"),
+        "**Sent back?**".to_owned(),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("work-ticket must say {step:?} after the step before"));
+        at += found;
+    }
+}
+
 /// T-0534 (d0133): the Commit skill starts with `git status`; there are no lead notes to read first.
 #[test]
 fn the_commit_skill_starts_with_git_status() {
@@ -740,7 +784,7 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
     let text = flat(&body);
     let cmd = naming::COMMAND_NAME;
     for needle in [
-        "Two or more tickets:** propose first, then wait for the user's go-ahead",
+        "Two or more tickets, or a ticket with a Plan:** propose first, then wait for the user's go-ahead",
         "One ticket the user asked for explicitly**",
         &format!(
             "{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --reason \"typo fix\" --stdin"
@@ -767,7 +811,11 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         "**A choice the user named** (\"2 needs a review\", \"use Quick developer for all of these\", \"keep these choices\") is the user's: add `--by-user`",
         "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it yours",
         "**Decide the shape, then propose before you create.**",
-        "## One ticket or several",
+        "## One ticket, or several",
+        "**One ticket with a Plan:**",
+        "### Writing a Plan",
+        "create \"Wishlist\" --plan-file \"$plan\" --stdin",
+        "1 Wishlist Plan \u{b7} 3 pieces",
         "- **Stage:** Dev=Quick developer · typo fix",
         "When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
         "Otaq shows no dialog for it",

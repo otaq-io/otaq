@@ -121,9 +121,12 @@ async fn the_agent_in_charge_starts_lists_reads_sends_back_and_merges() {
         lines[0].contains(" working ") && lines[0].contains("otaq/SHOP-1.1"),
         "{ran:?}"
     );
-    assert!(lines[0].ends_with("just now"), "{ran:?}");
-
     let helpers = w.helpers.of_ticket(&t.id).await.unwrap();
+    // The worktree last: the agent in charge runs the project's tests there (T-0539).
+    assert!(
+        lines[0].ends_with(&format!("just now  {}", helpers[0].worktree)),
+        "{ran:?}"
+    );
     let one = Path::new(&helpers[0].worktree);
     commit(one, "wishlist.rs", "pub fn add() {}\n");
     let ran = agent.run(&format!("'{CB}' helper diff 1")).await;

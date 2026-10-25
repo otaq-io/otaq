@@ -1,6 +1,6 @@
 ---
 name: work-ticket
-description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement, commit everything, then end your stage with a short comment through `otaq stage next`, long output attached as a report.
+description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement (or, when the Plan has pieces, start a helper per piece, review, test and merge each), commit everything, then end your stage with a short comment through `otaq stage next`, long output attached as a report. With $OTAQ_PIECE set, build one piece as a helper and hand it back with `otaq helper done`.
 disable-model-invocation: true
 ---
 
@@ -9,6 +9,9 @@ disable-model-invocation: true
 You are the agent for one Otaq ticket. Its key is in `$OTAQ_TICKET` (for example `SHOP-19`). You work in
 the ticket's own git worktree, on its own branch. The user watches the board and can type into this session at any
 time.
+
+**Is `$OTAQ_PIECE` set** (for example `3`)? Then you are not the ticket's agent but a **helper** building one piece of
+it: skip the steps below and follow "As a helper" at the end.
 
 ## Steps
 
@@ -26,7 +29,9 @@ time.
 3. **Check the ticket before you build** (see "Check the ticket first" below). If something that changes what gets
    built is open, ask before you write any code.
 4. **Plan, then implement** until the ticket is done, as its description describes. Keep to the ticket; file anything
-   else as a new ticket (see below) instead of doing it here.
+   else as a new ticket (see below) instead of doing it here. **When `prime` shows a Plan with pieces** ("Pieces: 4
+   (1 → 2, 3 → 4)" under "## Plan"), don't build them yourself: you are the **agent in charge** (see "With a Plan:
+   work as the agent in charge"). With no pieces, you work alone, as described here.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
@@ -66,6 +71,87 @@ time.
    Already fixed in SHOP-31: the price table sorts by name since its merge.
    REASON
    ```
+
+## With a Plan: work as the agent in charge
+
+When the Plan under "## Plan" in `prime` has a Pieces list, the work is already split. You start a **helper** for each
+piece, each in its own worktree on its own branch, check what it hands back and merge it into this ticket's branch. You
+stay the ticket's agent: the gap check (step 3), the questions to the user and ending your stage (step 6) are yours.
+**While helpers build the pieces, commit nothing yourself but the merges.**
+
+1. **Start the pieces that can start.** A piece can start once every piece it waits for is merged. In "Pieces: 4
+   (1 → 2, 3 → 4)" piece 1 starts first, then 2 and 3 side by side, then 4. Name each piece as the Plan does; a note
+   on stdin gives its helper anything the Plan doesn't say:
+
+   ```sh
+   otaq helper start 1 --title "Wishlist API"
+   otaq helper start 3 --title "Wishlist page" --stdin <<'NOTE'
+   Reuse the product grid from app/products/page.tsx.
+   NOTE
+   ```
+
+   Each helper runs your agent and model. When your tool's usage limit holds one ("waiting for limit reset"), carry on
+   with the rest: Otaq starts it when the limit resets and tells you. Then **end your turn**: each helper's hand-back,
+   question or stop is typed into this session as a message. `otaq helper list` shows every helper's status, branch
+   and worktree.
+2. **Check each piece it hands back** ("40.3 handed its piece back: …"):
+   - Read what merging it would bring: `otaq helper diff 3` (a long one goes to a file in `$OTAQ_RESOURCE_DIR`; search
+     it).
+   - Run the project's tests in the helper's worktree (`otaq helper list` names it), the ones the project's notes and
+     the Agent instructions name. Their output goes to a file in `$OTAQ_RESOURCE_DIR`, as in "Long output".
+   - **Good:** merge it into this ticket's branch. Merge one piece at a time; then start the pieces that waited for
+     it.
+
+     ```sh
+     otaq helper merge 3
+     ```
+
+   - **Not yet:** send it back with one clear note: what is wrong, where, and what done looks like. Its helper fixes it
+     and hands back again.
+
+     ```sh
+     otaq helper back 3 --stdin <<'NOTE'
+     The wishlist page doesn't show the empty state the description asks for (app/wishlist/page.tsx). Add it, with
+     a test.
+     NOTE
+     ```
+
+   A merge refused for a conflict merges nothing and tells you the note to send the helper back with: send it.
+3. **Answer your helpers' questions** ("Piece 3's helper asks: …"). Answer from the Plan, the description, the comments
+   and the decisions recorded on the ticket:
+
+   ```sh
+   otaq helper answer 3 --stdin <<'ANSWER'
+   Guests can't save items: show the sign-in prompt, as the Plan's piece 1 says.
+   ANSWER
+   ```
+
+   When your answer settles a product choice (what gets built, not how), also record it with `otaq decision record`
+   (see "Product questions while you work"), so the user sees it in the review. When only the user can answer, pass the
+   question on with its id from the message, and why:
+
+   ```sh
+   otaq helper pass-on 0199d2a4-6f1e-7c3b-9a52-1f0e8d7c6b5a --note "a product question the Plan doesn't answer"
+   ```
+
+   "Piece 3's helper stopped without handing back" means it ended its turn without `helper done`: read its last line,
+   then answer it with a note (`otaq helper back 3 --stdin`) or check its work as a hand-back.
+4. **The Plan changed** ("The plan changed: 40.4 removed. Run `otaq prime`…"): run `otaq prime` and read the Plan
+   again. Tell running helpers what changed for them with `otaq helper back <n> --stdin`, start the new pieces, and
+   never merge a removed piece (tell its helper to stop, with the same command).
+5. **Finish the stage** once every piece is merged (`otaq helper list` shows them all "merged"): the whole ticket's
+   tests pass on this branch, nothing is uncommitted, and `otaq stage next` names the pieces in its comment, for
+   example "40.1 Wishlist API, 40.2 Wishlist button, 40.3 Wishlist page, 40.4 Share link: merged." Add the checks your
+   helpers couldn't do themselves (their hand-backs list them) as `--manual-check` lines.
+
+When the ticket comes back (a failed check, a Send back), the fix is yours as the agent in charge: make a small one
+yourself, or start a helper for it with the next free piece number, for example piece 5 when the Plan has 4:
+
+```sh
+otaq helper start 5 --title "Fixing the Validate report" --stdin <<'NOTE'
+Validate failed: src/cart.ts:42 ignores the discount. Run `otaq prime` for the checker's comment and report.
+NOTE
+```
 
 ## Long output
 
@@ -202,7 +288,8 @@ QUESTION
 
 ## Rules
 
-- **Never push, never open a PR, never merge.** The user does that from the board.
+- **Never push, never open a PR, never merge.** The user does that from the board. The one merge that is yours:
+  your helpers' pieces into this ticket's branch, with `otaq helper merge`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
   Long command output never does: it goes in a report (see "Long output").
 - Useful commands: `otaq show <KEY>` (any ticket), `otaq dep tree` (your ticket's chain),
@@ -212,3 +299,31 @@ QUESTION
 - If `prime` lists **Stage choices**, you may change a later stage's choice for this ticket when what you learned
   changes how hard its work is, always with a reason (`otaq update <KEY> --stage "<stage>=<choice>" --reason "…"`).
   A choice the user set can't be changed.
+
+## As a helper
+
+`$OTAQ_PIECE` is set: you build **one piece** of the ticket for its agent in charge, in your own worktree, on your own
+branch. The agent in charge reviews your work, merges it and moves the ticket; you never do.
+
+1. **Run `otaq prime`.** As a helper it prints your piece first, the notes between you and the agent in charge, then
+   the ticket, the whole Plan, its comments and your rules. Follow the user's Agent instructions and the project's
+   notes it names, as far as they apply to your piece.
+2. **Build only your piece**, as the Plan describes it. Anything else you notice goes in your hand-back, not in your
+   code.
+3. **Commit everything** with the `otaq-commit` skill (or your agent's own commit skill); without one, commit with
+   `git add -A` and `git commit`. Never push and never merge: the agent in charge merges your branch.
+4. **Questions** go through `otaq ask human --stdin`, as in "When you need the user": they reach the agent in charge
+   first, which answers or passes them on to the user. End your turn and wait; the answer is typed into this session.
+5. **Hand your piece back** with what you built and what you couldn't check yourself (a real browser, a device), then
+   end your turn:
+
+   ```sh
+   otaq helper done --stdin <<'SUMMARY'
+   Wishlist page with its empty state; `npm test` passes.
+   Couldn't check: on a phone, the grid shows two columns.
+   SUMMARY
+   ```
+
+   It is refused while files are uncommitted. The agent in charge lists your "Couldn't check" lines for the user.
+6. **Sent back?** The agent in charge's note is typed into this session ("To 40.3: …" in `prime`). Read it, fix what it
+   asks, commit, and hand back again with `otaq helper done --stdin`.

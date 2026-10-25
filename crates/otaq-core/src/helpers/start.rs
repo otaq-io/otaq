@@ -257,21 +257,19 @@ impl Helpers {
         let session_id = crate::store::new_id();
         let launched = match made {
             Ok(()) => match store::set_session(pool, &id, Some(&session_id)).await {
-                Ok(()) => {
-                    self.launch(
-                        ticket,
-                        &project,
-                        &path,
-                        piece,
-                        title,
-                        &runs_on,
-                        &agent,
-                        session_id,
-                        None,
-                        FirstPrompt::Text(first_prompt(&ticket.key, piece, title)),
-                    )
+                Ok(()) => match self
+                    .skill_prompt(ticket, first_prompt(&ticket.key, piece, title))
                     .await
-                }
+                {
+                    Ok(first) => {
+                        self.launch(
+                            ticket, &project, &path, piece, title, &runs_on, &agent, session_id,
+                            None, first,
+                        )
+                        .await
+                    }
+                    Err(e) => Err(e),
+                },
                 Err(e) => Err(e.into()),
             },
             Err(e) => Err(e),

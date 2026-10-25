@@ -1,9 +1,10 @@
 //! `otaq helper …` (d0133, T-0537): the agent in charge's helpers. `start <n> --title "<piece>" [--stdin]` starts the
 //! helper of piece `n` (the note on stdin is its first comment), `list` prints each helper's piece, title, status,
-//! branch and last activity, `diff <n>` its branch against the ticket's, `back <n> --stdin` sends it back with a note,
-//! `merge <n>` merges its piece into the ticket's branch, `answer <n> --stdin` answers its question and `pass-on <id>
-//! [--note …]` passes it on to the user (T-0538). A helper (`$OTAQ_PIECE` set) runs `done --stdin` to hand its
-//! piece back. They work on `$OTAQ_TICKET`; the service refuses anyone but the agent in charge (or the helper).
+//! branch, last activity and worktree, `diff <n>` its branch against the ticket's, `back <n> --stdin` sends it back
+//! with a note, `merge <n>` merges its piece into the ticket's branch, `answer <n> --stdin` answers its question and
+//! `pass-on <id> [--note …]` passes it on to the user (T-0538). A helper (`$OTAQ_PIECE` set) runs `done --stdin` to
+//! hand its piece back. They work on `$OTAQ_TICKET`; the service refuses anyone but the agent in charge (or the
+//! helper).
 //!
 //! `--json` prints the helper (`otaq_core::helpers::Helper`) with the text as `{"helper", "text"}`, `list --json` the
 //! helpers, `diff --json` `{"helper", "against", "files", "patch"}`.
@@ -39,7 +40,7 @@ pub enum HelperCommand {
         #[arg(long)]
         stdin: bool,
     },
-    /// Each helper's piece, title, status, branch and last activity
+    /// Each helper's piece, title, status, branch, last activity and worktree
     List,
     /// The helper's branch against the ticket's: what merging it would bring
     Diff {
@@ -196,11 +197,11 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
     })
 }
 
-/// `otaq helper list`:
+/// `otaq helper list`, the worktree last (the agent in charge runs the project's tests there, T-0539):
 ///
 /// ```text
-/// 40.1  Wishlist API   merged           otaq/SHOP-40.1  12 min ago
-/// 40.3  Wishlist page  working          otaq/SHOP-40.3  just now
+/// 40.1  Wishlist API   merged           otaq/SHOP-40.1  12 min ago  ~/.otaq/wt/shop-web/SHOP-40.1
+/// 40.3  Wishlist page  working          otaq/SHOP-40.3  just now    ~/.otaq/wt/shop-web/SHOP-40.3
 /// ```
 fn render_list(helpers: &[Helper]) -> String {
     if helpers.is_empty() {
@@ -210,7 +211,7 @@ fn render_list(helpers: &[Helper]) -> String {
         );
     }
     let now = otaq_core::store::now_ms();
-    let rows: Vec<[String; 5]> = helpers
+    let rows: Vec<[String; 6]> = helpers
         .iter()
         .map(|h| {
             [
@@ -224,24 +225,27 @@ fn render_list(helpers: &[Helper]) -> String {
                 },
                 h.branch.clone(),
                 ago(now - h.updated_at),
+                h.worktree.clone(),
             ]
         })
         .collect();
     let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0);
-    let widths = [width(0), width(1), width(2), width(3)];
+    let widths = [width(0), width(1), width(2), width(3), width(4)];
     rows.iter()
         .map(|r| {
             format!(
-                "{:w0$}  {:w1$}  {:w2$}  {:w3$}  {}",
+                "{:w0$}  {:w1$}  {:w2$}  {:w3$}  {:w4$}  {}",
                 r[0],
                 r[1],
                 r[2],
                 r[3],
                 r[4],
+                r[5],
                 w0 = widths[0],
                 w1 = widths[1],
                 w2 = widths[2],
                 w3 = widths[3],
+                w4 = widths[4],
             )
         })
         .collect::<Vec<_>>()
