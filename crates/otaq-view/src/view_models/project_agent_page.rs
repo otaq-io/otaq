@@ -197,7 +197,7 @@ pub fn recent(agents: &[ProjectAgent], project_name: &str, now_ms: i64) -> Recen
                 }
             })
             .collect(),
-        empty: "No ended Project agents yet. Agents you close or that end by a restart show up here, up to 10.",
+        empty: "No ended conversations yet. Conversations you close or that end by a restart show up here, up to 10.",
     }
 }
 
@@ -330,7 +330,12 @@ mod tests {
         assert_eq!(r.rows[0].when, "yesterday \u{b7} ended normally");
         assert!(r.rows[1].when.ends_with(" \u{b7} ended by restart"));
         assert_eq!(r.rows[1].when.len(), "11:42 \u{b7} ended by restart".len());
-        assert!(recent(&[], "shop-web", now).rows.is_empty());
+        let none = recent(&[], "shop-web", now);
+        assert!(none.rows.is_empty());
+        assert_eq!(
+            none.empty,
+            "No ended conversations yet. Conversations you close or that end by a restart show up here, up to 10."
+        );
         assert_eq!(ended_when(now - 10 * 86_400_000, now).split(' ').count(), 2);
     }
 }

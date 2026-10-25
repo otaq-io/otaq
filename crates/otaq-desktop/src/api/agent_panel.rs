@@ -384,7 +384,7 @@ mod tests {
         .unwrap();
         assert_eq!(view["agent"], Value::Null);
         assert_eq!(view["opens_on"], Value::Null);
-        assert_eq!(view["empty"]["title"], "Ask the Project agent");
+        assert_eq!(view["empty"]["title"], "Ask Noyan");
         assert_eq!(view["empty"]["hint"], "Enter starts Claude Code");
         assert_eq!(view["empty"]["line"]["agent"], "Claude Code");
         assert!(

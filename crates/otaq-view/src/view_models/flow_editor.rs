@@ -373,7 +373,7 @@ pub const READY_ID: &str = "ready";
 
 /// The panel's line before anything was asked.
 pub const STARTS_WHEN_YOU_ASK: &str = "\u{b7} starts when you ask";
-pub const PANEL_TITLE: &str = "Project agent \u{b7} the flow";
+pub const PANEL_TITLE: &str = "Noyan \u{b7} the flow";
 pub const NOT_STARTED: &str = "Not started";
 pub const TYPING_GOES: &str = "Typing goes to the agent";
 
@@ -600,7 +600,7 @@ pub enum SkillState {
         hint: &'static str,
         prefill: String,
     },
-    /// "Being written by the Project agent…" with Stop.
+    /// "Being written by Noyan…" with Stop.
     Writing {
         text: &'static str,
         stop: &'static str,
@@ -1637,7 +1637,7 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
         }
     } else if stage.skill.is_none() && writing(f, &stage.id) {
         SkillState::Writing {
-            text: "Being written by the Project agent\u{2026}",
+            text: "Being written by Noyan\u{2026}",
             stop: "Stop",
         }
     } else if let Some(skill) = &stage.skill {
@@ -1652,7 +1652,7 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             ),
             pick: "Pick a skill\u{2026}",
             ask: "Ask the agent to write it",
-            hint: "Pick: your own skills, searchable. Ask: starts the Project agent on the right and uses tokens.",
+            hint: "Pick: your own skills, searchable. Ask: starts Noyan on the right and uses tokens.",
             prefill: write_skill_prefill(f.file, &stage.id),
         }
     };
@@ -3564,7 +3564,7 @@ mod tests {
         let d = draft(&file, true);
         let v = render(&e, Opened::Project, &d, &file, &file, None, None);
         let panel = &v.agent;
-        assert_eq!(panel.title, "Project agent \u{b7} the flow");
+        assert_eq!(panel.title, "Noyan \u{b7} the flow");
         assert_eq!(panel.pill.label, "Not started");
         assert_eq!(panel.note, "\u{b7} starts when you ask");
         assert!(panel.agent.is_none() && panel.session.is_none());
@@ -4156,7 +4156,7 @@ mod tests {
                 text: "No skill yet. An agent stage needs one: it\u{2019}s what the agent follows in Plan.".into(),
                 pick: "Pick a skill\u{2026}",
                 ask: "Ask the agent to write it",
-                hint: "Pick: your own skills, searchable. Ask: starts the Project agent on the right and uses tokens.",
+                hint: "Pick: your own skills, searchable. Ask: starts Noyan on the right and uses tokens.",
                 prefill: "Write a skill for the Plan stage: ".into(),
             }
         );
@@ -4244,7 +4244,7 @@ mod tests {
         assert_eq!(
             plan_details(&v).skill.as_ref().unwrap().state,
             SkillState::Writing {
-                text: "Being written by the Project agent\u{2026}",
+                text: "Being written by Noyan\u{2026}",
                 stop: "Stop",
             }
         );

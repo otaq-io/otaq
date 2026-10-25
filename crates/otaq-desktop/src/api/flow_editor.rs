@@ -619,7 +619,7 @@ async fn prefill(app: &App, params: SkillParams) -> Result<(), RequestError> {
         .and_then(|id| open.into_iter().find(|a| a.id == id))
         .filter(|a| a.state == AgentState::Running)
         .and_then(|a| a.session.map(|s| s.id))
-        .ok_or_else(|| RequestError::plain("The Project agent isn\u{2019}t running"))?;
+        .ok_or_else(|| RequestError::plain("Noyan isn\u{2019}t running"))?;
     type_if_empty(app, session, &vm::write_skill_prefill(&file, &params.stage)).await
 }
 

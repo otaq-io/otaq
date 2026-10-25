@@ -6,7 +6,7 @@
 //! conversation it shows. Closed, the Project agent is the Ask bar (`ask_bar.rs`). The code still calls it "the
 //! agent panel", as `agent_panel.*` and the page do.
 //!
-//! The agent panel shows one Project agent, or the **empty agent panel** "Ask the Project agent". The empty agent panel is the page's own
+//! The agent panel shows one Project agent, or the **empty agent panel** "Ask Noyan". The empty agent panel is the page's own
 //! state, never a session or a row: no agent exists until the first message is sent, and that message is the
 //! go-ahead for its tokens (d0087). A running agent has its header (switcher, state pill, Recently ended, +, …), the
 //! agent line, Created and changed, its terminal and the footer. The page only draws; which agent it shows is page
@@ -49,7 +49,7 @@ pub fn agent_waits(agent: &ProjectAgent) -> bool {
 }
 
 /// The panel's name in its header, before the conversation switcher (`s24-05`).
-pub const LABEL: &str = "Project agent";
+pub const LABEL: &str = "Noyan";
 
 /// The switcher's text on the empty agent panel: the conversation the first message starts.
 pub const TITLE: &str = "New conversation";
@@ -87,17 +87,17 @@ pub struct Button {
     pub keys: Option<String>,
 }
 
-/// The panel's header (`s24-05`): the bot icon, "Project agent", the switcher (the conversation's name ▾), the state
+/// The panel's header (`s24-05`): the bot icon, "Noyan", the switcher (the conversation's name ▾), the state
 /// pill, …, Recently ended, +, Expand and the close icon.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentPanelHeader")]
 pub struct Header {
     pub icon: IconName,
-    /// "Project agent".
+    /// "Noyan".
     pub label: &'static str,
     /// The shown conversation's name, or "New conversation" on the empty agent panel.
     pub title: String,
-    /// "New agent" until it is named reads muted.
+    /// "New conversation" until it is named reads muted.
     pub unnamed: bool,
     /// The name opens the switcher (▾): the project has a Project agent to switch to.
     pub switcher: bool,
@@ -190,7 +190,7 @@ fn example(label: &'static str) -> Example {
     }
 }
 
-/// The empty agent panel, "Ask the Project agent" (*No Project agent yet (0087)*, `SbFln`).
+/// The empty agent panel, "Ask Noyan" (*No Project agent yet (0087)*, `SbFln`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentPanelEmpty")]
 pub struct Empty {
@@ -231,7 +231,7 @@ pub fn empty(project_name: &str, new_agent: Option<&Agent>, tools: &Tools) -> Em
             note: "\u{b7} starts when you send".to_owned(),
             rename: None,
         },
-        title: "Ask the Project agent",
+        title: "Ask Noyan",
         text: format!(
             "It reads and runs code in {project_name} (never edits) and creates or changes Backlog tickets. Nothing \
              runs and no tokens are used until you send."
@@ -349,7 +349,7 @@ pub struct Footer {
     pub keys: Option<String>,
     pub keys_label: &'static str,
     pub resume: Option<ResumeButton>,
-    /// After Resume: "or ⇧⌘L for a new agent".
+    /// After Resume: "or ⇧⌘L for a new conversation".
     pub resume_note: Option<String>,
 }
 
@@ -359,8 +359,8 @@ pub fn footer(agent: &ProjectAgent, keys: &KeyLabels) -> Footer {
         AgentState::Ended => (
             "Ended \u{b7} Resume continues this conversation",
             Some(match keys.label(KeyAction::NewProjectAgent) {
-                Some(keys) => format!("or {keys} for a new agent"),
-                None => "or + for a new agent".to_owned(),
+                Some(keys) => format!("or {keys} for a new conversation"),
+                None => "or + for a new conversation".to_owned(),
             }),
         ),
         AgentState::EndedByRestart => (
@@ -733,9 +733,9 @@ pub fn gallery() -> Gallery {
     };
     Gallery {
         states: vec![
-            state("Empty · Ask the Project agent", None, 1440.),
+            state("Empty · Ask Noyan", None, 1440.),
             GalleryState {
-                name: "Empty · the project's Project agent is Strong",
+                name: "Empty · Strong answers as Noyan",
                 view: view(&Facts {
                     agents: &agents,
                     shown: None,
@@ -1008,7 +1008,7 @@ mod tests {
         assert_eq!(e.line.note, "\u{b7} starts when you send");
         assert_eq!(e.line.avatar, None, "one tool: avatars hidden");
         assert_eq!(e.line.rename, None);
-        assert_eq!(e.title, "Ask the Project agent");
+        assert_eq!(e.title, "Ask Noyan");
         assert_eq!(
             e.text,
             "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets. Nothing \
@@ -1202,7 +1202,7 @@ mod tests {
                 v.header.close.keys.as_deref()
             ),
             (
-                "Project agent",
+                "Noyan",
                 IconName::PanelLeftClose,
                 "Close",
                 Some("\u{2318}L")
@@ -1283,7 +1283,7 @@ mod tests {
             ),
             (
                 Some(("Resume", false)),
-                Some("or \u{21e7}\u{2318}L for a new agent")
+                Some("or \u{21e7}\u{2318}L for a new conversation")
             )
         );
         a.state = AgentState::EndedByRestart;
@@ -1316,7 +1316,7 @@ mod tests {
         let no_new = fixtures::removed("new_project_agent", None, 0);
         assert_eq!(
             footer(&a, &no_new).resume_note.as_deref(),
-            Some("or + for a new agent")
+            Some("or + for a new conversation")
         );
         let agents = list(vec![agent("a1", "Search slowness", 1)]);
         let v = view(&Facts {
@@ -1405,7 +1405,7 @@ mod tests {
         waits.needs_you = Some("Allow gh issue list?".into());
         let mut ended = agent("a1", "Footer audit", 1);
         ended.state = AgentState::Ended;
-        let mut unnamed = agent("a3", "New agent", 3);
+        let mut unnamed = agent("a3", "New conversation", 3);
         unnamed.name_source = None;
         let agents = list(vec![ended, waits, unnamed]);
         let v = view_of(&agents, Some("a2"));
@@ -1418,7 +1418,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("New agent", "Working", false),
+                ("New conversation", "Working", false),
                 ("Import GitHub issues", "Waiting for you", true),
                 ("Footer audit", "Ended", false),
             ]

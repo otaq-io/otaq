@@ -10,6 +10,6 @@ export type AgentPanelFooter = { text: string,
  */
 keys: string | null, keys_label: string, resume: AgentResumeButton | null, 
 /**
- * After Resume: "or ⇧⌘L for a new agent".
+ * After Resume: "or ⇧⌘L for a new conversation".
  */
 resume_note: string | null, };

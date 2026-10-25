@@ -2554,7 +2554,7 @@ mod tests {
         });
         let choices = view.choices.unwrap();
         assert_eq!(choices.heading, "Choices");
-        assert_eq!(choices.set_by.as_deref(), Some("set by the Project agent"));
+        assert_eq!(choices.set_by.as_deref(), Some("set by Noyan"));
         assert_eq!(view.path.unwrap().rows[1].detail, "Rust developer \u{b7} working");
         assert!(view.holds.is_empty());
         assert_eq!(view.open_agent, None);

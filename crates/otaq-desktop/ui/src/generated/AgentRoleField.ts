@@ -6,10 +6,10 @@ import type { AgentOption } from "./AgentOption";
  */
 export type AgentRoleField = { label: string, 
 /**
- * None · Project agent · Epic lead; ids `""`, `noyan`, `epic-lead`.
+ * None · Noyan · Epic lead; ids `""`, `noyan`, `epic-lead`.
  */
 options: Array<AgentOption>, hint: string, 
 /**
- * After a move: "Quick planner is now your Project agent · Planner has no role".
+ * After a move: "Strong is now Noyan · the agent Noyan has no role".
  */
 moved: string | null, problem: string | null, };

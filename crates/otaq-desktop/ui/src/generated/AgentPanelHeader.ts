@@ -4,12 +4,12 @@ import type { IconName } from "./IconName";
 import type { PillView } from "./PillView";
 
 /**
- * The panel's header (`s24-05`): the bot icon, "Project agent", the switcher (the conversation's name ▾), the state
+ * The panel's header (`s24-05`): the bot icon, "Noyan", the switcher (the conversation's name ▾), the state
  * pill, …, Recently ended, +, Expand and the close icon.
  */
 export type AgentPanelHeader = { icon: IconName, 
 /**
- * "Project agent".
+ * "Noyan".
  */
 label: string, 
 /**
@@ -17,7 +17,7 @@ label: string,
  */
 title: string, 
 /**
- * "New agent" until it is named reads muted.
+ * "New conversation" until it is named reads muted.
  */
 unnamed: boolean, 
 /**

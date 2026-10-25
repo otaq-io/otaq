@@ -236,10 +236,10 @@ pub struct ModelField {
 #[ts(rename = "AgentRoleField")]
 pub struct RoleField {
     pub label: String,
-    /// None · Project agent · Epic lead; ids `""`, `noyan`, `epic-lead`.
+    /// None · Noyan · Epic lead; ids `""`, `noyan`, `epic-lead`.
     pub options: Vec<Choice>,
     pub hint: String,
-    /// After a move: "Quick planner is now your Project agent · Planner has no role".
+    /// After a move: "Strong is now Noyan · the agent Noyan has no role".
     pub moved: Option<String>,
     pub problem: Option<String>,
 }
@@ -369,17 +369,21 @@ pub const DEFAULT_MODEL: &str = "Default model";
 pub const TOOL_DEFAULT_EFFORT: &str = "Tool default";
 pub const NEW_AGENT: &str = "New agent";
 
-/// After a role moved: "Quick planner is now your Project agent · Planner has no role".
+/// After a role moved: "Strong is now Noyan · the agent Noyan has no role", "Strong is now your Epic lead · Lead has
+/// no role". An agent named as the role is "the agent Noyan".
 pub fn moved_line(role: Role, to: &str, from: Option<&str>) -> String {
-    let now = format!("{to} is now your {}", role.label());
+    let now = match role {
+        Role::ProjectAgent => format!("{to} is now {}", role.label()),
+        Role::EpicLead => format!("{to} is now your {}", role.label()),
+    };
     match from {
+        Some(from) if from == role.label() => format!("{now} \u{b7} the agent {from} has no role"),
         Some(from) => format!("{now} \u{b7} {from} has no role"),
         None => now,
     }
 }
 
-/// Why a role can't be taken off its agent (AGM-01): "Planner is your Project agent. Give the role to another agent
-/// first."
+/// Why a role can't be taken off its agent (AGM-01): "Noyan has the Noyan role. Give the role to another agent first."
 pub fn sentence(text: String) -> String {
     if text.ends_with('.') {
         text
@@ -695,10 +699,10 @@ mod tests {
             )
         );
         assert_eq!(
-            refused(delete_dialog("planner", of("Planner"))),
+            refused(delete_dialog("noyan", of("Noyan"))),
             (
-                "Can\u{2019}t delete Planner".to_owned(),
-                "Planner is your Project agent. Give the role to another agent first.".to_owned()
+                "Can\u{2019}t delete Noyan".to_owned(),
+                "Noyan has the Noyan role. Give the role to another agent first.".to_owned()
             )
         );
         let griller = InUse {
@@ -752,17 +756,17 @@ mod tests {
         let light = page_of(&list, &all, "light", &uses);
         assert!(light.model.effort.is_none(), "OpenCode has none");
         list.agents[0].model = AgentModel::Default;
-        let planner = page_of(&list, &all, "planner", &uses);
-        assert!(planner.model.effort.is_none() && planner.model.picker.is_none());
-        assert_eq!(planner.model.tool_value, "Default model");
+        let noyan = page_of(&list, &all, "noyan", &uses);
+        assert!(noyan.model.effort.is_none() && noyan.model.picker.is_none());
+        assert_eq!(noyan.model.tool_value, "Default model");
         assert_eq!(
-            planner.model.default_now.as_deref(),
+            noyan.model.default_now.as_deref(),
             Some("Claude Code \u{b7} haiku")
         );
     }
 
     /// One agent's page (`s15-58` "One agent", "Giving a role to another agent"): the fields in order, the role with
-    /// None · Project agent · Epic lead and the line after a move, used in, and the note.
+    /// None · Noyan · Epic lead and the line after a move, used in, and the note.
     #[test]
     fn one_agents_page_with_its_role_skills_and_used_in() {
         let (list, uses) = example();
@@ -789,11 +793,7 @@ mod tests {
             .collect();
         assert_eq!(
             options,
-            [
-                ("None", true),
-                ("Project agent", false),
-                ("Epic lead", false)
-            ]
+            [("None", true), ("Noyan", false), ("Epic lead", false)]
         );
         assert_eq!(
             role.hint,
@@ -839,7 +839,7 @@ mod tests {
             row.reimport.as_ref().unwrap().title,
             "Re-import team-validate?"
         );
-        // Planner's page after Strong took its role… is Strong's, with the line.
+        // Noyan's page after Strong took its role… is Strong's, with the line.
         let mut moved = list.clone();
         moved.agents[0].role = None;
         moved.agents[4].role = Some(Role::ProjectAgent);
@@ -850,13 +850,17 @@ mod tests {
             draft: &Draft::of(&moved.agents[4]),
             uses: None,
             refused: None,
-            moved: Some(moved_line(Role::ProjectAgent, "Strong", Some("Planner"))),
+            moved: Some(moved_line(Role::ProjectAgent, "Strong", Some("Noyan"))),
             now: 1,
         });
-        assert_eq!(strong.role_tag.as_deref(), Some("Project agent"));
+        assert_eq!(strong.role_tag.as_deref(), Some("Noyan"));
         assert_eq!(
             strong.role.unwrap().moved.as_deref(),
-            Some("Strong is now your Project agent \u{b7} Planner has no role")
+            Some("Strong is now Noyan \u{b7} the agent Noyan has no role")
+        );
+        assert_eq!(
+            moved_line(Role::ProjectAgent, "Strong", Some("Planner")),
+            "Strong is now Noyan \u{b7} Planner has no role"
         );
         assert_eq!(strong.used_in.unwrap().empty.as_deref(), Some("\u{2014}"));
     }

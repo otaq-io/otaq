@@ -4,7 +4,7 @@ import type { AgentPanelExample } from "./AgentPanelExample";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
- * The empty agent panel, "Ask the Project agent" (*No Project agent yet (0087)*, `SbFln`).
+ * The empty agent panel, "Ask Noyan" (*No Project agent yet (0087)*, `SbFln`).
  */
 export type AgentPanelEmpty = { line: AgentPanelAgentLine, title: string, text: string, 
 /**

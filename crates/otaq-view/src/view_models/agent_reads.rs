@@ -114,11 +114,11 @@ pub fn opening_project(projects: &[Project], wanted: Option<&str>) -> Option<Str
         .map(|p| p.key.clone())
 }
 
-/// "Skill: work-ticket · Dev", "Skill: noyan · as Project agent", "Skill: epic-lead · as epic lead".
+/// "Skill: work-ticket · Dev", "Skill: noyan · as Noyan", "Skill: epic-lead · as epic lead".
 pub fn skill_heading(skill: &str, runs: &RunsAs) -> String {
     let place = match runs {
         RunsAs::Stage(stage) => stage.clone(),
-        RunsAs::Role(Role::ProjectAgent) => "as Project agent".to_owned(),
+        RunsAs::Role(Role::ProjectAgent) => "as Noyan".to_owned(),
         RunsAs::Role(Role::EpicLead) => "as epic lead".to_owned(),
     };
     format!("Skill: {skill} \u{b7} {place}")
@@ -460,20 +460,20 @@ mod tests {
             vec![part("noyan", RunsAs::Role(Role::ProjectAgent), "# noyan")],
             vec![other("flow", Some(SkillMark::FlowChanges))],
         );
-        r.agent = "Planner".into();
+        r.agent = "Noyan".into();
         r.instructions = String::new();
-        let v = view("planner", "Planner", projects(), Some(&r));
+        let v = view("noyan", "Noyan", projects(), Some(&r));
         assert_eq!(
             headings(&v),
             [
                 "Its instructions",
                 "Notes for shop-web",
-                "Skill: noyan \u{b7} as Project agent"
+                "Skill: noyan \u{b7} as Noyan"
             ]
         );
         assert_eq!(
             v.parts[0].empty.as_deref(),
-            Some("No instructions for Planner")
+            Some("No instructions for Noyan")
         );
         let also = v.also.unwrap();
         assert_eq!(also.skills[0].name, "flow");
@@ -485,13 +485,10 @@ mod tests {
         // An agent with a role and a stage: a part for each.
         r.skills
             .insert(0, part("grill", RunsAs::Stage("Grill".into()), "# grill"));
-        let v = view("planner", "Planner", projects(), Some(&r));
+        let v = view("noyan", "Noyan", projects(), Some(&r));
         assert_eq!(
             headings(&v)[2..],
-            [
-                "Skill: grill \u{b7} Grill",
-                "Skill: noyan \u{b7} as Project agent"
-            ]
+            ["Skill: grill \u{b7} Grill", "Skill: noyan \u{b7} as Noyan"]
         );
     }
 

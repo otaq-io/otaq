@@ -6,6 +6,6 @@ import type { IconName } from "./IconName";
  */
 export type SettingsRowButton = { label: string, icon: IconName, 
 /**
- * "Asks Strong (the Project agent's) to suggest a run command".
+ * "Asks Noyan (Strong) to suggest a run command".
  */
 tooltip: string | null, };
