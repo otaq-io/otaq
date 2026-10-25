@@ -85,14 +85,12 @@ export interface OverlayParams {
   move_to_epic: { ticket: string };
   /** Close epic…'s confirmation, from the card menu (T-0223's epic dialogs). */
   close_epic: { epic: string };
-  /** Send back with a note (T-0226). */
+  /** Send back with a note (T-0226), from every human check (d0093). */
   send_back: { ticket: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
   drag_back: DragBackDialog;
   /** A blocked ticket dragged past Ready for Dev or started (DPV-03, T-0463): why it waits; Keep it waiting only. */
   blocked: BlockedDialog;
-  /** Fail on a human check with what's wrong (FLW-14, T-0424). */
-  fail: { ticket: string };
   /** Send back with PR comments and an optional note (FLW-16, T-0424). */
   send_back_pr: { ticket: string };
   /** Change… on a recorded decision (T-0288): Send back on a ticket, Add a fix child in an epic's review. */
@@ -155,7 +153,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   send_back: true,
   drag_back: true,
   blocked: true,
-  fail: true,
   send_back_pr: true,
   change_decision: true,
   local_merge: true,

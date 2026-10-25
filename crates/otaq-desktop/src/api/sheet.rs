@@ -54,6 +54,7 @@ use otaq_view::view_models::sheet_actions::{self as actions, Action, Look};
 use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
 use otaq_view::view_models::queue;
+use otaq_view::view_models::send_back;
 use otaq_view::view_models::status::{self, PillView};
 use otaq_view::view_models::terminal_strip::{self as strip, UnsentPrompt};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
@@ -450,8 +451,11 @@ pub struct Facts<'a> {
     pub sessions: &'a [SessionInfo],
     pub conflict: Option<&'a Conflict>,
     pub has_log: bool,
-    /// Pending line comments: "Send back (2)" (T-0226).
+    /// Pending line comments: "Send back (2) · to Dev…" (T-0226).
     pub pending: usize,
+    /// The stage a human check's Send back returns it to (d0131, `send_back::back_stage`): "Send back · to Product
+    /// spec…" (d0093); `None` outside a human check.
+    pub send_back_to: Option<&'a str>,
     /// The ticket's tokens with the validators' share (`usage.summary`).
     pub usage: Option<&'a TicketUsage>,
     /// The project's Validation rounds (for Answer the agent).
@@ -468,8 +472,8 @@ pub struct Facts<'a> {
     pub tools: &'a Tools,
     /// The user's keys: the tabs', Expand's and the arrows' tooltips (KEY-08).
     pub keys: KeyLabels,
-    /// Its project's flow isn't the default's shape: Pass · Fail, Send back with PR comments (FLW-14, FLW-16); the
-    /// default flow keeps today's bar (d0108, STG-06).
+    /// Its project's flow isn't the default's shape: a human check's Approve is its Pass (FLW-14), Send back with PR
+    /// comments (FLW-16).
     pub custom_flow: bool,
     /// Its project's name and its epic's title: the breadcrumb (SHT-01).
     pub project_name: &'a str,
@@ -574,10 +578,15 @@ pub fn view_of(f: &Facts) -> View {
         .map(|(action, look)| Button {
             action,
             label: match action {
-                Action::SendBack => comments::send_back_label(f.pending),
-                Action::Fail => actions::fail_label(f.pending),
-                Action::Pass => actions::pass_label(f.decisions),
-                Action::Approve => actions::approve_label(f.decisions),
+                Action::SendBack => f.send_back_to.map_or_else(
+                    || comments::send_back_label(f.pending),
+                    |to| send_back::button_label(to, f.pending),
+                ),
+                // To deliver's Approve is the Delivery's click, not a human check's (d0093).
+                Action::Approve if ticket.status == otaq_core::domain::Status::ToDeliver => {
+                    action.label().to_owned()
+                }
+                Action::Pass | Action::Approve => actions::approve_label(f.decisions),
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
                     |p| format!("View parent {p}"),
@@ -979,9 +988,11 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
     let tools = super::editor::agent_tools(app).await;
     let keys = super::keymap::labels(app).await;
-    let custom_flow = !otaq_view::view_models::flow_columns::keeps_default_look(
-        &super::board::flow(app, ticket.key.project.as_str()).await,
-    );
+    let flow = super::board::flow(app, ticket.key.project.as_str()).await;
+    let custom_flow = !otaq_view::view_models::flow_columns::keeps_default_look(&flow);
+    let send_back_to = send_back::available(&ticket)
+        .then(|| super::review::send_back_stage(&ticket, &flow, agents.as_ref()))
+        .flatten();
     let project_name = project_name(app, ticket.key.project.as_str()).await;
     let epic_title = ticket
         .epic
@@ -996,6 +1007,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         conflict: conflict.as_ref(),
         has_log,
         pending,
+        send_back_to: send_back_to.as_deref(),
         usage: usage.as_ref(),
         rounds,
         now: now_ms(),
@@ -1849,6 +1861,7 @@ pub fn notes_gallery() -> NotesGallery {
                     project_name: "shop-web",
                     epic_title: None,
                     files_count: None,
+                    send_back_to: None,
                 })
             })
             .collect(),
@@ -1946,6 +1959,7 @@ pub fn sheet_gallery() -> Vec<View> {
                 tools,
                 keys: KeyLabels::default(),
                 custom_flow: true,
+                send_back_to: None,
                 project_name: "shop-web",
                 epic_title: ticket.epic.as_ref().map(|_| "Wishlist"),
                 // `s25-03`: "Files 3" once it started.
@@ -2045,6 +2059,7 @@ mod tests {
             project_name: "shop-web",
             epic_title: None,
             files_count: None,
+            send_back_to: None,
         }
     }
 
@@ -2398,29 +2413,44 @@ mod tests {
             pending: 2,
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)", "Run"]);
-        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back", "Run"]);
+        assert_eq!(labels(&view), ["Approve", "Send back (2)\u{2026}", "Run"]);
+        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve", "Send back\u{2026}", "Run"]);
+        // d0093: the stage the check's fails go to, once the engine named it.
+        let to = |pending| -> Vec<String> {
+            let view = view_of(&Facts {
+                pending,
+                send_back_to: Some("Dev"),
+                ..facts(&review, &all, &[])
+            });
+            labels(&view).into_iter().map(str::to_owned).collect()
+        };
+        assert_eq!(to(0), ["Approve", "Send back \u{b7} to Dev\u{2026}", "Run"]);
+        assert_eq!(to(2), ["Approve", "Send back (2) \u{b7} to Dev\u{2026}", "Run"]);
         assert!(!view.approve_opens_menu);
         // DEC-05: open recorded decisions; Local merge / Open PR move into ▾.
         let view = view_of(&Facts {
             decisions: 1,
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back", "Run"]);
+        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back\u{2026}", "Run"]);
         assert!(view.approve_opens_menu);
         assert_eq!(view.approve_more, Some("Approve choices"));
-        // In another flow (FLW-14): Pass and Fail, Fail sending the pending comments.
+        // In another flow (FLW-14, d0093): Approve (its Pass) and Send back to the check's fails-go-to stage.
         let custom = |pending, decisions| -> Vec<String> {
             let view = view_of(&Facts {
                 pending,
                 decisions,
                 custom_flow: true,
+                send_back_to: Some("Product spec"),
                 ..facts(&review, &all, &[])
             });
             labels(&view).into_iter().map(str::to_owned).collect()
         };
-        assert_eq!(custom(2, 0), ["Pass", "Fail (2)", "Run"]);
-        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail", "Run"]);
+        assert_eq!(custom(2, 0), ["Approve", "Send back (2) \u{b7} to Product spec\u{2026}", "Run"]);
+        assert_eq!(
+            custom(0, 1),
+            ["Approve \u{b7} keeps 1 decision", "Send back \u{b7} to Product spec\u{2026}", "Run"]
+        );
         let view = view_of(&Facts {
             custom_flow: true,
             ..facts(&review, &all, &[])

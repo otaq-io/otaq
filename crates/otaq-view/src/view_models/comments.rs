@@ -58,11 +58,12 @@ pub fn pending_label(count: usize) -> String {
     }
 }
 
-/// The Send back button: "Send back (2)" with pending comments.
+/// The Send back button where its stage isn't known: "Send back (2)…" with pending comments; a human check's names
+/// its stage ([`crate::view_models::send_back::button_label`], d0093).
 pub fn send_back_label(count: usize) -> String {
     match count {
-        0 => "Send back".to_owned(),
-        n => format!("Send back ({n})"),
+        0 => crate::view_models::sheet_actions::SEND_BACK.to_owned(),
+        n => format!("Send back ({n})\u{2026}"),
     }
 }
 
@@ -138,8 +139,8 @@ mod tests {
         assert_eq!(pending(&comments), 3);
         assert_eq!(pending_label(3), "3 pending comments");
         assert_eq!(pending_label(1), "1 pending comment");
-        assert_eq!(send_back_label(2), "Send back (2)");
-        assert_eq!(send_back_label(0), "Send back");
+        assert_eq!(send_back_label(2), "Send back (2)\u{2026}");
+        assert_eq!(send_back_label(0), "Send back\u{2026}");
         assert_eq!(badge(&comments[0]), "sent · round 1");
         assert_eq!(badge(&comments[1]), "pending");
         assert!(!editable(&comments[0]));

@@ -137,7 +137,7 @@ pub fn changed_view(key: &TicketKey, check: &ApproveCheck) -> Option<ChangedView
             reviewed,
             note: "Only the new commits are shown. Approve anyway merges them too.",
             anyway: "Approve anyway",
-            send_back: "Send back",
+            send_back: crate::view_models::sheet_actions::SEND_BACK,
         }),
         _ => None,
     }
@@ -391,7 +391,7 @@ pub fn merge_result(
             files,
             text: "Send it back so the agent commits them, or look at them first.",
             view: "View",
-            send_back: "Send back",
+            send_back: crate::view_models::sheet_actions::SEND_BACK,
             cancel: "Cancel",
         },
         MergeView::Changed { .. } => match outcome {
@@ -444,19 +444,24 @@ pub struct SendBackView {
     pub comment: CommentBoxView,
     pub waiting_title: Option<String>,
     pub waiting: Vec<WaitingRow>,
-    pub confirm: &'static str,
+    /// "Then Security runs again before it comes back to you." ([`sb::runs_again`]).
+    pub footnote: Option<String>,
+    /// "Send back to Product spec", as the title (d0093).
+    pub confirm: String,
     pub cancel: &'static str,
     pub hint: &'static str,
 }
 
-/// The dialog of `ticket`, going back to the Agent stage `to` ("Dev", [`sb::back_stage`]).
+/// The dialog of `ticket`, going back to the Agent stage `to` ("Product spec", [`sb::back_stage`]); `footnote` names
+/// the agent checks it walks again ([`sb::runs_again`]).
 pub fn send_back_view(
     ticket: &Ticket,
     comments: &[ReviewComment],
     tickets: &[Ticket],
     to: &str,
+    footnote: Option<String>,
 ) -> SendBackView {
-    let plan = sb::plan(ticket, comments, tickets);
+    let plan = sb::plan(ticket, comments, tickets, to);
     SendBackView {
         key: ticket.key.to_string(),
         title: plan.title,
@@ -483,7 +488,8 @@ pub fn send_back_view(
                 text,
             })
             .collect(),
-        confirm: "Send back",
+        footnote,
+        confirm: sb::title(to),
         cancel: "Cancel",
         hint: "cancel",
     }
@@ -705,7 +711,7 @@ mod tests {
         assert_eq!(changed.reviewed, "abc");
         assert_eq!(
             (changed.anyway, changed.send_back),
-            ("Approve anyway", "Send back")
+            ("Approve anyway", "Send back\u{2026}")
         );
     }
 
@@ -835,7 +841,7 @@ mod tests {
             panic!("not uncommitted");
         };
         assert_eq!(title, "SHOP-19 has 2 uncommitted files");
-        assert_eq!((view, send_back), ("View", "Send back"));
+        assert_eq!((view, send_back), ("View", "Send back\u{2026}"));
         assert!(text.starts_with("Send it back so the agent commits them"));
     }
 
@@ -854,13 +860,14 @@ mod tests {
             created_at: 0,
             sent_at: None,
         }];
-        let view = send_back_view(&t, &comments, &[t.clone(), child], "Dev");
+        let view = send_back_view(&t, &comments, &[t.clone(), child], "Dev", None);
         assert_eq!(
             view.comment.label.as_deref(),
             Some("Comment for Dev (optional)")
         );
         assert_eq!(view.no_comments, "No line comments.");
-        assert_eq!(view.title, "Send SHOP-18 Checkout API back");
+        assert_eq!(view.title, "Send back to Dev");
+        assert_eq!(view.confirm, "Send back to Dev");
         assert!(
             view.intro
                 .starts_with("SHOP-18 goes straight back to its agent in Dev")
@@ -873,7 +880,36 @@ mod tests {
         assert_eq!(view.waiting[0].key, "SHOP-20");
         assert_eq!(view.waiting[0].text, "Checkout page \u{b7} Ready for Dev");
         assert_eq!(view.pr, None);
-        let alone = send_back_view(&t, &[], std::slice::from_ref(&t), "Dev");
+        let alone = send_back_view(&t, &[], std::slice::from_ref(&t), "Dev", None);
         assert!(alone.comments.is_empty() && alone.waiting_title.is_none());
+        assert_eq!(alone.footnote, None);
+    }
+
+    /// d0093, d0131 (`s30-02`): Spec review's Send back goes to Product spec, which isn't the nearest Agent stage; the
+    /// title and the confirm name it, the intro says its agent continues there, and the checks it walks again are
+    /// named.
+    #[test]
+    fn the_dialog_names_the_stage_it_goes_back_to() {
+        let mut t = ticket("SHOP-40", "Order history page", Status::WaitingForYou);
+        t.place = otaq_core::domain::Place::of(Status::WaitingForYou, Some("spec-review"), None);
+        let footnote = Some("Then Validate runs again before it comes back to you.".to_owned());
+        let view = send_back_view(
+            &t,
+            &[],
+            std::slice::from_ref(&t),
+            "Product spec",
+            footnote.clone(),
+        );
+        assert_eq!(view.title, "Send back to Product spec");
+        assert_eq!(view.confirm, "Send back to Product spec");
+        assert_eq!(
+            view.intro,
+            "SHOP-40 goes straight back to its agent in Product spec (Working) and continues in the same session."
+        );
+        assert_eq!(
+            view.comment.label.as_deref(),
+            Some("Comment for Product spec (optional)")
+        );
+        assert_eq!(view.footnote, footnote);
     }
 }

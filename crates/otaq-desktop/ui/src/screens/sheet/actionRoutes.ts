@@ -18,7 +18,7 @@ export type ActionRoute =
   | { kind: "diff" }
   | { kind: "edit" }
   | { kind: "parent" }
-  | { kind: "overlay"; id: "local_merge" | "send_back" | "fail" | "send_back_pr" | "start_from_scratch" }
+  | { kind: "overlay"; id: "local_merge" | "send_back" | "send_back_pr" | "start_from_scratch" }
   // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
   | { kind: "pass" }
   | { kind: "mark_closed" }
@@ -70,8 +70,6 @@ export function actionRoute(action: SheetAction): ActionRoute {
       return { kind: "overlay", id: "send_back" };
     case "pass":
       return { kind: "pass" };
-    case "fail":
-      return { kind: "overlay", id: "fail" };
     case "send_back_pr":
       return { kind: "overlay", id: "send_back_pr" };
     case "start_from_scratch":
@@ -143,7 +141,7 @@ export type CardRoute =
   | { kind: "service" }
   | { kind: "pick"; number: number }
   | { kind: "send_answer" }
-  | { kind: "overlay"; id: "start_from_scratch" | "open_pr" | "local_merge" | "fail" | "send_back_pr" }
+  | { kind: "overlay"; id: "start_from_scratch" | "open_pr" | "local_merge" | "send_back" | "send_back_pr" }
   // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
   | { kind: "pass" }
   | { kind: "mark_closed" }
@@ -173,9 +171,10 @@ export function cardRoute(kind: CardActionKind): CardRoute {
       return { kind: "service" };
     case "pass":
       return { kind: "pass" };
-    // FLW-14 / FLW-15 / FLW-16: Fail, a To deliver card's click, Send back with PR comments.
+    // FLW-14 / FLW-15 / FLW-16: Send back (a human check's Fail, d0093), a To deliver card's click, Send back with
+    // PR comments.
     case "fail":
-      return { kind: "overlay", id: "fail" };
+      return { kind: "overlay", id: "send_back" };
     case "local_merge":
       return { kind: "overlay", id: "local_merge" };
     case "open_pr":

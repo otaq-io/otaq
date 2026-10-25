@@ -66,7 +66,6 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
     // Your check in another flow (FLW-14) and an open PR (FLW-16).
     expect(actionRoute("pass")).toEqual({ kind: "pass" });
-    expect(actionRoute("fail")).toEqual({ kind: "overlay", id: "fail" });
     expect(actionRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });
     expect(actionRoute("add_child_from_pr")).toEqual({ kind: "service" });
     expect(actionRoute("edit")).toEqual({ kind: "edit" });
@@ -150,7 +149,7 @@ describe("a board card's button", () => {
     for (const kind of ["move_on_anyway", "skip_check", "add_child_from_pr"] as const)
       expect(cardRoute(kind)).toEqual({ kind: "service" });
     expect(cardRoute("pass")).toEqual({ kind: "pass" });
-    expect(cardRoute("fail")).toEqual({ kind: "overlay", id: "fail" });
+    expect(cardRoute("fail")).toEqual({ kind: "overlay", id: "send_back" });
     expect(cardRoute("local_merge")).toEqual({ kind: "overlay", id: "local_merge" });
     expect(cardRoute("open_pr")).toEqual({ kind: "overlay", id: "open_pr" });
     expect(cardRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });

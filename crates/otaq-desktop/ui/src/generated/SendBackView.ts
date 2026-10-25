@@ -15,4 +15,12 @@ no_comments: string,
 /**
  * "Comment for Dev (optional)" and its line (CMT-13).
  */
-comment: CommentBoxView, waiting_title: string | null, waiting: Array<SendBackWaiting>, confirm: string, cancel: string, hint: string, };
+comment: CommentBoxView, waiting_title: string | null, waiting: Array<SendBackWaiting>, 
+/**
+ * "Then Security runs again before it comes back to you." ([`sb::runs_again`]).
+ */
+footnote: string | null, 
+/**
+ * "Send back to Product spec", as the title (d0093).
+ */
+confirm: string, cancel: string, hint: string, };

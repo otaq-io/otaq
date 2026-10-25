@@ -366,7 +366,7 @@ mod tests {
                     None
                 ),
                 ("Approve ▾", keys(&[&["⌘↵"]]), None),
-                ("Send back", keys(&[&["⌘⌫"]]), None),
+                ("Send back\u{2026}", keys(&[&["⌘⌫"]]), None),
                 ("Start / move to Dev", keys(&[&["⌘D"]]), None),
             ]
         );

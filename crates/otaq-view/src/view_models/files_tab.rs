@@ -1079,12 +1079,14 @@ pub fn comments_view(
 
 // ---- The review bar ----
 
-/// What a bar button opens: the Approve choice (`local_merge`, ⌘↵) or the Send back dialog.
+/// What a bar button opens: the Approve choice (`local_merge`, ⌘↵), the Pass a human check's Approve is in another
+/// flow (`review.pass`, FLW-14; d0093), or the Send back dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "FilesBarAction")]
 pub enum BarAction {
     Approve,
+    Pass,
     SendBack,
 }
 
@@ -1092,7 +1094,8 @@ pub enum BarAction {
 #[ts(rename = "FilesBarButton")]
 pub struct BarButton {
     pub action: BarAction,
-    pub label: &'static str,
+    /// "Approve", "Send back · to Product spec…" (d0093).
+    pub label: String,
     pub primary: bool,
     /// The user's key, shown after the primary Approve (KEY-08).
     pub keys: Option<String>,
@@ -1123,21 +1126,27 @@ pub fn comments_line(pending: u32, writing: bool) -> String {
 }
 
 /// The bar for `ticket`, or none when it doesn't wait in your check. `pending` counts its unsent line comments,
-/// `writing` says a new one is being typed (the page's comment box), `back_to` names where Send back returns it.
+/// `writing` says a new one is being typed (the page's comment box), `back_to` names where Send back returns it
+/// (d0131), `custom` says its flow isn't the default's shape (Approve is then its Pass, FLW-14).
 pub fn review_bar(
     ticket: &Ticket,
     pending: u32,
     writing: bool,
     back_to: &str,
     approve_keys: Option<String>,
+    custom: bool,
 ) -> Option<ReviewBar> {
     if !waits_for_you(ticket) {
         return None;
     }
     let send_back = crate::view_models::send_back::available(ticket);
     let approve = |primary: bool, keys: Option<String>| BarButton {
-        action: BarAction::Approve,
-        label: "Approve",
+        // An epic's Approve is its delivery choice on every flow (EPC-05).
+        action: match custom && !ticket.is_epic() {
+            true => BarAction::Pass,
+            false => BarAction::Approve,
+        },
+        label: crate::view_models::sheet_actions::APPROVE.to_owned(),
         primary,
         keys,
     };
@@ -1149,7 +1158,7 @@ pub fn review_bar(
                 approve(false, None),
                 BarButton {
                     action: BarAction::SendBack,
-                    label: "Send back with comments",
+                    label: "Send back with comments".to_owned(),
                     primary: true,
                     keys: None,
                 },
@@ -1172,9 +1181,9 @@ pub fn review_bar(
             .collect::<Vec<_>>()
             .join(" "),
         buttons: send_back
-            .then_some(BarButton {
+            .then(|| BarButton {
                 action: BarAction::SendBack,
-                label: "Send back\u{2026}",
+                label: crate::view_models::send_back::button_label(back_to, 0),
                 primary: false,
                 keys: None,
             })
@@ -1424,6 +1433,7 @@ pub fn gallery() -> Gallery {
                     writing,
                     "Dev",
                     Some("\u{2318}\u{21b5}".into()),
+                    false,
                 )
             })
             .collect(),
@@ -1730,7 +1740,7 @@ mod tests {
         let view = changes_view(&t, &c, &ReviewMemory::default());
         assert_eq!(view.note.as_deref(), Some("\u{b7} Security passed"));
 
-        let bar = review_bar(&t, 0, false, "Dev", Some("\u{2318}\u{21b5}".into())).unwrap();
+        let bar = review_bar(&t, 0, false, "Dev", Some("\u{2318}\u{21b5}".into()), false).unwrap();
         assert_eq!(bar.title, "Your check");
         assert_eq!(
             bar.line,
@@ -1739,17 +1749,28 @@ mod tests {
         let buttons: Vec<(&str, bool, Option<&str>)> = bar
             .buttons
             .iter()
-            .map(|b| (b.label, b.primary, b.keys.as_deref()))
+            .map(|b| (b.label.as_str(), b.primary, b.keys.as_deref()))
             .collect();
         assert_eq!(
             buttons,
             [
-                ("Send back\u{2026}", false, None),
+                ("Send back \u{b7} to Dev\u{2026}", false, None),
                 ("Approve", true, Some("\u{2318}\u{21b5}"))
             ]
         );
+        // d0093, d0131 (`s30-02`): the stage the check's fails go to, not always the nearest.
+        let bar = review_bar(&t, 0, false, "Product spec", None, true).unwrap();
+        assert_eq!(
+            bar.buttons[0].label,
+            "Send back \u{b7} to Product spec\u{2026}"
+        );
+        // Another flow: its Approve is the human check's Pass, which moves it on (FLW-14, `s30-02`).
+        assert_eq!(
+            (bar.buttons[1].action, bar.buttons[1].label.as_str()),
+            (BarAction::Pass, "Approve")
+        );
         // Not in your check: no bar; SHOP-22 opens on its tree.
-        assert_eq!(review_bar(&shop_22(), 0, false, "Dev", None), None);
+        assert_eq!(review_bar(&shop_22(), 0, false, "Dev", None, false), None);
         assert_eq!(
             crate::view_models::sheet::opens_on(&shop_22()),
             crate::view_models::sheet::SheetTab::Overview
@@ -1759,13 +1780,13 @@ mod tests {
     #[test]
     fn with_comments_the_bar_sends_them_back_first() {
         let t = shop_18();
-        let bar = review_bar(&t, 1, true, "Dev", None).unwrap();
+        let bar = review_bar(&t, 1, true, "Dev", None, false).unwrap();
         assert_eq!(bar.title, "1 line comment, 1 being written");
         assert_eq!(bar.line, "\u{b7} they go to Dev with Send back");
         let buttons: Vec<(BarAction, &str, bool)> = bar
             .buttons
             .iter()
-            .map(|b| (b.action, b.label, b.primary))
+            .map(|b| (b.action, b.label.as_str(), b.primary))
             .collect();
         assert_eq!(
             buttons,
@@ -1779,7 +1800,7 @@ mod tests {
         // An epic takes no comments and isn't sent back (EPC-05): Approve only.
         let mut epic = shop_18();
         epic.kind = otaq_core::domain::Kind::Epic;
-        let bar = review_bar(&epic, 0, false, "Dev", None).unwrap();
+        let bar = review_bar(&epic, 0, false, "Dev", None, false).unwrap();
         assert_eq!(bar.line, "\u{b7} Security passed");
         assert_eq!(bar.buttons.len(), 1);
         assert!(!can_comment(&epic));
@@ -1806,7 +1827,7 @@ mod tests {
         assert_eq!(view.pending, 1);
         assert_eq!(view.texts.hint, "Goes with Send back, to Dev");
         // Send back lists it for the agent…
-        let plan = crate::view_models::send_back::plan(&t, std::slice::from_ref(&c), &[]);
+        let plan = crate::view_models::send_back::plan(&t, std::slice::from_ref(&c), &[], "Dev");
         assert_eq!(
             plan.comments,
             [(

@@ -3,10 +3,11 @@
 //! (a long paste becomes its report), which tickets keep waiting, and the request it sends. Sending with no line
 //! comments and no comment is allowed: the comment is optional.
 
+use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::comments::{ReviewComment, Side};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::flow::engine::back_to;
+use otaq_core::flow::engine::fail_to;
 use otaq_core::flow::{Flow, Stage};
 use otaq_core::protocol::{FailParams, Request};
 
@@ -21,7 +22,7 @@ pub fn available(ticket: &Ticket) -> bool {
 /// What the dialog lists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendBackPlan {
-    /// "Send SHOP-18 Checkout API back".
+    /// "Send back to Product spec" (d0093).
     pub title: String,
     pub intro: String,
     /// "api/checkout/route.ts · L9" and the comment.
@@ -30,7 +31,13 @@ pub struct SendBackPlan {
     pub waiting: Vec<(TicketKey, String)>,
 }
 
-pub fn plan(ticket: &Ticket, pending: &[ReviewComment], tickets: &[Ticket]) -> SendBackPlan {
+/// The dialog of `ticket` going back to the Agent stage `to` ("Product spec", [`back_stage`]).
+pub fn plan(
+    ticket: &Ticket,
+    pending: &[ReviewComment],
+    tickets: &[Ticket],
+    to: &str,
+) -> SendBackPlan {
     let comments = pending
         .iter()
         .filter(|c| c.is_pending())
@@ -58,9 +65,9 @@ pub fn plan(ticket: &Ticket, pending: &[ReviewComment], tickets: &[Ticket]) -> S
         .collect();
     waiting.sort();
     SendBackPlan {
-        title: format!("Send {} {} back", ticket.key, ticket.title),
+        title: title(to),
         intro: format!(
-            "{} goes straight back to its agent in Dev (Working) and continues in the same session.",
+            "{} goes straight back to its agent in {to} (Working) and continues in the same session.",
             ticket.key
         ),
         comments,
@@ -68,10 +75,59 @@ pub fn plan(ticket: &Ticket, pending: &[ReviewComment], tickets: &[Ticket]) -> S
     }
 }
 
-/// The Agent stage a Send back returns `ticket` to: the nearest one before its stage in `flow` ("Dev").
-pub fn back_stage<'f>(ticket: &Ticket, flow: &'f Flow) -> Option<&'f Stage> {
+/// The dialog's title and its confirm (d0093): "Send back to Product spec".
+pub fn title(to: &str) -> String {
+    format!("Send back to {to}")
+}
+
+/// The human check's button (d0093, d0131): "Send back · to Product spec…", "Send back (2) · to Dev…" with the
+/// line comments it would send (REV-04).
+pub fn button_label(to: &str, pending: usize) -> String {
+    match pending {
+        0 => format!("Send back \u{b7} to {to}\u{2026}"),
+        n => format!("Send back ({n}) \u{b7} to {to}\u{2026}"),
+    }
+}
+
+/// The Agent stage a Send back returns `ticket` to, as the flow engine says (d0131): its human check's fails-go-to
+/// stage, or, when the ticket skips that stage (`skips`, [`skips`]), the nearest Agent stage before the check that it
+/// runs.
+pub fn back_stage<'f>(ticket: &Ticket, flow: &'f Flow, skips: &[String]) -> Option<&'f Stage> {
     let here = flow.stage(ticket.place.stage()?)?;
-    back_to(flow, &here.id, &[])
+    fail_to(flow, &here.id, skips)
+}
+
+/// The stages the ticket skips by its choices (AGM-08), from its path in `agents` (`ticket.agents`).
+pub fn skips(agents: Option<&TicketAgents>) -> Vec<String> {
+    agents.map_or_else(Vec::new, |a| {
+        a.path
+            .iter()
+            .filter(|s| s.skipped)
+            .map(|s| s.stage_id.clone())
+            .collect()
+    })
+}
+
+/// "Then Security runs again before it comes back to you.": the agent checks between `to` and the human check the
+/// ticket waits in, which the card walks again; `None` with none in between.
+pub fn runs_again(ticket: &Ticket, flow: &Flow, to: &Stage, skips: &[String]) -> Option<String> {
+    let here = flow.stage(ticket.place.stage()?)?;
+    let (from, until) = (flow.position(&to.id)?, flow.position(&here.id)?);
+    let checks: Vec<&str> = flow
+        .stages
+        .get(from + 1..until)?
+        .iter()
+        .filter(|s| s.is_agent_check() && !skips.contains(&s.id))
+        .map(|s| s.name.as_str())
+        .collect();
+    let (runs, names) = match checks.as_slice() {
+        [] => return None,
+        [one] => ("runs", (*one).to_owned()),
+        [rest @ .., last] => ("run", format!("{} and {last}", rest.join(", "))),
+    };
+    Some(format!(
+        "Then {names} {runs} again before it comes back to you."
+    ))
 }
 
 /// The comment box of a Send back to `stage` (`s07-20`): "Comment for Dev (optional)", "Posted as a comment for Dev ·
@@ -120,6 +176,7 @@ pub fn sending(comments: usize) -> String {
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::ticket;
+    use crate::view_models::flow_columns::every_kind;
 
     fn comment(file: &str, line: u32, side: Side, body: &str) -> ReviewComment {
         ReviewComment {
@@ -154,8 +211,9 @@ mod tests {
                 comment("api/checkout/route.ts", 4, Side::Old, "Why removed?"),
             ],
             &[shop21.clone(), shop20.clone(), other],
+            "Dev",
         );
-        assert_eq!(p.title, "Send SHOP-18 Checkout API back");
+        assert_eq!(p.title, "Send back to Dev");
         assert_eq!(
             p.intro,
             "SHOP-18 goes straight back to its agent in Dev (Working) and continues in the same session."
@@ -198,7 +256,7 @@ mod tests {
         let flow = otaq_core::flow::default_flow();
         let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.place = otaq_core::domain::Place::of(Status::WaitingForYou, Some("review"), None);
-        let to = back_stage(&t, &flow).unwrap();
+        let to = back_stage(&t, &flow, &[]).unwrap();
         assert_eq!(to.name, "Dev");
         let b = comment_box(&to.name);
         assert_eq!(b.label.as_deref(), Some("Comment for Dev (optional)"));
@@ -210,6 +268,101 @@ mod tests {
         assert_eq!(b.submit, None);
         assert_eq!(b.footer_icon, crate::icons::IconName::MessageSquare);
         assert_eq!(b.limits.chars, 2_000);
+    }
+
+    fn waiting_in(stage: &str) -> Ticket {
+        let mut t = ticket("SHOP-40", "Order history page", Status::WaitingForYou);
+        t.place = otaq_core::domain::Place::of(Status::WaitingForYou, Some(stage), None);
+        t
+    }
+
+    /// d0093, d0131: the button names the stage the engine sends the ticket to: the nearest Agent stage (the default
+    /// flow's Review → Dev), the check's own `fail_to` (QA → Grill), and the nearest one the ticket runs when it skips
+    /// that stage (→ Dev).
+    #[test]
+    fn the_button_names_where_the_fails_go() {
+        let default = otaq_core::flow::default_flow();
+        let review = waiting_in("review");
+        let to = back_stage(&review, &default, &[]).unwrap();
+        assert_eq!(button_label(&to.name, 0), "Send back \u{b7} to Dev\u{2026}");
+        assert_eq!(
+            button_label(&to.name, 2),
+            "Send back (2) \u{b7} to Dev\u{2026}"
+        );
+
+        let flow = every_kind();
+        let qa = waiting_in("qa");
+        let to = back_stage(&qa, &flow, &[]).unwrap();
+        assert_eq!(
+            button_label(&to.name, 0),
+            "Send back \u{b7} to Grill\u{2026}",
+            "not the nearest (Dev)"
+        );
+        let skipping = vec!["grill".to_owned()];
+        let to = back_stage(&qa, &flow, &skipping).unwrap();
+        assert_eq!(button_label(&to.name, 0), "Send back \u{b7} to Dev\u{2026}");
+        assert_eq!(
+            back_stage(&ticket("SHOP-1", "t", Status::WaitingForYou), &flow, &[]),
+            None,
+            "no stage"
+        );
+    }
+
+    /// The agent checks the card walks again on its way back to the human check, without the ones it skips.
+    #[test]
+    fn the_checks_that_run_again() {
+        let flow = every_kind();
+        let qa = waiting_in("qa");
+        let grill = flow.stage("grill").unwrap();
+        assert_eq!(
+            runs_again(&qa, &flow, grill, &[]).as_deref(),
+            Some("Then Validate and Security run again before it comes back to you.")
+        );
+        let dev = flow.stage("dev").unwrap();
+        assert_eq!(
+            runs_again(&qa, &flow, dev, &["security".to_owned()]).as_deref(),
+            Some("Then Validate runs again before it comes back to you.")
+        );
+        let default = otaq_core::flow::default_flow();
+        let review = waiting_in("review");
+        let dev = back_stage(&review, &default, &[]).unwrap();
+        assert_eq!(
+            runs_again(&review, &default, dev, &[]).as_deref(),
+            Some("Then Validate runs again before it comes back to you.")
+        );
+    }
+
+    /// The skips come from the ticket's path (AGM-08).
+    #[test]
+    fn the_skips_are_the_path_s() {
+        use otaq_core::agents::facts::{PathKind, PathStage};
+        let stage = |id: &str, skipped| PathStage {
+            stage_id: id.into(),
+            stage: id.into(),
+            kind: PathKind::Agent,
+            shown_in: None,
+            rounds: None,
+            delivery: None,
+            agent: None,
+            skipped,
+        };
+        let agents = TicketAgents {
+            key: None,
+            kind: otaq_core::domain::Kind::Ticket,
+            status: None,
+            agents: Vec::new(),
+            stages: Vec::new(),
+            lead: None,
+            sessions: Vec::new(),
+            tokens: Vec::new(),
+            holds: Vec::new(),
+            place: None,
+            path: vec![stage("grill", true), stage("dev", false)],
+            runs: Vec::new(),
+            choices: Vec::new(),
+        };
+        assert_eq!(skips(Some(&agents)), ["grill"]);
+        assert!(skips(None).is_empty());
     }
 
     #[test]

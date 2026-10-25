@@ -383,7 +383,7 @@ pub enum CardActionKind {
     /// Your check (FLW-14): Pass moves it on, or offers the delivery choices when a click Delivery comes next
     /// (`ticket.pass`).
     Pass,
-    /// Your check: the Fail dialog ("Fail Review on SHOP-18?").
+    /// Your check: the Send back dialog ("Send back to Dev", d0093).
     Fail,
     /// A To deliver card (FLW-15): the Local merge confirmation…
     LocalMerge,
@@ -2574,9 +2574,10 @@ pub const OPEN_AGENT: &str = "Open agent\u{2026}";
 
 /// "Skip this check" on a check held for the plan limit with no usable fallback (FLW-13, `s03-54`).
 pub const SKIP_THIS_CHECK: &str = "Skip this check";
-/// The buttons of a human check (FLW-14, `s03-46`).
-pub const PASS: &str = "Pass";
-pub const FAIL: &str = "Fail";
+/// The buttons of a human check (FLW-14, `s03-46`; d0093: its Pass and Fail read Approve and Send back, the dialog
+/// naming the stage).
+pub const PASS: &str = crate::view_models::sheet_actions::APPROVE;
+pub const FAIL: &str = crate::view_models::sheet_actions::SEND_BACK;
 /// A PR open (FLW-16, `s03-46`).
 pub const SEND_BACK_WITH_PR_COMMENTS: &str = "Send back with PR comments";
 /// An agent check's last round failed (FLW-13, `s03-44`; d0108 "Move on anyway").
@@ -3389,25 +3390,25 @@ mod tests {
                 "Your check \u{b7} passed Security",
                 Some("Your check"),
                 Some("Passed Security \u{b7} round 2"),
-                Some("[Pass] [Fail]"),
+                Some("[Approve] [Send back\u{2026}]"),
             ),
             (
                 "Your check \u{b7} skipped Security",
                 Some("Your check"),
                 Some("Skipped Security \u{b7} by you"),
-                Some("[Pass] [Fail]"),
+                Some("[Approve] [Send back\u{2026}]"),
             ),
             (
                 "Your check \u{b7} skipped by Noyan",
                 Some("Your check"),
                 Some("Skipped Grill \u{b7} by Noyan"),
-                Some("[Pass] [Fail]"),
+                Some("[Approve] [Send back\u{2026}]"),
             ),
             (
                 "Your check \u{b7} moved back",
                 Some("Your check"),
                 Some("Moved back by you"),
-                Some("[Pass] [Fail]"),
+                Some("[Approve] [Send back\u{2026}]"),
             ),
             (
                 "Ready to merge \u{b7} passed Review",

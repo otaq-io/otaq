@@ -14,7 +14,7 @@ use otaq_core::protocol::{
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page;
-use otaq_view::view_models::check_dialogs::{self, FailView, SendBackPrView};
+use otaq_view::view_models::check_dialogs::{self, SendBackPrView};
 use otaq_view::view_models::decision_change::{self as dc, ChangeView};
 use otaq_view::view_models::decision_item::{self as di, DecisionsSection};
 use otaq_view::view_models::review_page::{self as page, ApproveFacts};
@@ -37,7 +37,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
         "review.pass" => reply(&pass(app, parse(params)?).await?),
-        "review.fail_view" => reply(&fail_view(app, parse(params)?).await?),
         "review.send_back_pr_view" => reply(&send_back_pr_view(app, parse(params)?).await?),
         "review.send_back_pr" => reply(&send_back_pr(app, parse(params)?).await?),
         "review.decisions" => reply(&decisions(app, parse(params)?).await?),
@@ -103,13 +102,22 @@ pub struct Params {
 #[ts(rename = "ReviewAvailable")]
 pub struct Available {
     pub approve: bool,
+    /// Approve is the human check's Pass (`review.pass`): its flow isn't the default's shape (FLW-14, d0093).
+    pub pass: bool,
     pub send_back: bool,
 }
 
 pub async fn available(app: &App, params: Params) -> Result<Available, RequestError> {
     let ticket = ticket(app, &params.key).await?;
+    let approve = ticket.status == Status::WaitingForYou;
+    let pass = approve
+        && !ticket.is_epic()
+        && !otaq_view::view_models::flow_columns::keeps_default_look(
+            &super::board::flow(app, ticket.key.project.as_str()).await,
+        );
     Ok(Available {
-        approve: ticket.status == Status::WaitingForYou,
+        approve,
+        pass,
         send_back: sb::available(&ticket),
     })
 }
@@ -255,9 +263,25 @@ pub async fn send_back_view(app: &App, params: Params) -> Result<page::SendBackV
         Reply::ReviewComments(list) => list.comments,
         other => return Err(unexpected("review.comments", &other)),
     };
-    let flow = super::board::flow(app, &project).await;
-    let to = sb::back_stage(&ticket, &flow).map_or("Dev", |s| s.name.as_str());
-    Ok(page::send_back_view(&ticket, &comments, &all?, to))
+    let (flow, agents) = tokio::join!(
+        super::board::flow(app, &project),
+        super::editor::agent_facts(app, super::editor::of_ticket(&params.key)),
+    );
+    let skips = sb::skips(agents.as_ref());
+    let back = sb::back_stage(&ticket, &flow, &skips);
+    let to = back.map_or("Dev", |s| s.name.as_str());
+    let footnote = back.and_then(|to| sb::runs_again(&ticket, &flow, to, &skips));
+    Ok(page::send_back_view(&ticket, &comments, &all?, to, footnote))
+}
+
+/// The name of the stage a human check's Send back returns `ticket` to (d0131): its check's fails-go-to stage, the
+/// ticket's skips (from `agents`, `ticket.agents`) included.
+pub(super) fn send_back_stage(
+    ticket: &Ticket,
+    flow: &otaq_core::flow::Flow,
+    agents: Option<&otaq_core::agents::facts::TicketAgents>,
+) -> Option<String> {
+    sb::back_stage(ticket, flow, &sb::skips(agents)).map(|s| s.name.clone())
 }
 
 /// Send back: the pending comments and the note go to the agent; `clear` is "Clear it and send" (d0048).
@@ -355,15 +379,6 @@ pub async fn pass(app: &App, params: Params) -> Result<Passed, RequestError> {
     }
 }
 
-/// The Fail dialog (FLW-14, `s03-50`): the ticket's human check and the Agent stage its comments go to. Its Fail
-/// button sends `review.send_back` (`ticket.fail`).
-pub async fn fail_view(app: &App, params: Params) -> Result<FailView, RequestError> {
-    let ticket = ticket(app, &params.key).await?;
-    let flow = super::board::flow(app, ticket.key.project.as_str()).await;
-    check_dialogs::fail_view(&ticket, &flow)
-        .ok_or_else(|| RequestError::plain(format!("{} can\u{2019}t fail here", ticket.key)))
-}
-
 /// The Send back with PR comments dialog (FLW-16, `s03-50`).
 pub async fn send_back_pr_view(app: &App, params: Params) -> Result<SendBackPrView, RequestError> {
     let ticket = ticket(app, &params.key).await?;
@@ -425,7 +440,6 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
 /// Exports the check dialogs' types (`generated.rs`' one line for T-0424).
 #[cfg(test)]
 pub fn export_check_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
-    FailView::export_all(cfg)?;
     SendBackPrView::export_all(cfg)?;
     Passed::export_all(cfg)?;
     SendBackPrParams::export_all(cfg)?;
@@ -669,12 +683,13 @@ mod tests {
         let available = table(&h.app, "review.available", json!({ "key": key }))
             .await
             .unwrap();
-        assert_eq!(available, json!({ "approve": false, "send_back": false }));
+        assert_eq!(available, json!({ "approve": false, "pass": false, "send_back": false }));
 
         let view = table(&h.app, "review.send_back_view", json!({ "key": key }))
             .await
             .unwrap();
-        assert_eq!(view["title"], format!("Send {key} Checkout API back"));
+        // Not in a human check, so no fails-go-to stage: the dialog falls back to Dev (it refuses to send anyway).
+        assert_eq!(view["title"], "Send back to Dev");
         assert_eq!(view["comments"], json!([]));
 
         let refused = table(
