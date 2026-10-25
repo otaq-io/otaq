@@ -464,7 +464,7 @@ impl Usage {
         .fetch_all(self.inner.store.pool())
         .await?;
         let rounds: std::collections::HashMap<String, i64> = sqlx::query_as(
-            "SELECT v.ticket_id, COUNT(*) FROM validations v
+            "SELECT v.ticket_id, COUNT(DISTINCT COALESCE(v.round_id, v.id)) FROM validations v
              JOIN tickets t ON t.id = v.ticket_id JOIN projects p ON p.id = t.project_id
              WHERE p.key = ? AND v.outcome IN ('pass', 'fail') GROUP BY v.ticket_id",
         )

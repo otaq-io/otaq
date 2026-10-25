@@ -93,24 +93,44 @@ async fn checker(w: &TestService, t: &Ticket) -> SessionInfo {
     panic!("{} has no checker", t.key);
 }
 
-/// The running checker's verdict.
+/// The running checkers of the ticket's check, one per check agent (Security lists two, d0130), in the stage's order.
+async fn checkers(w: &TestService, t: &Ticket) -> Vec<SessionInfo> {
+    let stage = ticket(w, t).await.place.stage().unwrap().to_owned();
+    let flow = w.board.effective_flow("SHOP").await.unwrap();
+    let agents = flow.stage(&stage).unwrap().check_agents().len();
+    for _ in 0..500 {
+        let running = w.sessions.running_all_of(&t.id, SessionKind::Validator);
+        if running.len() == agents {
+            return running;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("{} has no {agents} checkers", t.key);
+}
+
+/// The round's verdict: every checker passes, or the first fails and the others pass.
 async fn verdict(w: &TestService, t: &Ticket, pass: bool) -> Ticket {
-    let session = checker(w, t).await;
-    w.validation
-        .verdict(
-            &t.key.to_string(),
-            pass,
-            said(
-                &w.board,
-                &t.key.to_string(),
-                "- src/search.rs:3 unescaped SQL",
-            )
-            .await
-            .as_ref(),
-            &session.id,
-        )
-        .await
-        .unwrap()
+    let mut after = None;
+    for (i, session) in checkers(w, t).await.into_iter().enumerate() {
+        after = Some(
+            w.validation
+                .verdict(
+                    &t.key.to_string(),
+                    pass || i > 0,
+                    said(
+                        &w.board,
+                        &t.key.to_string(),
+                        "- src/search.rs:3 unescaped SQL",
+                    )
+                    .await
+                    .as_ref(),
+                    &session.id,
+                )
+                .await
+                .unwrap(),
+        );
+    }
+    after.unwrap()
 }
 
 /// (fails in a row, passed round) of each check that counted, by stage id.
@@ -178,14 +198,20 @@ async fn two_checks_in_a_row_count_separately() {
     let validate_checker = checker(&w, &t).await;
     let security = verdict(&w, &t, true).await;
     assert_eq!(at(&security), (Some("security"), Status::Checking));
-    let security_checker = checker(&w, &t).await;
-    assert_ne!(
-        security_checker.id, validate_checker.id,
-        "Security's own checker"
+    let security_checkers = checkers(&w, &t).await;
+    assert!(
+        security_checkers
+            .iter()
+            .all(|s| s.id != validate_checker.id),
+        "Security's own checkers"
     );
     assert_eq!(
-        security_checker.agent.as_ref().map(|a| a.name.as_str()),
-        Some("Security reviewer")
+        security_checkers
+            .iter()
+            .map(|s| s.agent.as_ref().map(|a| a.name.as_str()))
+            .collect::<Vec<_>>(),
+        [Some("Security reviewer"), Some("Validator")],
+        "one per check agent (d0130)"
     );
     assert_eq!(
         security.flags.validating_round.map(|r| (r.round, r.of)),
@@ -227,9 +253,15 @@ async fn two_checks_in_a_row_count_separately() {
         ],
         "Security's limit stops only Security"
     );
+    // One run per check agent per round: Security reviewer failed, Validator passed (d0130).
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [Some(RunResult::Failed), Some(RunResult::Failed)]
+        [
+            Some(RunResult::Failed),
+            Some(RunResult::Passed),
+            Some(RunResult::Failed),
+            Some(RunResult::Passed)
+        ]
     );
     w.stop().await;
 }
@@ -370,7 +402,8 @@ async fn a_running_check_is_skipped() {
     );
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [Some(RunResult::Skipped)]
+        [Some(RunResult::Skipped), Some(RunResult::Skipped)],
+        "both check agents' runs"
     );
     assert_eq!(
         skipped.flags.moved_past_check.as_deref(),
@@ -522,7 +555,8 @@ async fn a_cancel_and_stop_this_check_on_security_count_nothing() {
     assert_eq!(counters(&w, &t).await, [("validate".into(), 0, Some(1))]);
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [Some(RunResult::Cancelled)]
+        [Some(RunResult::Cancelled), Some(RunResult::Cancelled)],
+        "both check agents' runs"
     );
 
     submit(&w, &t).await;
@@ -563,7 +597,9 @@ async fn the_messages_to_dev_name_the_check() {
     verdict(&w, &t, false).await;
     assert_eq!(
         told(&w).await.last().map(String::as_str),
-        Some("Security failed round 1. Run `otaq prime`.")
+        Some(
+            "Security failed round 1: Security reviewer failed, Validator passed. Run `otaq prime`."
+        )
     );
 
     submit(&w, &t).await;

@@ -308,14 +308,16 @@ impl Board {
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
         );
+        // Newest round first; a round's check agents in the stage's order (d0130).
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT v.round, v.trigger, v.outcome, v.started_at, v.ended_at, v.session_id, COALESCE(c.body, v.reason),
-                    v.notes_json
+                    v.notes_json, v.agent
              FROM validations v
              LEFT JOIN stage_runs r ON r.validation_id = v.id
              LEFT JOIN ticket_comments c ON c.id = r.comment_id
-             WHERE v.ticket_id = ? ORDER BY v.started_at DESC, v.id DESC",
+             WHERE v.ticket_id = ? ORDER BY v.started_at DESC, v.rowid",
         )
         .bind(&id)
         .fetch_all(self.store.pool())
@@ -323,9 +325,10 @@ impl Board {
         Ok(rows
             .into_iter()
             .map(
-                |(round, trigger, outcome, started_at, ended_at, session, report, notes)| {
+                |(round, trigger, outcome, started_at, ended_at, session, report, notes, agent)| {
                     ValidationRecord {
                         round: u32::try_from(round).unwrap_or(0),
+                        agent,
                         trigger: trigger.parse().unwrap_or(ValidationTrigger::Agent),
                         outcome: outcome.and_then(|o| o.parse().ok()),
                         started_at,
@@ -456,21 +459,23 @@ impl Board {
         Ok(())
     }
 
-    /// The validator of the ticket's open round started: its session is stored on the round, and a validation
-    /// that waited for the usage limit shows Validating… again.
+    /// A checker of the ticket's open round started: its session is stored on its check agent's row (`row`; `None`:
+    /// the round's newest open row), and a validation that waited for the usage limit shows Validating… again.
     pub(crate) async fn validator_started(
         &self,
         ticket_id: &str,
+        row: Option<&str>,
         session_id: &str,
     ) -> Result<(), BoardError> {
         let now = now_ms();
         let mut tx = self.store.begin_write().await?;
         sqlx::query(
-            "UPDATE validations SET session_id = ? WHERE id = (
+            "UPDATE validations SET session_id = ? WHERE id = COALESCE(?, (
                  SELECT id FROM validations WHERE ticket_id = ? AND ended_at IS NULL
-                 ORDER BY started_at DESC, id DESC LIMIT 1)",
+                 ORDER BY started_at DESC, id DESC LIMIT 1))",
         )
         .bind(session_id)
+        .bind(row)
         .bind(ticket_id)
         .execute(&mut *tx)
         .await?;
@@ -530,43 +535,119 @@ impl Board {
         Ok(())
     }
 
-    /// The open round of a ticket: its id, number and validator session.
+    /// The ticket's open round (d0130): the round a row still runs in, with every check agent's row.
     pub(crate) async fn open_round(
         &self,
         ticket_id: &str,
-    ) -> Result<Option<(String, u32, Option<String>, Option<String>)>, BoardError> {
-        let row: Option<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT id, round, session_id, head_sha FROM validations WHERE ticket_id = ? AND ended_at IS NULL
+    ) -> Result<Option<OpenRound>, BoardError> {
+        let id: Option<String> = sqlx::query_scalar(
+            "SELECT COALESCE(round_id, id) FROM validations WHERE ticket_id = ? AND ended_at IS NULL
              ORDER BY started_at DESC, id DESC LIMIT 1",
         )
         .bind(ticket_id)
         .fetch_optional(self.store.pool())
         .await?;
-        Ok(row.map(|(id, round, session, head)| {
-            (id, u32::try_from(round).unwrap_or(0), session, head)
+        match id {
+            Some(id) => self.round(ticket_id, &id).await,
+            None => Ok(None),
+        }
+    }
+
+    /// The round `round_id` of the ticket, its rows oldest first (a round's rows in the stage's order).
+    pub(crate) async fn round(
+        &self,
+        ticket_id: &str,
+        round_id: &str,
+    ) -> Result<Option<OpenRound>, BoardError> {
+        type Row = (
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT id, round, agent, session_id, outcome, ended_at, head_sha FROM validations
+             WHERE ticket_id = ? AND COALESCE(round_id, id) = ? ORDER BY started_at, rowid",
+        )
+        .bind(ticket_id)
+        .bind(round_id)
+        .fetch_all(self.store.pool())
+        .await?;
+        let Some(first) = rows.first() else {
+            return Ok(None);
+        };
+        Ok(Some(OpenRound {
+            id: round_id.to_owned(),
+            round: u32::try_from(first.1).unwrap_or(0),
+            head: first.6.clone(),
+            rows: rows
+                .into_iter()
+                .map(|(id, _, agent, session, outcome, ended_at, _)| RoundRow {
+                    id,
+                    agent,
+                    session,
+                    outcome: outcome.and_then(|o| o.parse().ok()),
+                    open: ended_at.is_none(),
+                })
+                .collect(),
         }))
     }
 
-    /// Carries out a verdict's row (VAL-03 … VAL-06): the verdict's text is the checker's comment (`hand_over`,
-    /// CMT-05), its "Note:" lines the round's notes; the round ends, the ticket moves, the counter counts, and a pass
-    /// enters Review with the round's head as the reviewed head. A fail that sends the findings back to the agent
-    /// marks its run as handed over (`resumed`, CMT-08).
-    pub(crate) async fn record_verdict(
+    /// Gives the ticket's open round one row per check agent of `stage` (d0130), once: a round opens with one row
+    /// (a submit, a pass into the check, a drag, Retry), which takes the first check agent's name, and each other
+    /// check agent gets its own row with the same number and head. Every row is a run of the stage (STG-05).
+    pub(crate) async fn name_round_agents(
         &self,
         ticket: &Ticket,
-        step: &Transition,
-        hand_over: Option<&HandOver>,
-        resumed: bool,
-        actor: &Actor,
+        stage: &Stage,
     ) -> Result<(), BoardError> {
-        let verdict = Verdict { hand_over, resumed };
-        self.close_round(ticket, step, "", None, Some(verdict), actor)
-            .await
+        let Some(round) = self.open_round(&ticket.id).await? else {
+            return Ok(());
+        };
+        let [first] = round.rows.as_slice() else {
+            return Ok(());
+        };
+        if first.agent.is_some() || !first.open {
+            return Ok(());
+        }
+        let mut tx = self.store.begin_write().await?;
+        let agents = round_agents(&mut tx, ticket, stage).await?;
+        let Some((name, others)) = agents.split_first() else {
+            return Ok(());
+        };
+        sqlx::query("UPDATE validations SET agent = ?, round_id = ? WHERE id = ?")
+            .bind(name)
+            .bind(&round.id)
+            .bind(&first.id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE stage_runs SET agent = COALESCE(agent, ?) WHERE validation_id = ?")
+            .bind(name)
+            .bind(&first.id)
+            .execute(&mut *tx)
+            .await?;
+        for agent in others {
+            sqlx::query(
+                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha, agent, round_id)
+                 SELECT ?, ticket_id, round, trigger, started_at, head_sha, ?, ? FROM validations WHERE id = ?",
+            )
+            .bind(new_id())
+            .bind(agent)
+            .bind(&round.id)
+            .bind(&first.id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 
-    /// Ends the ticket's open round as `step` says without a verdict (a cancel, a discard, a stop…): `reason` is why,
-    /// in Otaq's words (History's line for a round that doesn't count), `signal` the card's text for the new status
-    /// ("Validation discarded: the validator changed files").
+    /// Ends the ticket's open round as `step` says without a verdict (a cancel, a discard, a stop…): every check
+    /// agent's row still open ends; `reason` is why, in Otaq's words (History's line for a round that doesn't count),
+    /// `signal` the card's text for the new status ("Validation discarded: the validator changed files").
     pub(crate) async fn end_round(
         &self,
         ticket: &Ticket,
@@ -575,60 +656,108 @@ impl Board {
         signal: Option<&str>,
         actor: &Actor,
     ) -> Result<(), BoardError> {
-        self.close_round(ticket, step, reason, signal, None, actor)
-            .await
-    }
-
-    async fn close_round(
-        &self,
-        ticket: &Ticket,
-        step: &Transition,
-        reason: &str,
-        signal: Option<&str>,
-        verdict: Option<Verdict<'_>>,
-        actor: &Actor,
-    ) -> Result<(), BoardError> {
-        let Some((round_id, round, _, head)) = self.open_round(&ticket.id).await? else {
+        let Some(round) = self.open_round(&ticket.id).await? else {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!("{} has no validation running", ticket.key),
             ));
         };
-        let outcome = step.outcome.unwrap_or(ValidationOutcome::NoResult);
-        let now = now_ms();
-        let hand_over = verdict.as_ref().and_then(|v| v.hand_over);
-        // "Note:" lines still become notes (d0063), from the comment's text.
-        let notes: Vec<&str> = hand_over
-            .map_or("", |h| h.body.as_str())
-            .lines()
-            .filter_map(note_of)
-            .collect();
-        let review = step.enters_review();
-        let mut tx = self.store.begin_write().await?;
-        let posted = match hand_over {
-            Some(h) => Some(h.post(&mut tx, &ticket.id, actor).await?),
-            None => None,
+        let close = RoundClose {
+            step,
+            reason,
+            signal,
+            resumed: false,
         };
+        self.end_in_round(ticket, &round, None, Some(close), actor)
+            .await
+            .map(|_| ())
+    }
+
+    /// One check agent's row of `round` ends (`row`: its verdict, its text the checker's comment, CMT-05; or none),
+    /// and the round closes as `close` says (VAL-03 … VAL-06): the ticket moves, the counter counts once for the
+    /// round, and a pass enters Review with the round's head as the reviewed head. Its rows still open end with the
+    /// step's outcome. A fail that sends the findings back to the agent marks its run as handed over (`resumed`,
+    /// CMT-08). One transaction; `false` (nothing written) when `row` had already ended (a cancel came first).
+    pub(crate) async fn end_in_round(
+        &self,
+        ticket: &Ticket,
+        round: &OpenRound,
+        row: Option<RowEnd<'_>>,
+        close: Option<RoundClose<'_>>,
+        actor: &Actor,
+    ) -> Result<bool, BoardError> {
+        let now = now_ms();
+        let mut tx = self.store.begin_write().await?;
+        if let Some(end) = &row {
+            // "Note:" lines still become notes (d0063), from the comment's text.
+            let notes: Vec<&str> = end
+                .hand_over
+                .map_or("", |h| h.body.as_str())
+                .lines()
+                .filter_map(note_of)
+                .collect();
+            let ended = sqlx::query(
+                "UPDATE validations SET ended_at = ?, outcome = ?, reason = ?, notes_json = ?
+                 WHERE id = ? AND ended_at IS NULL",
+            )
+            .bind(now)
+            .bind(end.outcome.as_str())
+            .bind(Some(end.reason.trim()).filter(|r| !r.is_empty()))
+            .bind(serde_json::to_string(&notes).expect("notes serialize"))
+            .bind(end.row)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            if ended == 0 {
+                return Ok(false);
+            }
+            if let Some(hand_over) = end.hand_over {
+                let posted = hand_over.post(&mut tx, &ticket.id, actor).await?;
+                sqlx::query("UPDATE stage_runs SET comment_id = ? WHERE validation_id = ?")
+                    .bind(&posted.id)
+                    .bind(end.row)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        if let Some(close) = &close {
+            self.close_round_in(&mut tx, ticket, round, close, now, actor)
+                .await?;
+        }
+        tx.commit().await?;
+        if let Some(close) = &close {
+            tracing::info!(key = %ticket.key, round = round.round, outcome = ?close.step.outcome, to = %close.step.to,
+                           "validation round ended");
+        }
+        Ok(true)
+    }
+
+    async fn close_round_in(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        ticket: &Ticket,
+        round: &OpenRound,
+        close: &RoundClose<'_>,
+        now: i64,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let step = close.step;
+        let outcome = step.outcome.unwrap_or(ValidationOutcome::NoResult);
+        let review = step.enters_review();
         sqlx::query(
-            "UPDATE validations SET ended_at = ?, outcome = ?, reason = ?, notes_json = ? WHERE id = ?",
+            "UPDATE validations SET ended_at = ?, outcome = ?, reason = ?, notes_json = COALESCE(notes_json, '[]')
+             WHERE ticket_id = ? AND COALESCE(round_id, id) = ? AND ended_at IS NULL",
         )
         .bind(now)
         .bind(outcome.as_str())
-        .bind(Some(reason.trim()).filter(|r| !r.is_empty()))
-        .bind(serde_json::to_string(&notes).expect("notes serialize"))
-        .bind(&round_id)
-        .execute(&mut *tx)
+        .bind(Some(close.reason.trim()).filter(|r| !r.is_empty()))
+        .bind(&ticket.id)
+        .bind(&round.id)
+        .execute(&mut **tx)
         .await?;
-        if let Some(posted) = &posted {
-            sqlx::query("UPDATE stage_runs SET comment_id = ? WHERE validation_id = ?")
-                .bind(&posted.id)
-                .bind(&round_id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        // The round counts on the check it ran in (the stage the ticket is in until now).
+        // The round counts once on the check it ran in (the stage the ticket is in until now), whichever agent failed.
         if let Some(check) = ticket.place.stage() {
-            count_on(&mut tx, &ticket.id, check, step.counters, outcome, round).await?;
+            count_on(tx, &ticket.id, check, step.counters, outcome, round.round).await?;
         }
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, review_entry = ?, interrupted_from = NULL,
@@ -647,33 +776,31 @@ impl Board {
         .bind(step.to.is_queued())
         .bind(now)
         .bind(review)
-        .bind(head.as_deref())
+        .bind(round.head.as_deref())
         .bind(review)
         .bind(now)
         .bind(review)
         .bind(review)
-        .bind(signal)
-        .bind(signal.map(|_| now))
+        .bind(close.signal)
+        .bind(close.signal.map(|_| now))
         .bind(now)
         .bind(step.to.as_str())
         .bind(now)
         .bind(&ticket.id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
         // The Agent stage it went back to resumes with the findings in a comment: its agent primes again (CMT-08).
-        if verdict.as_ref().is_some_and(|v| v.resumed) {
-            stage_runs::mark_handed_over(&mut tx, &ticket.id).await?;
+        if close.resumed {
+            stage_runs::mark_handed_over(tx, &ticket.id).await?;
         }
         record_event(
-            &mut tx,
+            tx,
             &ticket.id,
             EventKind::ValidationEnded,
             actor,
-            json!({"round": round, "outcome": outcome, "counted": outcome.counts()}),
+            json!({"round": round.round, "outcome": outcome, "counted": outcome.counts()}),
         )
         .await?;
-        tx.commit().await?;
-        tracing::info!(key = %ticket.key, round, %outcome, to = %step.to, "validation round ended");
         Ok(())
     }
 
@@ -865,19 +992,34 @@ impl Board {
     }
 
     /// The last ended round's report (its findings: the checker's comment), for Give it another round and Answer the
-    /// agent.
+    /// agent. A round of several check agents gives every agent's report together, each under its verdict
+    /// ("Security reviewer failed:"), in the stage's order (d0130).
     pub(crate) async fn last_report(&self, ticket_id: &str) -> Result<Option<String>, BoardError> {
-        let report: Option<Option<String>> = sqlx::query_scalar(
-            "SELECT c.body FROM validations v
+        let rows: Vec<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT v.agent, v.outcome, c.body FROM validations v
              LEFT JOIN stage_runs r ON r.validation_id = v.id
              LEFT JOIN ticket_comments c ON c.id = r.comment_id
-             WHERE v.ticket_id = ? AND v.ended_at IS NOT NULL
-             ORDER BY v.started_at DESC, v.id DESC LIMIT 1",
+             WHERE v.ticket_id = ?1 AND COALESCE(v.round_id, v.id) = (
+                 SELECT COALESCE(round_id, id) FROM validations WHERE ticket_id = ?1 AND ended_at IS NOT NULL
+                 ORDER BY started_at DESC, id DESC LIMIT 1)
+             ORDER BY v.started_at, v.rowid",
         )
         .bind(ticket_id)
-        .fetch_optional(self.store.pool())
+        .fetch_all(self.store.pool())
         .await?;
-        Ok(report.flatten())
+        if let [(_, _, body)] = rows.as_slice() {
+            return Ok(body.clone());
+        }
+        let reports: Vec<String> = rows
+            .into_iter()
+            .filter_map(|(agent, outcome, body)| {
+                let body = body?;
+                let outcome: Option<ValidationOutcome> = outcome.and_then(|o| o.parse().ok());
+                let agent = agent.unwrap_or_else(|| "The check".to_owned());
+                Some(format!("{}:\n{}", verdict_of(&agent, outcome), body.trim()))
+            })
+            .collect();
+        Ok((!reports.is_empty()).then(|| reports.join("\n\n")))
     }
 
     /// Ends whatever round is open with `outcome`, the ticket's status left alone (Park, Close).
@@ -1362,11 +1504,15 @@ impl Board {
     }
 }
 
-/// One validation round as History shows it (VAL-12, d0063): its outcome, duration, report and notes. Tokens are
+/// One check agent's record of a validation round as History shows it (VAL-12, d0063, d0130): its outcome, duration,
+/// report and notes. Tokens are
 /// its validator session's, added by the service from the usage counts (`ticket.validations`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationRecord {
     pub round: u32,
+    /// The check agent whose record it is (d0130: one per agent per round), as the stage lists it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     pub trigger: ValidationTrigger,
     /// `None` while the round runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1443,11 +1589,131 @@ pub fn note_of(line: &str) -> Option<&str> {
     (!note.is_empty()).then_some(note)
 }
 
-/// A verdict's comment and what follows it for the agent.
-struct Verdict<'a> {
-    hand_over: Option<&'a HandOver>,
+/// A ticket's validation round (d0130): one row per check agent, sharing the round's number and head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenRound {
+    /// The round's id (its first row's).
+    pub id: String,
+    pub round: u32,
+    /// The worktree's head when it opened (VAL-02).
+    pub head: Option<String>,
+    /// Its rows, oldest first.
+    pub rows: Vec<RoundRow>,
+}
+
+/// One check agent's row of a round.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoundRow {
+    pub id: String,
+    /// The check agent's name as the stage lists it; `None` for a round opened before its agents were named.
+    pub agent: Option<String>,
+    /// Its checker's session, once it started.
+    pub session: Option<String>,
+    pub outcome: Option<ValidationOutcome>,
+    /// Still waiting for its verdict.
+    pub open: bool,
+}
+
+impl OpenRound {
+    /// The rows still waiting for a verdict.
+    pub fn open(&self) -> impl Iterator<Item = &RoundRow> {
+        self.rows.iter().filter(|r| r.open)
+    }
+
+    /// The open row `session` checks in.
+    pub fn open_row_of(&self, session: &str) -> Option<&RoundRow> {
+        self.open().find(|r| r.session.as_deref() == Some(session))
+    }
+
+    /// Each check agent's latest row, in the stage's order (a re-run adds a row for an agent).
+    pub fn latest(&self) -> Vec<&RoundRow> {
+        let mut latest: Vec<&RoundRow> = Vec::new();
+        for row in &self.rows {
+            match latest.iter_mut().find(|r| r.agent == row.agent) {
+                Some(slot) => *slot = row,
+                None => latest.push(row),
+            }
+        }
+        latest
+    }
+
+    /// Whether more than one check agent checks in it.
+    pub fn several(&self) -> bool {
+        self.latest().len() > 1
+    }
+}
+
+/// How one check agent's row of a round ends ([`Board::end_in_round`]).
+pub(crate) struct RowEnd<'a> {
+    pub row: &'a str,
+    pub outcome: ValidationOutcome,
+    /// Why it ended without a verdict, in Otaq's words.
+    pub reason: &'a str,
+    /// The verdict's comment.
+    pub hand_over: Option<&'a HandOver>,
+}
+
+/// How a round closes ([`Board::end_in_round`]).
+pub(crate) struct RoundClose<'a> {
+    /// The rules' row it carries out.
+    pub step: &'a Transition,
+    /// Why its open rows end, in Otaq's words.
+    pub reason: &'a str,
+    /// The card's text for the new status.
+    pub signal: Option<&'a str>,
     /// The findings go back to the agent, which resumes in its Agent stage.
-    resumed: bool,
+    pub resumed: bool,
+}
+
+/// What a round's verdicts add up to once none of its check agents runs (d0130): every one passed, a pass; any
+/// failed, a fail; else (one ended without a verdict, the others passed) none.
+pub(crate) fn round_event(outcomes: &[Option<ValidationOutcome>]) -> ValidationEvent {
+    if outcomes.contains(&Some(ValidationOutcome::Fail)) {
+        ValidationEvent::Fail
+    } else if outcomes.iter().all(|o| *o == Some(ValidationOutcome::Pass)) {
+        ValidationEvent::Pass
+    } else {
+        ValidationEvent::NoVerdict
+    }
+}
+
+/// "Security reviewer passed", "Security reviewer failed", "Performance reviewer ended without a verdict".
+pub(crate) fn verdict_of(agent: &str, outcome: Option<ValidationOutcome>) -> String {
+    match outcome {
+        Some(ValidationOutcome::Pass) => format!("{agent} passed"),
+        Some(ValidationOutcome::Fail) => format!("{agent} failed"),
+        _ => format!("{agent} ended without a verdict"),
+    }
+}
+
+/// The check agents of a round of `stage` for `ticket` (d0130), as the stage lists them: the ticket's chosen
+/// option takes the first one's place (Q517). Empty for a stage that lists none.
+async fn round_agents(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket: &Ticket,
+    stage: &Stage,
+) -> Result<Vec<String>, BoardError> {
+    let mut agents = stage.check_agents().to_vec();
+    if agents.is_empty() || ticket.is_epic() {
+        return Ok(agents);
+    }
+    let chosen: Option<String> = sqlx::query_scalar(
+        "SELECT a.name FROM ticket_stage_choices c JOIN agents a ON a.id = c.agent_id
+         WHERE c.ticket_id = ? AND c.stage_id = ? AND c.choice = 'agent'",
+    )
+    .bind(&ticket.id)
+    .bind(&stage.id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let option = chosen.and_then(|chosen| {
+        stage
+            .option_agents()
+            .find(|name| name.trim().to_lowercase() == chosen.trim().to_lowercase())
+    });
+    if let Some(option) = option {
+        agents[0] = option.clone();
+    }
+    Ok(agents)
 }
 
 /// The name of the agent check a ticket at `place` is in ("Validate", "Security"); "The check" when it isn't in one.

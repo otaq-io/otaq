@@ -406,6 +406,40 @@ impl TestService {
         .expect("round opened");
     }
 
+    /// Puts the ticket in Validating with an open round 1 of several check agents (d0130), each `(agent, session)` a
+    /// row of the round judged by that session.
+    pub async fn validating_with_agents(&self, ticket: &Ticket, checkers: &[(&str, &str)]) {
+        self.force_status(ticket, Status::Checking).await;
+        let round = crate::store::new_id();
+        let now = crate::store::now_ms();
+        for (i, (agent, session)) in checkers.iter().enumerate() {
+            let id = if i == 0 {
+                round.clone()
+            } else {
+                crate::store::new_id()
+            };
+            sqlx::query(
+                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, agent, round_id)
+                 VALUES (?, ?, 1, 'agent', ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(&ticket.id)
+            .bind(now)
+            .bind(agent)
+            .bind(&round)
+            .execute(self.board.store().pool())
+            .await
+            .expect("round opened");
+            // As a checker's start stores it: its row's run takes the session.
+            sqlx::query("UPDATE validations SET session_id = ? WHERE id = ?")
+                .bind(session)
+                .bind(&id)
+                .execute(self.board.store().pool())
+                .await
+                .expect("checker stored");
+        }
+    }
+
     /// The ticket's status now.
     pub async fn status(&self, key: &str) -> Status {
         self.board.ticket(key).await.expect("ticket").status

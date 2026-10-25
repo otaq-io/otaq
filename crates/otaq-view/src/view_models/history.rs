@@ -1565,6 +1565,7 @@ mod tests {
         use otaq_core::domain::ValidationOutcome;
         use otaq_core::domain::validation::ValidationTrigger;
         let record = ValidationRecord {
+            agent: None,
             round: 1,
             trigger: ValidationTrigger::Agent,
             outcome: Some(ValidationOutcome::Fail),
@@ -1598,6 +1599,39 @@ mod tests {
         assert_eq!(rows[0].mark, Mark::Agent);
         // The verdict is the checker's comment (its own row, with its report): the round opens nothing (CMT-14).
         assert_eq!(rows[0].opens, None);
+    }
+
+    /// A round of two check agents is two entries, one per agent's record (d0130; their texts are T-0531's).
+    #[test]
+    fn a_round_of_two_check_agents_is_one_entry_per_agent() {
+        use otaq_core::domain::ValidationOutcome;
+        use otaq_core::domain::validation::ValidationTrigger;
+        let record = |agent: &str, outcome| ValidationRecord {
+            agent: Some(agent.into()),
+            round: 1,
+            trigger: ValidationTrigger::Agent,
+            outcome: Some(outcome),
+            started_at: 20 * MIN,
+            ended_at: Some(24 * MIN),
+            duration_ms: Some(4 * MIN),
+            session: None,
+            report: Some(format!("{agent}'s report")),
+            notes: Vec::new(),
+            tokens: None,
+        };
+        let rows = rows_with_rounds(
+            &[],
+            &[],
+            &[],
+            &[
+                record("Security reviewer", ValidationOutcome::Fail),
+                record("Validator", ValidationOutcome::Pass),
+            ],
+            3,
+            &Facts::default(),
+        );
+        let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, ["Round 1 · failed", "Round 1 · passed"]);
     }
 
     fn agent(name: &str, stage: &str, round: Option<u32>, tool: Tool) -> serde_json::Value {

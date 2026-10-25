@@ -28,10 +28,10 @@ fn unknown(stage: &Stage, name: &str) -> BoardError {
     )
 }
 
-/// The stage's agent (AGM-05): the agent `stage` names, an agent check's first check agent. Refused for a stage that
-/// runs no agent, or names one that isn't there.
+/// The stage's agent (AGM-05): the agent `stage` names, an agent check's first check agent (its round starts every
+/// one, [`crate::validation`]). Refused for a stage that runs no agent, or names one that isn't there.
 pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardError> {
-    // T-0527: every check agent (an agent check runs one session, its first check agent's, until the round of N).
+    // An agent check's round starts each check agent by its own name (d0130, `validation`); here its first stands for it.
     let Some(name) = stage.agent.as_ref().or(stage.check_agents().first()) else {
         return Err(BoardError::refused(
             Refusal::UnknownAgent,

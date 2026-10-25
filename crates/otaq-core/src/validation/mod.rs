@@ -48,11 +48,14 @@ use crate::agents::{AgentHold, HoldReason, RunsOn, SessionRole, resolve};
 use crate::board::hand_over::{HandOver, check_failed_text, settled};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    CheckCounts, Transition, ValidationEvent, ValidationState, check_name, transition,
+    CheckCounts, OpenRound, RoundClose, RowEnd, Transition, ValidationEvent, ValidationState,
+    check_name, round_event, transition, verdict_of,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
-use crate::domain::{Actor, MovedPast, Place, Status, ValidationAction, ValidationTrigger};
+use crate::domain::{
+    Actor, MovedPast, Place, Status, ValidationAction, ValidationOutcome, ValidationTrigger,
+};
 use crate::epic_lead::stuck::FirstStop;
 use crate::flow::engine::Counters;
 use crate::protocol::Event;
@@ -112,6 +115,9 @@ struct Inner {
     /// One checker start at a time per ticket: a tool's Resume and the hold lifting it causes both start a waiting
     /// round's checker, and two overlapping starts would leave the round naming a checker that was stopped.
     starting: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// One end of a round's checker at a time per ticket (a verdict, a turn without one, a cancel): the last of a
+    /// round's check agents closes it, and two verdicts at once would each wait for the other (d0130).
+    ending: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
     resume_agent: Mutex<Option<AgentResume>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
@@ -164,6 +170,7 @@ impl Validation {
                 events,
                 agent_turned: Mutex::new(HashSet::new()),
                 starting: Mutex::new(std::collections::HashMap::new()),
+                ending: Mutex::new(std::collections::HashMap::new()),
                 resume_agent: Mutex::new(None),
                 gate: std::sync::OnceLock::new(),
                 recovery: std::sync::OnceLock::new(),
@@ -225,39 +232,115 @@ impl Validation {
         session: &str,
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
-        let report = hand_over.map_or("", |h| h.body.as_str());
         let ticket = board.ticket(key).await?;
-        let open = board.open_round(&ticket.id).await?;
-        if open.as_ref().and_then(|(_, _, s, _)| s.as_deref()) != Some(session) {
-            return Err(BoardError::refused(
+        let lock = self.end_lock(&ticket.id);
+        let _one_end = lock.lock().await;
+        let ticket = board.ticket(key).await?;
+        let not_running = || {
+            BoardError::refused(
                 Refusal::NotAllowed,
-                format!("This isn't {}'s running validator", ticket.key),
-            ));
-        }
+                format!("This isn't {}'s running check", ticket.key),
+            )
+        };
+        // The calling session's own row of the open round (d0130: one per check agent).
+        let Some((round, row)) = board.open_round(&ticket.id).await?.and_then(|round| {
+            let row = round.open_row_of(session)?.id.clone();
+            Some((round, row))
+        }) else {
+            return Err(not_running());
+        };
         // The worktree must still be what was submitted (VAL-02, VAL-08).
-        if let Some(head) = open.as_ref().and_then(|(_, _, _, h)| h.clone())
-            && board.worktree_changed(&ticket, &head).await?
+        if let Some(head) = &round.head
+            && board.worktree_changed(&ticket, head).await?
         {
             return Err(self.changed_under_validation(&ticket).await?);
         }
         let facts = self.check_facts(&ticket).await?;
-        let (flow, rounds) = (&facts.flow, facts.rounds);
-        let state = facts.state(&ticket);
-        let event = if pass {
-            ValidationEvent::Pass
+        let (event, outcome) = if pass {
+            (ValidationEvent::Pass, ValidationOutcome::Pass)
         } else {
-            ValidationEvent::Fail
+            (ValidationEvent::Fail, ValidationOutcome::Fail)
         };
-        let step =
-            transition(state, event).map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        // Refused where the ticket doesn't validate, whatever the other check agents said.
+        transition(facts.state(&ticket), event)
+            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        let end = RowEnd {
+            row: &row,
+            outcome,
+            reason: "",
+            hand_over,
+        };
+        let actor = Actor::Agent(ticket.key.clone());
+        if !self
+            .row_ended(&ticket, &facts, &round, end, None, &actor)
+            .await?
+        {
+            return Err(not_running());
+        }
+        board.ticket_by_id(&ticket.id).await
+    }
+
+    /// One check agent's row of the open round ended (its verdict, or none): the round waits while another still
+    /// checks; the last one closes it (d0130). Every one passed: Pass. Any failed: Fail, the hand-over naming each
+    /// agent's verdict in the stage's order and the round counted once. Else it ended without a verdict: `signal` is
+    /// the card's text for one check agent; several name the agents with none. `false` when the row had ended
+    /// already (the round was cancelled meanwhile): nothing is written.
+    async fn row_ended(
+        &self,
+        ticket: &Ticket,
+        facts: &CheckFacts,
+        round: &OpenRound,
+        end: RowEnd<'_>,
+        signal: Option<&str>,
+        actor: &Actor,
+    ) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        if round.open().any(|r| r.id != end.row) {
+            return board
+                .end_in_round(ticket, round, Some(end), None, actor)
+                .await;
+        }
+        let verdicts: Vec<(String, Option<ValidationOutcome>)> = round
+            .latest()
+            .into_iter()
+            .map(|r| {
+                let outcome = if r.id == end.row {
+                    Some(end.outcome)
+                } else {
+                    r.outcome
+                };
+                let agent = r.agent.clone().unwrap_or_else(|| "The check".to_owned());
+                (agent, outcome)
+            })
+            .collect();
+        let outcomes: Vec<Option<ValidationOutcome>> = verdicts.iter().map(|(_, o)| *o).collect();
+        let event = round_event(&outcomes);
+        let step = transition(facts.state(ticket), event)
+            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        if event == ValidationEvent::NoVerdict {
+            let named = round.several().then(|| no_verdict_text(&verdicts));
+            let close = RoundClose {
+                step: &step,
+                reason: "",
+                signal: named.as_deref().or(signal),
+                resumed: false,
+            };
+            let ended = board
+                .end_in_round(ticket, round, Some(end), Some(close), actor)
+                .await?;
+            if ended {
+                tracing::info!(key = %ticket.key, "validation ended without a result");
+            }
+            return Ok(ended);
+        }
         // An epic child's first "Validation failed N times" goes to its live lead once (LEAD-07): held at work.
-        let held = step.to == Status::CheckFailed && board.leads().takes_stop(&ticket).await;
+        let held = step.to == Status::CheckFailed && board.leads().takes_stop(ticket).await;
         let recorded = if held {
             // Held at work: back in the Agent stage before the check.
             let place = ticket
                 .place
                 .stage()
-                .and_then(|id| crate::flow::engine::back_to(flow, id, &[]))
+                .and_then(|id| crate::flow::engine::back_to(&facts.flow, id, &[]))
                 .map_or_else(|| ticket.place.clone(), |s| Place::stage_of(&s.id));
             Transition {
                 to: Status::Working,
@@ -267,46 +350,55 @@ impl Validation {
         } else {
             step.clone()
         };
-        board
-            .record_verdict(
-                &ticket,
-                &recorded,
-                hand_over,
-                step.deliver_findings || held,
-                &Actor::Agent(ticket.key.clone()),
-            )
-            .await?;
-        if held
-            && !board
-                .leads()
-                .child_stuck(&ticket, &FirstStop::validation_failed(report, rounds))
-                .await
+        let close = RoundClose {
+            step: &recorded,
+            reason: "",
+            signal: None,
+            resumed: step.deliver_findings || held,
+        };
+        if !board
+            .end_in_round(ticket, round, Some(end), Some(close), actor)
+            .await?
         {
-            board
-                .set_validation_status(
-                    &ticket.id,
-                    &[Status::Working],
-                    Status::CheckFailed,
-                    None,
-                    false,
-                )
-                .await?;
+            return Ok(false);
+        }
+        if held {
+            let report = board.last_report(&ticket.id).await?.unwrap_or_default();
+            if !board
+                .leads()
+                .child_stuck(ticket, &FirstStop::validation_failed(&report, facts.rounds))
+                .await
+            {
+                board
+                    .set_validation_status(
+                        &ticket.id,
+                        &[Status::Working],
+                        Status::CheckFailed,
+                        None,
+                        false,
+                    )
+                    .await?;
+            }
         }
         if step.deliver_findings {
-            // The findings are the checker's comment: the agent reads them in `prime` (CMT-05).
-            let round = facts.fails + 1;
+            // The findings are the checkers' comments: the agent reads them all in `prime` (CMT-05, d0130).
+            let number = facts.fails + 1;
             let check = check_name(&facts.flow, &ticket.place);
-            self.tell_agent(&ticket, &check_failed_text(&check, round), Start::Auto)
-                .await;
+            let text = if round.several() {
+                checks_failed_text(&check, number, &verdicts)
+            } else {
+                check_failed_text(&check, number)
+            };
+            self.tell_agent(ticket, &text, Start::Auto).await;
         }
         if step.start_validator {
-            // A pass into the next agent check: its own round and checker (FLW-13).
+            // A pass into the next agent check: its own round and checkers (FLW-13).
             self.start_next_check(&ticket.id, ValidationTrigger::Agent)
                 .await?;
         }
         // A pass into an automatic Delivery delivers now, unless the user moved the card past a check (FLW-15).
         board.delivery().arrived(&ticket.id).await;
-        board.ticket_by_id(&ticket.id).await
+        Ok(true)
     }
 
     /// What the rules need about the ticket's agent check ([`CheckFacts`]).
@@ -361,7 +453,7 @@ impl Validation {
     /// validator changed it). Returns the refusal the validator's verdict gets.
     async fn changed_under_validation(&self, ticket: &Ticket) -> Result<BoardError, BoardError> {
         if self.agent_took_a_turn(&ticket.id) {
-            self.cancel(ticket, CancelledBy::Code).await?;
+            self.cancel_locked(ticket, CancelledBy::Code).await?;
             Ok(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -384,6 +476,7 @@ impl Validation {
         let step = self
             .step(ticket, ValidationEvent::ValidatorChangedFiles)
             .await?;
+        // Which checker changed them can't be told: the whole round is discarded (d0130).
         self.stop_validator(ticket).await;
         self.inner
             .board
@@ -399,9 +492,16 @@ impl Validation {
         Ok(())
     }
 
-    /// VAL-08: the code changed through the agent, or the user edited the description. The validator stops, the
-    /// round doesn't count, the agent works again and is told so; clients get the cancel toast (UI-07).
+    /// VAL-08: the code changed through the agent, or the user edited the description. Every checker of the round
+    /// stops (0108 rule 9, d0130 row 17), the round doesn't count, the agent works again and is told so; clients get
+    /// the cancel toast (UI-07). A verdict that arrives after it is refused.
     pub async fn cancel(&self, ticket: &Ticket, by: CancelledBy) -> Result<(), BoardError> {
+        let lock = self.end_lock(&ticket.id);
+        let _one_end = lock.lock().await;
+        self.cancel_locked(ticket, by).await
+    }
+
+    async fn cancel_locked(&self, ticket: &Ticket, by: CancelledBy) -> Result<(), BoardError> {
         let step = self.step(ticket, ValidationEvent::CodeChanged).await?;
         let flow = self
             .inner
@@ -477,13 +577,27 @@ impl Validation {
         self.start_held(ticket_id).await
     }
 
+    /// Stops every checker of the ticket (d0130: one per check agent).
     async fn stop_validator(&self, ticket: &Ticket) {
-        if let Some(session) = self
+        for session in self
             .inner
             .sessions
-            .running_of(&ticket.id, SessionKind::Validator)
-            && let Err(e) = self.inner.sessions.stop(&session.id).await
+            .running_all_of(&ticket.id, SessionKind::Validator)
         {
+            if let Err(e) = self.inner.sessions.stop(&session.id).await {
+                tracing::warn!(key = %ticket.key, error = %e, "can't stop the validator");
+            }
+        }
+    }
+
+    /// Stops one checker, if it runs.
+    async fn stop_session(&self, ticket: &Ticket, session: &str) {
+        let running = self
+            .inner
+            .sessions
+            .info(session)
+            .is_ok_and(|info| info.is_running());
+        if running && let Err(e) = self.inner.sessions.stop(session).await {
             tracing::warn!(key = %ticket.key, error = %e, "can't stop the validator");
         }
     }
@@ -526,7 +640,7 @@ impl Validation {
         if !validating(ticket.status) || !self.agent_took_a_turn(ticket_id) {
             return Ok(());
         }
-        let Some((_, _, _, Some(head))) = board.open_round(ticket_id).await? else {
+        let Some(head) = board.open_round(ticket_id).await?.and_then(|r| r.head) else {
             return Ok(());
         };
         if board.worktree_changed(&ticket, &head).await? {
@@ -739,10 +853,10 @@ impl Validation {
     /// Park and Close stop the agent and the validator: the validation is discarded, recorded as stopped
     /// (CLS-01, CLS-06).
     pub async fn abandon(&self, ticket_id: &str) -> Result<(), BoardError> {
-        if let Some(session) = self
+        for session in self
             .inner
             .sessions
-            .running_of(ticket_id, SessionKind::Validator)
+            .running_all_of(ticket_id, SessionKind::Validator)
         {
             self.inner.sessions.stop(&session.id).await.map_err(other)?;
         }
@@ -811,12 +925,16 @@ impl Validation {
         if signal.ends_turn() && board.round_of_session_ended(session).await? {
             return self.after_validator_turn(session).await;
         }
-        let Some((_, _, Some(own), head)) = board.open_round(ticket_id).await? else {
+        let lock = self.end_lock(ticket_id);
+        let _one_end = lock.lock().await;
+        // One of the open round's checkers (d0130: one per check agent).
+        let Some((round, row)) = board.open_round(ticket_id).await?.and_then(|round| {
+            let row = round.open_row_of(session)?.id.clone();
+            Some((round, row))
+        }) else {
             return Ok(());
         };
-        if own != session {
-            return Ok(());
-        }
+        let head = round.head.clone();
         let ticket = board.ticket_by_id(ticket_id).await?;
         match signal {
             Signal::NeedsYou { prompt } => {
@@ -849,12 +967,17 @@ impl Validation {
                     let _ = self.changed_under_validation(&ticket).await?;
                     return Ok(());
                 }
-                let step = self.step(&ticket, ValidationEvent::NoVerdict).await?;
-                self.stop_validator(&ticket).await;
-                board
-                    .end_round(&ticket, &step, "", None, &Actor::current_user())
+                // Its row ends without one; the round waits for the other check agents (d0130).
+                self.stop_session(&ticket, session).await;
+                let facts = self.check_facts(&ticket).await?;
+                let end = RowEnd {
+                    row: &row,
+                    outcome: ValidationOutcome::NoResult,
+                    reason: "",
+                    hand_over: None,
+                };
+                self.row_ended(&ticket, &facts, &round, end, None, &Actor::current_user())
                     .await?;
-                tracing::info!(key = %ticket.key, "validation ended without a result");
             }
             Signal::LimitReached { .. } if validating(ticket.status) => {
                 board
@@ -885,31 +1008,54 @@ impl Validation {
         message: &str,
     ) -> Result<bool, BoardError> {
         let board = &self.inner.board;
-        let own = matches!(
-            board.open_round(ticket_id).await?,
-            Some((_, _, Some(own), _)) if own == session
-        );
+        let lock = self.end_lock(ticket_id);
+        let one_end = lock.lock().await;
+        let own = board.open_round(ticket_id).await?.and_then(|round| {
+            let row = round.open_row_of(session)?.id.clone();
+            Some((round, row))
+        });
         let ticket = board.ticket_by_id(ticket_id).await?;
-        let ended = own && validating(ticket.status);
+        let ended = match own {
+            Some((round, row)) if validating(ticket.status) => {
+                // Its row ends without a verdict; with other check agents the round waits for them (d0130).
+                let facts = self.check_facts(&ticket).await?;
+                let text = couldnt_run_text(model, message);
+                let end = RowEnd {
+                    row: &row,
+                    outcome: ValidationOutcome::NoResult,
+                    reason: &text,
+                    hand_over: None,
+                };
+                self.row_ended(
+                    &ticket,
+                    &facts,
+                    &round,
+                    end,
+                    Some(&text),
+                    &Actor::current_user(),
+                )
+                .await?
+            }
+            _ => false,
+        };
+        drop(one_end);
         if ended {
-            let step = self.step(&ticket, ValidationEvent::NoVerdict).await?;
-            let text = couldnt_run_text(model, message);
-            board
-                .end_round(&ticket, &step, &text, Some(&text), &Actor::current_user())
-                .await?;
             tracing::warn!(key = %ticket.key, %message, "the tool refused the validator's model: no result");
+            let after = board.ticket_by_id(ticket_id).await?;
             let project = ticket.key.project.to_string();
             self.inner.events.publish(Event::TicketChanged {
                 project: project.clone(),
                 id: ticket.id.clone(),
                 key: ticket.key.clone(),
             });
-            self.inner.events.publish(Event::CardStatusChanged {
-                project,
-                id: ticket.id.clone(),
-                key: ticket.key.clone(),
-                status: Status::CheckNoResult,
-            });
+            if after.status != ticket.status {
+                self.inner.events.publish(Event::CardStatusChanged {
+                    project,
+                    id: ticket.id.clone(),
+                    key: ticket.key.clone(),
+                    status: after.status,
+                });
+            }
         }
         if let Err(e) = self
             .inner
@@ -1105,8 +1251,8 @@ impl Validation {
         self.start_validator_locked(ticket_id, start).await
     }
 
-    /// Starts the checker of a round that waits for one (a lifted hold, a tool's Resume), unless one already runs
-    /// for the ticket: the first of two overlapping starts wins and the second keeps its checker.
+    /// Starts the checkers of a round that waits for them (a lifted hold, a tool's Resume): the check agents whose
+    /// checker already runs keep it, so the first of two overlapping starts wins and the second keeps its checkers.
     async fn start_waiting_checker(
         &self,
         ticket_id: &str,
@@ -1114,13 +1260,6 @@ impl Validation {
     ) -> Result<ValidatorStart, BoardError> {
         let lock = self.start_lock(ticket_id);
         let _one_start = lock.lock().await;
-        if let Some(running) = self
-            .inner
-            .sessions
-            .running_of(ticket_id, SessionKind::Validator)
-        {
-            return Ok(ValidatorStart::Started(Box::new(running)));
-        }
         self.start_validator_locked(ticket_id, start).await
     }
 
@@ -1134,6 +1273,21 @@ impl Validation {
             .clone()
     }
 
+    fn end_lock(&self, ticket_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.inner
+            .ending
+            .lock()
+            .expect("ending")
+            .entry(ticket_id.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    /// Starts the open round's checkers (d0130): one fresh read-only session per check agent, together, in the
+    /// ticket's worktree, each on its own agent and model. A check agent whose checker already runs keeps it; any
+    /// other checker of the ticket stops first. Each goes through the check before every launch: a held one leaves
+    /// its row waiting (the round waits for it). One that can't start ends its row without a verdict while the others
+    /// run; when none starts, the error is the caller's (the round ends without a result).
     async fn start_validator_locked(
         &self,
         ticket_id: &str,
@@ -1145,39 +1299,154 @@ impl Validation {
         if self.kept(&ticket, start).await? {
             return Ok(ValidatorStart::Kept);
         }
-        if let Some(old) = inner
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = board.ticket_skips(&ticket, &flow).await?;
+        let stage = resolve::check_stage_of(&flow, &ticket, &skips).cloned();
+        if let Some(stage) = &stage {
+            board.name_round_agents(&ticket, stage).await?;
+        }
+        let round = board.open_round(&ticket.id).await?;
+        let running = inner
             .sessions
-            .running_of(&ticket.id, SessionKind::Validator)
+            .running_all_of(&ticket.id, SessionKind::Validator);
+        let runs = |row: &crate::board::validation::RoundRow| {
+            row.session
+                .as_ref()
+                .is_some_and(|s| running.iter().any(|r| &r.id == s))
+        };
+        // Each open row's check agent, without a running checker; a round-less start (tests) runs one checker.
+        let (keep, todo): (Vec<_>, Vec<_>) = match &round {
+            Some(round) => round.open().partition(|row| runs(row)),
+            None => (Vec::new(), Vec::new()),
+        };
+        let todo: Vec<(Option<String>, Option<String>)> = match &round {
+            Some(_) => todo
+                .into_iter()
+                .map(|row| (Some(row.id.clone()), row.agent.clone()))
+                .collect(),
+            None => vec![(None, None)],
+        };
+        let kept: Vec<&SessionInfo> = running
+            .iter()
+            .filter(|s| {
+                keep.iter()
+                    .any(|row| row.session.as_deref() == Some(s.id.as_str()))
+            })
+            .collect();
+        for old in running
+            .iter()
+            .filter(|s| !kept.iter().any(|k| k.id == s.id))
         {
             inner.sessions.stop(&old.id).await.map_err(other)?;
         }
+        let mut started: Vec<SessionInfo> = kept.into_iter().cloned().collect();
+        let mut held: Option<Box<Held>> = None;
+        let mut failed: Vec<(String, BoardError)> = Vec::new();
+        let mut first_error: Option<BoardError> = None;
+        for (row, name) in todo {
+            match self
+                .start_one(
+                    &ticket,
+                    stage.as_ref(),
+                    row.as_deref(),
+                    name.as_deref(),
+                    start,
+                )
+                .await
+            {
+                Ok(ValidatorStart::Started(session)) => started.push(*session),
+                Ok(ValidatorStart::Held(h)) => {
+                    held.get_or_insert(h);
+                }
+                Ok(ValidatorStart::Kept) => return Ok(ValidatorStart::Kept),
+                Err(e) => match row {
+                    Some(row) => failed.push((row, e)),
+                    None => first_error = Some(e),
+                },
+            }
+        }
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+        if started.is_empty() && held.is_none() {
+            if let Some((_, e)) = failed.into_iter().next() {
+                return Err(e);
+            }
+            return Ok(ValidatorStart::Kept);
+        }
+        // The others run: each one that couldn't start ends its own row without a verdict (Retry is the user's).
+        if let Some(round) = &round {
+            for (row, e) in &failed {
+                tracing::warn!(key = %ticket.key, error = %e, "a check agent's checker didn't start");
+                let reason = format!("The validator didn't start: {e}");
+                let end = RowEnd {
+                    row,
+                    outcome: ValidationOutcome::NoResult,
+                    reason: &reason,
+                    hand_over: None,
+                };
+                board
+                    .end_in_round(&ticket, round, Some(end), None, &Actor::current_user())
+                    .await?;
+            }
+        }
+        if let Some(held) = held {
+            self.hold_round(&ticket, &held).await?;
+            if started.is_empty() {
+                return Ok(ValidatorStart::Held(held));
+            }
+        }
+        Ok(ValidatorStart::Started(Box::new(started.remove(0))))
+    }
+
+    /// One check agent's checker (`name`, as the stage lists it; `None`: the ticket's check agent) for its row of
+    /// the round (`row`), after the check before every launch.
+    async fn start_one(
+        &self,
+        ticket: &Ticket,
+        stage: Option<&crate::flow::Stage>,
+        row: Option<&str>,
+        name: Option<&str>,
+        start: Start,
+    ) -> Result<ValidatorStart, BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
         // Every round resolves its agent again: the agent's model may change between rounds (AGM-05, d0088).
-        let agent = resolve::session_agent(board, &ticket, SessionRole::Validator).await?;
+        let agent = match (name, stage) {
+            (Some(name), Some(stage)) => {
+                resolve::named(board.store(), name).await?.ok_or_else(|| {
+                    BoardError::refused(
+                        Refusal::UnknownAgent,
+                        crate::flow::check::unknown_agent_message(stage, name),
+                    )
+                })?
+            }
+            _ => resolve::session_agent(board, ticket, SessionRole::Validator).await?,
+        };
         let runs_on = match inner.gate.get() {
             Some(gate) => match gate
-                .before_launch(SessionRole::Validator, Scope::ticket(&ticket), &agent)
+                .before_launch(SessionRole::Validator, Scope::ticket(ticket), &agent)
                 .await?
             {
                 Gated::Launch(runs_on) => runs_on,
-                Gated::Held(held) => {
-                    self.hold_round(&ticket, &held).await?;
-                    return Ok(ValidatorStart::Held(held));
-                }
+                Gated::Held(held) => return Ok(ValidatorStart::Held(held)),
             },
             None => RunsOn::agent(&agent, board.store().default_model().await?.as_ref()),
         };
-        match self.launch_validator(&ticket, runs_on, &agent, start).await {
+        match self
+            .launch_validator(ticket, runs_on, &agent, row, start)
+            .await
+        {
             Ok(session) => Ok(ValidatorStart::Started(Box::new(session))),
             // The backstop refused it: the project was paused meanwhile.
-            Err(_) if self.kept(&ticket, start).await? => Ok(ValidatorStart::Kept),
+            Err(_) if self.kept(ticket, start).await? => Ok(ValidatorStart::Kept),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
                 if let Some(gate) = inner.gate.get()
                     && let Some(held) = gate
-                        .after_failed_launch(SessionRole::Validator, Scope::ticket(&ticket), &agent)
+                        .after_failed_launch(SessionRole::Validator, Scope::ticket(ticket), &agent)
                         .await?
                 {
-                    self.hold_round(&ticket, &held).await?;
                     return Ok(ValidatorStart::Held(Box::new(held)));
                 }
                 Err(e)
@@ -1190,6 +1459,7 @@ impl Validation {
         ticket: &Ticket,
         runs_on: RunsOn,
         agent: &crate::agents::Agent,
+        row: Option<&str>,
         start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
@@ -1206,7 +1476,8 @@ impl Validation {
                     format!("{} has no worktree to validate", ticket.key),
                 )
             })?;
-        // The check's own skill (Q261) and every skill of its agent, written into the worktree first by one name
+        // The check's own skill (Q261, every check agent's: Q516) and every skill of its agent, written into the
+        // worktree first by one name (several check agents share the copies, d0118)
         // (AGM-07): only ignored paths change, so the round's recorded head and tracked files stay as they were
         // (VAL-02).
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
@@ -1276,7 +1547,9 @@ impl Validation {
             })
             .await
             .map_err(other)?;
-        board.validator_started(&ticket.id, &session.id).await?;
+        board
+            .validator_started(&ticket.id, row, &session.id)
+            .await?;
         tracing::info!(key = %ticket.key, session = %session.id, "validator started");
         Ok(session)
     }
@@ -1297,6 +1570,41 @@ impl Validation {
         }
         Ok(started)
     }
+}
+
+/// What the agent is told after a failed round of several check agents (VAL-04, d0130): each agent's verdict in the
+/// stage's order, the reports being their comments. "Validate failed round 1: Security reviewer failed, Validator
+/// passed. Run `otaq prime`."
+pub fn checks_failed_text(
+    check: &str,
+    round: u32,
+    verdicts: &[(String, Option<ValidationOutcome>)],
+) -> String {
+    let each: Vec<String> = verdicts
+        .iter()
+        .map(|(agent, outcome)| verdict_of(agent, *outcome))
+        .collect();
+    format!(
+        "{check} failed round {round}: {}. Run `{} prime`.",
+        each.join(", "),
+        crate::naming::COMMAND_NAME
+    )
+}
+
+/// The card's text for a round of several check agents that ended without a verdict (d0130), naming who gave none:
+/// "Performance reviewer ended without a verdict", "Security reviewer and Validator ended without a verdict".
+fn no_verdict_text(verdicts: &[(String, Option<ValidationOutcome>)]) -> String {
+    let none: Vec<&str> = verdicts
+        .iter()
+        .filter(|(_, o)| !matches!(o, Some(ValidationOutcome::Pass | ValidationOutcome::Fail)))
+        .map(|(agent, _)| agent.as_str())
+        .collect();
+    let names = match none.split_last() {
+        Some((last, [])) => (*last).to_owned(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => "The check".to_owned(),
+    };
+    format!("{names} ended without a verdict")
 }
 
 /// What the agent gets on Give it another round or Answer the agent: the user's note first, then the findings.

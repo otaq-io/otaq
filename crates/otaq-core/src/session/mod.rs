@@ -506,7 +506,8 @@ struct Inner {
     scrollback_limit: usize,
     /// Which clients' terminals have focus on which session (ATT-03); shared with the board.
     focus: Focus,
-    /// Running sessions, and the last ended one per ticket and kind (so its scrollback can still be shown).
+    /// Running sessions, and the last ended one per ticket and kind, per check agent for checkers (so its scrollback
+    /// can still be shown).
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// A project's variables (ENV-02), set once at service start; without it sessions get none.
     project_env: OnceLock<env::EnvProvider>,
@@ -1217,6 +1218,23 @@ impl Sessions {
             .collect()
     }
 
+    /// Every running session of this kind of the ticket, oldest first: an agent check's round runs one per check
+    /// agent (d0130).
+    pub fn running_all_of(&self, ticket_id: &str, kind: SessionKind) -> Vec<SessionInfo> {
+        let mut all: Vec<SessionInfo> = self
+            .inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .filter(|l| l.ticket_id.as_deref() == Some(ticket_id))
+            .map(|l| l.info.lock().expect("session info").clone())
+            .filter(|i| i.kind == kind && i.is_running())
+            .collect();
+        all.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)));
+        all
+    }
+
     /// The ticket's running session of this kind.
     pub fn running_of(&self, ticket_id: &str, kind: SessionKind) -> Option<SessionInfo> {
         self.latest_of(ticket_id, kind)
@@ -1454,7 +1472,7 @@ impl Sessions {
 
 impl Inner {
     /// Records a session's end: its row, its info, a `session_state` event; drops older ended sessions of the
-    /// same ticket and kind from memory.
+    /// same ticket and kind (and, for a checker, the same check agent) from memory.
     async fn finish(&self, id: &str, exit: String) {
         let Some(live) = self.live.lock().expect("sessions lock").get(id).cloned() else {
             return;
@@ -1494,6 +1512,10 @@ impl Inner {
                     || other.ticket_id.is_none()
                     || other.ticket_id != live.ticket_id
                     || other_info.kind != info.kind
+                    // A check agent's last session stays beside the others' (d0130: one terminal each).
+                    || (info.kind == SessionKind::Validator
+                        && other_info.agent.as_ref().map(|a| &a.name)
+                            != info.agent.as_ref().map(|a| &a.name))
             });
         }
         tracing::info!(session = id, reason = %reason, "session ended");
