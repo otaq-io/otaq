@@ -68,6 +68,16 @@ impl Tokens {
         self.input + self.output + self.reasoning.unwrap_or(0)
     }
 
+    fn subtract(&mut self, other: &Tokens) {
+        self.input = self.input.saturating_sub(other.input);
+        self.cached = self.cached.saturating_sub(other.cached);
+        self.output = self.output.saturating_sub(other.output);
+        self.reasoning = match (self.reasoning, other.reasoning) {
+            (Some(a), b) => Some(a.saturating_sub(b.unwrap_or(0))),
+            (None, _) => None,
+        };
+    }
+
     fn add(&mut self, other: &Tokens) {
         self.input += other.input;
         self.cached += other.cached;
@@ -94,6 +104,9 @@ pub struct TicketUsage {
     /// Validation rounds that counted (a pass or a fail).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub rounds: u32,
+    /// The helpers' share (d0133 audit 4): "in charge · helpers · checks" in the ticket's details.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helpers: Option<Tokens>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -101,19 +114,22 @@ fn is_zero(n: &u32) -> bool {
 }
 
 impl TicketUsage {
-    /// The agent's share: everything but the validators.
+    /// The agent's share: everything but the validators (its helpers included).
     pub fn agent(&self) -> Option<Tokens> {
         let mut agent = self.tokens?;
         if let Some(v) = self.validation {
-            agent.input = agent.input.saturating_sub(v.input);
-            agent.cached = agent.cached.saturating_sub(v.cached);
-            agent.output = agent.output.saturating_sub(v.output);
-            agent.reasoning = match (agent.reasoning, v.reasoning) {
-                (Some(a), b) => Some(a.saturating_sub(b.unwrap_or(0))),
-                (None, _) => None,
-            };
+            agent.subtract(&v);
         }
         Some(agent)
+    }
+
+    /// The agent in charge's own share (d0133): everything but the checks and the helpers.
+    pub fn in_charge(&self) -> Option<Tokens> {
+        let mut own = self.agent()?;
+        if let Some(h) = self.helpers {
+            own.subtract(&h);
+        }
+        Some(own)
     }
 }
 
@@ -448,7 +464,7 @@ impl Usage {
     pub async fn tickets(&self, project: &str) -> Result<Vec<TicketUsage>, StoreError> {
         let rows: Vec<TicketConversationRow> = sqlx::query_as(
             "SELECT s.ticket_id, s.tool_session_id, SUM(u.input), SUM(u.cached), SUM(u.output),
-                    SUM(u.reasoning), MAX(s.kind = 'validator')
+                    SUM(u.reasoning), MAX(s.kind = 'validator'), MAX(s.kind = 'helper')
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN usage u ON u.session_id = s.id
@@ -475,7 +491,7 @@ impl Usage {
         // A session with no tool id yet has no tokens: unknown, like a conversation that can't be read.
         let known =
             |tool_id: &Option<String>| tool_id.as_ref().is_some_and(|id| !unknown.contains(id));
-        for (ticket, tool_id, a, b, c, d, validator) in rows {
+        for (ticket, tool_id, a, b, c, d, validator, helper) in rows {
             let known = known(&tool_id);
             if out.last().is_none_or(|t| t.id != ticket) {
                 let counted = rounds.get(&ticket).copied().unwrap_or(0);
@@ -492,6 +508,12 @@ impl Usage {
                 if validator == Some(true) {
                     entry
                         .validation
+                        .get_or_insert_with(Tokens::default)
+                        .add(&these);
+                }
+                if helper == Some(true) {
+                    entry
+                        .helpers
                         .get_or_insert_with(Tokens::default)
                         .add(&these);
                 }
@@ -589,10 +611,12 @@ impl Usage {
     /// Every session that stored a tool id, with its tool and where it ran.
     async fn sessions(&self) -> Result<Vec<StoredSession>, StoreError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
-            "SELECT s.id, s.tool, s.tool_session_id, s.started_at, s.ended_at, t.worktree_path, p.repo_path
+            "SELECT s.id, s.tool, s.tool_session_id, s.started_at, s.ended_at,
+                    COALESCE(h.worktree, t.worktree_path), p.repo_path
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN tickets t ON t.id = s.ticket_id
+             LEFT JOIN helpers h ON h.session_id = s.id
              WHERE s.tool_session_id IS NOT NULL AND s.tool_session_id <> ''",
         )
         .fetch_all(self.inner.store.pool())
@@ -719,6 +743,7 @@ type TicketConversationRow = (
     Option<i64>,
     Option<i64>,
     Option<i64>,
+    Option<bool>,
     Option<bool>,
 );
 

@@ -63,6 +63,9 @@ stored_enum! {
         Validator = "validator",
         /// A Project agent (d0068): an agent session in the project's folder, for no ticket.
         ProjectAgent = "project_agent",
+        /// A helper of a ticket's agent in charge (d0133): an agent session in its own worktree, on one piece of the
+        /// ticket's Plan ([`crate::helpers`]).
+        Helper = "helper",
     }
 }
 
@@ -73,7 +76,12 @@ impl SessionKind {
     pub fn runs_agent_tool(self) -> bool {
         matches!(
             self,
-            Self::Agent | Self::Answer | Self::Delivery | Self::Validator | Self::ProjectAgent
+            Self::Agent
+                | Self::Answer
+                | Self::Delivery
+                | Self::Validator
+                | Self::ProjectAgent
+                | Self::Helper
         )
     }
 
@@ -1561,6 +1569,8 @@ impl Inner {
                     || other.ticket_id.is_none()
                     || other.ticket_id != live.ticket_id
                     || other_info.kind != info.kind
+                    // Each helper's last session stays beside the others' (d0133: one terminal per piece).
+                    || info.kind == SessionKind::Helper
                     // A check agent's last session stays beside the others' (d0130: one terminal each).
                     || (info.kind == SessionKind::Validator
                         && other_info.agent.as_ref().map(|a| &a.name)

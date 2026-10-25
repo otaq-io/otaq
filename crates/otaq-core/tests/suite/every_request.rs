@@ -58,6 +58,10 @@ fn sample(method: &str, unit: bool) -> Request {
             params["proposal"] = json!(3);
             params["text"] = json!("t");
         }
+        if method.starts_with("helper.") {
+            params["piece"] = json!(1);
+            params["text"] = json!("t");
+        }
         if method == "hook" {
             params["tool"] = json!("claude");
         }
@@ -244,6 +248,13 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::DecisionChange(_)
         | Request::TicketStageNext(_)
         | Request::TicketStageDone(_)
+        | Request::HelperStart(_)
+        | Request::HelperList(_)
+        | Request::HelperDiff(_)
+        | Request::HelperBack(_)
+        | Request::HelperMerge(_)
+        | Request::HelperDone(_)
+        | Request::HelperPrime(_)
         | Request::ValidationVerdict(_)
         | Request::TicketPrimeValidate(_)
         | Request::TicketValidationAction(_)

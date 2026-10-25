@@ -360,6 +360,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         SessionKind::Run => "Run",
         SessionKind::Validator => "Validator session",
         SessionKind::ProjectAgent => "Noyan",
+        SessionKind::Helper => "Helper session",
     };
     let agent = agent_ran(s.kind);
     let duration = match s.ended_at {
@@ -1086,6 +1087,22 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 who(&e.actor)
             )),
         ),
+        // A helper's change (d0133): "40.3 Wishlist page · merged", a note's first line under it.
+        EventKind::Helper => {
+            let label = text(p, "label").unwrap_or_default();
+            let title = text(p, "title").unwrap_or_default();
+            let what = text(p, "what").unwrap_or_default();
+            let what = match what.as_str() {
+                "held" => "waiting for limit reset",
+                "sent_back" => "sent back",
+                "handed_back" => "handed back",
+                other => other,
+            };
+            (
+                format!("{label} {title} \u{b7} {what}"),
+                text(p, "note").map(first_line),
+            )
+        }
         // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
         // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
         // "Moved to Review" · "by you · Security was removed".

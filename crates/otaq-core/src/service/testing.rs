@@ -59,6 +59,7 @@ pub struct TestService {
     pub prs: crate::pr::service::Prs,
     pub messages: crate::messages::Messages,
     pub validation: crate::validation::Validation,
+    pub helpers: crate::helpers::Helpers,
     pub project_agents: crate::project_agents::ProjectAgents,
     pub scheduler: crate::scheduler::Scheduler,
     pub warm: crate::warm::store::WarmBuilds,
@@ -643,6 +644,7 @@ impl TestService {
         let prs = service.prs();
         let messages = service.messages();
         let validation = service.validation();
+        let helpers = service.helpers();
         let project_agents = service.project_agents();
         let scheduler = service.scheduler();
         let warm = service.warm();
@@ -683,6 +685,7 @@ impl TestService {
             prs,
             messages,
             validation,
+            helpers,
             project_agents,
             scheduler,
             warm,

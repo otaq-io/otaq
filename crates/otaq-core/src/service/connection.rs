@@ -12,8 +12,8 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{
-    Shared, agent_requests, agents_requests, board_requests, events, permissions, session_requests,
-    terminal_requests, until_stopped,
+    Shared, agent_requests, agents_requests, board_requests, events, helper_requests, permissions,
+    session_requests, terminal_requests, until_stopped,
 };
 use crate::agent_tools::setup;
 use crate::attention::ClientId;
@@ -473,6 +473,16 @@ async fn respond(
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }
         }
+        request @ (Request::HelperStart(_)
+        | Request::HelperList(_)
+        | Request::HelperDiff(_)
+        | Request::HelperBack(_)
+        | Request::HelperMerge(_)
+        | Request::HelperDone(_)
+        | Request::HelperPrime(_)) => match helper_requests::handle(request, who, shared).await {
+            Ok(reply) => (reply, Then::Continue),
+            Err(error) => return (Message::error(id, error), Then::Continue),
+        },
         request @ (Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)

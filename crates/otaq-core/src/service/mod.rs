@@ -15,6 +15,7 @@ mod agents_requests;
 mod board_requests;
 mod connection;
 mod events;
+mod helper_requests;
 pub mod lock;
 mod permissions;
 mod session_requests;
@@ -208,6 +209,8 @@ struct Shared {
     prs: crate::pr::service::Prs,
     messages: crate::messages::Messages,
     validation: crate::validation::Validation,
+    /// The agents in charge's helpers (d0133).
+    helpers: crate::helpers::Helpers,
     project_agents: crate::project_agents::ProjectAgents,
     /// Pause and Resume per project (d0112).
     pause: crate::agents::pause::Pause,
@@ -315,6 +318,31 @@ impl Shared {
             } else if signal.ends_turn() {
                 let deliveries = self.deliveries.clone();
                 let session = session.to_owned();
+                tokio::spawn(async move {
+                    if let Err(e) = deliveries.deliver_if_ready(&session).await {
+                        tracing::warn!(session, error = %e, "delivery failed");
+                    }
+                });
+            }
+            return;
+        }
+        // A helper's turn ended: a note waiting for it may go now. Its limit is recorded as the tool's; it never stops
+        // the ticket (the agent in charge is the ticket's agent, d0133). Its questions and idle are T-0538's.
+        if let Caller::Helper { session, .. } = caller {
+            if let Signal::LimitReached { hit, resets_at } = signal {
+                let plan_limit = self.plan_limit.clone();
+                let (hit, resets_at) = (hit.clone(), *resets_at);
+                tokio::spawn(async move {
+                    if let Err(e) = plan_limit
+                        .record_hit_reset(tool, &hit, resets_at, now_ms())
+                        .await
+                    {
+                        tracing::warn!(error = %e, "can't record the plan limit");
+                    }
+                });
+            } else if signal.ends_turn() {
+                let deliveries = self.deliveries.clone();
+                let session = session.clone();
                 tokio::spawn(async move {
                     if let Err(e) = deliveries.deliver_if_ready(&session).await {
                         tracing::warn!(session, error = %e, "delivery failed");
@@ -656,6 +684,7 @@ impl Service {
             Arc::new(crate::ticket_env::handoff::FsMover),
         );
         starter.set_seeder(seeder.clone());
+        let helper_seeder = seeder.clone();
         // The ticket environment (M19): Free at Review, Bring back for more work, Release at Done.
         let ticket_env = crate::ticket_env::TicketEnv::new(
             board.clone(),
@@ -675,6 +704,18 @@ impl Service {
         );
         // "Merging · running the merge check" shows and goes at once (d0120).
         board.merge_checks().set_events(events.clone());
+        // The agents in charge's helpers (d0133): their own worktrees, ports and sessions.
+        let helpers = crate::helpers::Helpers::new(
+            board.clone(),
+            config.data.clone(),
+            sessions.clone(),
+            deliveries.clone(),
+            adapters.clone(),
+            events.clone(),
+            ports.clone(),
+        );
+        helpers.set_seeder(helper_seeder);
+        helpers.set_gate(gate.clone());
         let review = Review::new(
             board.clone(),
             config.data.clone(),
@@ -938,7 +979,20 @@ impl Service {
         project_agents.set_gate(gate.clone());
         gate.set_restarts(crate::agents::gate::Restarts {
             validation: validation.clone(),
+            helpers: helpers.clone(),
         });
+        // Done ends the helpers, removes their worktrees left behind and their branches (d0133, d0018).
+        {
+            let helpers = helpers.clone();
+            review.on_ticket_finished(Arc::new(move |ticket| {
+                let (helpers, id) = (helpers.clone(), ticket.id.clone());
+                Box::pin(async move {
+                    if let Err(e) = helpers.finished(&id).await {
+                        tracing::warn!(ticket = id, error = %e, "can't clean up the helpers");
+                    }
+                })
+            }));
+        }
         // The agents check models against the copies of the tools' lists (AGT-02).
         let agents = Agents::new(board.clone(), Arc::new(models.clone()));
         // The agent tools are checked at start (d0086), in the background as detect runs each tool's program; a
@@ -974,6 +1028,7 @@ impl Service {
             ticket_env,
             project_agents,
             validation,
+            helpers,
             messages,
             prs,
             shells,
@@ -1075,6 +1130,11 @@ impl Service {
     /// Validators (d0063).
     pub fn validation(&self) -> crate::validation::Validation {
         self.shared.validation.clone()
+    }
+
+    /// The agents in charge's helpers (d0133).
+    pub fn helpers(&self) -> crate::helpers::Helpers {
+        self.shared.helpers.clone()
     }
 
     /// Project agents (d0068).

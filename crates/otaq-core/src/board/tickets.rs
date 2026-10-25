@@ -434,6 +434,10 @@ stored_enum! {
         /// choice: it runs once) and `note` (the instructions or the check's note). History reads "Moved back to
         /// Dev" · "Grill · run by you" (or the note, or "by you"), "Moved to Review" · "Skipped Validate · by you".
         Dragged = "dragged",
+        /// One of the ticket's helpers changed (d0133): payload `piece`, `label` ("40.3"), `title`, `what` (`started`,
+        /// `held`, `sent_back`, `handed_back`, `merged`) and `note` (the first line of a note or a hand-back). History
+        /// reads "40.3 Wishlist page · merged".
+        Helper = "helper",
         /// A ticket comment was posted (CMT-14, d0109): payload `n`, `excerpt` (the start of its text), `report`
         /// (`bytes`, `lines`, or null) and `author` (as [`super::ticket_comments::CommentAuthor`]).
         CommentPosted = "comment_posted",

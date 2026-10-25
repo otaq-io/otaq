@@ -641,9 +641,9 @@ impl Board {
             Caller::User => Ok(CommentAuthor::User {
                 name: actor.to_string(),
             }),
-            Caller::Agent { session, .. } | Caller::Validator { session, .. } => {
-                self.session_author(session).await
-            }
+            Caller::Agent { session, .. }
+            | Caller::Validator { session, .. }
+            | Caller::Helper { session, .. } => self.session_author(session).await,
             Caller::ProjectAgent { .. } => Err(BoardError::refused(
                 Refusal::NotAllowed,
                 crate::policy::PROJECT_AGENT_NO_COMMENTS,

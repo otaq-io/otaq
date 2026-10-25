@@ -229,8 +229,13 @@ pub(super) struct Changes {
 }
 
 impl Changes {
-    fn new(entries: Vec<ChangedEntry>, mut tags: HashMap<String, Vec<PieceTag>>) -> Self {
+    fn new(mut entries: Vec<ChangedEntry>, mut tags: HashMap<String, Vec<PieceTag>>) -> Self {
         let mut by_path: BTreeMap<String, (Option<FileChange>, Vec<PieceTag>)> = BTreeMap::new();
+        for entry in &mut entries {
+            if let Some(tags) = tags.get(&entry.file.path) {
+                entry.tags = tags.clone();
+            }
+        }
         for entry in &entries {
             by_path.entry(entry.file.path.clone()).or_default().0 = Some(file_change(entry));
         }
@@ -592,7 +597,69 @@ impl Board {
             }
             _ => Vec::new(),
         };
-        Ok(Changes::new(entries, HashMap::new()))
+        let tags = match source.info.from {
+            FilesFrom::Base => HashMap::new(),
+            _ => self.piece_tags(&source.info.key).await?,
+        };
+        Ok(Changes::new(entries, tags))
+    }
+
+    /// The pieces that changed each path (d0133): a merged helper's recorded files ("40.1"), then a working helper's
+    /// changes in its own worktree since it left the ticket's branch, uncommitted ones too ("40.2 ✎").
+    async fn piece_tags(
+        &self,
+        key: &TicketKey,
+    ) -> Result<HashMap<String, Vec<PieceTag>>, BoardError> {
+        let ticket = self.ticket(&key.to_string()).await?;
+        let helpers = crate::helpers::store::of_ticket(self.store().pool(), &ticket.id).await?;
+        let mut tags: HashMap<String, Vec<PieceTag>> = HashMap::new();
+        let mut add = |path: String, piece: u32, kind: TagKind| {
+            let list = tags.entry(path).or_default();
+            if !list.iter().any(|t| t.piece == piece && t.kind == kind) {
+                list.push(PieceTag { piece, kind });
+            }
+        };
+        for helper in helpers
+            .iter()
+            .filter(|h| h.status == crate::helpers::HelperStatus::Merged)
+        {
+            for path in &helper.files {
+                add(path.clone(), helper.piece, TagKind::Merged);
+            }
+        }
+        let branch = ticket.work.as_ref().and_then(|w| w.branch.clone());
+        let git = self.git()?;
+        for helper in helpers
+            .iter()
+            .filter(|h| h.status != crate::helpers::HelperStatus::Merged)
+        {
+            let worktree = Path::new(&helper.worktree);
+            let Some(branch) = branch.as_deref().filter(|_| worktree.is_dir()) else {
+                continue;
+            };
+            let committed = git
+                .run(
+                    worktree,
+                    &[
+                        "diff",
+                        "--name-only",
+                        "--no-renames",
+                        &format!("{branch}...HEAD"),
+                    ],
+                )
+                .await
+                .unwrap_or_default();
+            let uncommitted = git.uncommitted_files(worktree).await.unwrap_or_default();
+            for path in committed
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(str::to_owned)
+                .chain(uncommitted)
+            {
+                add(path, helper.piece, TagKind::Writing);
+            }
+        }
+        Ok(tags)
     }
 
     /// A worktree's changes since `from`: its commits, its uncommitted edits and its untracked files.

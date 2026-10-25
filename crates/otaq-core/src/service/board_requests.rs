@@ -1555,7 +1555,14 @@ pub(super) async fn handle(
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
         | Request::AgentsReimportSkill(_)
-        | Request::AgentsReads(_) => return None,
+        | Request::AgentsReads(_)
+        | Request::HelperStart(_)
+        | Request::HelperList(_)
+        | Request::HelperDiff(_)
+        | Request::HelperBack(_)
+        | Request::HelperMerge(_)
+        | Request::HelperDone(_)
+        | Request::HelperPrime(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }
@@ -1956,6 +1963,7 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
     let session = match caller {
         Caller::Agent { session, .. }
         | Caller::Validator { session, .. }
+        | Caller::Helper { session, .. }
         | Caller::ProjectAgent { session, .. } => Some(session),
         Caller::User => None,
     };
@@ -2029,7 +2037,8 @@ async fn created_by_agent(shared: &Shared, caller: &Caller, tickets: &[Ticket], 
             }
             ticket.to_string()
         }
-        Caller::User | Caller::ProjectAgent { .. } => return,
+        // A helper creates none (the policy refused it).
+        Caller::User | Caller::ProjectAgent { .. } | Caller::Helper { .. } => return,
     };
     for t in tickets {
         shared.events.publish(Event::CreatedByAgent {

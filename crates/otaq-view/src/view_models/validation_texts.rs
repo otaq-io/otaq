@@ -165,6 +165,7 @@ mod tests {
             tokens: tokens(67_000),
             validation: tokens(9_000),
             rounds: 0,
+            helpers: None,
         };
         assert_eq!(
             token_split(&validating(), &usage).as_deref(),
@@ -176,6 +177,7 @@ mod tests {
             tokens: tokens(244_000),
             validation: tokens(41_000),
             rounds: 3,
+            helpers: None,
         };
         assert_eq!(
             token_split(&failed, &usage).as_deref(),
