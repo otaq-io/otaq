@@ -147,7 +147,7 @@ pub fn variants() -> Vec<Variant> {
     let mut t = ticket("SHOP-36", "Cache product prices", Status::Backlog);
     t.created_by = Actor::ProjectAgent("pa-1".into());
     out.push(v(
-        "Created by a Project agent (0068)",
+        "Created by Noyan (0068)",
         t,
         CardExtras {
             agent_name: Some("Checkout slowness".into()),
@@ -715,13 +715,13 @@ pub fn flow_variants() -> Vec<Variant> {
         shop(Delivers::Pr),
     ));
     out.push(v(
-        "Your check \u{b7} skipped by the Project agent",
+        "Your check \u{b7} skipped by Noyan",
         check(
             "SHOP-27",
             "Fix README typo",
             Arrival::Skipped {
                 stage: "Grill".into(),
-                by: Some("Planner".into()),
+                by: Some("Noyan".into()),
             },
         ),
         shop(Delivers::Pr),

@@ -25,15 +25,15 @@ pub fn origin_label(ticket: &Ticket) -> Option<&'static str> {
         .then_some(CREATED_BY_AGENT)
 }
 
-/// "by Project agent “Checkout slowness”" on a Backlog card a Project agent created (d0068), with the agent's
-/// current name; "by a Project agent" once it isn't listed any more.
+/// "by Noyan · Checkout slowness" on a Backlog card a Project agent created (d0068), with its conversation's
+/// current name; "by Noyan" once it isn't listed any more.
 pub fn project_agent_label(ticket: &Ticket, name: Option<&str>) -> Option<String> {
     if !matches!(ticket.created_by, Actor::ProjectAgent(_)) || !ticket.place.is_backlog() {
         return None;
     }
     Some(match name {
-        Some(name) => format!("by Project agent \u{201c}{name}\u{201d}"),
-        None => "by a Project agent".to_owned(),
+        Some(name) => format!("by Noyan \u{b7} {name}"),
+        None => "by Noyan".to_owned(),
     })
 }
 
@@ -209,12 +209,12 @@ mod tests {
         };
         let vm = CardViewModel::from(&t, &extras, 3_000);
         assert!(vm.fresh);
-        assert_eq!(vm.origin.as_deref(), Some("Created by Checkout slowness"));
-        assert!(!CardViewModel::from(&t, &extras, 1_000 + FRESH_MS).fresh);
         assert_eq!(
-            project_agent_label(&t, None).as_deref(),
-            Some("by a Project agent")
+            vm.origin.as_deref(),
+            Some("Created by Noyan \u{b7} Checkout slowness")
         );
+        assert!(!CardViewModel::from(&t, &extras, 1_000 + FRESH_MS).fresh);
+        assert_eq!(project_agent_label(&t, None).as_deref(), Some("by Noyan"));
         t.place = otaq_core::domain::Place::stage_of("dev");
         assert_eq!(project_agent_label(&t, Some("x")), None);
         assert!(!fresh_from_project_agent(&t, 3_000));

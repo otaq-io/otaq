@@ -522,10 +522,7 @@ fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         tone: Tone::Investigate,
         title: match &a.epic {
             Some(_) => format!("{} \u{b7} {}", a.name, a.reason),
-            None => format!(
-                "Project agent \u{201c}{}\u{201d} \u{b7} {}",
-                a.name, a.reason
-            ),
+            None => format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
         },
         target,
     }
@@ -946,6 +943,10 @@ mod tests {
         );
         let agent = &v.groups[0].chips[4];
         assert_eq!((agent.icon, agent.tone), (IconName::Bot, Tone::Investigate));
+        assert_eq!(
+            agent.title,
+            "Noyan \u{b7} Checkout slowness \u{b7} asks: Add an index on orders.created_at?"
+        );
         assert_eq!(
             agent.target,
             Target::Agent {

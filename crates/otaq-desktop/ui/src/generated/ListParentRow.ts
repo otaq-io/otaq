@@ -11,7 +11,7 @@ export type ListParentRow = {
  */
 key: string, external_id: string | null, name: string, track: ListRowTrack, 
 /**
- * "1 of 5 merged · Wishlist lead is re-planning", "0 of 3 merged · from the Project agent".
+ * "1 of 5 merged · Wishlist lead is re-planning", "0 of 3 merged · from Noyan".
  */
 line: string, 
 /**

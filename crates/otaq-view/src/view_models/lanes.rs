@@ -2,8 +2,8 @@
 //!
 //! **Lanes: Epic** ([`build`]): the Board splits into one lane per epic across the same columns, "No epic" last. A
 //! lane's head has the epic's name, its External ID (or its key), "5 tickets", a progress bar of its merged children,
-//! and its lead with what it's doing ("Wishlist lead · re-planning"); an epic the Project agent made says "from the
-//! Project agent" (d0091). Lanes fold by their head (`ViewPrefs::folded_lanes`, SHB-05). Each lane's cells hold the
+//! and its lead with what it's doing ("Wishlist lead · re-planning"); an epic the Project agent made says "from
+//! Noyan" (d0091). Lanes fold by their head (`ViewPrefs::folded_lanes`, SHB-05). Each lane's cells hold the
 //! cards of its column the Board would show, in the Board's order; a folded column's cell is empty. Dragging a lane
 //! head is dragging its epic: the page sends the epic's key through `board.drag` / `board.drop`, so 0080's epic drags
 //! (queue, take back, Park all) run unchanged.
@@ -15,7 +15,7 @@
 //! **Group by Epic** ([`by_epic`]): the List's epic groups (EPL-02). Each epic is a parent row with its own track
 //! (where the epic as a whole is: the earliest stage a child works in, else Ready for Dev while one waits, else
 //! Backlog; the epic's own place once it is past Backlog), "1 of 5 merged · Wishlist lead is re-planning" (or "· from
-//! the Project agent"), and its children nested under it in key order; parents fold with the same preference as
+//! Noyan"), and its children nested under it in key order; parents fold with the same preference as
 //! lanes. A click on a parent opens the epic like a ticket. The List (T-0461) draws each child with its own row.
 //!
 //! Order (d0047, d0080): pinned epics (most recently pinned first) → an epic with a child that needs the user (or
@@ -44,7 +44,7 @@ pub const NO_EPIC: &str = "No epic";
 /// The "No epic" lane's id in `ViewPrefs::folded_lanes` (epic lanes go by the epic's key).
 pub const NO_EPIC_LANE: &str = "no-epic";
 /// What an epic the Project agent made says after its count (d0091).
-pub const FROM_PROJECT_AGENT: &str = "from the Project agent";
+pub const FROM_PROJECT_AGENT: &str = "from Noyan";
 /// The fold button's tooltips.
 pub const FOLD_LANE: &str = "Fold this lane";
 pub const UNFOLD_LANE: &str = "Unfold this lane";
@@ -76,7 +76,7 @@ pub struct Lane {
 pub struct LaneHead {
     /// "Wishlist", "No epic".
     pub name: String,
-    /// "PAY-123 · 5 tickets", "SHOP-34 · 3 tickets · from the Project agent", "5 tickets".
+    /// "PAY-123 · 5 tickets", "SHOP-34 · 3 tickets · from Noyan", "5 tickets".
     pub detail: String,
     /// The bar of merged children; `null` for "No epic".
     pub progress: Option<LaneProgress>,
@@ -348,7 +348,7 @@ pub struct ParentRow {
     pub external_id: Option<String>,
     pub name: String,
     pub track: RowTrack,
-    /// "1 of 5 merged · Wishlist lead is re-planning", "0 of 3 merged · from the Project agent".
+    /// "1 of 5 merged · Wishlist lead is re-planning", "0 of 3 merged · from Noyan".
     pub line: String,
     /// The WHO column: the lead; `null` without a live lead.
     pub lead: Option<LeadStatusView>,
@@ -517,7 +517,7 @@ pub fn by_epic(
     }
 }
 
-/// The gallery's lane heads (`s24-06`): Wishlist with its lead in each state, an epic from the Project agent, and
+/// The gallery's lane heads (`s24-06`): Wishlist with its lead in each state, an epic from Noyan, and
 /// "No epic". `LaneGalleryHead` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LaneGalleryHead")]
@@ -575,11 +575,7 @@ pub fn gallery_heads() -> Vec<GalleryHead> {
     .map(|(name, status)| cell(name, head(&epic, &tickets, Some(&lead(status))), false))
     .collect();
     out.push(cell("No lead", head(&epic, &tickets, None), false));
-    out.push(cell(
-        "From the Project agent",
-        head(&slow, &slow_children, None),
-        false,
-    ));
+    out.push(cell("From Noyan", head(&slow, &slow_children, None), false));
     out.push(cell(
         "Folded · a child needs you",
         LaneHead {
@@ -873,10 +869,7 @@ flow:
 
         let slow = &lanes[1];
         assert_eq!(slow.head.name, "Checkout slowness");
-        assert_eq!(
-            slow.head.detail,
-            "SHOP-34 · 3 tickets · from the Project agent"
-        );
+        assert_eq!(slow.head.detail, "SHOP-34 · 3 tickets · from Noyan");
         assert_eq!(slow.head.progress.as_ref().unwrap().label, "0 of 3 merged");
         assert_eq!(slow.head.lead, None);
         assert_eq!(keys(slow, "ready_for_dev"), ["SHOP-35"]);
@@ -1057,7 +1050,7 @@ flow:
     }
 
     /// EPL-02: Group by Epic in the List: "Epics 2", a parent row per epic with its own track, "1 of 5 merged ·
-    /// Wishlist lead is re-planning" (or "· from the Project agent"), its children nested in key order, parents
+    /// Wishlist lead is re-planning" (or "· from Noyan"), its children nested in key order, parents
     /// fold; then "No epic 5".
     #[test]
     fn the_parent_rows() {
@@ -1104,7 +1097,7 @@ flow:
             ]
         );
         assert!(!wishlist.folded);
-        assert_eq!(slow.parent.line, "0 of 3 merged · from the Project agent");
+        assert_eq!(slow.parent.line, "0 of 3 merged · from Noyan");
         assert_eq!(slow.parent.track.label, "Dev");
         assert_eq!(slow.parent.lead, None);
         assert_eq!(slow.children, ["SHOP-18", "SHOP-29", "SHOP-35"]);

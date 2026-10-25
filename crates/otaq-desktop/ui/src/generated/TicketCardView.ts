@@ -54,7 +54,7 @@ edge: CardTone | null,
  */
 action: CardAction | null, 
 /**
- * "Created by Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
+ * "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
  */
 origin: string | null, 
 /**

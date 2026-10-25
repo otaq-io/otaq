@@ -11,7 +11,7 @@
 //!   wins the head says its words here first; every flag that loses the head joins it with " · " in the flag order
 //!   ("Allow rm -rf .next? · also running :4022"), then the quiet facts that never take the head (waits, background
 //!   work, messages waiting, the lead's markers, the review entry, the diff).
-//! - **Origin line** of a card an agent created ("Created by Checkout slowness", violet, d0068).
+//! - **Origin line** of a card an agent created ("Created by Noyan · Checkout slowness", violet, d0068).
 //! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
 //!   Its **agent part** (M22, AGT-04, AGM-09; [`footer_agent`]): while an agent runs, the agent of whoever has the
@@ -259,15 +259,15 @@ pub fn sleeve(ticket: &Ticket, all: &[Ticket]) -> Option<Sleeve> {
     })
 }
 
-/// Who added a child that joined its whole-queued epic's queue (EPC-13): "SHOP-40.2", "you", a Project agent.
+/// Who added a child that joined its whole-queued epic's queue (EPC-13): "SHOP-40.2", "you", "Noyan · Checkout slowness".
 fn joined_by(actor: &Actor, ticket: &Ticket, agent_name: Option<&str>) -> String {
     match actor {
         Actor::User(_) => "you".to_owned(),
         Actor::Agent(key) => key.to_string(),
         // The board knows the current name of the agent that created the ticket (d0068).
         Actor::ProjectAgent(_) => match agent_name.filter(|_| &ticket.created_by == actor) {
-            Some(name) => format!("Project agent \u{201c}{name}\u{201d}"),
-            None => "a Project agent".to_owned(),
+            Some(name) => format!("Noyan \u{b7} {name}"),
+            None => "Noyan".to_owned(),
         },
     }
 }
@@ -597,7 +597,7 @@ pub struct CardViewModel {
     pub flag: Option<HeadFlag>,
     pub title: String,
     pub situation: Option<Situation>,
-    /// "Created by Checkout slowness" (d0068).
+    /// "Created by Noyan · Checkout slowness" (d0068).
     pub origin: Option<String>,
     pub footer: Option<Footer>,
     pub hover: StatusHover,
@@ -2333,14 +2333,14 @@ pub fn remote_warning_hover(w: &otaq_core::domain::RemoteWarning) -> Hover {
     }
 }
 
-/// The origin line of a card an agent created, while it waits in Backlog (d0019, d0068): "Created by Checkout
-/// slowness" for a Project agent (its current name), "Created by SHOP-40.2" for a ticket's agent.
+/// The origin line of a card an agent created, while it waits in Backlog (d0019, d0068): "Created by Noyan · Checkout
+/// slowness" for a Project agent (its conversation's current name), "Created by SHOP-40.2" for a ticket's agent.
 fn origin(ticket: &Ticket, x: &CardExtras) -> Option<String> {
     use crate::view_models::agent_activity::{origin_label, project_agent_label};
     if project_agent_label(ticket, x.agent_name.as_deref()).is_some() {
         return Some(match &x.agent_name {
-            Some(name) => format!("Created by {name}"),
-            None => "Created by a Project agent".to_owned(),
+            Some(name) => format!("Created by Noyan \u{b7} {name}"),
+            None => "Created by Noyan".to_owned(),
         });
     }
     origin_label(ticket)?;
@@ -3132,7 +3132,7 @@ mod tests {
         let rows: &[Row] = &[
             ("Backlog · calm", None, Some("on release/2.3"), None),
             ("Ready to start (0066)", None, Some("Ready to start"), None),
-            ("Created by a Project agent (0068)", None, None, None),
+            ("Created by Noyan (0068)", None, None, None),
             (
                 "Waits for merge (0049)",
                 None,
@@ -3398,9 +3398,9 @@ mod tests {
                 Some("[Pass] [Fail]"),
             ),
             (
-                "Your check \u{b7} skipped by the Project agent",
+                "Your check \u{b7} skipped by Noyan",
                 Some("Your check"),
-                Some("Skipped Grill \u{b7} by Planner"),
+                Some("Skipped Grill \u{b7} by Noyan"),
                 Some("[Pass] [Fail]"),
             ),
             (
@@ -4021,11 +4021,14 @@ mod tests {
     /// The origin line of an agent-made card (d0068), in Backlog only, as before.
     #[test]
     fn the_origin_line() {
-        let (mut t, vm) = variant("Created by a Project agent (0068)");
-        assert_eq!(vm.origin.as_deref(), Some("Created by Checkout slowness"));
+        let (mut t, vm) = variant("Created by Noyan (0068)");
+        assert_eq!(
+            vm.origin.as_deref(),
+            Some("Created by Noyan \u{b7} Checkout slowness")
+        );
         assert_eq!(
             card(&t).origin.as_deref(),
-            Some("Created by a Project agent"),
+            Some("Created by Noyan"),
             "an agent that isn't listed any more"
         );
         t.created_by = Actor::Agent("SHOP-40.2".parse().unwrap());
@@ -4807,11 +4810,11 @@ mod tests {
         };
         assert_eq!(
             line(&CardViewModel::from(&t, &named, NOW)),
-            Some("New · added by Project agent “Checkout slowness” · in Ready for Dev")
+            Some("New · added by Noyan · Checkout slowness · in Ready for Dev")
         );
         assert_eq!(
             line(&card(&t)),
-            Some("New · added by a Project agent · in Ready for Dev")
+            Some("New · added by Noyan · in Ready for Dev")
         );
     }
 

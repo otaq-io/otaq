@@ -75,7 +75,7 @@ pub struct View {
 pub fn view(name: &str, keys: &KeyLabels) -> View {
     View {
         title: format!("{name} is ready"),
-        text: "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
+        text: "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
             .to_owned(),
         buttons: actions()
             .iter()
@@ -88,7 +88,7 @@ pub fn view(name: &str, keys: &KeyLabels) -> View {
             .collect(),
         hints: [
             (KeyAction::NewTicket, "new ticket"),
-            (KeyAction::FocusAgentPanel, "ask the Project agent"),
+            (KeyAction::FocusAgentPanel, "ask Noyan"),
         ]
         .into_iter()
         .filter_map(|(action, label)| {
@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(v.title, "shop-web is ready");
         assert_eq!(
             v.text,
-            "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
+            "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
         );
         let actions: Vec<KeyAction> = v.buttons.iter().map(|b| b.action).collect();
         assert_eq!(actions, [KeyAction::NewTicket]);
@@ -143,12 +143,12 @@ mod tests {
             hints(&fixtures::base()),
             [
                 ("⌘N".to_owned(), "new ticket"),
-                ("⌘L".to_owned(), "ask the Project agent")
+                ("⌘L".to_owned(), "ask Noyan")
             ]
         );
     }
 
-    /// d0126: each hint is a button that runs its key's action (⌘L opens the Project agent, focused).
+    /// d0126: each hint is a button that runs its key's action (⌘L opens Noyan, focused).
     #[test]
     fn the_hints_run_their_keys_actions() {
         let actions: Vec<KeyAction> = view("shop-web", &fixtures::base())
@@ -165,7 +165,7 @@ mod tests {
             hints(&KeyLabels::base(Platform::WinLinux)),
             [
                 ("Ctrl+N".to_owned(), "new ticket"),
-                ("Ctrl+L".to_owned(), "ask the Project agent")
+                ("Ctrl+L".to_owned(), "ask Noyan")
             ]
         );
     }
@@ -178,22 +178,19 @@ mod tests {
             hints(&fixtures::replaced("focus_agent_panel", None, 0, "⌥L")),
             [
                 ("⌘N".to_owned(), "new ticket"),
-                ("⌥L".to_owned(), "ask the Project agent")
+                ("⌥L".to_owned(), "ask Noyan")
             ]
         );
         assert_eq!(
             hints(&fixtures::removed("new_ticket", None, 0)),
             [
                 ("c".to_owned(), "new ticket"),
-                ("⌘L".to_owned(), "ask the Project agent")
+                ("⌘L".to_owned(), "ask Noyan")
             ]
         );
         assert_eq!(hints(&fixtures::letters_off()), hints(&fixtures::base()));
         let neither = fixtures::with(false, &[("new_ticket", None, 0, None)]);
-        assert_eq!(
-            hints(&neither),
-            [("⌘L".to_owned(), "ask the Project agent")]
-        );
+        assert_eq!(hints(&neither), [("⌘L".to_owned(), "ask Noyan")]);
         assert_eq!(
             hints(&fixtures::removed("focus_agent_panel", None, 0)),
             [("⌘N".to_owned(), "new ticket")]

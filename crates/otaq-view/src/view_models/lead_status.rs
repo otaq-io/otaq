@@ -8,8 +8,8 @@
 //! ended states are quiet with a quiet icon. "ended by restart" and "ended" offer **Resume**; an epic with no lead
 //! offers the labelled button **Open lead** (its click is the go-ahead for the lead's tokens). A turn the user typed
 //! reads "re-planning", as a wake-up does: the lead no longer plans an epic from scratch (LEAD-13, d0091).
-//! - **Split with the Project agent** (LEAD-13, d0091) takes Open lead's place, in the same style, on an epic with no
-//!   lead and no children ([`LeadStatusView::of_epic`]): its click sends the Project agent the first message
+//! - **Split with Noyan** (LEAD-13, d0091) takes Open lead's place, in the same style, on an epic with no
+//!   lead and no children ([`LeadStatusView::of_epic`]): its click sends Noyan the first message
 //!   "Split SHOP-40 into tickets". Open lead shows once the epic has a child.
 //!
 //! The tooltip (*03 → Interactions (0083)*) holds the full form, what woke it ("SHOP-40.1 merged") and its tokens
@@ -26,7 +26,7 @@ use crate::icons::IconName;
 use crate::view_models::card::tokens_label;
 
 pub const OPEN_LEAD: &str = "Open lead";
-pub const SPLIT_WITH_PROJECT_AGENT: &str = "Split with the Project agent";
+pub const SPLIT_WITH_PROJECT_AGENT: &str = "Split with Noyan";
 pub const RESUME: &str = "Resume";
 /// The hint every live lead's tooltip ends with (frame 17).
 pub const CLICK_HINT: &str = "Click: open the epic sheet on its Lead tab.";
@@ -44,7 +44,7 @@ pub enum Tone {
     AsksYou,
     /// Ended by restart, ended, ended · epic in review: quiet text and icon.
     Ended,
-    /// No lead yet: the "Open lead" (or "Split with the Project agent") button alone.
+    /// No lead yet: the "Open lead" (or "Split with Noyan") button alone.
     None,
 }
 
@@ -61,7 +61,7 @@ pub enum ActionKind {
     Split,
 }
 
-/// What Split with the Project agent sends: the project and the agent panel's first message. `LeadSplit` on the page.
+/// What Split with Noyan sends: the project and the agent panel's first message. `LeadSplit` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LeadSplit")]
 pub struct Split {
@@ -75,7 +75,7 @@ pub fn split_message(epic: &TicketKey) -> String {
     format!("Split {epic} into tickets")
 }
 
-/// Whether `epic` has a child among `tickets` (any status): Open lead shows, not Split with the Project agent.
+/// Whether `epic` has a child among `tickets` (any status): Open lead shows, not Split with Noyan.
 pub fn has_children(epic: &Ticket, tickets: &[Ticket]) -> bool {
     tickets.iter().any(|t| t.epic.as_ref() == Some(&epic.key))
 }
@@ -87,7 +87,7 @@ pub struct Button {
     pub kind: ActionKind,
     pub label: String,
     pub icon: IconName,
-    /// Split with the Project agent: what it sends; `None` for Open lead and Resume.
+    /// Split with Noyan: what it sends; `None` for Open lead and Resume.
     pub split: Option<Split>,
 }
 
@@ -101,7 +101,7 @@ impl Button {
         }
     }
 
-    /// Split with the Project agent for `epic`, in Open lead's style.
+    /// Split with Noyan for `epic`, in Open lead's style.
     pub fn split(epic: &Ticket) -> Self {
         Self {
             kind: ActionKind::Split,
@@ -135,11 +135,11 @@ pub struct LeadStatusView {
     pub state: String,
     /// The short form's state: "answering 40.2", "ended · in review"; empty with no lead.
     pub short: String,
-    /// "Wishlist lead · re-planning", "Open lead" or "Split with the Project agent".
+    /// "Wishlist lead · re-planning", "Open lead" or "Split with Noyan".
     pub full: String,
     pub tone: Tone,
     pub icon: IconName,
-    /// Resume (ended by restart, ended), Open lead (no lead) or Split with the Project agent (no lead, no children).
+    /// Resume (ended by restart, ended), Open lead (no lead) or Split with Noyan (no lead, no children).
     pub action: Option<Button>,
     pub tooltip: Tooltip,
     /// A live lead: a click on the status opens the epic sheet on its Lead tab.
@@ -180,7 +180,7 @@ impl LeadStatusView {
     }
 
     /// The status on `epic`'s card and Lead tab, among its project's `tickets`: with no lead and no children,
-    /// Split with the Project agent in Open lead's place (LEAD-13); otherwise as [`of`](Self::of).
+    /// Split with Noyan in Open lead's place (LEAD-13); otherwise as [`of`](Self::of).
     pub fn of_epic(epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) -> Self {
         let no_lead = lead.is_none_or(|l| l.status == LeadStatus::None);
         if no_lead && !has_children(epic, tickets) {
@@ -202,7 +202,7 @@ impl LeadStatusView {
             tooltip: Tooltip {
                 title: SPLIT_WITH_PROJECT_AGENT.to_owned(),
                 lines: vec![format!(
-                    "Sends the Project agent the first message \u{201c}{}\u{201d}.",
+                    "Sends Noyan the first message \u{201c}{}\u{201d}.",
                     split_message(&epic.key)
                 )],
             },
@@ -505,7 +505,7 @@ pub fn gallery() -> Gallery {
     };
     let epics = vec![
         card(
-            "No children · Split with the Project agent (0091)",
+            "No children · Split with Noyan (0091)",
             std::slice::from_ref(&epic),
             None,
         ),
@@ -694,7 +694,7 @@ mod tests {
         let g = gallery();
         assert_eq!(g.statuses.len(), 10);
         let names: Vec<&str> = g.statuses.iter().map(|s| s.view.full.as_str()).collect();
-        assert_eq!(names[8..], ["Open lead", "Split with the Project agent"]);
+        assert_eq!(names[8..], ["Open lead", "Split with Noyan"]);
         assert!(
             g.statuses
                 .iter()
@@ -706,10 +706,7 @@ mod tests {
         assert_eq!(g.epics.len(), 5);
         let empty = &g.epics[0].card;
         assert!(empty.children.is_empty());
-        assert_eq!(
-            empty.lead.as_ref().unwrap().full,
-            "Split with the Project agent"
-        );
+        assert_eq!(empty.lead.as_ref().unwrap().full, "Split with Noyan");
         assert_eq!(g.epics[1].card.lead.as_ref().unwrap().full, "Open lead");
         assert!(g.epics[1].card.children.iter().all(|c| c.origin.is_none()));
         assert!(
@@ -722,25 +719,21 @@ mod tests {
         assert!(g.epics[4].card.lead_asks);
     }
 
-    /// LEAD-13 (d0091): an epic with no lead and no children shows Split with the Project agent in Open lead's
+    /// LEAD-13 (d0091): an epic with no lead and no children shows Split with Noyan in Open lead's
     /// place and style; once it has a child (any status), Open lead; a lead keeps its Lead Status either way.
     #[test]
     fn an_empty_epic_splits_with_the_project_agent() {
         let epic = wishlist();
         let v = LeadStatusView::of_epic(&epic, std::slice::from_ref(&epic), None);
         assert_eq!(v.name, None);
-        assert_eq!(v.full, "Split with the Project agent");
+        assert_eq!(v.full, "Split with Noyan");
         assert_eq!(v.tone, Tone::None);
         assert_eq!(v.icon, IconName::Bot);
         assert!(!v.opens_tab);
         let action = v.action.expect("the button");
         assert_eq!(
             (action.kind, action.label.as_str(), action.icon),
-            (
-                ActionKind::Split,
-                "Split with the Project agent",
-                IconName::Bot
-            )
+            (ActionKind::Split, "Split with Noyan", IconName::Bot)
         );
         assert_eq!(
             action.split,
@@ -749,18 +742,16 @@ mod tests {
                 message: "Split SHOP-40 into tickets".into(),
             })
         );
-        assert_eq!(v.tooltip.title, "Split with the Project agent");
+        assert_eq!(v.tooltip.title, "Split with Noyan");
         assert_eq!(
             v.tooltip.lines,
-            [
-                "Sends the Project agent the first message \u{201c}Split SHOP-40 into tickets\u{201d}."
-            ]
+            ["Sends Noyan the first message \u{201c}Split SHOP-40 into tickets\u{201d}."]
         );
         // A lead row with no lead behaves as none.
         let none = sample(&epic, LeadStatus::None, 0);
         assert_eq!(
             LeadStatusView::of_epic(&epic, std::slice::from_ref(&epic), Some(&none)).full,
-            "Split with the Project agent"
+            "Split with Noyan"
         );
 
         // A child, even a closed one: Open lead.

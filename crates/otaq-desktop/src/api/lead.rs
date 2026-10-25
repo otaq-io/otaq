@@ -195,7 +195,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             load["view"]["status"]["full"],
-            "Split with the Project agent"
+            "Split with Noyan"
         );
         assert_eq!(
             load["view"]["body"]["button"]["split"],

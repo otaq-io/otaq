@@ -598,7 +598,7 @@ impl Status {
             Self::MergeConflictFixing => otaq_core::domain::validation::MERGE_CONFLICT_FIXING,
             Self::MergedAutomatically => otaq_core::domain::validation::MERGED_AUTOMATICALLY,
             Self::ReadyToStart => "Ready to start",
-            Self::ProjectAgent => "by Project agent",
+            Self::ProjectAgent => "by Noyan",
             Self::AskedLead => "Asked lead",
             Self::UpdatedByLead => "Updated by lead",
         }

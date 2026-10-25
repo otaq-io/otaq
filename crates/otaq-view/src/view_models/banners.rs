@@ -461,7 +461,7 @@ fn row(situation: &Situation) -> BannerRow {
             leads,
         } => {
             let sessions = if *count == 1 { "session was" } else { "sessions were" };
-            // "8 sessions were interrupted · 2 Project agents ended" (*16 → Opening after a reboot*), "4 sessions were
+            // "8 sessions were interrupted · 2 conversations with Noyan ended" (*16 → Opening after a reboot*), "4 sessions were
             // interrupted · 1 epic lead ended" (*16 → Epic lead after a restart*).
             let ended: String = crate::view_models::after_restart::ended(*agents as usize, *leads as usize)
                 .iter()
@@ -874,7 +874,7 @@ mod tests {
         });
         assert_eq!(
             m.rows()[0].title,
-            "8 sessions were interrupted \u{b7} 2 Project agents ended"
+            "8 sessions were interrupted \u{b7} 2 conversations with Noyan ended"
         );
         m.raise(Situation::SessionsInterrupted {
             count: 4,

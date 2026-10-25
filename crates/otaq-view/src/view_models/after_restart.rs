@@ -174,7 +174,7 @@ pub struct SummaryMore {
     pub resumable: Vec<String>,
 }
 
-/// One Project agent the restart ended (*16 → Opening after a reboot*, PROJECT AGENTS). `AfterRestartAgent` on the
+/// One Project agent the restart ended (*16 → Opening after a reboot*, CONVERSATIONS WITH NOYAN). `AfterRestartAgent` on the
 /// page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AfterRestartAgent")]
@@ -199,7 +199,7 @@ pub struct AgentRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AfterRestartAgents")]
 pub struct AgentsPart {
-    /// "PROJECT AGENTS · NOT IN RESUME SELECTED · TERMINALS ARE GONE".
+    /// "CONVERSATIONS WITH NOYAN · NOT IN RESUME SELECTED · TERMINALS ARE GONE".
     pub title: &'static str,
     pub rows: Vec<AgentRow>,
     /// "A “New agent” that had no request yet is discarded, not listed."
@@ -367,7 +367,7 @@ fn agents_part(
         )),
     };
     (!rows.is_empty() || discarded.is_some()).then_some(AgentsPart {
-        title: "PROJECT AGENTS \u{b7} NOT IN RESUME SELECTED \u{b7} TERMINALS ARE GONE",
+        title: "CONVERSATIONS WITH NOYAN \u{b7} NOT IN RESUME SELECTED \u{b7} TERMINALS ARE GONE",
         rows,
         discarded,
     })
@@ -408,7 +408,7 @@ fn skipped(tickets: &[&Ticket], runs: &Runs) -> Vec<String> {
     lines
 }
 
-/// "8 sessions were interrupted · 2 Project agents ended · 1 epic lead ended" (*16 → Epic lead after a restart*).
+/// "8 sessions were interrupted · 2 conversations with Noyan ended · 1 epic lead ended" (*16 → Epic lead after a restart*).
 pub fn title(sessions: usize, agents: usize, leads: usize) -> String {
     let sessions = match sessions {
         0 => None,
@@ -422,13 +422,13 @@ pub fn title(sessions: usize, agents: usize, leads: usize) -> String {
         .join(" \u{b7} ")
 }
 
-/// What the restart ended besides tickets, each counted on its own (d0068, d0083): "2 Project agents ended", "1
-/// epic lead ended". Epic leads aren't Project agents in the count, and aren't in Resume selected.
+/// What the restart ended besides tickets, each counted on its own (d0068, d0083): "2 conversations with Noyan
+/// ended", "1 epic lead ended". Epic leads aren't Project agents in the count, and aren't in Resume selected.
 pub fn ended(agents: usize, leads: usize) -> Vec<String> {
     let agents = match agents {
         0 => None,
-        1 => Some("1 Project agent ended".to_owned()),
-        n => Some(format!("{n} Project agents ended")),
+        1 => Some("1 conversation with Noyan ended".to_owned()),
+        n => Some(format!("{n} conversations with Noyan ended")),
     };
     let leads = match leads {
         0 => None,
@@ -804,7 +804,7 @@ mod tests {
         let page = summary(&r, &tickets, &agents, &projects(), &BTreeSet::new(), false).unwrap();
         assert_eq!(
             page.title,
-            "1 session was interrupted \u{b7} 2 Project agents ended"
+            "1 session was interrupted \u{b7} 2 conversations with Noyan ended"
         );
         assert_eq!(
             page.rows[0].detail,
@@ -820,7 +820,7 @@ mod tests {
         let page = summary(&r, &tickets, &agents, &projects(), &BTreeSet::new(), false).unwrap();
         assert_eq!(
             page.title,
-            "1 session was interrupted \u{b7} 2 Project agents ended \u{b7} 1 epic lead ended"
+            "1 session was interrupted \u{b7} 2 conversations with Noyan ended \u{b7} 1 epic lead ended"
         );
         assert_eq!(page.selected, ["SHOP-29"]);
         assert_eq!(
@@ -831,10 +831,17 @@ mod tests {
             title(4, 0, 2),
             "4 sessions were interrupted \u{b7} 2 epic leads ended"
         );
+        // d0128: the conversations with Noyan are counted, one or several.
+        assert_eq!(
+            title(4, 2, 1),
+            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended \u{b7} 1 epic lead ended"
+        );
+        assert_eq!(ended(1, 0), ["1 conversation with Noyan ended"]);
+        assert_eq!(ended(2, 0), ["2 conversations with Noyan ended"]);
         let part = page.agents.unwrap();
         assert_eq!(
             part.title,
-            "PROJECT AGENTS \u{b7} NOT IN RESUME SELECTED \u{b7} TERMINALS ARE GONE"
+            "CONVERSATIONS WITH NOYAN \u{b7} NOT IN RESUME SELECTED \u{b7} TERMINALS ARE GONE"
         );
         let rows: Vec<(&str, &str, &str, bool)> = part
             .rows
@@ -876,7 +883,7 @@ mod tests {
         let mut running = ended_agent("a1", "Checkout slowness", false);
         running.state = AgentState::Running;
         let page = summary(&only, &[], &[running], &projects(), &BTreeSet::new(), false).unwrap();
-        assert_eq!(page.title, "1 Project agent ended");
+        assert_eq!(page.title, "1 conversation with Noyan ended");
         let row = &page.agents.unwrap().rows[0];
         assert!(!row.resumable);
         assert_eq!(row.detail, "Resumed \u{b7} same conversation");

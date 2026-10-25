@@ -57,7 +57,7 @@ pub struct TicketCardView {
     pub edge: Option<Tone>,
     /// The card's one action (Answer, Reply, Review, Decide…).
     pub action: Option<CardAction>,
-    /// "Created by Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
+    /// "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
     pub origin: Option<String>,
     /// The full status and what the card has no room for.
     pub hover: StatusHover,
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn an_agent_made_card_names_its_agent() {
         let g = gallery();
-        let card = cell(&g, "Created by a Project agent (0068)");
+        let card = cell(&g, "Created by Noyan (0068)");
         assert!(
             card.origin
                 .as_deref()

@@ -42,13 +42,13 @@ pub struct DeleteText {
     pub error: Option<String>,
 }
 
-/// A ticket a Project agent created says so first (*18 → Delete a created ticket · confirm (0060)*): "Project agent
-/// “Checkout slowness” created it and it never started."
+/// A ticket a Project agent created says so first (*18 → Delete a created ticket · confirm (0060)*): "Noyan created
+/// it in “Checkout slowness” and it never started."
 pub fn created_by_agent(mut text: DeleteText, agent: &str) -> DeleteText {
     if let Some(first) = text.body.first_mut()
         && first.starts_with("It never started")
     {
-        *first = format!("Project agent \u{201c}{agent}\u{201d} created it and it never started.");
+        *first = format!("Noyan created it in \u{201c}{agent}\u{201d} and it never started.");
     }
     text
 }
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(
             t.body,
             [
-                "Project agent \u{201c}Checkout slowness\u{201d} created it and it never started.",
+                "Noyan created it in \u{201c}Checkout slowness\u{201d} and it never started.",
                 "Its link to SHOP-20 is removed too.",
             ]
         );
