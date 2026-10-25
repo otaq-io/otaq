@@ -110,6 +110,8 @@ const cardOf = (key: string): BoardCard => ({
     fresh: false,
     open_sheet: "Open panel",
     open_sheet_keys: "↵",
+    action_note: null,
+    check: null,
     open_terminal: "Open terminal",
   },
 });
@@ -841,6 +843,8 @@ describe("the board screen", () => {
       fresh: false,
       open_sheet: "Open panel",
       open_sheet_keys: "↵",
+      action_note: null,
+      check: null,
       open_terminal: "Open terminal",
     },
   });
@@ -981,6 +985,8 @@ describe("the Review column (T-0328, d0087)", () => {
       fresh: false,
       open_sheet: "Open panel",
       open_sheet_keys: "↵",
+      action_note: null,
+      check: null,
       open_terminal: "Open terminal",
     },
   });

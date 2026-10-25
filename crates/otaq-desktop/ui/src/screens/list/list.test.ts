@@ -43,6 +43,8 @@ function row(
       fresh: false,
       open_sheet: "Open panel",
       open_sheet_keys: "↵",
+      action_note: null,
+      check: null,
       open_terminal: "Open terminal",
       ...card,
     },

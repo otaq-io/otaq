@@ -657,3 +657,52 @@
     box-shadow: 0 0 0 0 transparent;
   }
 }
+
+/* A Check stage with several check agents (d0130, `s29-04`): a row of agents, each its tool mark, name and state. */
+.check-round {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.check-round-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.check-round-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.check-round-name {
+  color: var(--text-primary);
+  font: 500 11.5px var(--font-ui);
+  white-space: nowrap;
+}
+
+.check-round-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.check-round-state {
+  font: 400 11px var(--font-ui);
+  white-space: nowrap;
+}
+
+.check-round-note,
+.card-action-note {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.card-action-note {
+  flex: none;
+  white-space: nowrap;
+}

@@ -234,13 +234,22 @@ pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<Stag
         .iter()
         .enumerate()
         .map(|(i, stage)| {
-            // T-0527: every check agent (an agent check's agents on one line, its first's model).
+            // An agent check's agents on one line, and their models in the same order (d0130).
+            let model_of = |name: &str| {
+                find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref()))
+            };
             let (agent, model) = match (stage.kind, stage.named_agents().next()) {
                 (StageKind::Check { by: CheckBy::You }, _) => ("You".to_owned(), None),
-                (_, Some(name)) => (
+                (_, Some(_)) if stage.check_agents().len() > 1 => (
                     stage.agents_line(),
-                    find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref())),
+                    stage
+                        .check_agents()
+                        .iter()
+                        .map(|n| model_of(n))
+                        .collect::<Option<Vec<_>>>()
+                        .map(|m| m.join(" + ")),
                 ),
+                (_, Some(name)) => (stage.agents_line(), model_of(name)),
                 (_, None) => (NONE.to_owned(), None),
             };
             StageRow {
@@ -643,7 +652,7 @@ mod tests {
                     "Security",
                     "Check \u{b7} agent \u{b7} 2 rounds",
                     "Security reviewer + Validator",
-                    Some("Claude Code \u{b7} opus"),
+                    Some("Claude Code \u{b7} opus + Codex \u{b7} gpt-5.5"),
                     "\u{2014}"
                 ),
                 ("QA", "Check \u{b7} you", "You", None, "skip"),

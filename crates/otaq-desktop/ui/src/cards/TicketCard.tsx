@@ -16,6 +16,7 @@ import type { CardStatusHover } from "../generated/CardStatusHover";
 import type { CardStatusLine } from "../generated/CardStatusLine";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { Icon } from "../theme/Icon";
+import { CheckRoundRows } from "./CheckRound";
 import { type CardState, edgeColor, paletteInk, RESTING, toneInk } from "./look";
 
 export interface TicketCardProps {
@@ -171,6 +172,8 @@ function WhoRow({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) 
           />
         </span>
       )}
+      {/* The one check agent the action acts on: "for Performance only" (d0130). */}
+      {action && card.action_note !== null && <span className="card-action-note">{card.action_note}</span>}
     </div>
   );
 }
@@ -225,6 +228,7 @@ function Body({
         <div className="card-title">{card.title}</div>
       </Tooltip>
       {card.status && <StatusLine line={card.status} />}
+      {card.check !== null && <CheckRoundRows round={card.check} />}
       {card.blocks !== null && (
         <div className="card-blocks">
           <Icon name="link" size={11} />

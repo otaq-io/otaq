@@ -134,8 +134,11 @@ pub enum Recovery {
 #[ts(rename = "TerminalTabCheck")]
 pub struct Check {
     pub session: String,
-    /// Its agent's name, Session's switch's label: "Validator", "Security reviewer".
+    /// Its agent's name, Session's switch's label: "Validator", "Security reviewer", "Security reviewer ✓" for one of
+    /// several check agents with its verdict (d0130).
     pub label: String,
+    /// One of several check agents: its name as the stage lists it, as Session's switch's part names it.
+    pub agent: Option<String>,
     /// The terminal's accessible name: "SHOP-19 · Security reviewer terminal".
     pub terminal_label: String,
     /// "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19".
@@ -146,7 +149,8 @@ pub struct Check {
     pub read_only: bool,
     /// The state label and hint for every phase and focus, as [`View::strips`].
     pub strips: Vec<Strip>,
-    /// `otaq attach SHOP-19 --stage security` while it runs.
+    /// `otaq attach SHOP-19 --stage security` while it runs; `otaq attach SHOP-33 --stage validate --agent "Security
+    /// reviewer"` for one of several check agents (d0130 row 17).
     pub attach_command: String,
 }
 
@@ -188,8 +192,8 @@ pub struct View {
     pub line: Option<String>,
     /// "Typing goes to Rust developer · SHOP-22" (or "Click to type to …") while its session runs.
     pub typing: Option<session_tab::Typing>,
-    /// Set once a check stage ran: Session's switch shows its side.
-    pub check: Option<Check>,
+    /// Set once a check stage ran: Session's switch shows its side, one per check agent of its round (d0130).
+    pub checks: Vec<Check>,
 }
 
 /// What `terminal_tab.view` answers: the view, or "SHOP-25 is gone." once the ticket was deleted.
@@ -225,7 +229,8 @@ pub fn check_of(
     let worktree = ticket.work.as_ref().and_then(|w| w.worktree.as_deref());
     Check {
         session: session.id.clone(),
-        label: side.agent.clone(),
+        label: side.label(),
+        agent: side.several.then(|| side.agent.clone()),
         terminal_label: format!("{} \u{b7} {} terminal", ticket.key, side.agent),
         line: session_tab::agent_line(&side.agent, session.tool, model_of(session), worktree),
         typing: side
@@ -233,10 +238,7 @@ pub fn check_of(
             .then(|| session_tab::typing_goes_to(&side.agent, &ticket.key)),
         read_only: !side.running,
         strips,
-        attach_command: strip::validator_attach_command(
-            &ticket.key,
-            side.stage_id.as_deref().filter(|_| side.running),
-        ),
+        attach_command: session_tab::check_attach_command(&ticket.key, side),
     }
 }
 
@@ -313,7 +315,7 @@ pub fn view_with(
     ticket: &Ticket,
     sessions: &[SessionInfo],
     rounds: &[ValidationRecord],
-    check: Option<&CheckSide>,
+    checks: &[CheckSide],
     project_name: &str,
     before: Option<&BeforeRestart>,
     keys: &KeyLabels,
@@ -365,10 +367,13 @@ pub fn view_with(
         .filter(|_| ticket.status == otaq_core::domain::Status::WorkingInBackground)
         .and_then(|s| s.text.as_deref())
         .map(|t| t.strip_prefix("background: ").unwrap_or(t).to_owned());
-    let check = check.and_then(|side| {
-        let session = sessions.iter().find(|s| s.id == side.session)?;
-        Some(check_of(ticket, side, session, rounds))
-    });
+    let checks = checks
+        .iter()
+        .filter_map(|side| {
+            let session = sessions.iter().find(|s| s.id == side.session)?;
+            Some(check_of(ticket, side, session, rounds))
+        })
+        .collect();
     let agent = session.map(|s| {
         s.agent
             .as_ref()
@@ -413,7 +418,7 @@ pub fn view_with(
         typing: agent
             .filter(|_| running && !recovering)
             .map(|agent| session_tab::typing_goes_to(&agent, &ticket.key)),
-        check,
+        checks,
     }
 }
 
@@ -477,7 +482,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let sessions = sessions(app, &params.key).await?;
     let name = project_name(app, &ticket.key).await?;
     // The check's side, its rounds (its round's outcome) and its stage (its runs, the flow's names), once one ran.
-    let (rounds, check) = if session_tab::check_session(&sessions).is_some() {
+    let (rounds, checks) = if session_tab::check_session(&sessions).is_some() {
         let agents =
             super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
         let stages = agents
@@ -492,10 +497,10 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         let runs = agents.as_ref().map_or(&[][..], |a| a.runs.as_slice());
         (
             rounds(app, &params.key).await?,
-            session_tab::check_side(&ticket, &sessions, runs, &stages),
+            session_tab::check_sides(&ticket, &sessions, runs, &stages),
         )
     } else {
-        (Vec::new(), None)
+        (Vec::new(), Vec::new())
     };
     let running = session_tab::agent_session(&sessions).is_some_and(SessionInfo::is_running);
     let before = if recovery::shows_recovery(&ticket, running) {
@@ -519,7 +524,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
             &ticket,
             &sessions,
             &rounds,
-            check.as_ref(),
+            &checks,
             &name,
             before.as_ref(),
             &keys,
@@ -586,12 +591,12 @@ mod tests {
         project_name: &str,
         before: Option<&BeforeRestart>,
     ) -> View {
-        let check = session_tab::check_side(ticket, sessions, &[], &Default::default());
+        let checks = session_tab::check_sides(ticket, sessions, &[], &Default::default());
         view_with(
             ticket,
             sessions,
             rounds,
-            check.as_ref(),
+            &checks,
             project_name,
             before,
             &keys::base(),
@@ -604,7 +609,7 @@ mod tests {
     fn leave_and_find_show_the_users_keys_in_a_terminal() {
         let t = ticket(Status::Working);
         let tips = |labels: &KeyLabels| {
-            let v = view_with(&t, &[], &[], None, "shop-web", None, labels);
+            let v = view_with(&t, &[], &[], &[], "shop-web", None, labels);
             (v.leave.keys, v.find.keys)
         };
         let own = |a: &str, b: &str| (Some(a.to_owned()), Some(b.to_owned()));
@@ -818,13 +823,13 @@ mod tests {
     fn the_check_side_shows_once_a_check_ran() {
         let agent = session("a1", SessionState::Running, 0);
         let before = view_of(&ticket(Status::Working), std::slice::from_ref(&agent), &[], "shop-web", None);
-        assert_eq!(before.check, None);
+        assert_eq!(before.checks, []);
 
         // Validating: the validator runs, takes typing and copies its own attach command.
         let sessions = [agent.clone(), validator("v1", SessionState::Running, 5)];
         let rounds = [round(1, "v1", None)];
         let view = view_of(&ticket(Status::Checking), &sessions, &rounds, "shop-web", None);
-        let v = view.check.as_ref().unwrap();
+        let v = view.checks.first().unwrap();
         assert_eq!(v.session, "v1");
         assert_eq!(v.label, "Validator");
         assert_eq!(v.terminal_label, "SHOP-19 \u{b7} Validator terminal");
@@ -844,9 +849,73 @@ mod tests {
 
         // Needs you · validator: its strip says it waits for you.
         let view = view_of(&ticket(Status::CheckerNeedsYou), &sessions, &rounds, "shop-web", None);
-        let v = view.check.unwrap();
+        let v = view.checks.into_iter().next().unwrap();
         let live = v.strips.iter().find(|s| s.phase == Phase::Live && !s.focused).unwrap();
         assert_eq!(live.state.label, "Waiting for you");
+    }
+
+    /// d0130 row 17 (`s29-04`): one terminal per check agent, each with its verdict, its line and typing, and
+    /// attaching with `--stage <id> --agent <name>`.
+    #[test]
+    fn two_check_agents_have_a_terminal_each() {
+        use otaq_core::board::stage_runs::StageRun;
+        use otaq_core::flow::engine::RunResult;
+        let named = |id: &str, name: &str, tool, state| SessionInfo {
+            tool: Some(tool),
+            agent: Some(otaq_core::session::SessionAgent {
+                id: id.into(),
+                name: name.into(),
+            }),
+            ..validator(id, state, 5)
+        };
+        let sessions = [
+            session("a1", SessionState::Ended, 0),
+            named("sec", "Security reviewer", otaq_core::agent_tools::Tool::Claude, SessionState::Ended),
+            named("perf", "Performance reviewer", otaq_core::agent_tools::Tool::Codex, SessionState::Running),
+        ];
+        let run = |session: &str, agent: &str, result| StageRun {
+            stage: "validate".into(),
+            kind: "check".into(),
+            session: Some(session.into()),
+            agent: Some(agent.into()),
+            model: None,
+            round: Some(1),
+            result,
+            summary: None,
+            started_at: 5,
+            ended_at: None,
+        };
+        let runs = [
+            run("sec", "Security reviewer", Some(RunResult::Passed)),
+            run("perf", "Performance reviewer", None),
+        ];
+        let mut t = ticket(Status::Checking);
+        t.place = otaq_core::domain::Place::InStage("validate".into());
+        let sides = session_tab::check_sides(&t, &sessions, &runs, &Default::default());
+        let view = view_with(&t, &sessions, &[], &sides, "shop-web", None, &keys::base());
+        let read: Vec<(&str, Option<&str>, &str, bool)> = view
+            .checks
+            .iter()
+            .map(|c| (c.label.as_str(), c.agent.as_deref(), c.attach_command.as_str(), c.read_only))
+            .collect();
+        let attach = strip::attach_command(&view_key());
+        assert_eq!(
+            read,
+            [
+                ("Security reviewer \u{2713}", Some("Security reviewer"), attach.as_str(), true),
+                (
+                    "Performance reviewer",
+                    Some("Performance reviewer"),
+                    &*format!("{attach} --stage validate --agent \"Performance reviewer\""),
+                    false
+                ),
+            ]
+        );
+        assert_eq!(
+            view.checks[1].typing.as_ref().map(|t| t.focused.as_str()),
+            Some("Typing goes to Performance reviewer \u{b7} SHOP-19")
+        );
+        assert!(view.checks[0].line.starts_with("Security reviewer \u{b7} Claude Code"));
     }
 
     #[test]
@@ -861,7 +930,7 @@ mod tests {
             round(2, "v2", Some(ValidationOutcome::Fail)),
         ];
         let view = view_of(&ticket(Status::CheckFailed), &sessions, &rounds, "shop-web", None);
-        let v = view.check.unwrap();
+        let v = view.checks.into_iter().next().unwrap();
         assert_eq!(v.session, "v2", "the newest");
         assert!(v.read_only);
         assert_eq!(v.typing, None);
@@ -876,14 +945,18 @@ mod tests {
         let mut rounds = rounds.to_vec();
         rounds.push(round(3, "v3", None));
         let v = view_of(&ticket(Status::Checking), &next, &rounds, "shop-web", None)
-            .check
+            .checks
+            .into_iter()
+            .next()
             .unwrap();
         assert_eq!((v.session.as_str(), v.read_only), ("v3", false));
 
         // A restart ended it: its own state.
         let rounds = [round(1, "v1", Some(ValidationOutcome::Interrupted))];
         let v = view_of(&ticket(Status::Interrupted), &sessions[..2], &rounds, "shop-web", None)
-            .check
+            .checks
+            .into_iter()
+            .next()
             .unwrap();
         let ended = v.strips.iter().find(|s| s.phase == Phase::Ended && !s.focused).unwrap();
         assert_eq!(ended.state.label, "Ended by restart");

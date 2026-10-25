@@ -97,9 +97,9 @@ export const SHEET: SheetFrame = {
       ...tab("session", "Session", 2, ["agent", "run", "shell"]),
       mark: { kind: "live" },
       parts: [
-        { content: "agent", label: "Agent", dot: "running" },
-        { content: "run", label: "Run", dot: null },
-        { content: "shell", label: "Shell", dot: null },
+        { content: "agent", label: "Agent", dot: "running", agent: null },
+        { content: "run", label: "Run", dot: null, agent: null },
+        { content: "shell", label: "Shell", dot: null, agent: null },
       ],
     },
     tab("files", "Files", 3, ["files"]),
@@ -168,6 +168,7 @@ export const VIEW: SheetView = {
   path: null,
   open_agent: null,
   build_aside: null,
+  check_round: null,
   refusal: null,
   holds: [],
 };

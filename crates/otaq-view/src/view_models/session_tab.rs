@@ -1,7 +1,9 @@
-//! The sheet's Session tab (SHT-04; d0022, d0035, d0048, d0063, d0108; canvas `s25-06`): the ticket's terminals under
-//! its header, with the switch **Agent · <check's agent> · Run · Shell**. The check's side shows while a check stage
-//! runs on the ticket or after one ran (the running check, else the last: "Validator", "Security reviewer"; its
-//! terminal attaches with `--stage <id>`); the dots say which side waits for you (turquoise) or runs (green). Over the
+//! The sheet's Session tab (SHT-04; d0022, d0035, d0048, d0063, d0108, d0130; canvas `s25-06`, `s29-04`): the ticket's
+//! terminals under its header, with the switch **Agent · <check's agent> · Run · Shell**. The check's side shows while a
+//! check stage runs on the ticket or after one ran (the running check, else the last: "Validator", "Security
+//! reviewer"; its terminal attaches with `--stage <id>`); a check of several agents has one side per check agent, each
+//! with its verdict ("Security reviewer ✓", "Performance reviewer") and attaching with `--stage <id> --agent <name>`
+//! (d0130 row 17). The dots say which side waits for you (turquoise) or runs (green). Over the
 //! terminal, the line "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22" and "Typing goes to Rust
 //! developer"; Run's line "pnpm dev · in SHOP-22’s worktree · :4022" with Open URL. Replaces the panel's Terminal, Run
 //! and Shell tabs.
@@ -12,6 +14,7 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::board::stage_runs::StageRun;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::flow::engine::RunResult;
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_core::terminals::run::{RunInfo, RunState};
 use serde::{Deserialize, Serialize};
@@ -39,8 +42,12 @@ pub enum Dot {
 #[ts(rename = "SessionPartView")]
 pub struct PartView {
     pub content: Content,
+    /// "Security reviewer ✓" (d0130: each check agent's side with its verdict).
     pub label: String,
     pub dot: Option<Dot>,
+    /// A check agent's side of a check of several agents: its name as the stage lists it, which `terminal_tab.view`'s
+    /// checks are found by; `None` for every other part and for a check of one agent.
+    pub agent: Option<String>,
 }
 
 /// The check's side: the ticket's running check session, else its last one.
@@ -53,6 +60,21 @@ pub struct CheckSide {
     /// Its agent's name: the switch's label.
     pub agent: String,
     pub running: bool,
+    /// Its verdict once its run ended with one (d0130: "Security reviewer ✓").
+    pub verdict: Option<RunResult>,
+    /// One of several check agents of its stage's round: its terminal attaches with `--agent` too.
+    pub several: bool,
+}
+
+impl CheckSide {
+    /// The switch's label: the agent, with ✓ once it passed and ✗ once it failed, for one of several (`s29-04`).
+    pub fn label(&self) -> String {
+        match (self.several, self.verdict) {
+            (true, Some(RunResult::Passed)) => format!("{} \u{2713}", self.agent),
+            (true, Some(RunResult::Failed)) => format!("{} \u{2717}", self.agent),
+            _ => self.agent.clone(),
+        }
+    }
 }
 
 /// The switch's label when a check's agent can't be named.
@@ -67,35 +89,95 @@ pub fn check_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
 }
 
 /// The check's side from the ticket's sessions, its stage runs and the flow's stage names (id → name): the stage the
-/// session ran for (the ticket's stage while it runs) and the agent it ran as.
+/// session ran for (the ticket's stage while it runs) and the agent it ran as. With several check agents, the first
+/// of [`check_sides`].
 pub fn check_side(
     ticket: &Ticket,
     sessions: &[SessionInfo],
     runs: &[StageRun],
     stages: &BTreeMap<String, String>,
 ) -> Option<CheckSide> {
-    let session = check_session(sessions)?;
-    let running = session.is_running();
-    let run = runs
+    check_sides(ticket, sessions, runs, stages)
+        .into_iter()
+        .next()
+}
+
+/// Every check side (d0130 row 17: one terminal tab per check agent): the check session Session shows (the running
+/// one, else the newest), and with it the other check agents of its stage's round, each its running or newest
+/// session, in the round's order. A round of one agent is one side, as today.
+pub fn check_sides(
+    ticket: &Ticket,
+    sessions: &[SessionInfo],
+    runs: &[StageRun],
+    stages: &BTreeMap<String, String>,
+) -> Vec<CheckSide> {
+    let Some(first) = check_session(sessions) else {
+        return Vec::new();
+    };
+    let run_of = |session: &SessionInfo| {
+        runs.iter()
+            .rev()
+            .find(|r| r.session.as_deref() == Some(session.id.as_str()))
+    };
+    let agent_of = |session: &SessionInfo| {
+        session
+            .agent
+            .as_ref()
+            .map(|a| a.name.clone())
+            .or_else(|| run_of(session).and_then(|r| r.agent.clone()))
+            .unwrap_or_else(|| CHECK.to_owned())
+    };
+    let side = |session: &SessionInfo, several: bool| {
+        let running = session.is_running();
+        let run = run_of(session);
+        let stage_id = run
+            .map(|r| r.stage.clone())
+            .or_else(|| ticket.place.stage().filter(|_| running).map(str::to_owned));
+        CheckSide {
+            session: session.id.clone(),
+            stage: stage_id.as_ref().and_then(|id| stages.get(id).cloned()),
+            stage_id,
+            agent: agent_of(session),
+            running,
+            verdict: run.and_then(|r| r.result),
+            several,
+        }
+    };
+    // The round the shown session checks in: its run's stage and round number.
+    let Some(round) = run_of(first).map(|r| (r.stage.clone(), r.round)) else {
+        return vec![side(first, false)];
+    };
+    let mut ordered: Vec<(usize, &SessionInfo)> = sessions
         .iter()
-        .rev()
-        .find(|r| r.session.as_deref() == Some(session.id.as_str()));
-    let stage_id = run
-        .map(|r| r.stage.clone())
-        .or_else(|| ticket.place.stage().filter(|_| running).map(str::to_owned));
-    let agent = session
-        .agent
-        .as_ref()
-        .map(|a| a.name.clone())
-        .or_else(|| run.and_then(|r| r.agent.clone()))
-        .unwrap_or_else(|| CHECK.to_owned());
-    Some(CheckSide {
-        session: session.id.clone(),
-        stage: stage_id.as_ref().and_then(|id| stages.get(id).cloned()),
-        stage_id,
-        agent,
-        running,
-    })
+        .filter(|s| s.kind == SessionKind::Validator)
+        .filter_map(|s| {
+            let at = runs
+                .iter()
+                .position(|r| r.session.as_deref() == Some(s.id.as_str()))?;
+            let run = &runs[at];
+            ((run.stage.clone(), run.round) == round).then_some((at, s))
+        })
+        .collect();
+    ordered.sort_by_key(|(at, _)| *at);
+    // Each agent's running session, else its newest.
+    let mut picked: Vec<&SessionInfo> = Vec::new();
+    for (_, session) in ordered {
+        let agent = agent_of(session);
+        match picked.iter_mut().find(|p| agent_of(p) == agent) {
+            Some(slot)
+                if !slot.is_running()
+                    && (session.is_running() || session.started_at >= slot.started_at) =>
+            {
+                *slot = session;
+            }
+            Some(_) => {}
+            None => picked.push(session),
+        }
+    }
+    if picked.len() < 2 {
+        return vec![side(first, false)];
+    }
+    picked.into_iter().map(|s| side(s, true)).collect()
 }
 
 /// Whether the ticket is in a check round now: its check is the side to look at.
@@ -124,7 +206,8 @@ pub fn agent_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
 pub struct Facts<'a> {
     pub ticket: &'a Ticket,
     pub sessions: &'a [SessionInfo],
-    pub check: Option<&'a CheckSide>,
+    /// [`check_sides`]: one per check agent.
+    pub checks: &'a [CheckSide],
     pub run: Option<&'a RunInfo>,
 }
 
@@ -150,9 +233,9 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
                 Dot::Running
             }
         });
-    let check = f.check.map(|c| PartView {
+    let check = f.checks.iter().map(|c| PartView {
         content: Content::Check,
-        label: c.agent.clone(),
+        label: c.label(),
         dot: c
             .running
             .then_some(if ticket.status == Status::CheckerNeedsYou {
@@ -160,6 +243,7 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
             } else {
                 Dot::Running
             }),
+        agent: c.several.then(|| c.agent.clone()),
     });
     let shell_dot = f
         .sessions
@@ -170,6 +254,7 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
         content: Content::Agent,
         label: "Agent".to_owned(),
         dot: agent_dot,
+        agent: None,
     }]
     .into_iter()
     .chain(check)
@@ -178,11 +263,13 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
             content: Content::Run,
             label: "Run".to_owned(),
             dot: run_dot(f.run),
+            agent: None,
         },
         PartView {
             content: Content::Shell,
             label: "Shell".to_owned(),
             dot: shell_dot,
+            agent: None,
         },
     ])
     .collect()
@@ -219,6 +306,21 @@ pub fn agent_line(
     .flatten()
     .collect::<Vec<_>>()
     .join(" \u{b7} ")
+}
+
+/// The command that attaches to a check's terminal while it runs: `otaq attach SHOP-19 --stage security`, and for one
+/// of several check agents `otaq attach SHOP-33 --stage validate --agent "Security reviewer"` (d0130 row 17); the
+/// ticket's own attach command once it ended.
+pub fn check_attach_command(key: &TicketKey, side: &CheckSide) -> String {
+    let stage = side.stage_id.as_deref().filter(|_| side.running);
+    let base = crate::view_models::terminal_strip::validator_attach_command(key, stage);
+    match stage.filter(|_| side.several) {
+        Some(_) if side.agent.contains(char::is_whitespace) => {
+            format!("{base} --agent \"{}\"", side.agent)
+        }
+        Some(_) => format!("{base} --agent {}", side.agent),
+        None => base,
+    }
 }
 
 /// Who typing reaches, with the ticket's key so a wrong ticket shows (finding 55 of the 2026-10-24 dogfood report). The
@@ -342,7 +444,7 @@ mod tests {
         let parts = parts(&Facts {
             ticket: &t,
             sessions: &sessions,
-            check: Some(&check),
+            checks: std::slice::from_ref(&check),
             run: None,
         });
         assert_eq!(
@@ -362,11 +464,89 @@ mod tests {
         let waiting = super::parts(&Facts {
             ticket: &t,
             sessions: &sessions,
-            check: Some(&check),
+            checks: std::slice::from_ref(&check),
             run: None,
         });
         assert_eq!(waiting[1].dot, Some(Dot::Waiting));
         assert_eq!(tab_dot(&waiting), Some(Dot::Waiting));
+    }
+
+    /// d0130 row 17 (`s29-04`): one side per check agent of the round, each with its verdict, attaching with
+    /// `--stage validate --agent <name>`; an older round's session of the same agent isn't a side.
+    #[test]
+    fn shop_33_two_check_agents_have_a_side_each() {
+        let mut t = ticket("SHOP-33", "Shipping estimate", Status::Checking);
+        t.place = Place::InStage("validate".into());
+        let mut old = session(
+            "sec0",
+            SessionKind::Validator,
+            false,
+            Some("Security reviewer"),
+        );
+        old.started_at = 1;
+        let sessions = [
+            session("dev", SessionKind::Agent, false, Some("Developer")),
+            old,
+            session(
+                "sec",
+                SessionKind::Validator,
+                false,
+                Some("Security reviewer"),
+            ),
+            session(
+                "perf",
+                SessionKind::Validator,
+                true,
+                Some("Performance reviewer"),
+            ),
+        ];
+        let mut first = run_of("validate", "sec0", "Security reviewer");
+        first.result = Some(RunResult::Failed);
+        first.round = Some(0);
+        let mut passed = run_of("validate", "sec", "Security reviewer");
+        passed.result = Some(RunResult::Passed);
+        let runs = [
+            first,
+            passed,
+            run_of("validate", "perf", "Performance reviewer"),
+        ];
+        let sides = check_sides(&t, &sessions, &runs, &stages());
+        assert_eq!(
+            sides
+                .iter()
+                .map(|s| (s.session.as_str(), s.several))
+                .collect::<Vec<_>>(),
+            [("sec", true), ("perf", true)]
+        );
+        let parts = parts(&Facts {
+            ticket: &t,
+            sessions: &sessions,
+            checks: &sides,
+            run: None,
+        });
+        assert_eq!(
+            labels(&parts),
+            [
+                ("Agent", None),
+                ("Security reviewer \u{2713}", None),
+                ("Performance reviewer", Some(Dot::Running)),
+                ("Run", None),
+                ("Shell", None)
+            ]
+        );
+        assert_eq!(parts[2].agent.as_deref(), Some("Performance reviewer"));
+        let key: TicketKey = "SHOP-33".parse().unwrap();
+        let attach = crate::view_models::terminal_strip::attach_command(&key);
+        assert_eq!(
+            check_attach_command(&key, &sides[1]),
+            format!("{attach} --stage validate --agent \"Performance reviewer\"")
+        );
+        assert_eq!(check_attach_command(&key, &sides[0]), attach, "it ended");
+        // One check agent: one side, no --agent, its name alone (as today).
+        let one = check_sides(&t, &sessions[..2], &runs[..1], &stages());
+        assert_eq!(one.len(), 1);
+        assert!(!one[0].several);
+        assert_eq!(one[0].label(), "Security reviewer");
     }
 
     #[test]
@@ -386,7 +566,7 @@ mod tests {
         let parts = parts(&Facts {
             ticket: &t,
             sessions: &sessions,
-            check: Some(&check),
+            checks: std::slice::from_ref(&check),
             run: None,
         });
         assert_eq!(
@@ -411,7 +591,7 @@ mod tests {
         let parts = parts(&Facts {
             ticket: &t,
             sessions: &sessions,
-            check: Some(&check),
+            checks: std::slice::from_ref(&check),
             run: None,
         });
         assert_eq!(parts[0].dot, Some(Dot::Running));
@@ -432,7 +612,7 @@ mod tests {
         let parts = parts(&Facts {
             ticket: &t,
             sessions: &sessions,
-            check: None,
+            checks: &[],
             run: None,
         });
         assert_eq!(
@@ -505,7 +685,7 @@ mod tests {
         let parts = parts(&Facts {
             ticket: &t,
             sessions: &[session("sh", SessionKind::Shell, true, None)],
-            check: None,
+            checks: &[],
             run: Some(&running),
         });
         assert_eq!(

@@ -110,6 +110,37 @@ impl MergeCheckState {
     }
 }
 
+/// One check agent of the ticket's latest round of a Check stage with several (d0130): "Security passed",
+/// "Performance running".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckAgentFlag {
+    /// The check agent's name as the stage lists it ("Security reviewer").
+    pub name: String,
+    /// Its session's tool and model, once it started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<crate::agent_tools::Tool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Its verdict, or how its row ended without one; `None` while it runs or waits to start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<super::ValidationOutcome>,
+}
+
+/// The ticket's latest round of a Check stage with several check agents (d0130), each agent's latest row in the
+/// stage's order. Set only for a round of two or more agents: one agent reads as today. Not a flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckRoundFlag {
+    pub round: u32,
+    pub agents: Vec<CheckAgentFlag>,
+    /// A change already cancelled a round with this number (0108 rule 9): "round 1 again · the code changed".
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub again: bool,
+    /// The Agent stage the card is back in after the round failed ("Dev"): "Back in Dev · Validate failed · 2
+    /// reports"; `None` while it is in the check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub back_in: Option<String>,
+}
+
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
@@ -215,6 +246,10 @@ pub struct Flags {
     /// shows with "· see comment" (CMT-10, d0109). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,
+    /// The latest round of a Check stage with several check agents, while the card is in it or back from it
+    /// (d0130): each agent's verdict on the card. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_round: Option<CheckRoundFlag>,
     /// The files the recorded conflict touches: "Merge conflict · fixing · lib/wishlist.ts" (d0064). Not a flag
     /// of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -413,6 +448,17 @@ mod tests {
                 round: Some(2),
             }),
             verdict: Some("Fail: the total ignores the coupon".into()),
+            check_round: Some(CheckRoundFlag {
+                round: 1,
+                agents: vec![CheckAgentFlag {
+                    name: "Security reviewer".into(),
+                    tool: Some(crate::agent_tools::Tool::Claude),
+                    model: Some("opus".into()),
+                    outcome: Some(super::super::ValidationOutcome::Fail),
+                }],
+                again: true,
+                back_in: Some("Dev".into()),
+            }),
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
             delivered_without_checks: true,

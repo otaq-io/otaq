@@ -56,7 +56,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::theme::{Palette, Status as Legend};
 use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
-use crate::view_models::{priority, status, ticket_comments};
+use crate::view_models::{check_agents, priority, status, ticket_comments};
 
 /// The last signal in the footer turns amber after this long ("not you, but soon", *Foundations → amber*); past
 /// the core's threshold ([`otaq_core::signals::STALE_AFTER_MS`], ATT-05) the situation line says so instead.
@@ -634,6 +634,11 @@ pub struct OneLine {
     pub blocked: Option<String>,
     /// What waits for it (DPV-01).
     pub blocks: Option<crate::view_models::dependencies::Blocks>,
+    /// A Check stage with several check agents (d0130, `s29-04`): the round's line takes the line's place, with a row
+    /// per check agent under it. Boxed: most cards have none.
+    pub check: Option<Box<crate::view_models::check_agents::RoundView>>,
+    /// The words after the action that name the one check agent it acts on: "for Performance only".
+    pub action_note: Option<String>,
 }
 
 /// "setup command failed" → "Setup command failed".
@@ -1676,6 +1681,13 @@ impl CardViewModel {
                 who: who(ticket, status, x),
                 blocked: x.blocked.clone(),
                 blocks: x.blocks.clone(),
+                check: check_agents::view(
+                    ticket,
+                    &x.agents.holds,
+                    x.agents.running_developer.as_deref(),
+                )
+                .map(Box::new),
+                action_note: check_agents::action_note(ticket, &x.agents.holds),
                 ..OneLine::default()
             }),
         }
@@ -1725,6 +1737,17 @@ impl CardViewModel {
         );
         one.time = self.footer.as_ref().and_then(|f| f.signal.clone());
         one.action = one_action(ticket, self.footer.as_ref(), one.edge.is_some());
+        // Several check agents (d0130): the round's line says where the stage stands, each agent's row under it.
+        if let (Some(check), Some(line)) = (&one.check, one.line.as_mut()) {
+            line.text.clone_from(&check.title);
+        }
+        // Use fallback and Retry for one check agent are the card's action, quiet or not ("for Performance only").
+        if one.action_note.is_some() && one.action.is_none() {
+            one.action = self.footer.as_ref().and_then(|f| f.action.clone());
+        }
+        if one.action.is_none() {
+            one.action_note = None;
+        }
         self
     }
 }
@@ -2649,6 +2672,22 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             false,
         );
     }
+    // One of several check agents held (d0130 row 17): its fallback takes only it ("for Performance only").
+    if let Some(round) = check_agents::round_of(ticket)
+        && round.back_in.is_none()
+        && let Some((_, hold)) = check_agents::held_agent(round, &x.agents.holds)
+    {
+        return match (hold.can_use_fallback, hold.can_skip_check) {
+            (true, _) => a(
+                CardActionKind::UseValidatorFallback,
+                USE_FALLBACK,
+                None,
+                false,
+            ),
+            (false, true) => a(CardActionKind::SkipCheck, SKIP_THIS_CHECK, None, false),
+            (false, false) => a(CardActionKind::OpenAgent, OPEN_AGENT, None, false),
+        };
+    }
     // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the sheet.
     // A held role (M23, AGM-03): its fallback when it can take it, then Open agent… ([`second_action`]); quiet
     // buttons.
@@ -2738,6 +2777,13 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             "Retry",
             Some(IconName::RotateCcw),
             false,
+        ),
+        // d0130 row 17: Retry re-runs only the check agents without a verdict ("re-runs Performance only").
+        Status::CheckNoResult if check_agents::action_note(ticket, &x.agents.holds).is_some() => a(
+            CardActionKind::RetryValidation,
+            "Retry",
+            Some(IconName::RotateCcw),
+            true,
         ),
         // VAL-07: a fresh validator; Move on anyway stays in the sheet.
         Status::CheckNoResult => a(

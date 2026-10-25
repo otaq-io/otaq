@@ -307,7 +307,7 @@ pub fn rows_with_rounds(
         rows_in(&events, sessions, usage, facts)
     };
     rows.extend(records.iter().map(|r| {
-        let mut round = validation_report::round_row(r, rounds);
+        let mut round = validation_report::round_row_in(r, rounds, records);
         if let Some((check, stage)) = sent_back(r) {
             round.title = format!("{check} failed \u{b7} back to {stage}");
             let parts: Vec<String> = std::iter::once(format!("round {}", r.round))
@@ -1742,7 +1742,13 @@ mod tests {
             &Facts::default(),
         );
         let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
-        assert_eq!(titles, ["Round 1 · failed", "Round 1 · passed"]);
+        assert_eq!(
+            titles,
+            [
+                "Round 1 · Security reviewer failed",
+                "Round 1 · Validator passed"
+            ]
+        );
         // The round sent the ticket back (d0131): the failing agent's entry names the check and where it went.
         let rows = rows_with_rounds(
             &[event(
@@ -1770,7 +1776,7 @@ mod tests {
                     "Security failed \u{b7} back to Grill",
                     "round 1 \u{b7} Security reviewer \u{b7} agent submitted"
                 ),
-                ("Round 1 · passed", "agent submitted")
+                ("Round 1 · Validator passed", "agent submitted")
             ]
         );
     }

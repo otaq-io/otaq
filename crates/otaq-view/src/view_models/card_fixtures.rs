@@ -612,6 +612,119 @@ pub fn agent_variants() -> Vec<Variant> {
 /// Security check (Security reviewer on opus), its Review, its Done · PR delivery by Shipper, and billing-api's
 /// click Delivery (drawn on the default flow in `s03-46`; built for other flows only, d0108 keeps the default board).
 /// The gallery's "M33 · Checks and deliveries".
+/// SHOP-33's Validate with two check agents (d0130; `s29-04` "On the card", `s30-05` "When a check agent doesn't
+/// finish"): both running, one held at its plan limit, both failed and back in Dev, one ended without a verdict, a
+/// round again after a change; then SHOP-30's one check agent as today.
+pub fn check_agent_variants() -> Vec<Variant> {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::{HoldReason, SessionRole as Role};
+    use otaq_core::domain::{
+        CheckAgentFlag, CheckRoundFlag, ValidationOutcome as O, ValidationRound,
+    };
+    let round = |security: Option<O>, performance: Option<O>| CheckRoundFlag {
+        round: 1,
+        agents: vec![
+            CheckAgentFlag {
+                name: "Security reviewer".into(),
+                tool: Some(Tool::Claude),
+                model: Some("opus".into()),
+                outcome: security,
+            },
+            CheckAgentFlag {
+                name: "Performance reviewer".into(),
+                tool: Some(Tool::Codex),
+                model: Some("gpt-5.5".into()),
+                outcome: performance,
+            },
+        ],
+        again: false,
+        back_in: None,
+    };
+    let validating = |status: Status, flag: CheckRoundFlag| {
+        let mut t = ticket("SHOP-33", "Shipping estimate", status);
+        t.flags.check = Some("Validate".into());
+        t.flags.validating_round =
+            matches!(status, Status::Checking).then_some(ValidationRound { round: 1, of: 3 });
+        t.flags.check_round = Some(flag);
+        t
+    };
+    let named = AgentFacts {
+        count: 7,
+        running_developer: Some("Developer".into()),
+        ..AgentFacts::default()
+    };
+    let extras = |agents: AgentFacts| CardExtras {
+        agents,
+        several_tools: true,
+        custom_flow: true,
+        ..base()
+    };
+    let mut out = vec![v(
+        "Validate · two check agents · running",
+        validating(Status::Checking, round(Some(O::Pass), None)),
+        extras(named.clone()),
+    )];
+    let mut held = hold(
+        Role::Validator,
+        HoldReason::ToolLimit,
+        Tool::Codex,
+        Some("gpt-5.5"),
+        "Performance reviewer",
+        Some(Tool::Claude),
+        true,
+        false,
+    );
+    held.check_agent = Some("Performance reviewer".into());
+    out.push(v(
+        "Validate · one held at its plan limit",
+        validating(Status::Checking, round(Some(O::Pass), None)),
+        extras(AgentFacts {
+            holds: vec![held],
+            ..named.clone()
+        }),
+    ));
+    let mut back = ticket("SHOP-33", "Shipping estimate", Status::Working);
+    back.flags.check = Some("Validate".into());
+    back.flags.validation_round = Some(ValidationRound { round: 1, of: 3 });
+    back.flags.check_round = Some(CheckRoundFlag {
+        back_in: Some("Dev".into()),
+        ..round(Some(O::Fail), Some(O::Fail))
+    });
+    out.push(v(
+        "Validate · both gave a verdict · back in Dev",
+        back,
+        extras(named.clone()),
+    ));
+    out.push(v(
+        "Validate · one ended without a verdict",
+        validating(
+            Status::CheckNoResult,
+            round(Some(O::Pass), Some(O::NoResult)),
+        ),
+        extras(named.clone()),
+    ));
+    out.push(v(
+        "Validate · round 1 again · the code changed",
+        validating(
+            Status::Checking,
+            CheckRoundFlag {
+                again: true,
+                ..round(None, None)
+            },
+        ),
+        extras(named.clone()),
+    ));
+    let mut one = ticket("SHOP-30", "Order history page", Status::Checking);
+    one.flags.check = Some("Validate".into());
+    one.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    out.push(v(
+        "Validate · one check agent · as today",
+        one,
+        extras(named),
+    ));
+    out
+}
+
 pub fn flow_variants() -> Vec<Variant> {
     use otaq_core::agent_tools::Tool;
     use otaq_core::agents::facts::RunsOnTool;

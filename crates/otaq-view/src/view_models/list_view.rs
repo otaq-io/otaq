@@ -583,7 +583,15 @@ fn by_agent<'t>(stages: Vec<Bucket<'t>>, columns: &Columns) -> Vec<Bucket<'t>> {
                 .card
                 .who
                 .clone()
-                // T-0527: every check agent (a row has one: an agent check's first).
+                // Several check agents (d0130): the first still checking, else the stage's first.
+                .or_else(|| {
+                    t.flags.check_round.as_ref().and_then(|r| {
+                        r.agents
+                            .iter()
+                            .find(|a| a.outcome.is_none())
+                            .map(|a| a.name.clone())
+                    })
+                })
                 .or_else(|| stage.and_then(|s| s.named_agents().next().cloned()))
             {
                 Some(agent) => {

@@ -286,6 +286,9 @@ pub struct OverviewView {
     pub leave: LeaveDialog,
     /// "Mark as usage limit" in what it needs from you, while its agent is Idle (USG-07).
     pub usage_limit: Option<UsageLimitButton>,
+    /// "Before you · Validate, round 1 of 3": each check agent's verdict and comment, on a human check after a Check
+    /// stage with several check agents (d0130, `s30-05`); set by the service's facts ([`with_before_you`]).
+    pub before_you: Option<crate::view_models::validation_report::BeforeYou>,
     /// "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
     pub manual_checks: Option<ChecklistView>,
     /// "Attachments · 3"; "Attachments" with none.
@@ -295,6 +298,34 @@ pub struct OverviewView {
     pub pick_title: String,
     pub drop: String,
     pub note: String,
+}
+
+/// The check stage a ticket waiting in a human check passed just before (its arrival "Passed Validate · round 1"),
+/// whose round "Before you" shows; none for another way in.
+pub fn passed_check(ticket: &otaq_core::board::tickets::Ticket) -> Option<&str> {
+    use otaq_core::board::human_check::Arrival;
+    match &ticket.flags.arrival {
+        Some(Arrival::Passed {
+            stage,
+            round: Some(_),
+        }) if manual_checks::shown_in(ticket.status) => Some(stage.as_str()),
+        _ => None,
+    }
+}
+
+/// The view with "Before you" for the check `check` the ticket passed, from its rounds (newest first) and sessions.
+pub fn with_before_you(
+    mut view: OverviewView,
+    check: &str,
+    records: &[otaq_core::board::validation::ValidationRecord],
+    sessions: &[otaq_core::session::SessionInfo],
+    rounds: u32,
+    avatars: bool,
+) -> OverviewView {
+    view.before_you = crate::view_models::validation_report::before_you(
+        check, records, sessions, rounds, avatars,
+    );
+    view
 }
 
 pub fn view(
@@ -316,7 +347,8 @@ pub fn view(
             .expect("a changed description has the bar"),
         leave: leave_dialog(key),
         usage_limit: usage_limit(status),
-        manual_checks: checks.and_then(|c| manual_checks::checklist(status, c)),
+        before_you: None,
+        manual_checks: checks.and_then(|c| manual_checks::checklist_with(status, c, avatars)),
         attachments_heading: match attachments.len() {
             0 => ATTACHMENTS.to_owned(),
             n => format!("{ATTACHMENTS} \u{b7} {n}"),

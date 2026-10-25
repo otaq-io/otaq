@@ -61,6 +61,6 @@ line: string | null,
  */
 typing: SessionTyping | null, 
 /**
- * Set once a check stage ran: Session's switch shows its side.
+ * Set once a check stage ran: Session's switch shows its side, one per check agent of its round (d0130).
  */
-check: TerminalTabCheck | null, };
+checks: Array<TerminalTabCheck>, };

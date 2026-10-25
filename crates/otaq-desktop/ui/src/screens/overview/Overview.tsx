@@ -29,6 +29,7 @@ import { attachReport, COMMENT_EVENTS, CommentThread, Mark } from "../editor/Com
 import { EditForm, takeEditRequest } from "../editor/EditForm";
 import { EDITOR_EVENTS } from "../editor/logic";
 import { openReport } from "../editor/reportOpener";
+import { BeforeYou } from "./BeforeYou";
 import { ManualChecks } from "./ManualChecks";
 import { NeedsYou } from "./NeedsYou";
 import { TicketDecisions } from "../sections/Decisions";
@@ -196,9 +197,13 @@ export function OverviewTab({ ticket }: TicketProps) {
             view={sheet.view}
             actions={sheet.actions}
             aboveBar={
-              overview?.key === ticket &&
-              overview.manual_checks !== null && (
-                <ManualChecks ticket={ticket} view={overview.manual_checks} />
+              overview?.key === ticket && (
+                <>
+                  {overview.before_you !== null && <BeforeYou view={overview.before_you} />}
+                  {overview.manual_checks !== null && (
+                    <ManualChecks ticket={ticket} view={overview.manual_checks} />
+                  )}
+                </>
               )
             }
           />

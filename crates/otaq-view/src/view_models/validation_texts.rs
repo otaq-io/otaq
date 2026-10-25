@@ -15,6 +15,10 @@ use crate::view_models::card::tokens_label;
 pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
     use crate::view_models::card;
     let check = ticket.flags.check.as_deref();
+    // A check of several agents (d0130, `s29-04`): "Validate · 2 check agents"; the round is in the sheet's block.
+    if let Some(label) = crate::view_models::check_agents::header_label(ticket) {
+        return Some(label);
+    }
     match ticket.status {
         // Any agent check but the default flow's Validate reads "Checking" (FLW-13).
         Status::Checking => {

@@ -23,6 +23,7 @@ import { Icon } from "../../theme/Icon";
 import {
   answers,
   bodyOf,
+  checkOf,
   isNarrow,
   scrolledLabel,
   sessionOf,
@@ -89,6 +90,8 @@ export interface TerminalTabBodyProps {
   view: TerminalTabView;
   /** Session's side shown: the agent's terminal or the check's. */
   side?: Side;
+  /** On the check's side, which check agent's terminal (d0130); `null` for the first. */
+  agent?: string | null;
   /** What leads the line: Session's switch. */
   head?: ReactNode;
   /** The terminal's state (from its `onState`); the markup tests pass one. */
@@ -102,17 +105,18 @@ export interface TerminalTabBodyProps {
 export function TerminalTabBody({
   view,
   side = "agent",
+  agent = null,
   head,
   state,
   narrow,
   terminal,
   onState,
 }: TerminalTabBodyProps) {
-  const validator = side === "check" ? view.check : null;
-  const body = bodyOf(view, side);
-  const session = sessionOf(view, side);
+  const validator = side === "check" ? checkOf(view, agent) : null;
+  const body = bodyOf(view, side, agent);
+  const session = sessionOf(view, side, agent);
   const showTerminal = body === "terminal" && session !== null;
-  const strip = stripFor(view, state.phase, showTerminal && state.focused, side);
+  const strip = stripFor(view, state.phase, showTerminal && state.focused, side, agent);
   const attachCommand = validator?.attach_command ?? view.attach_command;
   const line = validator ? validator.line : view.line;
   const typing = validator ? validator.typing : view.typing;
@@ -379,7 +383,17 @@ function RecoveryBody({ view, recovery }: { view: TerminalTabView; recovery: Ter
  * Session's Agent or check side: the open ticket's view, its terminal's state, and focus requests (T-0231) for the
  * ticket, answered by the side the selection shows.
  */
-export function TerminalTab({ ticket, side, head }: { ticket: string; side: Side; head?: ReactNode }) {
+export function TerminalTab({
+  ticket,
+  side,
+  agent = null,
+  head,
+}: {
+  ticket: string;
+  side: Side;
+  agent?: string | null;
+  head?: ReactNode;
+}) {
   const load = useCallback(
     () => request("terminal_tab.view", { key: ticket }) as Promise<TerminalTabLoad>,
     [ticket],
@@ -390,7 +404,7 @@ export function TerminalTab({ ticket, side, head }: { ticket: string; side: Side
   const width = useWidth(root);
   const terminal = useRef<TerminalHandle | null>(null);
   const focusRequest = useStore(terminalFocusRequests);
-  const session = view === null ? null : sessionOf(view, side);
+  const session = view === null ? null : sessionOf(view, side, agent);
 
   // The shown terminal's state; another side mounts another terminal, whose state starts over.
   const [seen, setSeen] = useState<Seen>({ session: null, state: INITIAL_STATE });
@@ -425,6 +439,7 @@ export function TerminalTab({ ticket, side, head }: { ticket: string; side: Side
         <TerminalTabBody
           view={view}
           side={side}
+          agent={agent}
           head={head}
           state={state}
           narrow={isNarrow(width, view)}

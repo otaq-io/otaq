@@ -57,6 +57,11 @@ pub struct TicketCardView {
     pub edge: Option<Tone>,
     /// The card's one action (Answer, Reply, Review, Decide…).
     pub action: Option<CardAction>,
+    /// After the action, the one check agent it acts on: "for Performance only", "re-runs Performance only" (d0130).
+    pub action_note: Option<String>,
+    /// A Check stage with several check agents (d0130, `s29-04`): a row per check agent under the line, which is the
+    /// round's ("Validate · round 1 of 3"), and its note; the rows name the agents, so `avatar` and `who` are empty.
+    pub check: Option<crate::view_models::check_agents::RoundView>,
     /// "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
     pub origin: Option<String>,
     /// The full status and what the card has no room for.
@@ -76,6 +81,8 @@ impl TicketCardView {
 
     /// From a view model already built (the board's, with its queue facts and signal).
     pub fn from_vm(vm: CardViewModel, ticket: &Ticket) -> Self {
+        let check = vm.one_line.check.map(|c| *c);
+        let several = check.is_some();
         Self {
             key: vm.key.to_string(),
             key_label: vm.key_label,
@@ -84,11 +91,13 @@ impl TicketCardView {
             title: vm.title,
             status: vm.one_line.line,
             blocks: vm.one_line.blocks,
-            avatar: vm.avatar,
-            who: vm.one_line.who,
+            avatar: vm.avatar.filter(|_| !several),
+            who: vm.one_line.who.filter(|_| !several),
             time: vm.one_line.time,
             edge: vm.one_line.edge,
             action: vm.one_line.action,
+            action_note: vm.one_line.action_note,
+            check,
             origin: vm.origin,
             hover: vm.hover,
             faded: vm.faded,
@@ -226,6 +235,8 @@ pub struct CardGallery {
     pub tools: Vec<GalleryCell>,
     /// *03 → cards in an agent check, your check, deliveries, conflicts, Done* (`s03-44`…`s03-54`, T-0424).
     pub flows: Vec<GalleryCell>,
+    /// *29 → On the card*, *30 → When a check agent doesn't finish*: a Check stage with two check agents (d0130).
+    pub checks: Vec<GalleryCell>,
 }
 
 pub fn gallery() -> CardGallery {
@@ -250,6 +261,10 @@ pub fn gallery() -> CardGallery {
         agents: card_fixtures::agent_variants().iter().map(cell).collect(),
         tools: card_fixtures::tool_variants().iter().map(cell).collect(),
         flows: card_fixtures::flow_variants().iter().map(cell).collect(),
+        checks: card_fixtures::check_agent_variants()
+            .iter()
+            .map(cell)
+            .collect(),
     }
 }
 

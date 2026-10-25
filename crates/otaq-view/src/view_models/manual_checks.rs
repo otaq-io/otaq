@@ -19,6 +19,9 @@ pub struct Row {
     pub text: String,
     pub source: String,
     pub ticked: bool,
+    /// The tool of the agent that left it, before `source` ("CX Performance reviewer", `s30-05`): each check agent of
+    /// a stage names its own items (d0130); `None` for the user's, or while avatars are hidden (d0086).
+    pub avatar: Option<crate::view_models::tool_avatar::ToolAvatarView>,
 }
 
 /// The checklist above Approve.
@@ -35,20 +38,36 @@ pub fn shown_in(status: Status) -> bool {
     matches!(status, Status::WaitingForYou | Status::ToDeliver)
 }
 
-fn row(item: &ManualCheck) -> Row {
+fn row(item: &ManualCheck, avatars: bool) -> Row {
+    let tool = match &item.author {
+        otaq_core::board::ticket_comments::CommentAuthor::Agent { tool, .. } => *tool,
+        _ => None,
+    };
     Row {
         n: item.n,
         text: item.text.clone(),
         source: item.source(),
         ticked: item.ticked(),
+        avatar: tool
+            .filter(|_| avatars)
+            .map(|t| crate::view_models::tool_avatar::ToolAvatarView::of(t, None)),
     }
 }
 
 /// The checklist for a ticket with this status, oldest first; none outside the review or with no items.
 pub fn checklist(status: Status, checks: &ManualChecks) -> Option<ChecklistView> {
+    checklist_with(status, checks, false)
+}
+
+/// [`checklist`] with each agent's tool before who left it, while avatars show (several tools, d0086).
+pub fn checklist_with(
+    status: Status,
+    checks: &ManualChecks,
+    avatars: bool,
+) -> Option<ChecklistView> {
     (shown_in(status) && !checks.items.is_empty()).then(|| ChecklistView {
         heading: HEADING.to_owned(),
-        items: checks.items.iter().map(row).collect(),
+        items: checks.items.iter().map(|i| row(i, avatars)).collect(),
     })
 }
 
@@ -156,6 +175,58 @@ mod tests {
             ..checks
         };
         assert_eq!(checklist(Status::WaitingForYou, &none), None);
+    }
+
+    /// d0125, d0130 (`s30-05`): with two check agents in Validate, each item names the agent that left it, with its
+    /// tool while avatars show.
+    #[test]
+    fn each_check_agent_names_its_manual_checks() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::board::ticket_comments::CommentAuthor;
+        let mut checks = fixtures::demo_3();
+        for (item, (name, tool)) in checks.items.iter_mut().zip([
+            ("Performance reviewer", Tool::Codex),
+            ("Security reviewer", Tool::Claude),
+        ]) {
+            item.author = CommentAuthor::Agent {
+                id: Some(name.to_lowercase()),
+                name: Some(name.into()),
+                tool: Some(tool),
+                stage: Some("validate".into()),
+                round: Some(1),
+            };
+            item.stage_name = Some("Validate".into());
+        }
+        let rows = checklist_with(Status::WaitingForYou, &checks, true)
+            .unwrap()
+            .items;
+        let read: Vec<(Option<&str>, &str)> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.avatar.as_ref().map(|a| a.letters.as_str()),
+                    r.source.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [
+                (
+                    Some("CX"),
+                    "Performance reviewer \u{b7} Validate \u{b7} round 1"
+                ),
+                (
+                    Some("CC"),
+                    "Security reviewer \u{b7} Validate \u{b7} round 1"
+                ),
+            ]
+        );
+        let hidden = checklist(Status::WaitingForYou, &checks).unwrap().items;
+        assert!(
+            hidden.iter().all(|r| r.avatar.is_none()),
+            "one tool: no avatars"
+        );
     }
 
     /// The Local merge dialog's count; it never disables Approve, so with all ticked it says nothing.

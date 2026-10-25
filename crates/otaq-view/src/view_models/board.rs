@@ -675,19 +675,27 @@ fn folded_tag(stage: &Stage) -> String {
 pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option<HeaderTooltip> {
     let (owner, folded) = column.parts.split_first()?;
     let stage = owner.stage;
-    // T-0527: every check agent (one tool and model here: an agent check's first).
-    let agent = |s: &Stage| -> Option<&Agent> {
-        let name = s.named_agents().next()?;
+    let named = |name: &str| -> Option<&Agent> {
         agents?
             .agents
             .iter()
             .find(|a| a.name.eq_ignore_ascii_case(name))
     };
+    let agent = |s: &Stage| -> Option<&Agent> { named(s.named_agents().next()?) };
     let mut detail: Vec<String> = Vec::new();
     // A Local merge runs no agent (d0108 second gap review rule 6).
     let runs_agent = stage.delivery.is_none_or(|d| d.delivers != Delivers::Local);
+    // Several check agents (d0130): a line each, "Security reviewer · Claude Code · opus", then the stage's rounds.
+    if runs_agent && stage.check_agents().len() > 1 {
+        for name in stage.check_agents() {
+            let mut line = vec![name.clone()];
+            line.extend(named(name).and_then(|a| runs_on(a, agents?)));
+            detail.push(line.join(" \u{b7} "));
+        }
+    }
     if runs_agent {
         let mut runs: Vec<String> = agent(stage)
+            .filter(|_| stage.check_agents().len() < 2)
             .and_then(|a| runs_on(a, agents?))
             .into_iter()
             .collect();
@@ -1720,7 +1728,15 @@ mod tests {
             tip(4).title,
             "Security · Security reviewer + Validator · security-review"
         );
-        assert_eq!(tip(4).detail, ["Claude Code · opus · up to 2 rounds"]);
+        // Two check agents (d0130): a line each (Validator isn't in this agent list), then the stage's rounds.
+        assert_eq!(
+            tip(4).detail,
+            [
+                "Security reviewer · Claude Code · opus",
+                "Validator",
+                "up to 2 rounds"
+            ]
+        );
         assert_eq!(tip(5).title, "QA · your check");
         assert_eq!(tip(5).detail, ["Options: skip"]);
         assert_eq!(tip(6).title, "Done · PR, automatic · Shipper · open-pr");

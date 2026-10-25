@@ -33,4 +33,8 @@ tools: Array<CardGalleryCell>,
 /**
  * *03 → cards in an agent check, your check, deliveries, conflicts, Done* (`s03-44`…`s03-54`, T-0424).
  */
-flows: Array<CardGalleryCell>, };
+flows: Array<CardGalleryCell>, 
+/**
+ * *29 → On the card*, *30 → When a check agent doesn't finish*: a Check stage with two check agents (d0130).
+ */
+checks: Array<CardGalleryCell>, };
