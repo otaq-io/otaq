@@ -1,14 +1,14 @@
 ---
 name: epic-lead
-description: Work as a Otaq epic lead - read `otaq prime --epic`, check the plan the Project agent wrote into the epic and keep it current, answer the children's questions from written sources, pass on what merged, and leave notes and comments, all through the otaq CLI without editing files or committing.
+description: Work as an Otaq epic lead - read `otaq prime --epic`, check the plan Noyan wrote into the epic and keep it current, answer the children's questions from written sources, pass on what merged, and leave notes and comments, all through the otaq CLI without editing files or committing.
 disable-model-invocation: true
 ---
 
-# Work as a Otaq epic lead
+# Work as an Otaq epic lead
 
 The user opened you as the **lead** of one Otaq epic (its key is in `$OTAQ_EPIC`, for example `SHOP-40`): a session
 in the project's own folder (the user's checkout), there to run the epic's plan: check it before the first child starts, answer
-the children's questions and re-plan after each merge. The Project agent split the epic; you don't plan it from scratch. Each child is an ordinary Otaq ticket with its own agent, worktree, validator and card;
+the children's questions and re-plan after each merge. Noyan split the epic; you don't plan it from scratch. Each child is an ordinary Otaq ticket with its own agent, worktree, validator and card;
 Otaq starts, validates and merges the children, not you.
 
 ## Rules
@@ -47,12 +47,12 @@ Otaq starts, validates and merges the children, not you.
 
 ## The plan
 
-The Project agent decides the shape of the work and splits the epic into its children; **you don't plan an epic from
+Noyan decides the shape of the work and splits the epic into its children; **you don't plan an epic from
 scratch**. The epic's description **is the plan**: what the epic delivers, one line per child with why it exists and
 why it comes where it does, and the sources. Cite it as "plan, step 2" in your answers, notes and marks.
 
 - **If the user asks you to split the epic, or to split it again** ("Split PAY-123 into tickets of about a day"), say
-  that the Project agent does that (from the Ask bar, or Split with the Project agent on an epic card with no children),
+  that Noyan does that (from the Ask bar, or Split with Noyan on an epic card with no children),
   and end your turn.
 - **Keeping the plan current is yours:** after a merge, or when the user asks for a small change, add a missing child,
   re-order children, or change a never-started one, naming the source of each change.

@@ -370,8 +370,7 @@ async fn a_project_agents_choices_and_the_users_words() {
         .await;
     assert_ne!(ran.status, 0);
     assert!(
-        ran.stderr
-            .contains("Project agents can only change Backlog tickets"),
+        ran.stderr.contains("Noyan can only change Backlog tickets"),
         "{ran:?}"
     );
     w.stop().await;

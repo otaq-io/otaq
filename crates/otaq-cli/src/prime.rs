@@ -61,7 +61,7 @@ pub fn run(
     })
 }
 
-/// `otaq prime --project` (PAG-03): the current project's tickets, worktrees and Project agent instructions.
+/// `otaq prime --project` (PAG-03): the current project's tickets, worktrees and Noyan’s instructions.
 pub fn project(global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {

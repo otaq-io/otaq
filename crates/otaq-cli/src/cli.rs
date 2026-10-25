@@ -55,7 +55,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub silent: bool,
 
-    /// The project to work in, by key (SHOP). Bare `prime --project`: a Project agent's context
+    /// The project to work in, by key (SHOP). Bare `prime --project`: Noyan's context
     #[arg(
         short = 'P',
         long,
@@ -283,7 +283,7 @@ pub enum Command {
     /// Read the review feedback (`review feedback`); `review submit --stdin` is another name for `stage next`
     #[command(subcommand)]
     Review(ReviewCommand),
-    /// A Project agent's own commands: `agent name "<3–4 words>"` (Project agent sessions only)
+    /// Noyan's own commands: `agent name "<3–4 words>"` (conversations with Noyan only)
     #[command(subcommand)]
     Agent(AgentCommand),
     /// The Open PR and Push skills' commands: `pr propose --stdin`, `pr opened <url>`
@@ -321,7 +321,7 @@ pub enum Command {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum AgentCommand {
-    /// Name this Project agent (once, right after its first request)
+    /// Name this conversation with Noyan (once, right after the user's first request)
     Name {
         /// 3–4 words, e.g. "Checkout slowness"
         name: String,

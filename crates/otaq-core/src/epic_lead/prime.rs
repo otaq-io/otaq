@@ -89,7 +89,7 @@ pub struct PrimeChild {
     pub depends_on: Vec<TicketKey>,
     /// It has been to Dev. A never-started child is the only kind the lead may change (CLI-07).
     pub started: bool,
-    /// Who added it: "you" (the user), "Wishlist lead", "SHOP-40.2" (a ticket's agent) or "a Project agent".
+    /// Who added it: "you" (the user), "Wishlist lead", "SHOP-40.2" (a ticket's agent) or "Noyan".
     pub added_by: String,
     /// Its last comment from an Agent stage (CMT-07, [`Board::last_agent_comment`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,7 +135,7 @@ fn added_by(actor: &Actor, lead_agent: Option<&str>, lead: &str) -> String {
         Actor::User(_) => "you".to_owned(),
         Actor::Agent(key) => key.to_string(),
         Actor::ProjectAgent(id) if Some(id.as_str()) == lead_agent => lead.to_owned(),
-        Actor::ProjectAgent(_) => "a Project agent".to_owned(),
+        Actor::ProjectAgent(_) => "Noyan".to_owned(),
     }
 }
 

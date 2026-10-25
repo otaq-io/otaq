@@ -58,7 +58,7 @@ use crate::domain::{Actor, TicketKey};
 pub const ONLY_A_VALIDATOR: &str = "Only an agent check can give a verdict";
 
 /// Every refusal of a Project agent (PAG-02).
-pub const BACKLOG_ONLY: &str = "Project agents can only change Backlog tickets";
+pub const BACKLOG_ONLY: &str = "Noyan can only change Backlog tickets";
 
 /// Every refusal of an epic lead (CLI-07, d0083): "Wishlist lead can only change SHOP-40's children that haven't
 /// started".

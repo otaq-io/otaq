@@ -395,7 +395,7 @@ pub async fn ticket_choices(client: &Client, key: &str) -> Result<TicketChoices,
 }
 
 /// One stage's choice in `--json` (AGM-11): `{"stage": "Dev", "choice": "Quick developer", "set_by":
-/// "project_agent", "by": "the Project agent", "reason": "typo fix", "locked": false, "options": ["Rust developer",
+/// "project_agent", "by": "Noyan", "reason": "typo fix", "locked": false, "options": ["Rust developer",
 /// "Quick developer"]}`. Every stage with options is listed; `set_by`, `by` and `reason` are missing when nobody
 /// chose (the usual one runs).
 #[derive(Debug, Serialize)]
@@ -437,8 +437,8 @@ pub fn choices_json(choices: &TicketChoices) -> Vec<ChoiceJson> {
         .collect()
 }
 
-/// The choices someone made, one line each (AGM-11): "Choices:     Dev: Quick developer · set by the Project agent ·
-/// typo fix". Nothing when nobody chose.
+/// The choices someone made, one line each (AGM-11): "Choices:     Dev: Quick developer · set by Noyan · typo
+/// fix". Nothing when nobody chose.
 pub fn choices_text(choices: &TicketChoices) -> String {
     let mut text = String::new();
     for stage in choices.stages.iter().filter(|s| s.choice.is_some()) {
