@@ -1390,43 +1390,112 @@ async fn rewalk_text(
     let runs = board.stage_runs(&key).await?;
     let history = board.history(&key).await?;
     let name = |id: &str| flow.stage(id).map_or(id, |s| s.name.as_str()).to_owned();
-    // The Agent stage that just finished, and the run before its latest visit (consecutive runs are one visit).
-    let finished = runs.iter().rposition(|r| {
-        r.kind == "agent" && r.stage != stage.id && r.result == Some(RunResult::Done)
-    });
-    let why = finished.map(|at| {
-        let done = &runs[at].stage;
-        let visit = runs[..=at]
-            .iter()
-            .rposition(|r| r.stage != *done)
-            .map(|i| &runs[i]);
-        let dragged = history
-            .iter()
-            .rfind(|e| matches!(e.kind, EventKind::SentBack | EventKind::Dragged))
-            .is_some_and(|e| e.kind == EventKind::Dragged);
-        match visit {
-            Some(before) if before.result == Some(RunResult::Failed) && before.kind == "check" => {
-                format!(
-                    "{} sent it to {}, which finished",
-                    name(&before.stage),
-                    name(done)
-                )
-            }
-            Some(_) if dragged => format!("you moved it back to {}, which finished", name(done)),
-            Some(before) if before.result == Some(RunResult::Failed) => {
-                format!(
-                    "{} sent it to {}, which finished",
-                    name(&before.stage),
-                    name(done)
-                )
-            }
-            _ => format!("{} finished", name(done)),
-        }
-    });
+    let dragged = history
+        .iter()
+        .rfind(|e| matches!(e.kind, EventKind::SentBack | EventKind::Dragged))
+        .is_some_and(|e| e.kind == EventKind::Dragged);
+    let why = rewalk_why(&runs, &stage.id, dragged, name);
     let why = why.map_or_else(String::new, |why| format!(": {why}"));
     Ok(format!(
         "{key} is back in {}{why}. Run `{} prime`.",
         stage.name,
         naming::COMMAND_NAME
     ))
+}
+
+/// Why the card is back in the Agent stage `here` ([`rewalk_text`]), from the ticket's runs (oldest first): the Agent
+/// stage that just finished, and the visit before its latest one, every consecutive run of one stage (a check of
+/// several agents has one run per agent; it failed when any of them did). `dragged`: the latest way back was a drag.
+fn rewalk_why(
+    runs: &[crate::board::stage_runs::StageRun],
+    here: &str,
+    dragged: bool,
+    name: impl Fn(&str) -> String,
+) -> Option<String> {
+    let at = runs
+        .iter()
+        .rposition(|r| r.kind == "agent" && r.stage != here && r.result == Some(RunResult::Done))?;
+    let done = &runs[at].stage;
+    // The runs of the visit before the finished stage's (consecutive runs of that stage are one visit too).
+    let before: Vec<_> = runs[..=at]
+        .iter()
+        .rev()
+        .skip_while(|r| r.stage == *done)
+        .collect();
+    let visit: Vec<_> = before
+        .iter()
+        .take_while(|r| before.first().is_some_and(|f| f.stage == r.stage))
+        .collect();
+    let failed = visit.iter().any(|r| r.result == Some(RunResult::Failed));
+    let check = visit.iter().any(|r| r.kind == "check");
+    Some(match visit.first() {
+        Some(prev) if failed && check => format!(
+            "{} sent it to {}, which finished",
+            name(&prev.stage),
+            name(done)
+        ),
+        Some(_) if dragged => format!("you moved it back to {}, which finished", name(done)),
+        Some(prev) if failed => format!(
+            "{} sent it to {}, which finished",
+            name(&prev.stage),
+            name(done)
+        ),
+        _ => format!("{} finished", name(done)),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::stage_runs::StageRun;
+
+    fn run(stage: &str, kind: &str, result: RunResult) -> StageRun {
+        StageRun {
+            stage: stage.into(),
+            kind: kind.into(),
+            session: None,
+            agent: None,
+            model: None,
+            round: None,
+            result: Some(result),
+            summary: None,
+            started_at: 0,
+            ended_at: Some(0),
+        }
+    }
+
+    /// A check of two agents whose passing agent's run comes last still sent the card back (the visit failed when
+    /// any of its runs did).
+    #[test]
+    fn the_rewalk_names_a_failed_check_of_several_agents() {
+        let name = |id: &str| match id {
+            "grill" => "Grill".to_owned(),
+            "security" => "Security".to_owned(),
+            other => other.to_owned(),
+        };
+        let runs = [
+            run("grill", "agent", RunResult::Done),
+            run("dev", "agent", RunResult::Done),
+            run("security", "check", RunResult::Failed),
+            run("security", "check", RunResult::Passed),
+            run("grill", "agent", RunResult::Cancelled),
+            run("grill", "agent", RunResult::Done),
+        ];
+        assert_eq!(
+            rewalk_why(&runs, "dev", false, name).as_deref(),
+            Some("Security sent it to Grill, which finished")
+        );
+        let passed = [
+            run("security", "check", RunResult::Passed),
+            run("grill", "agent", RunResult::Done),
+        ];
+        assert_eq!(
+            rewalk_why(&passed, "dev", false, name).as_deref(),
+            Some("Grill finished")
+        );
+        assert_eq!(
+            rewalk_why(&passed, "dev", true, name).as_deref(),
+            Some("you moved it back to Grill, which finished")
+        );
+    }
 }
