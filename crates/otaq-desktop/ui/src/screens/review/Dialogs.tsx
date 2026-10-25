@@ -639,6 +639,7 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
           onChange={setComment}
           onSubmit={confirm}
         />
+        {view.footnote !== null && <p className="review-muted">{view.footnote}</p>}
         {view.waiting_title !== null && (
           <div className="review-waiting">
             <span className="review-waiting-title">{view.waiting_title}</span>

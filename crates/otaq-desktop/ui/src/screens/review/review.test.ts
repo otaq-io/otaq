@@ -19,7 +19,7 @@ const CHANGED: ReviewChanged = {
   reviewed: "abc",
   note: "Only the new commits are shown. Approve anyway merges them too.",
   anyway: "Approve anyway",
-  send_back: "Send back",
+  send_back: "Send back…",
 };
 
 const VIEW: ApproveView = {
@@ -73,7 +73,7 @@ describe("the review screen", () => {
     review(app);
     const r = registered(app);
     expect(r.overlays).toEqual(
-      expect.arrayContaining(["local_merge", "send_back", "change_decision", "fail", "send_back_pr"]),
+      expect.arrayContaining(["local_merge", "send_back", "change_decision", "send_back_pr"]),
     );
     expect(r.shortcuts).toEqual(expect.arrayContaining(["approve", "send_back"]));
   });
@@ -135,7 +135,7 @@ describe("the review screen", () => {
           files: ["src/components/pricing/PriceTable.tsx"],
           text: "Send it back so the agent commits them, or look at them first.",
           view: "View",
-          send_back: "Send back",
+          send_back: "Send back…",
           cancel: "Cancel",
         },
         close: () => undefined,
@@ -143,7 +143,7 @@ describe("the review screen", () => {
         toSendBack: () => undefined,
       }),
     );
-    for (const text of ["SHOP-19 has 2 uncommitted files", "View", "Send back", "PriceTable.tsx"]) {
+    for (const text of ["SHOP-19 has 2 uncommitted files", "View", "Send back…", "PriceTable.tsx"]) {
       expect(uncommitted).toContain(text);
     }
   });

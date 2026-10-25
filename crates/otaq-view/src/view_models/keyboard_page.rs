@@ -1289,7 +1289,7 @@ mod tests {
             ("Go to file", vec!["⌥⌘P"]),
             ("Next / previous ticket tab", vec!["⌃Tab / ⌃⇧Tab"]),
             ("Approve ▾", vec!["⌘↵"]),
-            ("Send back", vec!["⌘⌫"]),
+            ("Send back\u{2026}", vec!["⌘⌫"]),
             ("Start / move to Dev", vec!["⌘D"]),
             ("Park", vec!["no key"]),
             ("Close ticket", vec!["no key"]),

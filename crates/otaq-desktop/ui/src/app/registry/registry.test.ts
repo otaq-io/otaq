@@ -74,7 +74,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(37);
+    expect(OVERLAY_IDS).toHaveLength(36);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual(["quick_switcher", "command_palette", "processes", "terminals", "activity"]);
   });
@@ -123,7 +123,6 @@ describe("the fixed ids", () => {
         case "send_back":
         case "drag_back":
         case "blocked":
-        case "fail":
         case "send_back_pr":
         case "change_decision":
         case "local_merge":
@@ -154,7 +153,7 @@ describe("the fixed ids", () => {
       "lead",
     ];
     expect(contents.map(tabIcon)).toHaveLength(8);
-    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(28);
+    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(27);
   });
 });
 

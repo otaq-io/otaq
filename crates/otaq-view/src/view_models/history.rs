@@ -1090,10 +1090,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             text(p, "target").map(|t| format!("into {t}")),
         ),
         EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
-        // A human check's Pass (FLW-14): "Passed QA" · "by you".
+        // A human check's Pass (FLW-14), its Approve (d0093): "You approved it at QA".
         EventKind::Passed => (
-            format!("Passed {}", text(p, "stage").unwrap_or_default()),
-            Some(who(&e.actor)),
+            format!(
+                "{} approved it at {}",
+                changed_by(e),
+                text(p, "stage").unwrap_or_default()
+            ),
+            None,
         ),
         EventKind::Parked => ("Parked".to_owned(), Some(removed(p, who(&e.actor)))),
         // A manual check the user ticked at review (d0125): "Ticked a manual check" · "“Reload a page offline” ·
@@ -1391,23 +1395,20 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             },
             text(p, "url"),
         ),
-        // "Sent back to Product spec" · "by you", the stage the check's fails go to (d0131); with line comments
-        // "by you · 2 comments · round 1".
+        // "You sent it back to Product spec", the stage the check's fails go to (d0131, d0093); with line comments
+        // "2 comments · round 1".
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
             let plural = if n == 1 { "" } else { "s" };
+            let by = changed_by(e);
             let title = match text(p, "stage") {
-                Some(stage) => format!("Sent back to {stage}"),
-                None => "Sent back".to_owned(),
+                Some(stage) => format!("{by} sent it back to {stage}"),
+                None => format!("{by} sent it back"),
             };
-            let by = who(&e.actor);
             (
                 title,
-                Some(match n {
-                    0 => by,
-                    n => format!("{by} \u{b7} {n} comment{plural} \u{b7} round {round}"),
-                }),
+                (n > 0).then(|| format!("{n} comment{plural} \u{b7} round {round}")),
             )
         }
     };
@@ -1555,24 +1556,34 @@ mod tests {
 
     const MIN: i64 = 60_000;
 
-    /// A Send back names the stage the check's fails went to (d0131): "Sent back to Product spec" · "by you", with
-    /// the line comments it carried and the round.
+    /// A Send back names the stage the check's fails went to (d0131, d0093): "You sent it back to Product spec", with
+    /// the line comments it carried and the round; an Approve is "You approved it at Spec review" (no Pass, d0093).
     #[test]
     fn a_send_back_names_its_stage() {
-        let row = |payload| {
-            let row = event_row(&event(EventKind::SentBack, 0, payload)).unwrap();
-            (row.title, row.detail.unwrap())
+        let row = |kind, payload| {
+            let row = event_row(&event(kind, 0, payload)).unwrap();
+            (row.title, row.detail)
         };
         assert_eq!(
-            row(json!({"round": 1, "comments": 0, "to": "working", "stage": "Product spec"})),
-            ("Sent back to Product spec".into(), "by you".into())
+            row(
+                EventKind::SentBack,
+                json!({"round": 1, "comments": 0, "to": "working", "stage": "Product spec"})
+            ),
+            ("You sent it back to Product spec".into(), None)
         );
         assert_eq!(
-            row(json!({"round": 2, "comments": 3, "to": "working", "stage": "Dev"})),
+            row(
+                EventKind::SentBack,
+                json!({"round": 2, "comments": 3, "to": "working", "stage": "Dev"})
+            ),
             (
-                "Sent back to Dev".into(),
-                "by you \u{b7} 3 comments \u{b7} round 2".into()
+                "You sent it back to Dev".into(),
+                Some("3 comments \u{b7} round 2".into())
             )
+        );
+        assert_eq!(
+            row(EventKind::Passed, json!({"stage": "Spec review"})),
+            ("You approved it at Spec review".into(), None)
         );
     }
 

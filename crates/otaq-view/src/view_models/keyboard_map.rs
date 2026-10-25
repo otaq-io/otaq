@@ -302,7 +302,7 @@ mod tests {
                 ("Board", one("⇧⌘B"), one("Ctrl+Shift+B"), none()),
                 row("Activity", "⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
                 row("Approve ▾", "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
-                row("Send back", "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
+                row("Send back\u{2026}", "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
                 row("Start / move to Dev", "⌘D", "Ctrl+D", "Ctrl+Shift+D"),
                 (
                     "Find in terminal scrollback",

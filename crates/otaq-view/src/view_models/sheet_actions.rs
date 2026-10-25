@@ -47,12 +47,11 @@ pub enum Action {
     /// Ready for Review on the default flow, an epic in its human check, a To deliver ticket: the delivery choices
     /// (M6, T-0095).
     Approve,
-    /// Ready for Review on the default flow (M6, T-0094): the Send back dialog.
+    /// Every human check (M6, T-0094; d0093, d0131): the Send back dialog, to the stage the check's fails go to.
     SendBack,
-    /// Your check (FLW-14): Pass moves it on, or offers the delivery choices when a click Delivery comes next.
+    /// A human check in another flow (FLW-14): its Pass moves it on, or offers the delivery choices when a click
+    /// Delivery comes next. Labelled Approve (d0093).
     Pass,
-    /// Your check: the Fail dialog (FLW-14; was Send back, M6, T-0094).
-    Fail,
     /// PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
     SendBackPr,
     /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
@@ -127,9 +126,8 @@ impl Action {
             Self::StartFromScratch => "Start from scratch",
             Self::RetryStart => "Retry start",
             Self::Approve => "Approve · Local merge",
-            Self::SendBack => "Send back",
-            Self::Pass => crate::view_models::card::PASS,
-            Self::Fail => crate::view_models::card::FAIL,
+            Self::SendBack => SEND_BACK,
+            Self::Pass => APPROVE,
             Self::SendBackPr => crate::view_models::card::SEND_BACK_WITH_PR_COMMENTS,
             Self::AddChildFromPr => "Add a child from PR comments",
             Self::OpenPrInBrowser => "Open PR in browser",
@@ -170,7 +168,7 @@ impl Action {
             // Resume failed: Retry and Start from scratch (*16 → Resume · in progress → resumed → failed*).
             Self::RetryResume => IconName::RefreshCw,
             Self::RetryStart | Self::StartFromScratch => IconName::RotateCcw,
-            Self::SendBack | Self::Fail | Self::SendBackPr => IconName::Undo2,
+            Self::SendBack | Self::SendBackPr => IconName::Undo2,
             Self::AddChildFromPr => IconName::Plus,
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
@@ -196,7 +194,6 @@ impl Action {
             | Self::RetryStart
             | Self::ViewDiff
             | Self::SendBack
-            | Self::Fail
             | Self::Pass
             | Self::SendBackPr
             | Self::AddChildFromPr
@@ -223,31 +220,18 @@ pub fn send_again_sending(kind: otaq_core::domain::HandOffKind) -> String {
     format!("The hand-off again ({})", card::hand_off_label(kind))
 }
 
-/// The Approve button's label (DEC-05, d0084): "Approve · keeps 1 decision" / "Approve · keeps 3 decisions" while
-/// the review has open recorded decisions; with none it reads as before, "Approve · Local merge".
+/// A human check's Approve (d0093; Pass in the decisions and the CLI, FLW-14).
+pub const APPROVE: &str = "Approve";
+/// Send back where the stage isn't named: the dialog it opens names it ("Send back to Product spec", d0093).
+pub const SEND_BACK: &str = "Send back\u{2026}";
+
+/// A human check's Approve (d0093; DEC-05, d0084): "Approve", or "Approve · keeps 1 decision" / "Approve · keeps 3
+/// decisions" while the review has open recorded decisions.
 pub fn approve_label(open_decisions: u32) -> String {
     match open_decisions {
-        0 => Action::Approve.label().to_owned(),
+        0 => APPROVE.to_owned(),
         1 => "Approve \u{b7} keeps 1 decision".to_owned(),
         n => format!("Approve \u{b7} keeps {n} decisions"),
-    }
-}
-
-/// The Pass button's label (FLW-14, DEC-05): "Pass", or "Pass · keeps 1 decision" while the review has open recorded
-/// decisions.
-pub fn pass_label(open_decisions: u32) -> String {
-    match open_decisions {
-        0 => Action::Pass.label().to_owned(),
-        1 => "Pass \u{b7} keeps 1 decision".to_owned(),
-        n => format!("Pass \u{b7} keeps {n} decisions"),
-    }
-}
-
-/// The Fail button's label: "Fail", or "Fail (2)" with the pending review comments it sends (as Send back's, REV-04).
-pub fn fail_label(pending: usize) -> String {
-    match pending {
-        0 => Action::Fail.label().to_owned(),
-        n => format!("{} ({n})", Action::Fail.label()),
     }
 }
 
@@ -263,9 +247,10 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
     all_buttons_in(ticket, false)
 }
 
-/// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): Pass ·
-/// Fail on a human check (FLW-14). The default flow keeps today's Approve and Send back (d0108, STG-06). Every flow
-/// offers Send back with PR comments on an open PR and an epic's Add a child from PR comments (FLW-16).
+/// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): a human
+/// check's Approve is its Pass there (FLW-14), which moves it on; on the default flow it opens the delivery choices.
+/// Every human check offers Send back (d0093). Every flow offers Send back with PR comments on an open PR and an
+/// epic's Add a child from PR comments (FLW-16).
 pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
@@ -332,11 +317,11 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
         Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
-        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next. Run tries the
-        // change, as during Dev (d0125); it brings a set-aside build back first.
+        // Your check (FLW-14, d0093): Pass offers today's delivery choices when a click Delivery comes next. Run tries
+        // the change, as during Dev (d0125); it brings a set-aside build back first.
         Status::WaitingForYou if custom => vec![
             (A::Pass, Primary),
-            (A::Fail, Secondary),
+            (A::SendBack, Secondary),
             (A::Run, Secondary),
         ],
         Status::WaitingForYou => vec![
@@ -548,7 +533,7 @@ mod tests {
     #[test]
     fn approve_says_what_it_keeps() {
         use crate::view_models::approve::{ApproveChoice, options};
-        assert_eq!(approve_label(0), "Approve \u{b7} Local merge");
+        assert_eq!(approve_label(0), "Approve");
         assert_eq!(approve_label(1), "Approve \u{b7} keeps 1 decision");
         assert_eq!(approve_label(3), "Approve \u{b7} keeps 3 decisions");
         assert!(
@@ -628,10 +613,10 @@ mod tests {
         assert_eq!(all_buttons(&epic), [(A::Approve, Primary)]);
     }
 
-    /// FLW-14, FLW-16 (`s03-46`): in another flow a human check offers Pass · Fail; an open PR Send back with PR
-    /// comments and an epic's open PR Add a child from PR comments on every flow.
+    /// FLW-14, FLW-16 (`s03-46`), d0093: in another flow a human check offers Approve (its Pass) · Send back; an
+    /// open PR Send back with PR comments and an epic's open PR Add a child from PR comments on every flow.
     #[test]
-    fn other_flows_pass_fail_and_send_back_pr_comments() {
+    fn other_flows_approve_send_back_and_send_back_pr_comments() {
         use Look::*;
         let custom = |t: &Ticket| all_buttons_in(t, true);
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
@@ -639,7 +624,7 @@ mod tests {
             custom(&review),
             [
                 (A::Pass, Primary),
-                (A::Fail, Secondary),
+                (A::SendBack, Secondary),
                 (A::Run, Secondary)
             ]
         );
@@ -659,7 +644,8 @@ mod tests {
         epic.place = otaq_core::domain::Place::stage_of("deliver");
         assert_eq!(custom(&epic)[1], (A::AddChildFromPr, Secondary));
         assert!(all_buttons(&epic).contains(&(A::AddChildFromPr, Secondary)));
-        assert_eq!(A::Pass.label(), "Pass");
+        assert_eq!(A::Pass.label(), "Approve", "d0093: Pass isn't UI text");
+        assert_eq!(A::SendBack.label(), "Send back\u{2026}");
         assert_eq!(A::SendBackPr.label(), "Send back with PR comments");
     }
 

@@ -273,7 +273,7 @@ pub(crate) async fn send_back_in(
         stage_runs::mark_handed_over(tx, &ticket.id).await?;
     }
     let note = hand_over.map_or("", |h| h.body.as_str());
-    // History's "Sent back to Product spec · by you" names the stage (d0131).
+    // History's "You sent it back to Product spec" names the stage (d0131).
     let named = tell.map(|t| t.stage);
     let (kind, payload) = event.unwrap_or_else(|| {
         (

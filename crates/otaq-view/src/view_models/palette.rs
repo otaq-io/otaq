@@ -1000,7 +1000,7 @@ mod tests {
         };
         assert_eq!(
             words(&view("send back", &ready))[0],
-            "action Send back \u{b7} no ticket in review"
+            "action Send back\u{2026} \u{b7} no ticket in review"
         );
         assert_eq!(words(&view(">park", &ready))[0], "action Park");
         assert_eq!(words(&view(">open diff", &ready))[0], "action Open diff");

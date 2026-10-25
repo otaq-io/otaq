@@ -16,7 +16,6 @@ use otaq_core::protocol::{
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::diff_page::{self as page, DiffSide};
 use otaq_view::view_models::files_tab as vm;
-use otaq_view::view_models::send_back as sb;
 use otaq_view::view_models::validation_report::{self, Review};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -66,10 +65,16 @@ async fn ticket(app: &App, key: &str) -> Result<Ticket, RequestError> {
     }
 }
 
-/// The stage Send back returns `ticket` to ("Dev"), from its project's flow.
-async fn back_to(app: &App, ticket: &Ticket) -> String {
-    let flow = super::board::flow(app, &ticket.key.project.to_string()).await;
-    sb::back_stage(ticket, &flow).map_or_else(|| "Dev".to_owned(), |s| s.name.clone())
+/// The stage Send back returns `ticket` to ("Product spec"), from its project's flow and its skips (d0131), and
+/// whether that flow isn't the default's shape (Approve is then the human check's Pass, FLW-14).
+async fn back_to(app: &App, ticket: &Ticket) -> (String, bool) {
+    let project = ticket.key.project.to_string();
+    let (flow, agents) = tokio::join!(
+        super::board::flow(app, &project),
+        super::editor::agent_facts(app, super::editor::of_ticket(&ticket.key.to_string())),
+    );
+    let to = super::review::send_back_stage(ticket, &flow, agents.as_ref()).unwrap_or_else(|| "Dev".to_owned());
+    (to, !otaq_view::view_models::flow_columns::keeps_default_look(&flow))
 }
 
 /// The open ticket.
@@ -351,7 +356,7 @@ pub async fn review(app: &App, params: Params) -> Result<ReviewNotes, RequestErr
 /// The ticket's line comments; they can be added only while it waits in your check (epics take none, EPC-05).
 pub async fn comments(app: &App, params: Params) -> Result<vm::CommentsView, RequestError> {
     let ticket = ticket(app, &params.key).await?;
-    let (list, to) = tokio::join!(
+    let (list, (to, _)) = tokio::join!(
         app.service.send(Request::ReviewComments(CommentsParams {
             key: params.key.clone(),
             round: None,
@@ -389,7 +394,7 @@ pub async fn bar(app: &App, params: BarParams) -> Result<Option<vm::ReviewBar>, 
     if !vm::waits_for_you(&ticket) {
         return Ok(None);
     }
-    let (list, to, keys) = tokio::join!(
+    let (list, (to, custom), keys) = tokio::join!(
         app.service.send(Request::ReviewComments(CommentsParams {
             key: params.key.clone(),
             round: None,
@@ -407,6 +412,7 @@ pub async fn bar(app: &App, params: BarParams) -> Result<Option<vm::ReviewBar>, 
         params.writing && vm::can_comment(&ticket),
         &to,
         keys.label(KeyAction::Approve),
+        custom,
     ))
 }
 

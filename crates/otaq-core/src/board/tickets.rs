@@ -459,7 +459,7 @@ stored_enum! {
         /// (set by Noyan)" · "typo fix".
         StageChoiceSet = "stage_choice_set",
         /// The user's Pass on a human check that moved the card on (FLW-14, d0108): payload `stage` (its name),
-        /// `stage_id`. History reads "Passed QA" · "by you". A Pass that offered the delivery choices logs the
+        /// `stage_id`. History reads "You approved it at QA" (d0093). A Pass that offered the delivery choices logs the
         /// delivery's own event instead.
         Passed = "passed",
         /// A stage started without the agent the ticket chose for it, which the flow no longer offers (FLW-05):

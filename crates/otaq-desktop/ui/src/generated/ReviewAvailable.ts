@@ -3,4 +3,8 @@
 /**
  * Which review dialogs the ticket takes now (⌘↵ / ⌘⌫ open them only then).
  */
-export type ReviewAvailable = { approve: boolean, send_back: boolean, };
+export type ReviewAvailable = { approve: boolean, 
+/**
+ * Approve is the human check's Pass (`review.pass`): its flow isn't the default's shape (FLW-14, d0093).
+ */
+pass: boolean, send_back: boolean, };

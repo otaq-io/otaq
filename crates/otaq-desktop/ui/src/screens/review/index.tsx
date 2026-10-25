@@ -8,7 +8,7 @@ import type { Screen } from "../../app/registry";
 import { selection } from "../../app/selection";
 import type { ReviewAvailable } from "../../generated/ReviewAvailable";
 import { request } from "../../tauri";
-import { FailDialog, SendBackPrDialog } from "./CheckDialogs";
+import { passTicket, SendBackPrDialog } from "./CheckDialogs";
 import { ChangeDecisionDialog, LocalMergeDialog, SendBackDialog } from "./Dialogs";
 import "./review.css";
 
@@ -31,12 +31,13 @@ export const review: Screen = (app) => {
   app.overlays.register("local_merge", { Component: LocalMergeDialog });
   app.overlays.register("send_back", { Component: SendBackDialog });
   app.overlays.register("change_decision", { Component: ChangeDecisionDialog });
-  app.overlays.register("fail", { Component: FailDialog });
   app.overlays.register("send_back_pr", { Component: SendBackPrDialog });
   app.shortcuts.on(
     "approve",
     onOpenTicket((ticket, available) => {
-      if (available.approve) openOverlay("local_merge", { ticket, menu: true });
+      // In another flow a human check's Approve is its Pass, which moves it on (FLW-14, d0093).
+      if (available.pass) void passTicket(ticket, true);
+      else if (available.approve) openOverlay("local_merge", { ticket, menu: true });
     }),
   );
   app.shortcuts.on(

@@ -479,14 +479,14 @@ describe("the review bar (SHT-06)", () => {
       title: "Your check",
       line: "· Security passed · comment on any line to send it back",
       buttons: [
-        { action: "send_back", label: "Send back…", primary: false, keys: null },
+        { action: "send_back", label: "Send back · to Dev…", primary: false, keys: null },
         { action: "approve", label: "Approve", primary: true, keys: "⌘↵" },
       ],
     };
     const out = renderToStaticMarkup(createElement(ReviewBarBody, { ticket: "SHOP-18", bar }));
     expect(out).toContain("Your check");
     expect(out).toContain("· Security passed · comment on any line to send it back");
-    expect(out.indexOf("Send back…")).toBeLessThan(out.indexOf("Approve"));
+    expect(out.indexOf("Send back · to Dev…")).toBeLessThan(out.indexOf("Approve"));
     expect(out).toContain("⌘↵");
     const with_ = renderToStaticMarkup(
       createElement(ReviewBarBody, {
