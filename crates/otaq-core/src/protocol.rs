@@ -267,9 +267,9 @@ pub enum Request {
     #[serde(rename = "ticket.delete_preview")]
     TicketDeletePreview(KeyParams),
     /// Deletes a never-started ticket; answered with [`Reply::DeletePreview`]
-    /// (what was removed). Not for agents (CLI-02).
+    /// (what was removed). The user's; a ticket's agent only the never-started tickets it created (d0129).
     #[serde(rename = "ticket.delete")]
-    TicketDelete(KeyParams),
+    TicketDelete(TicketDeleteParams),
     /// Retry start (SES-02): a user's click on a ticket whose start stopped (Start interrupted, or Held
     /// because its base diverged). Answered with the ticket back in Queued ([`Reply::Ticket`]); the whole start
     /// sequence then runs again.
@@ -1550,6 +1550,15 @@ pub struct UsageParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyParams {
     pub key: String,
+}
+
+/// `{"key": "SHOP-43", "reason": "merged into SHOP-42"}`: `otaq delete` (d0060, d0129). An agent's reason goes into
+/// its own ticket's History ("Deleted SHOP-43 · merged into SHOP-42").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketDeleteParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// `{"key": "SHOP-31"}` or `{"key": "SHOP-33", "agent": "Performance reviewer"}`: **Use fallback** (AGM-03).

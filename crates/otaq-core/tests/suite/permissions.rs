@@ -60,7 +60,10 @@ async fn an_agent_reads_anything_and_changes_only_its_own_ticket() {
     .await;
     assert_eq!(
         refusal(&answer),
-        ("not_allowed", "SHOP-1's agent can't change SHOP-2")
+        (
+            "not_allowed",
+            "SHOP-2 was created by you; SHOP-1's agent can only change tickets it created"
+        )
     );
     assert_eq!(
         w.board.ticket("SHOP-2").await.unwrap().title,
@@ -73,7 +76,7 @@ async fn an_agent_reads_anything_and_changes_only_its_own_ticket() {
             "ticket.move",
             json!({"key": "SHOP-1", "target": "ready_for_dev"}),
         ),
-        ("ticket.delete", json!({"key": "SHOP-2"})),
+        ("ticket.delete", json!({"key": "SHOP-1"})),
         ("ticket.pin", json!({"key": "SHOP-1"})),
         ("service.stop", Value::Null),
     ] {

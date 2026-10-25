@@ -13,6 +13,7 @@ use serde_json::json;
 use super::Shared;
 use crate::agent_tools::SetupOutcome;
 use crate::board::change_note::change_note;
+use crate::board::fixes::{Fix, edited_fields};
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
 use crate::board::ticket_comments::CommentAuthor;
@@ -211,6 +212,11 @@ pub(super) async fn handle(
                 .await?;
             if board.write_choices(&ticket, &writes, &actor).await? {
                 publish_ticket_changed(shared, &ticket.key).await;
+                let choices = writes
+                    .iter()
+                    .map(|w| format!("{}: {}", w.stage, w.label))
+                    .collect();
+                fixed_by_agent(shared, caller, &ticket, Fix::ChoicesSet { choices }, &actor).await;
             }
             Ok(Reply::TicketChoices(Box::new(
                 board.ticket_choices(&p.key).await?,
@@ -415,6 +421,20 @@ pub(super) async fn handle(
             .await;
             if chosen && let Ok(after) = &after {
                 publish_ticket_changed(shared, &after.key).await;
+            }
+            if let (Some(before), Ok(after)) = (&before, &after) {
+                let fields = edited_fields(before, after);
+                if !fields.is_empty() {
+                    fixed_by_agent(shared, caller, after, Fix::Edited { fields }, &actor).await;
+                }
+                if chosen {
+                    let choices = writes
+                        .iter()
+                        .map(|w| format!("{}: {}", w.stage, w.label))
+                        .collect();
+                    fixed_by_agent(shared, caller, after, Fix::ChoicesSet { choices }, &actor)
+                        .await;
+                }
             }
             // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
             let after = match (&before, after) {
@@ -1007,9 +1027,22 @@ pub(super) async fn handle(
         }
         Request::TicketDelete(p) => boxed(move || async move {
             let project = project_of(&p.key);
-            mutate(shared, &project, board.delete_ticket(&p.key))
-                .await
-                .map(Reply::DeletePreview)
+            let before = board.ticket(&p.key).await.ok();
+            let deleted = mutate(shared, &project, board.delete_ticket(&p.key)).await;
+            if let (Some(before), Ok(_)) = (&before, &deleted) {
+                let reason = p
+                    .reason
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty())
+                    .map(str::to_owned);
+                let fix = Fix::Deleted {
+                    title: before.title.clone(),
+                    reason,
+                };
+                fixed_by_agent(shared, caller, before, fix, &actor).await;
+            }
+            deleted.map(Reply::DeletePreview)
         }),
         Request::TicketAgentEdits(p) => {
             boxed(move || async move { board.agent_edits(&p.key).await.map(Reply::AgentEdits) })
@@ -1154,6 +1187,18 @@ pub(super) async fn handle(
             .await;
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
+                if before.depends_on != after.depends_on
+                    && let Ok(parent) = p.parent.parse()
+                {
+                    fixed_by_agent(
+                        shared,
+                        caller,
+                        after,
+                        Fix::DependencyAdded { parent },
+                        &actor,
+                    )
+                    .await;
+                }
             }
             after.map(|t| Reply::Ticket(Box::new(t)))
         }),
@@ -1168,6 +1213,18 @@ pub(super) async fn handle(
             .await;
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
+                if before.depends_on != after.depends_on
+                    && let Ok(parent) = p.parent.parse()
+                {
+                    fixed_by_agent(
+                        shared,
+                        caller,
+                        after,
+                        Fix::DependencyRemoved { parent },
+                        &actor,
+                    )
+                    .await;
+                }
             }
             after.map(|t| Reply::Ticket(Box::new(t)))
         }),
@@ -1982,6 +2039,35 @@ async fn created_by_agent(shared: &Shared, caller: &Caller, tickets: &[Ticket], 
             by: by.clone(),
             status: t.status,
         });
+    }
+}
+
+/// d0129: a ticket's agent changed (or deleted) a ticket it created; its own ticket's History logs it ("Edited
+/// SHOP-42" · "title"). Its own ticket's changes, and anyone else's, log nothing more.
+async fn fixed_by_agent(
+    shared: &Shared,
+    caller: &Caller,
+    target: &Ticket,
+    fix: Fix,
+    actor: &Actor,
+) {
+    let Caller::Agent {
+        ticket, ticket_id, ..
+    } = caller
+    else {
+        return;
+    };
+    if target.id == *ticket_id || target.created_by != Actor::Agent(ticket.clone()) {
+        return;
+    }
+    match shared
+        .board
+        .record_fix(ticket_id, &target.key, &fix, actor)
+        .await
+    {
+        Ok(()) => publish_ticket_changed(shared, ticket).await,
+        Err(e) => tracing::warn!(creator = %ticket, target = %target.key, error = %e,
+                                 "can't log the change to a ticket it created"),
     }
 }
 

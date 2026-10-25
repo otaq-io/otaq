@@ -7,6 +7,7 @@ mod cli;
 mod comment;
 mod daemon;
 mod decision;
+mod delete;
 mod deps;
 mod flow;
 mod hook;
@@ -101,6 +102,7 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
+        Some(Command::Delete { key, reason }) => delete::run(key, reason, &cli.global, &out),
         Some(Command::Ask {
             target,
             stdin,

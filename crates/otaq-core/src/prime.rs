@@ -70,6 +70,9 @@ pub struct PrimeContext {
     /// The stage choices the reader may set (AGM-06, AGM-08); none on the default flow. Filled by the service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<PrimeChoice>,
+    /// The tickets this ticket's agent created that never started: what it may still fix (d0129).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub created_not_started: Vec<TicketKey>,
 }
 
 /// The "Pull request" section: what the skill proposes from, and what the user confirmed.
@@ -517,6 +520,7 @@ impl Board {
         let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
         let comments = self.ticket_comments(key).await?.comments;
         let manual_checks = self.manual_checks(key).await?.items;
+        let created_not_started = crate::board::fixes::created_not_started(&ticket.key, &tickets);
         let context = PrimeContext {
             conflict,
             ticket,
@@ -536,6 +540,7 @@ impl Board {
             manual_checks,
             pull_request,
             choices: Vec::new(),
+            created_not_started,
         };
         Ok((context, agent))
     }
@@ -1212,6 +1217,9 @@ pub fn render(ctx: &PrimeContext) -> String {
         &ctx.choices,
         AgentReader::TicketAgent,
         Some(&t.key),
+    ));
+    out.push_str(&crate::board::fixes::render_created_not_started(
+        &ctx.created_not_started,
     ));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));

@@ -7,9 +7,10 @@
 //! Project agent, a ticket's own agent) only with a reason, never over the user's choice, and once the
 //! ticket has started only a **later** stage's; before the ticket starts it may set any stage's. An agent's request
 //! that carries `--by-user` (d0087) is the user's. Which tickets each agent may change at all is the policy's
-//! ([`crate::policy::Action::SetChoices`], CLI-06): the Project agent its Backlog tickets, a ticket agent its own
-//! ticket. A choice **locks** when its stage starts (the ticket has a run of it, STG-05). A choice must be one of the
-//! stage's options, else it is refused naming them; a stage without options refuses any.
+//! ([`crate::policy::Action::SetChoices`], CLI-06; d0129): the Project agent its Backlog tickets, a ticket agent its
+//! own ticket and the never-started tickets it created. A choice **locks** when its stage starts (the ticket has a
+//! run of it, STG-05). A choice must be one of the stage's options, else it is refused naming them; a stage without
+//! options refuses any.
 //!
 //! **What a choice does:** the running agent of a stage is its choice, else the stage's agent
 //! ([`crate::agents::resolve::running_agent`]); a skipped stage is passed with a run of result `skipped`
@@ -299,9 +300,10 @@ pub struct Target<'a> {
     pub ran: &'a [String],
 }
 
-/// The refusal of an agent's choice over the user's: "SHOP-5's Dev choice was set by you; agents can't change it".
+/// The refusal of an agent's choice over the user's (d0108, d0129): "You set Dev for SHOP-5; the agent's choice
+/// doesn't replace yours".
 pub fn set_by_you_refusal(label: &str, stage: &str) -> String {
-    format!("{label}'s {stage} choice was set by you; agents can't change it")
+    format!("You set {stage} for {label}; the agent's choice doesn't replace yours")
 }
 
 /// The stage `name` names in `flow`: its id, or its name ignoring case. An unknown one lists the stages that have
@@ -1002,7 +1004,7 @@ mod tests {
                 .map_err(|e| (e.refusal().unwrap(), e.to_string()))
         };
         let refused = |code, text: &str| Err((code, text.to_owned()));
-        let set_by_you = "SHOP-5's Dev choice was set by you; agents can't change it";
+        let set_by_you = "You set Dev for SHOP-5; the agent's choice doesn't replace yours";
         let locked = "Dev has started on SHOP-5: its choice is locked";
         let rows = [
             (

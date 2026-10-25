@@ -13,6 +13,7 @@ pub mod delete;
 pub mod deps;
 pub mod diff;
 pub mod files;
+pub mod fixes;
 pub mod hand_over;
 pub mod human_check;
 pub mod manual_checks;

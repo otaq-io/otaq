@@ -9,7 +9,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::domain::Actor;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
@@ -329,7 +329,7 @@ async fn agent_created_tickets_and_agent_edits() {
     let e: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(
         e["error"]["message"],
-        "SHOP-19's agent can't change SHOP-20"
+        "SHOP-20 was created by you; SHOP-19's agent can only change tickets it created"
     );
     // An agent's --actor can't make it the user.
     let ran = agent
@@ -342,24 +342,22 @@ async fn agent_created_tickets_and_agent_edits() {
     w.stop().await;
 }
 
-/// Q17 (deferred, built as option 1): an agent's new ticket can't depend on a ticket it didn't create, even its
-/// own; nothing is created.
+/// Q17 is overtaken by d0129: an agent's new ticket is one it may fix, so it may wait for any ticket, its own
+/// included ("SHOP-41 waits for SHOP-40").
 #[tokio::test(flavor = "multi_thread")]
-async fn agent_links_follow_the_literal_rule() {
+async fn an_agent_s_new_ticket_may_wait_for_its_own() {
     let w = TestService::start().await;
     w.shop_sample().await;
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     let agent = w.agent_shell(&shop19).await;
-    let before = count(&w).await;
     let ran = agent
         .run(&format!(
             "'{CB}' create 'Currency column' --deps SHOP-19 --json"
         ))
         .await;
-    assert_ne!(ran.status, 0);
-    let e: Value = serde_json::from_str(&ran.stdout).unwrap();
-    assert_eq!(e["error"]["data"]["refusal"], "not_allowed", "{e}");
-    assert_eq!(count(&w).await, before);
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let created: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(created["depends_on"], json!(["SHOP-19"]), "{created}");
     w.stop().await;
 }
 

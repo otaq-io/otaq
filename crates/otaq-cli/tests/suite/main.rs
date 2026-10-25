@@ -14,6 +14,7 @@ mod copilot_hooks;
 mod daemon;
 mod decision;
 mod deps;
+mod fixes;
 mod flow;
 mod hook;
 mod install_local;

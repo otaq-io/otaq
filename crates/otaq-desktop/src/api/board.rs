@@ -35,7 +35,7 @@ use otaq_core::flow::Flow;
 use otaq_core::board::settings::ViewPrefs;
 use otaq_core::protocol::{
     CloseParams, DragParams, IdParams, KeyParams, ProjectParams,
-    ProjectViewParams, Reply, Request, TicketChoicesParams,
+    ProjectViewParams, Reply, Request, TicketChoicesParams, TicketDeleteParams,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page::{
@@ -636,7 +636,10 @@ async fn agent_creator(app: &App, key: &str) -> Option<String> {
 pub async fn delete(app: &App, params: TicketParams) -> Result<(), RequestError> {
     match app
         .service
-        .send(Request::TicketDelete(KeyParams { key: params.key }))
+        .send(Request::TicketDelete(TicketDeleteParams {
+            key: params.key,
+            reason: None,
+        }))
         .await?
     {
         Reply::DeletePreview(preview) => {

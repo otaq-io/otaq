@@ -2,7 +2,8 @@
 //!
 //! New tickets land in **Backlog**. Long text goes through **stdin** (`--stdin`, PLG-05); `-d` is for a short
 //! line. The service records the actor, so tickets an agent creates show "created by agent" and its edits are
-//! kept as before/after (T-0023); an agent may only update its own ticket (T-0065).
+//! kept as before/after (T-0023); an agent may only update its own ticket (T-0065) and the never-started tickets it
+//! created (d0129).
 //!
 //! # `--json` shapes
 //!
