@@ -12,8 +12,8 @@ import type { TerminalTabView } from "../../generated/TerminalTabView";
 /** What fills the terminal's place under its strip. */
 export type TabBody = "terminal" | "recovery" | "no_session";
 
-/** Session's sides with a terminal of the ticket's: its agent's and its check's (SHT-04). */
-export type Side = "agent" | "check";
+/** Session's sides with a terminal of the ticket's: its agent's, its check's (SHT-04) and a helper's (d0133). */
+export type Side = "agent" | "check" | "helper";
 
 /**
  * The check side shown: the check agent's (`agent`, the switch's part, d0130: one per check agent), else the first;
@@ -22,6 +22,33 @@ export type Side = "agent" | "check";
 export function checkOf(view: TerminalTabView, agent: string | null = null): TerminalTabCheck | null {
   return view.checks.find((c) => c.agent === agent) ?? view.checks[0] ?? null;
 }
+
+/** A helper's terminal (d0133): the one of piece `piece` ("40.3"), `null` when it has no session. */
+export function helperOf(view: TerminalTabView, piece: string | null): TerminalTabCheck | null {
+  return view.helpers.find((h) => h.agent === piece) ?? null;
+}
+
+/** The check's or the helper's side shown; `null` on the agent's side. */
+export function sideOf(
+  view: TerminalTabView,
+  side: Side,
+  agent: string | null = null,
+): TerminalTabCheck | null {
+  switch (side) {
+    case "check":
+      return checkOf(view, agent);
+    case "helper":
+      return helperOf(view, agent);
+    case "agent":
+      return null;
+  }
+}
+
+/**
+ * Which helper's terminal Session shows (d0133, `s30-03`): its piece ("40.3"), `null` for the agent in charge's. The
+ * page's own state; a row of Session's list sets it.
+ */
+export const shownPiece: Store<string | null> = createStore<string | null>(null);
 
 /**
  * Which check agent's side Session shows (d0130: one per check agent): its name as the switch's part has it, `null`
@@ -45,12 +72,14 @@ export function partShown(
 
 /** The session the terminal attaches to on that side. */
 export function sessionOf(view: TerminalTabView, side: Side, agent: string | null = null): string | null {
-  const check = side === "check" ? checkOf(view, agent) : null;
-  return check !== null ? check.session : view.session;
+  const other = sideOf(view, side, agent);
+  if (side === "helper") return other?.session ?? null;
+  return other !== null ? other.session : view.session;
 }
 
 export function bodyOf(view: TerminalTabView, side: Side = "agent", agent: string | null = null): TabBody {
-  if (side === "check" && checkOf(view, agent) !== null) return "terminal";
+  if (side !== "agent" && sideOf(view, side, agent) !== null) return "terminal";
+  if (side === "helper") return "no_session";
   if (view.recovery !== null) return "recovery";
   return view.session === null ? "no_session" : "terminal";
 }
@@ -74,8 +103,8 @@ export function stripFor(
   agent: string | null = null,
 ): TerminalTabStrip | undefined {
   const shown = shownPhase(view, phase, side, agent);
-  const check = side === "check" ? checkOf(view, agent) : null;
-  const strips = check !== null ? check.strips : view.strips;
+  const other = sideOf(view, side, agent);
+  const strips = other !== null ? other.strips : view.strips;
   return strips.find((s) => s.phase === shown && s.focused === focused);
 }
 

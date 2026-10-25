@@ -319,6 +319,7 @@ async fn owner_facts(
         agent_list: None,
         starts_held: None,
         paused: board.project.paused_since.is_some(),
+        helpers: &[],
     };
     let columns = Columns::of(&flow);
     tickets

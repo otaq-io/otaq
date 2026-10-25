@@ -143,7 +143,7 @@ pub async fn tree(app: &App, params: TreeParams) -> Result<Vec<vm::TreeRow>, Req
         }))
         .await?
     {
-        Reply::FilesTree(tree) => Ok(vm::tree_rows(&tree.entries, params.depth)),
+        Reply::FilesTree(tree) => Ok(vm::tree_rows(&tree.source.key, &tree.entries, params.depth)),
         other => Err(unexpected("files.tree", &other)),
     }
 }
@@ -166,6 +166,7 @@ pub async fn search(app: &App, params: SearchParams) -> Result<vm::SearchView, R
         .await?
     {
         Reply::FilesSearch(found) => Ok(vm::search_view(
+            &found.source.key,
             &params.query,
             &found.matches,
             found.total,
@@ -378,14 +379,35 @@ pub async fn bar(app: &App, params: BarParams) -> Result<Option<vm::ReviewBar>, 
         Reply::ReviewComments(list) => list.pending,
         other => return Err(unexpected("review.comments", &other)),
     };
-    Ok(vm::review_bar(
+    let bar = vm::review_bar(
         &ticket,
         pending,
         params.writing && vm::can_comment(&ticket),
         &to,
         keys.label(KeyAction::Approve),
         custom,
-    ))
+    );
+    // A ticket that split its work (d0133, `s30-04`): "· the whole ticket · 9 files, +312 −1 · Validate passed".
+    let split = super::board::helpers(app, ticket.key.project.as_str())
+        .await
+        .iter()
+        .any(|h| h.ticket == ticket.key);
+    if let (Some(bar), true) = (&bar, split)
+        && let Ok(Reply::FilesChanges(changes)) = app
+            .service
+            .send(Request::FilesChanges(KeyParams {
+                key: params.key.clone(),
+            }))
+            .await
+    {
+        return Ok(Some(vm::whole_ticket_bar(
+            bar.clone(),
+            changes.files.len(),
+            changes.added,
+            changes.removed,
+        )));
+    }
+    Ok(bar)
 }
 
 /// Unified or Split, for every ticket.

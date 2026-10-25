@@ -226,6 +226,9 @@ pub struct TabView {
     pub lands_on: Content,
     /// Session's switch: empty for the other tabs.
     pub parts: Vec<PartView>,
+    /// Session of a ticket whose build stage split its work (d0133, `s30-03`): the list of its agent in charge and its
+    /// helpers, each opening its terminal, in place of the switch's Agent; Run and Shell stay in `parts`.
+    pub list: Option<otaq_view::view_models::pieces::SessionList>,
 }
 
 /// The sheet's frame (SHT-01): breadcrumb, details line, tabs, the tab it opens on and its widths.
@@ -468,6 +471,8 @@ pub struct Facts<'a> {
     pub project_name: &'a str,
     /// The Files tab's count (Q421): "Files 3"; `None` with no changes or before it started.
     pub files_count: Option<u32>,
+    /// The ticket's helpers (d0133): the header "Dev · 2 helpers working", Details and Session's list.
+    pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -617,6 +622,15 @@ pub fn view_of(f: &Facts) -> View {
             {
                 pill.label = label;
             }
+            // A build stage that split its work (d0133, `s30-03`): "Dev · 2 helpers working".
+            if let Some(label) = stage_name(f).and_then(|stage| {
+                otaq_view::view_models::pieces::header(
+                    &otaq_view::view_models::pieces::Facts::new(ticket, f.helpers),
+                    stage,
+                )
+            }) {
+                pill.label = label;
+            }
             pill
         },
         branch: sheet::branch_name(ticket).map(|full| Branch {
@@ -689,6 +703,16 @@ pub fn view_of(f: &Facts) -> View {
     }
 }
 
+/// The name of the stage the ticket is in, from its path (`ticket.agents`).
+fn stage_name<'a>(f: &Facts<'a>) -> Option<&'a str> {
+    let id = f.ticket.place.stage()?;
+    f.agents?
+        .path
+        .iter()
+        .find(|s| s.stage_id == id)
+        .map(|s| s.stage.as_str())
+}
+
 /// The sheet's block for a check of several agents, with each held agent's hold (d0130 row 17) and who resumes once
 /// the round failed.
 fn check_round(f: &Facts) -> Option<otaq_view::view_models::check_agents::RoundView> {
@@ -730,6 +754,13 @@ fn sheet_of(f: &Facts) -> SheetFrame {
     let tabs = sheet::tabs(ticket)
         .into_iter()
         .map(|tab| {
+            let list = match tab {
+                SheetTab::Session => otaq_view::view_models::pieces::session_list_of(
+                    &otaq_view::view_models::pieces::Facts::new(ticket, f.helpers),
+                    session_tab::agent_session(f.sessions),
+                ),
+                _ => None,
+            };
             let (contents, lands_on, parts, dot) = match tab {
                 SheetTab::Session => (
                     {
@@ -760,6 +791,7 @@ fn sheet_of(f: &Facts) -> SheetFrame {
                 contents,
                 lands_on,
                 parts,
+                list,
             }
         })
         .collect();
@@ -771,6 +803,8 @@ fn sheet_of(f: &Facts) -> SheetFrame {
             tools: f.tools,
             tickets: f.tickets,
             now: f.now,
+            helpers: f.helpers,
+            usage: f.usage,
         }),
         steps: sheet::steps(ticket, f.agents),
         tabs,
@@ -955,6 +989,15 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         .flatten();
     let project_name = project_name(app, ticket.key.project.as_str()).await;
     let files_count = files_count(app, &ticket, params.opened).await;
+    let helpers: Vec<otaq_core::helpers::Helper> = if ticket.started_at.is_some() {
+        super::board::helpers(app, ticket.key.project.as_str())
+            .await
+            .into_iter()
+            .filter(|h| h.ticket == ticket.key)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -974,6 +1017,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         custom_flow,
         project_name: &project_name,
         files_count,
+        helpers: &helpers,
     });
     Ok(Load {
         view: Some(view),
@@ -1767,6 +1811,7 @@ pub fn notes_gallery() -> NotesGallery {
                     project_name: "shop-web",
                     files_count: None,
                     send_back_to: None,
+                    helpers: &[],
                 })
             })
             .collect(),
@@ -1863,6 +1908,7 @@ pub fn sheet_gallery() -> Vec<View> {
                 project_name: "shop-web",
                 // `s25-03`: "Files 3" once it started.
                 files_count: ticket.started_at.map(|_| 3),
+                helpers: &[],
             })
         })
         .collect()
@@ -1957,6 +2003,7 @@ mod tests {
             project_name: "shop-web",
             files_count: None,
             send_back_to: None,
+            helpers: &[],
         }
     }
 
@@ -2608,5 +2655,57 @@ mod tests {
         assert_eq!(gone["view"], Value::Null);
         assert_eq!(gone["gone"], "SHOP-99 is gone.");
         h.service.stop_all().await;
+    }
+
+    /// d0133 (`s30-03`): a ticket whose build stage split its work names its agent "In charge", counts its pieces in
+    /// Details and shows Session as a list (the agent in charge, then a row per piece); without helpers, as today.
+    #[test]
+    fn a_ticket_with_helpers_lists_its_sessions() {
+        use otaq_core::helpers::HelperStatus;
+        use otaq_view::view_models::pieces::fixtures::mid_way;
+        let mut t = otaq_view::view_models::card_fixtures::ticket(
+            "SHOP-40",
+            "Wishlist",
+            otaq_core::domain::Status::Working,
+        );
+        t.plan = otaq_view::view_models::plan::fixtures::WISHLIST.to_owned();
+        let all = vec![t.clone()];
+        let mut session = agent(SessionState::Running);
+        session.ticket = Some(t.key.clone());
+        session.agent = Some(otaq_core::session::SessionAgent {
+            id: "dev".into(),
+            name: "Developer".into(),
+        });
+        let sessions = [session];
+        let mut helpers = mid_way();
+        helpers[2].status = HelperStatus::SentBack;
+        let view = view_of(&Facts {
+            helpers: &helpers,
+            ..facts(&t, &all, &sessions)
+        });
+        let details: Vec<(&str, &str)> = view
+            .sheet
+            .details
+            .iter()
+            .map(|d| (d.label, d.value.as_str()))
+            .collect();
+        // The agent's name comes from `ticket.agents` (none here): the label is what changes.
+        assert_eq!(details[0].0, "In charge", "{details:?}");
+        assert!(details.contains(&("Pieces", "1 of 4 merged")), "{details:?}");
+        let session_tab = view
+            .sheet
+            .tabs
+            .iter()
+            .find(|t| t.tab == SheetTab::Session)
+            .unwrap();
+        let list = session_tab.list.as_ref().expect("the Session list");
+        assert_eq!(list.label, "SESSIONS · 1 IN CHARGE · 3 HELPERS");
+        assert_eq!(list.in_charge.name, "Developer");
+        assert_eq!(list.in_charge.status, "waiting for 40.2 and 40.3");
+        assert_eq!(list.helpers.len(), 4);
+
+        let alone = view_of(&facts(&t, &all, &sessions));
+        assert!(alone.sheet.details.iter().any(|d| d.label == "Assignee"));
+        assert!(alone.sheet.tabs.iter().all(|t| t.list.is_none()));
     }
 }

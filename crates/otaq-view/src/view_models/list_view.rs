@@ -795,6 +795,7 @@ flow:
             agent_list: None,
             starts_held: None,
             paused: false,
+            helpers: &[],
         }
     }
 

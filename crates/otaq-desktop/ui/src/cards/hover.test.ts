@@ -33,6 +33,7 @@ const SHOP_32: TicketCardView = {
   open_sheet_keys: "↵",
   action_note: null,
   plan: null,
+  pieces: null,
   check: null,
   open_terminal: "Open terminal",
 };

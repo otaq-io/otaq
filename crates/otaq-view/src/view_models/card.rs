@@ -135,6 +135,10 @@ pub struct CardExtras {
     /// The name of the stage it is in ([`crate::view_models::plan::stage_in`]): its Plan is being written while that
     /// stage's agent wrote it last ("Plan · 2 pieces so far").
     pub stage_name: Option<String>,
+    /// The ticket's helpers (`board.helpers`, d0133): the piece rows of its build stage.
+    pub helpers: Vec<otaq_core::helpers::Helper>,
+    /// The stage after the one it is in: "4 pieces merged · moving to Validate".
+    pub next_stage: Option<String>,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
@@ -559,8 +563,12 @@ pub struct CardViewModel {
     pub fresh: bool,
     /// The one-line card of BRD-03, from the parts above. Boxed: the board keeps every card's view model.
     pub one_line: Box<OneLine>,
-    /// "Plan · 4 pieces", "Plan · 2 pieces so far" (d0133, `s30-01`); none without pieces.
+    /// "Plan · 4 pieces", "Plan · 2 pieces so far" (d0133, `s30-01`); none without pieces. After the build stage of a
+    /// ticket that split: "4 pieces merged".
     pub plan: Option<String>,
+    /// Its build stage's pieces, a row each (d0133, `s30-02`); `None` before a helper started. Boxed: most cards
+    /// have none.
+    pub pieces: Option<Box<crate::view_models::pieces::CardPieces>>,
 }
 
 /// What the one-line card shows (BRD-03, *24 · The two views*) besides its key and title.
@@ -1608,8 +1616,40 @@ impl CardViewModel {
                 ..OneLine::default()
             }),
             plan: crate::view_models::plan::card_line(ticket, x.stage_name.as_deref()),
+            pieces: None,
         }
         .with_one_line(ticket, kept.is_some(), paused)
+        .with_pieces(ticket, x)
+    }
+
+    /// A ticket whose build stage split its work among helpers (d0133, `s30-02`…`s30-04`): the piece rows, "Working · 2
+    /// helpers", "Developer · in charge"; after the build stage "4 pieces merged" and "Checking the whole ticket".
+    fn with_pieces(mut self, ticket: &Ticket, x: &CardExtras) -> Self {
+        use crate::view_models::pieces;
+        let f = pieces::Facts::new(ticket, &x.helpers);
+        if !f.split() {
+            return self;
+        }
+        self.pieces = pieces::card(&f, x.next_stage.as_deref()).map(Box::new);
+        let one = &mut self.one_line;
+        if let Some(line) = one.line.as_mut() {
+            if let Some(text) = pieces::wait_line(ticket) {
+                line.text = text;
+            } else if let Some(text) = pieces::card_line(&f) {
+                line.text = text;
+            } else if matches!(ticket.status, Status::Checking) {
+                line.text = pieces::whole_ticket(&line.text);
+            }
+        }
+        if self.pieces.is_some()
+            && let Some(agent) = &x.agents.running_developer
+        {
+            one.who = Some(pieces::in_charge(agent));
+        }
+        if let Some(merged) = pieces::merged_line(&f) {
+            self.plan = Some(merged);
+        }
+        self
     }
 
     /// The one-line card of BRD-03 from the parts already worded: the line, the edge, the time and the one action.

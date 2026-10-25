@@ -841,3 +841,24 @@
   color: var(--text-muted);
   text-decoration: line-through;
 }
+
+/* A ticket that split its work (d0133, `s30-04`): By file · By piece and the piece filter, then a heading per piece. */
+.files-pieces {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.files-pieces-label {
+  color: var(--text-muted);
+  font: 600 10.5px/1.6 var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+.files-piece-head {
+  margin: 14px 0 6px;
+  color: var(--text-secondary);
+  font: 600 12px/1.4 var(--font-mono);
+}

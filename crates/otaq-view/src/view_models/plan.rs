@@ -84,6 +84,10 @@ pub struct PlanSection {
     /// "Plan changed · Discard · Save ⌘S".
     pub bar: SaveBar,
     pub leave: LeaveDialog,
+    /// Once the ticket split its work (d0133, `s30-03`): each piece's status as Otaq records it, in its own column
+    /// beside the text ("Status · from Otaq"), never part of the Plan; set by the service's helpers
+    /// ([`crate::view_models::pieces::plan_statuses`]).
+    pub statuses: Option<crate::view_models::pieces::PlanStatuses>,
 }
 
 /// What the section knows beyond the ticket: the name of the stage the ticket is in, its History, and the time.
@@ -309,6 +313,7 @@ pub fn section(ticket: &Ticket, facts: &Facts, platform: Platform) -> PlanSectio
         placeholder: PLACEHOLDER.to_owned(),
         bar: save_bar(platform),
         leave: leave_dialog(&key),
+        statuses: None,
     }
 }
 

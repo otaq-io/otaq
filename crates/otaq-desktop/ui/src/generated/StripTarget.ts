@@ -4,4 +4,4 @@ import type { SheetContent } from "./SheetContent";
 /**
  * What opening an item shows. `StripTarget` on the page.
  */
-export type StripTarget = { "kind": "ticket", project: string, key: string, tab: SheetContent, } | { "kind": "agent", project: string, agent: string, };
+export type StripTarget = { "kind": "ticket", project: string, key: string, tab: SheetContent, piece: string | null, } | { "kind": "agent", project: string, agent: string, };

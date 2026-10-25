@@ -962,6 +962,10 @@ pub enum Request {
     /// has the turn; T-0345). Answered with [`Reply::BoardAgents`].
     #[serde(rename = "board.agents")]
     BoardAgents(ProjectParams),
+    /// `{"project": "SHOP"}`: every helper of the project's tickets, by ticket then piece, for the user's board and
+    /// sheet (d0133: the card's piece rows; T-0541). Answered with [`Reply::Helpers`].
+    #[serde(rename = "board.helpers")]
+    BoardHelpers(ProjectParams),
     /// Stage choices (AGM-08, AGM-09; T-0407). `{"key": "SHOP-19"}`, or `{"project": "SHOP"}` for the ⌘N form: the
     /// stages with options, each with what it offers, the ticket's choice and its lock. Answered with
     /// [`Reply::TicketChoices`].
@@ -2102,6 +2106,7 @@ impl Request {
             Self::AgentsPauseCounts(_) => "agents.pause_counts",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
+            Self::BoardHelpers(_) => "board.helpers",
             Self::TicketChoices(_) => "ticket.choices",
             Self::TicketSetChoice(_) => "ticket.set_choice",
             Self::AgentToolsList => "agent_tools.list",

@@ -169,6 +169,21 @@ pub(crate) async fn flow(app: &App, project: &str) -> Flow {
     }
 }
 
+/// The project's helpers (`board.helpers`, d0133): a build stage's piece rows on the card, the sheet's Session list.
+/// None when they can't be read (the cards look as they would without).
+pub(crate) async fn helpers(app: &App, project: &str) -> Vec<otaq_core::helpers::Helper> {
+    match app
+        .service
+        .send(Request::BoardHelpers(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::Helpers(helpers)) => helpers,
+        _ => Vec::new(),
+    }
+}
+
 async fn ticket(app: &App, key: &str) -> Result<Ticket, RequestError> {
     match app
         .service
@@ -290,6 +305,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     };
     let flow = flow(app, &params.project).await;
     let view = view_prefs(app, &params.project).await;
+    let helpers = helpers(app, &params.project).await;
     let page = board_page::page(
         &tickets,
         &ProjectFacts {
@@ -305,6 +321,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             starts_held: starts_held.as_ref(),
             view: &view,
             paused: project.paused_since.is_some(),
+            helpers: &helpers,
         },
         &params,
         otaq_core::store::now_ms(),

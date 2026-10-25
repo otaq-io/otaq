@@ -468,6 +468,8 @@ pub struct ProjectFacts<'a> {
     pub view: &'a ViewPrefs,
     /// The project is paused (PAU-03, d0112).
     pub paused: bool,
+    /// The project's helpers (`board.helpers`, d0133): a build stage's piece rows.
+    pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
 pub const APPROVED_NOTE: &str =
@@ -685,6 +687,7 @@ pub fn page(
         agent_list: project.agent_list,
         starts_held: project.starts_held,
         paused: project.paused,
+        helpers: project.helpers,
     };
     let view: ViewKind = prefs.view.into();
     let list = (view == ViewKind::List).then(|| list_view::view(&input, prefs));
@@ -1252,6 +1255,7 @@ pub fn gallery() -> Gallery {
         starts_held: None,
         view: &view,
         paused: false,
+        helpers: &[],
     };
     let params = Params {
         project: "SHOP".into(),
@@ -1369,6 +1373,7 @@ fn gallery_rails(flow: &Flow) -> Vec<GalleryColumn> {
         starts_held: None,
         view: &view,
         paused: false,
+        helpers: &[],
     };
     let tickets = vec![
         ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
@@ -1636,6 +1641,7 @@ mod tests {
                 ..ViewPrefs::default()
             }),
             paused: false,
+            helpers: &[],
         }
     }
 

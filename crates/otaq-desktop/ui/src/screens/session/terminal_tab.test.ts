@@ -74,6 +74,8 @@ const VIEW: TerminalTabView = {
     unfocused: "Click to type to Rust developer · SHOP-19",
   },
   checks: [],
+  helpers: [],
+  resume: null,
 };
 
 /** In a check: the Security reviewer's own strips, worded so the tests tell them from the agent's. */
@@ -99,12 +101,18 @@ const CHECKING: TerminalTabView = {
 
 const LIVE: TerminalState = { ...INITIAL_STATE, phase: "live" };
 
-function render(view: TerminalTabView, state: TerminalState = LIVE, narrow = false, side: Side = "agent") {
+function render(
+  view: TerminalTabView,
+  state: TerminalState = LIVE,
+  narrow = false,
+  side: Side = "agent",
+  agent: string | null = null,
+) {
   return renderToStaticMarkup(
     createElement(
       RegistriesContext,
       { value: createRegistries() },
-      createElement(TerminalTabBody, { view, side, state, narrow }),
+      createElement(TerminalTabBody, { view, side, agent, state, narrow }),
     ),
   );
 }
@@ -279,5 +287,61 @@ describe("the terminal's markup", () => {
     expect(html).toContain("pnpm build");
     expect(html).toContain("Resume");
     expect(html).not.toContain("terminal-well");
+  });
+});
+
+describe("a helper's terminal (d0133, `s30-03`)", () => {
+  const [security] = CHECKING.checks;
+  if (security === undefined) throw new Error("a check");
+  const helper = {
+    ...security,
+    session: "h3",
+    agent: "40.3",
+    label: "40.3",
+    terminal_label: "SHOP-40 · 40.3’s helper terminal",
+    line: "Helper for 40.3 · Claude Code · sonnet · its own worktree, otaq/SHOP-40.3",
+    typing: {
+      focused: "Typing goes to 40.3’s helper · SHOP-40",
+      unfocused: "Click to type to 40.3’s helper · SHOP-40",
+    },
+    read_only: false,
+    attach_command: "",
+  };
+  const split: TerminalTabView = { ...VIEW, helpers: [helper] };
+  it("attaches the piece's helper, and nothing for a piece without a session", () => {
+    expect(sessionOf(split, "helper", "40.3")).toBe("h3");
+    expect(bodyOf(split, "helper", "40.3")).toBe("terminal");
+    expect(sessionOf(split, "helper", "40.4")).toBeNull();
+    expect(bodyOf(split, "helper", "40.4")).toBe("no_session");
+    expect(sessionOf(split, "agent")).toBe("s1");
+  });
+  it("shows the helper's line and no attach command", () => {
+    const html = render(split, LIVE, false, "helper", "40.3");
+    expect(html).toContain("Helper for 40.3 · Claude Code · sonnet · its own worktree, otaq/SHOP-40.3");
+    expect(html).toContain("Click to type to 40.3’s helper · SHOP-40");
+    expect(html).not.toContain("otaq attach");
+  });
+});
+
+describe("after a restart with helpers (d0133 audit 5)", () => {
+  it("shows the one Resume with who it brings back", () => {
+    const html = render({
+      ...VIEW,
+      session: null,
+      recovery: { kind: "loading", text: "Reading Claude Code’s saved conversation…" },
+      resume: {
+        title: "Resume SHOP-40",
+        line: "One item for the ticket. Resume continues, each in its own conversation:",
+        rows: [
+          { name: "Developer · in charge", title: "", status: "told about the restart" },
+          { name: "40.2", title: "Wishlist button", status: "was working" },
+        ],
+        note: "40.1 is merged.",
+      },
+    });
+    expect(html).toContain("Resume SHOP-40");
+    expect(html).toContain("told about the restart");
+    expect(html).toContain("Wishlist button");
+    expect(html).toContain("40.1 is merged.");
   });
 });

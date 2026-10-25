@@ -225,6 +225,10 @@ pub struct DetailFacts<'a> {
     /// The project's tickets.
     pub tickets: &'a [Ticket],
     pub now: i64,
+    /// The ticket's helpers (d0133): "In charge", "Pieces 1 of 4 merged" and the tokens split.
+    pub helpers: &'a [otaq_core::helpers::Helper],
+    /// The ticket's tokens with the helpers' and the checks' shares (`usage.summary`).
+    pub usage: Option<&'a otaq_core::usage::TicketUsage>,
 }
 
 const DASH: &str = "\u{2014}";
@@ -430,10 +434,32 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         let (who, model) = assignee(f);
         (Some(who), Some(model))
     };
+    // A ticket whose build stage split its work (d0133, `s30-03`): "In charge", its pieces and its tokens split.
+    let pieces = crate::view_models::pieces::Facts::new(ticket, f.helpers);
+    let who = who.map(|who| match pieces.split() {
+        true => Detail {
+            label: crate::view_models::pieces::IN_CHARGE_LABEL,
+            ..who
+        },
+        false => who,
+    });
+    let split = crate::view_models::pieces::pieces_detail(&pieces)
+        .map(|merged| Detail::new("Pieces", merged))
+        .into_iter()
+        .chain(
+            f.usage
+                .filter(|_| pieces.split())
+                .and_then(|u| Some((u.tokens?, crate::view_models::pieces::tokens_split(u)?)))
+                .map(|(total, split)| Detail {
+                    note: Some(split),
+                    ..Detail::new("Tokens", tokens_label(total.shown()))
+                }),
+        );
     who.into_iter()
         .chain(model)
         .chain(working(f))
         .chain([priority, branch(ticket)])
+        .chain(split)
         .chain(external_id(ticket))
         .collect()
 }
@@ -738,6 +764,8 @@ mod tests {
             tools: &several,
             tickets: &[],
             now: 103 * MIN + 20_000,
+            helpers: &[],
+            usage: None,
         });
         assert_eq!(
             shown(&details),
@@ -776,6 +804,8 @@ mod tests {
             tools: &one,
             tickets: &[],
             now: 103 * MIN,
+            helpers: &[],
+            usage: None,
         });
         assert_eq!(plain[0].avatar, None);
     }
@@ -804,6 +834,8 @@ mod tests {
             tools: &tools,
             tickets: &[],
             now: 0,
+            helpers: &[],
+            usage: None,
         });
         let labels: Vec<&str> = details.iter().map(|d| d.label).collect();
         assert_eq!(labels, ["Priority", "Branch"]);
@@ -821,6 +853,8 @@ mod tests {
             tools: &tools,
             tickets: &[],
             now: 0,
+            helpers: &[],
+            usage: None,
         });
         let working = details.iter().find(|d| d.label == "Working").unwrap();
         assert_eq!(
@@ -842,6 +876,8 @@ mod tests {
             tools: &tools,
             tickets: &[],
             now: 0,
+            helpers: &[],
+            usage: None,
         });
         assert_eq!(
             shown(&details),
@@ -871,6 +907,8 @@ mod tests {
             tools: &tools,
             tickets: &[],
             now: 22 * MIN,
+            helpers: &[],
+            usage: None,
         });
         assert_eq!(
             &shown(&details)[..3],
@@ -981,6 +1019,8 @@ mod tests {
                 tools: &tools,
                 tickets: &[],
                 now: 0,
+                helpers: &[],
+                usage: None,
             })
         };
         let mut t = shop_22();

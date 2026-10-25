@@ -45,4 +45,8 @@ can_open: boolean,
 /**
  * Line comments go on the ticket's own changes, not on another worktree's.
  */
-commentable: boolean, tags: Array<FilesTag>, };
+commentable: boolean, tags: Array<FilesTag>, 
+/**
+ * The pieces that changed it ("40.4", "40.5"): what the piece filter and By piece go by (d0133).
+ */
+pieces: Array<string>, };

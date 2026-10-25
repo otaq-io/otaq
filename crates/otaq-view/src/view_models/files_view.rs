@@ -1310,7 +1310,7 @@ pub fn changes_pane(
                 .iter()
                 .map(|e| ChangeRow {
                     commentable: false,
-                    ..tab::change_row(e)
+                    ..tab::change_row(&t.key, e)
                 })
                 .collect();
             let summary: Vec<String> = [

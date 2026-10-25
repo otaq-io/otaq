@@ -31,6 +31,7 @@ const tab = (
   contents,
   lands_on: contents[0] ?? "overview",
   parts: [],
+  list: null,
 });
 
 export const SHEET: SheetFrame = {

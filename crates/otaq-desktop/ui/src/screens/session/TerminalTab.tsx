@@ -11,6 +11,7 @@ import { openOverlay } from "../../app/overlays";
 import { terminalFocusRequests } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Button, IconButton, Kbd, Tooltip } from "../../components";
+import type { ResumePanelView } from "../../generated/ResumePanelView";
 import type { SheetSent } from "../../generated/SheetSent";
 import type { TerminalTabLoad } from "../../generated/TerminalTabLoad";
 import type { TerminalTabRecovery } from "../../generated/TerminalTabRecovery";
@@ -23,11 +24,11 @@ import { Icon } from "../../theme/Icon";
 import {
   answers,
   bodyOf,
-  checkOf,
   isNarrow,
   scrolledLabel,
   sessionOf,
   type Side,
+  sideOf,
   stripFor,
   toneColor,
 } from "./terminalLogic";
@@ -88,9 +89,9 @@ function deliverNow(key: string, clear = false): Promise<unknown> {
 
 export interface TerminalTabBodyProps {
   view: TerminalTabView;
-  /** Session's side shown: the agent's terminal or the check's. */
+  /** Session's side shown: the agent's terminal, the check's or a helper's. */
   side?: Side;
-  /** On the check's side, which check agent's terminal (d0130); `null` for the first. */
+  /** On the check's side, which check agent's terminal (d0130), `null` for the first; on a helper's, its piece. */
   agent?: string | null;
   /** What leads the line: Session's switch. */
   head?: ReactNode;
@@ -112,7 +113,8 @@ export function TerminalTabBody({
   terminal,
   onState,
 }: TerminalTabBodyProps) {
-  const validator = side === "check" ? checkOf(view, agent) : null;
+  // The check's or a helper's terminal: its own line, typing, strips and attach command, never the agent's extras.
+  const validator = sideOf(view, side, agent);
   const body = bodyOf(view, side, agent);
   const session = sessionOf(view, side, agent);
   const showTerminal = body === "terminal" && session !== null;
@@ -163,19 +165,21 @@ export function TerminalTabBody({
             <strong>{view.waiting.deliver}</strong>
           </button>
         ) : (
-          <Tooltip text={view.copy_attach}>
-            <button
-              type="button"
-              className="terminal-tab-attach"
-              aria-label={view.copy_attach}
-              onClick={() => {
-                navigator.clipboard.writeText(attachCommand).catch(ignore);
-              }}
-            >
-              <Icon name="copy" size={11} />
-              <span className="terminal-tab-mono">{narrow ? view.attach_short : attachCommand}</span>
-            </button>
-          </Tooltip>
+          attachCommand !== "" && (
+            <Tooltip text={view.copy_attach}>
+              <button
+                type="button"
+                className="terminal-tab-attach"
+                aria-label={view.copy_attach}
+                onClick={() => {
+                  navigator.clipboard.writeText(attachCommand).catch(ignore);
+                }}
+              >
+                <Icon name="copy" size={11} />
+                <span className="terminal-tab-mono">{narrow ? view.attach_short : attachCommand}</span>
+              </button>
+            </Tooltip>
+          )
         )}
         {showTerminal && (
           <>
@@ -204,6 +208,7 @@ export function TerminalTabBody({
         )}
       </div>
       <div className="terminal-tab-well">
+        {body === "recovery" && view.resume && <ResumePanel panel={view.resume} />}
         {body === "recovery" && view.recovery && <RecoveryBody view={view} recovery={view.recovery} />}
         {body === "no_session" && <div className="terminal-tab-empty">{view.no_session}</div>}
         {showTerminal && (
@@ -269,6 +274,28 @@ export function TerminalTabBody({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * After a restart with helpers working (d0133 audit 5, `s30-02`): one Resume for the ticket, listing the agent in
+ * charge ("told about the restart") and each helper it brings back in its own conversation.
+ */
+export function ResumePanel({ panel }: { panel: ResumePanelView }) {
+  return (
+    <div className="terminal-tab-resume">
+      <strong>{panel.title}</strong>
+      <span className="terminal-tab-muted">{panel.line}</span>
+      {panel.rows.map((row) => (
+        <div key={row.name} className="terminal-tab-resume-row">
+          <span className="terminal-tab-resume-name">{row.name}</span>
+          {row.title !== "" && <span className="terminal-tab-muted">{row.title}</span>}
+          <span className="terminal-tab-spacer" />
+          <span className="terminal-tab-resume-status">{row.status}</span>
+        </div>
+      ))}
+      {panel.note !== null && <span className="terminal-tab-muted">{panel.note}</span>}
     </div>
   );
 }

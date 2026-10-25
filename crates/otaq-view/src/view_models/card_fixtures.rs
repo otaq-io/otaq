@@ -597,6 +597,144 @@ pub fn check_agent_variants() -> Vec<Variant> {
     out
 }
 
+/// *30 → The card in Dev* (`s30-02`, `s30-03`, `s30-04`; d0133, T-0541): one card in its build stage with a row per
+/// piece, the fold past four, all merged, back from Validate, after a restart, a check of the whole ticket, and a
+/// ticket working alone as today.
+pub fn piece_variants() -> Vec<Variant> {
+    use crate::view_models::pieces::fixtures::{helper, mid_way, waiting};
+    use crate::view_models::plan::fixtures::WISHLIST;
+    use otaq_core::domain::ValidationRound;
+    use otaq_core::helpers::{Helper, HelperStatus as H};
+    let shop40 = |status: Status| {
+        let mut t = ticket("SHOP-40", "Wishlist", status);
+        t.plan = WISHLIST.to_owned();
+        t.flags.last_signal_at = Some(NOW - 180_000);
+        t
+    };
+    let extras = |helpers: Vec<Helper>| CardExtras {
+        helpers,
+        next_stage: Some("Validate".into()),
+        agents: AgentFacts {
+            count: 4,
+            running_developer: Some("Developer".into()),
+            ..AgentFacts::default()
+        },
+        ..base()
+    };
+    let merged = |n: u32| -> Vec<Helper> {
+        [
+            "Wishlist API",
+            "Wishlist button",
+            "Wishlist page",
+            "Share link",
+        ]
+        .iter()
+        .zip(1..=n)
+        .map(|(title, piece)| helper("SHOP-40", piece, title, H::Merged))
+        .collect()
+    };
+    let mut early = merged(0);
+    early.push(helper("SHOP-40", 1, "Wishlist API", H::Working));
+    let mut reviewed = mid_way();
+    reviewed[1].status = H::BeingReviewed;
+    reviewed[2].status = H::SentBack;
+    reviewed[2].note = Some("No empty state.".into());
+    let mut seventy = ticket("SHOP-70", "Checkout redesign", Status::Working);
+    seventy.plan =
+        "## Pieces\n1. Cart\n2. Sign-in step\n3. Shipping step\n4. Address step\n5. Payment step\n\
+                    6. Order summary \u{2014} waits for 4, 5\n"
+            .to_owned();
+    let seventy_helpers = vec![
+        helper("SHOP-70", 1, "Cart", H::Merged),
+        helper("SHOP-70", 2, "Sign-in step", H::Merged),
+        helper("SHOP-70", 3, "Shipping step", H::Merged),
+        helper("SHOP-70", 4, "Address step", H::Working),
+        helper("SHOP-70", 5, "Payment step", H::Working),
+    ];
+    let mut back = shop40(Status::Working);
+    back.flags.check = Some("Validate".into());
+    back.flags.validation_round = Some(ValidationRound { round: 1, of: 3 });
+    let mut fix = merged(4);
+    fix.push(helper("SHOP-40", 5, "Share link signed out", H::Working));
+    let mut checking = shop40(Status::Checking);
+    checking.flags.check = Some("Validate".into());
+    checking.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    let mut asked = mid_way();
+    asked[1].asked = Some(otaq_core::helpers::questions::HelperQuestionState::WithInCharge);
+    let waits = |asks: bool, status: Status| {
+        let (wait, helpers) = waiting(asks);
+        let mut t = shop40(status);
+        t.flags.piece_wait = Some(wait);
+        (t, helpers)
+    };
+    let (passed_on, passed_on_helpers) = waits(true, Status::AsksYou);
+    let (prompt, prompt_helpers) = waits(false, Status::NeedsYou);
+    let mut interrupted = shop40(Status::Interrupted);
+    interrupted.flags.helpers_to_resume = vec!["40.2".into(), "40.3".into()];
+    vec![
+        v(
+            "Dev · early: one helper working",
+            shop40(Status::Working),
+            extras(early),
+        ),
+        v(
+            "Dev · mid-way: two side by side",
+            shop40(Status::Working),
+            extras(mid_way()),
+        ),
+        v(
+            "Dev · one reviewed, one sent back",
+            shop40(Status::Working),
+            extras(reviewed),
+        ),
+        v(
+            "Dev · more than four pieces",
+            seventy,
+            extras(seventy_helpers),
+        ),
+        v(
+            "Dev · all merged, about to move",
+            shop40(Status::Working),
+            extras(merged(4)),
+        ),
+        v(
+            "Dev · back from Validate: a fix is a new piece",
+            back,
+            extras(fix),
+        ),
+        v(
+            "Dev · a helper asked the agent in charge",
+            shop40(Status::Working),
+            extras(asked),
+        ),
+        v(
+            "Dev · passed on: a helper asks you",
+            passed_on,
+            extras(passed_on_helpers),
+        ),
+        v(
+            "Dev · a helper's permission prompt",
+            prompt,
+            extras(prompt_helpers),
+        ),
+        v(
+            "Dev · interrupted with helpers",
+            interrupted,
+            extras(mid_way()),
+        ),
+        v(
+            "Validate · checking the whole ticket",
+            checking,
+            extras(merged(4)),
+        ),
+        v(
+            "Dev · working alone: as today",
+            ticket("SHOP-33", "Shipping estimate", Status::Working),
+            extras(Vec::new()),
+        ),
+    ]
+}
+
 pub fn flow_variants() -> Vec<Variant> {
     use otaq_core::agent_tools::Tool;
     use otaq_core::agents::facts::RunsOnTool;

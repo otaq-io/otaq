@@ -182,6 +182,13 @@ pub(super) async fn handle(
             agents.connected = shared.connected.connected();
             Ok(Reply::BoardAgents(Box::new(agents)))
         }),
+        // The project's helpers (d0133): the card's piece rows, the sheet's Session list.
+        Request::BoardHelpers(p) => boxed(move || async move {
+            let project = board.project(&p.project).await?;
+            let helpers =
+                crate::helpers::store::of_project(board.store().pool(), &project.id).await?;
+            Ok(Reply::Helpers(helpers))
+        }),
         // Stage choices (AGM-08, AGM-09).
         Request::TicketChoices(p) => boxed(move || async move {
             let choices = match (&p.key, &p.project) {

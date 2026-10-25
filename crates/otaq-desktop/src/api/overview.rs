@@ -149,7 +149,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         Ok(Reply::History(events)) => events,
         _ => Vec::new(),
     };
-    let plan = plan::section(
+    let mut plan = plan::section(
         &ticket,
         &plan::Facts {
             stage: flow.as_ref().and_then(|f| plan::stage_in(&ticket, f)),
@@ -158,6 +158,13 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         },
         Platform::current(),
     );
+    // Each piece's status beside the Plan once the ticket split its work (d0133, `s30-03`).
+    if ticket.started_at.is_some() {
+        let helpers = super::board::helpers(app, ticket.key.project.as_str()).await;
+        plan.statuses = otaq_view::view_models::pieces::plan_statuses(
+            &otaq_view::view_models::pieces::Facts::new(&ticket, &helpers),
+        );
+    }
     let view = vm::with_plan(
         vm::view(
             &params.key,

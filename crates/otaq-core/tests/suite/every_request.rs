@@ -369,6 +369,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsPauseCounts(_)
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
+        | Request::BoardHelpers(_)
         | Request::TicketChoices(_)
         | Request::TicketSetChoice(_)
         | Request::AgentToolsList

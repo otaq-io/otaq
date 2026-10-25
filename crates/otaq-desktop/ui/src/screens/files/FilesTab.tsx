@@ -5,6 +5,7 @@
 // Unified · Split, Open file, with line comments while the ticket waits in your check. What it says is Rust's
 // (`src/api/files.rs`, `otaq-view`'s `files_tab.rs`); it keeps the moment of interaction only.
 import {
+  Fragment,
   type ReactNode,
   type RefObject,
   memo,
@@ -48,6 +49,7 @@ import {
   LINE_HEIGHT,
   NOTHING_OPEN,
   type OpenFile,
+  changeRuns,
   chunks,
   openFile,
   pathParts,
@@ -688,6 +690,11 @@ export function AllChanges({
     if (scrollTo !== null) sections.current.get(scrollTo)?.scrollIntoView({ block: "start" });
   }, [scrollTo]);
   const sideBySide = showsSideBySide(changes.side_by_side, width, changes.side_by_side_from);
+  // A ticket that split its work (d0133): the piece filter and By file · By piece, the page's own state.
+  const [piece, setPiece] = useState<string | null>(null);
+  const [byPiece, setByPiece] = useState(false);
+  const pieces = changes.pieces;
+  const shownPiece = pieces !== null && piece !== null && pieces.pieces.includes(piece) ? piece : null;
   return (
     <div className="files-changes">
       <div className="files-main-head">
@@ -707,6 +714,27 @@ export function AllChanges({
           }}
         />
       </div>
+      {pieces !== null && (
+        <div className="files-pieces">
+          <Segmented
+            label={`${pieces.by_file} / ${pieces.by_piece}`}
+            options={[pieces.by_file, pieces.by_piece]}
+            selected={byPiece ? 1 : 0}
+            onSelect={(i) => {
+              setByPiece(i === 1);
+            }}
+          />
+          <span className="files-pieces-label">{pieces.label.toUpperCase()}</span>
+          <Segmented
+            label={pieces.label}
+            options={[pieces.all, ...pieces.pieces]}
+            selected={shownPiece === null ? 0 : pieces.pieces.indexOf(shownPiece) + 1}
+            onSelect={(i) => {
+              setPiece(i === 0 ? null : (pieces.pieces[i - 1] ?? null));
+            }}
+          />
+        </div>
+      )}
       <Notes
         ticket={ticket}
         notes={notes}
@@ -723,21 +751,26 @@ export function AllChanges({
           <p>{changes.empty.text}</p>
         </div>
       ) : (
-        changes.files.map((file) => (
-          <ChangeSection
-            key={file.id}
-            ticket={ticket}
-            file={file}
-            open={showsLines(file, opened)}
-            sideBySide={sideBySide}
-            ctx={ctx}
-            root={pane}
-            openFileLabel={changes.open_file}
-            loadDiffLabel={changes.load_diff}
-            onOpenLines={onOpenLines}
-            onOpenFile={onOpenFile}
-            register={register}
-          />
+        changeRuns(changes.files, changes.pieces?.groups ?? null, shownPiece, byPiece).map((run) => (
+          <Fragment key={run.key}>
+            {run.heading !== null && <div className="files-piece-head">{run.heading}</div>}
+            {run.files.map((file) => (
+              <ChangeSection
+                key={`${run.key}:${file.id}`}
+                ticket={ticket}
+                file={file}
+                open={showsLines(file, opened)}
+                sideBySide={sideBySide}
+                ctx={ctx}
+                root={pane}
+                openFileLabel={changes.open_file}
+                loadDiffLabel={changes.load_diff}
+                onOpenLines={onOpenLines}
+                onOpenFile={onOpenFile}
+                register={register}
+              />
+            ))}
+          </Fragment>
         ))
       )}
     </div>

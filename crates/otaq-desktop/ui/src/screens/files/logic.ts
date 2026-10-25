@@ -7,6 +7,7 @@ import type { FilesChangeRow } from "../../generated/FilesChangeRow";
 import type { FilesComments } from "../../generated/FilesComments";
 import type { FilesFileMode } from "../../generated/FilesFileMode";
 import type { FilesFilter } from "../../generated/FilesFilter";
+import type { FilesPieceGroup } from "../../generated/FilesPieceGroup";
 import type { FilesThread } from "../../generated/FilesThread";
 import type { FilesTreeRow } from "../../generated/FilesTreeRow";
 
@@ -18,6 +19,36 @@ export const CHUNK_ROWS = 120;
 /** A path cut after each "/", where it may wrap. */
 export function pathParts(path: string): string[] {
   return path.split(/(?<=\/)/);
+}
+
+/** One run of All changes under By file or By piece (d0133): a group's heading (none By file) and its files. */
+export interface ChangeRun {
+  heading: string | null;
+  key: string;
+  files: FilesChangeRow[];
+}
+
+/**
+ * All changes as shown with the piece filter (`piece`, `null` for All) and By file or By piece (d0133, `s30-04`): By
+ * file one run of the files the piece changed; By piece a run per piece (a file two pieces changed is under both),
+ * then what no piece changed, each run filtered the same way.
+ */
+export function changeRuns(
+  files: readonly FilesChangeRow[],
+  groups: readonly FilesPieceGroup[] | null,
+  piece: string | null,
+  byPiece: boolean,
+): ChangeRun[] {
+  const keeps = (file: FilesChangeRow) => piece === null || file.pieces.includes(piece);
+  if (!byPiece || groups === null) return [{ heading: null, key: "all", files: files.filter(keeps) }];
+  return groups
+    .filter((g) => piece === null || g.name === piece)
+    .map((g) => ({
+      heading: g.label,
+      key: g.name === "" ? "other" : g.name,
+      files: g.files.flatMap((id) => files.filter((f) => f.id === id && keeps(f))),
+    }))
+    .filter((run) => run.files.length > 0);
 }
 
 /** Split when chosen and the pane is wide enough; Unified otherwise (FTB-04). */

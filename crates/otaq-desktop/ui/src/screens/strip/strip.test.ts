@@ -29,7 +29,7 @@ vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), wind
 const ask = vi.mocked(request);
 
 const ticket = (key: string, tab: SheetContent = "agent", project = "SHOP") =>
-  ({ kind: "ticket", project, key, tab }) as const;
+  ({ kind: "ticket", project, key, tab, piece: null }) as const;
 
 /** `needs_you_strip.rs`'s words for shop-web with every group (`s24-12`). */
 const VIEW: StripView = {
@@ -47,6 +47,7 @@ const VIEW: StripView = {
           tone: "attn",
           title: "SHOP-22 Fix flaky login redirect · permission: allow rm -rf .next",
           target: ticket("SHOP-22"),
+          asks: null,
         },
         {
           label: "SHOP-44",
@@ -55,6 +56,7 @@ const VIEW: StripView = {
           tone: "attn",
           title: "SHOP-44 Share link · asks",
           target: ticket("SHOP-44"),
+          asks: null,
         },
         {
           label: "Agent",
@@ -63,6 +65,7 @@ const VIEW: StripView = {
           tone: "investigate",
           title: "Noyan · Checkout slowness · asks",
           target: { kind: "agent", project: "SHOP", agent: "pa3" },
+          asks: null,
         },
       ],
       resume_all: null,
@@ -88,6 +91,7 @@ const VIEW: StripView = {
           tone: "review",
           title: "SHOP-18 Checkout API · your check",
           target: ticket("SHOP-18", "files"),
+          asks: null,
         },
       ],
       resume_all: null,
@@ -226,6 +230,58 @@ describe("pressing the strip", () => {
     click("Next");
     expect(onNext).toHaveBeenCalledTimes(1);
     expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("a passed-on helper question opens its popover first (d0133, `s30-02`)", () => {
+    const answer = ticket("SHOP-40", "overview");
+    const open = { ...ticket("SHOP-40"), piece: "40.2" };
+    const asksView: StripView = {
+      ...VIEW,
+      groups: [
+        {
+          id: "needs_you",
+          icon: "hand",
+          tone: "attn",
+          title: "Needs you · 1",
+          chips: [
+            {
+              label: "SHOP-40",
+              reason: "40.2 asks",
+              icon: "message-circle-question-mark",
+              tone: "attn",
+              title: "SHOP-40 Wishlist · 40.2 asks: keep the heart filled after sign-out?",
+              target: ticket("SHOP-40"),
+              asks: {
+                title: "SHOP-40 · 40.2 asks",
+                question: "Keep the heart filled after sign-out?",
+                note: "The agent in charge passed this to you: it’s a product question the plan doesn’t answer.",
+                answer: "Answer 40.2…",
+                answer_target: answer,
+                open: "Open in the ticket",
+                open_target: open,
+              },
+            },
+          ],
+          resume_all: null,
+        },
+      ],
+    };
+    const { onOpen } = show(asksView);
+    click("40.2 asks");
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Keep the heart filled after sign-out?");
+    expect(document.body.textContent).toContain("The agent in charge passed this to you");
+    act(() => {
+      [...document.querySelectorAll("button")].find((b) => b.textContent.includes("Answer 40.2"))?.click();
+    });
+    expect(onOpen).toHaveBeenCalledWith(answer);
+    click("40.2 asks");
+    act(() => {
+      [...document.querySelectorAll("button")]
+        .find((b) => b.textContent.includes("Open in the ticket"))
+        ?.click();
+    });
+    expect(onOpen).toHaveBeenLastCalledWith(open);
   });
 
   it("Resume all opens its confirmation for the strip's project", () => {

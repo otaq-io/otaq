@@ -19,6 +19,7 @@ import { AllChanges, FileBody, FilesTabBody, SearchResults } from "./FilesTab";
 import { type CommentContext, Hunk } from "./Hunks";
 import {
   canSave,
+  changeRuns,
   chunks,
   composerKey,
   composerReducer,
@@ -110,6 +111,7 @@ const change = (path: string, counts: string, extra: Partial<FilesChangeRow> = {
   can_open: true,
   commentable: true,
   tags: [],
+  pieces: [],
   ...extra,
 });
 
@@ -122,6 +124,7 @@ const CHANGES: FilesChangesView = {
   note: "· the PR will look like this",
   modes: ["Unified", "Split"],
   side_by_side: false,
+  pieces: null,
   side_by_side_from: 900,
   files: [
     change("src/middleware.ts", "+4 −1"),
@@ -606,5 +609,38 @@ describe("the comment box", () => {
     expect(composerKey({ key: "Enter", metaKey: false, ctrlKey: true })).toBe("save");
     expect(composerKey({ key: "Enter", metaKey: false, ctrlKey: false })).toBeNull();
     expect(composerKey({ key: "Escape", metaKey: false, ctrlKey: false })).toBe("cancel");
+  });
+});
+
+describe("which piece changed what (d0133, `s30-04`)", () => {
+  const files = [
+    change("src/app/wishlist/share/page.tsx", "+55", { pieces: ["40.4", "40.5"] }),
+    change("src/components/WishlistButton.tsx", "+12", { pieces: ["40.2"] }),
+    change("src/components/ProductCard.tsx", "+6 −1"),
+  ];
+  const groups = [
+    { name: "40.2", label: "40.2", files: ["src/components/WishlistButton.tsx"] },
+    { name: "40.4", label: "40.4", files: ["src/app/wishlist/share/page.tsx"] },
+    { name: "40.5", label: "40.5", files: ["src/app/wishlist/share/page.tsx"] },
+    { name: "", label: "Not from a piece", files: ["src/components/ProductCard.tsx"] },
+  ];
+  const paths = (runs: ReturnType<typeof changeRuns>) =>
+    runs.map((r) => [r.heading, r.files.map((f) => f.path)]);
+  it("By file: every file, or the piece's", () => {
+    expect(paths(changeRuns(files, groups, null, false))).toEqual([[null, files.map((f) => f.path)]]);
+    expect(paths(changeRuns(files, groups, "40.5", false))).toEqual([
+      [null, ["src/app/wishlist/share/page.tsx"]],
+    ]);
+  });
+  it("By piece: a heading per piece, a file under each piece that changed it, then the rest", () => {
+    expect(paths(changeRuns(files, groups, null, true))).toEqual([
+      ["40.2", ["src/components/WishlistButton.tsx"]],
+      ["40.4", ["src/app/wishlist/share/page.tsx"]],
+      ["40.5", ["src/app/wishlist/share/page.tsx"]],
+      ["Not from a piece", ["src/components/ProductCard.tsx"]],
+    ]);
+    expect(paths(changeRuns(files, groups, "40.4", true))).toEqual([
+      ["40.4", ["src/app/wishlist/share/page.tsx"]],
+    ]);
   });
 });

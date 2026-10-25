@@ -29,6 +29,7 @@ const SHOP_22: TicketCardView = {
   open_sheet_keys: "↵",
   action_note: null,
   plan: null,
+  pieces: null,
   check: null,
   open_terminal: "Open terminal",
 };
@@ -123,5 +124,62 @@ describe("the one-line card draws its view (BRD-03)", () => {
     expect(dimmed).toContain('data-chain="dimmed"');
     const hovered = html(createElement(TicketCard, { card: SHOP_29, state: stateOfLook("hovered") }));
     expect(hovered).toContain("card-quick");
+  });
+});
+
+describe("a build stage's pieces on the card (d0133, `s30-02`)", () => {
+  it("the label, a row per piece with its status, the folded row and Back from Validate", () => {
+    const out = html(
+      createElement(TicketCard, {
+        card: {
+          ...SHOP_22,
+          key: "SHOP-40",
+          status: {
+            text: "Working · fixing the Validate report",
+            dot: "working",
+            tone: "secondary",
+            icon: null,
+          },
+          who: "Developer · in charge",
+          edge: null,
+          action: null,
+          pieces: {
+            back_from: "Back from Validate",
+            label: "PIECES · 5",
+            rows: [
+              { name: "", title: "", status: "4 merged", tone: "passed" },
+              { name: "40.5", title: "Share link signed out", status: "fixing the report", tone: "working" },
+            ],
+            done: null,
+            opens: null,
+          },
+        },
+      }),
+    );
+    expect(out).toContain("Back from Validate");
+    expect(out).toContain("PIECES · 5");
+    expect(out).toContain("4 merged");
+    expect(out).toContain("40.5");
+    expect(out).toContain("Share link signed out");
+    expect(out).toContain("fixing the report");
+    expect(out).toContain("Developer · in charge");
+  });
+  it("once every piece is merged, one line", () => {
+    const out = html(
+      createElement(TicketCard, {
+        card: {
+          ...SHOP_22,
+          pieces: {
+            back_from: null,
+            label: null,
+            rows: [],
+            done: "4 pieces merged · moving to Validate",
+            opens: null,
+          },
+        },
+      }),
+    );
+    expect(out).toContain("4 pieces merged · moving to Validate");
+    expect(out).not.toContain("PIECES");
   });
 });
