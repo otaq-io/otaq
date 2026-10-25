@@ -634,7 +634,7 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     }
 }
 
-/// T-0202 (PLG-09, PLG-01, PLG-02, PLG-05; d0068, d0040): the project-agent skill is user-invoked only (the session
+/// T-0202 (PLG-09, PLG-01, PLG-02, PLG-05; d0068, d0040): the noyan skill is user-invoked only (the session
 /// starts with it), reads `prime --project` first, follows the Project agent instructions, names itself after the
 /// first request, investigates without editing or committing, files Backlog tickets with the CLI (long text on
 /// stdin, batches with `create -f`), uses the user's skills for imports, asks with `ask <KEY>` and `ask human`, and
@@ -642,10 +642,9 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
 #[test]
 fn project_agent_investigates_and_files_backlog_tickets() {
     let (name, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
-    assert_eq!(name, "project-agent");
+    assert_eq!(name, "noyan");
     assert!(
-        front_matter("project-agent")
-            .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))
+        front_matter("noyan").contains(&("disable-model-invocation".to_owned(), "true".to_owned()))
     );
     let cmd = naming::COMMAND_NAME;
     let order = [
@@ -671,7 +670,7 @@ fn project_agent_investigates_and_files_backlog_tickets() {
     for step in &order {
         let found = body[at..]
             .find(step.as_str())
-            .unwrap_or_else(|| panic!("project-agent must say {step:?} after the step before"));
+            .unwrap_or_else(|| panic!("noyan must say {step:?} after the step before"));
         at += found;
     }
     for needle in [
@@ -684,7 +683,7 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         "Never invent options for an open question",
         "The question text always goes through stdin",
     ] {
-        assert!(body.contains(needle), "project-agent must say {needle:?}");
+        assert!(body.contains(needle), "noyan must say {needle:?}");
     }
     assert_every_ask_human_reads_stdin(&body);
 }
@@ -900,7 +899,7 @@ fn flat(body: &str) -> String {
     body.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// T-0339 (PAG-03; d0087), T-0409 (AGM-12, AGM-09; d0108): the project-agent skill proposes two or more tickets, or
+/// T-0339 (PAG-03; d0087), T-0409 (AGM-12, AGM-09; d0108): the noyan skill proposes two or more tickets, or
 /// an epic, with a table (# · Title · Description · Choices; the short table above about 10), creates one explicit
 /// ticket at once with its choice in the reply, sets stage choices by difficulty with a reason ("typo fix → Dev: Quick
 /// developer"), tells *set by you* from its own choice, and leaves the Choices column out when no stage has options
@@ -955,7 +954,7 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         "When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
         "Otaq shows no dialog for it",
     ] {
-        assert!(text.contains(needle), "project-agent must say {needle:?}");
+        assert!(text.contains(needle), "noyan must say {needle:?}");
     }
     assert!(
         !text.contains("--agent ") && !text.contains("--why "),
@@ -968,7 +967,7 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         "Light: 34",
         "Project default",
     ] {
-        assert!(!text.contains(gone), "project-agent still says {gone:?}");
+        assert!(!text.contains(gone), "noyan still says {gone:?}");
     }
 }
 

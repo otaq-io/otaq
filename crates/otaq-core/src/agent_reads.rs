@@ -7,7 +7,7 @@
 //!
 //! The parts: one **skill part** per stage of the project's flow whose own agent this is (a ticket's stage choice,
 //! AGM-08, doesn't move it: it is per ticket, and the per-ticket context is left out), then one for the role it holds
-//! ("project-agent · as Project agent"); then its **other skills** by name, the commit skill and the Project agent's
+//! ("noyan · as Noyan"); then its **other skills** by name, the commit skill and the Project agent's
 //! `flow` marked. An agent in no stage and with no role has no skill part.
 
 use std::path::{Path, PathBuf};

@@ -159,7 +159,7 @@ fn the_reading_skills_teach_the_stage_terminal() {
     let cmd = naming::COMMAND_NAME;
     let readers: Vec<_> = skill_files()
         .into_iter()
-        .filter(|(n, _)| n == "project-agent" || n == "epic-lead")
+        .filter(|(n, _)| n == "noyan" || n == "epic-lead")
         .collect();
     assert_eq!(readers.len(), 2);
     for (name, path) in readers {

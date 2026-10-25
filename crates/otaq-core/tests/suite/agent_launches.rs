@@ -116,7 +116,7 @@ fn launch_config(claude: &Path) -> impl FnOnce(ServiceConfig) -> ServiceConfig {
     }
 }
 
-/// Otaq's agents (Planner, Epic lead, Developer, Validator; all on `default`, with no default model set yet: the
+/// Otaq's agents (Noyan, Epic lead, Developer, Validator; all on `default`, with no default model set yet: the
 /// new-session tool's own default) and Strong on `opus`; project SHOP (`shop-web`, with an origin for Open PR).
 async fn world() -> World {
     let claude_home = TempDir::new().unwrap();
@@ -460,7 +460,7 @@ async fn the_lead_and_the_project_agent_run_the_role_agents() {
     assert_eq!(lead.agent.model.as_deref(), Some("opus"));
     assert_eq!(lead.epic, wishlist.key);
 
-    world.set_model("Planner", Some("haiku")).await;
+    world.set_model("Noyan", Some("haiku")).await;
     let agent = w
         .project_agents
         .open("SHOP", "Why is checkout slow?")
@@ -472,13 +472,13 @@ async fn the_lead_and_the_project_agent_run_the_role_agents() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model haiku {} Why is checkout slow?",
-            claude_skill("project-agent")
+            claude_skill("noyan")
         )
     );
     assert_eq!(agent.model.as_deref(), Some("haiku"));
     assert_eq!(
         stored_on(w, &session.id).await.2,
-        named(&world.agent("Planner").await)
+        named(&world.agent("Noyan").await)
     );
     world.w.stop().await;
 }
@@ -501,7 +501,7 @@ async fn a_project_agent_opens_on_the_agent_asked_for() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus {} Why is checkout slow?",
-            claude_skill("project-agent")
+            claude_skill("noyan")
         )
     );
     assert_eq!(stored_on(w, &session.id).await.2, named(&strong));
@@ -530,7 +530,7 @@ impl Resume {
     /// The agent whose session the path resumes.
     fn agent(self) -> &'static str {
         match self {
-            Self::ProjectAgent => "Planner",
+            Self::ProjectAgent => "Noyan",
             Self::Lead => "Epic lead",
             _ => "Developer",
         }

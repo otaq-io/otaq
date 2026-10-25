@@ -163,9 +163,9 @@ pub(super) fn launch_validator(
 }
 
 /// A new Project agent (PAG-01, d0068): a conversation in the project's own folder (the user's checkout) with
-/// `/otaq-project-agent` as its first prompt and the Project agent role in its environment. No ticket, no
+/// `/otaq-noyan` as its first prompt and the Project agent role in its environment. No ticket, no
 /// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011). The adapter
-/// puts the user's first message after the skill (`/otaq-project-agent <message>`, d0087).
+/// puts the user's first message after the skill (`/otaq-noyan <message>`, d0087).
 pub(super) fn launch_project_agent(
     ctx: &LaunchContext,
     repo: &Path,
@@ -432,7 +432,7 @@ mod tests {
     /// no permission flags; Resume continues the same conversation with the same environment.
     #[test]
     fn project_agent_launch() {
-        let settings = Path::new("/home/me/.data/claude/project-agent-a1.settings.json");
+        let settings = Path::new("/home/me/.data/claude/SHOP.project-agent.light.settings.json");
         let cmd = launch_project_agent(&ctx(), Path::new("/src/shop-web"), Some(settings));
         let name = naming::COMMAND_NAME;
         assert_eq!(cmd.program, "claude");
@@ -447,7 +447,7 @@ mod tests {
                 settings.display().to_string(),
                 "--session-id".to_owned(),
                 cmd.tool_session_id.clone(),
-                format!("/{}-project-agent", naming::COMMAND_NAME),
+                format!("/{}-noyan", naming::COMMAND_NAME),
             ]
         );
         assert!(!cmd.args.iter().any(|a| a.contains("permission")));
@@ -876,7 +876,7 @@ mod tests {
             let id = new_id(&plan);
             let prompt = format!(
                 "{} List the tickets that wait on NOTE-5",
-                otaq_skill("project-agent")
+                otaq_skill("noyan")
             );
             assert_eq!(plan.program, "claude");
             assert_eq!(plan.args, args(&settings, &["--session-id", &id, &prompt]));

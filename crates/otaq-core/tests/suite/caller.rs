@@ -339,7 +339,7 @@ async fn processes_inside_an_epic_lead_session_are_that_lead() {
 #[tokio::test(flavor = "multi_thread")]
 async fn processes_inside_a_project_agent_session_are_that_project_agent() {
     let scratch = tempfile::tempdir().unwrap();
-    let out = scratch.path().join("pid-project-agent");
+    let out = scratch.path().join("pid-noyan");
     #[cfg(unix)]
     let claude = vec![
         "sh".to_owned(),
@@ -349,7 +349,7 @@ async fn processes_inside_a_project_agent_session_are_that_project_agent() {
     ];
     #[cfg(windows)]
     let claude = {
-        let file = scratch.path().join("project-agent.ps1");
+        let file = scratch.path().join("noyan.ps1");
         std::fs::write(
             &file,
             format!(

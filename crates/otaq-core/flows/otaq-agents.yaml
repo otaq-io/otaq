@@ -1,7 +1,7 @@
 agents:
-  - name: Planner
-    role: project-agent
-    skills: [project-agent, flow]
+  - name: Noyan
+    role: noyan
+    skills: [noyan, flow]
     model: default
   - name: Epic lead
     role: epic-lead

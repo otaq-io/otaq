@@ -1,5 +1,5 @@
 ---
-name: project-agent
+name: noyan
 description: Work as a Otaq Project agent - read `otaq prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, decide whether the work is one ticket, several or an epic, propose tickets with a table and their stage choices, split epics with the plan written into the epic, and file them in Backlog with the otaq CLI.
 disable-model-invocation: true
 ---

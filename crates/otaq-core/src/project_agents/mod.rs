@@ -3,7 +3,7 @@
 //! go-ahead, d0018), owned by the background service (d0022).
 //!
 //! - **Open** takes the user's first message (d0087: sending it is the go-ahead) and starts an agent session with
-//!   the Project agent role and the project-agent skill with that message as its first prompt, no ticket
+//!   the Project agent role and the noyan skill with that message as its first prompt, no ticket
 //!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). The message is its first request from the start: there is
 //!   no empty "New agent" session. The check before every launch runs first (SCH-04 `[M23]`,
 //!   [`crate::agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
@@ -67,7 +67,7 @@ const NAME_MAX_CHARS: usize = 40;
 /// or before a request ("/flow add a Security check"). Settings → Flow's **Change with the Project agent** sends it.
 pub const FLOW_COMMAND: &str = "/flow";
 
-/// The skill a first message runs and the request it carries: `/flow …` runs `flow`, anything else the project-agent
+/// The skill a first message runs and the request it carries: `/flow …` runs `flow`, anything else the noyan
 /// skill with the whole message.
 pub fn first_skill(message: &str) -> (&'static str, Option<String>) {
     let message = message.trim();
@@ -783,7 +783,7 @@ impl ProjectAgents {
         self.get(id).await
     }
 
-    /// The project-agent skill as the agent `id`'s tool names it (ADP-05); a new session's tool when the agent
+    /// The noyan skill as the agent `id`'s tool names it (ADP-05); a new session's tool when the agent
     /// is gone.
     async fn skill_invocation(&self, id: &str) -> String {
         let tool = self.get(id).await.ok().map(|agent| agent.tool);
@@ -1561,7 +1561,7 @@ fn summary(c: &CreatedAndChanged) -> String {
 }
 
 /// The request in a UserPromptSubmit prompt: the prompt without `skill`, the invocation that starts the session
-/// (`/otaq-project-agent`, alone it is no request). `None` when nothing is left.
+/// (`/otaq-noyan`, alone it is no request). `None` when nothing is left.
 pub fn request_text(prompt: &str, skill: &str) -> Option<String> {
     let prompt = prompt.trim();
     let rest = prompt.strip_prefix(skill).unwrap_or(prompt).trim();

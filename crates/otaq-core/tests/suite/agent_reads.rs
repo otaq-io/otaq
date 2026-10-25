@@ -231,7 +231,7 @@ async fn a_stage_agent_reads_what_prime_gives() {
 async fn the_role_agents_read_what_their_launch_gives() {
     let dir = TempDir::new().unwrap();
     let w = world(&dir).await;
-    w.edit_agent("Planner", |a| {
+    w.edit_agent("Noyan", |a| {
         a.instructions = "Split epics into tickets of a day or less.".into();
     })
     .await;
@@ -338,7 +338,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
     assert_eq!(rust.skills.len(), 1);
     assert_eq!(stage_part(&rust, "Dev").skill, "work-ticket");
 
-    // Planner, the Project agent, also runs Grill.
+    // Noyan, the Project agent, also runs Grill.
     w.board
         .use_flow_for_tests(
             "SHOP",
@@ -347,12 +347,12 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml"),
                 )
                 .unwrap()
-                .replace("    agent: Griller\n", "    agent: Planner\n"),
+                .replace("    agent: Griller\n", "    agent: Noyan\n"),
             )
             .unwrap(),
         )
         .await;
-    let planner = reads(&w, &agent(&w, "Planner").await, "SHOP").await;
+    let planner = reads(&w, &agent(&w, "Noyan").await, "SHOP").await;
     let parts: Vec<(&RunsAs, &str)> = planner
         .skills
         .iter()
@@ -362,7 +362,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
         parts,
         [
             (&RunsAs::Stage("Grill".into()), "grill"),
-            (&RunsAs::Role(Role::ProjectAgent), "project-agent")
+            (&RunsAs::Role(Role::ProjectAgent), "noyan")
         ]
     );
     w.stop().await;

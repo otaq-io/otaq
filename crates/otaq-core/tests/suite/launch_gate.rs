@@ -913,7 +913,7 @@ async fn a_lead_and_a_project_agent_are_held_too_and_a_project_agent_never_falls
     world.hide(B, true).await;
     world
         .set_model(
-            "Planner",
+            "Noyan",
             AgentModel::Tool {
                 tool: B,
                 model: None,

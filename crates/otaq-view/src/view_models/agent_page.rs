@@ -236,7 +236,7 @@ pub struct ModelField {
 #[ts(rename = "AgentRoleField")]
 pub struct RoleField {
     pub label: String,
-    /// None · Project agent · Epic lead; ids `""`, `project-agent`, `epic-lead`.
+    /// None · Project agent · Epic lead; ids `""`, `noyan`, `epic-lead`.
     pub options: Vec<Choice>,
     pub hint: String,
     /// After a move: "Quick planner is now your Project agent · Planner has no role".

@@ -145,7 +145,7 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
             "UserPromptSubmit",
             json!({"prompt": format!(
                 "{} Import the GitHub issues labelled ready",
-                format!("/{}", naming::copy_name("project-agent"))
+                format!("/{}", naming::copy_name("noyan"))
             )}),
         ),
     )

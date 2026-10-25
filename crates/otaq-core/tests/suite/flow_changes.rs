@@ -39,7 +39,7 @@ fn planner() -> ProposedBy {
     ProposedBy::ProjectAgent {
         agent: "pa-1".into(),
         session: "session-1".into(),
-        name: "Planner".into(),
+        name: "Noyan".into(),
         tool: otaq_core::agent_tools::Tool::Claude,
     }
 }
@@ -596,7 +596,7 @@ async fn a_removal_waits_for_its_span() {
     let current = w.board.current_flow(&key).await.unwrap();
     assert_eq!(
         (current.version, current.agent_name.as_deref()),
-        (2, Some("Planner"))
+        (2, Some("Noyan"))
     );
 
     // Cancel change: API-1 back in Dev, a removal waits, Cancel drops it and starts resume. Nothing else changes.
@@ -919,8 +919,8 @@ async fn the_other_sources() {
         .unwrap();
     assert!(preset.diff.same, "{:?}", preset.diff);
 
-    // The agents file: Planner edited here, so it clashes; Keep mine leaves it, Take theirs puts it back.
-    w.edit_agent("Planner", |page| page.instructions = "Mine.".into())
+    // The agents file: Noyan edited here, so it clashes; Keep mine leaves it, Take theirs puts it back.
+    w.edit_agent("Noyan", |page| page.instructions = "Mine.".into())
         .await;
     let agents = w
         .board
@@ -932,7 +932,7 @@ async fn the_other_sources() {
         .diff
         .agents
         .iter()
-        .find(|a| a.name == "Planner")
+        .find(|a| a.name == "Noyan")
         .unwrap();
     assert_eq!(planner.change, AgentChangeKind::Changed);
     assert_eq!(planner.clash.as_ref().unwrap().add_as, None);
@@ -940,13 +940,7 @@ async fn the_other_sources() {
         .apply_proposal(&key, agents.id, &ApplyChoices::default(), &models())
         .await
         .unwrap();
-    let kept = w
-        .board
-        .store()
-        .agent_named("Planner")
-        .await
-        .unwrap()
-        .unwrap();
+    let kept = w.board.store().agent_named("Noyan").await.unwrap().unwrap();
     assert_eq!(kept.instructions, "Mine.");
     let again = w
         .board
@@ -954,20 +948,14 @@ async fn the_other_sources() {
         .await
         .unwrap();
     let choices = ApplyChoices {
-        clashes: [("Planner".to_owned(), ClashChoice::TakeTheirs)].into(),
+        clashes: [("Noyan".to_owned(), ClashChoice::TakeTheirs)].into(),
         ..Default::default()
     };
     w.board
         .apply_proposal(&key, again.id, &choices, &models())
         .await
         .unwrap();
-    let theirs = w
-        .board
-        .store()
-        .agent_named("Planner")
-        .await
-        .unwrap()
-        .unwrap();
+    let theirs = w.board.store().agent_named("Noyan").await.unwrap().unwrap();
     assert_eq!(theirs.instructions, "");
     w.stop().await;
 }

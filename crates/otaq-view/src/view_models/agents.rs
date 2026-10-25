@@ -889,7 +889,7 @@ pub mod fixtures {
                 a.role = Some(Role::ProjectAgent);
                 a.came_from = CameFrom::AgentsFile;
                 a.instructions = "Keep tickets small".into();
-                a.skills = vec![SkillRef::Shipped("project-agent".into())];
+                a.skills = vec![SkillRef::Shipped("noyan".into())];
             }),
             with(agent("lead", "Epic lead", Some("opus")), &|a| {
                 a.role = Some(Role::EpicLead);
@@ -1092,7 +1092,7 @@ mod tests {
                     Some("Project agent"),
                     &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
                     "Claude Code \u{b7} haiku",
-                    s(&["project-agent"]),
+                    s(&["noyan"]),
                     "every project \u{b7} the Project agent"
                 ),
                 (

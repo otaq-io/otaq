@@ -178,7 +178,7 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
       label: "Role",
       options: [
         { id: "", label: "None", selected: true },
-        { id: "project-agent", label: "Project agent", selected: false },
+        { id: "noyan", label: "Project agent", selected: false },
         { id: "epic-lead", label: "Epic lead", selected: false },
       ],
       hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it.",
@@ -399,7 +399,7 @@ describe("one agent's page", () => {
         ...role,
         options: [
           { id: "", label: "None", selected: false },
-          { id: "project-agent", label: "Project agent", selected: true },
+          { id: "noyan", label: "Project agent", selected: true },
           { id: "epic-lead", label: "Epic lead", selected: false },
         ],
         moved: "Strong is now your Project agent · Planner has no role",
@@ -412,7 +412,7 @@ describe("one agent's page", () => {
     ]);
     click(byText('[role="radio"]', "Project agent"));
     await settle();
-    expect(calls).toContainEqual(["settings.agent_role", { id: "strong", role: "project-agent" }]);
+    expect(calls).toContainEqual(["settings.agent_role", { id: "strong", role: "noyan" }]);
     expect(document.querySelector(".settings-agent-moved")?.textContent).toBe(
       "Strong is now your Project agent · Planner has no role",
     );

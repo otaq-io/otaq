@@ -231,7 +231,7 @@ pub struct AgentAdd {
     pub draft: agent_page::Draft,
 }
 
-/// `settings.agent_role`: the role as stored (`project-agent`, `epic-lead`), or empty for None.
+/// `settings.agent_role`: the role as stored (`noyan`, `epic-lead`), or empty for None.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentRoleSet {
     pub id: String,
@@ -991,7 +991,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("Planner", &json!("Project agent")),
+                ("Noyan", &json!("Project agent")),
                 ("Epic lead", &json!("Epic lead")),
                 ("Developer", &Value::Null),
                 ("Validator", &Value::Null),
@@ -1002,7 +1002,7 @@ mod tests {
         assert_eq!(section["rows"][0]["used_in"], "every project \u{b7} the Project agent");
         assert_eq!(section["default_model"]["dropdown"]["value"], "The first agent tool you connect");
         let id = |n: usize| section["rows"][n]["id"].as_str().unwrap().to_owned();
-        let (planner, developer) = (id(0), id(2));
+        let (noyan, developer) = (id(0), id(2));
 
         // One agent's page, and a change saved at once.
         let page = ask("settings.agent", json!({ "id": developer })).await.unwrap();
@@ -1015,22 +1015,22 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(page["instructions"]["value"], "Run the tests.");
-        let page = ask("settings.agent", json!({ "id": developer, "change": { "field": "name", "value": "Planner" } }))
+        let page = ask("settings.agent", json!({ "id": developer, "change": { "field": "name", "value": "Noyan" } }))
             .await
             .unwrap();
-        assert_eq!(page["name"]["problem"], "Another agent is already called Planner");
-        assert_eq!(page["draft"]["name"], "Planner", "the refused name stays typed");
+        assert_eq!(page["name"]["problem"], "Another agent is already called Noyan");
+        assert_eq!(page["draft"]["name"], "Noyan", "the refused name stays typed");
 
         // The role: None is refused on its agent; another agent takes it, and the page says whose it was.
-        let page = ask("settings.agent_role", json!({ "id": planner, "role": "" })).await.unwrap();
+        let page = ask("settings.agent_role", json!({ "id": noyan, "role": "" })).await.unwrap();
         assert_eq!(
             page["role"]["problem"],
-            "Planner is your Project agent. Give the role to another agent first."
+            "Noyan is your Project agent. Give the role to another agent first."
         );
-        let page = ask("settings.agent_role", json!({ "id": developer, "role": "project-agent" }))
+        let page = ask("settings.agent_role", json!({ "id": developer, "role": "noyan" }))
             .await
             .unwrap();
-        assert_eq!(page["role"]["moved"], "Developer is now your Project agent \u{b7} Planner has no role");
+        assert_eq!(page["role"]["moved"], "Developer is now your Project agent \u{b7} Noyan has no role");
         assert_eq!(page["role_tag"], "Project agent");
 
         // New agent: a draft until Add agent.
