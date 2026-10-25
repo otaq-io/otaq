@@ -619,7 +619,7 @@ impl Board {
         };
         let tickets = self.tickets(&row.project).await?;
         let delivering = self.delivering().await?;
-        let mut inside: Vec<Inside> = still_working(&tickets, &now, &file.flow, &delivering, &wait)
+        let mut inside: Vec<Inside> = still_working(&tickets, &file.flow, &delivering, &wait)
             .into_iter()
             .map(|t| Inside {
                 ticket: t.key.clone(),

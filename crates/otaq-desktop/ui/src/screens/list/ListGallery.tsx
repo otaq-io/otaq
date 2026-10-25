@@ -16,7 +16,6 @@ const HANDLERS: ListHandlers = {
   action: ignore,
   start: ignore,
   menu: ignore,
-  open: ignore,
 };
 
 export function ListGallery() {

@@ -10,8 +10,8 @@
 
 use serde_json::{Value, json};
 
-use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Kind, Status};
+use otaq_core::board::tickets::Ticket;
+use otaq_core::domain::Status;
 use otaq_core::flow::{Flow, default_flow};
 
 use crate::key_labels::KeyLabels;
@@ -33,7 +33,6 @@ fn facts<'a>(name: &'static str, flow: &'a Flow) -> ProjectFacts<'a> {
         base_branch: "main",
         agent_names: &[],
         was_validating: &[],
-        leads: &[],
         agent_filter: None,
         agents: None,
         agent_list: None,
@@ -56,21 +55,11 @@ fn params(project: &str, width: f32, filter: &[&str]) -> Params {
     }
 }
 
-fn child(key: &str, title: &str, status: Status, epic: &str) -> Ticket {
-    let mut t = ticket(key, title, status);
-    t.epic = Some(epic.parse().unwrap());
-    t.base = Base::Epic(epic.parse().unwrap());
-    t
-}
-
 /// The ticket file's example: NOTE-1 in Review, NOTE-2 waiting for it, NOTE-3 in Backlog, NOTE-4 in Dev, the
-/// epic NOTE-10 with one child merged into its branch and one in Dev.
+/// NOTE-10 in Backlog, NOTE-11 merged and NOTE-12 in Dev.
 fn pocket_notes() -> Vec<Ticket> {
     let mut note2 = ticket("NOTE-2", "Export as CSV", Status::Queued);
     note2.depends_on = vec!["NOTE-1".parse().unwrap()];
-    let mut epic = ticket("NOTE-10", "Sharing", Status::Backlog);
-    epic.kind = Kind::Epic;
-    epic.next_child_number = Some(3);
     let mut note4 = ticket("NOTE-4", "Search notes", Status::Working);
     note4.started_at = Some(NOW - 60_000);
     vec![
@@ -78,9 +67,9 @@ fn pocket_notes() -> Vec<Ticket> {
         note2,
         ticket("NOTE-3", "Tag notes", Status::Backlog),
         note4,
-        epic,
-        child("NOTE-10.1", "Share link", Status::Merged, "NOTE-10"),
-        child("NOTE-10.2", "Share settings", Status::Working, "NOTE-10"),
+        ticket("NOTE-10", "Sharing", Status::Backlog),
+        ticket("NOTE-11", "Share link", Status::Merged),
+        ticket("NOTE-12", "Share settings", Status::Working),
     ]
 }
 

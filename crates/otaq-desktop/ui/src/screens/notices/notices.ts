@@ -160,9 +160,8 @@ const OPEN_ROUTES: OpenRoutes = {
 
 /**
  * Opens what a notification names (d0090 "What a click opens"), its project on screen: a ticket on Session with the
- * terminal focused (the check's side for a validator's prompt), a Project agent in the agent panel, an epic's lead
- * on its Lead tab with the lead's terminal focused, the item the Needs you strip's Next opens (a grouped notification
- * or a summary, NYS-03), or the board. An item answered meanwhile opens the same place.
+ * terminal focused (the check's side for a validator's prompt), a Project agent in the agent panel, the item the
+ * Needs you strip's Next opens (a grouped notification or a summary, NYS-03), or the board. An item answered meanwhile opens the same place.
  */
 export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN_ROUTES): void {
   switch (target.kind) {
@@ -175,11 +174,6 @@ export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN
       break;
     case "project_agent":
       showAgentInPanel(target.project, target.agent, routes.agentPanel);
-      break;
-    case "lead":
-      selectProject(target.project, routes.selection);
-      openTicket(target.epic, "lead", routes.selection);
-      requestTerminalFocus(target.epic, routes.focus);
       break;
     case "needs_you":
       routes.next();

@@ -1,8 +1,8 @@
-//! The checkout copy (AGM-07; d0098's copy and marker, brought back by d0108 for the Project agent and the epic lead,
-//! an exception to d0023): these two run in the project's own folder, the user's checkout, not a worktree. Before
+//! The checkout copy (AGM-07; d0098's copy and marker, brought back by d0108 for the Project agent, an exception to
+//! d0023): it runs in the project's own folder, the user's checkout, not a worktree. Before
 //! one starts (or resumes), its agent's skills are copied there as `otaq-<name>` with Otaq's marker and a `.gitignore`
 //! holding `*` ([`crate::skills::copy`]), so `git status` and `git add -A` never see them. When its session ends, its
-//! copies go, unless another running Project agent or lead of that folder still holds one of the same name. Copies
+//! copies go, unless another running Project agent of that folder still holds one of the same name. Copies
 //! a crash left are removed at service start ([`ProjectAgents::remove_checkout_leftovers`]). Nothing else in the
 //! repository or its `.git` folder is written, and no launch flag is added (d0011).
 
@@ -14,7 +14,7 @@ use crate::agent_tools::FirstPrompt;
 use crate::agents::Agent;
 use crate::skills::{Marker, copy};
 
-/// The checkout copies each running Project agent or lead holds, by its id: the folder and the copies' names.
+/// The checkout copies each running Project agent holds, by its id: the folder and the copies' names.
 pub(super) type Held = HashMap<String, (PathBuf, Vec<String>)>;
 
 impl ProjectAgents {

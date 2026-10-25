@@ -403,7 +403,7 @@ impl Signals {
     }
 
     /// `tool` reported `session`'s conversation id (`stored`: it was stored just now, a new conversation): a Project
-    /// agent's or an epic lead's own row keeps it too (its Resume continues it), and the session's file is watched.
+    /// agent's own row keeps it too (its Resume continues it), and the session's file is watched.
     pub(super) async fn tool_id_reported(
         &self,
         caller: &Caller,
@@ -423,20 +423,11 @@ impl Signals {
             .await?
             .rows_affected()
                 > 0;
-            if kept
-                && let Caller::ProjectAgent { project, .. } | Caller::EpicLead { project, .. } =
-                    caller
-            {
+            if kept && let Caller::ProjectAgent { project, .. } = caller {
                 self.inner.events.publish(Event::ProjectAgentChanged {
                     project: project.clone(),
                     id: agent.to_owned(),
                 });
-                if let Caller::EpicLead { epic, .. } = caller {
-                    self.inner.events.publish(Event::LeadChanged {
-                        project: project.clone(),
-                        epic: epic.clone(),
-                    });
-                }
             }
         }
         let Some(watcher) = self.inner.watcher.get() else {
@@ -461,8 +452,8 @@ impl Signals {
         Ok(())
     }
 
-    /// Whether `caller`'s agent is at work, so a quiet turn may end: a ticket's agent Working, a Project agent or
-    /// lead whose turn hasn't ended. A validator's turns are its validation's.
+    /// Whether `caller`'s agent is at work, so a quiet turn may end: a ticket's agent Working, a Project agent whose
+    /// turn hasn't ended. A validator's turns are its validation's.
     async fn at_work(&self, caller: &Caller) -> bool {
         match caller {
             Caller::Agent { ticket_id, .. } => self
@@ -471,9 +462,7 @@ impl Signals {
                 .ticket_by_id(ticket_id)
                 .await
                 .is_ok_and(|t| t.status == Status::Working),
-            Caller::ProjectAgent { session, .. } | Caller::EpicLead { session, .. } => {
-                !self.is_idle_between_turns(session)
-            }
+            Caller::ProjectAgent { session, .. } => !self.is_idle_between_turns(session),
             Caller::Validator { .. } | Caller::User => false,
         }
     }
@@ -486,19 +475,10 @@ pub(super) fn caller_of(sessions: &Sessions, session: &str) -> Option<Caller> {
         .into_iter()
         .find(|r| r.session == session)
     {
-        return Some(match root.epic {
-            Some((epic_id, epic)) => Caller::EpicLead {
-                project: root.project,
-                agent: root.agent,
-                epic,
-                epic_id,
-                session: root.session,
-            },
-            None => Caller::ProjectAgent {
-                project: root.project,
-                agent: root.agent,
-                session: root.session,
-            },
+        return Some(Caller::ProjectAgent {
+            project: root.project,
+            agent: root.agent,
+            session: root.session,
         });
     }
     let root = sessions

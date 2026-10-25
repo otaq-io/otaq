@@ -86,7 +86,7 @@ export function useShortcut<N extends KeyActionName>(name: N, handler: ShortcutH
 }
 
 export type { Registry } from "./registry";
-export type { OverlayId, OverlayParams, OverlayProps, Confirmation, SuggestionConfirm } from "./overlays";
+export type { OverlayId, OverlayParams, OverlayProps, Confirmation } from "./overlays";
 export type { SheetSection, TicketProps } from "./sheet";
 export type { GlobalSection, ProjectSection } from "./settings";
 export type { ActionNamed, KeyActionName, ShortcutHandler } from "./shortcuts";

@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, RemoteWarning, Status, WentOn};
+use otaq_core::board::tickets::{EventKind, Ticket};
+use otaq_core::domain::{Actor, RemoteWarning, Status, WentOn};
 use otaq_core::flow::Delivers;
 use otaq_core::flow::default::testing::delivering;
 use otaq_core::git::testing::{commit, git, snapshot};
@@ -60,7 +60,6 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
 
     let proposal = w.board.merge_proposal("SHOP-1").await.unwrap();
     assert_eq!(proposal.target, "main");
-    assert!(!proposal.into_epic);
     assert_eq!(proposal.message, "SHOP-1: Checkout API");
 
     let outcome = w
@@ -400,62 +399,5 @@ async fn a_good_fetch_clears_the_warning() {
         panic!("expected merged, got {outcome:?}");
     };
     assert_eq!(ticket.work.unwrap().remote_warning, None);
-    w.stop().await;
-}
-
-#[tokio::test]
-async fn an_epic_child_merges_into_the_epic_branch() {
-    let w = TestService::start().await;
-    let project = w.add_project("shop-web").await;
-    let repo = PathBuf::from(&project.repo_path);
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let child = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist API".into(),
-                epic: Some(epic.key.to_string()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let wt = w.start_worktree(&child).await;
-    commit(&wt, "wishlist.ts", "w\n");
-    w.force_status(&child, Status::WaitingForYou).await;
-    let main = git(&repo, &["rev-parse", "main"]);
-
-    let proposal = w.board.merge_proposal("SHOP-1.1").await.unwrap();
-    assert_eq!(proposal.target, otaq_core::naming::branch("SHOP-1"));
-    assert!(proposal.into_epic);
-    let outcome = w
-        .review
-        .local_merge("SHOP-1.1", "SHOP-1.1: Wishlist API", false, &me())
-        .await
-        .unwrap();
-    let LocalMergeOutcome::Merged { target, .. } = outcome else {
-        panic!("expected merged, got {outcome:?}");
-    };
-    assert_eq!(target, proposal.target);
-    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main untouched");
-    assert_eq!(
-        git(&repo, &["log", "-1", "--format=%s", &target]),
-        "SHOP-1.1: Wishlist API"
-    );
-    assert_eq!(w.status("SHOP-1.1").await, Status::Merged);
     w.stop().await;
 }

@@ -94,9 +94,6 @@ pub struct TicketUsage {
     /// Validation rounds that counted (a pass or a fail).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub rounds: u32,
-    /// An epic's lead's share (LEAD-12, d0083): its tokens count on the epic.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lead: Option<Tokens>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -104,10 +101,10 @@ fn is_zero(n: &u32) -> bool {
 }
 
 impl TicketUsage {
-    /// The agent's share: everything but the validators (and an epic's lead).
+    /// The agent's share: everything but the validators.
     pub fn agent(&self) -> Option<Tokens> {
         let mut agent = self.tokens?;
-        for v in [self.validation, self.lead].into_iter().flatten() {
+        if let Some(v) = self.validation {
             agent.input = agent.input.saturating_sub(v.input);
             agent.cached = agent.cached.saturating_sub(v.cached);
             agent.output = agent.output.saturating_sub(v.output);
@@ -125,7 +122,7 @@ impl TicketUsage {
 /// view models word it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentTokens {
-    /// Developer (the agent's sessions, its answers and an epic's deliveries), Validator, or Epic lead (an epic's).
+    /// Developer (the agent's sessions, its answers and its deliveries) or Validator.
     pub role: crate::agents::SessionRole,
     /// The named agent's name at its sessions' start ("Strong"); `None` for sessions that ran on none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -500,43 +497,6 @@ impl Usage {
                 }
             }
         }
-        // An epic's lead counts on the epic (LEAD-12, d0083).
-        let leads: Vec<TicketConversationRow> = sqlx::query_as(
-            "SELECT a.epic_id, s.tool_session_id, SUM(u.input), SUM(u.cached), SUM(u.output),
-                    SUM(u.reasoning), 0
-             FROM project_agents a
-             JOIN projects p ON p.id = a.project_id
-             JOIN sessions s ON s.project_agent_id = a.id
-             LEFT JOIN usage u ON u.session_id = s.id
-             WHERE p.key = ? AND a.epic_id IS NOT NULL
-                   AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
-             GROUP BY a.epic_id, s.tool_session_id",
-        )
-        .bind(project)
-        .fetch_all(self.inner.store.pool())
-        .await?;
-        for (epic, tool_id, a, b, c, d, _) in leads {
-            if !known(&tool_id) {
-                continue;
-            }
-            let at = match out.binary_search_by(|t| t.id.as_str().cmp(&epic)) {
-                Ok(at) => at,
-                Err(at) => {
-                    out.insert(
-                        at,
-                        TicketUsage {
-                            id: epic,
-                            ..TicketUsage::default()
-                        },
-                    );
-                    at
-                }
-            };
-            let these = tokens((a, b, c, d));
-            let entry = &mut out[at];
-            entry.tokens.get_or_insert_with(Tokens::default).add(&these);
-            entry.lead.get_or_insert_with(Tokens::default).add(&these);
-        }
         Ok(out)
     }
 
@@ -566,8 +526,8 @@ impl Usage {
             .collect())
     }
 
-    /// A ticket's (by id) tokens by role and named agent ([`AgentTokens`]), in role order (Developer, Validator, Epic
-    /// lead) and then the order the agents first ran. An epic's lead counts on the epic (LEAD-12).
+    /// A ticket's (by id) tokens by role and named agent ([`AgentTokens`]), in role order (Developer, Validator) and
+    /// then the order the agents first ran.
     pub async fn agents_of(&self, ticket_id: &str) -> Result<Vec<AgentTokens>, StoreError> {
         use crate::agents::SessionRole;
         type Row = (
@@ -587,16 +547,8 @@ impl Usage {
              FROM sessions s LEFT JOIN usage u ON u.session_id = s.id
              WHERE s.ticket_id = ? AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
              GROUP BY s.id
-             UNION ALL
-             SELECT 'lead', s.agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
-                    SUM(u.output), SUM(u.reasoning), s.started_at
-             FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
-             LEFT JOIN usage u ON u.session_id = s.id
-             WHERE a.epic_id = ? AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
-             GROUP BY s.id
              ORDER BY 9",
         )
-        .bind(ticket_id)
         .bind(ticket_id)
         .fetch_all(self.inner.store.pool())
         .await?;
@@ -605,7 +557,6 @@ impl Usage {
         for (kind, agent, tool, tool_id, a, b, c, d, _) in rows {
             let role = match kind.as_str() {
                 "validator" => SessionRole::Validator,
-                "lead" => SessionRole::EpicLead,
                 _ => SessionRole::Developer,
             };
             let tool = tool.and_then(|t| t.parse().ok());

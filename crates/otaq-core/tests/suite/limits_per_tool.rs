@@ -1,8 +1,7 @@
 //! Limits per tool (T-0358, T-0405; USG-10, USG-06, USG-07, AGM-03, ATT-09; d0086, d0108, d0020, d0046, d0018): one
 //! banner line per tool, Resume per tool (only that tool's agents continue, only its holds lift), "This is the usage
 //! limit" per tool, a tool that isn't available (its line and one notification, no needs-you item per ticket), Use
-//! fallback now (the tool's fallback, only on the click), the limit signal's own reset, and epic delivery sessions
-//! through the check before every launch.
+//! fallback now (the tool's fallback, only on the click), and the limit signal's own reset.
 //!
 //! The tools are stand-ins (scripts printing a version: no tool runs), as in `launch_gate.rs`; `claude` is `sh`
 //! printing its arguments, a Codex launch runs a script that exits at once. Agents stopped mid-turn are `sh`
@@ -24,10 +23,10 @@ use otaq_core::agents::{
 use otaq_core::attention::notify::pace::{FakeClock, QUIET};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
+use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::FlowAgent;
 use otaq_core::naming;
 use otaq_core::protocol::{KeyParams, Reply, Request, ToolParams, UsageParams};
@@ -898,107 +897,5 @@ async fn another_tools_limit_doesnt_hold_a_project_agent() {
     .await;
     let resumed = w.project_agents.resume(&codex.id).await.unwrap();
     assert_eq!(resumed.session.as_ref().and_then(|s| s.tool), Some(B));
-    world.w.stop().await;
-}
-
-/// The epic SHOP-1 in Ready for Review with its branch, its own Open PR skill (no provider needed).
-async fn epic_ready(world: &World) -> Ticket {
-    let w = &world.w;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Checkout".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let project = w.board.project("SHOP").await.unwrap();
-    let branch = "shop-1-checkout";
-    let made = std::process::Command::new("git")
-        .args(["-C", &project.repo_path, "branch", branch])
-        .status()
-        .unwrap();
-    assert!(made.success());
-    sqlx::query("UPDATE tickets SET branch_name = ? WHERE id = ?")
-        .bind(branch)
-        .bind(&epic.id)
-        .execute(w.board.store().pool())
-        .await
-        .unwrap();
-    w.force_status(&epic, Status::WaitingForYou).await;
-    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, &folder)
-        .await;
-    epic
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epics_delivery_is_checked_before_it_launches() {
-    let world = world().await;
-    let w = &world.w;
-    // The Delivery stage's agent (Developer) on Codex · GPT Sol (AGM-05).
-    world
-        .set_model(
-            "Developer",
-            AgentModel::Tool {
-                tool: B,
-                model: Some("newest:gpt-sol".into()),
-            },
-        )
-        .await;
-    let epic = epic_ready(&world).await;
-    let deliveries = || async {
-        sqlx::query_as::<_, (Option<String>, Option<String>)>(
-            "SELECT tool, model FROM sessions WHERE ticket_id = ? AND kind = 'delivery'",
-        )
-        .bind(&epic.id)
-        .fetch_all(w.board.store().pool())
-        .await
-        .unwrap()
-    };
-
-    // Codex at its limit: Deliver is refused with the hold's message, nothing made, nothing held.
-    w.plan_limit
-        .record_hit(
-            B,
-            &hit(LimitKind::Weekly, "You've hit your usage limit."),
-            now_ms(),
-        )
-        .await
-        .unwrap();
-    let refused = w.prs.open("SHOP-1", true, false, &me()).await.unwrap_err();
-    assert_eq!(refused.to_string(), "Codex limit reached", "{refused:?}");
-    let after = ticket(w, "SHOP-1").await;
-    assert!(
-        after
-            .work
-            .as_ref()
-            .and_then(|w| w.worktree.as_ref())
-            .is_none()
-    );
-    assert!(deliveries().await.is_empty());
-    assert!(holds(w, "SHOP-1").await.is_empty());
-
-    // Codex isn't available: refused with its reason.
-    w.plan_limit.resume_tool(B).await.unwrap();
-    world.hide(B, true).await;
-    let refused = w.prs.open("SHOP-1", true, false, &me()).await.unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        "Codex isn\u{2019}t available \u{b7} hidden in Settings"
-    );
-
-    // Back: the delivery starts on Codex with GPT Sol resolved to its newest listed model.
-    world.hide(B, false).await;
-    w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
-    assert_eq!(
-        deliveries().await,
-        [(Some(B.as_str().to_owned()), Some("gpt-6-sol".to_owned()))]
-    );
     world.w.stop().await;
 }

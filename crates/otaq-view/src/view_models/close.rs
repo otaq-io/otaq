@@ -12,9 +12,9 @@ use crate::view_models::menu::MenuItem;
 pub const CLOSE_TICKET: &str = "close-ticket";
 pub const SUBMIT_FOR_REVIEW: &str = "submit-for-review";
 
-/// Close ticket is offered on every ticket that isn't finished (epics have Close epic…).
+/// Close ticket is offered on every ticket that isn't finished.
 pub fn can_close(ticket: &Ticket) -> bool {
-    !ticket.is_epic() && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
+    !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
 }
 
 /// "Close ticket…" in the sheet's "…" menu and the card's right-click menu.
@@ -30,8 +30,7 @@ pub fn close_item(ticket: &Ticket) -> Option<MenuItem> {
 /// "Move to next stage…" (was Submit for review): on a ticket whose agent is at work or stopped; enabled only when
 /// it isn't mid-turn. It counts as the agent's `stage next` (d0108 rule 10): an agent check that follows runs.
 pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
-    let shown = !ticket.is_epic()
-        && crate::view_models::flow_columns::place_set(ticket).at_work()
+    let shown = crate::view_models::flow_columns::place_set(ticket).at_work()
         && (USER_SUBMITS_FROM.contains(&ticket.status)
             || matches!(ticket.status, Status::Working | Status::WorkingInBackground));
     if !shown {
@@ -259,9 +258,6 @@ mod tests {
         }
         assert!(close_item(&ticket("SHOP-19", "t", Status::Merged)).is_none());
         assert!(close_item(&ticket("SHOP-19", "t", Status::ClosedNotMerged)).is_none());
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = otaq_core::domain::Kind::Epic;
-        assert!(close_item(&epic).is_none(), "epics use Close epic…");
     }
 
     #[test]
@@ -319,8 +315,7 @@ mod tests {
 
     #[test]
     fn a_child_of_closed_parents_offers_both_choices_per_parent() {
-        let mut a = ticket("SHOP-19", "Price table", Status::ClosedNotMerged);
-        a.kind = otaq_core::domain::Kind::Ticket;
+        let a = ticket("SHOP-19", "Price table", Status::ClosedNotMerged);
         let b = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
         let mut child = ticket("SHOP-20", "Checkout page", Status::ParentClosed);
         child.depends_on = vec![a.key.clone()];

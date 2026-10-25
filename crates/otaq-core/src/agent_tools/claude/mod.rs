@@ -94,7 +94,7 @@ impl ClaudeCode {
         self.context.check.claude_config_dir.as_deref()
     }
 
-    /// The prompt as typed: `/otaq-epic-lead <message>`, or the text.
+    /// The prompt as typed: `/otaq-noyan <message>`, or the text.
     fn prompt_text(&self, prompt: &FirstPrompt) -> String {
         prompt.text(self)
     }
@@ -104,13 +104,11 @@ impl ClaudeCode {
     fn settings(&self, launch: &LaunchContext, request: &LaunchRequest) -> Option<PathBuf> {
         let data = &self.context.data;
         let path = match (request.role, &request.ticket) {
-            (LaunchRole::ProjectAgent | LaunchRole::EpicLead, _) | (_, None) => {
-                statusline::project_agent_settings_path(
-                    data,
-                    &request.project,
-                    request.theme.kind(),
-                )
-            }
+            (LaunchRole::ProjectAgent, _) | (_, None) => statusline::project_agent_settings_path(
+                data,
+                &request.project,
+                request.theme.kind(),
+            ),
             (_, Some(ticket)) => statusline::settings_path(data, ticket, request.theme.kind()),
         };
         statusline::write_settings_at(
@@ -139,21 +137,9 @@ impl ClaudeCode {
                 .as_ref()
                 .ok_or_else(|| LaunchError(format!("{:?} needs a ticket", request.role)))
         };
-        let needs_epic = || {
-            request
-                .epic
-                .as_ref()
-                .ok_or_else(|| LaunchError("an epic lead needs its epic".to_owned()))
-        };
         let command = match (&request.resume, request.role) {
             (Some(id), LaunchRole::ProjectAgent) => {
                 let mut command = launch::resume_project_agent(launch, cwd, id, settings);
-                command.args.extend(prompt);
-                command
-            }
-            (Some(id), LaunchRole::EpicLead) => {
-                let mut command =
-                    launch::resume_epic_lead(launch, cwd, needs_epic()?, id, settings);
                 command.args.extend(prompt);
                 command
             }
@@ -180,10 +166,6 @@ impl ClaudeCode {
                     LaunchRole::ProjectAgent => {
                         with_last_arg(launch::launch_project_agent(launch, cwd, settings), prompt)
                     }
-                    LaunchRole::EpicLead => with_last_arg(
-                        launch::launch_epic_lead(launch, cwd, needs_epic()?, None, settings),
-                        prompt,
-                    ),
                     LaunchRole::Validator => {
                         launch::launch_validator(launch, needs_ticket()?, cwd, &prompt, settings)
                     }
@@ -507,7 +489,6 @@ mod tests {
             cwd: "/wt/shop-web/SHOP-18".into(),
             project: "SHOP".into(),
             ticket: Some(key()),
-            epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::Skill {
                 name: crate::agent_tools::WORK_TICKET_SKILL.into(),

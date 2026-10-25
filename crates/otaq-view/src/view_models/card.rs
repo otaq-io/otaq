@@ -41,7 +41,6 @@
 
 use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, CardStart, RunsOnTool};
 use otaq_core::agents::{HoldReason, SessionRole as Role};
-use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
@@ -247,29 +246,6 @@ pub struct Sleeve {
     pub epic_key: String,
     pub name: String,
     pub pinned: bool,
-}
-
-/// The sleeve of `ticket` when it is an epic child; `all` is its project (its epic).
-pub fn sleeve(ticket: &Ticket, all: &[Ticket]) -> Option<Sleeve> {
-    let epic = all.iter().find(|t| Some(&t.key) == ticket.epic.as_ref())?;
-    Some(Sleeve {
-        epic_key: epic.key.to_string(),
-        name: epic.title.clone(),
-        pinned: epic.flags.is_pinned(),
-    })
-}
-
-/// Who added a child that joined its whole-queued epic's queue (EPC-13): "SHOP-40.2", "you", "Noyan · Checkout slowness".
-fn joined_by(actor: &Actor, ticket: &Ticket, agent_name: Option<&str>) -> String {
-    match actor {
-        Actor::User(_) => "you".to_owned(),
-        Actor::Agent(key) => key.to_string(),
-        // The board knows the current name of the agent that created the ticket (d0068).
-        Actor::ProjectAgent(_) => match agent_name.filter(|_| &ticket.created_by == actor) {
-            Some(name) => format!("Noyan \u{b7} {name}"),
-            None => "Noyan".to_owned(),
-        },
-    }
 }
 
 /// The hint on an unblocked Backlog card.
@@ -875,14 +851,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 .question
                 .clone()
                 .unwrap_or_else(|| "Asks you a question".into());
-            // A question the epic's lead passed on (LEAD-06): "via Wishlist lead: …".
-            let text = match &flags.via_lead {
-                Some(lead) => format!("via {lead}: {question}"),
-                None => question,
-            };
             Part::flag(
                 flag(R::NeedsYou, "Asks you", "Asks you", Legend::AsksYou),
-                Some(text),
+                Some(question),
                 Tone::Attention,
             )
         }
@@ -1246,8 +1217,6 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if flags.resuming_conversation => {
             Part::quiet("Resuming conversation\u{2026}", Tone::Muted)
         }
-        // A sibling's merge freed it; the epic lead's turn about that merge comes first (d0124).
-        Status::Queued if flags.waiting_for_lead => Part::quiet(WAITING_FOR_LEAD, Tone::Muted),
         Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
         Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
@@ -1297,8 +1266,6 @@ pub fn pr_not_watched() -> String {
 pub const PARKED: &str = "Parked \u{b7} has work \u{b7} branch, files and conversation kept";
 /// *Waiting for a free slot (0016)*.
 pub const WAITING_FOR_SLOT: &str = "waiting for a free slot";
-/// A child a sibling's merge freed, until the epic lead's turn about that merge ends (d0124).
-pub const WAITING_FOR_LEAD: &str = "Waiting for the lead\u{2019}s update";
 
 /// "round 1 of 3 · 2 min": which round the validator checks and how long it has run.
 fn validating_text(ticket: &Ticket, now_ms: i64) -> Option<String> {
@@ -1489,10 +1456,9 @@ fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
         .conflicts_with
         .as_ref()
         .or(x.project_base.as_ref());
-    match (&ticket.epic, target) {
-        (Some(_), _) => "Keeps conflicting with the epic\u{2019}s branch".to_owned(),
-        (None, Some(target)) => format!("Keeps conflicting with {target}"),
-        (None, None) => "Keeps conflicting".to_owned(),
+    match target {
+        Some(target) => format!("Keeps conflicting with {target}"),
+        None => "Keeps conflicting".to_owned(),
     }
 }
 
@@ -1583,7 +1549,7 @@ impl CardViewModel {
         if ticket.flags.your_turn {
             parts.push(Part::quiet("your turn \u{b7} in terminal", Tone::Accent));
         }
-        parts.extend(marker(ticket, x));
+        parts.extend(marker(ticket));
         if flags.messages_waiting > 0 {
             let n = flags.messages_waiting;
             parts.push(Part::quiet(
@@ -1592,17 +1558,6 @@ impl CardViewModel {
             ));
         }
         parts.extend(asked_parts(flags));
-        parts.extend(lead_parts(ticket));
-        if let Some(by) = &ticket.joined_queue_by {
-            // A child that joined its whole-queued epic's queue on its own (EPC-13).
-            parts.push(Part::quiet(
-                format!(
-                    "New \u{b7} added by {} \u{b7} in Ready for Dev",
-                    joined_by(by, ticket, x.agent_name.as_deref())
-                ),
-                Tone::Epic,
-            ));
-        }
         parts.extend(fact_parts(ticket, x));
         let (flag, situation) = arrange(parts);
 
@@ -1639,8 +1594,6 @@ impl CardViewModel {
             Outline::Attention
         } else if status == Status::ParentClosed {
             Outline::Error
-        } else if added_by_lead(ticket).is_some() {
-            Outline::Epic
         } else {
             Outline::Normal
         };
@@ -2146,7 +2099,7 @@ pub const CANT_START: &str = "Can\u{2019}t start";
 pub const MODEL_UNAVAILABLE: &str = "Model unavailable";
 
 /// The old callout's markers on a card that isn't stopped: the first that applies (they never pile up).
-fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
+fn marker(ticket: &Ticket) -> Option<Part> {
     let flags = &ticket.flags;
     if ticket.status == Status::WaitingForYou && flags.pr_rework {
         // PR rework (d0041): dragged back from Approved; Send back starts the agent.
@@ -2196,10 +2149,6 @@ fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
             Tone::Review,
         ));
     }
-    if let Some(text) = lead_note_callout(ticket) {
-        // LEAD-07: the lead's note answered the first stop; it carries the round counter, back at 0.
-        return Some(Part::quiet(text, Tone::Epic));
-    }
     if let Some(marker) = flags.validation_round {
         // The agent fixes what the check found (VAL-04): the verdict, pointing at the checker's comment (CMT-10,
         // `s05-41`); without one, the round, counted on the check that failed it (FLW-13).
@@ -2214,16 +2163,6 @@ fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     if let Some(sent) = flags.sent_back {
         return Some(Part::quiet(sent_back_text(sent), Tone::Warning));
     }
-    if let Some(old) = &x.old_key {
-        let epic = ticket
-            .epic
-            .as_ref()
-            .map_or_else(String::new, |e| format!(" {e}"));
-        return Some(Part::quiet(
-            format!("Moved into epic{epic} \u{b7} old key {old} still works"),
-            Tone::Epic,
-        ));
-    }
     crate::view_models::queue::started_line(ticket).map(|line| Part::quiet(line, Tone::Working))
 }
 
@@ -2237,52 +2176,6 @@ fn asked_parts(flags: &otaq_core::domain::Flags) -> Vec<Part> {
                 None => text,
             },
             Tone::Muted,
-        ));
-    }
-    if let Some(asked) = &flags.asked_lead {
-        parts.push(Part::quiet(
-            format!("{ASKED_LEAD_WAITING}: {}", quoted(&asked.question)),
-            Tone::Muted,
-        ));
-    }
-    parts
-}
-
-/// The lead's markers (d0083, *04 → Row · Epic children & the lead*): "via Wishlist lead" (when the question isn't
-/// in the line already), "Lead's note sent once" after the second stop, the unread note, the same file, and on a
-/// never-started child "by Wishlist lead · …" or "new · added by Wishlist lead". The notes and files show on hover.
-fn lead_parts(ticket: &Ticket) -> Vec<Part> {
-    let flags = &ticket.flags;
-    let running = otaq_core::epic_lead::overlap::is_running(ticket.status);
-    let mut parts = Vec::new();
-    if let Some(lead) = flags
-        .via_lead
-        .as_ref()
-        .filter(|_| ticket.status != Status::AsksYou)
-    {
-        parts.push(Part::quiet(format!("via {lead}"), Tone::Epic));
-    }
-    if let Some(note) = second_stop(ticket) {
-        parts.push(Part::quiet(LEAD_NOTE_ONCE, Tone::Epic).hover(Some(lead_note_hover(note))));
-    }
-    if let Some(notes) = flags.unread_notes.as_ref().filter(|_| running) {
-        parts.push(
-            Part::quiet(
-                otaq_core::epic_lead::notes::count_text(notes.count as usize, &notes.from),
-                Tone::Muted,
-            )
-            .hover(Some(unread_note_hover(notes))),
-        );
-    }
-    if let Some(text) = same_file_text(&flags.same_file) {
-        parts.push(Part::quiet(text, Tone::Muted).hover(same_file_hover(&flags.same_file)));
-    }
-    if let Some(by) = updated_by_lead(ticket) {
-        parts.push(Part::quiet(updated_by_lead_text(ticket, by), Tone::Epic));
-    } else if let Some(by) = added_by_lead(ticket) {
-        parts.push(Part::quiet(
-            format!("new \u{b7} added by {}", by.lead),
-            Tone::Epic,
         ));
     }
     parts
@@ -2629,7 +2522,7 @@ fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<Card
         Status::WaitingForYou if x.custom_flow && your_check_buttons(ticket) => {
             quiet(CardActionKind::Fail, FAIL)
         }
-        Status::PrOpen if ticket.flags.pr_number.is_some() && ticket.epic.is_none() => {
+        Status::PrOpen if ticket.flags.pr_number.is_some() => {
             quiet(CardActionKind::MarkMerged, "Mark merged")
         }
         _ => None,
@@ -2639,7 +2532,7 @@ fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<Card
 /// Whether a card in a human check offers Pass · Fail: not while it is back for PR rework or holds new commits for
 /// its open PR (Push to PR, REV-14).
 fn your_check_buttons(ticket: &Ticket) -> bool {
-    !ticket.is_epic() && ticket.flags.pr_number.is_none() && !ticket.flags.pr_rework
+    ticket.flags.pr_number.is_none() && !ticket.flags.pr_rework
 }
 
 /// The agent Open agent… opens: a held session's, else the one whose model the tool refused.
@@ -2747,9 +2640,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         ),
         Status::WaitingForYou if has_pr => None,
         // Your check (FLW-14): Pass, then Fail ([`second_action`]).
-        Status::WaitingForYou if x.custom_flow && !ticket.is_epic() => {
-            a(CardActionKind::Pass, PASS, None, true)
-        }
+        Status::WaitingForYou if x.custom_flow => a(CardActionKind::Pass, PASS, None, true),
         Status::WaitingForYou => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
         // To deliver (FLW-15): the click the Delivery waits for; nothing while an automatic one runs.
         Status::ToDeliver if ticket.flags.delivering_automatically || !x.custom_flow => None,
@@ -2758,8 +2649,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         }
         Status::ToDeliver => a(CardActionKind::LocalMerge, "Local merge", None, true),
         // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the sheet and the card's menu.
-        // An epic child never has a PR.
-        Status::PrOpen if has_pr && ticket.epic.is_none() => a(
+        Status::PrOpen if has_pr => a(
             CardActionKind::SendBackPr,
             SEND_BACK_WITH_PR_COMMENTS,
             None,
@@ -2799,167 +2689,12 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     }
 }
 
-/// LEAD-06's words.
-pub const ASKED_LEAD_WAITING: &str = "asked lead \u{b7} waiting";
-/// The unread note's hover footnote (LEAD-10, CLI-08): "Read at the agent's next commit (otaq notes). Submit is refused
-/// until then."
-pub fn unread_note_hint() -> String {
-    format!(
-        "Read at the agent's next commit ({} notes). Submit is refused until then.",
-        otaq_core::naming::COMMAND_NAME
-    )
-}
-/// The same file's hover footnote (LEAD-09).
-pub const SAME_FILE_HINT: &str =
-    "Both changed it so far. Doesn't wake the lead; neither child is paused.";
-/// After the second stop (*03 → 25*).
-pub const LEAD_NOTE_ONCE: &str = "Lead's note sent once \u{b7} hover for it";
-
 /// "“first line”".
 fn quoted(text: &str) -> String {
     format!(
         "\u{201c}{}\u{201d}",
         text.lines().next().unwrap_or_default()
     )
-}
-
-/// What the lead did to a never-started child (LEAD-08); nothing once it has been to Dev.
-fn by_lead(ticket: &Ticket) -> Option<&otaq_core::domain::ByLead> {
-    ticket
-        .flags
-        .by_lead
-        .as_ref()
-        .filter(|_| ticket.epic.is_some() && is_never_started(ticket))
-}
-
-/// "Updated by lead": the lead edited or linked this never-started child since the user last looked.
-fn updated_by_lead(ticket: &Ticket) -> Option<&otaq_core::domain::ByLead> {
-    by_lead(ticket).filter(|b| b.updated)
-}
-
-/// "new · added by Wishlist lead": the lead created this never-started child.
-fn added_by_lead(ticket: &Ticket) -> Option<&otaq_core::domain::ByLead> {
-    by_lead(ticket).filter(|b| b.added)
-}
-
-/// "by Wishlist lead · description, now waits for SHOP-40.4": the fields the lead set and the parents it linked
-/// that are still parents.
-pub fn updated_by_lead_text(ticket: &Ticket, by: &otaq_core::domain::ByLead) -> String {
-    let mut parts = by.fields.clone();
-    let waits: Vec<String> = by
-        .waits_for
-        .iter()
-        .filter(|k| ticket.depends_on.contains(k))
-        .map(ToString::to_string)
-        .collect();
-    if !waits.is_empty() {
-        parts.push(format!("now waits for {}", waits.join(", ")));
-    }
-    match parts.is_empty() {
-        true => format!("by {}", by.lead),
-        false => format!("by {} \u{b7} {}", by.lead, parts.join(", ")),
-    }
-}
-
-/// The lead's one note shows as the second stop's hover once the child stopped again (LEAD-07, *03 → 25*).
-fn second_stop(ticket: &Ticket) -> Option<&otaq_core::domain::LeadNoteSent> {
-    let at = ticket.interrupted_from.unwrap_or(ticket.status);
-    ticket.flags.lead_note_sent.as_ref().filter(|_| {
-        matches!(
-            at,
-            Status::CheckFailed | Status::DeliveryStopped | Status::Idle
-        )
-    })
-}
-
-/// The hover of "Lead's note sent once": the lead, when it was sent, the note and the lead's view.
-pub fn lead_note_hover(note: &otaq_core::domain::LeadNoteSent) -> Hover {
-    use otaq_core::domain::StuckStop;
-    let when = match (note.stop, note.after_rounds) {
-        (StuckStop::ValidationFailed, Some(n)) => format!("SENT AFTER ROUND {n}"),
-        (StuckStop::KeepsConflicting, _) => "SENT AFTER IT KEPT CONFLICTING".to_owned(),
-        (StuckStop::KeepsFailingMergeCheck, _) => {
-            "SENT AFTER ITS MERGE CHECK KEPT FAILING".to_owned()
-        }
-        (StuckStop::Idle, _) => "SENT WHEN IT STOPPED".to_owned(),
-        (StuckStop::ValidationFailed, None) => "SENT AFTER VALIDATION FAILED".to_owned(),
-    };
-    let mut sections = vec![HoverSection {
-        label: Some(format!("LEAD'S NOTE \u{b7} {when}")),
-        text: format!("\u{201c}{}\u{201d}", note.text.trim()),
-        muted: false,
-    }];
-    if let Some(view) = note.view.as_ref().filter(|v| !v.trim().is_empty()) {
-        sections.push(HoverSection {
-            label: Some("LEAD'S VIEW".to_owned()),
-            text: view.trim().to_owned(),
-            muted: true,
-        });
-    }
-    Hover {
-        icon: IconName::Bot,
-        tone: Tone::Epic,
-        title: note.lead.clone(),
-        sections,
-    }
-}
-
-/// The hover of "1 unread note from Wishlist lead": the latest note, its time and when the agent reads it.
-pub fn unread_note_hover(notes: &otaq_core::domain::UnreadNotes) -> Hover {
-    Hover {
-        icon: IconName::Mail,
-        tone: Tone::Epic,
-        title: format!(
-            "{} \u{b7} {} \u{b7} unread",
-            notes.from,
-            crate::view_models::clock::local_hhmm(notes.latest_at)
-        ),
-        sections: vec![
-            HoverSection {
-                label: None,
-                text: format!("\u{201c}{}\u{201d}", notes.latest_text.trim()),
-                muted: false,
-            },
-            HoverSection {
-                label: None,
-                text: unread_note_hint(),
-                muted: true,
-            },
-        ],
-    }
-}
-
-/// "same file as SHOP-40.4", "same file as SHOP-40.2 +1".
-pub fn same_file_text(same: &[otaq_core::domain::SameFile]) -> Option<String> {
-    let first = same.first()?;
-    Some(match same.len() {
-        1 => format!("same file as {}", first.other),
-        n => format!("same file as {} +{}", first.other, n - 1),
-    })
-}
-
-/// The hover of "same file as …": the files, per other child when there are several.
-pub fn same_file_hover(same: &[otaq_core::domain::SameFile]) -> Option<Hover> {
-    let title = same_file_text(same)?;
-    let mut sections: Vec<HoverSection> = same
-        .iter()
-        .map(|s| HoverSection {
-            label: (same.len() > 1).then(|| s.other.to_string()),
-            text: s.files.join("\n"),
-            muted: false,
-        })
-        .collect();
-    sections.push(HoverSection {
-        label: None,
-        text: SAME_FILE_HINT.to_owned(),
-        muted: true,
-    });
-    Some(Hover {
-        icon: IconName::Files,
-        tone: Tone::Muted,
-        title,
-        sections,
-    })
 }
 
 /// Move to next stage came with a note (d0052).
@@ -2975,26 +2710,6 @@ fn submitted_entry(flags: &otaq_core::domain::Flags) -> bool {
     flags
         .review_entry
         .is_some_and(|e| e.entry == otaq_core::domain::ReviewEntry::SubmittedByUser)
-}
-
-/// "Lead's note sent · validation round 0 of 3: “…”" on a working card the lead's note sent back to work; "Lead's
-/// note sent: “…”" after a conflict or an Idle stop (LEAD-07).
-pub fn lead_note_callout(ticket: &Ticket) -> Option<String> {
-    use otaq_core::domain::StuckStop;
-    let note = ticket.flags.lead_note_sent.as_ref()?;
-    if !matches!(ticket.status, Status::Working | Status::WorkingInBackground) {
-        return None;
-    }
-    let round = ticket.flags.validation_round;
-    let of = round.map(|r| r.of).or(note.after_rounds);
-    Some(match (note.stop, of) {
-        (StuckStop::ValidationFailed, Some(of)) => format!(
-            "Lead's note sent \u{b7} validation round {} of {of}: {}",
-            round.map_or(0, |r| r.round),
-            quoted(&note.text)
-        ),
-        _ => format!("Lead's note sent: {}", quoted(&note.text)),
-    })
 }
 
 /// "Sent back · 3 comments · round 2"; with decisions Change… sent back, "Sent back · 1 decision changed · round 2"
@@ -3144,8 +2859,6 @@ mod tests {
     fn variant(name: &str) -> (Ticket, CardViewModel) {
         let v = card_fixtures::variants()
             .into_iter()
-            .chain(card_fixtures::lead_variants())
-            .chain(card_fixtures::sleeve_variants())
             .chain(card_fixtures::agent_variants())
             .chain(card_fixtures::flow_variants())
             .find(|v| v.name == name)
@@ -3296,7 +3009,7 @@ mod tests {
                 "Keeps conflicting (0064)",
                 Some("Conflicts ×3"),
                 // FLW-17 (`s03-46`).
-                Some("Keeps conflicting with the epic’s branch"),
+                Some("Keeps conflicting with {epic branch}"),
                 Some("[Open]"),
             ),
             (
@@ -3314,20 +3027,8 @@ mod tests {
             (
                 "Picked by the lead (0083)",
                 None,
-                Some("waits for SHOP-40.2 to merge"),
+                Some("waits for SHOP-42 to merge"),
                 None,
-            ),
-            (
-                "Unread note · same file (0083 · T)",
-                Some("Working"),
-                Some("1 unread note from Wishlist lead · same file as SHOP-40.4"),
-                Some("58k 12s"),
-            ),
-            (
-                "Asks you · via Wishlist lead (0083)",
-                Some("Asks you"),
-                Some("via Wishlist lead: Show the empty state on mobile too?"),
-                Some("[Reply]"),
             ),
             (
                 "Validated · round 2",
@@ -3497,12 +3198,6 @@ mod tests {
                 Some("Conflict"),
                 Some("Merge conflict \u{b7} fixing"),
                 Some("Rust developer \u{b7} sonnet 77k 10s"),
-            ),
-            (
-                "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
-                Some("Conflicts \u{d7}3"),
-                Some("Keeps conflicting with the epic\u{2019}s branch"),
-                Some("[Open]"),
             ),
             (
                 "Conflicts \u{d7}3 \u{b7} main",
@@ -3700,10 +3395,7 @@ mod tests {
     /// colours for the rest.
     #[test]
     fn turquoise_stays_the_needs_you_familys() {
-        for v in card_fixtures::variants()
-            .into_iter()
-            .chain(card_fixtures::lead_variants())
-        {
+        for v in card_fixtures::variants() {
             let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
             if let Some(f) = &vm.flag {
                 assert_eq!(
@@ -4078,8 +3770,8 @@ mod tests {
             Some("Created by Noyan"),
             "an agent that isn't listed any more"
         );
-        t.created_by = Actor::Agent("SHOP-40.2".parse().unwrap());
-        assert_eq!(card(&t).origin.as_deref(), Some("Created by SHOP-40.2"));
+        t.created_by = Actor::Agent("SHOP-42".parse().unwrap());
+        assert_eq!(card(&t).origin.as_deref(), Some("Created by SHOP-42"));
         t.status = Status::Working;
         t.place = otaq_core::domain::Place::stage_of("dev");
         assert_eq!(card(&t).origin, None);
@@ -4346,14 +4038,14 @@ mod tests {
             (
                 "answering",
                 Status::Merged,
-                |t, _| t.flags.answering = Some("SHOP-40.2".parse().unwrap()),
-                "answering SHOP-40.2",
+                |t, _| t.flags.answering = Some("SHOP-42".parse().unwrap()),
+                "answering SHOP-42",
             ),
             (
                 "asked",
                 Status::Working,
-                |t, _| t.flags.asked = Some("SHOP-40.1".parse().unwrap()),
-                "asked SHOP-40.1 · waiting",
+                |t, _| t.flags.asked = Some("SHOP-41".parse().unwrap()),
+                "asked SHOP-41 · waiting",
             ),
             (
                 "last signal (running)",
@@ -4550,7 +4242,6 @@ mod tests {
             recommended: Some(1),
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         });
         let vm = card(&t);
         let rows = vm.options.as_ref().unwrap().rows();
@@ -4637,13 +4328,13 @@ mod tests {
 
     /// MSG-06, LEAD-06: asking another agent or the lead is calm, on the situation line.
     #[test]
-    fn asked_another_agent_or_the_lead() {
-        let mut t = ticket("SHOP-40.2", "Wishlist button", Status::Working);
-        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+    fn asked_another_agent() {
+        let mut t = ticket("SHOP-42", "Wishlist button", Status::Working);
+        t.flags.asked = Some("SHOP-41".parse().unwrap());
         t.flags.asked_question = Some("Which endpoint returns the wishlist?".into());
         assert_eq!(
             line(&card(&t)),
-            Some("asked SHOP-40.1 · waiting: “Which endpoint returns the wishlist?”")
+            Some("asked SHOP-41 · waiting: “Which endpoint returns the wishlist?”")
         );
         t.flags.asked_more = 1;
         t.status = Status::Idle;
@@ -4652,38 +4343,17 @@ mod tests {
         assert!(
             line(&vm)
                 .unwrap()
-                .ends_with("asked SHOP-40.1 +1 · waiting: “Which endpoint returns the wishlist?”")
-        );
-        let (_, vm) = variant("Dev · asked lead · waiting");
-        assert_eq!(flag_of(&vm), Some("Working"));
-        assert_eq!(vm.outline, Outline::Normal, "not turquoise");
-        assert!(
-            line(&vm)
-                .unwrap()
-                .starts_with("asked lead · waiting: “Should the button")
+                .ends_with("asked SHOP-41 +1 · waiting: “Which endpoint returns the wishlist?”")
         );
     }
 
     #[test]
     fn answering_moved_and_rework_lines() {
-        let mut t = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
-        t.flags.answering = Some("SHOP-40.2".parse().unwrap());
+        let mut t = ticket("SHOP-41", "Wishlist API", Status::Merged);
+        t.flags.answering = Some("SHOP-42".parse().unwrap());
         assert_eq!(
             line(&card(&t)),
-            Some("answering SHOP-40.2 · resumed, answer-only")
-        );
-
-        let mut moved = ticket("SHOP-40.4", "Wishlist share link", Status::Backlog);
-        moved.epic = Some("SHOP-40".parse().unwrap());
-        let x = CardExtras {
-            old_key: Some("SHOP-51".parse().unwrap()),
-            ..main_project()
-        };
-        let vm = CardViewModel::from(&moved, &x, NOW);
-        assert_eq!(vm.key_label, "SHOP-51 → SHOP-40.4");
-        assert_eq!(
-            line(&vm),
-            Some("Moved into epic SHOP-40 · old key SHOP-51 still works")
+            Some("answering SHOP-42 · resumed, answer-only")
         );
 
         let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
@@ -4735,134 +4405,6 @@ mod tests {
             assert_eq!(card(&t).priority, Some(p));
             assert_eq!(card(&t).flag, None);
         }
-        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
-        child.epic = Some("SHOP-40".parse().unwrap());
-        child.priority = Priority::High;
-        child.priority_inherited = true;
-        assert_eq!(card(&child).priority, Some(Priority::High));
-    }
-
-    /// SHOP-40 Wishlist with children 40.1…40.4 (40.10 to check the key order), and SHOP-51 on its own.
-    fn wishlist_project() -> Vec<Ticket> {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = otaq_core::domain::Kind::Epic;
-        let mut all = vec![
-            epic,
-            ticket("SHOP-51", "Fix checkout rounding", Status::Working),
-        ];
-        for (key, status) in [
-            ("SHOP-40.10", Status::Backlog),
-            ("SHOP-40.2", Status::Working),
-            ("SHOP-40.1", Status::Merged),
-            ("SHOP-40.3", Status::Queued),
-        ] {
-            let mut child = ticket(key, "Child", status);
-            child.epic = Some("SHOP-40".parse().unwrap());
-            all.push(child);
-        }
-        all
-    }
-
-    fn find<'a>(all: &'a [Ticket], key: &str) -> &'a Ticket {
-        all.iter().find(|t| t.key.to_string() == key).unwrap()
-    }
-
-    /// EPC-09, BRD-03: every child names its epic; the "2 of 4" band is gone (EPL-01).
-    #[test]
-    fn the_sleeve_names_the_epic() {
-        let all = wishlist_project();
-        let at = |key| super::sleeve(find(&all, key), &all);
-        assert_eq!(
-            at("SHOP-40.2"),
-            Some(Sleeve {
-                epic_key: "SHOP-40".into(),
-                name: "Wishlist".into(),
-                pinned: false,
-            })
-        );
-        assert_eq!(at("SHOP-40.1").unwrap().name, "Wishlist", "merged too");
-        assert_eq!(at("SHOP-51"), None, "a standalone ticket");
-        assert_eq!(at("SHOP-40"), None, "the epic itself");
-        let x = CardExtras {
-            sleeve: at("SHOP-40.2"),
-            ..main_project()
-        };
-        let vm = CardViewModel::from(find(&all, "SHOP-40.2"), &x, NOW);
-        assert_eq!(vm.sleeve.unwrap().name, "Wishlist");
-        assert_eq!(
-            flag_of(&variant("Dev · epic child · asks you").1),
-            Some("Asks you")
-        );
-    }
-
-    /// EPC-17: a pinned epic's pin is in the sleeve; its children show their own pin only when pinned themselves.
-    #[test]
-    fn a_pinned_epic_pins_the_sleeve_not_the_child() {
-        let mut all = wishlist_project();
-        all[0].flags.pinned_at = Some(NOW);
-        let child = find(&all, "SHOP-40.3").clone();
-        let sleeve = super::sleeve(&child, &all);
-        assert!(sleeve.as_ref().unwrap().pinned);
-        let x = CardExtras {
-            sleeve,
-            ..main_project()
-        };
-        assert!(!CardViewModel::from(&child, &x, NOW).pinned);
-        let mut own = child.clone();
-        own.flags.pinned_at = Some(NOW);
-        assert!(CardViewModel::from(&own, &x, NOW).pinned);
-    }
-
-    /// d0124: a child a sibling's merge freed says it waits for the lead's update, until its pass ends.
-    #[test]
-    fn a_freed_child_waits_for_the_leads_update() {
-        let mut t = ticket("SHOP-40.3", "Wishlist page", Status::Queued);
-        t.epic = Some("SHOP-40".parse().unwrap());
-        t.flags.waiting_for_lead = true;
-        assert_eq!(
-            line(&card(&t)),
-            Some("Waiting for the lead\u{2019}s update")
-        );
-        t.flags.waiting_for_lead = false;
-        assert_ne!(
-            line(&card(&t)),
-            Some("Waiting for the lead\u{2019}s update")
-        );
-    }
-
-    /// EPC-13: a child that joined its whole-queued epic's queue says who added it.
-    #[test]
-    fn a_child_that_joined_the_queue_says_who_added_it() {
-        let mut t = ticket("SHOP-40.4", "Wishlist share link", Status::Queued);
-        t.epic = Some("SHOP-40".parse().unwrap());
-        assert_eq!(card(&t).situation, None);
-        t.joined_queue_by = Some(Actor::Agent("SHOP-40.2".parse().unwrap()));
-        let vm = card(&t);
-        assert_eq!(
-            line(&vm),
-            Some("New · added by SHOP-40.2 · in Ready for Dev")
-        );
-        assert_eq!(vm.situation.unwrap().edge, Tone::Epic);
-        t.joined_queue_by = Some(Actor::User("me".into()));
-        assert_eq!(
-            line(&card(&t)),
-            Some("New · added by you · in Ready for Dev")
-        );
-        let agent = Actor::ProjectAgent("pa-1".into());
-        t.created_by = agent.clone();
-        t.joined_queue_by = Some(agent);
-        let named = CardExtras {
-            agent_name: Some("Checkout slowness".into()),
-            ..main_project()
-        };
-        assert_eq!(
-            line(&CardViewModel::from(&t, &named, NOW)),
-            Some("New · added by Noyan · Checkout slowness · in Ready for Dev")
-        );
-        assert_eq!(
-            line(&card(&t)),
-            Some("New · added by Noyan · in Ready for Dev")
-        );
     }
 
     /// M19-e and DEC-03: the schema overlap (with its files on hover) and the open decisions join the line.
@@ -5024,7 +4566,7 @@ mod tests {
         );
         // Merge conflict · fixing never shows a stop; more files count up.
         let mut t = ticket(
-            "SHOP-40.4",
+            "SHOP-44",
             "Wishlist share link",
             Status::MergeConflictFixing,
         );
@@ -5141,84 +4683,6 @@ mod tests {
     }
 
     // T-0291's lead rows, on the v2 card (LEAD-06…LEAD-10).
-
-    #[test]
-    fn the_leads_markers() {
-        let (_, vm) = variant("Ready for Dev · Updated by Wishlist lead");
-        assert_eq!(flag_of(&vm), None);
-        assert_eq!(
-            line(&vm),
-            Some("by Wishlist lead · description, now waits for SHOP-40.4"),
-            "the parent the lead linked isn't repeated"
-        );
-        assert_eq!(vm.situation.unwrap().edge, Tone::Epic);
-        let (_, vm) = variant("Ready for Dev · new · added by Wishlist lead");
-        assert_eq!(line(&vm), Some("new · added by Wishlist lead"));
-        assert_eq!(vm.outline, Outline::Epic);
-        // Only on a never-started child.
-        let (mut t, _) = variant("Ready for Dev · Updated by Wishlist lead");
-        t.status = Status::Working;
-        t.place = otaq_core::domain::Place::stage_of("review");
-        assert_eq!(
-            line(&card(&t)),
-            None,
-            "no more \"after SHOP-40.4\" (DPV-01)"
-        );
-
-        let (mut t, vm) = variant("Dev · Lead's note sent (round 0 of 3)");
-        assert_eq!(
-            line(&vm),
-            Some(
-                "Lead's note sent · validation round 0 of 3: “The API returns items[] (SHOP-40.1). Fix the test, \
-                 don't change the API.”"
-            )
-        );
-        t.flags.validation_round = Some(ValidationRound { round: 1, of: 3 });
-        assert!(
-            line(&card(&t))
-                .unwrap()
-                .starts_with("Lead's note sent · validation round 1 of 3: ")
-        );
-        t.status = Status::WaitingForYou;
-        assert_eq!(lead_note_callout(&t), None);
-
-        // After the second stop, the note is on hover.
-        let (_, vm) = variant("Dev · Failed 3 times after the lead's note");
-        assert_eq!(flag_of(&vm), Some("Failed ×3"));
-        assert_eq!(
-            line(&vm),
-            Some(
-                "orders.test.ts expects list · see comment · Lead's note sent once · hover for it"
-            )
-        );
-        let hover = &vm.situation.as_ref().unwrap().hovers[0];
-        assert_eq!(hover.title, "Wishlist lead");
-        assert_eq!(
-            hover.sections[0].label.as_deref(),
-            Some("LEAD'S NOTE · SENT AFTER ROUND 3")
-        );
-        assert_eq!(hover.sections[1].label.as_deref(), Some("LEAD'S VIEW"));
-
-        // The unread note and the same file, each with its hover, quiet (not turquoise).
-        let (mut t, vm) = variant("Dev · both on one card");
-        assert_eq!(
-            line(&vm),
-            Some("1 unread note from Wishlist lead · same file as SHOP-40.2")
-        );
-        let s = vm.situation.unwrap();
-        assert_eq!(s.edge, Tone::Muted);
-        assert_eq!(s.hovers.len(), 2);
-        assert!(s.hovers[0].title.ends_with("· unread"));
-        assert_eq!(s.hovers[1].sections.last().unwrap().text, SAME_FILE_HINT);
-        // The unread note only on a running child; the same file "+1" with two others.
-        t.status = Status::WaitingForYou;
-        t.place = otaq_core::domain::Place::of(t.status, None, None);
-        t.flags.same_file.push(otaq_core::domain::SameFile {
-            other: "SHOP-40.3".parse().unwrap(),
-            files: vec!["app/wishlist/page.tsx".into()],
-        });
-        assert_eq!(line(&card(&t)), Some("same file as SHOP-40.2 +1"));
-    }
 
     /// "Sent back · 1 decision changed · round 2" (DEC-06); no line comments, "Sent back · round 2" (#20).
     #[test]

@@ -247,8 +247,8 @@ impl TestService {
 
     /// The sample board of `design-briefs/00-README.md`, as far as the CLI tests need it: project SHOP
     /// (`shop-web`), fillers SHOP-1…11 and 29…39 (Backlog), SHOP-12…SHOP-28 with the brief's titles, statuses and
-    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and the epic SHOP-40 Wishlist with
-    /// SHOP-40.1 (Merged), 40.2 (Working, depends on 40.1) and 40.3 (Backlog).
+    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and SHOP-40 Wishlist (External ID PAY-123)
+    /// with SHOP-41 (Merged), SHOP-42 (Working, depends on SHOP-41) and SHOP-43 (Backlog).
     pub async fn shop_sample(&self) -> Project {
         let project = self.add_project("shop-web").await;
         let me = Actor::User("me".into());
@@ -291,42 +291,28 @@ impl TestService {
         for _ in 29..40 {
             self.create("SHOP", "filler").await;
         }
-        let epic = self
-            .board
+        self.board
             .create_ticket(
                 &NewTicketInput {
                     project: "SHOP".into(),
                     title: "Wishlist".into(),
-                    kind: crate::domain::Kind::Epic,
                     external_id: Some("PAY-123".into()),
                     ..Default::default()
                 },
                 &me,
             )
             .await
-            .expect("epic created");
+            .expect("ticket created");
         for (title, status) in [
             ("Wishlist API", Status::Merged),
             ("Wishlist button", Status::Working),
             ("Wishlist page", Status::Backlog),
         ] {
-            let child = self
-                .board
-                .create_ticket(
-                    &NewTicketInput {
-                        project: "SHOP".into(),
-                        title: title.into(),
-                        epic: Some(epic.key.to_string()),
-                        ..Default::default()
-                    },
-                    &me,
-                )
-                .await
-                .expect("child created");
-            self.force_status(&child, status).await;
+            let ticket = self.create("SHOP", title).await;
+            self.force_status(&ticket, status).await;
         }
         self.board
-            .add_dependency("SHOP-40.2", "SHOP-40.1", &me)
+            .add_dependency("SHOP-42", "SHOP-41", &me)
             .await
             .expect("link added");
         project
@@ -715,7 +701,7 @@ impl TestService {
 /// The test's PATH without cargo's build folders, for every stand-in agent that is a plain `sh` (an agent shell, or
 /// a `LaunchContext` whose `claude` is `sh`): a message typed into it runs as commands. On Windows, cargo puts the
 /// build folders (`target/debug`, with the real `otaq`, and its `deps`) on PATH for the tests; without them, as on
-/// macOS and Linux, a message's `otaq answer … --stdin` (or a lead's `otaq note … --stdin`) fails at once instead of
+/// macOS and Linux, a message's `otaq answer … --stdin` fails at once instead of
 /// reading the next command typed into the shell as its input. Any other folder holding an `otaq` (one installed with
 /// `scripts/install-local.sh`, say `~/.local/bin`) goes too: what Otaq types into a returning agent names `` `otaq
 /// prime` ``, which `sh` runs as a command substitution, and no test may run a real `otaq` against its data folder.

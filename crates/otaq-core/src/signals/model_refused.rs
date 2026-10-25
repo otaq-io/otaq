@@ -5,12 +5,11 @@
 //!   started): the ticket counts as not started, back in Ready for Dev as Start failed
 //!   ([`crate::start::Starter::model_refused`]).
 //! - **A Validator round**: No result, not counted as a round ([`crate::validation::Validation::model_refused`]).
-//! - **An epic lead's or a Project agent's first turn** (Q-C): the session ends, its terminal keeps the tool's
-//!   message; a lead counts as not started (its Epic lead row unlocks).
+//! - **A Project agent's first turn** (Q-C): the session ends, its terminal keeps the tool's message.
 //! - **A resumed session or a later turn**: today's failed turn ([`Signal::Failed`]).
 //!
 //! In every case the session's agent is marked ([`crate::agents::mark`]). Nothing here starts a session
-//! (d0018): Retry start, Retry validation, Open lead or a new row are the user's.
+//! (d0018): Retry start, Retry validation or a new row are the user's.
 //!
 //! The mark also clears here: when a session of a marked entry gets through its first turn on the entry's model.
 
@@ -131,7 +130,6 @@ impl Signals {
         let named = mark::model_named(stored.model_ran.as_deref(), stored.model.as_deref(), model);
         let on = match caller {
             Caller::Agent { ticket, .. } | Caller::Validator { ticket, .. } => ticket.to_string(),
-            Caller::EpicLead { epic, .. } => epic.to_string(),
             Caller::ProjectAgent { .. } | Caller::User => stored.project_name.clone(),
         };
         let tool = self.inner.adapters.get(tool).display_name();
@@ -175,7 +173,7 @@ impl Signals {
                     .model_refused(ticket_id, session, message)
                     .await?
             }
-            Caller::EpicLead { .. } | Caller::ProjectAgent { .. }
+            Caller::ProjectAgent { .. }
                 if first_turn && !self.started_before(&stored, session).await? =>
             {
                 if let Err(e) = refusals.sessions.stop_as(session, END_MODEL_REFUSED).await {
@@ -188,7 +186,7 @@ impl Signals {
         Ok(if applied { None } else { failed })
     }
 
-    /// Whether another session of the same ticket's agent, or of the same Project agent or lead, started before
+    /// Whether another session of the same ticket's agent, or of the same Project agent, started before
     /// (it didn't end "not started"): `session` then resumes or follows work that ran.
     async fn started_before(&self, stored: &Stored, session: &str) -> Result<bool, BoardError> {
         let (query, owner) = match (&stored.project_agent_id, &stored.ticket_id) {

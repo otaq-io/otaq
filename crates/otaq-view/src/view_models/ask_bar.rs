@@ -166,7 +166,7 @@ fn last_conversation<'a>(
     agents: &'a [ProjectAgent],
     shown: Option<&str>,
 ) -> Option<&'a ProjectAgent> {
-    let running = |a: &&ProjectAgent| a.state == AgentState::Running && a.epic.is_none();
+    let running = |a: &&ProjectAgent| a.state == AgentState::Running;
     agents
         .iter()
         .filter(running)
@@ -225,7 +225,7 @@ pub fn view(f: &Facts) -> AskBarView {
     let reply = f
         .agents
         .iter()
-        .filter(|a| a.epic.is_none() && reply_waits(a, f.looked, open_on))
+        .filter(|a| reply_waits(a, f.looked, open_on))
         .max_by_key(|a| (a.turn_ended_at.unwrap_or(i64::MAX), a.created_at))
         .map(|a| Reply {
             agent: a.id.clone(),
@@ -367,7 +367,6 @@ pub(crate) mod fixtures {
             focused: false,
             tokens: Default::default(),
             session: None,
-            epic: None,
             turn_ended_at: None,
         }
     }
@@ -425,9 +424,7 @@ mod tests {
         let newer = agent("a2", "Checkout slowness", 2);
         let mut ended = agent("a3", "Old question", 3);
         ended.state = AgentState::Ended;
-        let mut lead = agent("a4", "Wishlist lead", 4);
-        lead.epic = Some("SHOP-40".parse().unwrap());
-        let agents = [older, newer, ended, lead];
+        let agents = [older, newer, ended];
         let v = view(&Facts {
             selected: Some(Selected {
                 key: "SHOP-29",

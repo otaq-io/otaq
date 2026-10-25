@@ -311,7 +311,6 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
             meta.extend(round.map(|r| format!("round {r}")));
             (false, agent_mark(*tool, avatars), meta)
         }
-        CommentAuthor::Lead { tool, .. } => (false, agent_mark(*tool, avatars), Vec::new()),
     };
     meta.extend((!time.is_empty()).then_some(time));
     let meta = meta.join(" \u{b7} ");
@@ -587,38 +586,6 @@ mod tests {
         assert_eq!(v.heading, "Comments");
         assert_eq!(v.count, 0);
         assert!(v.comments.is_empty());
-    }
-
-    /// One tool connected: avatars are hidden everywhere (SHL-08), so agents get the plain agent mark; a lead names
-    /// itself with only its time.
-    #[test]
-    fn hidden_avatars_and_the_lead() {
-        let lead = comment(
-            5,
-            CommentAuthor::Lead {
-                epic_id: "e".into(),
-                name: "Wishlist lead".into(),
-                tool: Some(Tool::Claude),
-            },
-            None,
-            "Use the same API as SHOP-40.1.",
-            at(16, 0),
-        );
-        let comments = [shop_34().remove(0), lead];
-        let v = thread(
-            &Facts {
-                key: "SHOP-40.2",
-                comments: &comments,
-                working: None,
-                avatars: false,
-            },
-            &clock,
-        );
-        assert_eq!(v.comments[0].mark, Mark::Agent);
-        assert_eq!(v.comments[1].mark, Mark::Agent);
-        assert_eq!(v.comments[1].author, "Wishlist lead");
-        assert_eq!(v.comments[1].meta, "4:00 pm");
-        assert!(!v.comments[1].mine);
     }
 
     /// `s05-43`: an edited comment says so; the one being edited says "editing"; the menu and the delete dialog.

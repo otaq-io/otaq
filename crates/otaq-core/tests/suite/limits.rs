@@ -11,7 +11,7 @@ use crate::common::{Fixture, me};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Status, TicketKey};
+use otaq_core::domain::{Actor, Flags, Status, TicketKey};
 use otaq_core::scheduler::{
     Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count,
 };
@@ -21,20 +21,15 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
     Ticket {
         id: key.into(),
         key: key.parse::<TicketKey>().unwrap(),
-        kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -53,8 +48,6 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 

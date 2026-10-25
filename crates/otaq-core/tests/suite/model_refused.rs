@@ -1,7 +1,7 @@
 //! A model the tool refused (T-0337; AGT-05, SDD §7.2 `[M22]` rows, §11.4 `StopFailure`; d0088, d0086, d0018), fed
 //! the saved `StopFailure` payload as `otaq hook --tool claude StopFailure` hands it to the service: a Developer's
 //! first turn is Start failed and counts as not started, a Validator round is No result and not a round, a resumed
-//! session or a later turn is a failed turn, a lead's first turn leaves it not started; the named agent's amber mark,
+//! session or a later turn is a failed turn; the named agent's amber mark,
 //! and what clears it. Nothing starts again by itself.
 
 use std::sync::{Arc, Mutex};
@@ -12,9 +12,9 @@ use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::{Agent, AgentFields, AgentModel, Agents, FixedModels, SessionRole};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::needs_you::NeedsYouGroup;
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
-use otaq_core::domain::{Actor, Kind, StartStep, Status, StatusSet, ValidationAction};
+use otaq_core::domain::{Actor, StartStep, Status, StatusSet, ValidationAction};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{END_MODEL_REFUSED, SessionKind, StoredConversation};
@@ -523,63 +523,6 @@ async fn a_refused_resume_or_later_turn_is_a_failed_turn_with_the_mark() {
         mark_text(&w, &w.light).await.as_deref(),
         Some("Claude Code couldn't run haiku on SHOP-2")
     );
-    w.w.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_leads_first_turn_refused_leaves_it_not_started_and_open_lead_starts_afresh() {
-    let w = world().await;
-    let epic =
-        w.w.board
-            .create_ticket(
-                &NewTicketInput {
-                    project: "SHOP".into(),
-                    title: "Wishlist".into(),
-                    kind: Kind::Epic,
-                    ..Default::default()
-                },
-                &Actor::User("me".into()),
-            )
-            .await
-            .unwrap();
-    let leads = w.w.project_agents.leads();
-    let lead = leads.open(&epic.key.to_string()).await.unwrap();
-    let session = lead.agent.session.clone().unwrap().id;
-    on_agent(&w.w, &session, &w.fable, None).await;
-    assert!(w.w.board.store().lead_started(&epic.id).await.unwrap());
-    let caller = Caller::EpicLead {
-        project: lead.agent.project.clone(),
-        agent: lead.agent.id.clone(),
-        epic: lead.epic.clone(),
-        epic_id: lead.epic_id.clone(),
-        session: session.clone(),
-    };
-    hook(
-        &w.w,
-        &caller,
-        "UserPromptSubmit",
-        &json!({"prompt": "plan"}),
-    )
-    .await;
-    assert_eq!(
-        hook(&w.w, &caller, "StopFailure", &refused_payload()).await,
-        []
-    );
-
-    let info = w.w.sessions.wait_ended(&session).await.unwrap();
-    assert_eq!(info.end_reason.as_deref(), Some(END_MODEL_REFUSED));
-    // Its terminal keeps the tool's message (the stand-in printed its start; the tool would print the error).
-    assert!(w.w.sessions.attach(&session).is_ok());
-    assert!(!w.w.board.store().lead_started(&epic.id).await.unwrap());
-    assert_eq!(
-        mark_text(&w, &w.fable).await.as_deref(),
-        Some("Claude Code couldn't run fable on SHOP-1")
-    );
-
-    // Open lead starts a new lead (nothing to resume), and that one has started.
-    let again = leads.open(&epic.key.to_string()).await.unwrap();
-    assert_ne!(again.agent.id, lead.agent.id);
-    assert!(w.w.board.store().lead_started(&epic.id).await.unwrap());
     w.w.stop().await;
 }
 

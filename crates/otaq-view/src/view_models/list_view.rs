@@ -12,17 +12,12 @@
 //! Group by Stage each group that is a board drop target says so (`target`), so a row dragged onto Ready queues it with
 //! the drop zone's words (the drag's verdicts are `board.drag`'s, as on the Board). The row menu is the card's
 //! (`board.menu`).
-//!
-//! **Group by Epic** (EPL-02) draws T-0462's [`lanes::by_epic`]: one "Epics" group whose entries are each epic's parent
-//! row ([`Parent`]: its track, "1 of 5 merged · Wishlist lead is re-planning", the lead, the fold) with its children's
-//! rows nested under it, then "No epic" with the rest.
 
 use otaq_core::board::needs_you::{group_of, waits_for_click};
 use otaq_core::board::settings::ViewPrefs;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Kind, Place, Status, TicketKey};
+use otaq_core::domain::{Place, Status, TicketKey};
 use otaq_core::flow::{Delivers, Stage};
-use otaq_core::project_agents::lead::Lead;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -33,7 +28,6 @@ use crate::view_models::board_page::DropTargetId;
 use crate::view_models::card::Tone;
 use crate::view_models::card_page::TicketCardView;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
-use crate::view_models::lanes;
 use crate::view_models::status::{self, PillView};
 use crate::view_models::view_prefs::{Change, GroupBy};
 
@@ -124,44 +118,20 @@ pub struct Group {
 }
 
 impl Group {
-    /// Its ticket rows, top to bottom: a parent's children follow it.
+    /// Its ticket rows, top to bottom.
     pub fn rows(&self) -> impl Iterator<Item = &Row> {
-        self.entries.iter().flat_map(|e| match e {
-            Entry::Ticket { row } => std::slice::from_ref(row.as_ref()).iter(),
-            Entry::Parent { parent } => parent.children.iter(),
-        })
+        self.entries
+            .iter()
+            .map(|Entry::Ticket { row }| row.as_ref())
     }
 }
 
-/// A line of a group. `ListEntry` on the page. T-0462 adds the epic's parent row (with its children) for Group by
-/// Epic (EPL-02).
+/// A line of a group. `ListEntry` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "ListEntry")]
 pub enum Entry {
-    Ticket {
-        row: Box<Row>,
-    },
-    /// Group by Epic: an epic's parent row and its children's rows.
-    Parent {
-        parent: Box<Parent>,
-    },
-}
-
-/// An epic's parent row with its children (EPL-02): T-0462's [`lanes::ParentRow`] (key, External ID, name, "1 of 5
-/// merged · Wishlist lead is re-planning", the lead, needs you), its track on the List's steps, and the fold (shared
-/// with its lane's, `ViewPrefs::folded_lanes`). `ListParent` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "ListParent")]
-pub struct Parent {
-    pub row: lanes::ParentRow,
-    pub track: Track,
-    pub folded: bool,
-    pub fold: Change,
-    /// "Fold" / "Unfold": the chevron's name.
-    pub fold_label: String,
-    /// Its children's rows in key order; none while folded.
-    pub children: Vec<Row>,
+    Ticket { row: Box<Row> },
 }
 
 /// A ticket's row (LST-01). `ListRow` on the page.
@@ -358,13 +328,11 @@ pub fn start_target(columns: &Columns) -> Option<DropTargetId> {
 }
 
 /// The List for `input`'s project, grouped and folded by `prefs`.
-pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs, leads: &[Lead]) -> ListView {
+pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
     let columns = Columns::of(input.flow);
     let all = input.tickets;
     let start = start_target(&columns);
-    let listed = |t: &'_ Ticket| {
-        t.kind != Kind::Epic && (t.place != Place::Done || this_week(t, input.now_ms))
-    };
+    let listed = |t: &'_ Ticket| t.place != Place::Done || this_week(t, input.now_ms);
     let row = |t: &Ticket| row(input, &columns, start.as_ref(), t);
     let header = Header {
         ticket: HEADER_TICKET.to_owned(),
@@ -373,12 +341,6 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs, leads: &[Lead]) -> Li
         who: HEADER_WHO.to_owned(),
     };
     let group_by: GroupBy = prefs.group_by.into();
-    if group_by == GroupBy::Epic {
-        return ListView {
-            header,
-            groups: by_epic(input, prefs, leads, &columns, &listed, &row),
-        };
-    }
     // Group by Stage, in flow order and in each group the board's order; the other groupings re-sort these rows.
     let keys: Vec<&TicketKey> = all.iter().filter(|t| listed(t)).map(|t| &t.key).collect();
     let bucket_of = |mut bucket: Bucket<'a>, column: &str, part: Option<&str>| -> Bucket<'a> {
@@ -440,7 +402,7 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs, leads: &[Lead]) -> Li
         None,
     ));
     let buckets = match group_by {
-        GroupBy::Stage | GroupBy::Epic => stages,
+        GroupBy::Stage => stages,
         GroupBy::Status => by_status(stages),
         GroupBy::Agent => by_agent(stages, &columns),
     };
@@ -618,125 +580,8 @@ fn by_agent<'t>(stages: Vec<Bucket<'t>>, columns: &Columns) -> Vec<Bucket<'t>> {
         .collect()
 }
 
-/// Group by Epic (EPL-02, T-0462's [`lanes::by_epic`]): "Epics 2" with each epic's parent row and, unless it is
-/// folded, its children's rows; then "No epic" with the other tickets. Rows are those the other groupings list (no
-/// epic ticket, Done only this week's).
-fn by_epic(
-    input: &BoardInput,
-    prefs: &ViewPrefs,
-    leads: &[Lead],
-    columns: &Columns,
-    listed: &dyn Fn(&Ticket) -> bool,
-    row: &dyn Fn(&Ticket) -> Row,
-) -> Vec<Group> {
-    let by = lanes::by_epic(input.tickets, input.flow, leads, prefs, input.visible);
-    let rows = |keys: &[String]| -> Vec<Row> {
-        keys.iter()
-            .filter_map(|k| input.tickets.iter().find(|t| t.key.to_string() == *k))
-            .filter(|t| listed(t))
-            .map(row)
-            .collect()
-    };
-    let parents: Vec<Entry> = by
-        .groups
-        .into_iter()
-        .map(|g| {
-            let track = parent_track(columns, &g.parent);
-            Entry::Parent {
-                parent: Box::new(Parent {
-                    children: if g.folded {
-                        Vec::new()
-                    } else {
-                        rows(&g.children)
-                    },
-                    track,
-                    row: g.parent,
-                    folded: g.folded,
-                    fold: g.fold,
-                    fold_label: g.fold_label,
-                }),
-            }
-        })
-        .collect();
-    let rest: Vec<Entry> = rows(&by.rest)
-        .into_iter()
-        .map(|row| Entry::Ticket { row: Box::new(row) })
-        .collect();
-    let group = |id: &str, title: String, icon, count: String, entries: Vec<Entry>| Group {
-        id: id.to_owned(),
-        title,
-        icon,
-        tone: None,
-        count,
-        hint: None,
-        toggle: None,
-        folded: false,
-        empty: entries.is_empty().then(|| NOTHING_HERE.to_owned()),
-        target: None,
-        entries,
-    };
-    let rest_count = rest.len().to_string();
-    [
-        group(
-            "epics",
-            by.epics_title,
-            IconName::Layers,
-            by.epics_count,
-            parents,
-        ),
-        group(
-            "no_epic",
-            by.rest_title,
-            IconName::CircleDashed,
-            rest_count,
-            rest,
-        ),
-    ]
-    .into_iter()
-    .filter(|g| !(prefs.hide_empty_stages && g.entries.is_empty()))
-    .collect()
-}
-
-/// A parent row's track on the List's steps (T-0462's [`lanes::RowTrack`] counts the board's columns): the stages
-/// before the epic's column passed, its own in the working (or needs-you) colour.
-fn parent_track(columns: &Columns, parent: &lanes::ParentRow) -> Track {
-    let flow = columns.flow();
-    let column = columns.iter().nth(parent.track.at);
-    let at = column
-        .and_then(|c| c.parts.first())
-        .and_then(|p| flow.stages.iter().position(|s| s.id == p.stage.id));
-    let done = column.is_some_and(|c| c.kind == ColumnKind::Done);
-    let here = if parent.needs_you {
-        Palette::Attn
-    } else {
-        Palette::Working
-    };
-    let steps = flow
-        .stages
-        .iter()
-        .enumerate()
-        .map(|(i, stage)| Step {
-            name: stage.name.clone(),
-            fill: match at {
-                _ if done => Some(Palette::Approved),
-                Some(at) if i < at => Some(Palette::Approved),
-                Some(at) if i == at => Some(here),
-                _ => None,
-            },
-        })
-        .collect();
-    let label = match (column.map(|c| c.kind), at) {
-        (Some(ColumnKind::Backlog) | None, _) => NO_PLACE.to_owned(),
-        (Some(ColumnKind::ReadyForDev), _) => READY.to_owned(),
-        (Some(ColumnKind::Done), _) => DONE.to_owned(),
-        (_, Some(i)) => flow.stages[i].name.clone(),
-        (_, None) => parent.track.label.clone(),
-    };
-    Track { steps, label }
-}
-
 /// The List's states for the Gallery (`gallery.list_view`), on the example's shop-web: by Stage (Done folded, then
-/// opened), by Status, by Agent, by Epic, and Hide empty stages on. `ListGallery` on the page.
+/// opened), by Status, by Agent, and Hide empty stages on. `ListGallery` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListGallery")]
 pub struct Gallery {
@@ -755,17 +600,8 @@ pub fn gallery() -> Gallery {
     use otaq_core::board::settings::GroupBy as G;
     use samples::{input, prefs, shop_web, tickets};
     let flow = shop_web();
-    let mut tickets = tickets();
-    // Wishlist's child at work, for Group by Epic.
-    let mut child = crate::view_models::card_fixtures::ticket(
-        "SHOP-40.3",
-        "Wishlist page",
-        otaq_core::domain::Status::Working,
-    );
-    child.place = Place::stage_of("dev");
-    child.epic = Some("SHOP-40".parse().expect("fixture key"));
-    tickets.push(child);
-    let draw = |prefs: ViewPrefs| view(&input(&flow, &tickets), &prefs, &[]);
+    let tickets = tickets();
+    let draw = |prefs: ViewPrefs| view(&input(&flow, &tickets), &prefs);
     Gallery {
         states: vec![
             GalleryState {
@@ -779,10 +615,6 @@ pub fn gallery() -> Gallery {
             GalleryState {
                 label: "By agent",
                 view: draw(prefs(G::Agent)),
-            },
-            GalleryState {
-                label: "By epic (s24-06)",
-                view: draw(prefs(G::Epic)),
             },
             GalleryState {
                 label: "By stage, Done shown, Hide empty stages",
@@ -801,7 +633,7 @@ pub fn gallery() -> Gallery {
 pub mod samples {
     use otaq_core::board::settings::{BoardView, ViewPrefs};
     use otaq_core::board::tickets::{AgentSignal, Ticket};
-    use otaq_core::domain::{Kind, Place, Priority, Status, ValidationRound};
+    use otaq_core::domain::{Place, Priority, Status, ValidationRound};
     use otaq_core::flow::Flow;
 
     use crate::view_models::board::BoardInput;
@@ -838,8 +670,6 @@ flow:
 
     /// The example's shop-web tickets as the List draws them (`s24-03`).
     pub fn tickets() -> Vec<Ticket> {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
         let mut hotfix = at(
             "SHOP-31",
             "Hotfix: checkout crash",
@@ -890,7 +720,6 @@ flow:
         );
         pr.flags.pr_number = Some(481);
         let mut tickets = vec![
-            epic,
             hotfix,
             at(
                 "SHOP-41",
@@ -998,17 +827,7 @@ mod tests {
                     g.title.clone(),
                     g.count.clone(),
                     g.hint.clone(),
-                    g.entries
-                        .iter()
-                        .flat_map(|e| match e {
-                            Entry::Ticket { row } => vec![row.card.key.clone()],
-                            Entry::Parent { parent } => {
-                                std::iter::once(format!("{} >", parent.row.key))
-                                    .chain(parent.children.iter().map(|r| r.card.key.clone()))
-                                    .collect()
-                            }
-                        })
-                        .collect(),
+                    g.rows().map(|r| r.card.key.clone()).collect(),
                 )
             })
             .collect()
@@ -1023,7 +842,7 @@ mod tests {
     }
 
     fn view(input: &BoardInput, prefs: &ViewPrefs) -> ListView {
-        super::view(input, prefs, &[])
+        super::view(input, prefs)
     }
 
     fn s(text: &str) -> Option<String> {
@@ -1436,83 +1255,5 @@ mod tests {
             row(&list, "NOTE-1").start.as_ref().unwrap().target,
             DropTargetId::DEV
         );
-    }
-
-    /// EPL-02 in the List (T-0462's `by_epic`): "Epics" with Wishlist's parent row (its line, its track) and its child
-    /// nested, then "No epic" with the rest; a folded parent hides its children.
-    #[test]
-    fn by_epic_nests_the_children_under_their_parent() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let mut tickets = tickets();
-        let mut child = ticket("SHOP-40.3", "Wishlist page", Status::Working);
-        child.place = Place::stage_of("dev");
-        child.epic = Some("SHOP-40".parse().unwrap());
-        tickets.push(child);
-        // Checkout slowness: an epic the Project agent split (d0091), its child waiting in Backlog.
-        let mut slowness = ticket("SHOP-50", "Checkout slowness", Status::Backlog);
-        slowness.kind = Kind::Epic;
-        slowness.created_by = otaq_core::domain::Actor::ProjectAgent("pa-1".into());
-        tickets.push(slowness);
-        let mut index = ticket("SHOP-50.1", "Add an index on orders", Status::Backlog);
-        index.place = Place::Backlog;
-        index.epic = Some("SHOP-50".parse().unwrap());
-        tickets.push(index);
-        let list = view(&input(&flow, &tickets), &prefs(G::Epic));
-        let groups = outline(&list);
-        assert_eq!((groups[0].0.as_str(), groups[0].1.as_str()), ("Epics", "2"));
-        assert!(
-            groups[0].3.starts_with(&keys(&["SHOP-40 >", "SHOP-40.3"])),
-            "{:?}",
-            groups[0].3
-        );
-        assert!(
-            groups[0].3.ends_with(&keys(&["SHOP-50 >", "SHOP-50.1"])),
-            "{:?}",
-            groups[0].3
-        );
-        let slowness = list.groups[0]
-            .entries
-            .iter()
-            .find_map(|e| match e {
-                Entry::Parent { parent } if parent.row.key == "SHOP-50" => Some(parent),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(slowness.row.line, "0 of 1 merged \u{b7} from Noyan");
-        assert_eq!(slowness.track.label, "\u{2014}");
-        assert_eq!(slowness.children[0].start.as_ref().unwrap().label, "Start");
-        assert_eq!(groups[1].0, "No epic");
-        assert!(!groups[1].3.contains(&"SHOP-40.3".to_owned()));
-        assert!(groups[1].3.contains(&"SHOP-12".to_owned()));
-        let Entry::Parent { parent } = &list.groups[0].entries[0] else {
-            panic!("a parent row")
-        };
-        assert!(
-            parent.row.line.starts_with("0 of 1 merged"),
-            "{}",
-            parent.row.line
-        );
-        assert_eq!(parent.track.label, "Dev");
-        assert_eq!(parent.track.steps[0].fill, Some(Palette::Approved));
-        assert_eq!(parent.track.steps[1].fill, Some(Palette::Working));
-        assert_eq!(
-            parent.fold,
-            Change::FoldLane {
-                epic: "SHOP-40".into(),
-                folded: true
-            }
-        );
-        let folded = view(
-            &input(&flow, &tickets),
-            &ViewPrefs {
-                folded_lanes: vec!["SHOP-40".into()],
-                ..prefs(G::Epic)
-            },
-        );
-        let Entry::Parent { parent } = &folded.groups[0].entries[0] else {
-            panic!("a parent row")
-        };
-        assert!(parent.folded && parent.children.is_empty());
     }
 }

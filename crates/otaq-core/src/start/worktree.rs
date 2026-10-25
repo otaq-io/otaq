@@ -1,11 +1,8 @@
-//! Worktrees and temporary branches (SES-01 steps 1 and 3, SES-02, EPC-02, GIT-07; d0010, d0023, d0029, d0050,
-//! d0059).
+//! Worktrees and temporary branches (SES-01 steps 1 and 3, SES-02, GIT-07; d0010, d0023, d0029, d0050, d0059).
 //!
 //! Each ticket works in its own git worktree **outside the user's repo**, at `wt/<repo-name>/<KEY>` in the data
 //! folder, on the temporary branch `otaq/<KEY>` (the real name is chosen at the first push, M10). The base
-//! is resolved first: standalone tickets use their base branch; **epic children use the epic's branch**, which
-//! the first child's start creates as `otaq/SHOP-40` from the epic's base. The epic itself gets no worktree
-//! (its lead, d0083, works only through `otaq`, in the project folder).
+//! is the ticket's base branch.
 //!
 //! Everything converges (SES-02): a branch or worktree that exists is reused, a worktree registered with git
 //! whose folder is gone is added again, and the ticket row is filled in whatever happened before. Nothing is
@@ -15,7 +12,6 @@ use std::path::{Path, PathBuf};
 
 use super::StartError;
 use crate::board::Board;
-use crate::board::tickets::{Base, Ticket};
 use crate::data_dir::DataDir;
 use crate::git::{Git, GitError};
 use crate::naming;
@@ -27,7 +23,7 @@ pub struct Worktree {
     pub path: PathBuf,
     /// `otaq/SHOP-18`.
     pub branch: String,
-    /// The branch it started from: `main`, or the epic's `otaq/SHOP-40`.
+    /// The branch it started from: `main`.
     pub base_branch: String,
     /// The commit where the ticket left its base.
     pub base_sha: String,
@@ -41,30 +37,14 @@ pub async fn prepare_worktree(
     key: &str,
 ) -> Result<Worktree, StartError> {
     let ticket = board.ticket(key).await?;
-    if ticket.is_epic() {
-        return Err(StartError::Other(format!(
-            "{} is an epic; epics get no worktree of their own",
-            ticket.key
-        )));
-    }
     let project = board.project(ticket.key.project.as_str()).await?;
     // With the project's variables: `worktree add` runs the user's hooks (ENV-02).
     let git = &board.project_git(&project.key).await?;
     let repo = PathBuf::from(&project.repo_path);
 
     // Step 1: the base.
-    let (base_branch, base_commit) = match &ticket.base {
-        Base::Branch(branch) => {
-            let commit = branch_commit(git, &repo, branch).await?;
-            (branch.clone(), commit)
-        }
-        Base::Epic(epic) => {
-            let epic = board.ticket(&epic.to_string()).await?;
-            let branch = epic_branch(board, git, &repo, &epic).await?;
-            let commit = branch_commit(git, &repo, &branch).await?;
-            (branch, commit)
-        }
-    };
+    let base_branch = ticket.base.branch().to_owned();
+    let base_commit = branch_commit(git, &repo, &base_branch).await?;
 
     // Step 3: the ticket's branch.
     let branch = naming::branch(&ticket.key.to_string());
@@ -114,47 +94,6 @@ pub async fn prepare_worktree(
         base_branch,
         base_sha,
     })
-}
-
-/// The epic's integration branch, created from the epic's base on the first child's start (EPC-02).
-async fn epic_branch(
-    board: &Board,
-    git: &Git,
-    repo: &Path,
-    epic: &Ticket,
-) -> Result<String, StartError> {
-    let Base::Branch(epic_base) = &epic.base else {
-        return Err(StartError::Other(format!(
-            "{} has no base branch",
-            epic.key
-        )));
-    };
-    let branch = naming::branch(&epic.key.to_string());
-    let branch_ref = format!("refs/heads/{branch}");
-    let base_sha = match git.resolve(repo, &branch_ref).await? {
-        Some(_) => None,
-        None => {
-            let from = branch_commit(git, repo, epic_base).await?;
-            // Two children starting at once both get here; the second reuses the branch the first made.
-            create_branch_unless_exists(git, repo, &branch, &from)
-                .await?
-                .then_some(from)
-        }
-    };
-    // Fill in the epic's row (also after a start that stopped before doing so); the first base_sha stays.
-    sqlx::query(
-        "UPDATE tickets SET branch_name = ?, base_sha = COALESCE(base_sha, ?), branch_locked = TRUE,
-                            updated_at = ?
-         WHERE id = ?",
-    )
-    .bind(&branch)
-    .bind(base_sha)
-    .bind(now_ms())
-    .bind(&epic.id)
-    .execute(board.store().pool())
-    .await
-    .map_err(crate::store::StoreError::from)?;
-    Ok(branch)
 }
 
 /// Creates `branch` at `from`, or leaves it where it is when it already exists (another start made it a moment

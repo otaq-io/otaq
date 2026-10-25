@@ -656,40 +656,6 @@ impl Service {
             Arc::new(crate::ticket_env::handoff::FsMover),
         );
         starter.set_seeder(seeder.clone());
-        // A child going idle with the lead's unread note gets it typed in instead (LEAD-10); else its first Idle
-        // stop goes to its live lead once (LEAD-07).
-        {
-            let (board, sessions, deliveries, events) = (
-                board.clone(),
-                sessions.clone(),
-                deliveries.clone(),
-                events.clone(),
-            );
-            signals.on_idle(Arc::new(move |ticket_id, last_line| {
-                let (board, sessions, deliveries, events) = (
-                    board.clone(),
-                    sessions.clone(),
-                    deliveries.clone(),
-                    events.clone(),
-                );
-                Box::pin(async move {
-                    crate::epic_lead::notes::type_in_at_stop(
-                        &board,
-                        &sessions,
-                        &deliveries,
-                        &events,
-                        &ticket_id,
-                    )
-                    .await
-                        || crate::epic_lead::stuck::hold_at_idle(
-                            &board,
-                            &ticket_id,
-                            last_line.as_deref(),
-                        )
-                        .await
-                })
-            }));
-        }
         // The ticket environment (M19): Free at Review, Bring back for more work, Release at Done.
         let ticket_env = crate::ticket_env::TicketEnv::new(
             board.clone(),
@@ -719,24 +685,6 @@ impl Service {
             ports,
             ticket_env.clone(),
         );
-        // No epic lead is live after a restart: the questions that waited for one go to the user, before the
-        // reconcile keeps the asking child's label (LEAD-06, d0045).
-        match crate::epic_lead::questions::hand_back_after_restart(&board, &signals).await {
-            Ok(0) => {}
-            Ok(handed) => tracing::info!(
-                handed,
-                "questions waiting for a lead handed back to the user"
-            ),
-            Err(e) => {
-                tracing::warn!(error = %e, "can't hand back the questions waiting for a lead")
-            }
-        }
-        // Nor are the stops held for a lead: they go to the user too, before the reconcile (LEAD-07).
-        match crate::epic_lead::stuck::hand_back_after_restart(&board, &signals, &sessions).await {
-            Ok(0) => {}
-            Ok(handed) => tracing::info!(handed, "stops held for a lead handed back to the user"),
-            Err(e) => tracing::warn!(error = %e, "can't hand back the stops held for a lead"),
-        }
         // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
         let recovery = Recovery::new(
             board.clone(),
@@ -856,7 +804,6 @@ impl Service {
         let suggester = Suggester::new(board.clone(), events.clone(), adapters.clone());
         let prs = crate::pr::service::Prs::new(
             board.clone(),
-            config.data.clone(),
             sessions.clone(),
             deliveries.clone(),
             adapters.clone(),
@@ -967,27 +914,6 @@ impl Service {
             Ok(agents) => recovery.record_project_agents(&agents),
             Err(e) => tracing::warn!(error = %e, "can't reconcile the Project agents"),
         }
-        // A child's question the lead didn't act on goes to the user (LEAD-06).
-        crate::epic_lead::questions::LeadQuestions::new(
-            board.clone(),
-            signals.clone(),
-            project_agents.leads(),
-            deliveries.clone(),
-            sessions.clone(),
-            events.clone(),
-        )
-        .register_hand_back();
-        // A child's first stop the lead didn't answer goes to the user (LEAD-07).
-        crate::epic_lead::stuck::Stuck::new(crate::epic_lead::stuck::StuckParts {
-            board: board.clone(),
-            leads: project_agents.leads(),
-            signals: signals.clone(),
-            validation: validation.clone(),
-            deliveries: deliveries.clone(),
-            sessions: sessions.clone(),
-            events: events.clone(),
-        })
-        .register_hand_back();
         let pause = crate::agents::pause::Pause::new(crate::agents::pause::PauseParts {
             board: board.clone(),
             sessions: sessions.clone(),
@@ -1012,7 +938,6 @@ impl Service {
         project_agents.set_gate(gate.clone());
         gate.set_restarts(crate::agents::gate::Restarts {
             validation: validation.clone(),
-            project_agents: project_agents.clone(),
         });
         // The agents check models against the copies of the tools' lists (AGT-02).
         let agents = Agents::new(board.clone(), Arc::new(models.clone()));

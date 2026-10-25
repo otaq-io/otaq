@@ -1,18 +1,17 @@
-//! The board's rules: projects, tickets, epics, dependencies, moves and pins (SDD §6, §7). The service calls
+//! The board's rules: projects, tickets, dependencies, moves and pins (SDD §6, §7). The service calls
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
 pub mod agent_created;
 pub mod agent_edits;
 pub mod batch;
 pub mod change_note;
+pub mod close;
 pub mod comments;
 pub mod conflicts;
 pub mod created;
 pub mod delete;
 pub mod deps;
 pub mod diff;
-pub mod epic_flight;
-pub mod epics;
 pub mod files;
 pub mod hand_over;
 pub mod human_check;
@@ -46,8 +45,6 @@ use crate::agent_tools::setup::Trust;
 use crate::attention::{Focus, LimitStops};
 use crate::data_dir::DataDir;
 use crate::domain::stored_enum;
-use crate::epic_lead::overlap::Overlaps;
-use crate::epic_lead::wake::LeadLink;
 use crate::git::{Git, GitError};
 use crate::session::hand_offs::HandOffs;
 use crate::store::{Store, StoreError};
@@ -67,14 +64,10 @@ pub struct Board {
     run_ports: RunPorts,
     /// Tickets whose Merge check runs now: "Merging · running the merge check" (d0120).
     merge_checks: merge_check::MergeChecks,
-    /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
-    overlaps: Overlaps,
     /// Hand-offs typed into live sessions that their agents haven't picked up yet (d0118).
     hand_offs: HandOffs,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
     project_files: project_files::ProjectFilesCache,
-    /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
-    leads: LeadLink,
     /// The agent tools' folder trust, recorded when a project is added (PRJ-06); the service sets the registry.
     trust: Trust,
     /// Runs an automatic Delivery when a move put a ticket into one (FLW-15); the service sets it.
@@ -99,10 +92,8 @@ impl Board {
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
             merge_checks: merge_check::MergeChecks::default(),
-            overlaps: Overlaps::default(),
             hand_offs: HandOffs::default(),
             project_files: Default::default(),
-            leads: LeadLink::default(),
             trust: Trust::default(),
             delivery: merge::DeliveryLink::default(),
             data,
@@ -150,19 +141,9 @@ impl Board {
         &self.merge_checks
     }
 
-    /// Running epic children's changed files; the scheduler's passes keep it.
-    pub fn overlaps(&self) -> &Overlaps {
-        &self.overlaps
-    }
-
     /// The hand-offs waiting for their agents to pick them up (d0118); the deliveries and the signals share it.
     pub fn hand_offs(&self) -> &HandOffs {
         &self.hand_offs
-    }
-
-    /// The epic leads' side of board changes (d0083); the Project agents set it.
-    pub fn leads(&self) -> &LeadLink {
-        &self.leads
     }
 
     /// The automatic Delivery's side of board moves (FLW-15).
@@ -197,30 +178,18 @@ stored_enum! {
         NoBaseBranch = "no_base_branch",
         /// A required field (a name, a title) is empty.
         EmptyField = "empty_field",
-        /// Epic children have no base branch of their own: they use the epic's branch (d0051, d0059).
-        BaseFromEpic = "base_from_epic",
         /// The ticket has started; its base branch is locked (d0051).
         BaseLocked = "base_locked",
-        /// Epic children have no External ID (d0059).
-        ExternalIdOnChild = "external_id_on_child",
-        /// The ticket named as an epic isn't one.
-        NotAnEpic = "not_an_epic",
-        /// Epics can't be nested: one level only (d0039).
-        EpicInEpic = "epic_in_epic",
         /// The tickets belong to different projects (d0024).
         OtherProject = "other_project",
         /// A ticket can't depend on itself.
         SelfDependency = "self_dependency",
         /// The link exists already.
         DuplicateDependency = "duplicate_dependency",
-        /// An epic child can't depend on its own epic.
-        DependsOnOwnEpic = "depends_on_own_epic",
         /// The link would close a loop (DEP-01).
         Cycle = "cycle",
         /// Linked tickets must use the same base branch (DEP-02, d0051).
         CrossBase = "cross_base",
-        /// The ticket is already an epic child; a child can't move to another epic (d0039).
-        AlreadyInEpic = "already_in_epic",
         /// The ticket has been to Dev; only never-started tickets may do this (d0044, d0060).
         Started = "started",
         /// The drag rules don't allow this move (SDD §7.4); the message says why.
@@ -283,7 +252,7 @@ stored_enum! {
         OriginalNotFound = "original_not_found",
         /// The agent has no such imported skill to re-import.
         NotImported = "not_imported",
-        /// A stage choice that isn't one of the stage's options, a stage without options, or an epic (AGM-08).
+        /// A stage choice that isn't one of the stage's options, or a stage without options (AGM-08).
         NotAnOption = "not_an_option",
         /// The stage has started: its choice is locked (AGM-08).
         ChoiceLocked = "choice_locked",

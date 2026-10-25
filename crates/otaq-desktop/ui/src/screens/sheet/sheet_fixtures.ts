@@ -85,7 +85,6 @@ export const SHEET: SheetFrame = {
       change: null,
     },
   ],
-  epic: null,
   steps: [
     { stage: "Grill", state: "done", attention: false },
     { stage: "Dev", state: "current", attention: false },
@@ -118,7 +117,6 @@ export const SHEET: SheetFrame = {
 export const VIEW: SheetView = {
   key: "SHOP-19",
   title: "Price table",
-  epic: false,
   priority: {
     number: 3,
     short: "P3",

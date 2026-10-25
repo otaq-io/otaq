@@ -6,14 +6,14 @@
 //!   starts unpaused. Every change publishes [`Event::PauseChanged`] (and [`Event::ProjectsChanged`] for the rail).
 //! - **Pausing** ([`Pause::pause`]) sets the flag **first**, then stops every live session of an agent kind in the
 //!   project ([`SessionKind::runs_agent_tool`]: ticket agents, their answer and delivery sessions, checks, Project
-//!   agents and epic leads) with [`END_PAUSED`]; an end whose follow-up would start an agent finds the project
+//!   agents) with [`END_PAUSED`]; an end whose follow-up would start an agent finds the project
 //!   paused already. Run, Shell and Project terminals keep going. Once every session ended, recovery takes their
-//!   tickets the restart's way with the cause "paused" ([`Recovery::paused`]) and the Project agents and leads
+//!   tickets the restart's way with the cause "paused" ([`Recovery::paused`]) and the Project agents
 //!   become Paused ([`ProjectAgents::paused`]). Nothing is deleted. Pausing a paused project stops what runs (a
 //!   ticket the user resumed alone) and keeps its `paused_since`.
 //! - **Resume** ([`Pause::resume`]) lifts the flag, then resumes what the pause stopped, each on its own
 //!   conversation: the project's Interrupted tickets (Resume all's scope, [`resume_all_eligible`]; a check starts
-//!   afresh) and its Paused Project agents and leads, and hands back the conflicts the test merge flagged while
+//!   afresh) and its Paused Project agents, and hands back the conflicts the test merge flagged while
 //!   paused ([`Review::hand_back_held`], d0127); then the starts kept while paused run
 //!   ([`Pause::on_resume`]), and the scheduler wakes.
 //! - **The counts** ([`Pause::counts`]) are what the Pause and Resume menus say ("shop-web · 5 working", "7 working in
@@ -61,9 +61,9 @@ pub struct ProjectPause {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused_since: Option<i64>,
     /// Agents working now: a ticket with live agent sessions counts once (its check, answer and delivery sessions
-    /// included), each Project agent and epic lead once. Pause stops them.
+    /// included), each Project agent once. Pause stops them.
     pub working: u32,
-    /// What Resume resumes: Interrupted tickets and Paused Project agents and epic leads.
+    /// What Resume resumes: Interrupted tickets and Paused Project agents.
     pub paused: u32,
 }
 
@@ -280,7 +280,7 @@ impl Pause {
         self.counts(scope).await
     }
 
-    /// The project's Interrupted tickets and Paused Project agents and leads, resumed.
+    /// The project's Interrupted tickets and Paused Project agents, resumed.
     async fn resume_stopped(&self, key: &str, actor: &Actor) -> Result<(), BoardError> {
         let tickets = self.inner.board.tickets(key).await?;
         for ticket in resume_all_eligible(&tickets) {
@@ -313,7 +313,7 @@ impl Pause {
         let mut projects = Vec::new();
         for key in keys {
             let project = self.inner.board.project(&key).await?;
-            // A ticket counts once, whatever sessions it runs; a Project agent or lead once per session.
+            // A ticket counts once, whatever sessions it runs; a Project agent once per session.
             let working: BTreeSet<String> = running
                 .iter()
                 .filter(|s| s.project == key)

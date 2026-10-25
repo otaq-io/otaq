@@ -724,7 +724,7 @@ async fn the_startup_report_names_ended_agents_and_validating_tickets() {
 }
 
 /// T-0318 (SHL-04, d0087): **Close ended agents** closes every ended (Ended, Ended by restart), not yet closed Project
-/// agent of the project; they stay in Recently ended. Running agents, epic leads and other projects are left alone.
+/// agent of the project; they stay in Recently ended. Running agents and other projects are left alone.
 #[tokio::test(flavor = "multi_thread")]
 async fn close_ended_closes_only_the_projects_ended_agents() {
     let w = world().await;
@@ -736,23 +736,20 @@ async fn close_ended_closes_only_the_projects_ended_agents() {
         .unwrap();
     wait_for_state(&w, &exited.id, AgentState::Ended).await;
     let project = w.board.project("SHOP").await.unwrap();
-    let epic = w.create("SHOP", "Wishlist").await;
     let other = w.add_project("notes-api").await;
-    for (id, project_id, state, epic_id) in [
-        ("by-restart", &project.id, "ended_by_restart", None),
-        ("lead", &project.id, "ended", Some(&epic.id)),
-        ("elsewhere", &other.id, "ended", None),
+    for (id, project_id, state) in [
+        ("by-restart", &project.id, "ended_by_restart"),
+        ("elsewhere", &other.id, "ended"),
     ] {
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, first_request, created_at,
-                                         ended_at, epic_id)
-             VALUES (?, ?, 'claude', ?, ?, 'r', 1, 2, ?)",
+                                         ended_at)
+             VALUES (?, ?, 'claude', ?, ?, 'r', 1, 2)",
         )
         .bind(id)
         .bind(project_id)
         .bind(format!("c-{id}"))
         .bind(state)
-        .bind(epic_id)
         .execute(w.board.store().pool())
         .await
         .unwrap();
@@ -771,7 +768,6 @@ async fn close_ended_closes_only_the_projects_ended_agents() {
     assert!(closed(&exited.id).await);
     assert!(closed("by-restart").await);
     assert!(!closed(&running.id).await, "a running agent stays");
-    assert!(!closed("lead").await, "epic leads are left alone");
     assert!(!closed("elsewhere").await, "another project's stay");
     let running = w.project_agents.get(&running.id).await.unwrap();
     assert_eq!(running.state, AgentState::Running);

@@ -1,27 +1,14 @@
-//! The Files tab's data (T-0467; FTB-01…FTB-04, FTB-06): the tree, search, a file and all changes of a ticket's
-//! worktree with its uncommitted edits, a never-started ticket's base branch, and an epic's files tagged by child,
-//! against temporary repositories.
+//! The Files tab's data (T-0467; FTB-01…FTB-04): the tree, search, a file and all changes of a ticket's worktree with
+//! its uncommitted edits, and a never-started ticket's base branch, against temporary repositories.
 
 use std::path::Path;
 
 use crate::common::Fixture;
 use otaq_core::board::Refusal;
-use otaq_core::board::files::{EntryKind, FilesFrom, TagKind};
+use otaq_core::board::files::{EntryKind, FilesFrom};
 use otaq_core::domain::Status;
 use otaq_core::git::diff::{FileStatus, LineKind, MAX_FILE_LINES};
 use otaq_core::git::testing::{commit, git};
-
-/// Squash-merges `branch` into `target` as Local merge leaves it, without touching any checkout.
-fn squash_into(repo: &Path, target: &str, branch: &str, message: &str) -> String {
-    let tree = git(repo, &["rev-parse", &format!("{branch}^{{tree}}")]);
-    let parent = git(repo, &["rev-parse", target]);
-    let sha = git(repo, &["commit-tree", &tree, "-p", &parent, "-m", message]);
-    git(
-        repo,
-        &["update-ref", &format!("refs/heads/{target}"), &sha, &parent],
-    );
-    sha
-}
 
 fn index_mtime(worktree: &Path) -> std::time::SystemTime {
     let index = git(worktree, &["rev-parse", "--git-path", "index"]);
@@ -190,7 +177,7 @@ async fn read_gives_text_binary_and_huge_files_and_stays_inside() {
         .collect();
     std::fs::write(wt.join("huge.txt"), &huge).unwrap();
 
-    let text = f.board.files_read("SHOP-1", "app.ts", None).await.unwrap();
+    let text = f.board.files_read("SHOP-1", "app.ts").await.unwrap();
     assert_eq!(text.text, "one\ntwo\n");
     assert_eq!(text.size, 8);
     assert!(!text.binary && !text.truncated);
@@ -199,26 +186,14 @@ async fn read_gives_text_binary_and_huge_files_and_stays_inside() {
         (change.status, change.added, change.uncommitted),
         (FileStatus::Added, 2, true)
     );
-    let unchanged = f
-        .board
-        .files_read("SHOP-1", "file1.txt", None)
-        .await
-        .unwrap();
+    let unchanged = f.board.files_read("SHOP-1", "file1.txt").await.unwrap();
     assert!(unchanged.change.is_none());
 
-    let logo = f
-        .board
-        .files_read("SHOP-1", "logo.png", None)
-        .await
-        .unwrap();
+    let logo = f.board.files_read("SHOP-1", "logo.png").await.unwrap();
     assert!(logo.binary);
     assert_eq!((logo.size, logo.text.as_str()), (8, ""));
 
-    let big = f
-        .board
-        .files_read("SHOP-1", "huge.txt", None)
-        .await
-        .unwrap();
+    let big = f.board.files_read("SHOP-1", "huge.txt").await.unwrap();
     assert!(big.truncated);
     assert_eq!(big.text.lines().count(), MAX_FILE_LINES);
     assert_eq!(big.size, huge.len() as u64);
@@ -236,22 +211,14 @@ async fn read_gives_text_binary_and_huge_files_and_stays_inside() {
         "away/secret.txt",
         ".git",
     ] {
-        let err = f.board.files_read("SHOP-1", path, None).await.unwrap_err();
+        let err = f.board.files_read("SHOP-1", path).await.unwrap_err();
         assert_eq!(err.refusal(), Some(Refusal::BadPath), "{path}");
     }
     // A link inside reads as its target.
     std::os::unix::fs::symlink("app.ts", wt.join("alias.ts")).unwrap();
-    let alias = f
-        .board
-        .files_read("SHOP-1", "alias.ts", None)
-        .await
-        .unwrap();
+    let alias = f.board.files_read("SHOP-1", "alias.ts").await.unwrap();
     assert_eq!(alias.text, "one\ntwo\n");
-    let gone = f
-        .board
-        .files_read("SHOP-1", "nope.ts", None)
-        .await
-        .unwrap_err();
+    let gone = f.board.files_read("SHOP-1", "nope.ts").await.unwrap_err();
     assert!(gone.refusal().is_none());
 }
 
@@ -292,11 +259,7 @@ async fn all_changes_include_uncommitted_files_with_their_diffs() {
     let committed = f.board.diff_summary("SHOP-1").await.unwrap();
     assert_eq!(committed.files.len(), 2);
 
-    let middleware = f
-        .board
-        .files_diff("SHOP-1", "middleware.ts", None)
-        .await
-        .unwrap();
+    let middleware = f.board.files_diff("SHOP-1", "middleware.ts").await.unwrap();
     let added: Vec<_> = middleware.hunks[0]
         .lines
         .iter()
@@ -311,24 +274,12 @@ async fn all_changes_include_uncommitted_files_with_their_diffs() {
             (LineKind::Added, "d"),
         ]
     );
-    let notes = f
-        .board
-        .files_diff("SHOP-1", "notes.md", None)
-        .await
-        .unwrap();
+    let notes = f.board.files_diff("SHOP-1", "notes.md").await.unwrap();
     assert_eq!(notes.file.status, FileStatus::Added);
     assert_eq!(notes.hunks[0].lines[1].new, Some(2));
-    let unchanged = f
-        .board
-        .files_diff("SHOP-1", "file1.txt", None)
-        .await
-        .unwrap_err();
+    let unchanged = f.board.files_diff("SHOP-1", "file1.txt").await.unwrap_err();
     assert!(unchanged.refusal().is_none());
-    let out = f
-        .board
-        .files_diff("SHOP-1", "../x", None)
-        .await
-        .unwrap_err();
+    let out = f.board.files_diff("SHOP-1", "../x").await.unwrap_err();
     assert_eq!(out.refusal(), Some(Refusal::BadPath));
 }
 
@@ -343,11 +294,7 @@ async fn a_ticket_that_never_started_shows_its_base_branch() {
     assert_eq!(tree.changed, 0);
     let names: Vec<_> = tree.entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["file1.txt"]);
-    let file = f
-        .board
-        .files_read("SHOP-1", "file1.txt", None)
-        .await
-        .unwrap();
+    let file = f.board.files_read("SHOP-1", "file1.txt").await.unwrap();
     assert_eq!(file.text, "1\n");
     assert!(
         f.board
@@ -372,147 +319,8 @@ async fn a_done_ticket_reads_its_branch_once_the_worktree_is_gone() {
     let tree = f.board.files_tree("SHOP-1", "").await.unwrap();
     assert_eq!(tree.source.from, FilesFrom::Branch);
     assert_eq!(tree.changed, 1);
-    let done = f.board.files_read("SHOP-1", "done.ts", None).await.unwrap();
+    let done = f.board.files_read("SHOP-1", "done.ts").await.unwrap();
     assert_eq!(done.text, "x\n");
-    let diff = f.board.files_diff("SHOP-1", "done.ts", None).await.unwrap();
+    let diff = f.board.files_diff("SHOP-1", "done.ts").await.unwrap();
     assert_eq!(diff.hunks[0].lines[0].text, "x");
-}
-
-#[tokio::test]
-async fn an_epic_tags_files_with_the_merged_and_the_running_child() {
-    let f = Fixture::shop().await;
-    let epic = f.epic("Wishlist").await;
-    let api = f.child(&epic, "Wishlist API").await;
-    let button = f.child(&epic, "Wishlist button").await;
-    let repo = f.repo();
-    let epic_branch = "otaq/SHOP-1";
-
-    let api_wt = f.start_worktree(&api).await;
-    commit(&api_wt, "api.ts", "api\n");
-    commit(&api_wt, "file1.txt", "1\nchanged\n");
-    let api_sha = squash_into(&repo, epic_branch, "otaq/SHOP-1.1", "SHOP-1.1 Wishlist API");
-    f.force_status(&api, Status::Merged).await;
-    sqlx::query("UPDATE tickets SET merge_commit_sha = ? WHERE id = ?")
-        .bind(&api_sha)
-        .bind(&api.id)
-        .execute(f.board.store().pool())
-        .await
-        .unwrap();
-
-    // The running child: one commit and one file still on disk only, from the epic's branch with 1.1 in it.
-    let button_wt = f.start_worktree(&button).await;
-    assert!(button_wt.join("api.ts").exists());
-    commit(&button_wt, "file1.txt", "1\nchanged\nagain\n");
-    std::fs::write(button_wt.join("button.tsx"), "b\nb\nb\n").unwrap();
-    f.force_status(&button, Status::Working).await;
-
-    let tree = f.board.files_tree("SHOP-1", "").await.unwrap();
-    assert_eq!(tree.source.from, FilesFrom::Branch);
-    assert_eq!(tree.source.branch, epic_branch);
-    let rows: Vec<_> = tree
-        .entries
-        .iter()
-        .map(|e| {
-            (
-                e.name.as_str(),
-                e.change.as_ref().map(|c| c.status),
-                e.tags
-                    .iter()
-                    .map(|t| (t.key.to_string(), t.kind))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        rows,
-        [
-            (
-                "api.ts",
-                Some(FileStatus::Added),
-                vec![("SHOP-1.1".to_owned(), TagKind::Merged)]
-            ),
-            (
-                "button.tsx",
-                Some(FileStatus::Added),
-                vec![("SHOP-1.2".to_owned(), TagKind::Writing)]
-            ),
-            (
-                "file1.txt",
-                Some(FileStatus::Modified),
-                vec![
-                    ("SHOP-1.1".to_owned(), TagKind::Merged),
-                    ("SHOP-1.2".to_owned(), TagKind::Writing)
-                ]
-            ),
-        ]
-    );
-    assert_eq!(tree.changed, 3);
-
-    let changes = f.board.files_changes("SHOP-1").await.unwrap();
-    let rows: Vec<_> = changes
-        .files
-        .iter()
-        .map(|e| {
-            (
-                e.file.path.as_str(),
-                e.child.as_ref().map(ToString::to_string),
-                e.uncommitted,
-            )
-        })
-        .collect();
-    assert_eq!(
-        rows,
-        [
-            ("api.ts", None, false),
-            ("button.tsx", Some("SHOP-1.2".to_owned()), true),
-            ("file1.txt", None, false),
-            ("file1.txt", Some("SHOP-1.2".to_owned()), false),
-        ]
-    );
-    // The epic's own sums: 1.1's merge only.
-    assert_eq!((changes.added, changes.removed), (2, 0));
-
-    // The running child's file, as it is on disk, and its change on top of the epic's branch.
-    let button_file = f
-        .board
-        .files_read("SHOP-1", "button.tsx", Some("SHOP-1.2"))
-        .await
-        .unwrap();
-    assert_eq!(button_file.text, "b\nb\nb\n");
-    assert_eq!(button_file.child.unwrap().to_string(), "SHOP-1.2");
-    assert!(button_file.change.unwrap().uncommitted);
-    let on_top = f
-        .board
-        .files_diff("SHOP-1", "file1.txt", Some("SHOP-1.2"))
-        .await
-        .unwrap();
-    let added: Vec<_> = on_top.hunks[0]
-        .lines
-        .iter()
-        .filter(|l| l.kind == LineKind::Added)
-        .map(|l| l.text.as_str())
-        .collect();
-    assert_eq!(added, ["again"]);
-    // The merged child's change is its squash commit.
-    let merged = f
-        .board
-        .files_diff("SHOP-1", "file1.txt", Some("SHOP-1.1"))
-        .await
-        .unwrap();
-    assert_eq!(merged.file.added, 1);
-    // Not a child.
-    let other = f.create("Elsewhere").await;
-    let err = f
-        .board
-        .files_diff("SHOP-1", "file1.txt", Some(&other.key.to_string()))
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::NotAnEpic));
-
-    // The child's own sheet: its worktree against the epic's branch.
-    let child = f.board.files_changes("SHOP-1.2").await.unwrap();
-    assert_eq!(child.source.from, FilesFrom::Worktree);
-    assert_eq!(child.source.base_branch, epic_branch);
-    let paths: Vec<_> = child.files.iter().map(|e| e.file.path.as_str()).collect();
-    assert_eq!(paths, ["button.tsx", "file1.txt"]);
 }

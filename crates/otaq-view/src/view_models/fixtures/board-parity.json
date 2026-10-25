@@ -3244,9 +3244,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -3262,11 +3260,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -3304,34 +3300,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -4721,9 +4689,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -4739,11 +4705,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -4781,34 +4745,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6198,9 +6134,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -6216,11 +6150,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -6258,34 +6190,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6856,9 +6760,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -6874,11 +6776,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -6916,34 +6816,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -7443,9 +7315,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -7461,11 +7331,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -7503,34 +7371,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -8030,9 +7870,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -8048,11 +7886,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -8090,34 +7926,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -8427,26 +8235,25 @@
           {
             "target": "backlog",
             "verdict": {
-              "hint": "Park 1 running child",
-              "icon": "square-parking",
-              "kind": "allowed",
-              "note": null
+              "kind": "home"
             }
           },
           {
             "target": "ready_for_dev",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Every child of NOTE-10 is already queued or started"
+              "hint": "Drop to queue · starts in priority order",
+              "icon": "play",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "dev",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Every child of NOTE-10 is already queued or started"
+              "hint": "Drop to queue · starts in priority order",
+              "icon": "play",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -8484,7 +8291,7 @@
         ]
       },
       {
-        "key": "NOTE-10.1",
+        "key": "NOTE-11",
         "targets": [
           {
             "target": "backlog",
@@ -8543,7 +8350,7 @@
         ]
       },
       {
-        "key": "NOTE-10.2",
+        "key": "NOTE-12",
         "targets": [
           {
             "target": "backlog",
@@ -8573,7 +8380,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "NOTE-10.2 can't move to the next stage now: its agent is in the middle of a turn"
+              "title": "NOTE-12 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -8581,7 +8388,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "NOTE-10.2 can't move to the next stage now: its agent is in the middle of a turn"
+              "title": "NOTE-12 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -8589,7 +8396,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "NOTE-10.2 can't move to the next stage now: its agent is in the middle of a turn"
+              "title": "NOTE-12 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -8656,16 +8463,16 @@
         "key": "NOTE-10",
         "steps": {
           "approved": "Nothing",
-          "backlog": "ParkAll(ParkAllDialog { key: \"NOTE-10\", title: \"Park 1 running ticket?\", message: \"Its work is kept. NOTE-10.2 stops and goes back to Backlog with its conversation.\", cancel: \"Cancel\", confirm: \"Park 1 ticket\", confirm_icon: SquareParking })",
-          "dev": "QueueEpic { epic: TicketKey { project: ProjectKey(\"NOTE\"), number: 10, child: None }, child: None }",
+          "backlog": "Nothing",
+          "dev": "Move",
           "done": "Nothing",
-          "ready_for_dev": "QueueEpic { epic: TicketKey { project: ProjectKey(\"NOTE\"), number: 10, child: None }, child: None }",
+          "ready_for_dev": "Move",
           "review": "Nothing",
           "validate": "Nothing"
         }
       },
       {
-        "key": "NOTE-10.1",
+        "key": "NOTE-11",
         "steps": {
           "approved": "Nothing",
           "backlog": "Nothing",
@@ -8677,7 +8484,7 @@
         }
       },
       {
-        "key": "NOTE-10.2",
+        "key": "NOTE-12",
         "steps": {
           "approved": "Nothing",
           "backlog": "Park",
@@ -8759,10 +8566,38 @@
                 },
                 "kind": "ticket",
                 "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "epic": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Backlog"
+                  },
+                  "key": "NOTE-10",
+                  "key_label": "NOTE-10",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Sharing",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
               }
             ],
             "collapsed": false,
-            "count": "1",
+            "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
             "folded": [],
@@ -8941,15 +8776,15 @@
                     "avatar": null,
                     "blocks": null,
                     "edge": null,
-                    "epic": "Sharing",
+                    "epic": null,
                     "faded": null,
                     "fresh": false,
                     "hover": {
                       "details": [],
                       "status": "Working"
                     },
-                    "key": "NOTE-10.2",
-                    "key_label": "NOTE-10.2",
+                    "key": "NOTE-12",
+                    "key_label": "NOTE-12",
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
@@ -9349,15 +9184,15 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "epic": "Sharing",
+                  "epic": null,
                   "faded": 0.550000011920929,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
-                  "key": "NOTE-10.1",
-                  "key_label": "NOTE-10.1",
+                  "key": "NOTE-11",
+                  "key_label": "NOTE-11",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -9377,15 +9212,7 @@
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
             "folded": [],
-            "folds": [
-              {
-                "epic": "NOTE-10",
-                "keys": [
-                  "NOTE-10.1"
-                ],
-                "label": "Sharing · 1 of 2 merged"
-              }
-            ],
+            "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -9447,9 +9274,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -9465,11 +9290,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -9507,34 +9330,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -9660,10 +9455,38 @@
                 },
                 "kind": "ticket",
                 "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "epic": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Backlog"
+                  },
+                  "key": "NOTE-10",
+                  "key_label": "NOTE-10",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Sharing",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
               }
             ],
             "collapsed": false,
-            "count": "1",
+            "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
             "folded": [],
@@ -9842,15 +9665,15 @@
                     "avatar": null,
                     "blocks": null,
                     "edge": null,
-                    "epic": "Sharing",
+                    "epic": null,
                     "faded": null,
                     "fresh": false,
                     "hover": {
                       "details": [],
                       "status": "Working"
                     },
-                    "key": "NOTE-10.2",
-                    "key_label": "NOTE-10.2",
+                    "key": "NOTE-12",
+                    "key_label": "NOTE-12",
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
@@ -10250,15 +10073,15 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "epic": "Sharing",
+                  "epic": null,
                   "faded": 0.550000011920929,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
-                  "key": "NOTE-10.1",
-                  "key_label": "NOTE-10.1",
+                  "key": "NOTE-11",
+                  "key_label": "NOTE-11",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -10278,15 +10101,7 @@
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
             "folded": [],
-            "folds": [
-              {
-                "epic": "NOTE-10",
-                "keys": [
-                  "NOTE-10.1"
-                ],
-                "label": "Sharing · 1 of 2 merged"
-              }
-            ],
+            "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -10348,9 +10163,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -10366,11 +10179,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -10408,34 +10219,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -10561,10 +10344,38 @@
                 },
                 "kind": "ticket",
                 "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "epic": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Backlog"
+                  },
+                  "key": "NOTE-10",
+                  "key_label": "NOTE-10",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Sharing",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
               }
             ],
             "collapsed": false,
-            "count": "1",
+            "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
             "folded": [],
@@ -10743,15 +10554,15 @@
                     "avatar": null,
                     "blocks": null,
                     "edge": null,
-                    "epic": "Sharing",
+                    "epic": null,
                     "faded": null,
                     "fresh": false,
                     "hover": {
                       "details": [],
                       "status": "Working"
                     },
-                    "key": "NOTE-10.2",
-                    "key_label": "NOTE-10.2",
+                    "key": "NOTE-12",
+                    "key_label": "NOTE-12",
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
@@ -11151,15 +10962,15 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "epic": "Sharing",
+                  "epic": null,
                   "faded": 0.550000011920929,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
-                  "key": "NOTE-10.1",
-                  "key_label": "NOTE-10.1",
+                  "key": "NOTE-11",
+                  "key_label": "NOTE-11",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -11179,15 +10990,7 @@
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
             "folded": [],
-            "folds": [
-              {
-                "epic": "NOTE-10",
-                "keys": [
-                  "NOTE-10.1"
-                ],
-                "label": "Sharing · 1 of 2 merged"
-              }
-            ],
+            "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -11249,9 +11052,7 @@
           }
         },
         "empty": null,
-        "focus": null,
         "folded_width": 52.0,
-        "lanes": null,
         "links": [],
         "list": null,
         "min_column_width": 180.0,
@@ -11267,11 +11068,9 @@
           "folded_columns": [
             "done"
           ],
-          "folded_lanes": [],
           "folded_sections": [],
           "group_by": "stage",
           "hide_empty_stages": false,
-          "lanes": "none",
           "view": "board"
         },
         "scroll_chip": {
@@ -11309,34 +11108,6 @@
             ]
           },
           "group_by": null,
-          "lanes": {
-            "icon": null,
-            "label": "Lanes",
-            "options": [
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "none"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "None",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "kind": "lanes",
-                  "lanes": "epic"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Epic",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",

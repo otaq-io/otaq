@@ -31,7 +31,7 @@ stored_enum! {
 /// A ticket's conflict with the branch it merges into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Conflict {
-    /// `main`, `develop`, or the epic's branch.
+    /// `main` or `develop`.
     pub target: String,
     pub files: Vec<String>,
     pub reason: ConflictReason,

@@ -12,9 +12,8 @@ use otaq_core::board::ticket_comments::{
     COMMENT_LIMIT_CHARS, CommentAuthor, FirstComment, TicketComment,
 };
 use otaq_core::board::tickets::{EventKind, HistoryEvent, NewTicketInput};
-use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, Kind};
+use otaq_core::domain::Actor;
 use otaq_core::protocol::{Event, Reply, Request, TicketCommentPostParams};
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
@@ -740,75 +739,6 @@ async fn a_checker_edits_and_deletes_its_own_verdict() {
     )
     .await;
     assert!(deleted.get("reply").is_some(), "{deleted}");
-    w.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_lead_owns_its_epics_lead_comments() {
-    let w = TestService::start().await;
-    w.add_project("shop-web").await;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let lead = |epic_id: &str| Caller::EpicLead {
-        project: "SHOP".into(),
-        agent: "lead-1".into(),
-        epic: epic.key.clone(),
-        epic_id: epic_id.into(),
-        session: "s".into(),
-    };
-    let author = w
-        .board
-        .caller_author(&lead(&epic.id), &Actor::ProjectAgent("lead-1".into()))
-        .await
-        .unwrap();
-    assert_eq!(
-        author,
-        CommentAuthor::Lead {
-            epic_id: epic.id.clone(),
-            name: "Wishlist lead".into(),
-            tool: None,
-        }
-    );
-    w.board
-        .post_ticket_comment(
-            "SHOP-1",
-            &author,
-            "Keep SHOP-1.2 on the same API.",
-            None,
-            &me(),
-        )
-        .await
-        .unwrap();
-    post(&w, "SHOP-1", "Mine.").await;
-    assert!(
-        w.board
-            .is_own_comment(&lead(&epic.id), "SHOP-1", 1)
-            .await
-            .unwrap()
-    );
-    assert!(
-        !w.board
-            .is_own_comment(&lead(&epic.id), "SHOP-1", 2)
-            .await
-            .unwrap()
-    );
-    assert!(
-        !w.board
-            .is_own_comment(&lead("another-epic"), "SHOP-1", 1)
-            .await
-            .unwrap()
-    );
     w.stop().await;
 }
 

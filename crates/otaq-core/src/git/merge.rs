@@ -4,11 +4,11 @@
 //! 1. refuse if the ticket's worktree has uncommitted files ("SHOP-19 has 2 uncommitted files");
 //! 2. refuse if the target branch is checked out in a folder with uncommitted changes ("shop-web has uncommitted
 //!    changes on main. Clean up and retry."), before anything moves, so that branch stays untouched; then bring
-//!    a base branch up to date: fetch, fast-forward if only behind, refuse if diverged (the epic branch is local
-//!    only and skips this). A fetch that fails goes on into the local target when the request allows it (d0121);
+//!    a base branch up to date: fetch, fast-forward if only behind, refuse if diverged (a local-only target, such as
+//!    a ticket's own branch, skips this). A fetch that fails goes on into the local target when the request allows it (d0121);
 //!    otherwise it is the error;
 //! 3. **free rebase** of the ticket's branch onto the target: in its worktree with the checkpoint rule, or in the
-//!    scratch worktree when the branch has no worktree (an epic's branch); a conflict merges nothing;
+//!    scratch worktree when the branch has no worktree; a conflict merges nothing;
 //! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run);
 //! 5. the project's **Merge check** (d0120), when it has one and the rebase brought in commits the branch didn't
 //!    have (or the caller asks again, [`MergeRequest::recheck`]): run on the squash commit in the scratch worktree,
@@ -36,9 +36,9 @@ pub struct MergeRequest {
     pub branch: String,
     /// Where the branch is checked out, if anywhere (the ticket's worktree).
     pub worktree: Option<PathBuf>,
-    /// The branch to merge into: `main`, or the epic's `otaq/SHOP-40`.
+    /// The branch to merge into: `main`.
     pub target: String,
-    /// A base branch is fetched and fast-forwarded first; the epic branch is local only.
+    /// A base branch is fetched and fast-forwarded first; a local-only target (a ticket's own branch) isn't.
     pub sync_target: bool,
     /// A fetch that fails goes on into the local target as it is (a flow that doesn't deliver by PR, d0121).
     pub goes_on_without_remote: bool,

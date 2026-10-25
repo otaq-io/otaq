@@ -285,7 +285,6 @@ impl Messages {
                 cwd: path,
                 project: project.key.clone(),
                 ticket: Some(target.key.clone()),
-                epic: None,
                 port: 0,
                 first_prompt,
                 resume: Some(conversation.id),

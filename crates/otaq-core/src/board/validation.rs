@@ -347,7 +347,7 @@ impl Board {
     }
 
     /// **Create ticket** from a "Not covered by any ticket" note of the ticket's validation reports (VAL-12, the
-    /// user's click; the validator stays read-only): a prefilled Backlog ticket in the same epic.
+    /// user's click; the validator stays read-only): a prefilled Backlog ticket.
     pub async fn create_from_note(
         &self,
         key: &str,
@@ -1457,27 +1457,6 @@ impl Board {
         Ok(())
     }
 
-    /// The check `stage`'s counter restarts at 0 (the engine's [`Counters::ResetThis`]: the epic lead's note, which
-    /// counts as Answer the agent).
-    pub(crate) async fn reset_check_counter(
-        &self,
-        ticket_id: &str,
-        stage: &str,
-    ) -> Result<(), BoardError> {
-        let mut tx = self.store.begin_write().await?;
-        count_on(
-            &mut tx,
-            ticket_id,
-            stage,
-            Counters::ResetThis,
-            ValidationOutcome::NoResult,
-            0,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     /// Marks that the user moved the ticket past the check `stage` (a forward drag past it, T-0421): its Delivery
     /// will be in click mode.
     pub async fn moved_past_check(
@@ -1649,8 +1628,7 @@ pub fn not_covered(note: &str) -> Option<&str> {
 }
 
 /// The prefilled ticket for a "Not covered by any ticket" note of `source`'s validation (VAL-12): the gap as the
-/// title (first letter upper-case), a description naming the source ticket and quoting the note, in the source's
-/// epic. `None` when the note isn't about an uncovered gap.
+/// title (first letter upper-case), a description naming the source ticket and quoting the note. `None` when the note isn't about an uncovered gap.
 pub fn ticket_from_note(source: &Ticket, note: &str) -> Option<super::tickets::NewTicketInput> {
     let gap = not_covered(note)?;
     let mut chars = gap.chars();
@@ -1667,12 +1645,11 @@ pub fn ticket_from_note(source: &Ticket, note: &str) -> Option<super::tickets::N
             source.title,
             note.trim()
         ),
-        epic: source.epic.as_ref().map(ToString::to_string),
         ..super::tickets::NewTicketInput::default()
     })
 }
 
-/// A report line that is a note, not a finding: "Note: covered by SHOP-40.2", "- Note: Not covered by any
+/// A report line that is a note, not a finding: "Note: covered by SHOP-42", "- Note: Not covered by any
 /// ticket: removing items" (the validate skill's format).
 pub fn note_of(line: &str) -> Option<&str> {
     let line = line.trim().trim_start_matches(['-', '*']).trim_start();
@@ -1788,7 +1765,7 @@ async fn round_agents(
     stage: &Stage,
 ) -> Result<Vec<String>, BoardError> {
     let mut agents = stage.check_agents().to_vec();
-    if agents.is_empty() || ticket.is_epic() {
+    if agents.is_empty() {
         return Ok(agents);
     }
     let chosen: Option<String> = sqlx::query_scalar(
@@ -1857,25 +1834,20 @@ mod tests {
             not_covered("not covered by any ticket:removing items"),
             Some("removing items")
         );
-        assert_eq!(not_covered("covered by SHOP-40.2"), None);
+        assert_eq!(not_covered("covered by SHOP-42"), None);
         assert_eq!(not_covered("Not covered by any ticket:"), None);
         let source = Ticket {
             id: "t401".into(),
-            key: "SHOP-40.1".parse().unwrap(),
-            kind: crate::domain::Kind::Ticket,
+            key: "SHOP-41".parse().unwrap(),
             title: "Save items".into(),
             body: String::new(),
             priority: Default::default(),
-            priority_inherited: true,
-            epic: Some("SHOP-40".parse().unwrap()),
             place: Place::stage_of(crate::flow::default::REVIEW),
             status: Status::WaitingForYou,
             base: crate::board::tickets::Base::Branch("main".into()),
             base_locked: true,
             external_id: None,
             depends_on: vec![],
-            aliases: vec![],
-            next_child_number: None,
             flags: crate::domain::Flags::default(),
             created_by: Actor::User("me".into()),
             updated_by: None,
@@ -1894,15 +1866,12 @@ mod tests {
             signal: None,
             question: None,
             pushed_differs: None,
-            epic_queue_mode: Default::default(),
-            joined_queue_by: None,
         };
         let input = ticket_from_note(&source, "Not covered by any ticket: removing items").unwrap();
         assert_eq!(input.title, "Removing items");
         assert_eq!(input.project, "SHOP");
-        assert_eq!(input.epic.as_deref(), Some("SHOP-40"));
-        assert!(input.body.contains("SHOP-40.1 (Save items)"));
-        assert!(ticket_from_note(&source, "covered by SHOP-40.2").is_none());
+        assert!(input.body.contains("SHOP-41 (Save items)"));
+        assert!(ticket_from_note(&source, "covered by SHOP-42").is_none());
     }
 
     fn go(s: ValidationState, event: ValidationEvent) -> Transition {

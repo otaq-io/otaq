@@ -18,7 +18,6 @@ import {
   clearFilter,
   filterOf,
   finishedTokens,
-  focusEpic,
   isActive,
   NO_FILTER,
   removeToken,
@@ -166,34 +165,10 @@ describe("the card menu", () => {
     expect(overlays.store.get()).toEqual([]);
     afterMenuChoice({ kind: "delete" }, "SHOP-21");
     afterMenuChoice({ kind: "close_ticket" }, "SHOP-19");
-    afterMenuChoice({ kind: "move_to_epic" }, "SHOP-51");
-    afterMenuChoice({ kind: "close_epic" }, "SHOP-40");
     expect(overlays.store.get()).toEqual([
       { id: "delete_ticket", params: { ticket: "SHOP-21" } },
       { id: "close_ticket", params: { ticket: "SHOP-19" } },
-      { id: "move_to_epic", params: { ticket: "SHOP-51" } },
-      { id: "close_epic", params: { epic: "SHOP-40" } },
     ]);
-  });
-
-  it("does what the board does for an epic's own items (T-0274)", () => {
-    const done: unknown[] = [];
-    const board = {
-      drop: (key: string, column: string) => done.push(["drop", key, column]),
-      focus: (key: string) => done.push(["focus", key]),
-    };
-    afterMenuChoice({ kind: "queue_epic" }, "SHOP-40", board);
-    afterMenuChoice({ kind: "take_back_epic" }, "SHOP-40", board);
-    afterMenuChoice({ kind: "focus_epic" }, "SHOP-40", board);
-    afterMenuChoice({ kind: "add_to_epic" }, "SHOP-40", board);
-    afterMenuChoice({ kind: "open_epic" }, "SHOP-40", board);
-    expect(done).toEqual([
-      ["drop", "SHOP-40", "ready_for_dev"],
-      ["drop", "SHOP-40", "backlog"],
-      ["focus", "SHOP-40"],
-    ]);
-    expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: { epic: "SHOP-40" } }]);
-    expect(selection.get().ticket).toBe("SHOP-40");
   });
 
   it("sends the chosen item to Rust and reports a refusal", async () => {
@@ -217,28 +192,6 @@ describe("the card menu", () => {
       () => Promise.reject(new Error("no")),
     );
     expect(errors).toHaveLength(1);
-  });
-});
-
-describe("focusing an epic (EPC-18)", () => {
-  it("takes Rust's filter with the epic's token, and leaves it alone for a standalone ticket", async () => {
-    setFilter("SHOP", { tokens: ["is:working"], text: "wish" });
-    const calls: unknown[] = [];
-    const changed = await focusEpic("SHOP", "SHOP-40.2", (method, params) => {
-      calls.push([method, params]);
-      return Promise.resolve({ tokens: ["is:working", "epic:Wishlist"], text: "wish" });
-    });
-    expect(changed).toBe(true);
-    expect(calls).toEqual([
-      [
-        "board.focus",
-        { project: "SHOP", filter: { tokens: ["is:working"], text: "wish" }, key: "SHOP-40.2" },
-      ],
-    ]);
-    expect(filterOf(boardFilter.get(), "SHOP").tokens).toEqual(["is:working", "epic:Wishlist"]);
-    const nothing = await focusEpic("SHOP", "SHOP-51", () => Promise.resolve(null));
-    expect(nothing).toBe(false);
-    expect(filterOf(boardFilter.get(), "SHOP").tokens).toEqual(["is:working", "epic:Wishlist"]);
   });
 });
 

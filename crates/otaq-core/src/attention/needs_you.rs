@@ -379,22 +379,10 @@ impl NeedsYouQueue {
                 },
             );
         }
-        // A lead's subtitle names its epic by title ("shop-web · Wishlist").
-        let mut epic_titles = HashMap::new();
-        for epic in agents.iter().filter_map(|a| a.epic.as_ref()) {
-            if let Ok(ticket) = board.ticket(&epic.to_string()).await {
-                epic_titles.insert(epic.to_string(), ticket.title);
-            }
-        }
         let mut fresh = {
             let mut seen = self.inner.seen.lock().expect("notified items");
             let mut out = notify::plan(items, &texts, &mut seen, &choices);
-            out.extend(notify::plan_agents(
-                agents,
-                &epic_titles,
-                &mut seen,
-                &choices,
-            ));
+            out.extend(notify::plan_agents(agents, &mut seen, &choices));
             out
         };
         // A tool that isn't available while tickets wait on it or moved off it: one notification when it first
@@ -625,18 +613,6 @@ impl NeedsYouQueue {
             inner.board.record_answer(&question.id, &text).await?;
         }
         inner.signals.answered(&ticket.id).await?;
-        if question.is_some() {
-            // A question that went through its epic's lead is logged on the epic too (LEAD-06): its Messages refresh.
-            if let Some(epic) = &ticket.epic
-                && let Ok(epic) = inner.board.ticket(&epic.to_string()).await
-            {
-                inner.events.publish(Event::TicketChanged {
-                    project: epic.key.project.to_string(),
-                    id: epic.id,
-                    key: epic.key,
-                });
-            }
-        }
         tracing::info!(ticket = %ticket.key, ?delivery, "needs-you answer");
         Ok(delivery)
     }
@@ -838,8 +814,6 @@ mod tests {
             age_ms: 0,
             blocked: 0,
             message: None,
-            suggestion: None,
-            lead_note: None,
             change_agent: None,
             waiting_in: None,
         }

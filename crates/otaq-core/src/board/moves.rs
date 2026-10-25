@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
-use super::epic_flight::epic_flow;
 use super::stage_runs::Moved;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
@@ -55,9 +54,6 @@ stored_enum! {
         PrRework = "pr_rework",
         /// Done (Closed) → Backlog (d0044).
         Reopen = "reopen",
-        /// An epic card or track → Ready for Dev (or Dev): queues its never-started children and resumes its parked
-        /// ones (EPC-12, EPC-14; d0080).
-        QueueEpic = "queue_epic",
         /// Back to an earlier Agent stage (FLW-18): asks for the instructions that stage's agent gets; its session
         /// resumes with them (or a fresh one starts) and the card then walks every later stage again. A human Fail.
         SendBack = "send_back",
@@ -154,8 +150,6 @@ pub const MERGED_LOCKED: &str = "Merged tickets are locked";
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
 /// Ready for Dev → Dev: the scheduler starts it (SCH-01).
 pub const STARTS_BY_ITSELF: &str = "It starts by itself when it can, in priority order";
-/// *03 → An epic can't go back* (d0108, 0059): the user reopens it or adds a child instead.
-pub const EPIC_NO_DRAG_BACK: &str = "An epic can\u{2019}t be dragged back";
 /// A Backlog ticket dropped on an agent check: it starts with its first Agent stage.
 pub const QUEUE_FIRST: &str = "Drag it to Ready for Dev to queue it";
 
@@ -168,10 +162,9 @@ pub fn blocked_text(key: &crate::domain::TicketKey) -> String {
 /// Whether dropping `ticket` on `target` would start it past Ready for Dev while a dependency isn't merged (DPV-03,
 /// d0049): a ticket that hasn't started yet (Backlog or Ready for Dev) dropped on any stage of `flow`, while
 /// [`readiness`](super::readiness::readiness) says it waits (or a parent closed, which never counts as merged).
-/// `tickets` are its project's. Epics queue their children, who each wait on their own.
+/// `tickets` are its project's.
 pub fn blocks_start(flow: &Flow, ticket: &Ticket, tickets: &[Ticket], target: &DropOn) -> bool {
-    !ticket.is_epic()
-        && !ticket.depends_on.is_empty()
+    !ticket.depends_on.is_empty()
         && matches!(ticket.place, Place::Backlog | Place::Waiting(None))
         && matches!(target.in_flow(flow), Some(Target::Stage(_)))
         && !super::readiness::readiness(ticket, tickets).is_ready()
@@ -187,45 +180,10 @@ pub fn check_move_in(flow: &Flow, ticket: &Ticket, target: impl Into<DropOn>) ->
     check_with(flow, ticket, &[], &target.into())
 }
 
-/// Decides a drag in `flow` for a ticket that skips `skips` by its choices (AGM-08). An epic in its stop or its
-/// Delivery walks its own flow ([`epic_flow`], Q266): a drop on a stage it doesn't walk before its stop is a drag
-/// back, which it can't do. A forward drag from an Agent stage is the user's Move to next stage, so it waits until
-/// the agent isn't mid-turn (CLS-05).
+/// Decides a drag in `flow` for a ticket that skips `skips` by its choices (AGM-08). A forward drag from an Agent
+/// stage is the user's Move to next stage, so it waits until the agent isn't mid-turn (CLS-05).
 pub fn check_with(flow: &Flow, ticket: &Ticket, skips: &[String], target: &DropOn) -> MoveCheck {
-    if ticket.is_epic()
-        && let Place::InStage(here) = &ticket.place
-    {
-        let walk = epic_flow(flow);
-        if target.in_flow(&walk).is_none()
-            && let Some(Target::Stage(stage)) = target.in_flow(flow)
-        {
-            let stop = flow
-                .position(here)
-                .or_else(|| flow.stages.iter().position(Stage::is_delivery))
-                .unwrap_or(flow.stages.len());
-            if flow.position(&stage.id).is_some_and(|at| at < stop) {
-                return MoveCheck::Refused {
-                    reason: EPIC_NO_DRAG_BACK.to_owned(),
-                };
-            }
-        }
-        return engine::drag_with(
-            &walk,
-            &ticket.place,
-            ticket.status,
-            ticket.kind,
-            &[],
-            target,
-        );
-    }
-    let check = engine::drag_with(
-        flow,
-        &ticket.place,
-        ticket.status,
-        ticket.kind,
-        skips,
-        target,
-    );
+    let check = engine::drag_with(flow, &ticket.place, ticket.status, skips, target);
     let from_agent_stage = ticket
         .place
         .stage()
@@ -280,17 +238,8 @@ impl Board {
             ))
         };
         match action {
-            // A parked ticket resumes its conversation when the start sequence sees it (d0052). An epic child
-            // queues alone: one row of its epic (EPC-12).
-            MoveAction::Start if ticket.epic.is_some() => {
-                self.queue_epic_child(key, actor).await?;
-                self.ticket_by_id(&ticket.id).await
-            }
+            // A parked ticket resumes its conversation when the start sequence sees it (d0052).
             MoveAction::Start => self.start(&ticket, actor).await,
-            MoveAction::QueueEpic => {
-                self.queue_epic(key, actor).await?;
-                self.ticket_by_id(&ticket.id).await
-            }
             MoveAction::Unqueue => self.unqueue(&ticket, actor).await,
             MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),
@@ -326,20 +275,11 @@ impl Board {
         Ok(check_with(&flow, ticket, &skips, target))
     }
 
-    /// Backlog → Ready for Dev (Queued): a standalone ticket. Epic children go through
-    /// [`Board::queue_epic_child`].
+    /// Backlog → Ready for Dev (Queued).
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let returns_to = self.parked_return(ticket).await?;
         let mut tx = self.store.begin_write().await?;
-        queue_in(
-            &mut tx,
-            ticket,
-            None,
-            returns_to.as_deref(),
-            actor,
-            json!({}),
-        )
-        .await?;
+        queue_in(&mut tx, ticket, returns_to.as_deref(), actor, json!({})).await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
     }
@@ -369,8 +309,8 @@ impl Board {
 
     /// Ready for Dev → Backlog (d0066): out of the queue. Nothing had started, so a ticket that never worked
     /// (no branch or worktree yet, not parked or reopened) is also "never started" again: its first-start time
-    /// and its base lock go, and it can be deleted or moved into an epic as before (implementation choice). A
-    /// parked ticket goes back to Parked. A child that joined its epic's queue loses that mark (EPC-13).
+    /// and its base lock go, and it can be deleted as before (implementation choice). A parked ticket goes back to
+    /// Parked.
     async fn unqueue(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let Some(row) = self.store.ticket(&ticket.id).await? else {
             return Err(BoardError::NotFound(ticket.key.to_string()));
@@ -384,7 +324,7 @@ impl Board {
 
     /// **Reopen** (CLS-03; d0044): Done · Closed → Backlog. Merged tickets are locked. A ticket that has been to
     /// Dev is marked reopened: its next start rebases its old branch onto the current base and starts a new
-    /// agent session (GIT-06). Reopening an epic child returns its epic to Backlog.
+    /// agent session (GIT-06).
     pub async fn reopen(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
         match ticket.status {
@@ -406,21 +346,6 @@ impl Board {
                 ));
             }
         }
-        let epic = match &ticket.epic {
-            Some(epic) => Some(self.ticket(&epic.to_string()).await?),
-            None => None,
-        };
-        if let Some(epic) = &epic
-            && epic.status == Status::Merged
-        {
-            return Err(BoardError::refused(
-                Refusal::MoveRefused,
-                format!(
-                    "{}'s epic {} is merged and locked. Create a new ticket.",
-                    ticket.key, epic.key
-                ),
-            ));
-        }
         let started = self.has_been_to_dev(&ticket).await?;
         let reopened = self
             .set_status(&ticket, Status::Backlog, actor, EventKind::Reopened)
@@ -430,14 +355,6 @@ impl Board {
                 .bind(&ticket.id)
                 .execute(self.store.pool())
                 .await?;
-        }
-        if let Some(epic) = epic
-            && !epic.place.is_backlog()
-        {
-            self.set_status(&epic, Status::Backlog, actor, EventKind::Reopened)
-                .await?;
-            // Its lead, ended at Review, resumes with no message (LEAD-12).
-            self.leads().epic_back(&epic.key).await;
         }
         tracing::info!(key = %reopened.key, started, "reopened");
         self.ticket_by_id(&ticket.id).await
@@ -479,14 +396,13 @@ impl Board {
 }
 
 /// Backlog → Ready for Dev (Queued) inside a transaction. Records the first start and the queue time, and locks
-/// the base (d0051); an epic child also locks its epic's base (`epic_id`). The scheduler starts it once its
+/// the base (d0051). The scheduler starts it once its
 /// dependencies are merged (SCH-01) and fills in when it became ready. A parked ticket keeps its `parked` mark, so
 /// the start sequence resumes its conversation (d0052), and waits before the stage it left (`returns_to`,
-/// [`Board::parked_return`]). `extra` joins the History payload (`with_epic`).
+/// [`Board::parked_return`]). `extra` joins the History payload.
 pub(crate) async fn queue_in(
     tx: &mut Transaction<'_, Sqlite>,
     ticket: &Ticket,
-    epic_id: Option<&str>,
     returns_to: Option<&str>,
     actor: &Actor,
     extra: serde_json::Value,
@@ -510,12 +426,6 @@ pub(crate) async fn queue_in(
     .bind(&ticket.id)
     .execute(&mut **tx)
     .await?;
-    if let Some(epic_id) = epic_id {
-        sqlx::query("UPDATE tickets SET branch_locked = TRUE WHERE id = ?")
-            .bind(epic_id)
-            .execute(&mut **tx)
-            .await?;
-    }
     let mut payload = json!({"from": ticket.status, "to": Status::Queued});
     if let (Some(payload), serde_json::Value::Object(extra)) = (payload.as_object_mut(), extra) {
         payload.extend(extra);
@@ -524,7 +434,7 @@ pub(crate) async fn queue_in(
 }
 
 /// Ready for Dev → Backlog inside a transaction ([`Board::unqueue`]'s write; `row` is the ticket's stored row,
-/// read before). `extra` joins the History payload (`with_epic`).
+/// read before). `extra` joins the History payload.
 pub(crate) async fn unqueue_in(
     tx: &mut Transaction<'_, Sqlite>,
     ticket: &Ticket,
@@ -542,7 +452,7 @@ pub(crate) async fn unqueue_in(
         !row.parked && !row.reopened && row.worktree_path.is_none() && row.branch_name.is_none();
     sqlx::query(concat!(
         "UPDATE tickets SET stage_id = NULL, state = ?, queued_at = NULL, ready_since = NULL,
-                            start_problem_step = NULL, start_problem_message = NULL, joined_queue_by = NULL,
+                            start_problem_step = NULL, start_problem_message = NULL,
                             started_at = CASE WHEN ? THEN NULL ELSE started_at END,
                             branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
                             updated_by = ?, updated_at = ?, ",

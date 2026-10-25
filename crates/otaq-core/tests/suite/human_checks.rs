@@ -13,8 +13,8 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::NeedsYouGroup;
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, Place, Status, ValidationTrigger};
+use otaq_core::board::tickets::{EventKind, Ticket};
+use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::engine::RunResult;
 use otaq_core::flow::{
     CheckBy, Column, Delivers, Delivery, DeliveryMode, FlowFile, Stage, StageKind, yaml,
@@ -418,8 +418,7 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     w.stop().await;
 }
 
-/// The default flow: Review's Pass offers Local merge and Open PR, as Approve does today (an epic child's only the
-/// Local merge into its epic); nothing moves.
+/// The default flow: Review's Pass offers Local merge and Open PR, as Approve does today; nothing moves.
 #[tokio::test(flavor = "multi_thread")]
 async fn on_the_default_flow_reviews_pass_offers_the_delivery_choices() {
     let w = world().await;
@@ -433,42 +432,6 @@ async fn on_the_default_flow_reviews_pass_offers_the_delivery_choices() {
     );
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
 
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    let child = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist button".into(),
-                epic: Some(epic.key.to_string()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    w.force_status(&child, Status::WaitingForYou).await;
-    assert_eq!(
-        w.review
-            .pass(&child.key.to_string(), &w.validation, &me())
-            .await
-            .unwrap(),
-        PassOutcome::Choose {
-            delivers: Delivers::Local
-        }
-    );
     w.stop().await;
 }
 

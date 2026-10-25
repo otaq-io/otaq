@@ -5,9 +5,9 @@
 //! agent session doesn't grant the user's full access (d0031). The calling PID is the socket's peer PID, which
 //! the kernel reports; a PID claimed in the message must match it.
 //!
-//! Only sessions that run an agent tool count: a ticket's (the agent, the answer-only and epic-delivery sessions of
-//! M10, the validator of M12) and a Project agent's (d0068), an epic lead's among them (d0083). Shell, Project terminal and Run sessions are the
-//! user's own terminals: their callers are the user (CLI-03).
+//! Only sessions that run an agent tool count: a ticket's (the agent, the answer-only and delivery sessions of M10,
+//! the validator of M12) and a Project agent's (d0068). Shell, Project terminal and Run sessions are the user's own
+//! terminals: their callers are the user (CLI-03).
 //!
 //! Limit (implementation choice): a process that leaves the session's process tree on purpose (double fork plus
 //! `setsid`, reparented to `launchd`) is no longer recognised. Claude Code runs its tools, hooks and background
@@ -16,7 +16,7 @@
 //! **The role comes from the stage** (STG-10, d0108): a ticket's session has the rights of the kind of the stage its
 //! stage run is in ([`by_stage`]): a session in an Agent stage is the ticket's agent (never a verdict), a session in
 //! an agent check is its checker (the verdict only), whatever kind of session runs it. A session with no stage run
-//! (an answer-only session, an epic's delivery) keeps the role of its kind.
+//! (an answer-only session, a delivery session) keeps the role of its kind.
 //!
 //! Windows: Git Bash (which Claude Code runs commands with) replaces a process by starting a new one and ending
 //! the old, so the Windows parent chain can break inside a session. There a session's processes are also found
@@ -57,18 +57,6 @@ pub enum Caller {
         agent: String,
         session: String,
     },
-    /// A process inside an epic lead's session (d0083): a Project agent session whose row has an epic. Its rules
-    /// are its own (CLI-07, [`crate::policy`]).
-    EpicLead {
-        /// The project's key.
-        project: String,
-        /// The lead's Project agent id.
-        agent: String,
-        /// The epic's key and id.
-        epic: TicketKey,
-        epic_id: String,
-        session: String,
-    },
 }
 
 impl Caller {
@@ -80,16 +68,14 @@ impl Caller {
     pub fn ticket(&self) -> Option<&TicketKey> {
         match self {
             Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => Some(ticket),
-            Self::User | Self::ProjectAgent { .. } | Self::EpicLead { .. } => None,
+            Self::User | Self::ProjectAgent { .. } => None,
         }
     }
 
-    /// The Project agent id and session of a Project agent or an epic lead (both run as Project agent sessions).
+    /// The Project agent id and session of a Project agent.
     pub fn project_agent(&self) -> Option<(&str, &str)> {
         match self {
-            Self::ProjectAgent { agent, session, .. } | Self::EpicLead { agent, session, .. } => {
-                Some((agent, session))
-            }
+            Self::ProjectAgent { agent, session, .. } => Some((agent, session)),
             Self::User | Self::Agent { .. } | Self::Validator { .. } => None,
         }
     }
@@ -110,9 +96,7 @@ impl Caller {
                 own
             }
             // A Project agent is always itself too (PAG-05): cards name it.
-            Self::ProjectAgent { agent, .. } | Self::EpicLead { agent, .. } => {
-                Actor::ProjectAgent(agent.clone())
-            }
+            Self::ProjectAgent { agent, .. } => Actor::ProjectAgent(agent.clone()),
             Self::User => requested
                 .filter(|r| !r.trim().is_empty())
                 .map(|r| r.parse().expect("infallible"))
@@ -143,19 +127,10 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
                 .flatten()
         });
     if let Some(root) = project_agent {
-        return match root.epic {
-            Some((epic_id, epic)) => Caller::EpicLead {
-                project: root.project,
-                agent: root.agent,
-                epic,
-                epic_id,
-                session: root.session,
-            },
-            None => Caller::ProjectAgent {
-                project: root.project,
-                agent: root.agent,
-                session: root.session,
-            },
+        return Caller::ProjectAgent {
+            project: root.project,
+            agent: root.agent,
+            session: root.session,
         };
     }
     let by_ancestry = ancestry

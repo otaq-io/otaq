@@ -7,13 +7,9 @@ import type { EditorReport } from "./EditorReport";
  */
 export type EditorForm = { title: string, body: string, 
 /**
- * 1–4 once picked; `null`: Normal for a new ticket, the epic's for a child.
+ * 1–4 once picked; `null`: Normal for a new ticket.
  */
-priority: number | null, epic_kind: boolean, 
-/**
- * Create only: the epic the new ticket goes into.
- */
-epic: string | null, base_branch: string | null, external_id: string, 
+priority: number | null, base_branch: string | null, external_id: string, 
 /**
  * The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
  */

@@ -259,7 +259,7 @@ mod tests {
                 t0 + Duration::from_millis(100 * n as u64),
             );
         }
-        batch.add(made("Wishlist lead", "DEMO-40.5", Status::Queued), t0);
+        batch.add(made("Wishlist lead", "DEMO-45", Status::Queued), t0);
         let toasts = batch.take_if_quiet(t0 + Duration::from_secs(5));
         let shown: Vec<(&str, Option<&str>)> = toasts
             .iter()
@@ -274,7 +274,7 @@ mod tests {
                 ),
                 (
                     "Ticket created by agent",
-                    Some("Wishlist lead created DEMO-40.5 \u{2192} Ready for Dev")
+                    Some("Wishlist lead created DEMO-45 \u{2192} Ready for Dev")
                 ),
             ]
         );

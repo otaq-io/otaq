@@ -64,7 +64,7 @@ async fn done_when_items_move_into_the_description() {
         ("t18", 18, "ticket", "Show the prices.\n\n"),
         ("t19", 19, "ticket", "  Keep me exactly.\n\n"),
         ("t20", 20, "ticket", ""),
-        ("t40", 40, "epic", "Wishlist epic."),
+        ("t40", 40, "ticket", "Wishlist."),
     ] {
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, kind, title, body, board_column, state, created_by,
@@ -84,7 +84,7 @@ async fn done_when_items_move_into_the_description() {
         ("t18", 1, "works on mobile widths"),
         ("t18", 0, "sorted by price"),
         ("t20", 0, "only item"),
-        ("t40", 0, "every child merged"),
+        ("t40", 0, "every piece merged"),
     ] {
         sqlx::query(
             "INSERT INTO ticket_done_when (ticket_id, position, text, added_by) VALUES (?, ?, ?, 'me')",
@@ -122,7 +122,7 @@ async fn done_when_items_move_into_the_description() {
     assert_eq!(body("t20").await, "## Done when\n\n- only item");
     assert_eq!(
         body("t40").await,
-        "Wishlist epic.\n\n## Done when\n\n- every child merged"
+        "Wishlist.\n\n## Done when\n\n- every piece merged"
     );
     let tables: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ticket_done_when'",
@@ -133,10 +133,9 @@ async fn done_when_items_move_into_the_description() {
     assert_eq!(tables, 0, "the table is dropped");
 }
 
-/// T-0177 (TKT-09, d0065): migration 0023 gives tickets and epics priority 3; epic children keep none and follow
-/// their epic.
+/// T-0177 (TKT-09, d0065): migration 0023 gives existing tickets priority 3; from migration 0066 it is never NULL.
 #[tokio::test]
-async fn existing_tickets_get_normal_and_children_follow_their_epic() {
+async fn existing_tickets_get_normal() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("otaq.db");
     let pool = database_at(&path, 22).await;
@@ -151,26 +150,17 @@ async fn existing_tickets_get_normal_and_children_follow_their_epic() {
         "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
                               created_by, created_at, updated_at)
          VALUES ('t18', 'p', 18, NULL, 0, 'ticket', 'T', 'backlog', 'backlog', 'me', 0, 0),
-                ('t40', 'p', 40, NULL, 0, 'epic', 'E', 'backlog', 'backlog', 'me', 0, 0),
-                ('t401', 'p', 40, 't40', 1, 'ticket', 'C', 'backlog', 'backlog', 'me', 0, 0)",
+                ('t19', 'p', 19, NULL, 0, 'ticket', 'U', 'backlog', 'backlog', 'me', 0, 0)",
     )
     .await;
     pool.close().await;
 
     let store = Store::open(&path).await.unwrap();
-    let rows: Vec<(String, Option<i64>)> =
-        sqlx::query_as("SELECT id, priority FROM tickets ORDER BY id")
-            .fetch_all(store.pool())
-            .await
-            .unwrap();
-    assert_eq!(
-        rows,
-        [
-            ("t18".to_owned(), Some(3)),
-            ("t40".to_owned(), Some(3)),
-            ("t401".to_owned(), None)
-        ]
-    );
+    let rows: Vec<(String, i64)> = sqlx::query_as("SELECT id, priority FROM tickets ORDER BY id")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(rows, [("t18".to_owned(), 3), ("t19".to_owned(), 3)]);
     let refused = sqlx::query("UPDATE tickets SET priority = 5 WHERE id = 't18'")
         .execute(store.pool())
         .await;
@@ -514,144 +504,8 @@ async fn questions_take_a_project_agent_as_the_asker() {
     assert_eq!(left, 2);
 }
 
-/// T-0262 (d0080): migration 0030 adds the epic's queue mode and the child's "joined the queue" mark to an M15
-/// database: every ticket keeps its row and fields, epics start as `none`, nobody joined a queue yet.
-#[tokio::test]
-async fn epics_start_unqueued_and_keep_their_rows() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("otaq.db");
-    let pool = database_at(&path, 29).await;
-    exec(
-        &pool,
-        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
-         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
-                              pinned_at, started_at, created_by, created_at, updated_at)
-         VALUES ('t45', 'p', 45, NULL, 0, 'epic', 'Search', 'backlog', 'backlog', 7, NULL, 'me', 0, 0),
-                ('t451', 'p', 45, 't45', 1, 'ticket', 'Search index API', 'dev', 'working', NULL, 3, 'me', 1, 1),
-                ('t452', 'p', 45, 't45', 2, 'ticket', 'Search results page', 'backlog', 'backlog', NULL, NULL,
-                 'me', 2, 2),
-                ('t51', 'p', 51, NULL, 0, 'ticket', 'Fix checkout rounding', 'ready_for_dev', 'queued', NULL, 4,
-                 'me', 3, 3)",
-    )
-    .await;
-    pool.close().await;
-
-    let store = Store::open(&path).await.unwrap();
-    let expected = [
-        ("t45", "Search", "backlog", Some(7), None),
-        ("t451", "Search index API", "working", None, Some(3)),
-        ("t452", "Search results page", "backlog", None, None),
-        ("t51", "Fix checkout rounding", "queued", None, Some(4)),
-    ];
-    for (id, title, state, pinned_at, started_at) in expected {
-        let row = store.ticket(id).await.unwrap().expect("the row is kept");
-        assert_eq!(
-            (
-                row.title.as_str(),
-                row.state.as_str(),
-                row.pinned_at,
-                row.started_at
-            ),
-            (title, state, pinned_at, started_at),
-            "{id}"
-        );
-        assert_eq!(
-            (
-                row.epic_queue_mode.as_str(),
-                row.epic_queue_mode_at,
-                row.joined_queue_by
-            ),
-            ("none", None, None),
-            "{id}"
-        );
-    }
-    let refused = sqlx::query("UPDATE tickets SET epic_queue_mode = 'half' WHERE id = 't45'")
-        .execute(store.pool())
-        .await;
-    assert!(refused.is_err(), "none, whole or single only");
-    exec(
-        store.pool(),
-        "UPDATE tickets SET epic_queue_mode = 'whole', epic_queue_mode_at = 9 WHERE id = 't45'",
-    )
-    .await;
-    store
-        .set_joined_queue_by("t452", Some("agent:SHOP-45.1"))
-        .await
-        .unwrap();
-    let epic = store.ticket("t45").await.unwrap().unwrap();
-    assert_eq!(
-        (epic.epic_queue_mode.as_str(), epic.epic_queue_mode_at),
-        ("whole", Some(9))
-    );
-    let child = store.ticket("t452").await.unwrap().unwrap();
-    assert_eq!(child.joined_queue_by.as_deref(), Some("agent:SHOP-45.1"));
-}
-
-/// T-0278 (LEAD-01; d0083): migration 0031 gives Project agents an epic on an M16 database: existing agents keep
-/// their rows with no epic, an epic has at most one lead, and deleting the epic deletes its lead's row.
-#[tokio::test]
-async fn project_agents_take_an_epic_and_an_epic_has_one_lead() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("otaq.db");
-    let pool = database_at(&path, 30).await;
-    exec(
-        &pool,
-        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
-         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 46, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
-                              created_by, created_at, updated_at)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', 'me', 0, 0),
-                ('t45', 'p', 45, NULL, 0, 'epic', 'Search', 'backlog', 'backlog', 'me', 0, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state, created_at)
-         VALUES ('a1', 'p', 'Checkout slowness', 'agent', 'c1', 'ended', 0)",
-    )
-    .await;
-    pool.close().await;
-
-    let store = Store::open(&path).await.unwrap();
-    let row = sqlx::query("SELECT name, epic_id FROM project_agents WHERE id = 'a1'")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(row.get::<String, _>(0), "Checkout slowness");
-    assert_eq!(row.get::<Option<String>, _>(1), None);
-    exec(
-        store.pool(),
-        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
-         VALUES ('l40', 'p', 'claude', 'c2', 'running', 0, 't40'), ('l45', 'p', 'claude', 'c3', 'running', 0, 't45'),
-                ('a2', 'p', 'claude', 'c4', 'running', 0, NULL)",
-    )
-    .await;
-    let second = sqlx::query(
-        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
-         VALUES ('l40b', 'p', 'claude', 'c5', 'running', 0, 't40')",
-    )
-    .execute(store.pool())
-    .await;
-    assert!(second.is_err(), "one lead per epic");
-    exec(store.pool(), "DELETE FROM tickets WHERE id = 't40'").await;
-    let left: Vec<String> = sqlx::query_scalar("SELECT id FROM project_agents ORDER BY id")
-        .fetch_all(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(left, ["a1", "a2", "l45"]);
-}
-
 /// T-0276 (DEC-02, d0084): migration 0032 adds the empty `decisions` table to an M17 database (after 0031): every ticket keeps its
-/// row, a decision starts open with no mark, and the outcome takes only its four values.
+/// row, a decision starts open, and the outcome takes only its values.
 #[tokio::test]
 async fn decisions_start_empty_and_tickets_keep_their_rows() {
     let tmp = tempfile::tempdir().unwrap();
@@ -667,8 +521,7 @@ async fn decisions_start_empty_and_tickets_keep_their_rows() {
         &pool,
         "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
                               started_at, created_by, created_at, updated_at, epic_queue_mode)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'whole'),
-                ('t401', 'p', 40, 't40', 1, 'ticket', 'Wishlist API', 'dev', 'working', 3, 'me', 1, 1, 'none'),
+         VALUES ('t41', 'p', 41, NULL, 0, 'ticket', 'Wishlist API', 'dev', 'working', 3, 'me', 1, 1, 'none'),
                 ('t23', 'p', 23, NULL, 0, 'ticket', 'Split user full name', 'ready_for_review',
                  'ready_for_review', 4, 'me', 2, 2, 'none')",
     )
@@ -677,8 +530,7 @@ async fn decisions_start_empty_and_tickets_keep_their_rows() {
 
     let store = Store::open(&path).await.unwrap();
     for (id, title, state) in [
-        ("t40", "Wishlist", "backlog"),
-        ("t401", "Wishlist API", "working"),
+        ("t41", "Wishlist API", "working"),
         ("t23", "Split user full name", "ready_for_review"),
     ] {
         let row = store.ticket(id).await.unwrap().expect("the row is kept");
@@ -688,16 +540,6 @@ async fn decisions_start_empty_and_tickets_keep_their_rows() {
             "{id}"
         );
     }
-    assert_eq!(
-        store
-            .ticket("t40")
-            .await
-            .unwrap()
-            .unwrap()
-            .epic_queue_mode
-            .as_str(),
-        "whole"
-    );
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
         .fetch_one(store.pool())
         .await
@@ -710,23 +552,16 @@ async fn decisions_start_empty_and_tickets_keep_their_rows() {
          VALUES ('d1', 't23', 1, 'q', 'b', '[\"o\"]', 'w', 'agent:SHOP-23', 5)",
     )
     .await;
-    let row = sqlx::query(
-        "SELECT outcome, mark_text, fix_child_id, outcome_at FROM decisions WHERE id = 'd1'",
-    )
-    .fetch_one(store.pool())
-    .await
-    .unwrap();
+    let row = sqlx::query("SELECT outcome, outcome_at FROM decisions WHERE id = 'd1'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
     assert_eq!(row.get::<String, _>("outcome"), "open");
-    assert_eq!(row.get::<Option<String>, _>("mark_text"), None);
-    assert_eq!(row.get::<Option<String>, _>("fix_child_id"), None);
     assert_eq!(row.get::<Option<i64>, _>("outcome_at"), None);
     let refused = sqlx::query("UPDATE decisions SET outcome = 'maybe' WHERE id = 'd1'")
         .execute(store.pool())
         .await;
-    assert!(
-        refused.is_err(),
-        "open, kept, changed_sent_back or changed_fix_child only"
-    );
+    assert!(refused.is_err(), "open, kept or changed_sent_back only");
     let duplicate = sqlx::query(
         "INSERT INTO decisions (id, ticket_id, ordinal, question, built, why, recorded_by, recorded_at)
          VALUES ('d2', 't23', 1, 'q', 'b', 'w', 'me', 6)",
@@ -736,346 +571,8 @@ async fn decisions_start_empty_and_tickets_keep_their_rows() {
     assert!(duplicate.is_err(), "one number per ticket");
 }
 
-/// T-0280 (LEAD-08; d0083): migration 0034 adds the empty `lead_suggestions` table to a database after 0033: every
-/// ticket keeps its row, a suggestion starts open, kind and state take only their values, one open suggestion per
-/// child and kind, and deleting the child deletes its suggestions.
-#[tokio::test]
-async fn lead_suggestions_start_empty_one_open_per_child_and_kind() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("otaq.db");
-    let pool = database_at(&path, 33).await;
-    exec(
-        &pool,
-        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
-         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
-                              started_at, created_by, created_at, updated_at, epic_queue_mode)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
-                ('t406', 'p', 40, 't40', 6, 'ticket', 'Wishlist export (CSV)', 'backlog', 'backlog', NULL, 'me',
-                 1, 1, 'none')",
-    )
-    .await;
-    pool.close().await;
-
-    let store = Store::open(&path).await.unwrap();
-    let row = store
-        .ticket("t406")
-        .await
-        .unwrap()
-        .expect("the row is kept");
-    assert_eq!(row.title, "Wishlist export (CSV)");
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_suggestions")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    exec(
-        store.pool(),
-        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at)
-         VALUES ('s1', 't40', 't406', 'close', 'PAY-123 doesn''t ask for an export.', 'project-agent:l1', 5)",
-    )
-    .await;
-    let state: String = sqlx::query_scalar("SELECT state FROM lead_suggestions WHERE id = 's1'")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(state, "open");
-    for bad in [
-        "UPDATE lead_suggestions SET state = 'maybe' WHERE id = 's1'",
-        "UPDATE lead_suggestions SET kind = 'park' WHERE id = 's1'",
-        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at)
-         VALUES ('s2', 't40', 't406', 'close', 'again', 'project-agent:l1', 6)",
-    ] {
-        assert!(
-            sqlx::query(sqlx::AssertSqlSafe(bad))
-                .execute(store.pool())
-                .await
-                .is_err(),
-            "{bad}"
-        );
-    }
-    // A dismissed one doesn't count: the lead may suggest again later; deleting also is another kind.
-    exec(
-        store.pool(),
-        "UPDATE lead_suggestions SET state = 'dismissed' WHERE id = 's1'",
-    )
-    .await;
-    exec(
-        store.pool(),
-        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at)
-         VALUES ('s3', 't40', 't406', 'close', 'again', 'project-agent:l1', 7),
-                ('s4', 't40', 't406', 'delete', 'or this', 'project-agent:l1', 8)",
-    )
-    .await;
-    exec(store.pool(), "DELETE FROM tickets WHERE id = 't406'").await;
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_suggestions")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(count, 0, "deleted with the child");
-}
-
-/// T-0284 (LEAD-06; d0083): migration 0035 adds the lead's columns to `human_questions` on a database after 0034:
-/// existing questions keep their rows with no lead, a routed one takes only the four states, and deleting the lead
-/// or the epic keeps the question.
-#[tokio::test]
-async fn questions_keep_their_rows_and_take_the_leads_columns() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("otaq.db");
-    let pool = database_at(&path, 34).await;
-    exec(
-        &pool,
-        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
-         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
-                              started_at, created_by, created_at, updated_at, epic_queue_mode)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
-                ('t402', 'p', 40, 't40', 2, 'ticket', 'Wishlist button', 'dev', 'working', 3, 'me', 1, 1,
-                 'none')",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
-         VALUES ('l40', 'p', 'c1', 'running', 2, 't40')",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO human_questions (id, ticket_id, question, options_json, asked_at)
-         VALUES ('q1', 't402', 'Filled heart?', '[]', 4)",
-    )
-    .await;
-    pool.close().await;
-
-    let store = Store::open(&path).await.unwrap();
-    let row = sqlx::query(
-        "SELECT question, lead_id, lead_epic_id, lead_state, lead_reason, lead_at FROM human_questions
-         WHERE id = 'q1'",
-    )
-    .fetch_one(store.pool())
-    .await
-    .unwrap();
-    assert_eq!(row.get::<String, _>("question"), "Filled heart?");
-    for column in ["lead_id", "lead_epic_id", "lead_state", "lead_reason"] {
-        assert_eq!(row.get::<Option<String>, _>(column), None, "{column}");
-    }
-    assert_eq!(row.get::<Option<i64>, _>("lead_at"), None);
-
-    exec(
-        store.pool(),
-        "UPDATE human_questions SET lead_id = 'l40', lead_epic_id = 't40', lead_state = 'with_lead' WHERE id = 'q1'",
-    )
-    .await;
-    for state in ["answered", "passed_on", "handed_back", "with_lead"] {
-        exec(
-            store.pool(),
-            &format!("UPDATE human_questions SET lead_state = '{state}' WHERE id = 'q1'"),
-        )
-        .await;
-    }
-    let refused = sqlx::query("UPDATE human_questions SET lead_state = 'maybe' WHERE id = 'q1'")
-        .execute(store.pool())
-        .await;
-    assert!(refused.is_err(), "the four states only");
-    exec(store.pool(), "DELETE FROM project_agents WHERE id = 'l40'").await;
-    exec(
-        store.pool(),
-        "UPDATE tickets SET epic_id = NULL WHERE id = 't402'",
-    )
-    .await;
-    exec(store.pool(), "DELETE FROM tickets WHERE id = 't40'").await;
-    let kept: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT lead_id, lead_epic_id, lead_state FROM human_questions WHERE id = 'q1'",
-    )
-    .fetch_one(store.pool())
-    .await
-    .unwrap();
-    assert_eq!(kept, (None, None, Some("with_lead".into())));
-}
-
-/// T-0281 (LEAD-10; d0083, d0048): migration 0036 adds the empty `lead_notes` table and the `lead_note` delivery kind
-/// to a database after 0035: waiting deliveries are kept, a note starts unread, `read_how` takes only its values and
-/// comes with `read_at`, and deleting the child deletes its notes.
-#[tokio::test]
-async fn lead_notes_start_empty_and_deliveries_take_the_note_kind() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("otaq.db");
-    let pool = database_at(&path, 35).await;
-    exec(
-        &pool,
-        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
-         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
-                              started_at, created_by, created_at, updated_at, epic_queue_mode)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
-                ('t404', 'p', 40, 't40', 4, 'ticket', 'Wishlist share link', 'dev', 'working', 1, 'me',
-                 1, 1, 'none')",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO sessions (id, kind, project_id, ticket_id, state, started_at)
-         VALUES ('s1', 'agent', 'p', 't404', 'running', 2)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at)
-         VALUES ('d1', 's1', 'lead_wake', 'SHOP-40.1 merged', 3)",
-    )
-    .await;
-    pool.close().await;
-
-    let store = Store::open(&path).await.unwrap();
-    let kept: String = sqlx::query_scalar("SELECT kind FROM pending_deliveries WHERE id = 'd1'")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(kept, "lead_wake");
-    exec(
-        store.pool(),
-        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at)
-         VALUES ('d2', 's1', 'lead_note', 'Note from Wishlist lead: …', 4)",
-    )
-    .await;
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_notes")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    exec(
-        store.pool(),
-        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, created_at)
-         VALUES ('n1', 't40', 't404', 'l1', 'project-agent:l1', 'Use the same order.', 5)",
-    )
-    .await;
-    let row = sqlx::query("SELECT read_at, read_how, view FROM lead_notes WHERE id = 'n1'")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(row.get::<Option<i64>, _>("read_at"), None);
-    assert_eq!(row.get::<Option<String>, _>("read_how"), None);
-    assert_eq!(row.get::<Option<String>, _>("view"), None);
-    for bad in [
-        "UPDATE lead_notes SET read_at = 6, read_how = 'skimmed' WHERE id = 'n1'",
-        "UPDATE lead_notes SET read_how = 'notes' WHERE id = 'n1'",
-        "UPDATE lead_notes SET read_at = 6 WHERE id = 'n1'",
-    ] {
-        assert!(
-            sqlx::query(sqlx::AssertSqlSafe(bad))
-                .execute(store.pool())
-                .await
-                .is_err(),
-            "{bad}"
-        );
-    }
-    for how in ["notes", "prime", "typed", "with_stop"] {
-        exec(
-            store.pool(),
-            &format!("UPDATE lead_notes SET read_at = 6, read_how = '{how}' WHERE id = 'n1'"),
-        )
-        .await;
-    }
-    exec(store.pool(), "DELETE FROM tickets WHERE id = 't404'").await;
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_notes")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(count, 0, "deleted with the child");
-}
-
-/// T-0285 (LEAD-07; d0083): migration 0037 adds the empty `lead_stuck` table to a database after 0036: one row per
-/// child (its one lead attempt), `stop` and `state` take only their values, a held row has no `resolved_at`, the
-/// note it points to may go, and deleting the child deletes the row.
-#[tokio::test]
-async fn lead_stuck_starts_empty_one_row_per_child() {
-    let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("otaq.db");
-    let pool = database_at(&path, 36).await;
-    exec(
-        &pool,
-        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
-         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
-                              started_at, created_by, created_at, updated_at, epic_queue_mode)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
-                ('t403', 'p', 40, 't40', 3, 'ticket', 'Wishlist page', 'dev', 'working', 1, 'me', 1, 1, 'none')",
-    )
-    .await;
-    pool.close().await;
-
-    let store = Store::open(&path).await.unwrap();
-    let count = async || -> i64 {
-        sqlx::query_scalar("SELECT COUNT(*) FROM lead_stuck")
-            .fetch_one(store.pool())
-            .await
-            .unwrap()
-    };
-    assert_eq!(count().await, 0);
-    exec(
-        store.pool(),
-        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, created_at)
-         VALUES ('n1', 't40', 't403', 'l1', 'project-agent:l1', 'Fix the test.', 5)",
-    )
-    .await;
-    exec(
-        store.pool(),
-        "INSERT INTO lead_stuck (child_id, epic_id, lead_id, stop, detail, rounds, state, held_at)
-         VALUES ('t403', 't40', 'l1', 'validation_failed', 'orders.test.ts expects `list`', 3, 'held', 4)",
-    )
-    .await;
-    for bad in [
-        "INSERT INTO lead_stuck (child_id, epic_id, lead_id, stop, state, held_at)
-         VALUES ('t403', 't40', 'l1', 'idle', 'held', 6)",
-        "UPDATE lead_stuck SET stop = 'crashed' WHERE child_id = 't403'",
-        "UPDATE lead_stuck SET state = 'lost', resolved_at = 6 WHERE child_id = 't403'",
-        "UPDATE lead_stuck SET state = 'noted' WHERE child_id = 't403'",
-        "UPDATE lead_stuck SET resolved_at = 6 WHERE child_id = 't403'",
-    ] {
-        assert!(
-            sqlx::query(sqlx::AssertSqlSafe(bad))
-                .execute(store.pool())
-                .await
-                .is_err(),
-            "{bad}"
-        );
-    }
-    exec(
-        store.pool(),
-        "UPDATE lead_stuck SET state = 'noted', resolved_at = 6, note_id = 'n1' WHERE child_id = 't403'",
-    )
-    .await;
-    exec(store.pool(), "DELETE FROM lead_notes WHERE id = 'n1'").await;
-    let note: Option<String> = sqlx::query_scalar("SELECT note_id FROM lead_stuck")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(note, None, "the note may go");
-    exec(store.pool(), "DELETE FROM tickets WHERE id = 't403'").await;
-    assert_eq!(count().await, 0, "deleted with the child");
-}
-
 /// T-0309 (ADP-04, d0088): migration 0038 makes sessions tool-neutral on an M19 database (after 0037). An agent
-/// session and a Project agent (and an epic lead) ran Claude Code and keep their ids; a Shell session runs no agent
+/// session and a Project agent ran Claude Code and keep their ids; a Shell session runs no agent
 /// tool; nothing passed a model. The index follows the rename, and a Project agent's tool id may now be empty.
 #[tokio::test]
 async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
@@ -1092,8 +589,7 @@ async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
         &pool,
         "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by, created_at,
                               updated_at)
-         VALUES ('t18', 'p', 18, 'ticket', 'T', 'dev', 'working', 'me', 0, 0),
-                ('t40', 'p', 40, 'epic', 'Wishlist', 'backlog', 'backlog', 'me', 0, 0)",
+         VALUES ('t18', 'p', 18, 'ticket', 'T', 'dev', 'working', 'me', 0, 0)",
     )
     .await;
     exec(
@@ -1101,8 +597,7 @@ async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
         "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state, first_request,
                                      limit_stopped, created_at, ended_at, closed_at, epic_id)
          VALUES ('a1', 'p', 'Checkout slowness', 'agent', 'c-agent', 'ended', 'Why is checkout slow?', 1, 3, 4, 5,
-                 NULL),
-                ('l40', 'p', NULL, NULL, 'c-lead', 'running', NULL, 0, 6, NULL, NULL, 't40')",
+                 NULL)",
     )
     .await;
     exec(
@@ -1153,13 +648,10 @@ async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
             .unwrap();
     assert_eq!(
         agents,
-        [
-            ("a1".into(), "claude".into(), Some("c-agent".into()), None),
-            ("l40".into(), "claude".into(), Some("c-lead".into()), None),
-        ]
+        [("a1".into(), "claude".into(), Some("c-agent".into()), None),]
     );
     let row = sqlx::query(
-        "SELECT name, name_source, state, first_request, limit_stopped, created_at, ended_at, closed_at, epic_id
+        "SELECT name, name_source, state, first_request, limit_stopped, created_at, ended_at, closed_at
          FROM project_agents WHERE id = 'a1'",
     )
     .fetch_one(store.pool())
@@ -1178,7 +670,6 @@ async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
         ),
         (3, Some(4), Some(5))
     );
-    assert_eq!(row.get::<Option<String>, _>(8), None);
     let indexes: Vec<String> = sqlx::query_scalar(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN
          ('sessions_tool_session', 'sessions_claude_session', 'project_agents_project', 'project_agents_epic')
@@ -1187,27 +678,13 @@ async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
     .fetch_all(store.pool())
     .await
     .unwrap();
-    assert_eq!(
-        indexes,
-        [
-            "project_agents_epic",
-            "project_agents_project",
-            "sessions_tool_session"
-        ]
-    );
-    // A tool that reports its id after start; still one lead per epic; the sessions still point at their agent.
+    assert_eq!(indexes, ["project_agents_project", "sessions_tool_session"]);
+    // A tool that reports its id after start; the sessions still point at their agent.
     exec(
         store.pool(),
         "INSERT INTO project_agents (id, project_id, tool, state, created_at) VALUES ('a2', 'p', 'claude', 'running', 8)",
     )
     .await;
-    let second = sqlx::query(
-        "INSERT INTO project_agents (id, project_id, tool, state, created_at, epic_id)
-         VALUES ('l40b', 'p', 'claude', 'running', 9, 't40')",
-    )
-    .execute(store.pool())
-    .await;
-    assert!(second.is_err(), "one lead per epic");
     exec(store.pool(), "DELETE FROM project_agents WHERE id = 'a1'").await;
     let agent: Option<String> =
         sqlx::query_scalar("SELECT project_agent_id FROM sessions WHERE id = 's3'")
@@ -1629,11 +1106,23 @@ async fn every_state_moves_to_its_place_and_stage() {
         .unwrap();
     let kept: Vec<&String> = columns
         .iter()
-        // 0051 drops the round counters too (each check counts its own, T-0417).
+        // 0051 drops the round counters too (each check counts its own, T-0417); 0066 the epic columns, and gives
+        // every ticket a priority.
         .filter(|c| {
             !matches!(
                 c.as_str(),
-                "board_column" | "state" | "validation_round" | "validation_rounds_extra"
+                "board_column"
+                    | "state"
+                    | "validation_round"
+                    | "validation_rounds_extra"
+                    | "epic_id"
+                    | "child_number"
+                    | "next_child_number"
+                    | "kind"
+                    | "epic_queue_mode"
+                    | "epic_queue_mode_at"
+                    | "joined_queue_by"
+                    | "priority"
             )
         })
         .collect();
@@ -1969,7 +1458,6 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
         shown,
         [
             ("Noyan", &CameFrom::AgentsFile, true),
-            ("Epic lead", &CameFrom::AgentsFile, true),
             ("Developer", &CameFrom::DefaultPreset, true),
             ("Validator", &CameFrom::DefaultPreset, true),
         ]
@@ -2100,12 +1588,7 @@ async fn a_fresh_install_applies_the_two_files() {
         .collect();
     assert_eq!(
         names,
-        [
-            ("Noyan", true),
-            ("Epic lead", true),
-            ("Developer", true),
-            ("Validator", true)
-        ]
+        [("Noyan", true), ("Developer", true), ("Validator", true)]
     );
     assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);
@@ -2188,7 +1671,7 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
     exec(
         &pool,
         "INSERT INTO tickets (id, project_id, number, kind, title, state, created_by, created_at, updated_at)
-         VALUES ('t40', 'p', 40, 'epic', 'Wishlist', 'backlog', 'me', 0, 0)",
+         VALUES ('t40', 'p', 40, 'ticket', 'Wishlist', 'backlog', 'me', 0, 0)",
     )
     .await;
     exec(
@@ -2197,9 +1680,7 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
                                      first_request, limit_stopped, created_at, ended_at, closed_at, epic_id,
                                      agent_id, agent_name, model_ran, effort)
          VALUES ('a1', 'p', 'Import GitHub issues', 'agent', 'claude', 'c-agent', 'opus', 'ended_by_restart',
-                 'Import the issues', 1, 3, 4, NULL, NULL, 'ag', 'Noyan', 'opus', 'high'),
-                ('l40', 'p', 'Wishlist lead', NULL, 'codex', 'c-lead', NULL, 'running', NULL, 0, 6, NULL, NULL,
-                 't40', NULL, NULL, NULL, NULL)",
+                 'Import the issues', 1, 3, 4, NULL, NULL, 'ag', 'Noyan', 'opus', 'high')",
     )
     .await;
     exec(
@@ -2238,10 +1719,9 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
             1
         )
     );
-    assert_eq!(rows[1].get::<String, _>("epic_id"), "t40");
     exec(
         store.pool(),
-        "UPDATE project_agents SET state = 'paused' WHERE id = 'l40'",
+        "UPDATE project_agents SET state = 'paused' WHERE id = 'a1'",
     )
     .await;
     let session: Option<String> =
@@ -2252,10 +1732,9 @@ async fn projects_start_unpaused_and_project_agents_can_be_paused() {
     assert_eq!(session.as_deref(), Some("a1"));
 }
 
-/// T-0491 (d0120, d0083): migration 0059 adds `tickets.merge_check_due` (off) and rebuilds `lead_stuck` so a child's
-/// stop can be `keeps_failing_merge_check`, keeping every row.
+/// T-0491 (d0120): migration 0059 adds `tickets.merge_check_due` (off), keeping every row.
 #[tokio::test]
-async fn merge_check_due_starts_off_and_a_lead_stop_can_be_a_failing_merge_check() {
+async fn merge_check_due_starts_off() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("otaq.db");
     let pool = database_at(&path, 58).await;
@@ -2269,14 +1748,7 @@ async fn merge_check_due_starts_off_and_a_lead_stop_can_be_a_failing_merge_check
         &pool,
         "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, state, created_by,
                               created_at, updated_at)
-         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'me', 0, 0),
-                ('t402', 'p', 40, 't40', 2, 'ticket', 'Wishlist button', 'working', 'me', 1, 1)",
-    )
-    .await;
-    exec(
-        &pool,
-        "INSERT INTO lead_stuck (child_id, epic_id, lead_id, stop, detail, rounds, state, held_at)
-         VALUES ('t402', 't40', 'l1', 'keeps_conflicting', 'otaq/SHOP-40', NULL, 'held', 4)",
+         VALUES ('t402', 'p', 42, NULL, 0, 'ticket', 'Wishlist button', 'working', 'me', 1, 1)",
     )
     .await;
     pool.close().await;
@@ -2287,21 +1759,6 @@ async fn merge_check_due_starts_off_and_a_lead_stop_can_be_a_failing_merge_check
         .await
         .unwrap();
     assert!(!due);
-    let kept: (String, String) =
-        sqlx::query_as("SELECT stop, detail FROM lead_stuck WHERE child_id = 't402'")
-            .fetch_one(store.pool())
-            .await
-            .unwrap();
-    assert_eq!(kept, ("keeps_conflicting".into(), "otaq/SHOP-40".into()));
-    exec(
-        store.pool(),
-        "UPDATE lead_stuck SET stop = 'keeps_failing_merge_check' WHERE child_id = 't402'",
-    )
-    .await;
-    let refused = sqlx::query("UPDATE lead_stuck SET stop = 'nonsense' WHERE child_id = 't402'")
-        .execute(store.pool())
-        .await;
-    assert!(refused.is_err(), "the CHECK still holds");
 }
 
 /// T-0517 (d0128, d0108; Q511): migration 0063 stores the Project agent role as `noyan`. An agent holding
@@ -2362,12 +1819,8 @@ async fn the_project_agent_role_is_stored_as_noyan() {
                 "Split small.".into()
             ),
             ("dev".into(), "Developer".into(), None, String::new()),
-            (
-                "el".into(),
-                "Epic lead".into(),
-                Some("epic-lead".into()),
-                String::new()
-            ),
+            // Migration 0066: the `epic-lead` role is gone (d0133); the agent stays.
+            ("el".into(), "Epic lead".into(), None, String::new()),
         ]
     );
     let skills: Vec<(String, String)> =
@@ -2397,4 +1850,140 @@ async fn the_project_agent_role_is_stored_as_noyan() {
         .execute(store.pool())
         .await;
     assert!(old.is_err(), "the old key is refused");
+}
+
+/// T-0533 (d0133, d0059, d0108): migration 0066 removes the epic type and the lead. Epics, their children and their
+/// leads go (no data is carried over); a ticket keeps its row, its External ID and its priority (never NULL again,
+/// Normal for one that had none) and gets an empty Plan; the epic columns, the key aliases and the lead's tables are
+/// gone; the `epic-lead` role is refused and its holder keeps its row without it.
+#[tokio::test]
+async fn one_card_drops_the_epic_type_and_the_lead() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 65).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, state, created_by,
+                              created_at, updated_at, priority, external_id)
+         VALUES ('t18', 'p', 18, NULL, 0, 'ticket', 'Checkout', 'backlog', 'me', 0, 0, 2, 'PAY-7'),
+                ('t19', 'p', 19, NULL, 0, 'ticket', 'Cart', 'backlog', 'me', 0, 0, NULL, NULL),
+                ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'me', 0, 0, 3, 'PAY-123'),
+                ('t401', 'p', 40, 't40', 1, 'ticket', 'Wishlist API', 'backlog', 'me', 0, 0, NULL, NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES ('t19', 't18'), ('t18', 't401')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO project_agents (id, project_id, tool, state, created_at, epic_id)
+         VALUES ('l40', 'p', 'claude', 'ended', 1, 't40'), ('pa', 'p', 'claude', 'ended', 2, NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, role, came_from, created_at, updated_at)
+         VALUES ('el', 'Epic lead', '', 'epic-lead', 'agents_file', 1, 1)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let rows: Vec<(String, i64, Option<String>, String)> =
+        sqlx::query_as("SELECT id, priority, external_id, plan FROM tickets ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        [
+            ("t18".into(), 2, Some("PAY-7".into()), String::new()),
+            ("t19".into(), 3, None, String::new()),
+        ]
+    );
+    let deps: Vec<(String, String)> =
+        sqlx::query_as("SELECT ticket_id, depends_on_id FROM ticket_deps")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(deps, [("t19".to_owned(), "t18".to_owned())]);
+    let agents: Vec<String> = sqlx::query_scalar("SELECT id FROM project_agents")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(agents, ["pa"]);
+    for column in [
+        "epic_id",
+        "child_number",
+        "next_child_number",
+        "kind",
+        "epic_queue_mode",
+        "epic_queue_mode_at",
+        "joined_queue_by",
+    ] {
+        assert!(
+            !has_column(store.pool(), "tickets", column).await,
+            "{column}"
+        );
+    }
+    for column in ["plan", "plan_by", "plan_at", "external_id", "priority"] {
+        assert!(
+            has_column(store.pool(), "tickets", column).await,
+            "{column}"
+        );
+    }
+    assert!(!has_column(store.pool(), "project_agents", "epic_id").await);
+    for column in [
+        "lead_id",
+        "lead_epic_id",
+        "lead_state",
+        "lead_reason",
+        "lead_at",
+    ] {
+        assert!(
+            !has_column(store.pool(), "human_questions", column).await,
+            "{column}"
+        );
+    }
+    for table in [
+        "ticket_key_aliases",
+        "lead_notes",
+        "lead_stuck",
+        "lead_suggestions",
+    ] {
+        assert!(!has_table(store.pool(), table).await, "{table}");
+    }
+    let role: Option<String> = sqlx::query_scalar("SELECT role FROM agents WHERE id = 'el'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(role, None);
+    let refused = sqlx::query("UPDATE agents SET role = 'epic-lead' WHERE id = 'el'")
+        .execute(store.pool())
+        .await;
+    assert!(refused.is_err(), "only noyan");
+    let null = sqlx::query("UPDATE tickets SET priority = NULL WHERE id = 't18'")
+        .execute(store.pool())
+        .await;
+    assert!(null.is_err(), "priority is never NULL");
+    exec(
+        store.pool(),
+        "INSERT INTO sessions (id, project_id, kind, state, started_at) VALUES ('s', 'p', 'project', 'running', 0)",
+    )
+    .await;
+    let lead_wake = sqlx::query(
+        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at)
+         VALUES ('d', 's', 'lead_wake', 'x', 0)",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(lead_wake.is_err(), "the lead's deliveries are gone");
 }

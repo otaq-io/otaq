@@ -5,11 +5,10 @@
 //! set so), read as `refs/heads/<base>` in the project's repository: the tree with `git ls-tree` of one folder at a
 //! time, files with `git cat-file`. It never reads the user's checkout, whatever branch it is on or edits it has.
 //!
-//! **Owners** are the project's tickets that have started and aren't Done or closed (epics aren't: the picker offers
-//! an epic's branch as its own source), each compared with where it left its own base, as its Files tab measures it
-//! (`board/files.rs`): the worktree while it is on disk, uncommitted and untracked files included and marked, else the
-//! branch from git. An epic child's base is the epic's branch. A ticket on another base than the project's (SHOP-36 on
-//! `release/2.3`, an epic child) is tagged with it; a file that exists only there is "not on <base>" and reads as that
+//! **Owners** are the project's tickets that have started and aren't Done or closed, each compared with where it left
+//! its own base, as its Files tab measures it (`board/files.rs`): the worktree while it is on disk, uncommitted and
+//! untracked files included and marked, else the branch from git. A ticket on another base than the project's
+//! (SHOP-36 on `release/2.3`) is tagged with it; a file that exists only there is "not on <base>" and reads as that
 //! ticket's diff. A ticket without a branch or worktree yet isn't an owner; the picker names it.
 //!
 //! **Who changes which lines** (FIL-05, FIL-06): for the file read, each owner's changed lines on its base's
@@ -36,7 +35,6 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
 use super::diff::short_sha;
-use super::epic_flight::{REVIEW_EPIC, epic_stop};
 use super::files::{
     ChangedEntry, EntryKind, FilesFrom, SEARCH_LIMIT, clean_path, entry_order, join_path,
     list_folder, nul_paths, rank, text_of, under,
@@ -45,7 +43,6 @@ use super::needs_you::{ProjectTickets, needs_you_items_with};
 use super::tickets::{Base, Ticket, Work};
 use super::{Board, BoardError};
 use crate::domain::{Place, Status, StatusSet, TicketKey};
-use crate::epic_lead::overlap::is_running;
 use crate::flow::Flow;
 use crate::git::Git;
 use crate::git::diff::{ChangedFile, FileDiff};
@@ -102,7 +99,7 @@ pub struct FileOwner {
     pub status: Status,
     /// `otaq/SHOP-29`.
     pub branch: String,
-    /// The ticket's own base: the project's, another branch (d0051) or its epic's branch.
+    /// The ticket's own base: the project's or another branch (d0051).
     pub base_branch: String,
     /// Its base isn't the project's: the chip is tagged with `base_branch`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -133,8 +130,6 @@ pub struct OwnerTicket {
     pub other_base: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub needs_you: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<TicketKey>,
     /// "3 files · +13 −5".
     pub files: u32,
     pub added: u32,
@@ -318,21 +313,6 @@ pub struct ProjectChanges {
     pub counts: ProjectCounts,
 }
 
-/// An epic in the picker: "Wishlist · SHOP-40 · 40.1 merged · 40.2 on top".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EpicSource {
-    pub key: TicketKey,
-    pub title: String,
-    pub status: Status,
-    pub branch: String,
-    /// Children merged into the epic's branch.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub merged: Vec<TicketKey>,
-    /// Running children whose worktree changes come on top.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub on_top: Vec<TicketKey>,
-}
-
 /// A ticket without a worktree yet: "No worktree yet: SHOP-12, SHOP-44 (Grill), … and 3 in Backlog".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoWorktree {
@@ -344,14 +324,12 @@ pub struct NoWorktree {
     pub stage: Option<String>,
 }
 
-/// `files.project_sources`: the picker's rows (FIL-07). A ticket or an epic picked there reads with the Files tab's
+/// `files.project_sources`: the picker's rows (FIL-07). A ticket picked there reads with the Files tab's
 /// own requests (`files.tree` …).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectSources {
     /// BASE BRANCH, the default.
     pub source: ProjectSource,
-    /// EPICS · THE EPIC'S BRANCH: open epics whose branch exists.
-    pub epics: Vec<EpicSource>,
     /// TICKETS · THEIR WORKTREE: every owner in flow order (other bases after the project's).
     pub tickets: Vec<OwnerTicket>,
     /// Open tickets with no worktree or branch yet, by key.
@@ -959,7 +937,7 @@ impl Board {
                     )));
                 };
                 let key = first.key.clone();
-                file.diff = Some(self.files_diff(&key.to_string(), &path, None).await?);
+                file.diff = Some(self.files_diff(&key.to_string(), &path).await?);
                 file.diff_of = Some(key);
             }
         }
@@ -1013,7 +991,7 @@ impl Board {
                 wanted.key, view.project.name
             )));
         }
-        self.files_diff(&wanted.key.to_string(), &path, None).await
+        self.files_diff(&wanted.key.to_string(), &path).await
     }
 
     /// `files.project_changes`: every owner's changed files, grouped by ticket.
@@ -1040,43 +1018,13 @@ impl Board {
     /// `files.project_sources`: the picker's rows.
     pub async fn files_project_sources(&self, project: &str) -> Result<ProjectSources, BoardError> {
         let (project, source) = self.project_source(project).await?;
-        let git = self.git()?;
-        let repo = PathBuf::from(&project.repo_path);
         let mut view = self.project_view(project, source).await?;
         let owning: HashSet<&TicketKey> = view.owners.iter().map(|o| &o.ticket.key).collect();
 
-        let mut epics = Vec::new();
-        for epic in view.tickets.iter().filter(|t| t.is_epic() && open(t)) {
-            let Some(branch) = epic.work.as_ref().and_then(|w| w.branch.clone()) else {
-                continue;
-            };
-            if !super::files::branch_exists(git, &repo, &branch).await {
-                continue;
-            }
-            let children = view
-                .tickets
-                .iter()
-                .filter(|t| t.epic.as_ref() == Some(&epic.key));
-            epics.push(EpicSource {
-                key: epic.key.clone(),
-                title: epic.title.clone(),
-                status: epic.status,
-                merged: children
-                    .clone()
-                    .filter(|c| c.status == Status::Merged)
-                    .map(|c| c.key.clone())
-                    .collect(),
-                on_top: children
-                    .filter(|c| is_running(c.status) && worktree_on_disk(c).is_some())
-                    .map(|c| c.key.clone())
-                    .collect(),
-                branch,
-            });
-        }
         let no_worktree = view
             .tickets
             .iter()
-            .filter(|t| !t.is_epic() && open(t) && !owning.contains(&t.key))
+            .filter(|t| open(t) && !owning.contains(&t.key))
             .map(|t| NoWorktree {
                 key: t.key.clone(),
                 title: t.title.clone(),
@@ -1090,7 +1038,6 @@ impl Board {
         Ok(ProjectSources {
             tickets: view.owners.into_iter().map(|o| o.ticket).collect(),
             source: view.source,
-            epics,
             no_worktree,
             yours,
         })
@@ -1362,7 +1309,7 @@ impl Board {
         let tips = Arc::new(branch_tips(git, Path::new(&project.repo_path)).await?);
 
         // Every owner's changes side by side (each is several `git` calls, and a slow one in a big repository).
-        let candidates: Vec<&Ticket> = tickets.iter().filter(|t| !t.is_epic() && open(t)).collect();
+        let candidates: Vec<&Ticket> = tickets.iter().filter(|t| open(t)).collect();
         let mut read: Vec<Option<Arc<Owned>>> = vec![None; candidates.len()];
         {
             let _reading = self.project_files().reading.lock().await;
@@ -1403,7 +1350,6 @@ impl Board {
                         base_branch: owned.base_branch.clone(),
                         other_base,
                         needs_you: needs_you.contains_key(&ticket.key),
-                        epic: ticket.epic.clone(),
                         files,
                         added,
                         removed,
@@ -1585,12 +1531,15 @@ async fn stamp(git: &Git, ticket: &Ticket, tips: &HashMap<String, String>) -> Op
 
 /// The stage a ticket is in or waits before, by name ("Dev"); `None` in Backlog, Ready for Dev or Done.
 fn stage_name(ticket: &Ticket, flow: &Flow) -> Option<String> {
-    let id = ticket.place.stage_id()?;
-    match flow.stage(id) {
-        Some(stage) => Some(stage.name.clone()),
-        None if id == REVIEW_EPIC => Some(epic_stop(flow).name),
-        None => None,
-    }
+    flow.stage(ticket.place.stage_id()?)
+        .map(|stage| stage.name.clone())
+}
+
+/// Whether a ticket in this status has a working agent session: in an Agent stage or an agent check (working,
+/// turquoise, background or checking). Interrupted and Resume failed have none.
+fn is_running(status: Status) -> bool {
+    status.set().board_group() == StatusSet::AgentStage
+        && !matches!(status, Status::Interrupted | Status::ResumeFailed)
 }
 
 /// Where a ticket is in its flow, left to right: Backlog, Ready for Dev, then each stage (waiting before it, in

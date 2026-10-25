@@ -35,7 +35,6 @@ import type { SheetView } from "../../generated/SheetView";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { LeadAsks } from "../epic/EpicSheet";
 import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions";
 import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
@@ -209,8 +208,7 @@ export function AnswerBox({
           variant="secondary"
           icon="square-terminal"
           onClick={() => {
-            // An epic's question is its lead's: its terminal is in the Lead tab.
-            showTab(view.epic ? "lead" : "agent");
+            showTab("agent");
             requestTerminalFocus(view.key);
           }}
         />
@@ -387,7 +385,7 @@ function Holds({ view }: { view: SheetView }) {
 /**
  * The ticket's choices and its path under the action bar, in every sheet state (AGM-09; *05 → Row · Stage choices and
  * path (update AG §9)*): a pick goes to the service at once (`sheet.set_choice`), and the sheet follows the ticket's
- * change. None for an epic; only the path on a flow without options.
+ * change. Only the path on a flow without options.
  */
 function ChoicesAndPath({ view }: { view: SheetView }) {
   if (view.choices === null && view.path === null) return null;
@@ -436,7 +434,7 @@ function MetaLine({ view }: { view: SheetView }) {
  * The top of the sheet's Overview (SHT-03's "what it needs from you", T-0465): the old panel header's lower part (the
  * conflict strip, the question with its options or the action bar with its callouts, the Auto-merge stop message,
  * Answer the agent's box), the choices and the path, the queued notice, the open PR's box and the Start interrupted
- * callout. The registered sections (Epic, Stack, Messages) are Overview's own, under the description.
+ * callout. The registered sections (Stack, Messages) are Overview's own, under the description.
  */
 /** "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125). */
 export function BuildAside({ line }: { line: BuildAsideLine }) {
@@ -471,10 +469,7 @@ export function NeedsYou({
             <span className="sheet-conflict-line">{view.conflict.line}</span>
           </div>
         )}
-        {view.answer?.asker != null ? (
-          // An epic's lead asks (SHT-07, `s25-11`): its options are buttons.
-          <LeadAsks key={view.answer.question} view={view} answer={view.answer} />
-        ) : view.answer ? (
+        {view.answer ? (
           <AnswerBox
             key={view.answer.question}
             view={view}

@@ -3,7 +3,3 @@ agents:
     role: noyan
     skills: [noyan, flow]
     model: default
-  - name: Epic lead
-    role: epic-lead
-    skills: [epic-lead]
-    model: default

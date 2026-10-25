@@ -2,7 +2,7 @@
 //! d0088, d0018).
 //!
 //! Every **new session** runs it right after resolution ([`super::resolve`]): an Agent stage's start (and Retry
-//! start), each agent check's round, an epic lead's start (Open lead, the drag), a Project agent's first message.
+//! start), each agent check's round, a Project agent's first message.
 //! **Resumes are never checked** (Send back, Park → Dev, Resume, the PR resume, Answer): a running conversation never
 //! changes tool, so a resume on a tool that isn't available or is at its limit fails the existing way.
 //!
@@ -47,7 +47,7 @@ use crate::agent_tools::follow::FollowChoice;
 use crate::agent_tools::models::{ModelCopy, ModelLists};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Actor, StartStep, Status, StatusSet, TicketKey};
+use crate::domain::{Actor, StartStep, Status, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::store::tickets::set_state_since;
@@ -120,8 +120,8 @@ pub fn check(on: &ModelRef, facts: &Facts) -> Result<Option<String>, Blocked> {
     passed_model(on.model.as_deref(), facts.lists.get(&on.tool)).ok_or(Blocked::ModelUnlisted)
 }
 
-/// Whether a held session may go to its tool's fallback (Q-B): an Agent stage's, an agent check's round, an epic
-/// lead; never a Project agent's first message.
+/// Whether a held session may go to its tool's fallback (Q-B): an Agent stage's, an agent check's round; never a
+/// Project agent's first message.
 pub fn takes_fallback(role: SessionRole) -> bool {
     role != SessionRole::ProjectAgent
 }
@@ -251,7 +251,7 @@ fn runs_on(
 /// Where a checked session belongs.
 #[derive(Debug, Clone, Copy)]
 pub enum Scope<'a> {
-    /// A ticket's Agent stage or agent check, an epic's lead.
+    /// A ticket's Agent stage or agent check.
     Ticket { id: &'a str, key: &'a TicketKey },
     /// One check agent of a ticket's agent check (`agent`, as its round's row names it): its hold is its own, the
     /// round's other check agents run on (d0130 row 17).
@@ -326,11 +326,10 @@ pub enum Gated {
     Held(Box<Held>),
 }
 
-/// What a lift starts again once a validator's or a lead's hold goes (set once at service start).
+/// What a lift starts again once a validator's hold goes (set once at service start).
 #[derive(Clone)]
 pub struct Restarts {
     pub validation: crate::validation::Validation,
-    pub project_agents: crate::project_agents::ProjectAgents,
 }
 
 /// The check in the service. Cheap to clone.
@@ -379,7 +378,7 @@ impl LaunchGate {
         }
     }
 
-    /// Gives the gate what starts a validator or a lead again when their hold lifts.
+    /// Gives the gate what starts a validator again when its hold lifts.
     pub fn set_restarts(&self, restarts: Restarts) {
         let _ = self.inner.restarts.set(restarts);
     }
@@ -736,8 +735,8 @@ impl LaunchGate {
     }
 
     /// Runs the check once more for every hold (a lift): a hold whose cause is gone (or whose fallback the user asked
-    /// for and can start) starts as it was asked to (the Developer back to Queued for the scheduler, a validator, a
-    /// lead; a Project agent's hold just goes: its message waits in the agent panel for the user's send), one still blocked
+    /// for and can start) starts as it was asked to (the Developer back to Queued for the scheduler, a validator; a
+    /// Project agent's hold just goes: its message waits in the agent panel for the user's send), one still blocked
     /// is written again, one whose work went away goes. Also clears the "no longer lists" marks whose model is listed
     /// again. The number of holds that started again.
     pub async fn lift(&self) -> Result<usize, BoardError> {
@@ -867,15 +866,6 @@ impl LaunchGate {
             SessionRole::Developer => self.requeue(ticket).await,
             SessionRole::Validator => match self.inner.restarts.get() {
                 Some(restarts) => restarts.validation.start_held(&ticket.id).await,
-                None => Ok(()),
-            },
-            SessionRole::EpicLead => match self.inner.restarts.get() {
-                Some(restarts) => restarts
-                    .project_agents
-                    .leads()
-                    .start_held(&ticket.key.to_string())
-                    .await
-                    .map(|_| ()),
                 None => Ok(()),
             },
             SessionRole::ProjectAgent => Ok(()),
@@ -1010,17 +1000,13 @@ fn same_hold(stored: &AgentHold, held: &Held) -> bool {
 }
 
 /// Whether the ticket still waits for its held `role`: an Agent stage's start held before it (Ready for Dev before
-/// the first, STG-07), an agent check's round that opened without its session, an epic whose lead could still start.
+/// the first, STG-07), an agent check's round that opened without its session.
 pub fn still_waits(ticket: &Ticket, role: SessionRole) -> bool {
     match role {
         SessionRole::Developer => ticket.place.is_waiting(),
         SessionRole::Validator => matches!(
             ticket.status,
             Status::Checking | Status::WaitingForLimitReset
-        ),
-        SessionRole::EpicLead => !matches!(
-            ticket.status.set(),
-            StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
         ),
         SessionRole::ProjectAgent => false,
     }

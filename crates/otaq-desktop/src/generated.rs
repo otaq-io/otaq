@@ -152,7 +152,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::delete::DeleteText::export_all(&cfg)?;
     crate::api::SearchParams::export_all(&cfg)?;
     crate::api::CardMenuParams::export_all(&cfg)?;
-    crate::api::BoardFocusParams::export_all(&cfg)?;
     crate::api::BoardSetViewParams::export_all(&cfg)?;
     // Settings (T-0234); the view also writes its sections, rows, controls and nav.
     otaq_view::view_models::settings_page::View::export_all(&cfg)?;
@@ -185,15 +184,11 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentsOpen::export_all(&cfg)?;
     // Settings → Flow, Use a preset… and the flow banner's requests (T-0422).
     crate::api::export_flow_types(&cfg)?;
-    // Overview's Messages sections, Activity (History) and the epic dialogs (T-0223, T-0466).
+    // Overview's Messages sections and Activity (History) (T-0223, T-0466).
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::MessagesView::export_all(&cfg)?;
     crate::api::AnswerMessageParams::export_all(&cfg)?;
     crate::api::HistoryView::export_all(&cfg)?;
-    crate::api::MoveDialogView::export_all(&cfg)?;
-    crate::api::MoveToEpicParams::export_all(&cfg)?;
-    crate::api::EpicParams::export_all(&cfg)?;
-    crate::api::CloseEpicDialogView::export_all(&cfg)?;
     // The ticket editor and the Ticket tab (T-0228); the view also writes its form, texts, fields and read mode.
     crate::api::EditorView::export_all(&cfg)?;
     crate::api::EditorSaveParams::export_all(&cfg)?;
@@ -287,14 +282,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Validation reports in History and Review, Create ticket from a note (T-0238); HistoryView writes the rest.
     otaq_view::view_models::validation_report::Review::export_all(&cfg)?;
     crate::api::CreateFromNoteParams::export_all(&cfg)?;
-    // The Lead Status gallery (T-0289) with the lane heads (T-0462); `LeadStatusView` itself comes with the epic card.
-    otaq_view::view_models::lead_status::Gallery::export_all(&cfg)?;
-    // The List grouped by Epic (EPL-02, T-0462): its groups, parent rows and their tracks.
-    otaq_view::view_models::lanes::ByEpic::export_all(&cfg)?;
-    // The epic sheet's Lead tab (T-0290): its view, body, changes and gallery.
-    crate::api::LeadTabLoad::export_all(&cfg)?;
-    crate::api::LeadTabParams::export_all(&cfg)?;
-    otaq_view::view_models::lead_tab::Gallery::export_all(&cfg)?;
     // The folder trust gallery (T-0306): the add-project forms and the two banners.
     otaq_view::view_models::onboarding_page::TrustGallery::export_all(&cfg)?;
     // The tool avatars' gallery (T-0321); it writes `ToolAvatarView` and `AvatarTool` too.
@@ -328,8 +315,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_ticket_comment_types(&cfg)?;
     // The sheet's Overview (T-0465, SHT-03, RPT-02): its view, the description's state, a file's chip.
     crate::api::export_overview_types(&cfg)?;
-    // The epic's sheet (T-0469, SHT-07): its header, Overview's stage grid, the Tickets tab.
-    crate::api::export_epic_types(&cfg)?;
     // Dependencies (T-0463, DPV-01…DPV-04): the sheet's section, its search and link, the blocked dialog, the card's
     // "Blocks SHOP-20".
     crate::api::export_dependency_types(&cfg)?;

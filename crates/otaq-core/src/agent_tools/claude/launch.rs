@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use crate::agent_tools::WORK_TICKET_SKILL;
-use crate::agent_tools::{EPIC_LEAD_SKILL, LaunchContext, PROJECT_AGENT_SKILL};
+use crate::agent_tools::{LaunchContext, PROJECT_AGENT_SKILL};
 use crate::domain::TicketKey;
 use crate::naming;
 
@@ -121,8 +121,8 @@ pub(super) fn launch_agent(
     )
 }
 
-/// A new conversation for `ticket` in `cwd` with `prompt` as its first prompt: the epic's delivery session runs the
-/// Open PR or Push skill this way (EPC-08), an answer session's fallback too.
+/// A new conversation for `ticket` in `cwd` with `prompt` as its first prompt: a delivery session runs the Open PR
+/// or Push skill this way, an answer session's fallback too.
 pub(super) fn launch_with_prompt(
     ctx: &LaunchContext,
     ticket: &TicketKey,
@@ -192,58 +192,6 @@ pub(super) fn resume_project_agent(
     let mut args = common_flags(ctx, settings);
     args.extend(["--resume".to_owned(), session_id.to_owned()]);
     project_agent_command(ctx, repo, args, session_id.to_owned())
-}
-
-/// A new epic lead (LEAD-01, d0083): a Project agent session in the project's own folder with
-/// `/otaq-epic-lead` (and the first message, if any) as its first prompt, the epic lead role and the epic in its
-/// environment. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
-pub(super) fn launch_epic_lead(
-    ctx: &LaunchContext,
-    repo: &Path,
-    epic: &TicketKey,
-    first_message: Option<&str>,
-    settings: Option<&Path>,
-) -> AgentCommand {
-    let session_id = uuid::Uuid::now_v7().to_string();
-    let mut args = common_flags(ctx, settings);
-    let skill = skill_reference(EPIC_LEAD_SKILL);
-    let prompt = match first_message.map(str::trim).filter(|m| !m.is_empty()) {
-        Some(message) => format!("{skill} {message}"),
-        None => skill,
-    };
-    args.extend(["--session-id".to_owned(), session_id.clone(), prompt]);
-    epic_lead_command(ctx, repo, epic, args, session_id)
-}
-
-/// Continues an epic lead's conversation `session_id` (Resume, d0083) with the same environment and flags, and no
-/// message.
-pub(super) fn resume_epic_lead(
-    ctx: &LaunchContext,
-    repo: &Path,
-    epic: &TicketKey,
-    session_id: &str,
-    settings: Option<&Path>,
-) -> AgentCommand {
-    let mut args = common_flags(ctx, settings);
-    args.extend(["--resume".to_owned(), session_id.to_owned()]);
-    epic_lead_command(ctx, repo, epic, args, session_id.to_owned())
-}
-
-fn epic_lead_command(
-    ctx: &LaunchContext,
-    repo: &Path,
-    epic: &TicketKey,
-    flags: Vec<String>,
-    tool_session_id: String,
-) -> AgentCommand {
-    let mut command = project_agent_command(ctx, repo, flags, tool_session_id);
-    for (name, value) in &mut command.env {
-        if *name == naming::role_env_var() {
-            naming::ROLE_EPIC_LEAD.clone_into(value);
-        }
-    }
-    command.env.push((naming::epic_env_var(), epic.to_string()));
-    command
 }
 
 fn project_agent_command(
@@ -480,46 +428,6 @@ mod tests {
         assert_eq!(resume.tool_session_id, "c-1");
     }
 
-    /// An epic lead (T-0278, LEAD-01): a Project agent launch with the epic lead skill, its first message after the
-    /// skill, the epic lead role and `OTAQ_EPIC`; Resume continues the same conversation with no message.
-    #[test]
-    fn epic_lead_launch() {
-        let epic: TicketKey = "SHOP-40".parse().unwrap();
-        let repo = Path::new("/src/shop-web");
-        let path = platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
-            .to_string_lossy()
-            .into_owned();
-        let env = [
-            ("PATH".to_owned(), path),
-            (naming::role_env_var(), naming::ROLE_EPIC_LEAD.to_owned()),
-            (naming::epic_env_var(), "SHOP-40".to_owned()),
-        ];
-
-        let open = launch_epic_lead(&ctx(), repo, &epic, None, None);
-        assert_eq!(
-            open.args[4..],
-            [
-                "--session-id".to_owned(),
-                open.tool_session_id.clone(),
-                format!("/{}-epic-lead", naming::COMMAND_NAME),
-            ]
-        );
-        assert_eq!(open.env, env);
-        assert_eq!(open.cwd, repo);
-        assert!(!open.args.iter().any(|a| a.contains("permission")));
-
-        let queued = launch_epic_lead(&ctx(), repo, &epic, Some("SHOP-40 was queued."), None);
-        assert_eq!(
-            queued.args.last().unwrap(),
-            &format!("/{}-epic-lead SHOP-40 was queued.", naming::COMMAND_NAME)
-        );
-
-        let resume = resume_epic_lead(&ctx(), repo, &epic, "c-1", None);
-        assert_eq!(resume.env, env);
-        assert_eq!(resume.args[4..], ["--resume".to_owned(), "c-1".to_owned()]);
-        assert_eq!(resume.tool_session_id, "c-1");
-    }
-
     #[test]
     fn launch_is_exactly_the_documented_command() {
         let cmd = launch_agent(
@@ -716,7 +624,6 @@ mod tests {
                 cwd: WORKTREE.into(),
                 project: "SHOP".into(),
                 ticket: Some(key()),
-                epic: None,
                 port: 4012,
                 first_prompt,
                 resume: None,
@@ -733,7 +640,6 @@ mod tests {
                 cwd: REPO.into(),
                 project: "SHOP".into(),
                 ticket: None,
-                epic: (role == LaunchRole::EpicLead).then(|| "SHOP-40".parse().unwrap()),
                 port: 0,
                 first_prompt,
                 resume: None,
@@ -893,58 +799,6 @@ mod tests {
         }
 
         #[test]
-        fn an_epic_lead_with_and_without_its_first_message_and_its_resume() {
-            let f = fixture();
-            let settings = statusline::project_agent_settings_path(
-                &f.data,
-                "SHOP",
-                crate::agent_tools::ThemeKind::Dark,
-            );
-            let env = env(&[
-                ("PATH".to_owned(), &path()),
-                (naming::role_env_var(), naming::ROLE_EPIC_LEAD),
-                (naming::epic_env_var(), "SHOP-40"),
-            ]);
-            let open = f
-                .adapter
-                .launch(&project_request(
-                    LaunchRole::EpicLead,
-                    skill(EPIC_LEAD_SKILL, None),
-                ))
-                .unwrap();
-            let id = new_id(&open);
-            assert_eq!(open.program, "claude");
-            assert_eq!(
-                open.args,
-                args(&settings, &["--session-id", &id, &otaq_skill("epic-lead")])
-            );
-            assert_eq!(open.cwd, Path::new(REPO));
-            assert_eq!(open.env, env);
-
-            let queued = f
-                .adapter
-                .launch(&project_request(
-                    LaunchRole::EpicLead,
-                    skill(EPIC_LEAD_SKILL, Some("SHOP-40 was queued.")),
-                ))
-                .unwrap();
-            let id = new_id(&queued);
-            let prompt = format!("{} SHOP-40 was queued.", otaq_skill("epic-lead"));
-            assert_eq!(
-                queued.args,
-                args(&settings, &["--session-id", &id, &prompt])
-            );
-            assert_eq!(queued.env, env);
-
-            let mut resume = project_request(LaunchRole::EpicLead, None);
-            resume.resume = Some(RESUMED.into());
-            let plan = f.adapter.launch(&resume).unwrap();
-            assert_eq!(plan.args, args(&settings, &["--resume", RESUMED]));
-            assert_eq!(plan.cwd, Path::new(REPO));
-            assert_eq!(plan.env, env);
-        }
-
-        #[test]
         fn an_answer_resumes_with_the_answer_skill_and_no_port() {
             let f = fixture();
             let mut request = ticket_request(LaunchRole::Answer, skill("answer-question", None));
@@ -974,11 +828,11 @@ mod tests {
         }
 
         #[test]
-        fn a_delivery_runs_the_skill_as_stored_for_the_epic() {
+        fn a_delivery_runs_the_skill_as_stored() {
             let f = fixture();
-            let epic: TicketKey = "SHOP-40".parse().unwrap();
+            let ticket: TicketKey = "SHOP-40".parse().unwrap();
             let request = LaunchRequest {
-                ticket: Some(epic.clone()),
+                ticket: Some(ticket.clone()),
                 cwd: "/wt/shop-web/SHOP-40".into(),
                 port: 0,
                 ..ticket_request(
@@ -988,7 +842,7 @@ mod tests {
             };
             let plan = f.adapter.launch(&request).unwrap();
             let settings =
-                statusline::settings_path(&f.data, &epic, crate::agent_tools::ThemeKind::Dark);
+                statusline::settings_path(&f.data, &ticket, crate::agent_tools::ThemeKind::Dark);
             let id = new_id(&plan);
             assert_eq!(plan.program, "claude");
             assert_eq!(
@@ -1056,7 +910,6 @@ mod tests {
                 ticket_request(LaunchRole::Answer, skill("answer-question", None)),
                 ticket_request(LaunchRole::Delivery, Some(FirstPrompt::Text("/p".into()))),
                 project_request(LaunchRole::ProjectAgent, skill(PROJECT_AGENT_SKILL, None)),
-                project_request(LaunchRole::EpicLead, skill(EPIC_LEAD_SKILL, None)),
             ];
             let resumed: Vec<_> = requests
                 .iter()

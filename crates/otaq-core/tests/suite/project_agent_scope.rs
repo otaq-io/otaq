@@ -82,14 +82,14 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
     )
     .await;
     let ticket = &created["reply"]["ticket"];
-    assert_eq!(ticket["key"], "SHOP-41", "{created}");
+    assert_eq!(ticket["key"], "SHOP-44", "{created}");
     assert_eq!(ticket["place"], "backlog");
     assert_eq!(ticket["created_by"], me.as_str());
     let edited = send(
         &w,
         &shell,
         "ticket.update",
-        json!({"key": "SHOP-41", "title": "Slow checkout queries", "priority": 1}),
+        json!({"key": "SHOP-44", "title": "Slow checkout queries", "priority": 1}),
     )
     .await;
     assert_eq!(
@@ -101,7 +101,7 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
         &w,
         &shell,
         "dep.add",
-        json!({"child": "SHOP-41", "parent": "SHOP-19"}),
+        json!({"child": "SHOP-44", "parent": "SHOP-19"}),
     )
     .await;
     assert!(linked.get("error").is_none(), "{linked}");
@@ -114,33 +114,24 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
     )
     .await;
     assert!(other.get("error").is_none(), "{other}");
-    // An epic and a child (Backlog).
-    let epic = send(
-        &w,
-        &shell,
-        "ticket.create",
-        json!({"project": "SHOP", "title": "Checkout speed", "kind": "epic"}),
-    )
-    .await;
-    assert!(epic.get("error").is_none(), "{epic}");
 
     // Everything else is refused with the one text.
     for (method, params) in [
         ("ticket.update", json!({"key": "SHOP-19", "title": "x"})),
-        ("dep.add", json!({"child": "SHOP-19", "parent": "SHOP-41"})),
+        ("dep.add", json!({"child": "SHOP-19", "parent": "SHOP-44"})),
         (
             "ticket.move",
-            json!({"key": "SHOP-41", "target": "ready_for_dev"}),
+            json!({"key": "SHOP-44", "target": "ready_for_dev"}),
         ),
-        ("ticket.delete", json!({"key": "SHOP-41"})),
+        ("ticket.delete", json!({"key": "SHOP-44"})),
         ("ticket.close", json!({"key": "SHOP-19", "confirm": true})),
         (
             "ticket.stage_next",
-            json!({"key": "SHOP-41", "summary": "done"}),
+            json!({"key": "SHOP-44", "summary": "done"}),
         ),
         (
             "ticket.stage_done",
-            json!({"key": "SHOP-41", "summary": "nothing to do"}),
+            json!({"key": "SHOP-44", "summary": "nothing to do"}),
         ),
         (
             "ticket.local_merge",
@@ -158,7 +149,7 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
         w.board.ticket("SHOP-19").await.unwrap().title,
         "Price table"
     );
-    assert_eq!(w.status("SHOP-41").await, Status::Backlog);
+    assert_eq!(w.status("SHOP-44").await, Status::Backlog);
     w.stop().await;
 }
 
@@ -193,14 +184,14 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         &w,
         &shell,
         "ticket.update",
-        json!({"key": "SHOP-41", "priority": 1}),
+        json!({"key": "SHOP-44", "priority": 1}),
     )
     .await;
     send(
         &w,
         &shell,
         "dep.add",
-        json!({"child": "SHOP-41", "parent": "SHOP-19"}),
+        json!({"child": "SHOP-44", "parent": "SHOP-19"}),
     )
     .await;
     // The user's own changes aren't the agent's.
@@ -223,12 +214,12 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         .unwrap();
     assert_eq!(
         summary.summary,
-        "Created SHOP-41, SHOP-42 · edited SHOP-13 · 1 dependency"
+        "Created SHOP-44, SHOP-45 · edited SHOP-13 · 1 dependency"
     );
     assert!(summary.created.iter().all(|t| t.deletable));
 
     // Delete (the user's, after the 0060 confirmation) removes a never-started created ticket.
-    w.board.delete_ticket("SHOP-42").await.unwrap();
+    w.board.delete_ticket("SHOP-45").await.unwrap();
     let summary = w
         .project_agents
         .created_and_changed(&agent.id)
@@ -236,7 +227,7 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         .unwrap();
     assert_eq!(
         summary.summary,
-        "Created SHOP-41 · edited SHOP-13 · 1 dependency"
+        "Created SHOP-44 · edited SHOP-13 · 1 dependency"
     );
     w.stop().await;
 }
@@ -269,7 +260,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
             .unwrap_or_else(|e| panic!("{e}: {answer}"));
     let text = otaq_core::project_agents::prime::render(&prime);
     assert!(text.starts_with("# Noyan · shop-web (SHOP)\n"), "{text}");
-    assert_eq!(prime.tickets.len(), 43, "every ticket and epic");
+    assert_eq!(prime.tickets.len(), 43, "every ticket");
     assert!(
         text.contains(
             "- SHOP-20 · Checkout page (Ready for Dev · P3 · Normal) · depends on SHOP-18, SHOP-19\n"
@@ -277,10 +268,9 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         "{text}"
     );
     assert!(
-        text.contains("- SHOP-40.2 · "),
-        "epic children are listed: {text}"
+        text.contains("- SHOP-42 · Wishlist button (Working · P3 · Normal) · depends on SHOP-41\n"),
+        "{text}"
     );
-    assert!(text.contains(" · in epic SHOP-40"), "{text}");
     assert!(
         text.contains(&format!(
             "  worktree {} · branch `otaq-x/SHOP-19`\n",

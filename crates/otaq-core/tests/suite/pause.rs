@@ -1,5 +1,5 @@
 //! Pause and Resume (T-0455; PAU-01, PAU-02, PAU-03, PAU-06, PAU-07; d0112): Pause sets the project's flag first,
-//! then stops every agent session of the project at once (ticket agents, checks, Project agents, epic leads) and
+//! then stops every agent session of the project at once (ticket agents, checks, Project agents) and
 //! leaves Run, Shell, the Project terminal and the other projects alone; its tickets go the restart's way with the
 //! cause "paused"; the flag survives a restart and nothing resumes; Resume brings each agent back on its own
 //! conversation. `claude` stands in as an `sh` printing its arguments.
@@ -10,12 +10,11 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::pause::{PauseCounts, PauseScope};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
+use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, Kind, Status, ValidationTrigger};
+use otaq_core::domain::{Actor, Status, ValidationTrigger};
 use otaq_core::project_agents::AgentState;
-use otaq_core::project_agents::lead::LeadStatus;
 use otaq_core::protocol::{Event, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, said};
@@ -135,13 +134,12 @@ async fn rounds(w: &TestService, t: &Ticket) -> Vec<Option<String>> {
 }
 
 /// shop-web: SHOP-1 working, SHOP-2 asks a question, SHOP-3 checking (its agent and its checker), SHOP-4 waiting for
-/// review, a Project agent and the Wishlist epic's lead (SHOP-5): 7 agent sessions, 6 agents. billing-api: BILL-1
+/// review and a Project agent: 6 agent sessions, 5 agents. billing-api: BILL-1
 /// working. SHOP-1 has a Run, a Shell and the Project terminal.
 struct World {
     w: TestService,
     others: Vec<SessionInfo>,
     agent: String,
-    lead_epic: Ticket,
 }
 
 async fn world() -> World {
@@ -207,28 +205,10 @@ async fn world() -> World {
     // SHOP-4 waits for review; its session still runs.
     let review = ticket(&w, "SHOP-4").await;
     w.force_status(&review, Status::WaitingForYou).await;
-    // A Project agent and an epic lead.
+    // A Project agent.
     let agent = w
         .project_agents
         .open("SHOP", "Import GitHub issues")
-        .await
-        .unwrap();
-    let lead_epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    w.project_agents
-        .leads()
-        .open(&lead_epic.key.to_string())
         .await
         .unwrap();
     // The user's own terminals.
@@ -242,7 +222,6 @@ async fn world() -> World {
         w,
         others,
         agent: agent.id,
-        lead_epic,
     }
 }
 
@@ -256,26 +235,21 @@ fn running_of(w: &TestService, project: &str) -> Vec<SessionInfo> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_each_back() {
-    let World {
-        w,
-        others,
-        agent,
-        lead_epic,
-    } = world().await;
+    let World { w, others, agent } = world().await;
     let shop_sessions = running_of(&w, "SHOP");
-    assert_eq!(shop_sessions.len(), 7, "{shop_sessions:#?}");
+    assert_eq!(shop_sessions.len(), 6, "{shop_sessions:#?}");
     let mut conversations = Vec::new();
     for key in ["SHOP-1", "SHOP-2"] {
         conversations.push(sessions(&w, key).await[0].tool_session_id.clone().unwrap());
     }
 
-    // The counts of the menus: "shop-web · 6 working", "7 working in 2 projects".
+    // The counts of the menus: "shop-web · 5 working", "6 working in 2 projects".
     let before = w.pause.counts(&PauseScope::All).await.unwrap();
     assert_eq!(
         counts(&before),
-        [("billing-api", false, 1, 0), ("shop-web", false, 6, 0)]
+        [("billing-api", false, 1, 0), ("shop-web", false, 5, 0)]
     );
-    assert_eq!((before.working, before.paused), (7, 0));
+    assert_eq!((before.working, before.paused), (6, 0));
 
     // Every end the pause causes finds the project paused already.
     let mut listener = w.events.listen();
@@ -291,7 +265,7 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
                         .await
                         .unwrap();
                     seen.push(paused);
-                    if seen.len() == 7 {
+                    if seen.len() == 6 {
                         break;
                     }
                 }
@@ -304,14 +278,14 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
     let after = w.pause.pause(&shop()).await.unwrap();
     assert_eq!(
         counts(&after),
-        [("shop-web", true, 0, 5)],
-        "SHOP-1, SHOP-2, SHOP-3, the Project agent and the lead wait"
+        [("shop-web", true, 0, 4)],
+        "SHOP-1, SHOP-2, SHOP-3 and the Project agent wait"
     );
     let seen = tokio::time::timeout(Duration::from_secs(20), watcher)
         .await
-        .expect("seven ends")
+        .expect("six ends")
         .unwrap();
-    assert_eq!(seen, [true; 7]);
+    assert_eq!(seen, [true; 6]);
 
     // Every agent session of shop-web ended as paused; billing-api and the user's terminals keep going.
     for s in &shop_sessions {
@@ -363,14 +337,6 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
         w.project_agents.get(&agent).await.unwrap().state,
         AgentState::Paused
     );
-    let lead = w
-        .project_agents
-        .leads()
-        .get(&lead_epic.key.to_string())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(lead.status, LeadStatus::Paused);
 
     // The pause survives a restart; nothing resumes; the startup report and the status name shop-web.
     let w = w.restart_with(launch).await;
@@ -392,7 +358,7 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
         .iter()
         .map(|p| (p.project.as_str(), p.paused))
         .collect();
-    assert_eq!(paused, [("SHOP", 5)]);
+    assert_eq!(paused, [("SHOP", 4)]);
     // The reboot summary counts outside the paused projects (PAU-07, T-0457).
     let outside = w
         .recovery
@@ -434,14 +400,6 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
     let agent = w.project_agents.get(&agent).await.unwrap();
     assert_eq!(agent.state, AgentState::Running);
     assert!(agent.session.is_some_and(|s| s.is_running()));
-    let lead = w
-        .project_agents
-        .leads()
-        .get(&lead_epic.key.to_string())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(lead.agent.session.is_some_and(|s| s.is_running()));
     // Review waits for its click; billing-api's Interrupted ticket isn't shop-web's to resume.
     assert_eq!(w.status("SHOP-4").await, Status::WaitingForYou);
     assert_eq!(w.status("BILL-1").await, Status::Interrupted);

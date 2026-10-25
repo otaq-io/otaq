@@ -2,8 +2,6 @@
 import type { BoardAgentChip } from "./BoardAgentChip";
 import type { BoardColumn } from "./BoardColumn";
 import type { BoardDoneLine } from "./BoardDoneLine";
-import type { BoardEpicFocus } from "./BoardEpicFocus";
-import type { BoardLane } from "./BoardLane";
 import type { BoardMoreStages } from "./BoardMoreStages";
 import type { BoardScrollChip } from "./BoardScrollChip";
 import type { BoardToolbar } from "./BoardToolbar";
@@ -31,16 +29,6 @@ chains: Array<ChainView>,
  */
 links: Array<ChainEdge>, 
 /**
- * Lanes: Epic (EPL-01): one lane per epic across `columns`, "No epic" last; `null` with Lanes: None (and in
- * the List). The columns keep their headers and counts; their cards are the lanes'.
- */
-lanes: Array<BoardLane> | null, 
-/**
- * The focused epic (an `epic:` filter, EPC-18, Q55): its cards stay, the other cards, tracks and Done lines
- * dim, and ↑↓ walk only its cards.
- */
-focus: BoardEpicFocus | null, 
-/**
  * The "Created or changed by <agent> ✕" chip while the board is filtered by a Project agent (d0087).
  */
 agent_filter: BoardAgentChip | null, 
@@ -62,7 +50,7 @@ more_stages: BoardMoreStages,
  */
 done: BoardDoneLine | null, 
 /**
- * The project's view preferences (SHB-05): Board or List, lanes, grouping, folds, dependencies.
+ * The project's view preferences (SHB-05): Board or List, grouping, folds, dependencies.
  */
 prefs: ViewPrefs, 
 /**

@@ -15,7 +15,7 @@ use crate::git::GitError;
 
 impl Board {
     /// Whether `ticket` goes on from its local base branch when the fetch fails: unless its project's flow delivers
-    /// by PR, which needs the remote anyway. An epic child counts as its epic, the delivery unit (d0059).
+    /// by PR, which needs the remote anyway.
     pub async fn goes_on_without_remote(&self, ticket: &Ticket) -> Result<bool, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let delivers = flow

@@ -540,18 +540,6 @@ mod tests {
         assert_eq!(columns.spot(&ready).column, "ready_for_dev");
     }
 
-    /// An epic at the implicit Review epic stop (no human check in the flow) shows in the Delivery's column.
-    #[test]
-    fn an_epic_at_the_review_epic_stop_shows_with_the_delivery() {
-        let mut flow = every_kind();
-        flow.stages.retain(|s| !s.is_human_check());
-        let columns = Columns::of(&flow);
-        let mut epic = ticket("NOTE-10", "Sharing", Status::WaitingForYou);
-        epic.kind = otaq_core::domain::Kind::Epic;
-        epic.place = Place::stage_of(otaq_core::board::epic_flight::REVIEW_EPIC);
-        assert_eq!(columns.spot(&epic).column, "ship");
-    }
-
     /// A card in a stage the flow doesn't have shows where its kind does: Validation turned off mid-check.
     #[test]
     fn a_card_in_a_removed_stage_shows_by_its_kind() {

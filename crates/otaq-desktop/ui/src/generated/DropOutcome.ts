@@ -2,10 +2,9 @@
 import type { ApproveMenu } from "./ApproveMenu";
 import type { BlockedDialog } from "./BlockedDialog";
 import type { DragBackDialog } from "./DragBackDialog";
-import type { ParkAllDialog } from "./ParkAllDialog";
 import type { ParkDialog } from "./ParkDialog";
 
 /**
  * The answer to `board.drop`.
  */
-export type DropOutcome = { "kind": "nothing" } | { "kind": "moved" } | { "kind": "park", dialog: ParkDialog, } | { "kind": "park_all", dialog: ParkAllDialog, } | { "kind": "approve", menu: ApproveMenu, } | { "kind": "drag_back", dialog: DragBackDialog, } | { "kind": "not_yet", message: string, } | { "kind": "blocked", dialog: BlockedDialog, };
+export type DropOutcome = { "kind": "nothing" } | { "kind": "moved" } | { "kind": "park", dialog: ParkDialog, } | { "kind": "approve", menu: ApproveMenu, } | { "kind": "drag_back", dialog: DragBackDialog, } | { "kind": "not_yet", message: string, } | { "kind": "blocked", dialog: BlockedDialog, };

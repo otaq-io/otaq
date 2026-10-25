@@ -1,5 +1,5 @@
 //! Agents at launch (T-0405; AGM-05, AGM-03, ADP-04, SES-03; d0108, d0088): every new session runs its agent (the
-//! Agent stage's, the agent check's, the role agents for the epic lead and the Project agent) and passes the agent's
+//! Agent stage's, the agent check's, the role agent for the Project agent) and passes the agent's
 //! model (`--model opus`, nothing for the tool default; `model: default` resolved to the default model at start)
 //! and its effort; every resume passes the session's own stored model and effort again, whatever the agent is set to
 //! now; the session stores the agent, the tool, the model as passed and the effort, then the exact model the tool
@@ -15,9 +15,9 @@ use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::{Agent, AgentFields, AgentModel, Agents, FixedModels, ModelRef};
 use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{NewTicketInput, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::commit;
 use otaq_core::naming;
 use otaq_core::project_agents::AgentState;
@@ -116,7 +116,7 @@ fn launch_config(claude: &Path) -> impl FnOnce(ServiceConfig) -> ServiceConfig {
     }
 }
 
-/// Otaq's agents (Noyan, Epic lead, Developer, Validator; all on `default`, with no default model set yet: the
+/// Otaq's agents (Noyan, Developer, Validator; all on `default`, with no default model set yet: the
 /// new-session tool's own default) and Strong on `opus`; project SHOP (`shop-web`, with an origin for Open PR).
 async fn world() -> World {
     let claude_home = TempDir::new().unwrap();
@@ -419,70 +419,6 @@ async fn a_check_round_runs_its_own_agent() {
     world.w.stop().await;
 }
 
-/// An epic's lead runs the agent with the Epic lead role and a Project agent the agent with the Project agent role
-/// (AGM-05): both launch with their agent's model, and the Project agent's row stores it.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_lead_and_the_project_agent_run_the_role_agents() {
-    let world = world().await;
-    let w = &world.w;
-    let wishlist = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    world.set_model("Epic lead", Some("opus")).await;
-    let lead = w.project_agents.leads().open("SHOP-1").await.unwrap();
-    let session = lead.agent.session.clone().unwrap();
-    let id = session.tool_session_id.clone().unwrap();
-    assert_eq!(
-        launched(w, &session.id).await,
-        format!(
-            "--session-id {id} --model opus {}",
-            claude_skill("epic-lead")
-        )
-    );
-    assert_eq!(
-        stored_on(w, &session.id).await,
-        (
-            Some(Tool::Claude),
-            Some("opus".into()),
-            named(&world.agent("Epic lead").await)
-        )
-    );
-    assert_eq!(lead.agent.model.as_deref(), Some("opus"));
-    assert_eq!(lead.epic, wishlist.key);
-
-    world.set_model("Noyan", Some("haiku")).await;
-    let agent = w
-        .project_agents
-        .open("SHOP", "Why is checkout slow?")
-        .await
-        .unwrap();
-    let session = agent.session.clone().unwrap();
-    let id = session.tool_session_id.clone().unwrap();
-    assert_eq!(
-        launched(w, &session.id).await,
-        format!(
-            "--session-id {id} --model haiku {} Why is checkout slow?",
-            claude_skill("noyan")
-        )
-    );
-    assert_eq!(agent.model.as_deref(), Some("haiku"));
-    assert_eq!(
-        stored_on(w, &session.id).await.2,
-        named(&world.agent("Noyan").await)
-    );
-    world.w.stop().await;
-}
-
 /// "New agent on Strong" (M23, CHANGES-v §4): a Project agent opened on another agent than the role's starts on that
 /// agent and stores it; an unknown one is refused.
 #[tokio::test(flavor = "multi_thread")]
@@ -523,7 +459,6 @@ enum Resume {
     OpenPr,
     Answer,
     ProjectAgent,
-    Lead,
 }
 
 impl Resume {
@@ -531,20 +466,18 @@ impl Resume {
     fn agent(self) -> &'static str {
         match self {
             Self::ProjectAgent => "Noyan",
-            Self::Lead => "Epic lead",
             _ => "Developer",
         }
     }
 }
 
-const EVERY_RESUME: [Resume; 7] = [
+const EVERY_RESUME: [Resume; 6] = [
     Resume::SendBack,
     Resume::Park,
     Resume::AfterRestart,
     Resume::OpenPr,
     Resume::Answer,
     Resume::ProjectAgent,
-    Resume::Lead,
 ];
 
 const CONVERSATION: &str = "0199d2a4-3b1c-7c3e-9f00-123456789abc";
@@ -726,31 +659,6 @@ async fn resume(
             let resumed = w.project_agents.resume(&opened.id).await.unwrap();
             let s = resumed.session.unwrap();
             let conversation = opened.tool_session_id.unwrap();
-            (s, format!("--resume {conversation}{flag}"))
-        }
-        Resume::Lead => {
-            let w = &world.w;
-            w.board
-                .create_ticket(
-                    &NewTicketInput {
-                        project: "SHOP".into(),
-                        title: "Wishlist".into(),
-                        kind: Kind::Epic,
-                        ..Default::default()
-                    },
-                    &me(),
-                )
-                .await
-                .unwrap();
-            let leads = w.project_agents.leads();
-            let opened = leads.open("SHOP-1").await.unwrap();
-            let first = opened.agent.session.clone().unwrap();
-            w.sessions.stop(&first.id).await.unwrap();
-            wait_for_agent(w, &opened.agent.id, AgentState::Ended).await;
-            world.set_model(on, edited_to).await;
-            let resumed = leads.resume("SHOP-1").await.unwrap();
-            let s = resumed.agent.session.unwrap();
-            let conversation = opened.agent.tool_session_id.unwrap();
             (s, format!("--resume {conversation}{flag}"))
         }
     };

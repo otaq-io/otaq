@@ -36,9 +36,7 @@ pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
             ticket.validation_round.max(1),
         )),
         // A human check in another flow than the default (FLW-14).
-        Status::WaitingForYou if custom_flow && !ticket.is_epic() => {
-            Some(card::YOUR_CHECK.to_owned())
-        }
+        Status::WaitingForYou if custom_flow => Some(card::YOUR_CHECK.to_owned()),
         _ => None,
     }
 }
@@ -167,7 +165,6 @@ mod tests {
             tokens: tokens(67_000),
             validation: tokens(9_000),
             rounds: 0,
-            lead: None,
         };
         assert_eq!(
             token_split(&validating(), &usage).as_deref(),
@@ -179,7 +176,6 @@ mod tests {
             tokens: tokens(244_000),
             validation: tokens(41_000),
             rounds: 3,
-            lead: None,
         };
         assert_eq!(
             token_split(&failed, &usage).as_deref(),
@@ -195,7 +191,7 @@ mod tests {
 
     #[test]
     fn the_stop_messages_match_the_frame() {
-        let mut t = ticket("SHOP-40.2", "Wishlist page", Status::DeliveryStopped);
+        let mut t = ticket("SHOP-42", "Wishlist page", Status::DeliveryStopped);
         t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
         t.auto_merge_conflicts = 3;
         let epic = otaq_core::naming::branch("SHOP-40");

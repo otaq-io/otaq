@@ -24,11 +24,7 @@ body_empty: boolean, priority: PriorityView,
  */
 priority_menu: Array<MenuItem>, 
 /**
- * "follows SHOP-40" for an epic child without its own priority.
- */
-follows: string | null, 
-/**
- * "main", or "the epic’s branch (SHOP-40)".
+ * "main".
  */
 base: string, external_id: string | null, 
 /**

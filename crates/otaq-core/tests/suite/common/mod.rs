@@ -10,7 +10,7 @@ use otaq_core::board::Board;
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Kind};
+use otaq_core::domain::Actor;
 use otaq_core::git::testing::TempRepos;
 use otaq_core::store::Store;
 use otaq_core::warm::clone::{CloneError, Cloner, FsCloner, probe};
@@ -54,24 +54,6 @@ impl Fixture {
     pub async fn create(&self, title: &str) -> Ticket {
         self.create_with(NewTicketInput {
             title: title.into(),
-            ..shop_input()
-        })
-        .await
-    }
-
-    pub async fn epic(&self, title: &str) -> Ticket {
-        self.create_with(NewTicketInput {
-            title: title.into(),
-            kind: Kind::Epic,
-            ..shop_input()
-        })
-        .await
-    }
-
-    pub async fn child(&self, epic: &Ticket, title: &str) -> Ticket {
-        self.create_with(NewTicketInput {
-            title: title.into(),
-            epic: Some(epic.key.to_string()),
             ..shop_input()
         })
         .await

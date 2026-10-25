@@ -7,9 +7,9 @@ import type { ListRow } from "../../generated/ListRow";
 import type { ListView } from "../../generated/ListView";
 import type { ColumnSpan } from "../board/drag";
 
-/** A group's ticket rows, top to bottom: under Group by Epic a parent's children follow it. */
+/** A group's ticket rows, top to bottom. */
 export function rowsOf(group: ListGroup): ListRow[] {
-  return group.entries.flatMap((entry) => (entry.kind === "ticket" ? [entry.row] : entry.parent.children));
+  return group.entries.map((entry) => entry.row);
 }
 
 /** Every row's key, top to bottom: what ↑/↓ walk. */

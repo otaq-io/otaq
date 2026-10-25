@@ -211,7 +211,7 @@ describe("the approve flow", () => {
   });
 });
 
-// Hand-written views, as `decision_change.rs` words them (*07 → Change… on SHOP-23*, *Add a fix child*).
+// Hand-written views, as `decision_change.rs` words them (*07 → Change… on SHOP-23*).
 const SEND_BACK: DecisionChangeView = {
   kind: "send_back",
   id: "SHOP-23#1",
@@ -225,29 +225,6 @@ const SEND_BACK: DecisionChangeView = {
   note: "This is a Send back: SHOP-23 goes back to Dev with this message and any line comments you’ve written, and its agent continues in the same session. Its next submit is validated again.",
   comments: 0,
   confirm: "Send back to the agent",
-  cancel: "Cancel",
-  hint: "cancel",
-};
-
-const FIX_CHILD: DecisionChangeView = {
-  kind: "fix_child",
-  id: "SHOP-40.1#1",
-  epic: "SHOP-40",
-  title: "Add a fix child",
-  question: "Order of saved items?",
-  summary: "Built: newest first · Other option: in the order they were added",
-  mark: {
-    text: "Lead: contradicts PAY-123: “items are listed in the order they were added”.",
-    source: "PAY-123",
-  },
-  title_label: "NEW CHILD OF SHOP-40 · TITLE",
-  child_title: "Change: in the order they were added",
-  child_description:
-    "SHOP-40.1 built newest first for “Order of saved items?” (recorded decision). Change it to: in the order they were added.",
-  description_label: "Description",
-  help: "Prefilled from the decision; edit both before adding.",
-  note: "Creates SHOP-40.7, added by you. The epic becomes a track again and 40.7 joins the queue; its lead resumes the same conversation.",
-  confirm: "Add fix child",
   cancel: "Cancel",
   hint: "cancel",
 };
@@ -272,27 +249,5 @@ describe("Change… on a recorded decision (DEC-06)", () => {
       expect(out).toContain(text);
     }
     expect(out).not.toContain("decision-mark");
-  });
-
-  it("in an epic's review: Add a fix child with the lead's mark, title and description editable", () => {
-    const out = changeHtml(FIX_CHILD);
-    for (const text of [
-      "Add a fix child",
-      "Order of saved items?",
-      'class="decision-mark"',
-      "Lead: contradicts PAY-123",
-      "NEW CHILD OF SHOP-40 · TITLE",
-      'value="Change: in the order they were added"',
-      "SHOP-40.1 built newest first",
-      "Creates SHOP-40.7, added by you.",
-      "Add fix child",
-    ]) {
-      expect(out).toContain(text);
-    }
-    expect(out).toContain("<textarea");
-  });
-
-  it("without a mark, no violet row", () => {
-    expect(changeHtml({ ...FIX_CHILD, mark: null })).not.toContain("decision-mark");
   });
 });

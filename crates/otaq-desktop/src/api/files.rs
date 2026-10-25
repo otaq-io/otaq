@@ -99,25 +99,19 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         app.service.send(Request::FilesTree(FilesPathParams {
             key: params.key.clone(),
             path: String::new(),
-            child: None,
         })),
         super::keymap::labels(app),
     );
     let ticket = ticket?;
     Ok(match top {
         Ok(Reply::FilesTree(tree)) => {
-            let mut view = vm::tab_view(
+            let view = vm::tab_view(
                 &ticket,
                 &tree.source,
                 &tree.entries,
                 tree.changed,
                 keys.label(KeyAction::GoToFile),
             );
-            // An epic's is its branch, with the key to its children's tags (FTB-06).
-            if ticket.is_epic() {
-                let all = super::sheet::tickets(app, ticket.key.project.as_str()).await?;
-                view.source = vm::epic_source(&ticket, &tree.source, &all);
-            }
             Load {
                 view: Some(view),
                 problem: None,
@@ -146,7 +140,6 @@ pub async fn tree(app: &App, params: TreeParams) -> Result<Vec<vm::TreeRow>, Req
         .send(Request::FilesTree(FilesPathParams {
             key: params.key,
             path: params.path,
-            child: None,
         }))
         .await?
     {
@@ -199,14 +192,12 @@ pub async fn changes(app: &App, params: Params) -> Result<vm::ChangesView, Reque
     }
 }
 
-/// A file of the tree; `child` (epics) reads that running child's worktree.
+/// A file of the tree.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FilesFileParams")]
 pub struct FileParams {
     pub key: String,
     pub path: String,
-    #[ts(optional)]
-    pub child: Option<String>,
     /// `files.diff` only: the commit the review saw, to show only what changed after it (REV-06).
     #[ts(optional)]
     pub since: Option<String>,
@@ -217,29 +208,13 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
     let request = Request::FilesRead(FilesPathParams {
         key: params.key.clone(),
         path: params.path.clone(),
-        child: params.child.clone(),
     });
     match app.service.send(request).await {
         Ok(Reply::FileContent(content)) => {
-            let child = content.child.clone();
             let memory = app.review.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            let mut page = tokio::task::spawn_blocking(move || vm::file_page(&content, &memory))
+            tokio::task::spawn_blocking(move || vm::file_page(&content, &memory))
                 .await
-                .map_err(|e| RequestError::plain(e.to_string()))?;
-            // A running child's file on an epic: its note names the child's agent (FTB-06).
-            if let Some(child) = child {
-                let agents =
-                    super::editor::agent_facts(app, super::editor::of_ticket(&child.to_string())).await;
-                let agent = agents.as_ref().and_then(|a| {
-                    a.sessions
-                        .iter()
-                        .rev()
-                        .find(|s| s.running)
-                        .and_then(|s| s.agent_name.clone())
-                });
-                page.writing = Some(vm::writing_note(&child, agent.as_deref()));
-            }
-            Ok(page)
+                .map_err(|e| RequestError::plain(e.to_string()))
         }
         Ok(other) => Err(unexpected("files.read", &other)),
         // Deleted: not on disk, but its diff shows what it was.
@@ -249,8 +224,7 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
                 .send(Request::FilesTree(FilesPathParams {
                     key: params.key,
                     path: String::new(),
-                    child: None,
-                }))
+                        }))
                 .await?
             {
                 Reply::FilesTree(tree) => tree.source,
@@ -260,7 +234,7 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
                 return Err(e);
             }
             let memory = app.review.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            Ok(vm::deleted_page(&source, &params.path, params.child, &memory))
+            Ok(vm::deleted_page(&source, &params.path, None, &memory))
         }
         Err(e) => Err(e),
     }
@@ -272,13 +246,11 @@ pub async fn diff(app: &App, params: FileParams) -> Result<page::FileView, Reque
         Some(since) => Request::DiffFile(DiffFileParams {
             key: params.key,
             path: params.path,
-            child: None,
             since: Some(since),
         }),
         None => Request::FilesDiff(FilesPathParams {
             key: params.key,
             path: params.path,
-            child: params.child,
         }),
     };
     let diff = match app.service.send(request).await? {
@@ -544,11 +516,9 @@ mod tests {
             .service
             .send(Request::TicketCreate(NewTicketInput {
                 project: project.key.clone(),
-                kind: Default::default(),
                 title: "Checkout API".into(),
                 body: String::new(),
                 priority: None,
-                epic: None,
                 base_branch: None,
                 external_id: None,
                 first_comment: None,

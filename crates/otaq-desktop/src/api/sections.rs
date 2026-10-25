@@ -4,9 +4,8 @@
 //! with their states (`messages.rs`), answerable when one went to the user (Needs you); the sheet's **Activity** (SHT-05), sessions
 //! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
 //! with one entry per validation round that opens
-//! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); and the epic dialogs, Move
-//! to epic… and Close epic… (`epic_actions.rs`). The epic's children are its sheet's (`epic.*`, SHT-07). Each view is
-//! `null` when its section has nothing to show for the ticket.
+//! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12). Each view is `null` when
+//! its section has nothing to show for the ticket.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,16 +13,13 @@ use otaq_core::board::validation::ValidationRecord;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
 use otaq_core::protocol::{
-    AnswerParams, CloseParams, KeyParams, MoveToEpicParams, NoteParams, ProjectParams, Reply,
-    Request, SessionListParams,
+    AnswerParams, KeyParams, NoteParams, Reply, Request, SessionListParams,
 };
 use otaq_core::session::SessionInfo;
 use otaq_view::icons::IconName;
 use otaq_view::view_models::clock::local_hhmm;
-use otaq_view::view_models::epic_actions::{self, EpicChoice};
 use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::history::{self, HistoryRow, Opens};
-use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
 use otaq_view::view_models::ticket_comments::Mark;
 use otaq_view::view_models::tool_avatar;
@@ -42,10 +38,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "sections.answer_message" => reply(&answer_message(app, parse(params)?).await?),
         "sections.history" => reply(&history_view(app, parse(params)?).await?),
         "sections.create_from_note" => reply(&create_from_note(app, parse(params)?).await?),
-        "sections.move_dialog" => reply(&move_dialog(app, parse(params)?).await?),
-        "sections.move_to_epic" => reply(&move_to_epic(app, parse(params)?).await?),
-        "sections.close_epic_dialog" => reply(&close_epic_dialog(app, parse(params)?).await?),
-        "sections.close_epic" => reply(&close_epic(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -96,34 +88,6 @@ async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
     }
 }
 
-async fn tickets(app: &App, project: &str) -> Result<Vec<Ticket>, RequestError> {
-    match app
-        .service
-        .send(Request::TicketList(ProjectParams {
-            project: project.to_owned(),
-        }))
-        .await?
-    {
-        Reply::Tickets(list) => Ok(list),
-        other => Err(unexpected("ticket.list", &other)),
-    }
-}
-
-/// The ticket with the rest of its project; `None` when it is gone.
-async fn with_project(app: &App, key: &str) -> Result<Option<(Ticket, Vec<Ticket>)>, RequestError> {
-    let Some(ticket) = ticket(app, key).await? else {
-        return Ok(None);
-    };
-    let all = tickets(app, &ticket.key.project.to_string()).await?;
-    Ok(Some((ticket, all)))
-}
-
-async fn found(app: &App, key: &str) -> Result<(Ticket, Vec<Ticket>), RequestError> {
-    with_project(app, key)
-        .await?
-        .ok_or_else(|| RequestError::plain(format!("{key} is gone.")))
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Messages (MSG-01, MSG-03, MSG-06; d0030)
 
@@ -149,8 +113,7 @@ impl From<Tone> for MessageTone {
     }
 }
 
-/// "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you"), unless it has a name
-/// (the epic's lead, "Wishlist lead").
+/// "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you"), unless it has a name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "MessageLineView")]
 pub struct LineView {
@@ -216,14 +179,11 @@ pub struct MessagesView {
     pub send: &'static str,
 }
 
-/// The section with the epic lead's threads among them (T-0290): "3 threads · with Wishlist lead".
-pub fn with_lead(threads: Vec<Thread>, lead: Option<&str>) -> Option<MessagesView> {
+/// The section: "3 threads · linked tickets only"; `None` without threads.
+pub fn section(threads: Vec<Thread>) -> Option<MessagesView> {
     (!threads.is_empty()).then(|| MessagesView {
         title: "Messages",
-        heading: match lead {
-            Some(lead) => messages::lead_heading(threads.len(), lead),
-            None => messages::heading(&threads),
-        },
+        heading: messages::heading(&threads),
         threads: threads.into_iter().map(Into::into).collect(),
         you: "you",
         answer: "Answer",
@@ -249,96 +209,7 @@ pub async fn messages_view(app: &App, params: Params) -> Result<Option<MessagesV
         Reply::HumanAnswers(list) => list,
         other => return Err(unexpected("ticket.human_answers", &other)),
     };
-    let log = match app
-        .service
-        .send(Request::TicketLeadLog(k()))
-        .await
-    {
-        Ok(Reply::LeadLog(log)) => *log,
-        // An older service keeps no lead log.
-        _ => LeadLog::default(),
-    };
-    let (threads, lead) = threads_of(&list, &answers, &log, &key, now_ms());
-    Ok(with_lead(threads, lead.as_deref()))
-}
-
-/// The section's threads, oldest first, with the lead's name when the lead's log has any. A question the lead passed
-/// on or handed back is also one of the ticket's answered `ask human` questions; it is drawn once, as the lead's
-/// thread (the same `human_questions` row: same text, same time).
-pub fn threads_of(
-    list: &[otaq_core::messages::Message],
-    answers: &[otaq_core::board::questions::HumanAnswer],
-    log: &LeadLog,
-    key: &TicketKey,
-    now: i64,
-) -> (Vec<Thread>, Option<String>) {
-    let own: Vec<_> = answers
-        .iter()
-        .filter(|a| {
-            !log
-                .questions
-                .iter()
-                .any(|q| q.question == a.question && q.asked_at == a.asked_at)
-        })
-        .cloned()
-        .collect();
-    let mut threads = messages::all_threads(list, &own, key, now);
-    let lead = lead_entries(log);
-    if let Some((name, entries)) = &lead {
-        threads.extend(messages::lead_threads(entries, name));
-        threads.sort_by_key(|t| t.asked_at);
-    }
-    (threads, lead.map(|(name, _)| name))
-}
-
-/// The epic lead's log (`ticket.lead_log`: T-0284's routed questions, T-0281's notes) as the Messages section's
-/// entries, with the lead's name; `None` when nothing is logged.
-pub fn lead_entries(log: &LeadLog) -> Option<(String, Vec<messages::LeadEntry>)> {
-    use otaq_core::epic_lead::questions::LeadQuestionState as State;
-    use otaq_view::view_models::messages::{LeadEntry, LeadOutcome, UserAnswer};
-    let name = log
-        .questions
-        .first()
-        .map(|q| q.lead.clone())
-        .or_else(|| log.notes.first().map(|n| n.lead.clone()))?;
-    let yours = |q: &otaq_core::epic_lead::questions::LeadQuestion| {
-        q.answer.as_ref().map(|text| UserAnswer {
-            text: text.clone(),
-            at: q.answered_at.unwrap_or(q.asked_at),
-            // The answer is typed into the child as an automatic message when its agent is idle (d0048).
-            delivered: true,
-        })
-    };
-    let questions = log.questions.iter().map(|q| LeadEntry::Question {
-        id: q.id.clone(),
-        child: q.child.clone(),
-        text: q.question.clone(),
-        asked_at: q.asked_at,
-        outcome: match q.state {
-            State::WithLead => LeadOutcome::Waiting,
-            State::Answered => LeadOutcome::Answered {
-                text: q.answer.clone().unwrap_or_default(),
-                at: q.answered_at.or(q.lead_at).unwrap_or(q.asked_at),
-                delivered: true,
-            },
-            State::PassedOn => LeadOutcome::PassedOn {
-                recommended: q.recommended_label().map(str::to_owned),
-                reason: q.reason.clone().unwrap_or_default(),
-                answer: yours(q),
-            },
-            State::HandedBack => LeadOutcome::HandedBack { answer: yours(q) },
-        },
-    });
-    let notes = log.notes.iter().map(|n| LeadEntry::Note {
-        id: n.id.clone(),
-        child: n.child.clone(),
-        text: n.text.clone(),
-        at: n.created_at,
-        // Which stop a note answers is T-0285's (the stuck child's note).
-        after: None,
-        read: n.read_at.is_some(),
-    });
-    Some((name, questions.chain(notes).collect()))
+    Ok(section(messages::all_threads(&list, &answers, &key, now_ms())))
 }
 
 /// What `sections.answer_message` takes: a question that went to the user (Needs you), and the typed answer.
@@ -563,8 +434,8 @@ pub struct NoteRequest {
     pub note: String,
 }
 
-/// **Create ticket** on a "Not covered by any ticket" note (VAL-12; the user's click): one prefilled Backlog ticket
-/// in the same epic, then the toast "Created SHOP-41 from a validation note". Answers the new ticket's key.
+/// **Create ticket** on a "Not covered by any ticket" note (VAL-12; the user's click): one prefilled Backlog ticket,
+/// then the toast "Created SHOP-41 from a validation note". Answers the new ticket's key.
 pub async fn create_from_note(app: &App, params: NoteRequest) -> Result<String, RequestError> {
     let request = Request::TicketCreateFromNote(NoteParams {
         key: params.key.clone(),
@@ -590,208 +461,20 @@ pub async fn create_from_note(app: &App, params: NoteRequest) -> Result<String, 
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// Move to epic… (EPC-07, TKT-07; d0044) and Close epic… (EPC-06; d0033)
-
-/// An epic the ticket can move into, with the dialog's texts for it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "MoveChoiceView")]
-pub struct MoveChoiceView {
-    pub key: String,
-    pub title: String,
-    pub progress: String,
-    pub new_key: String,
-    /// "Move SHOP-51 Wishlist share link to an epic".
-    pub heading: String,
-    /// "· the old key SHOP-51 still works".
-    pub alias_note: String,
-    /// The base change, when the ticket had another base (*08 → Move to epic · base changes*).
-    pub base_note: Option<String>,
-    /// "Move to SHOP-40".
-    pub confirm: String,
-}
-
-/// The Move to epic… dialog: the open epics to pick from (the first picked), or why it can't move.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "MoveDialogView")]
-pub struct MoveDialogView {
-    pub old_key: String,
-    pub choices: Vec<MoveChoiceView>,
-    pub disk_note: &'static str,
-    /// Set when the ticket can't move (it has been to Dev, it is in an epic, or no epic is open).
-    pub refusal: Option<String>,
-    pub title: String,
-}
-
-pub fn move_dialog_of(ticket: &Ticket, tickets: &[Ticket]) -> MoveDialogView {
-    let choices: Vec<EpicChoice> = epic_actions::epic_choices(tickets);
-    let refusal = if !epic_actions::can_move_to_epic(ticket) {
-        Some(format!(
-            "{} can\u{2019}t move: only a ticket that has never been to Dev, and isn\u{2019}t in an epic, moves to one.",
-            ticket.key
-        ))
-    } else if choices.is_empty() {
-        Some(format!("{} has no open epic to move into.", ticket.key.project))
-    } else {
-        None
-    };
-    MoveDialogView {
-        old_key: ticket.key.to_string(),
-        title: format!("Move {} {} to an epic", ticket.key, ticket.title),
-        choices: choices
-            .iter()
-            .map(|c| {
-                let preview = epic_actions::move_preview(ticket, c, tickets);
-                MoveChoiceView {
-                    key: c.key.to_string(),
-                    title: c.title.clone(),
-                    progress: c.progress.clone(),
-                    new_key: c.new_key.to_string(),
-                    heading: preview.title,
-                    alias_note: preview.alias_note,
-                    base_note: preview.base_note,
-                    confirm: preview.confirm,
-                }
-            })
-            .collect(),
-        disk_note: "No branch or worktree exists yet, so nothing on disk is renamed.",
-        refusal,
-    }
-}
-
-pub async fn move_dialog(app: &App, params: Params) -> Result<MoveDialogView, RequestError> {
-    let (ticket, all) = found(app, &params.key).await?;
-    Ok(move_dialog_of(&ticket, &all))
-}
-
-/// What `sections.move_to_epic` takes.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "MoveToEpicParams")]
-pub struct MoveTo {
-    pub key: String,
-    pub epic: String,
-}
-
-/// Moves the ticket; answers its new key ("SHOP-40.4"). A refusal rejects and stays in the dialog.
-pub async fn move_to_epic(app: &App, params: MoveTo) -> Result<String, RequestError> {
-    let old = params.key.clone();
-    match app
-        .service
-        .send(Request::EpicMoveTo(MoveToEpicParams {
-            key: params.key,
-            epic: params.epic,
-        }))
-        .await?
-    {
-        Reply::Ticket(t) => {
-            let new = t.key.to_string();
-            toast(
-                app,
-                ToastLevel::Success,
-                format!("Moved {old} \u{2192} {new}"),
-                None,
-            );
-            Ok(new)
-        }
-        other => Err(unexpected("epic.move_to", &other)),
-    }
-}
-
-/// What the Close epic… overlay takes.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "EpicParams")]
-pub struct EpicParams {
-    pub epic: String,
-}
-
-/// The Close epic confirmation (*Epic dialogs → Close epic · confirm*): the agents it stops, the tickets it also
-/// closes, the ones that stay merged.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CloseEpicDialogView")]
-pub struct CloseEpicDialogView {
-    pub title: String,
-    pub agents: Vec<String>,
-    pub also: Option<String>,
-    pub note: &'static str,
-    pub confirm: String,
-}
-
-pub async fn close_epic_dialog(
-    app: &App,
-    params: EpicParams,
-) -> Result<CloseEpicDialogView, RequestError> {
-    let (epic, all) = found(app, &params.epic).await?;
-    let plan = match app
-        .service
-        .send(Request::EpicClosePlan(KeyParams {
-            key: params.epic.clone(),
-        }))
-        .await?
-    {
-        Reply::ClosePlan(plan) => plan,
-        other => return Err(unexpected("epic.close_plan", &other)),
-    };
-    let text = epic_actions::close_dialog(&epic, &plan, &all);
-    Ok(CloseEpicDialogView {
-        title: text.title,
-        agents: text.agents,
-        also: text.also,
-        note: text.note,
-        confirm: text.confirm,
-    })
-}
-
-/// Closes the epic and its unfinished children; a refusal rejects and stays in the dialog.
-pub async fn close_epic(app: &App, params: EpicParams) -> Result<(), RequestError> {
-    let key = params.epic;
-    app.service
-        .send(Request::EpicClose(CloseParams {
-            key: key.clone(),
-            confirm: true,
-        }))
-        .await?;
-    toast(
-        app,
-        ToastLevel::Success,
-        format!("Closed epic {key}"),
-        None,
-    );
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
     use otaq_core::board::tickets::NewTicketInput;
-    use otaq_core::domain::{Kind, Status};
     use otaq_core::git::testing::TempRepos;
-    use otaq_view::view_models::card_fixtures::ticket as fixture;
     use serde_json::json;
 
     use super::*;
     use crate::api::request as table;
     use crate::service::testing::{Harness, connected};
 
-    fn key(text: &str) -> TicketKey {
-        text.parse().unwrap()
-    }
-
     #[test]
     fn no_messages_no_section_and_activity_has_its_filters() {
-        assert_eq!(with_lead(Vec::new(), None), None);
-        assert_eq!(with_lead(Vec::new(), Some("Wishlist lead")), None);
-        // The epic lead's threads (T-0290): named ends and the "with Wishlist lead" heading.
-        let log = [messages::LeadEntry::Question {
-            id: "q7".into(),
-            child: key("SHOP-40.2"),
-            text: "Filled heart once saved?".into(),
-            asked_at: 1,
-            outcome: messages::LeadOutcome::Waiting,
-        }];
-        let view = with_lead(messages::lead_threads(&log, "Wishlist lead"), Some("Wishlist lead")).unwrap();
-        assert_eq!(view.heading, "1 thread \u{b7} with Wishlist lead");
-        assert_eq!(view.threads[0].question.from.as_deref(), Some("SHOP-40.2"));
-        assert_eq!(view.threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
+        assert_eq!(section(Vec::new()), None);
         let history = history_of(Vec::new());
         let filters: Vec<_> = history.filters.iter().map(|f| (f.label, f.kind)).collect();
         assert_eq!(
@@ -809,146 +492,15 @@ mod tests {
 
     /// A question the lead passed on, and one it handed back, are also answered `ask human` questions: each shows
     /// once, as the lead's thread, on the epic and on the child (T-0290 fix). An unrelated answer of the user's stays.
-    #[test]
-    fn passed_on_and_handed_back_questions_show_once() {
-        use otaq_core::board::questions::HumanAnswer;
-        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
-        let question = |id: &str, text: &str, state, asked_at| LeadQuestion {
-            id: id.into(),
-            child: key("SHOP-40.2"),
-            child_title: "Wishlist button".into(),
-            epic: key("SHOP-40"),
-            lead: "Wishlist lead".into(),
-            lead_agent: Some("lead-1".into()),
-            question: text.into(),
-            options: vec!["Yes".into(), "No".into()],
-            recommended: Some(1),
-            notes: Vec::new(),
-            state,
-            reason: Some("PAY-123 only mentions signed-in users.".into()),
-            answer: Some("Answer to your question: Yes (option 1).".into()),
-            asked_at,
-            lead_at: Some(asked_at + 1),
-            answered_at: Some(asked_at + 2),
-        };
-        let log = LeadLog {
-            questions: vec![
-                question("8", "Can guests save items?", LeadQuestionState::PassedOn, 100),
-                question("9", "Should links expire?", LeadQuestionState::HandedBack, 200),
-            ],
-            notes: Vec::new(),
-        };
-        let answer = |text: &str, asked_at| HumanAnswer {
-            question: text.into(),
-            answer: "Answer to your question: Yes (option 1).".into(),
-            asked_at,
-            answered_at: asked_at + 2,
-        };
-        let answers = [
-            answer("Can guests save items?", 100),
-            answer("Should links expire?", 200),
-            answer("Which colour?", 300),
-        ];
-        for ticket in ["SHOP-40", "SHOP-40.2"] {
-            let (threads, lead) = threads_of(&[], &answers, &log, &key(ticket), 1_000);
-            assert_eq!(lead.as_deref(), Some("Wishlist lead"));
-            let texts: Vec<&str> = threads.iter().map(|t| t.question.text.as_str()).collect();
-            assert_eq!(
-                texts,
-                ["Can guests save items?", "Should links expire?", "Which colour?"],
-                "{ticket}: each question once"
-            );
-            assert_eq!(threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
-            assert_eq!(threads[1].question.to_name.as_deref(), Some("Wishlist lead"));
-            assert_eq!(threads[2].question.to_name, None, "the user's own question");
-        }
-        let (threads, lead) = threads_of(&[], &answers, &LeadLog::default(), &key("SHOP-40.2"), 1_000);
-        assert_eq!((threads.len(), lead), (3, None), "no lead log: every answer stays");
-    }
-
-    /// The lead's log (`ticket.lead_log`) as Messages entries (T-0290): answered by the lead, passed on with the
-    /// user's answer, and a note; nothing logged, no lead threads.
-    #[test]
-    fn the_lead_log_becomes_the_leads_threads() {
-        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
-        let question = |id: &str, state, answer: Option<&str>| LeadQuestion {
-            id: id.into(),
-            child: key("SHOP-40.2"),
-            child_title: "Wishlist button".into(),
-            epic: key("SHOP-40"),
-            lead: "Wishlist lead".into(),
-            lead_agent: Some("lead-1".into()),
-            question: "Can guests save items without logging in?".into(),
-            options: vec!["Logged-in users only".into(), "Guests too".into()],
-            recommended: Some(1),
-            notes: Vec::new(),
-            state,
-            reason: Some("PAY-123 only mentions signed-in users.".into()),
-            answer: answer.map(str::to_owned),
-            asked_at: 1,
-            lead_at: Some(2),
-            answered_at: answer.map(|_| 3),
-        };
-        assert_eq!(lead_entries(&LeadLog::default()), None);
-        let log = LeadLog {
-            questions: vec![
-                question("7", LeadQuestionState::Answered, Some("Yes: filled heart.")),
-                question("8", LeadQuestionState::PassedOn, Some("Logged-in users only (option 1).")),
-            ],
-            notes: Vec::new(),
-        };
-        let (name, entries) = lead_entries(&log).unwrap();
-        assert_eq!(name, "Wishlist lead");
-        let threads = messages::lead_threads(&entries, &name);
-        assert_eq!(
-            threads[0].answer.as_ref().unwrap().status,
-            "Answered by Wishlist lead \u{b7} typed into SHOP-40.2\u{2019}s session"
-        );
-        assert_eq!(
-            threads[1].question.status,
-            "Passed on to you \u{b7} the lead recommended \u{201c}Logged-in users only\u{201d}: PAY-123 only \
-             mentions signed-in users."
-        );
-        assert_eq!(
-            threads[1].answer.as_ref().unwrap().text,
-            "Logged-in users only (option 1)."
-        );
-    }
-
-    #[test]
-    fn move_is_for_never_started_tickets() {
-        let mut epic = fixture("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        epic.next_child_number = Some(3);
-        let mut api = fixture("SHOP-40.1", "Wishlist API", Status::Merged);
-        api.epic = Some(key("SHOP-40"));
-        let mut button = fixture("SHOP-40.2", "Wishlist button", Status::Working);
-        button.epic = Some(key("SHOP-40"));
-        button.depends_on = vec![key("SHOP-40.1")];
-        let share = fixture("SHOP-51", "Wishlist share link", Status::Backlog);
-        let mut working = fixture("SHOP-19", "Price table", Status::Working);
-        working.started_at = Some(1);
-        let all = vec![epic.clone(), api, button, share.clone(), working.clone()];
-
-        let dialog = move_dialog_of(&share, &all);
-        assert_eq!(dialog.refusal, None);
-        assert_eq!(dialog.choices[0].new_key, "SHOP-40.3");
-        assert_eq!(dialog.choices[0].confirm, "Move to SHOP-40");
-        assert_eq!(dialog.choices[0].alias_note, "\u{b7} the old key SHOP-51 still works");
-        assert!(move_dialog_of(&working, &all).refusal.is_some(), "it has been to Dev");
-    }
-
-    async fn create(h: &Harness, project: &str, title: &str, kind: Kind, epic: Option<&str>) -> String {
+    async fn create(h: &Harness, project: &str, title: &str) -> String {
         match h
             .app
             .service
             .send(Request::TicketCreate(NewTicketInput {
                 project: project.to_owned(),
-                kind,
                 title: title.into(),
                 body: String::new(),
                 priority: None,
-                epic: epic.map(str::to_owned),
                 base_branch: None,
                 external_id: None,
                 first_comment: None,
@@ -982,17 +534,7 @@ mod tests {
             Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
-        let epic = create(&h, &project, "Wishlist", Kind::Epic, None).await;
-        let child = create(&h, &project, "Wishlist API", Kind::Ticket, Some(&epic)).await;
-        let lone = create(&h, &project, "Share link", Kind::Ticket, None).await;
-
-        // The epic's sheet (SHT-07): its Tickets tab and Overview's grid list its children.
-        let view = table(&h.app, "epic.tickets", json!({ "key": epic })).await.unwrap();
-        assert_eq!(view["rows"][0]["card"]["key"], child.as_str());
-        assert_eq!(view["add"], "Add ticket to epic");
-        let overview = table(&h.app, "epic.overview", json!({ "key": epic })).await.unwrap();
-        assert_eq!(overview["grid"]["heading"], "TICKETS \u{b7} 1");
-        assert_eq!(overview["grid"]["rows"][0]["key"], child.as_str());
+        let lone = create(&h, &project, "Share link").await;
 
         let messages = table(&h.app, "sections.messages", json!({ "key": lone })).await.unwrap();
         assert_eq!(messages, Value::Null);
@@ -1012,27 +554,6 @@ mod tests {
         .unwrap_err();
         assert!(refused.not_found, "{}", refused.message);
 
-        let dialog = table(&h.app, "sections.move_dialog", json!({ "key": lone })).await.unwrap();
-        assert_eq!(dialog["refusal"], Value::Null);
-        let new_key = dialog["choices"][0]["new_key"].as_str().unwrap().to_owned();
-        let moved = table(
-            &h.app,
-            "sections.move_to_epic",
-            json!({ "key": lone, "epic": epic }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(moved, new_key.as_str());
-        let view = table(&h.app, "epic.tickets", json!({ "key": epic })).await.unwrap();
-        assert_eq!(view["rows"].as_array().unwrap().len(), 2);
-
-        let close = table(&h.app, "sections.close_epic_dialog", json!({ "epic": epic }))
-            .await
-            .unwrap();
-        assert_eq!(close["confirm"], "Close epic & 2 tickets");
-        table(&h.app, "sections.close_epic", json!({ "epic": epic }))
-            .await
-            .unwrap();
         let gone = table(&h.app, "sections.messages", json!({ "key": "SHOP-99" })).await.unwrap();
         assert_eq!(gone, Value::Null);
         h.service.stop_all().await;

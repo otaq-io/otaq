@@ -232,7 +232,6 @@ mod tests {
                 ..Default::default()
             },
             session: None,
-            epic: None,
             turn_ended_at: None,
         }
     }
@@ -274,7 +273,6 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         });
         let p = state_pill(&a);
         assert_eq!(

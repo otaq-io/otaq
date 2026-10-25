@@ -621,7 +621,6 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
                 cwd: f.repos.root(),
                 project: "SHOP".into(),
                 ticket: Some(t.key.clone()),
-                epic: None,
                 port: 4019,
                 first_prompt: Some(FirstPrompt::Skill {
                     name: WORK_TICKET_SKILL.into(),

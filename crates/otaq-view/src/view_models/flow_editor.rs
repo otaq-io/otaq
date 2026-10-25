@@ -4046,7 +4046,6 @@ mod tests {
                 ..Default::default()
             },
             session: None,
-            epic: None,
             turn_ended_at: None,
         };
         let v = render(&e, Opened::Project, &d, &file, &file, None, Some(&agent));

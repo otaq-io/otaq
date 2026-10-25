@@ -14,9 +14,9 @@ use otaq_core::protocol::{FailParams, Request};
 use crate::view_models::check_dialogs::posted_for;
 use crate::view_models::ticket_comments::CommentBoxView;
 
-/// Whether Send back is offered: a ticket (never an epic) in Ready for Review.
+/// Whether Send back is offered: a ticket in Ready for Review.
 pub fn available(ticket: &Ticket) -> bool {
-    !ticket.is_epic() && ticket.status == Status::WaitingForYou
+    ticket.status == Status::WaitingForYou
 }
 
 /// What the dialog lists.
@@ -348,11 +348,9 @@ mod tests {
         };
         let agents = TicketAgents {
             key: None,
-            kind: otaq_core::domain::Kind::Ticket,
             status: None,
             agents: Vec::new(),
             stages: Vec::new(),
-            lead: None,
             sessions: Vec::new(),
             tokens: Vec::new(),
             holds: Vec::new(),
@@ -369,9 +367,6 @@ mod tests {
     fn only_tickets_in_review_and_never_epics() {
         assert!(available(&ticket("SHOP-18", "t", Status::WaitingForYou)));
         assert!(!available(&ticket("SHOP-18", "t", Status::Working)));
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = otaq_core::domain::Kind::Epic;
-        assert!(!available(&epic));
     }
 
     #[test]

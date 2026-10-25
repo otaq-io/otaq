@@ -7,15 +7,12 @@
 //! (every column, with the Review column split into its body, which means Ready for Review, and its Approved
 //! section), from the core's `check_move_in` on the project's flow ([`drag::feedback_in`], [`drag::drop_hint_in`]),
 //! so the page draws the whole drag without asking again; a drop then asks once more what happens
-//! ([`drop_step_in`]): a move, an epic queue (EPC-12: the epic card, one of its rows or a "not queued" chip, which
-//! the page follows with the queue toast), the Park confirmation ([`ParkDialog`]), the approve choice
-//! ([`ApproveMenu`]) or, back to an earlier Agent stage or agent check, the drag-back dialog ([`DragBackDialog`],
-//! FLW-18). Every stage is a drop target. An epic's track dragged onto Backlog takes back (EPC-14): its waiting
-//! children at once, or, when every child started, Park all after its confirmation ([`ParkAllDialog`]).
+//! ([`drop_step_in`]): a move, the Park confirmation ([`ParkDialog`]), the approve choice ([`ApproveMenu`]) or, back
+//! to an earlier Agent stage or agent check, the drag-back dialog ([`DragBackDialog`], FLW-18). Every stage is a drop
+//! target.
 
 use std::borrow::Cow;
 
-use otaq_core::board::epic_flight::TakeBackPlan;
 use otaq_core::board::moves::{DropOn, MoveAction, check_move_in};
 use otaq_core::board::stage_choices::{Choice, StageOptions};
 use otaq_core::board::tickets::Ticket;
@@ -33,13 +30,12 @@ use crate::view_models::approve::{self, ApproveChoice};
 use crate::view_models::board::{
     self, BoardInput, CardEntry, ColumnView, DevSections, HeaderTooltip, SectionView,
 };
-use crate::view_models::card_page::{EpicCardView, TicketCardView};
+use crate::view_models::card_page::TicketCardView;
 use crate::view_models::chain;
 use crate::view_models::check_dialogs;
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
-use crate::view_models::filter::Token;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
 use crate::view_models::list_view;
 use crate::view_models::search_page::FilterState;
@@ -137,16 +133,12 @@ pub enum BoardCard {
         card: Box<TicketCardView>,
         needs_you: bool,
     },
-    Epic {
-        card: Box<EpicCardView>,
-    },
 }
 
 impl BoardCard {
     pub fn key(&self) -> &str {
         match self {
             Self::Ticket { card, .. } => &card.key,
-            Self::Epic { card } => &card.key,
         }
     }
 }
@@ -379,12 +371,6 @@ pub struct BoardPage {
     /// Dependencies: Always (DPV-02): every link between open tickets, drawn dashed where both cards are in view;
     /// empty with On hover.
     pub links: Vec<chain::Edge>,
-    /// Lanes: Epic (EPL-01): one lane per epic across `columns`, "No epic" last; `null` with Lanes: None (and in
-    /// the List). The columns keep their headers and counts; their cards are the lanes'.
-    pub lanes: Option<Vec<crate::view_models::lanes::Lane>>,
-    /// The focused epic (an `epic:` filter, EPC-18, Q55): its cards stay, the other cards, tracks and Done lines
-    /// dim, and ↑↓ walk only its cards.
-    pub focus: Option<EpicFocus>,
     /// The "Created or changed by <agent> ✕" chip while the board is filtered by a Project agent (d0087).
     pub agent_filter: Option<AgentChip>,
     /// The one width rule (BRD-02): every open column at least this wide; they share the width when they fit,
@@ -396,7 +382,7 @@ pub struct BoardPage {
     pub more_stages: MoreStages,
     /// Done folded: "Done 4 →" under the last column.
     pub done: Option<DoneLine>,
-    /// The project's view preferences (SHB-05): Board or List, lanes, grouping, folds, dependencies.
+    /// The project's view preferences (SHB-05): Board or List, grouping, folds, dependencies.
     pub prefs: Prefs,
     /// The toolbar of both views (BRD-01).
     pub toolbar: Toolbar,
@@ -454,39 +440,6 @@ impl AgentFilter {
 
 pub const AGENT_FILTER_CLEAR: &str = "Clear filter · Esc";
 
-/// What a focused epic keeps at full strength (*03 → epic flows 2 → 6 · Focus on Wishlist*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardEpicFocus")]
-pub struct EpicFocus {
-    /// The focused epics (one, unless a typed `epic:` names several by the same start): their tracks and Done
-    /// lines stay.
-    pub epics: Vec<String>,
-    /// The cards that stay: the epic's own and its children's.
-    pub keys: Vec<String>,
-}
-
-/// The filter after focusing (`key`: a selected epic, epic child or track, EPC-18) or leaving the focus (`None`,
-/// Esc). `None` when nothing changes: a standalone ticket has no epic, and Esc without a focus does nothing.
-pub fn focus_filter(
-    state: &FilterState,
-    key: Option<&TicketKey>,
-    tickets: &[Ticket],
-) -> Option<FilterState> {
-    let mut filter = state.filter();
-    match key {
-        Some(key) => filter.focus(crate::view_models::filter::epic_of(key, tickets)?),
-        None => {
-            if !filter.unfocus() {
-                return None;
-            }
-        }
-    }
-    Some(FilterState {
-        tokens: filter.tokens.iter().map(Token::label).collect(),
-        text: filter.text,
-    })
-}
-
 /// What the page sends with `board.view`: the project and the board's size (for the "more stages" pill and Dev's
 /// fold). The view preferences are the service's (SHB-05), read by `board.view` itself.
 #[derive(Debug, Clone, Default, Deserialize, TS)]
@@ -515,8 +468,6 @@ pub struct ProjectFacts<'a> {
     pub agent_names: &'a [(String, String)],
     /// Interrupted tickets that were validating when the service restarted (T-0244).
     pub was_validating: &'a [TicketKey],
-    /// Its epic leads (`lead.list`): the Lead row on epic cards, the lead's line on tracks (d0083, T-0289).
-    pub leads: &'a [otaq_core::project_agents::lead::Lead],
     /// `Params::agent`'s filter, read from the service; `None` without one (or when the agent is gone).
     pub agent_filter: Option<&'a AgentFilter>,
     /// The cards' named agents (`board.agents`, T-0345): the footer's agent part.
@@ -536,17 +487,11 @@ pub const APPROVED_NOTE: &str =
     "doesn\u{2019}t watch PRs. Mark it once it\u{2019}s merged on GitHub.";
 
 fn card(entry: CardEntry, tickets: &[Ticket]) -> Option<BoardCard> {
-    Some(match entry {
-        CardEntry::Ticket(vm) => {
-            let ticket = tickets.iter().find(|t| t.key == vm.key)?;
-            BoardCard::Ticket {
-                needs_you: ticket.needs_user(),
-                card: Box::new(TicketCardView::from_vm(vm, ticket)),
-            }
-        }
-        CardEntry::Epic(vm) => BoardCard::Epic {
-            card: Box::new(EpicCardView::from_vm(vm)),
-        },
+    let CardEntry::Ticket(vm) = entry;
+    let ticket = tickets.iter().find(|t| t.key == vm.key)?;
+    Some(BoardCard::Ticket {
+        needs_you: ticket.needs_user(),
+        card: Box::new(TicketCardView::from_vm(vm, ticket)),
     })
 }
 
@@ -563,11 +508,10 @@ fn hidden_text(n: usize) -> Option<String> {
 
 fn section_page(view: SectionView, tickets: &[Ticket]) -> SectionPage {
     let approved = view.delivery;
-    let pr_open = view.cards.iter().any(|c| match c {
-        CardEntry::Ticket(vm) => tickets
+    let pr_open = view.cards.iter().any(|CardEntry::Ticket(vm)| {
+        tickets
             .iter()
-            .any(|t| t.key == vm.key && t.status == Status::PrOpen),
-        CardEntry::Epic(_) => false,
+            .any(|t| t.key == vm.key && t.status == Status::PrOpen)
     });
     let name = view.name;
     SectionPage {
@@ -724,29 +668,6 @@ pub fn column_menu(id: &ColumnId, kind: ColumnKind, title: &str) -> Vec<ColumnMe
     menu
 }
 
-/// Puts each epic card's lead on it (d0083): the Lead row, Open lead, and "added by Wishlist lead" rows.
-pub(crate) fn with_leads(
-    columns: &mut [ColumnView],
-    tickets: &[Ticket],
-    leads: &[otaq_core::project_agents::lead::Lead],
-) {
-    for column in columns {
-        let dev = column
-            .dev
-            .iter_mut()
-            .flat_map(|d| d.top.iter_mut().chain(d.working.iter_mut()));
-        let sections = column.sections.iter_mut().flat_map(|s| s.cards.iter_mut());
-        for entry in column.cards.iter_mut().chain(dev).chain(sections) {
-            let CardEntry::Epic(vm) = entry else { continue };
-            let Some(epic) = tickets.iter().find(|t| t.key == vm.key) else {
-                continue;
-            };
-            let lead = leads.iter().find(|l| l.epic == vm.key);
-            vm.set_lead(epic, tickets, lead);
-        }
-    }
-}
-
 /// The board for `tickets` of one project, at `params`' size.
 pub fn page(
     tickets: &[Ticket],
@@ -756,8 +677,7 @@ pub fn page(
     keys: &KeyLabels,
 ) -> BoardPage {
     let filter = params.filter.filter();
-    // An `epic:` token dims instead of hiding (Q55).
-    let mut visible = filter.hiding().visible(tickets);
+    let mut visible = filter.visible(tickets);
     // The agent filter (d0087) narrows whatever the search shows.
     let agent_filter = project
         .agent_filter
@@ -771,13 +691,12 @@ pub fn page(
                 .collect(),
         );
     }
-    let strong = filter.strong(tickets);
     let prefs = project.view;
     let input = BoardInput {
         flow: project.flow,
         tickets,
         visible: visible.as_deref(),
-        strong: strong.as_deref(),
+        strong: None,
         project_base: Some(project.base_branch),
         now_ms,
         dev_budget: (!prefs.dev_unfolded).then(|| board::dev_budget(params.height)),
@@ -791,12 +710,8 @@ pub fn page(
         paused: project.paused,
     };
     let view: ViewKind = prefs.view.into();
-    let list = (view == ViewKind::List).then(|| list_view::view(&input, prefs, project.leads));
-    let mut built = board::build(&input);
-    with_leads(&mut built, tickets, project.leads);
-    let view: ViewKind = prefs.view.into();
-    let lanes = (view == ViewKind::Board && prefs.lanes == otaq_core::board::settings::Lanes::Epic)
-        .then(|| crate::view_models::lanes::build(&input, prefs, project.leads));
+    let list = (view == ViewKind::List).then(|| list_view::view(&input, prefs));
+    let built = board::build(&input);
     // Folded Done is a line under the last column, not a column of its own.
     let rails: Vec<bool> = built
         .iter()
@@ -814,7 +729,6 @@ pub fn page(
             },
         });
     BoardPage {
-        lanes,
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
             .then(|| empty_board::view(project.name, keys)),
@@ -832,14 +746,6 @@ pub fn page(
         } else {
             Vec::new()
         },
-        focus: strong.map(|keys| EpicFocus {
-            epics: filter
-                .focused_epics(tickets)
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-            keys: keys.iter().map(ToString::to_string).collect(),
-        }),
         agent_filter: agent_filter.map(AgentFilter::chip),
         min_column_width: board::COLUMN_MIN_WIDTH,
         folded_width: board::FOLDED_COLUMN_WIDTH,
@@ -862,8 +768,7 @@ pub fn page(
 pub enum Verdict {
     /// The card's own column: no styling, dropping does nothing.
     Home,
-    /// Accent outline and the hint under the pointer, with a second line under it when there is one ("SHOP-45.1
-    /// keeps running").
+    /// Accent outline and the hint under the pointer, with a second line under it when there is one.
     Allowed {
         icon: IconName,
         hint: String,
@@ -885,8 +790,7 @@ pub struct TargetVerdict {
 }
 
 /// The answer to `board.drag`, asked once when a drag starts: a verdict for every drop target (every column,
-/// Review's Approved section on its own). `tickets` are the project's: an epic's answer counts the children it
-/// queues ("Queue 2 children") or, for its track over Backlog, what it takes back; other tickets need none.
+/// Review's Approved section on its own). `tickets` are the project's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DragAnswer")]
 pub struct DragAnswer {
@@ -941,7 +845,7 @@ fn verdict(
             Verdict::Allowed {
                 icon,
                 hint,
-                note: drag::drop_note(ticket, tickets, column),
+                note: None,
             }
         }
     }
@@ -981,33 +885,6 @@ pub fn park_dialog(ticket: &Ticket) -> ParkDialog {
         confirm: "Park".to_owned(),
         confirm_icon: IconName::SquareParking,
     }
-}
-
-/// *03 → epic flows 4 → 11*: "Park 2 running tickets?", built like the Park confirmation (d0052); Cancel is the
-/// default, the confirm button sends `board.park_all` for the epic (EPC-14).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ParkAllDialog")]
-pub struct ParkAllDialog {
-    /// The epic.
-    pub key: String,
-    pub title: String,
-    pub message: String,
-    pub cancel: String,
-    pub confirm: String,
-    pub confirm_icon: IconName,
-}
-
-/// The Park-all confirmation of a take-back `plan`; `None` unless it parks.
-pub fn park_all_dialog(plan: &TakeBackPlan) -> Option<ParkAllDialog> {
-    let confirmation = plan.confirmation()?;
-    Some(ParkAllDialog {
-        key: plan.epic().to_string(),
-        title: confirmation.title,
-        message: confirmation.body,
-        cancel: confirmation.cancel,
-        confirm: confirmation.confirm,
-        confirm_icon: IconName::SquareParking,
-    })
 }
 
 /// One choice of the approve popover, with its number key ("1 Local merge").
@@ -1082,20 +959,8 @@ pub enum DropStep {
     Nothing,
     /// Send `ticket.move`.
     Move,
-    /// Send `epic.queue` for the epic, or for one `child` of it (a row or a "not queued" chip), then show the
-    /// queue toast with its outcome (EPC-12, EPC-15).
-    QueueEpic {
-        epic: TicketKey,
-        child: Option<TicketKey>,
-    },
     /// Dev → Backlog: the Park confirmation first.
     Park,
-    /// An epic's track on Backlog: send `epic.take_back`, which unqueues its waiting children (EPC-14).
-    TakeBack {
-        epic: TicketKey,
-    },
-    /// An epic's track on Backlog with every child started: the Park-all confirmation first.
-    ParkAll(ParkAllDialog),
     /// Ready for Review → the Approved section: the Approve choice (Local merge · Open PR); nothing moves until one
     /// is picked, and Esc or Cancel leaves the card where it was (d0087).
     Approve,
@@ -1126,7 +991,7 @@ pub fn drop_step(ticket: &Ticket, tickets: &[Ticket], target: DropTargetId) -> D
     )
 }
 
-/// `tickets` are the project's; only an epic's need them (its track's take back). `flow` is the project's.
+/// `tickets` are the project's (a blocked ticket's parents). `flow` is the project's.
 pub fn drop_step_in(
     flow: &Flow,
     ticket: &Ticket,
@@ -1145,13 +1010,7 @@ pub fn drop_step_in(
     match drag::on_drop_in(flow, ticket, tickets, target) {
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
-        DropAction::QueueEpic { epic, child } => DropStep::QueueEpic { epic, child },
         DropAction::AskPark => DropStep::Park,
-        DropAction::TakeBack { epic } => DropStep::TakeBack { epic },
-        DropAction::AskParkAll(plan) => match park_all_dialog(&plan) {
-            Some(dialog) => DropStep::ParkAll(dialog),
-            None => DropStep::Nothing,
-        },
         DropAction::ChooseApprove => DropStep::Approve,
         DropAction::AskDragBack => DropStep::DragBack,
         DropAction::NotYet(message) => DropStep::NotYet(message),
@@ -1327,8 +1186,6 @@ pub enum DropOutcome {
     Moved,
     /// The page shows the confirmation, then sends `board.park`.
     Park { dialog: ParkDialog },
-    /// The page shows the Park-all confirmation (Cancel by default), then sends `board.park_all`.
-    ParkAll { dialog: ParkAllDialog },
     /// The page shows the popover; a choice opens its dialog.
     Approve { menu: ApproveMenu },
     /// The page shows the drag-back dialog; its confirm sends `board.drag_back` (FLW-18).
@@ -1412,7 +1269,6 @@ pub fn gallery() -> Gallery {
         base_branch: "main",
         agent_names: &[],
         was_validating: &[],
-        leads: &[],
         agent_filter: None,
         agents: None,
         agent_list: None,
@@ -1530,7 +1386,6 @@ fn gallery_rails(flow: &Flow) -> Vec<GalleryColumn> {
         base_branch: "main",
         agent_names: &[],
         was_validating: &[],
-        leads: &[],
         agent_filter: None,
         agents: None,
         agent_list: None,
@@ -1573,7 +1428,6 @@ fn gallery_rails(flow: &Flow) -> Vec<GalleryColumn> {
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{NOW, ticket};
-    use otaq_core::domain::Kind;
 
     /// A ticket of the test flow in `stage` with `status`.
     fn on_test_flow(key: &str, stage: &str, status: Status) -> Ticket {
@@ -1681,35 +1535,6 @@ mod tests {
         assert_eq!(
             drop_step_in(&flow, &parked, &[], &DropTargetId::new("qa")),
             DropStep::Move
-        );
-    }
-
-    /// *03 → An epic can't go back* (Q266): an epic waiting in its check is refused on any earlier stage.
-    #[test]
-    fn an_epic_cant_be_dragged_back() {
-        let flow = flow_columns::every_kind();
-        let mut epic = on_test_flow("PAY-123", "qa", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        let answer = drag_answer_in(&flow, &epic, &[], None);
-        for target in ["ready_for_dev", "grill", "dev", "security"] {
-            assert_eq!(
-                verdict_of(&answer, target),
-                Verdict::Forbidden {
-                    title: "An epic can\u{2019}t be dragged back".to_owned(),
-                    detail: None,
-                },
-                "{target}"
-            );
-        }
-        // The default flow too: Review → Dev.
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        assert_eq!(
-            verdict_on(&epic, DropTargetId::DEV),
-            Verdict::Forbidden {
-                title: "An epic can\u{2019}t be dragged back".to_owned(),
-                detail: None,
-            }
         );
     }
 
@@ -1825,7 +1650,6 @@ mod tests {
             base_branch: "main",
             agent_names: &[],
             was_validating: &[],
-            leads: &[],
             agent_filter: None,
             agents: None,
             agent_list: None,
@@ -1856,13 +1680,10 @@ mod tests {
     fn sample() -> Vec<Ticket> {
         let mut pinned = ticket("SHOP-19", "Price table", Status::Working);
         pinned.flags.pinned_at = Some(10);
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         vec![
             ticket("SHOP-24", "Update footer links", Status::Backlog),
-            epic,
             pinned,
             ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
             ticket("SHOP-27", "Search results paging", Status::Working),
@@ -1871,182 +1692,6 @@ mod tests {
             pr,
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
         ]
-    }
-
-    /// EPC-11, EPL-01 on the page: the epic card carries its rows (draggable before anything starts); once
-    /// SHOP-45.1 is queued the epic is no Backlog card, SHOP-45.2 is a card of its own, and Backlog counts what it
-    /// shows.
-    #[test]
-    fn epics_and_children_show_once() {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status| {
-            let mut t = ticket(key, "Child", status);
-            t.epic = Some("SHOP-45".parse().unwrap());
-            t
-        };
-        let mut tickets = vec![
-            epic,
-            child("SHOP-45.1", Status::Backlog),
-            child("SHOP-45.2", Status::Backlog),
-        ];
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let backlog = &board.columns[0];
-        assert_eq!(backlog.count, "1");
-        let [BoardCard::Epic { card }] = backlog.cards.as_slice() else {
-            panic!("one epic card: {:?}", backlog.cards)
-        };
-        let rows: Vec<(&str, bool)> = card
-            .children
-            .iter()
-            .map(|c| (c.key.as_str(), c.draggable))
-            .collect();
-        assert_eq!(rows, [("SHOP-45.1", true), ("SHOP-45.2", true)]);
-
-        tickets[1].status = Status::Queued;
-        tickets[1].place = otaq_core::domain::Place::Waiting(None);
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
-        assert_eq!(backlog, ["SHOP-45.2"]);
-        assert_eq!(board.columns[0].count, "1");
-        let ready: Vec<&str> = board.columns[1].cards.iter().map(BoardCard::key).collect();
-        assert_eq!(ready, ["SHOP-45.1"]);
-    }
-
-    /// T-0289, EPL-01: the epic card's Lead row (Open lead without a lead) and the lane head's lead come from the
-    /// leads.
-    #[test]
-    fn the_leads_reach_the_epic_card_and_the_lane() {
-        use crate::view_models::lead_status::sample;
-        use otaq_core::project_agents::lead::LeadStatus;
-
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let mut child = ticket("SHOP-45.1", "Search index API", Status::Backlog);
-        child.epic = Some("SHOP-45".parse().unwrap());
-        let mut tickets = vec![epic, child];
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let [BoardCard::Epic { card }] = board.columns[0].cards.as_slice() else {
-            panic!("one epic card")
-        };
-        assert_eq!(card.lead.as_ref().unwrap().full, "Open lead");
-
-        let leads = [sample(&tickets[0], LeadStatus::CheckingPlan, 0)];
-        let with = ProjectFacts {
-            leads: &leads,
-            ..facts()
-        };
-        let board = page(
-            &tickets,
-            &with,
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let [BoardCard::Epic { card }] = board.columns[0].cards.as_slice() else {
-            panic!("one epic card")
-        };
-        assert_eq!(
-            card.lead.as_ref().unwrap().full,
-            "Search lead · checking the plan"
-        );
-
-        tickets[1].status = Status::Queued;
-        tickets[1].place = otaq_core::domain::Place::Waiting(None);
-        tickets[1].queued_at = Some(1);
-        let board = page(
-            &tickets,
-            &with,
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(board.lanes.is_none(), "Lanes: None");
-        let lanes = ProjectFacts {
-            view: view(ViewPrefs {
-                lanes: otaq_core::board::settings::Lanes::Epic,
-                ..ViewPrefs::default()
-            }),
-            ..with
-        };
-        let board = page(
-            &tickets,
-            &lanes,
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let lane = &board.lanes.expect("lanes")[0];
-        assert_eq!(
-            lane.head.lead.as_ref().unwrap().full,
-            "Search lead · checking the plan"
-        );
-    }
-
-    /// EPL-01: no strip above the columns. While SHOP-45 is a card its children are its rows; once
-    /// SHOP-45.1 is queued, SHOP-45.2 left in Backlog is a card of its own that names its epic, and no epic card
-    /// is left.
-    #[test]
-    fn in_flight_a_backlog_child_is_a_card_naming_its_epic() {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status| {
-            let mut t = ticket(key, "Child", status);
-            t.epic = Some("SHOP-45".parse().unwrap());
-            t
-        };
-        let mut tickets = vec![
-            epic,
-            child("SHOP-45.1", Status::Backlog),
-            child("SHOP-45.2", Status::Backlog),
-            ticket("SHOP-51", "Fix checkout rounding", Status::Working),
-        ];
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
-        assert_eq!(backlog, ["SHOP-45"]);
-
-        tickets[1].status = Status::Queued;
-        tickets[1].place = otaq_core::domain::Place::Waiting(None);
-        tickets[1].queued_at = Some(1_000);
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
-        assert_eq!(backlog, ["SHOP-45.2"]);
-        let BoardCard::Ticket { card, .. } = &board.columns[0].cards[0] else {
-            panic!("a ticket card")
-        };
-        assert_eq!(card.epic.as_deref(), Some("Search"));
-        let json = serde_json::to_value(&board).unwrap();
-        assert!(json.get("strip").is_none());
     }
 
     /// SHL-06, FLW-01: six columns in order (Validate its own); Review holds Ready for Review and Approved as two
@@ -2090,12 +1735,6 @@ mod tests {
         assert_eq!(page.empty, None);
         let backlog = &page.columns[0];
         assert_eq!(backlog.add.as_deref(), Some("Add ticket"));
-        assert!(
-            backlog
-                .cards
-                .iter()
-                .any(|c| matches!(c, BoardCard::Epic { .. }))
-        );
         assert_eq!(
             page.columns[1].hint.as_deref(),
             Some(board::READY_FOR_DEV_HINT)
@@ -2168,66 +1807,6 @@ mod tests {
         assert_eq!(json["columns"][1]["id"], "ready_for_dev");
         assert_eq!(json["columns"][0]["cards"][0]["kind"], "ticket");
         assert_eq!(json["scroll_chip"]["above"], "{n} above");
-    }
-
-    /// EPC-16 on the page: SHOP-40.1 and 40.2 merged fold into one line before their cards, SHOP-40.5 closed stays
-    /// a card; Done (and its folded line) counts the fold as one.
-    #[test]
-    fn merged_children_fold_on_the_page() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status| {
-            let mut t = ticket(key, "Child", status);
-            t.epic = Some("SHOP-40".parse().unwrap());
-            t
-        };
-        let tickets = vec![
-            epic,
-            child("SHOP-40.1", Status::Merged),
-            child("SHOP-40.2", Status::Merged),
-            child("SHOP-40.3", Status::Working),
-            child("SHOP-40.5", Status::ClosedNotMerged),
-            ticket("SHOP-17", "Add Stripe client", Status::Merged),
-        ];
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let done = &board.columns[5];
-        assert_eq!(
-            done.folds,
-            [DoneFold {
-                epic: "SHOP-40".into(),
-                // The closed child is counted apart (#31).
-                label: "Wishlist · 2 of 3 merged · 1 closed".into(),
-                keys: vec!["SHOP-40.1".into(), "SHOP-40.2".into()],
-            }]
-        );
-        let cards: Vec<&str> = done.cards.iter().map(BoardCard::key).collect();
-        assert_eq!(cards, ["SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-40.5"]);
-        assert_eq!(done.count, "3");
-        let json = serde_json::to_value(&board).unwrap();
-        assert_eq!(
-            json["columns"][5]["folds"][0]["label"],
-            "Wishlist · 2 of 3 merged · 1 closed"
-        );
-        assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
-
-        let folded = page(
-            &tickets,
-            &ProjectFacts {
-                view: view(ViewPrefs::default()),
-                ..facts()
-            },
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(folded.columns[5].collapsed);
-        assert_eq!(folded.done.unwrap().text, "Done 3 \u{2192}");
     }
 
     /// BRD-02: Done is folded at first, "Done 4 →" under the last column, at every width; the line unfolds it, and
@@ -2440,62 +2019,6 @@ mod tests {
             &KeyLabels::base(Platform::Mac),
         );
         assert_eq!(unfiltered.columns[2].hidden, None);
-    }
-
-    /// EPC-18, Q55: Focus epic (`g` `e`) on SHOP-40.2 puts `epic:Wishlist` in the filter (another epic's token gives way, other
-    /// tokens stay); the board then keeps every card, dims the others and says which epic and cards stay; Esc
-    /// takes the token out. A standalone ticket focuses nothing.
-    #[test]
-    fn focusing_an_epic_dims_the_other_cards() {
-        let mut tickets = sample();
-        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Working);
-        child.epic = Some("SHOP-40".parse().unwrap());
-        tickets.push(child);
-        let state = FilterState {
-            tokens: vec!["epic:Search".into(), "is:working".into()],
-            text: String::new(),
-        };
-        let key: TicketKey = "SHOP-40.2".parse().unwrap();
-        let focused = focus_filter(&state, Some(&key), &tickets).unwrap();
-        assert_eq!(focused.tokens, ["is:working", "epic:Wishlist"]);
-        let standalone: TicketKey = "SHOP-22".parse().unwrap();
-        assert_eq!(focus_filter(&state, Some(&standalone), &tickets), None);
-        let left = focus_filter(&focused, None, &tickets).unwrap();
-        assert_eq!(left.tokens, ["is:working"]);
-        assert_eq!(
-            focus_filter(&left, None, &tickets),
-            None,
-            "nothing to leave"
-        );
-
-        let only_epic = FilterState {
-            tokens: vec!["epic:Wishlist".into()],
-            text: String::new(),
-        };
-        let board = page(
-            &tickets,
-            &facts(),
-            &Params {
-                filter: only_epic,
-                ..params(1376.)
-            },
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let focus = board.focus.unwrap();
-        assert_eq!(focus.epics, ["SHOP-40"]);
-        assert_eq!(focus.keys, ["SHOP-40", "SHOP-40.2"]);
-        let dev = &board.columns[2];
-        assert_eq!(dev.hidden, None, "dimmed, not hidden");
-        assert_eq!(dev.count, "1/4");
-        let unfocused = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert_eq!(unfocused.focus, None);
     }
 
     #[test]
@@ -2720,73 +2243,6 @@ mod tests {
         );
     }
 
-    /// SHL-01, EPL-01 on the page: Done opened or folded; an epic's lane cells follow the columns, one per column,
-    /// and a folded column's cell is empty.
-    #[test]
-    fn lane_cells_follow_dones_fold() {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status| {
-            let mut t = ticket(key, "Child", status);
-            t.epic = Some("SHOP-45".parse().unwrap());
-            t.queued_at = Some(1);
-            t
-        };
-        let tickets = vec![
-            epic,
-            child("SHOP-45.1", Status::Merged),
-            child("SHOP-45.2", Status::WaitingForYou),
-            child("SHOP-45.3", Status::Working),
-        ];
-        let lanes = |folded_columns: Vec<String>| ViewPrefs {
-            lanes: otaq_core::board::settings::Lanes::Epic,
-            folded_columns,
-            ..ViewPrefs::default()
-        };
-        let cells = |p: &BoardPage| -> Vec<(ColumnId, usize)> {
-            p.lanes.as_ref().unwrap()[0]
-                .cells
-                .iter()
-                .map(|c| (c.column.clone(), c.cards.len()))
-                .collect()
-        };
-        let open = page(
-            &tickets,
-            &ProjectFacts {
-                view: view(lanes(Vec::new())),
-                ..facts()
-            },
-            &params(1360.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(!open.columns[5].collapsed);
-        assert_eq!(
-            cells(&open),
-            [
-                (ColumnId::BACKLOG, 0),
-                (ColumnId::READY_FOR_DEV, 0),
-                (ColumnId::DEV, 1),
-                (ColumnId::new("validate"), 0),
-                (ColumnId::REVIEW, 1),
-                (ColumnId::DONE, 1),
-            ],
-            "one cell per column"
-        );
-        let folded = page(
-            &tickets,
-            &ProjectFacts {
-                view: view(lanes(vec!["done".into()])),
-                ..facts()
-            },
-            &params(1360.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(folded.columns[5].collapsed);
-        assert_eq!(cells(&folded)[5], (ColumnId::DONE, 0));
-    }
-
     #[test]
     fn the_gallery_has_every_review_state() {
         let g = gallery();
@@ -2872,7 +2328,7 @@ mod tests {
                 clear: "Clear filter · Esc".into(),
             })
         );
-        assert_eq!(by_agent.columns[0].count, "1/2");
+        assert_eq!(by_agent.columns[0].count, "1/1");
         assert_eq!(by_agent.columns[4].count, "1/2");
 
         // With a search: both must match.
@@ -2897,7 +2353,7 @@ mod tests {
         let cleared = filtered(FilterState::default(), None);
         assert_eq!(cleared.agent_filter, None);
         assert_eq!(shown(&cleared).len(), tickets.len(), "every card");
-        assert_eq!(cleared.columns[0].count, "2");
+        assert_eq!(cleared.columns[0].count, "1");
         let json = serde_json::to_value(&by_agent).unwrap();
         assert_eq!(
             json["agent_filter"]["label"],
@@ -2905,228 +2361,10 @@ mod tests {
         );
     }
 
-    /// *Epic flows 1 → 1* and *epic flows 3 → 8* (EPC-12): the epic card and a row are allowed over Ready for Dev
-    /// and Dev with what they queue, and not allowed over Review, Approved and Done; their drops queue through
-    /// `epic.queue`.
-    #[test]
-    fn an_epic_and_a_row_answer_their_drag_and_queue_on_drop() {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status: Status| {
-            let mut t = ticket(key, "Search child", status);
-            t.epic = Some(epic.key.clone());
-            t
-        };
-        let tickets = vec![
-            epic.clone(),
-            child("SHOP-45.1", Status::Backlog),
-            child("SHOP-45.2", Status::Backlog),
-        ];
-        let verdicts = |answer: DragAnswer| -> Vec<Verdict> {
-            answer.targets.into_iter().map(|c| c.verdict).collect()
-        };
-        let card = verdicts(drag_answer(&epic, &tickets));
-        assert_eq!(card[0], Verdict::Home);
-        for v in &card[1..3] {
-            assert_eq!(
-                v,
-                &Verdict::Allowed {
-                    icon: IconName::Play,
-                    hint: "Queue 2 children".into(),
-                    note: None,
-                },
-                "an epic drop queues its children (d0080)"
-            );
-        }
-        for v in &card[3..] {
-            assert!(matches!(v, Verdict::Forbidden { .. }), "{v:?}");
-        }
-        let row = verdicts(drag_answer(&tickets[1], &tickets));
-        assert_eq!(
-            row[1],
-            Verdict::Allowed {
-                icon: IconName::Play,
-                hint: "Queue SHOP-45.1".into(),
-                note: None,
-            }
-        );
-        assert!(
-            row[3..]
-                .iter()
-                .all(|v| matches!(v, Verdict::Forbidden { .. }))
-        );
-        let mut parked = child("SHOP-45.2", Status::Parked);
-        parked.place = otaq_core::domain::Place::Backlog;
-        assert_eq!(
-            verdicts(drag_answer(&parked, &tickets))[2],
-            Verdict::Allowed {
-                icon: IconName::Play,
-                hint: "Resume SHOP-45.2".into(),
-                note: None,
-            }
-        );
-
-        assert_eq!(
-            drop_step(&epic, &[], DropTargetId::READY_FOR_DEV),
-            DropStep::QueueEpic {
-                epic: epic.key.clone(),
-                child: None
-            }
-        );
-        assert_eq!(
-            drop_step(&tickets[1], &[], DropTargetId::DEV),
-            DropStep::QueueEpic {
-                epic: epic.key.clone(),
-                child: Some(tickets[1].key.clone())
-            }
-        );
-        assert_eq!(drop_step(&epic, &[], DropTargetId::DONE), DropStep::Nothing);
-        assert_eq!(
-            drop_step(&tickets[1], &[], DropTargetId::APPROVED),
-            DropStep::Nothing
-        );
-    }
-
-    /// *Epic flows 1 → 3* and *epic flows 4 → 11* (EPC-14): the track's drag accepts Backlog with what it takes
-    /// back (two lines when a child keeps running) and Ready for Dev / Dev with what it queues; a drop on Backlog
-    /// unqueues at once, or asks first when every child started.
-    #[test]
-    fn a_track_answers_its_drag_and_takes_back_on_drop() {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status: Status| {
-            let mut t = ticket(key, "Search child", status);
-            t.epic = Some(epic.key.clone());
-            t
-        };
-        let mut tickets = vec![
-            epic.clone(),
-            child("SHOP-45.1", Status::Working),
-            child("SHOP-45.2", Status::Queued),
-            child("SHOP-45.3", Status::Backlog),
-        ];
-        let verdicts = |answer: DragAnswer| -> Vec<Verdict> {
-            answer.targets.into_iter().map(|c| c.verdict).collect()
-        };
-        let track = verdicts(drag_answer(&epic, &tickets));
-        assert_eq!(
-            track[0],
-            Verdict::Allowed {
-                icon: IconName::ArrowDownToLine,
-                hint: "Unqueue 1 never-started child (45.2)".into(),
-                note: Some("SHOP-45.1 keeps running".into()),
-            }
-        );
-        for v in &track[1..3] {
-            assert_eq!(
-                v,
-                &Verdict::Allowed {
-                    icon: IconName::Play,
-                    hint: "Queue 1 child".into(),
-                    note: None,
-                },
-                "the rest of the epic"
-            );
-        }
-        for v in &track[3..] {
-            assert!(matches!(v, Verdict::Forbidden { .. }), "{v:?}");
-        }
-        let json = serde_json::to_value(drag_answer(&epic, &tickets)).unwrap();
-        assert_eq!(
-            json["targets"][0]["verdict"]["note"],
-            "SHOP-45.1 keeps running"
-        );
-        assert_eq!(
-            drop_step(&epic, &tickets, DropTargetId::BACKLOG),
-            DropStep::TakeBack {
-                epic: epic.key.clone()
-            }
-        );
-        assert_eq!(
-            drop_step(&epic, &tickets, DropTargetId::READY_FOR_DEV),
-            DropStep::QueueEpic {
-                epic: epic.key.clone(),
-                child: None
-            }
-        );
-        assert_eq!(
-            drop_step(&epic, &tickets, DropTargetId::DONE),
-            DropStep::Nothing
-        );
-
-        // State 11: both started and run; the drop asks first.
-        tickets.truncate(2);
-        tickets.push(child("SHOP-45.2", Status::Working));
-        assert_eq!(
-            verdicts(drag_answer(&epic, &tickets))[0],
-            Verdict::Allowed {
-                icon: IconName::SquareParking,
-                hint: "Park 2 running children".into(),
-                note: None,
-            }
-        );
-        let DropStep::ParkAll(dialog) = drop_step(&epic, &tickets, DropTargetId::BACKLOG) else {
-            panic!("Park all asks first");
-        };
-        assert_eq!(
-            dialog,
-            ParkAllDialog {
-                key: "SHOP-45".into(),
-                title: "Park 2 running tickets?".into(),
-                message: "Their work is kept. SHOP-45.1 and SHOP-45.2 stop and go back to Backlog with their \
-                          conversations."
-                    .into(),
-                cancel: "Cancel".into(),
-                confirm: "Park 2 tickets".into(),
-                confirm_icon: IconName::SquareParking,
-            }
-        );
-    }
-
-    /// State 10 (d0066), EPL-01: a child card taken out of Ready for Dev goes back to Backlog without a dialog
-    /// and is a Backlog card naming its epic while SHOP-45.1 runs.
-    #[test]
-    fn a_child_card_taken_out_of_the_queue_is_a_backlog_card() {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status| {
-            let mut t = ticket(key, "Child", status);
-            t.epic = Some("SHOP-45".parse().unwrap());
-            t
-        };
-        let mut tickets = vec![
-            epic,
-            child("SHOP-45.1", Status::Working),
-            child("SHOP-45.2", Status::Queued),
-        ];
-        assert_eq!(
-            drop_step(&tickets[2], &tickets, DropTargetId::BACKLOG),
-            DropStep::Move
-        );
-        // What the service's unqueue leaves (d0066).
-        tickets[2].status = Status::Backlog;
-        tickets[2].place = otaq_core::domain::Place::Backlog;
-        let board = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
-        assert_eq!(backlog, ["SHOP-45.2"]);
-    }
-
-    /// One enabled delivery (an epic child, or Open PR without a provider): its dialog opens without the choice
-    /// (dogfood #18).
+    /// Two enabled deliveries offer the choice; Open PR without a provider leaves one, whose dialog opens without the
+    /// choice (dogfood #18).
     #[test]
     fn one_way_to_deliver_skips_the_choice() {
-        let mut child = ticket("SHOP-40.1", "Wishlist API", Status::WaitingForYou);
-        child.epic = Some("SHOP-40".parse().unwrap());
-        child.base = otaq_core::board::tickets::Base::Epic("SHOP-40".parse().unwrap());
-        let menu = approve_menu(&child, "epic-branch", std::slice::from_ref(&child), None);
-        assert_eq!(menu.items.len(), 1);
-        assert_eq!(menu.direct, Some(ApproveChoice::LocalMerge));
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         let no_provider = PrProvider {
             remote: Some("git.acme.internal/web/handbook".into()),
@@ -3486,15 +2724,6 @@ flow:
             });
             t
         };
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let mut child = at(
-            "SHOP-40.3",
-            "Wishlist page",
-            Status::Backlog,
-            Place::Backlog,
-        );
-        child.epic = Some("SHOP-40".parse().unwrap());
         let mut p1 = at(
             "SHOP-35",
             "Slow checkout query",
@@ -3544,7 +2773,6 @@ flow:
             merged.push(at(key, "Shipped", Status::Merged, Place::Done));
         }
         let mut tickets = vec![
-            epic,
             at(
                 "SHOP-31",
                 "Hotfix: checkout crash",
@@ -3557,7 +2785,6 @@ flow:
                 Status::Backlog,
                 Place::Backlog,
             ),
-            child,
             p1,
             waits,
             asks(
@@ -3735,12 +2962,6 @@ flow:
         assert_eq!(chip("SHOP-35").as_deref(), Some("P1"));
         let waits = line_of(&page, "SHOP-20").0.unwrap();
         assert_eq!(waits, "Blocked \u{b7} waits for SHOP-18 to merge");
-        let child = page.columns[0].cards.iter().find_map(|c| match c {
-            BoardCard::Ticket { card, .. } if card.key == "SHOP-40.3" => Some(card),
-            _ => None,
-        });
-        // An epic child in Backlog is a row of its epic's card (EPC-11), so it isn't a card of its own.
-        assert!(child.is_none());
         let working = page.columns[3]
             .dev
             .iter()

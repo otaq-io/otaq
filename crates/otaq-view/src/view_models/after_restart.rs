@@ -473,7 +473,7 @@ pub fn summary_with(
     let find = |key: &otaq_core::domain::TicketKey| tickets.iter().find(|t| &t.key == key);
     let interrupted: Vec<&Ticket> = report.interrupted.iter().filter_map(find).collect();
     let agents_part = agents_part(report, agents, projects, runs);
-    if interrupted.is_empty() && agents_part.is_none() && report.leads_ended.is_empty() {
+    if interrupted.is_empty() && agents_part.is_none() {
         return None;
     }
     // Needs-you tickets kept their question: answering from Needs you resumes and delivers it (d0045). An
@@ -544,7 +544,7 @@ pub fn summary_with(
         title: title(
             report.interrupted.len(),
             report.project_agents_ended.len(),
-            report.leads_ended.len(),
+            0,
         ),
         text: "Only Dev tickets that were working become Interrupted. Each one can resume its session on the tool it \
                started on in the same worktree; resuming uses tokens, so it needs your click.",
@@ -781,7 +781,6 @@ mod tests {
             focused: false,
             tokens: Default::default(),
             session: None,
-            epic: None,
             turn_ended_at: None,
         }
     }
@@ -815,14 +814,6 @@ mod tests {
             ["SHOP-29"],
             "agents aren't in Resume selected"
         );
-        // *16 → Epic lead after a restart*: the leads are counted on their own, never in Resume selected (T-0289).
-        r.leads_ended = vec!["lead-1".into()];
-        let page = summary(&r, &tickets, &agents, &projects(), &BTreeSet::new(), false).unwrap();
-        assert_eq!(
-            page.title,
-            "1 session was interrupted \u{b7} 2 conversations with Noyan ended \u{b7} 1 epic lead ended"
-        );
-        assert_eq!(page.selected, ["SHOP-29"]);
         assert_eq!(
             title(4, 0, 1),
             "4 sessions were interrupted \u{b7} 1 epic lead ended"
@@ -906,7 +897,6 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         });
         let tickets = vec![checking, asked];
         let mut r = report(&["SHOP-15", "SHOP-22"], &[]);

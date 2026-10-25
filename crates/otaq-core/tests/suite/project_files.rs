@@ -1,5 +1,5 @@
 //! The project Files view's data (T-0476; FIL-02, FIL-03, FIL-04, FIL-07, FIL-08, FIL-10): the project's base branch
-//! from git with every ticket's changes on top, a ticket on another base, an epic child, the picker's rows, All
+//! from git with every ticket's changes on top, a ticket on another base, the picker's rows, All
 //! changes by ticket and the per-ticket cache, against temporary repositories.
 
 use std::path::Path;
@@ -319,7 +319,6 @@ async fn the_base_carries_every_tickets_changes() {
     let none: Vec<_> = sources.no_worktree.iter().map(|t| t.key.clone()).collect();
     assert_eq!(none, std::slice::from_ref(&backlog.key));
     assert_eq!(sources.no_worktree[0].status, Status::Backlog);
-    assert!(sources.epics.is_empty());
 
     // Search: names on the base and the owners' new files, changed first.
     let found = f.board.files_project_search("SHOP", "pric").await.unwrap();
@@ -336,7 +335,7 @@ async fn the_base_carries_every_tickets_changes() {
 }
 
 #[tokio::test]
-async fn a_ticket_on_another_base_and_an_epic_child_are_tagged_with_their_branch() {
+async fn a_ticket_on_another_base_is_tagged_with_its_branch() {
     let f = Fixture::shop().await;
     let repo = f.repo();
     git(&repo, &["branch", "release/2.3"]);
@@ -358,12 +357,6 @@ async fn a_ticket_on_another_base_and_an_epic_child_are_tagged_with_their_branch
     let main = f.create("On main").await;
     let main_wt = f.start_worktree(&main).await;
     commit(&main_wt, "file1.txt", "1\nmain\n");
-    // The Wishlist epic (SHOP-3) and its running child, on the epic's branch.
-    let epic = f.epic("Wishlist").await;
-    let button = f.child(&epic, "Wishlist button").await;
-    let button_wt = f.start_worktree(&button).await;
-    commit(&button_wt, "button.tsx", "b\n");
-    f.force_status(&button, Status::Working).await;
 
     let top = f.board.files_project_tree("SHOP", "", false).await.unwrap();
     // `src` once, from the ticket on release/2.3 alone.
@@ -387,14 +380,8 @@ async fn a_ticket_on_another_base_and_an_epic_child_are_tagged_with_their_branch
         .unwrap();
     assert_eq!(on_release.base_branch, "release/2.3");
     assert!(!file1.not_on_base);
-    // The epic child: its epic's branch, a file only there.
-    let child_file = entry(&top, "button.tsx");
-    assert!(child_file.not_on_base);
-    assert_eq!(child_file.owners[0].key, button.key);
-    assert_eq!(child_file.owners[0].base_branch, "otaq/SHOP-3");
-    assert!(child_file.owners[0].other_base);
     let counts = top.counts.unwrap();
-    assert_eq!((counts.tickets, counts.same_file), (3, 0));
+    assert_eq!((counts.tickets, counts.same_file), (2, 0));
 
     let lib = f
         .board
@@ -419,16 +406,7 @@ async fn a_ticket_on_another_base_and_an_epic_child_are_tagged_with_their_branch
     assert_eq!(read.diff.unwrap().hunks[0].lines[0].text, "vat");
 
     let sources = f.board.files_project_sources("SHOP").await.unwrap();
-    let epics: Vec<_> = sources
-        .epics
-        .iter()
-        .map(|e| (e.key.to_string(), e.branch.as_str(), e.on_top.clone()))
-        .collect();
-    assert_eq!(
-        epics,
-        [("SHOP-3".to_owned(), "otaq/SHOP-3", vec![button.key.clone()])]
-    );
-    // The project's base first, then the other bases, each in flow order; the epic isn't an owner.
+    // The project's base first, then the other bases, each in flow order.
     let tickets: Vec<_> = sources
         .tickets
         .iter()
@@ -436,11 +414,7 @@ async fn a_ticket_on_another_base_and_an_epic_child_are_tagged_with_their_branch
         .collect();
     assert_eq!(
         tickets,
-        [
-            ("SHOP-2".to_owned(), false),
-            ("SHOP-1".to_owned(), true),
-            ("SHOP-3.1".to_owned(), true),
-        ]
+        [("SHOP-2".to_owned(), false), ("SHOP-1".to_owned(), true),]
     );
     assert!(sources.no_worktree.is_empty());
 }

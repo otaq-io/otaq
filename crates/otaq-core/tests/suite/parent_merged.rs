@@ -249,37 +249,3 @@ async fn a_failed_fetch_on_a_local_flow_starts_the_children() {
     assert_eq!(*recorder.0.lock().unwrap(), ["SHOP-2"]);
     assert_eq!(w.f.ticket("SHOP-2").await.status, Status::Queued);
 }
-
-#[tokio::test]
-async fn an_epic_branch_is_local_and_not_fetched() {
-    let w = world().await;
-    let epic =
-        w.f.create_with(NewTicketInput {
-            title: "Wishlist".into(),
-            kind: otaq_core::domain::Kind::Epic,
-            ..common::shop_input()
-        })
-        .await;
-    for title in ["Wishlist API", "Wishlist button"] {
-        w.f.child(&epic, title).await;
-    }
-    w.f.board
-        .add_dependency("SHOP-1.2", "SHOP-1.1", &me())
-        .await
-        .unwrap();
-    queue(&w.f, "SHOP-1.2").await;
-    set(&w.f, "SHOP-1.1", Status::Merged).await;
-    // Even with an unreachable remote, a sibling merged into the epic branch starts the child.
-    git(
-        &w.clone,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            "/nonexistent/shop-web-origin.git",
-        ],
-    );
-    let (recorder, scheduler) = recording(&w);
-    scheduler.on_parent_merged("SHOP-1.1").await.unwrap();
-    assert_eq!(*recorder.0.lock().unwrap(), ["SHOP-1.2"]);
-}

@@ -3,8 +3,8 @@
 //! - shop-web (SHOP, base `main`, Dev then Security): SHOP-19 (in Security) and SHOP-29 (in Dev) both edit
 //!   `applyDiscount` in `src/lib/pricing.ts` (lines 47–58 and 41–52), so the file reads with both owners' lines and
 //!   the note, SHOP-19 named first (furthest along); SHOP-22 waits on a permission with
-//!   `src/middleware.ts` uncommitted; SHOP-36 on `release/2.3` changes `src/lib/vat.ts`, a file only there; the
-//!   Wishlist epic (SHOP-40) has 40.1 merged and 40.2 writing `WishlistButton.tsx`; SHOP-12 has no worktree yet.
+//!   `src/middleware.ts` uncommitted; SHOP-36 on `release/2.3` changes `src/lib/vat.ts`, a file only there;
+//!   SHOP-12 has no worktree yet.
 //! - SHOP-29's stand-in agent commits: the next tree and read show the commit.
 //! - billing-api (BILL, base `develop`) with BILL-7 changing one file: everything reads develop.
 //!
@@ -23,7 +23,7 @@ use otaq_core::board::project_files::{
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::client::{ClientError, request_once};
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::git::diff::{FileStatus, LineKind};
 use otaq_core::git::testing::{commit, git};
@@ -363,50 +363,6 @@ async fn the_files_view_reads_the_example() {
     let vat_wt = world.w.start_worktree(&vat).await;
     commit(&vat_wt, "src/lib/vat.ts", "export const vat = 0.21\n");
     world.w.force_status(&vat, Status::Working).await;
-    // The Wishlist epic: 40.1 merged into the epic's branch, 40.2 writing WishlistButton.tsx on top.
-    world.skip_to("SHOP", 40).await;
-    let epic = world
-        .create(NewTicketInput {
-            project: "SHOP".into(),
-            title: "Wishlist".into(),
-            kind: Kind::Epic,
-            ..Default::default()
-        })
-        .await;
-    assert_eq!(epic.key.to_string(), "SHOP-40");
-    let child = |title: &str| NewTicketInput {
-        project: "SHOP".into(),
-        title: title.into(),
-        epic: Some("SHOP-40".into()),
-        ..Default::default()
-    };
-    let store = world.create(child("Wishlist store")).await;
-    let store_wt = world.w.start_worktree(&store).await;
-    commit(
-        &store_wt,
-        "src/lib/wishlist.ts",
-        "export const items = []\n",
-    );
-    let epic_branch = naming::branch("SHOP-40");
-    let merged = git(&store_wt, &["rev-parse", "HEAD"]);
-    git(
-        &repo,
-        &["update-ref", &format!("refs/heads/{epic_branch}"), &merged],
-    );
-    git(
-        &repo,
-        &["worktree", "remove", "--force", store_wt.to_str().unwrap()],
-    );
-    world.w.force_status(&store, Status::Merged).await;
-    let button = world.create(child("Wishlist button")).await;
-    let button_wt = world.w.start_worktree(&button).await;
-    std::fs::create_dir_all(button_wt.join("src/components")).unwrap();
-    commit(
-        &button_wt,
-        "src/components/WishlistButton.tsx",
-        "export function WishlistButton() {}\n",
-    );
-    world.w.force_status(&button, Status::Working).await;
     let checkout = git(&repo, &["status", "--porcelain"]);
 
     // The top: `src` once, with every changed file below it; the counts.
@@ -417,7 +373,7 @@ async fn the_files_view_reads_the_example() {
     assert_eq!(srcs.len(), 1);
     assert_eq!(
         (srcs[0].kind, srcs[0].changed_below),
-        (EntryKind::Folder, 4)
+        (EntryKind::Folder, 3)
     );
     let counts = top.counts.unwrap();
     assert_eq!(
@@ -428,10 +384,10 @@ async fn the_files_view_reads_the_example() {
             counts.needs_you_tickets,
             counts.same_file
         ),
-        (5, 4, 1, 1, 1)
+        (4, 3, 1, 1, 1)
     );
 
-    // src/lib: pricing.ts with both owners, vat.ts once, "not on main"; 40.1's merged file isn't there.
+    // src/lib: pricing.ts with both owners, vat.ts once, "not on main".
     let lib = world.tree("SHOP", "src/lib").await;
     let mut pricing_owners = owners(&entry(&lib, "pricing.ts").owners);
     pricing_owners.sort();
@@ -513,22 +469,6 @@ async fn the_files_view_reads_the_example() {
         ]
     );
 
-    // WishlistButton.tsx: the running child is its owner, tagged with the epic's branch.
-    let button_file = world
-        .read("SHOP", "src/components/WishlistButton.tsx")
-        .await;
-    assert!(button_file.not_on_base);
-    assert_eq!(
-        owners(&button_file.owners),
-        [(
-            button.key.to_string(),
-            FileStatus::Added,
-            false,
-            true,
-            epic_branch.as_str()
-        )]
-    );
-
     // All changes by ticket: SHOP-22 (needs you) first, then flow order, other bases last.
     let changes = world.changes("SHOP").await;
     let groups: Vec<_> = changes
@@ -552,38 +492,12 @@ async fn the_files_view_reads_the_example() {
             ("SHOP-29".to_owned(), false, vec!["src/lib/pricing.ts"]),
             ("SHOP-19".to_owned(), false, vec!["src/lib/pricing.ts"]),
             ("SHOP-36".to_owned(), false, vec!["src/lib/vat.ts"]),
-            (
-                button.key.to_string(),
-                false,
-                vec!["src/components/WishlistButton.tsx"]
-            ),
         ]
     );
     assert_eq!(changes.counts.same_file, 1);
 
-    // The picker: the epic with 40.1 merged and 40.2 on top; tickets with a worktree; SHOP-12 without, not an owner.
+    // The picker: tickets with a worktree; SHOP-12 without, not an owner.
     let sources = world.sources("SHOP").await;
-    let epics: Vec<_> = sources
-        .epics
-        .iter()
-        .map(|e| {
-            (
-                e.key.to_string(),
-                e.branch.as_str(),
-                e.merged.clone(),
-                e.on_top.clone(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        epics,
-        [(
-            "SHOP-40".to_owned(),
-            epic_branch.as_str(),
-            vec![store.key.clone()],
-            vec![button.key.clone()]
-        )]
-    );
     let tickets: Vec<_> = sources
         .tickets
         .iter()
@@ -596,7 +510,6 @@ async fn the_files_view_reads_the_example() {
             ("SHOP-29".to_owned(), false, 1),
             ("SHOP-19".to_owned(), false, 1),
             ("SHOP-36".to_owned(), true, 1),
-            (button.key.to_string(), true, 1),
         ]
     );
     let none: Vec<_> = sources.no_worktree.iter().map(|t| t.key.clone()).collect();
@@ -668,7 +581,7 @@ async fn the_files_view_reads_the_example() {
         "fn invoice() {}\n"
     );
     // shop-web's view never shows billing-api's tickets.
-    assert_eq!(world.tree("SHOP", "").await.counts.unwrap().tickets, 5);
+    assert_eq!(world.tree("SHOP", "").await.counts.unwrap().tickets, 4);
 
     world.stop().await;
 }

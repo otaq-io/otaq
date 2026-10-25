@@ -19,12 +19,9 @@
 //! - **After a restart** (REC-01) running agents are "Ended by restart" and resume on the user's click. The **10
 //!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
 //!   conversations are never deleted.
-//! - **Epic leads** (d0083) are Project agent rows with an epic ([`lead`]). They are named after their epic and left
-//!   out of every Project agent list.
 
 mod checkout;
 pub mod first_flow;
-pub mod lead;
 pub mod prime;
 
 use std::collections::HashMap;
@@ -174,9 +171,6 @@ pub struct ProjectAgent {
     /// Its newest session (attach to it with `session.attach {session}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionInfo>,
-    /// An epic lead's epic (d0083); its name is then "<epic title> lead".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<TicketKey>,
     /// When its last turn ended, since the service started (in memory): the Ask bar's "New reply" is a turn that
     /// ended after the user last looked at the conversation (SHB-03, d0113).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,10 +197,6 @@ pub struct StartupAgents {
     /// "New conversation"s that never got a request and were discarded. Only rows from before d0087 (every agent now
     /// opens with its first request), so in practice always 0.
     pub discarded: u32,
-    /// Running epic leads that are now "Ended by restart", by id: counted on their own in the reboot summary
-    /// ("1 epic lead ended", d0083).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub leads_ended: Vec<String>,
 }
 
 /// A Project agent waiting for the user (PAG-07): a needs-you item of group 1, labelled with the project and its
@@ -219,9 +209,6 @@ pub struct AgentNeedsYou {
     /// The Project agent's id and name.
     pub agent: String,
     pub name: String,
-    /// An epic lead's epic (d0083): the item opens its Lead tab.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epic: Option<TicketKey>,
     /// Asks you (`ask human`) or Needs you (a permission prompt).
     pub status: Status,
     /// "asks: Import closed issues too?", "permission: Allow gh issue list?".
@@ -276,12 +263,6 @@ struct Inner {
     waiting: Mutex<HashMap<String, (String, i64)>>,
     /// When each agent's last turn ended ([`ProjectAgent::turn_ended_at`]). In memory, as `waiting`.
     turn_ends: Mutex<HashMap<String, i64>>,
-    /// Epic leads' turns, by Project agent id: why the current turn runs, and why the next one will (d0083).
-    lead_turns: Mutex<HashMap<String, lead::LeadTurn>>,
-    /// Epic leads seen so far, by Project agent id: their project and epic, for [`Event::LeadChanged`].
-    lead_epics: Mutex<HashMap<String, (String, TicketKey)>>,
-    /// Questions and first stops sent to the leads, until they act on them (d0083).
-    handovers: crate::epic_lead::wake::Handovers,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
     /// The skill copies each running agent holds in its project's folder (AGM-07).
@@ -306,12 +287,11 @@ struct Row {
     created_at: i64,
     ended_at: Option<i64>,
     closed_at: Option<i64>,
-    epic_id: Option<String>,
 }
 
 const SELECT: &str =
     "SELECT a.id, p.key AS project_key, a.name, a.name_source, a.tool, a.tool_session_id, a.model,
-                             a.state, a.first_request, a.limit_stopped, a.created_at, a.ended_at, a.closed_at, a.epic_id
+                             a.state, a.first_request, a.limit_stopped, a.created_at, a.ended_at, a.closed_at
                       FROM project_agents a JOIN projects p ON p.id = a.project_id";
 
 impl ProjectAgent {
@@ -335,7 +315,7 @@ impl ProjectAgents {
         idle: Arc<dyn IdleSignal>,
         deliveries: Deliveries,
     ) -> Self {
-        let agents = Self {
+        Self {
             inner: Arc::new(Inner {
                 board,
                 sessions,
@@ -345,22 +325,16 @@ impl ProjectAgents {
                 deliveries,
                 waiting: Mutex::new(HashMap::new()),
                 turn_ends: Mutex::new(HashMap::new()),
-                lead_turns: Mutex::new(HashMap::new()),
-                lead_epics: Mutex::new(HashMap::new()),
-                handovers: Default::default(),
                 gate: std::sync::OnceLock::new(),
                 checkout: Default::default(),
                 answer_grace_ms: std::sync::atomic::AtomicU64::new(
                     u64::try_from(first_flow::ANSWER_GRACE.as_millis()).unwrap_or(u64::MAX),
                 ),
             }),
-        };
-        // The board tells the leads about queues, merges, closes and reviews (d0083).
-        agents.inner.board.leads().set(agents.lead_events());
-        agents
+        }
     }
 
-    /// Gives the Project agents and leads the service's check before every launch (SCH-04 `[M23]`).
+    /// Gives the Project agents the service's check before every launch (SCH-04 `[M23]`).
     pub fn set_gate(&self, gate: crate::agents::gate::LaunchGate) {
         let _ = self.inner.gate.set(gate);
     }
@@ -389,34 +363,26 @@ impl ProjectAgents {
     /// (open records the first request), kept to tidy rows a data folder may still hold from before.
     pub async fn startup(&self) -> Result<StartupAgents, BoardError> {
         let pool = self.inner.board.store().pool();
-        // An epic lead stays with its epic even before its first request (d0083).
-        let discarded = sqlx::query(
-            "DELETE FROM project_agents WHERE first_request IS NULL AND epic_id IS NULL",
-        )
-        .execute(pool)
-        .await?
-        .rows_affected();
-        let ended: Vec<(String, Option<String>)> = sqlx::query_as(
-            "UPDATE project_agents SET state = ?, ended_at = ? WHERE state = ? RETURNING id, epic_id",
+        let discarded = sqlx::query("DELETE FROM project_agents WHERE first_request IS NULL")
+            .execute(pool)
+            .await?
+            .rows_affected();
+        let ended: Vec<(String,)> = sqlx::query_as(
+            "UPDATE project_agents SET state = ?, ended_at = ? WHERE state = ? RETURNING id",
         )
         .bind(AgentState::EndedByRestart.as_str())
         .bind(now_ms())
         .bind(AgentState::Running.as_str())
         .fetch_all(pool)
         .await?;
-        // Epic leads aren't Project agents in the reboot summary; they are counted on their own.
-        let (leads, agents): (Vec<_>, Vec<_>) =
-            ended.into_iter().partition(|(_, epic)| epic.is_some());
         let report = StartupAgents {
-            ended: agents.into_iter().map(|(id, _)| id).collect(),
+            ended: ended.into_iter().map(|(id,)| id).collect(),
             discarded: u32::try_from(discarded).unwrap_or(u32::MAX),
-            leads_ended: leads.into_iter().map(|(id, _)| id).collect(),
         };
-        if !report.ended.is_empty() || report.discarded > 0 || !report.leads_ended.is_empty() {
+        if !report.ended.is_empty() || report.discarded > 0 {
             tracing::info!(
                 ended = report.ended.len(),
                 discarded = report.discarded,
-                leads_ended = report.leads_ended.len(),
                 "project agents after the restart"
             );
         }
@@ -541,7 +507,7 @@ impl ProjectAgents {
         };
         if let Err(e) = self
             // The user's first message (or Ask each tool): it starts while paused too (PAU-05).
-            .spawn(project, launched, &id, size, runs_on, None, Start::User)
+            .spawn(project, launched, &id, size, runs_on, Start::User)
             .await
         {
             self.release_checkout(&id).await;
@@ -561,12 +527,6 @@ impl ProjectAgents {
     /// is at its limit (USG-10: another tool's limit doesn't hold it).
     pub async fn resume(&self, id: &str) -> Result<ProjectAgent, BoardError> {
         let agent = self.get(id).await?;
-        if let Some(epic) = &agent.epic {
-            // An epic lead resumes as one: its role and its epic (d0083).
-            return Box::pin(self.leads().resume(&epic.to_string()))
-                .await
-                .map(|lead| lead.agent);
-        }
         if agent.state == AgentState::Running {
             return Ok(agent);
         }
@@ -594,7 +554,7 @@ impl ProjectAgents {
         );
         let started = match launched {
             Ok(launched) => {
-                self.restart(&agent, &project, launched, &runs_on, None, Start::User)
+                self.restart(&agent, &project, launched, &runs_on, Start::User)
                     .await
             }
             Err(e) => Err(e),
@@ -651,7 +611,6 @@ impl ProjectAgents {
         project: &Project,
         launched: Launched,
         runs_on: &RunsOn,
-        lead: Option<(&str, &TicketKey)>,
         start: Start,
     ) -> Result<(), BoardError> {
         let id = agent.id.as_str();
@@ -663,7 +622,7 @@ impl ProjectAgents {
         .execute(self.inner.board.store().pool())
         .await?;
         if let Err(e) = self
-            .spawn(project, launched, id, INITIAL_SIZE, runs_on, lead, start)
+            .spawn(project, launched, id, INITIAL_SIZE, runs_on, start)
             .await
         {
             self.set_state(id, agent.state).await?;
@@ -717,12 +676,12 @@ impl ProjectAgents {
 
     /// **Close ended agents** (SHL-04, d0087): every Project agent of `project` that has ended (Ended, Ended by
     /// restart, Paused) and isn't closed yet is closed; it leaves the switcher and stays in Recently ended. Running agents
-    /// and epic leads are left alone. The project's list afterwards.
+    /// are left alone. The project's list afterwards.
     pub async fn close_ended(&self, project: &str) -> Result<ProjectAgentList, BoardError> {
         let project = self.inner.board.project(project).await?;
         let closed: Vec<(String,)> = sqlx::query_as(
             "UPDATE project_agents SET closed_at = ?
-             WHERE project_id = ? AND epic_id IS NULL AND closed_at IS NULL AND state IN (?, ?, ?)
+             WHERE project_id = ? AND closed_at IS NULL AND state IN (?, ?, ?)
              RETURNING id",
         )
         .bind(now_ms())
@@ -743,7 +702,6 @@ impl ProjectAgents {
     pub async fn rename(&self, id: &str, name: &str) -> Result<ProjectAgent, BoardError> {
         let name = clean_name(name)?;
         let agent = self.get(id).await?;
-        lead::refuse_naming(&agent)?;
         self.set_name(id, &name, NameSource::User).await?;
         self.changed(&agent.project, id);
         self.get(id).await
@@ -759,7 +717,6 @@ impl ProjectAgents {
     ) -> Result<ProjectAgent, BoardError> {
         let name = clean_name(name)?;
         let agent = self.get(id).await?;
-        lead::refuse_naming(&agent)?;
         let refuse = |message: String| Err(BoardError::refused(Refusal::NotAllowed, message));
         match agent.name_source {
             Some(NameSource::User) => {
@@ -794,7 +751,7 @@ impl ProjectAgents {
     }
 
     /// A hook signal of the Project agent `id` (§11.4 M12 rows): its first request is kept (open already recorded
-    /// it, d0087; an epic lead opened without a message gets it here), the fallback name is
+    /// it, d0087), the fallback name is
     /// given at the end of its first turn after it, and the plan limit's stop is recorded.
     pub async fn hook(&self, id: &str, signal: &Signal) -> Result<(), BoardError> {
         let pool = self.inner.board.store().pool();
@@ -854,7 +811,7 @@ impl ProjectAgents {
                 .insert(id.to_owned(), now_ms());
             let unnamed: Option<(Option<String>,)> = sqlx::query_as(
                 "SELECT first_request FROM project_agents
-                 WHERE id = ? AND name_source IS NULL AND epic_id IS NULL",
+                 WHERE id = ? AND name_source IS NULL",
             )
             .bind(id)
             .fetch_optional(pool)
@@ -874,7 +831,6 @@ impl ProjectAgents {
             // Its turn ended: mid-turn changed, and maybe its name.
             changed = true;
         }
-        changed |= self.lead_signal(id, signal).await;
         if changed || matches!(signal, Signal::Working { .. }) {
             let project: Option<(String,)> = sqlx::query_as(
                 "SELECT p.key FROM project_agents a JOIN projects p ON p.id = a.project_id WHERE a.id = ?",
@@ -1055,7 +1011,6 @@ impl ProjectAgents {
                 .await?;
         match agent {
             Some((Some(agent),)) => {
-                self.lead_typed(&agent);
                 let prompt = self
                     .inner
                     .waiting
@@ -1116,7 +1071,6 @@ impl ProjectAgents {
                 project_name: project.name.clone(),
                 agent: agent.id.clone(),
                 name: agent.name.clone(),
-                epic: agent.epic.clone(),
                 status,
                 reason,
                 question,
@@ -1155,7 +1109,7 @@ impl ProjectAgents {
         let project = self.inner.board.project(project).await?;
         let pool = self.inner.board.store().pool();
         let open: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "{SELECT} WHERE a.project_id = ? AND a.closed_at IS NULL AND a.epic_id IS NULL
+            "{SELECT} WHERE a.project_id = ? AND a.closed_at IS NULL
              ORDER BY a.created_at, a.id"
         )))
         .bind(&project.id)
@@ -1165,7 +1119,6 @@ impl ProjectAgents {
         // (open records it), kept for rows a data folder may still hold from before.
         let recent: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "{SELECT} WHERE a.project_id = ? AND a.state <> ? AND a.first_request IS NOT NULL
-               AND a.epic_id IS NULL
              ORDER BY a.ended_at DESC, a.id DESC LIMIT ?"
         )))
         .bind(&project.id)
@@ -1238,17 +1191,6 @@ impl ProjectAgents {
             .as_ref()
             .filter(|s| s.is_running())
             .is_some_and(|s| self.inner.sessions.is_focused(&s.id).unwrap_or(false));
-        let epic = match &row.epic_id {
-            Some(epic_id) => Some(self.inner.board.ticket_by_id(epic_id).await?),
-            None => None,
-        };
-        if let Some(epic) = &epic {
-            self.inner
-                .lead_epics
-                .lock()
-                .expect("lead epics")
-                .insert(row.id.clone(), (row.project_key.clone(), epic.key.clone()));
-        }
         let usage: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
             "SELECT SUM(u.input), SUM(u.cached), SUM(u.output), SUM(u.reasoning)
              FROM usage u JOIN sessions s ON s.id = u.session_id WHERE s.project_agent_id = ?",
@@ -1269,15 +1211,11 @@ impl ProjectAgents {
             focused,
             turn_ended_at,
             tokens: crate::usage::tokens(usage),
-            name: match &epic {
-                Some(epic) => lead::lead_name(&epic.title),
-                None => row
-                    .name
-                    .filter(|_| name_source.is_some())
-                    .unwrap_or_else(|| NEW_AGENT.to_owned()),
-            },
-            name_source: name_source.filter(|_| epic.is_none()),
-            epic: epic.map(|e| e.key),
+            name: row
+                .name
+                .filter(|_| name_source.is_some())
+                .unwrap_or_else(|| NEW_AGENT.to_owned()),
+            name_source,
             state: row.state.parse().unwrap_or(AgentState::Ended),
             id: row.id,
             project: row.project_key,
@@ -1305,7 +1243,6 @@ impl ProjectAgents {
         id: &str,
         size: TerminalSize,
         runs_on: &RunsOn,
-        lead: Option<(&str, &TicketKey)>,
         start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let sessions = &self.inner.sessions;
@@ -1336,11 +1273,6 @@ impl ProjectAgents {
             .set_project_agent(&session.id, id)
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        if let Some((epic_id, epic)) = lead {
-            sessions
-                .set_epic_lead(&session.id, epic_id, epic)
-                .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        }
         // The agent tool exiting on its own ends the agent; the service stopping doesn't (the next start reconciles);
         // a Pause makes it Paused (PAU-03).
         let this = self.clone();
@@ -1363,8 +1295,6 @@ impl ProjectAgents {
                 Ok(_) => this.changed(&project, &id),
                 Err(e) => tracing::warn!(agent = id, error = %e, "can't record the agent's end"),
             }
-            // A lead that ends hands back what it was sent (d0083).
-            this.lead_session_ended(&id).await;
         });
         Ok(session)
     }
@@ -1394,7 +1324,7 @@ impl ProjectAgents {
         Ok(done.rows_affected() > 0)
     }
 
-    /// The Project agents and epic leads of the sessions a **Pause** ended (PAU-03, d0112) become Paused at once,
+    /// The Project agents of the sessions a **Pause** ended (PAU-03, d0112) become Paused at once,
     /// whether or not their end watchers ran yet (they do the same). Their ids.
     pub async fn paused(&self, stopped: &[SessionInfo]) -> Result<Vec<String>, BoardError> {
         let mut paused = Vec::new();
@@ -1422,7 +1352,7 @@ impl ProjectAgents {
         Ok(paused)
     }
 
-    /// The Project agents and epic leads of `project` a Pause ended (Paused), oldest first: what its Resume resumes
+    /// The Project agents of `project` a Pause ended (Paused), oldest first: what its Resume resumes
     /// (PAU-06).
     pub async fn paused_of(&self, project: &str) -> Result<Vec<String>, BoardError> {
         let project = self.inner.board.project(project).await?;
@@ -1481,22 +1411,10 @@ impl ProjectAgents {
             project: project.to_owned(),
             id: id.to_owned(),
         });
-        let lead = self
-            .inner
-            .lead_epics
-            .lock()
-            .expect("lead epics")
-            .get(id)
-            .cloned();
-        if let Some((project, epic)) = lead {
-            self.inner
-                .events
-                .publish(Event::LeadChanged { project, epic });
-        }
     }
 }
 
-/// What a resumed Project agent or epic lead in `state` is told first (d0122): "Carry on where you left off" after
+/// What a resumed Project agent in `state` is told first (d0122): "Carry on where you left off" after
 /// a restart; nothing when the user reopens one that ended (Recently ended).
 fn carry_on(state: AgentState) -> Option<FirstPrompt> {
     matches!(state, AgentState::EndedByRestart | AgentState::Paused)
@@ -1504,7 +1422,7 @@ fn carry_on(state: AgentState) -> Option<FirstPrompt> {
 }
 
 /// A new conversation in `project`'s own folder for `role`, with no ticket and no port, told the theme in use; the
-/// caller sets the epic, or the conversation and model to resume.
+/// caller sets the conversation and model to resume.
 async fn request(
     board: &Board,
     project: &Project,
@@ -1516,7 +1434,6 @@ async fn request(
         cwd: std::path::PathBuf::from(&project.repo_path),
         project: project.key.clone(),
         ticket: None,
-        epic: None,
         port: 0,
         first_prompt,
         resume: None,

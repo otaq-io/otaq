@@ -17,7 +17,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::tickets::EventKind;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::domain::{
-    Actor, AutoMergeStop, BuildState, Kind, Place, Status, ValidationAction, ValidationTrigger,
+    Actor, AutoMergeStop, BuildState, Place, Status, ValidationAction, ValidationTrigger,
 };
 use otaq_core::flow::default::testing::{
     automatic_local_delivery, automatic_pr_delivery, with_rounds, without_validate,
@@ -63,15 +63,14 @@ async fn auto_merge(w: &TestService) {
         .await;
 }
 
-/// A working ticket (or an epic's child) with one commit on `file` in its worktree.
-async fn working(w: &TestService, title: &str, epic: Option<&Ticket>, file: &str) -> Ticket {
+/// A working ticket with one commit on `file` in its worktree.
+async fn working(w: &TestService, title: &str, file: &str) -> Ticket {
     let t = w
         .board
         .create_ticket(
             &NewTicketInput {
                 project: "SHOP".into(),
                 title: title.into(),
-                epic: epic.map(|e| e.key.to_string()),
                 ..Default::default()
             },
             &me(),
@@ -113,55 +112,20 @@ async fn pass(w: &TestService, t: &Ticket) -> Ticket {
     w.board.ticket(&key).await.unwrap()
 }
 
-async fn epic(w: &TestService) -> Ticket {
-    w.board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap()
-}
-
-/// A click Delivery (the default flow): Ready for Review. An automatic local Delivery: an epic child merges into its
-/// epic branch, a standalone ticket into its base. The merge is local and never pushed.
+/// A click Delivery (the default flow): Ready for Review. An automatic local Delivery: a ticket merges into its
+/// base. The merge is local and never pushed.
 #[tokio::test(flavor = "multi_thread")]
 async fn which_tickets_merge_by_themselves() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
-    let epic = epic(&w).await;
 
-    let off = working(&w, "Off", None, "off.ts").await;
+    let off = working(&w, "Off", "off.ts").await;
     assert_eq!(pass(&w, &off).await.status, Status::WaitingForYou);
 
     auto_merge(&w).await;
-    let child = working(&w, "Wishlist API", Some(&epic), "wishlist.ts").await;
-    let main = git(&repo, &["rev-parse", "main"]);
-    let merged = pass(&w, &child).await;
-    assert_eq!(merged.status, Status::Merged);
-    assert!(merged.flags.merged_automatically);
-    assert!(!merged.flags.delivered_without_checks, "Validate passed");
-    assert_eq!(
-        git(
-            &repo,
-            &[
-                "log",
-                "-1",
-                "--format=%s",
-                &naming::branch(&epic.key.to_string())
-            ]
-        ),
-        format!("{}: Wishlist API", child.key)
-    );
-    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main untouched");
 
-    let all = working(&w, "Header", None, "header.ts").await;
+    let all = working(&w, "Header", "header.ts").await;
     let merged = pass(&w, &all).await;
     assert_eq!(merged.status, Status::Merged);
     assert_eq!(
@@ -186,7 +150,7 @@ async fn a_flow_with_no_check_delivers_without_checks() {
     let repo = PathBuf::from(&project.repo_path);
     auto_merge(&w).await;
     w.board.edit_flow_for_tests("SHOP", without_validate).await;
-    let t = working(&w, "Footer", None, "footer.ts").await;
+    let t = working(&w, "Footer", "footer.ts").await;
     let after = w
         .validation
         .submit(
@@ -222,7 +186,7 @@ async fn the_users_routes_past_a_check_lead_to_a_click() {
     w.add_project("shop-web").await;
     auto_merge(&w).await;
 
-    let submitted = working(&w, "Submitted", None, "a.ts").await;
+    let submitted = working(&w, "Submitted", "a.ts").await;
     w.force_status(&submitted, Status::Idle).await;
     let after = w
         .validation
@@ -231,7 +195,7 @@ async fn the_users_routes_past_a_check_lead_to_a_click() {
         .unwrap();
     assert_eq!(after.status, Status::Checking);
 
-    let skipped = working(&w, "Skipped", None, "b.ts").await;
+    let skipped = working(&w, "Skipped", "b.ts").await;
     w.validation
         .submit(
             &skipped.key.to_string(),
@@ -268,7 +232,7 @@ async fn move_on_anyway_forces_click_mode() {
     auto_merge(&w).await;
     w.board.edit_flow_for_tests("SHOP", with_rounds(1)).await;
 
-    let failed = working(&w, "Failed", None, "a.ts").await;
+    let failed = working(&w, "Failed", "a.ts").await;
     let key = failed.key.to_string();
     w.validation
         .submit(
@@ -315,7 +279,7 @@ async fn move_on_anyway_forces_click_mode() {
         format!("{}: Failed", failed.key)
     );
 
-    let passed = working(&w, "Passed", None, "b.ts").await;
+    let passed = working(&w, "Passed", "b.ts").await;
     assert_eq!(pass(&w, &passed).await.status, Status::Merged);
     w.stop().await;
 }
@@ -326,7 +290,7 @@ async fn a_merge_cleans_up_and_starts_the_waiting_tickets() {
     let w = world().await;
     w.add_project("shop-web").await;
     auto_merge(&w).await;
-    let parent = working(&w, "Checkout API", None, "api.ts").await;
+    let parent = working(&w, "Checkout API", "api.ts").await;
     let agent = w.agent_shell(&parent).await;
     let waiting = w.create("SHOP", "Checkout page").await;
     w.board
@@ -387,7 +351,7 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     auto_merge(&w).await;
-    let t = working(&w, "Pricing", None, "lib.ts").await;
+    let t = working(&w, "Pricing", "lib.ts").await;
     let agent = w.agent_shell(&t).await;
     commit(&repo, "lib.ts", "main\n");
 
@@ -441,7 +405,7 @@ async fn a_dirty_checkout_stops_it() {
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     auto_merge(&w).await;
-    let t = working(&w, "Checkout API", None, "api.ts").await;
+    let t = working(&w, "Checkout API", "api.ts").await;
     std::fs::write(repo.join("file1.txt"), "my edit\n").unwrap();
     let after = pass(&w, &t).await;
     assert_eq!(after.status, Status::DeliveryStopped);
@@ -479,7 +443,7 @@ async fn a_click_merge_that_keeps_conflicting_stops_in_dev() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
-    let t = working(&w, "Pricing", None, "lib.ts").await;
+    let t = working(&w, "Pricing", "lib.ts").await;
     let key = t.key.to_string();
     w.agent_shell(&t).await;
     commit(&repo, "lib.ts", "main\n");
@@ -529,7 +493,7 @@ async fn a_diverged_base_stops_it() {
         .unwrap();
     let seed = w.repos.root().join("shop-web-seed");
     auto_merge(&w).await;
-    let t = working(&w, "Checkout API", None, "api.ts").await;
+    let t = working(&w, "Checkout API", "api.ts").await;
     commit(&seed, "team.ts", "from the team\n");
     git(&seed, &["push", "--quiet", "origin", "main"]);
     commit(&clone, "mine.ts", "local only\n");
@@ -556,7 +520,7 @@ async fn an_unreachable_remote_still_merges_automatically() {
         .await
         .unwrap();
     auto_merge(&w).await;
-    let t = working(&w, "Checkout API", None, "api.ts").await;
+    let t = working(&w, "Checkout API", "api.ts").await;
     git(
         &clone,
         &[
@@ -589,7 +553,7 @@ async fn a_failed_git_step_says_so_on_the_card() {
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     auto_merge(&w).await;
-    let t = working(&w, "Checkout API", None, "api.ts").await;
+    let t = working(&w, "Checkout API", "api.ts").await;
     let hook = repo.join(".git/hooks/pre-commit");
     std::fs::write(&hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n").unwrap();
     let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
@@ -684,7 +648,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     w.board
         .edit_flow_for_tests("SHOP", automatic_pr_delivery)
         .await;
-    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let t = working(&w, "Login redirect", "login.ts").await;
     let key = t.key.to_string();
     let agent = w.agent_shell(&t).await;
     let as_agent = Actor::Agent(t.key.clone());
@@ -856,84 +820,6 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     w.stop().await;
 }
 
-/// FLW-16, d0108 second gap review rule 5: on an epic whose PR is open, Send back with PR comments becomes Add a
-/// child from PR comments: a Backlog child holding the unresolved comments (fetched through the stand-in `gh`).
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_adds_a_child_from_pr_comments() {
-    const THREADS: &str = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [
-      {"isResolved": false, "path": "lib/wishlist.ts", "line": 12, "originalLine": 12,
-       "comments": {"nodes": [{"author": {"login": "anna"}, "body": "Sort by date added."}]}},
-      {"isResolved": true, "path": "lib/cart.ts", "line": 3, "originalLine": 3,
-       "comments": {"nodes": [{"author": {"login": "anna"}, "body": "Fixed already."}]}}
-    ]}}}}}"#;
-    let w = TestService::start().await;
-    let project = w.add_project("shop-web").await;
-    git(
-        std::path::Path::new(&project.repo_path),
-        &[
-            "remote",
-            "add",
-            "origin",
-            "git@github.com:acme/shop-web.git",
-        ],
-    );
-    let epic = epic(&w).await;
-    let key = epic.key.to_string();
-    w.board
-        .pr_opened(&key, "https://github.com/acme/shop-web/pull/482", &me())
-        .await
-        .unwrap();
-    w.force_stage(&epic, DELIVER, Status::PrOpen).await;
-    let tools = tempfile::tempdir().unwrap();
-    let fixture = tools.path().join("threads.json");
-    std::fs::write(&fixture, THREADS).unwrap();
-    otaq_core::process::testing::stub_command(
-        tools.path(),
-        "gh",
-        &format!("/bin/cat '{}'", fixture.display()),
-    );
-    let path = std::ffi::OsString::from(tools.path());
-
-    let err = w
-        .review
-        .send_back_pr(&key, "", None, false, &me())
-        .await
-        .unwrap_err();
-    assert!(err.to_string().contains("add a child"), "{err}");
-
-    let child = otaq_core::review::delivery::add_child_from_pr(&w.board, &key, &path, &me())
-        .await
-        .unwrap();
-    assert_eq!(child.epic.as_ref(), Some(&epic.key));
-    assert_eq!(child.status, Status::Backlog);
-    assert_eq!(child.title, "Address the comments on PR #482");
-    assert!(
-        child
-            .body
-            .contains("- `lib/wishlist.ts:12` anna: Sort by date added."),
-        "{}",
-        child.body
-    );
-    assert!(
-        !child.body.contains("Fixed already"),
-        "resolved threads stay out"
-    );
-
-    // Only an epic whose PR is open.
-    let other = w.create("SHOP", "Footer").await;
-    assert!(
-        otaq_core::review::delivery::add_child_from_pr(
-            &w.board,
-            &other.key.to_string(),
-            &path,
-            &me()
-        )
-        .await
-        .is_err()
-    );
-    w.stop().await;
-}
-
 /// d0108 second gap review rule 6: a PR Delivery whose agent isn't Dev's starts a fresh delivery session in the
 /// ticket's worktree; once the PR is reported, that session ends and the worktree stays until Done.
 #[tokio::test(flavor = "multi_thread")]
@@ -959,7 +845,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
             }
         })
         .await;
-    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let t = working(&w, "Login redirect", "login.ts").await;
     let key = t.key.to_string();
     let agent = w.agent_shell(&t).await;
 
@@ -1023,7 +909,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
             shipper(file);
         })
         .await;
-    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let t = working(&w, "Login redirect", "login.ts").await;
     let key = t.key.to_string();
     let dev = w.agent_shell(&t).await;
 
@@ -1122,7 +1008,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
         }
     };
 
-    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let t = working(&w, "Login redirect", "login.ts").await;
     let key = t.key.to_string();
     let dev = w.agent_shell(&t).await;
     assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
@@ -1186,7 +1072,7 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
     w.board
         .edit_flow_for_tests("SHOP", automatic_pr_delivery)
         .await;
-    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let t = working(&w, "Login redirect", "login.ts").await;
     let key = t.key.to_string();
     w.agent_shell(&t).await;
     assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);

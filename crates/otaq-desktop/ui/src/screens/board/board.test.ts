@@ -27,13 +27,11 @@ import {
   createDrag,
   type DragState,
   fill,
-  liftedRow,
   moveFocus,
   revealScroll,
   targetOrder,
 } from "./drag";
 import { agentOf, boardAgent, clearAgentFilter, escapeStep, showAgentOnBoard } from "./filter";
-import type { EpicCardView } from "../../generated/EpicCardView";
 import { board } from ".";
 import { rememberColumnScroll, scrollPlace } from "./prefs";
 
@@ -267,95 +265,6 @@ describe("board helpers", () => {
     requestCardAction("SHOP-25", "resume");
     requestCardAction("SHOP-25", "resume");
     expect(cardActions.get()).toEqual({ ticket: "SHOP-25", kind: "resume", seq: 2 });
-  });
-});
-
-describe("dragging an epic's child out (T-0270)", () => {
-  const row = (key: string, draggable: boolean) => ({
-    key,
-    title: `${key} title`,
-    state: "not_started" as const,
-    icon: "circle-dashed" as const,
-    status_label: "Backlog",
-    draggable,
-  });
-  const epic = { children: [row("SHOP-45.1", true), row("SHOP-45.2", false)] } as EpicCardView;
-
-  it("lifts a draggable row with its title, and nothing else", () => {
-    expect(liftedRow("SHOP-45.1", [epic])).toEqual({ key: "SHOP-45.1", title: "SHOP-45.1 title" });
-    expect(liftedRow("SHOP-45.2", [epic]), "not draggable").toBeNull();
-    expect(liftedRow("SHOP-24", [epic]), "a card draws itself").toBeNull();
-  });
-
-  it("a row dropped on Ready for Dev queues only that child", async () => {
-    const asked: [string, unknown][] = [];
-    const ask = (method: string, params?: unknown) => {
-      asked.push([method, params]);
-      return Promise.resolve({ kind: "moved" } satisfies DropOutcome);
-    };
-    await dropCard("SHOP-40.3", "ready_for_dev", () => undefined, ask);
-    expect(asked).toEqual([["board.drop", { key: "SHOP-40.3", target: "ready_for_dev" }]]);
-  });
-});
-
-describe("an epic taken back (T-0271)", () => {
-  it("a press that isn't a click (`clicks` false) is no click; dragged, it drops like a card", async () => {
-    const door = fakeDoor();
-    const drag = createDrag(door.ask, { onState: () => undefined });
-    drag.press("SHOP-45", 100, 100, false);
-    expect(drag.release()).toEqual({ kind: "none" });
-    expect(door.calls).toEqual([]);
-    // Dragged, it drops like a card.
-    drag.press("SHOP-45", 300, 100, false);
-    drag.move(150, 100, () => SPANS);
-    door.answer({
-      key: "SHOP-45",
-      targets: [
-        {
-          target: "backlog",
-          verdict: {
-            kind: "allowed",
-            icon: "arrow-down-to-line",
-            hint: "Unqueue 1 never-started child (45.2)",
-            note: "SHOP-45.1 keeps running",
-          },
-        },
-      ],
-    } satisfies DragAnswer);
-    await flush();
-    expect(drag.release()).toEqual({ kind: "drop", key: "SHOP-45", target: "backlog" });
-  });
-
-  it("Park all asks first with Cancel as the default, and its button sends board.park_all", async () => {
-    const asked: [string, unknown][] = [];
-    const ask = (method: string, params?: unknown) => {
-      asked.push([method, params]);
-      return Promise.resolve(null);
-    };
-    const outcome: DropOutcome = {
-      kind: "park_all",
-      dialog: {
-        key: "SHOP-45",
-        title: "Park 2 running tickets?",
-        message:
-          "Their work is kept. SHOP-45.1 and SHOP-45.2 stop and go back to Backlog with their conversations.",
-        cancel: "Cancel",
-        confirm: "Park 2 tickets",
-        confirm_icon: "square-parking",
-      },
-    };
-    afterDrop(outcome, () => undefined, ask);
-    const open = overlays.store.get();
-    const confirm = open[0];
-    if (confirm?.id !== "confirm") throw new Error("no confirm");
-    expect(confirm.params.title).toBe("Park 2 running tickets?");
-    expect(confirm.params.confirmLabel).toBe("Park 2 tickets");
-    expect(confirm.params.cancelDefault).toBe(true);
-    expect(confirm.params.destructive).toBe(false);
-    expect(asked).toEqual([]);
-    confirm.params.onConfirm();
-    await flush();
-    expect(asked).toEqual([["board.park_all", { key: "SHOP-45" }]]);
   });
 });
 
@@ -691,11 +600,9 @@ describe("the board screen", () => {
     lifted: null,
     handlers: {
       press: () => undefined,
-      pressChild: () => undefined,
       key: () => undefined,
       open: () => undefined,
       action: () => undefined,
-      addToEpic: () => undefined,
       menu: () => undefined,
       hover: () => undefined,
     },
@@ -869,20 +776,6 @@ describe("the board screen", () => {
     expect(drawn.indexOf("Wishlist · 2 of 4")).toBeLessThan(drawn.indexOf("SHOP-40.5"));
   });
 
-  it("dims the cards and Done lines of other epics while one is focused (EPC-18, Q55)", () => {
-    const wishlist = { epic: "SHOP-40", label: "Wishlist · 1 of 3 merged", keys: ["SHOP-40.1"] };
-    const search = { epic: "SHOP-45", label: "Search · 1 of 2 merged", keys: ["SHOP-45.1"] };
-    const cards = ["SHOP-17", "SHOP-40.1", "SHOP-45.1"].map(ticketCard);
-    const done = column({ id: "done", title: "Done", count: "1/3", cards, folds: [wishlist, search] });
-    const focus = { epics: ["SHOP-40"], keys: ["SHOP-40", "SHOP-40.1", "SHOP-40.2"] };
-    const drawn = renderToStaticMarkup(createElement(Column, { ...props(done), focus }));
-    expect(drawn).toMatch(/data-card="SHOP-17"[^>]*data-dimmed="true"/);
-    expect(drawn).toMatch(/data-epic="SHOP-45"[^>]*data-dimmed="true"/);
-    expect(drawn).not.toMatch(/data-epic="SHOP-40"[^>]*data-dimmed/);
-    const open = renderToStaticMarkup(createElement(Column, props(done)));
-    expect(open).not.toContain("data-dimmed");
-  });
-
   it("outlines a column with its verdict only while dragging", () => {
     const c = column({ id: "review", title: "Review" });
     const forbidden = { kind: "forbidden", title: "Only agents", detail: null } as const;
@@ -1045,11 +938,9 @@ describe("the Review column (T-0328, d0087)", () => {
     lifted: null,
     handlers: {
       press: () => undefined,
-      pressChild: () => undefined,
       key: () => undefined,
       open: () => undefined,
       action: () => undefined,
-      addToEpic: () => undefined,
       menu: () => undefined,
       hover: () => undefined,
     },
@@ -1157,15 +1048,14 @@ describe("the toolbar (BRD-01)", () => {
     },
     subtitle: null,
     live: null,
-    lanes: {
-      label: "Lanes",
+    group_by: {
+      label: "Group by",
       icon: null,
       options: [
-        option("None", true, { kind: "lanes", lanes: "none" }),
-        option("Epic", false, { kind: "lanes", lanes: "epic" }),
+        option("Stage", true, { kind: "group_by", group_by: "stage" }),
+        option("Status", false, { kind: "group_by", group_by: "status" }),
       ],
     },
-    group_by: null,
     dependencies: {
       label: "Dependencies",
       icon: "link",
@@ -1183,7 +1073,7 @@ describe("the toolbar (BRD-01)", () => {
     new_ticket_keys: "⌘N",
   } as unknown as Parameters<typeof Toolbar>[0]["toolbar"];
 
-  it("draws Board · List, Lanes, the switch, All tickets and New ticket as Rust words them", () => {
+  it("draws Board · List, Group by, the switch, All tickets and New ticket as Rust words them", () => {
     const html = renderToStaticMarkup(
       createElement(Toolbar, {
         toolbar: TOOLBAR,
@@ -1195,7 +1085,7 @@ describe("the toolbar (BRD-01)", () => {
     expect(html).toMatch(
       /role="radio" class="board-segment" aria-checked="true" tabindex="0">.*<span>Board<\/span>/,
     );
-    expect(html).toContain('<span class="board-toolbar-label">Lanes</span>');
+    expect(html).toContain('<span class="board-toolbar-label">Group by</span>');
     // DPV-02: the link, "Dependencies", then On hover · Always.
     expect(html).toMatch(
       /board-toolbar-label-icon.*<span class="board-toolbar-label">Dependencies<\/span><div class="board-segments" role="radiogroup" aria-label="Dependencies">.*<span>On hover<\/span>.*<span>Always<\/span>/,
@@ -1214,7 +1104,7 @@ describe("the toolbar (BRD-01)", () => {
       views: { ...TOOLBAR.views, options: views },
       subtitle: "What the base branch looks like, and which agents are changing which files",
       live: "Live",
-      lanes: null,
+      group_by: null,
       dependencies: null,
       switch: null,
       all_tickets: null,
@@ -1294,10 +1184,9 @@ describe("the agent filter (d0087)", () => {
     expect(boardAgent.get()).toBeNull();
   });
 
-  it("Esc undoes a drag, then an epic focus, then the agent filter", () => {
-    expect(escapeStep(true, true, true)).toBe("drag");
-    expect(escapeStep(false, true, true)).toBe("focus");
-    expect(escapeStep(false, false, true)).toBe("agent");
-    expect(escapeStep(false, false, false)).toBeNull();
+  it("Esc undoes a drag, then the agent filter", () => {
+    expect(escapeStep(true, true)).toBe("drag");
+    expect(escapeStep(false, true)).toBe("agent");
+    expect(escapeStep(false, false)).toBeNull();
   });
 });

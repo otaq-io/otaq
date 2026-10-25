@@ -3,7 +3,7 @@
 //! QA · Done) and the default flow, each drop the board takes: back to an Agent stage with instructions (its session
 //! resumes; a skipped one runs once in a fresh session), stopping a running checker; back to an agent check with a
 //! note; back onto a human check with no dialog; forward to the next stage (Move to next stage) and past stages (they
-//! are skipped by you and the Delivery waits for a click); a parked card back to the stage it left; an epic refused.
+//! are skipped by you and the Delivery waits for a click); a parked card back to the stage it left.
 //! Every drag back resets the agent checks' counters. `claude` is stood in for by ordinary commands.
 
 use otaq_core::service::testing::said;
@@ -15,7 +15,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
-use otaq_core::domain::{Actor, Kind, Place, Status, ValidationTrigger};
+use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::engine::RunResult;
 use otaq_core::flow::{
     CheckBy, Column, Delivers, Delivery, DeliveryMode, FlowFile, Stage, StageKind, yaml,
@@ -551,33 +551,5 @@ async fn a_parked_card_returns_to_the_stage_it_left() {
     let after = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(after.place, Place::Waiting(Some("dev".into())));
     assert!(after.status.is_queued(), "{}", after.status);
-    w.stop().await;
-}
-
-/// An epic can't be dragged back (0059, Q266): its own flow decides.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_cant_be_dragged_back() {
-    let w = world().await;
-    w.board.use_flow_for_tests("SHOP", &every_kind()).await;
-    let epic = w.create("SHOP", "Wishlist").await;
-    sqlx::query("UPDATE tickets SET kind = 'epic' WHERE id = ?")
-        .bind(&epic.id)
-        .execute(w.board.store().pool())
-        .await
-        .unwrap();
-    place_in(&w, &epic, "qa", Status::WaitingForYou).await;
-    for target in [
-        DropOn::stage("dev"),
-        DropOn::stage("security"),
-        DropTarget::ReadyForDev.into(),
-    ] {
-        let err = drag(&w, "SHOP-1", target.clone(), "").await.unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "An epic can\u{2019}t be dragged back",
-            "{target}"
-        );
-    }
-    assert_eq!(w.board.ticket("SHOP-1").await.unwrap().kind, Kind::Epic);
     w.stop().await;
 }

@@ -4,8 +4,7 @@
 // the details line (Assignee, Model, Working, Priority, Branch, Epic, External ID; a value with a menu changes it, the
 // External ID copies, Q416); the flow
 // path; the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
-// registered in `sheetTabs`. An epic (SHT-07, `s25-11`) shows "1 of 5 merged" and its lead's state by its title, no
-// Move…, and its tabs Overview · Tickets (with their count) · Lead · Files · Activity. It comes in as the drawer of 0095 (the frame's sheet layer). Everything it says is Rust's
+// registered in `sheetTabs`. It comes in as the drawer of 0095 (the frame's sheet layer). Everything it says is Rust's
 // (`sheet.view`'s `sheet`); it keeps open menus only. Its keys: Esc, `e`, j / k (⌘[ / ⌘]), the tab keys.
 import {
   createContext,
@@ -39,7 +38,6 @@ import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
 import { DescriptionSaveBar } from "../overview/SaveBar";
 import { COPIED_FOR } from "../editor/logic";
-import { EpicHeadPills } from "../epic/EpicSheet";
 import { ReviewBar } from "../files/ReviewBar";
 import { MoreMenu, SHEET_EVENTS, type SheetActions, useSheetActions } from "./actions";
 import {
@@ -372,18 +370,12 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
               ))}
             </nav>
             <div className="sheet-title-row">
-              {sheet.epic !== null && (
-                <span className="sheet-title-icon">
-                  <Icon name="layers" size={18} />
-                </span>
-              )}
               <h2 className="sheet-title">{view.title}</h2>
-              {sheet.epic !== null && <EpicHeadPills head={sheet.epic} />}
-              {sheet.epic?.lead == null && <StatusPill pill={view.pill} />}
+              <StatusPill pill={view.pill} />
             </div>
           </div>
           <div className="sheet-actions">
-            {sheet.epic === null && <MoveButton key={view.key} view={view} />}
+            <MoveButton key={view.key} view={view} />
             <MoreMenu view={view} onChoose={actions.choose} />
             <HintButton
               icon={fullPage ? "minimize-2" : "maximize-2"}

@@ -18,7 +18,7 @@ pub struct FlowFile {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowAgent {
     pub name: String,
-    /// `noyan` or `epic-lead` (d0108's roles), when it has one.
+    /// `noyan` (d0108's role), when it has one.
     pub role: Option<String>,
     /// Empty when it has none.
     pub instructions: String,

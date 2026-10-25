@@ -67,22 +67,14 @@ impl AnswerOptions {
                 .map(|(i, label)| (label.clone(), question.notes.get(i).cloned().flatten()))
                 .collect(),
             recommended: question.recommended,
-            lead_reason: question
-                .via_lead
-                .as_ref()
-                .map(|v| v.reason.trim().to_owned())
-                .filter(|r| !r.is_empty()),
+            lead_reason: None,
             pick: question.recommended.map(Pick::Option),
         })
     }
 
-    /// "Recommended", or "Recommended by the lead" on a passed-on question.
-    pub fn recommended_label(question: &HumanQuestion) -> &'static str {
-        if question.via_lead.is_some() {
-            RECOMMENDED_BY_LEAD
-        } else {
-            RECOMMENDED
-        }
+    /// "Recommended".
+    pub fn recommended_label(_question: &HumanQuestion) -> &'static str {
+        RECOMMENDED
     }
 
     /// The number of Other… (one after the last option).
@@ -162,7 +154,6 @@ pub fn heading(key: &impl std::fmt::Display) -> String {
 /// about 300 characters long and one option without a note; and a question an epic's lead passed on, with notes and
 /// the lead's reason (CHANGES-2026-10-18-ab §1).
 pub fn note_samples() -> [HumanQuestion; 2] {
-    use otaq_core::board::questions::ViaLead;
     let note = |text: &str| Some(text.to_owned());
     let asks = HumanQuestion {
         id: "q-notes".into(),
@@ -185,7 +176,6 @@ pub fn note_samples() -> [HumanQuestion; 2] {
             ),
         ],
         asked_at: 0,
-        via_lead: None,
     };
     let passed = HumanQuestion {
         id: "q-notes-lead".into(),
@@ -199,10 +189,6 @@ pub fn note_samples() -> [HumanQuestion; 2] {
             ),
         ],
         asked_at: 0,
-        via_lead: Some(ViaLead {
-            lead: "Sharing lead".into(),
-            reason: "NOTE-10's description asks for a spreadsheet export only.".into(),
-        }),
     };
     [asks, passed]
 }
@@ -220,7 +206,6 @@ mod tests {
             recommended,
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         }
     }
 
@@ -292,35 +277,6 @@ mod tests {
         assert_eq!(route(Platform::Mac, false, &one, &map), KeyRoute::App);
     }
 
-    /// *10 → Row · Epic lead items (0083)*: the lead's option is preselected, "Recommended by the lead" with its reason.
-    #[test]
-    fn a_passed_on_question_shows_the_leads_recommendation_and_reason() {
-        let mut q = question(
-            &["Logged-in users only", "Guests too, kept in the browser"],
-            Some(1),
-        );
-        assert_eq!(AnswerOptions::recommended_label(&q), "Recommended");
-        q.via_lead = Some(otaq_core::board::questions::ViaLead {
-            lead: "Wishlist lead".into(),
-            reason: "PAY-123 only mentions signed-in users.".into(),
-        });
-        assert_eq!(
-            AnswerOptions::recommended_label(&q),
-            "Recommended by the lead"
-        );
-        let rows = AnswerOptions::of(&q).unwrap().rows();
-        assert!(rows[0].picked && rows[0].recommended);
-        assert_eq!(
-            rows[0].lead_reason.as_deref(),
-            Some("PAY-123 only mentions signed-in users.")
-        );
-        assert_eq!(rows[1].lead_reason, None);
-        assert_eq!(
-            (rows[2].number, rows[2].label.as_str()),
-            (3, "Other… type your own answer")
-        );
-    }
-
     /// ATT-17: each row carries its option's note whole; Other… and an option without one have none.
     #[test]
     fn each_row_carries_its_options_note() {
@@ -353,44 +309,6 @@ mod tests {
                 .rows()
                 .iter()
                 .all(|r| r.note.is_none())
-        );
-    }
-
-    /// ATT-17 on a passed-on question (d0083): the option's note and the lead's reason are two fields on the
-    /// recommended row, the note first; the other rows keep their own notes.
-    #[test]
-    fn a_passed_on_question_keeps_the_note_and_the_leads_reason_apart() {
-        let mut q = question(&["Markdown files", "One ZIP"], Some(2));
-        q.notes = vec![
-            Some("Opens in any editor; one file per note, no attachments.".into()),
-            Some(
-                "One download with everything, but needs a ZIP library and an import later.".into(),
-            ),
-        ];
-        q.via_lead = Some(otaq_core::board::questions::ViaLead {
-            lead: "Sharing lead".into(),
-            reason: "  NOTE-12 imports a ZIP already.  ".into(),
-        });
-        let rows = AnswerOptions::of(&q).unwrap().rows();
-        let shown: Vec<(Option<&str>, Option<&str>)> = rows
-            .iter()
-            .map(|r| (r.note.as_deref(), r.lead_reason.as_deref()))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                (
-                    Some("Opens in any editor; one file per note, no attachments."),
-                    None
-                ),
-                (
-                    Some(
-                        "One download with everything, but needs a ZIP library and an import later."
-                    ),
-                    Some("NOTE-12 imports a ZIP already.")
-                ),
-                (None, None),
-            ]
         );
     }
 

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_tools::{EPIC_LEAD_SKILL, PROJECT_AGENT_SKILL};
+use crate::agent_tools::PROJECT_AGENT_SKILL;
 use crate::agents::{Agent, Role};
 use crate::board::settings::WorkflowStep;
 use crate::board::{Board, BoardError};
@@ -157,11 +157,10 @@ impl Board {
 }
 
 /// The skill a role's agent runs first: the Project agent's own (a `/flow` start runs `flow`, listed with the
-/// others), the epic lead's.
+/// others).
 pub fn role_skill(role: Role) -> &'static str {
     match role {
         Role::ProjectAgent => PROJECT_AGENT_SKILL,
-        Role::EpicLead => EPIC_LEAD_SKILL,
     }
 }
 

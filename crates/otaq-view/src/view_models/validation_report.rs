@@ -950,16 +950,16 @@ mod tests {
 
     #[test]
     fn keys_are_found_in_text() {
-        let s = segments("covered by SHOP-40.2. See BILL-3, not SHOP- or foo-1.");
+        let s = segments("covered by SHOP-42. See BILL-3, not SHOP- or foo-1.");
         let keys: Vec<_> = s
             .iter()
             .filter(|s| s.key)
             .map(|s| s.text.as_str())
             .collect();
-        assert_eq!(keys, ["SHOP-40.2", "BILL-3"]);
+        assert_eq!(keys, ["SHOP-42", "BILL-3"]);
         assert_eq!(
             text(&s),
-            "covered by SHOP-40.2. See BILL-3, not SHOP- or foo-1."
+            "covered by SHOP-42. See BILL-3, not SHOP- or foo-1."
         );
     }
 

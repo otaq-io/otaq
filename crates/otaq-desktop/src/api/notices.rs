@@ -4,16 +4,14 @@
 //! ask; Open System Settings opens Otaq's entry there.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::board::epic_flight::EpicQueueOutcome;
 use otaq_core::protocol::{
-    EpicUndoQueueParams, KeyParams, ProjectParams, Reply, Request, ResumeAllParams, ToolParams,
+    ProjectParams, Reply, Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{
     FALLBACK_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, fallback_toast, resumed,
 };
 use otaq_view::view_models::restart::RestartDialog;
-use otaq_view::view_models::epic_toast;
 use otaq_view::view_models::toasts::{NewToast, ToastAction, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
@@ -118,7 +116,6 @@ pub struct HoldToast {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct ToastPress {
     pub id: u64,
-    pub label: String,
     pub action: ToastAction,
 }
 
@@ -310,34 +307,11 @@ async fn resume_all(app: &App) -> Result<Value, RequestError> {
 /// A toast's button, on the user's click: the toast goes, and what the action did shows in its place (EPC-15).
 async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestError> {
     app.notices.dismiss_toast(press.id);
-    let toast = match press.action {
-        ToastAction::UndoEpicQueue { epic, keys } => {
-            let request = Request::EpicUndoQueue(EpicUndoQueueParams { key: epic, keys });
-            match app.service.send(request).await {
-                Ok(Reply::EpicQueueUndone(outcome)) => epic_toast::undo_toast(&outcome),
-                Ok(_) => None,
-                Err(e) => Some(epic_toast::action_failed(&press.label, e.message)),
-            }
-        }
-    };
-    if let Some(toast) = toast {
-        app.notices.toast(toast);
+    // No toast offers an action any more (the epic queue's Undo went with epics, d0133).
+    match press.action {
+        ToastAction::UndoEpicQueue { .. } => {}
     }
     Ok(Value::Null)
-}
-
-/// Shows the queue toast for an epic queue the user made (a drop, ⌘D, the menu): "Moved 2 children of SHOP-45 to Ready for Dev ·
-/// Undo" (EPC-15). The epic's name is looked up for
-/// the one-child wording ("Moved SHOP-45.1 of Search to Ready for Dev").
-pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
-    let get = Request::TicketGet(KeyParams {
-        key: outcome.epic.to_string(),
-    });
-    let title = match app.service.send(get).await {
-        Ok(Reply::Ticket(epic)) => epic.title,
-        _ => outcome.epic.to_string(),
-    };
-    app.notices.toast(epic_toast::queue_toast(outcome, &title));
 }
 
 fn open_target(params: NotificationOpen) -> Result<Value, RequestError> {
@@ -487,89 +461,6 @@ mod tests {
                 .unwrap(),
             Value::Null
         );
-        h.service.stop_all().await;
-    }
-
-    fn toast_titles(view: &Value) -> Vec<String> {
-        view["toasts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t["title"].as_str().unwrap().to_owned())
-            .collect()
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_queue_toast() {
-        use otaq_core::board::projects::AddProject;
-        use otaq_core::board::tickets::NewTicketInput;
-        use otaq_core::domain::Kind;
-        use otaq_core::git::testing::TempRepos;
-
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        let Reply::ProjectAdded { project, .. } = h
-            .app
-            .service
-            .send(Request::ProjectAdd(AddProject {
-                path: repos.repo("shop-web", 1).display().to_string(),
-                key: None,
-                base_branch: None,
-                flow_setup: false,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("no project");
-        };
-        let Reply::Ticket(epic) = h
-            .app
-            .service
-            .send(Request::TicketCreate(NewTicketInput {
-                project: project.key.clone(),
-                kind: Kind::Epic,
-                title: "Search".into(),
-                body: String::new(),
-                priority: None,
-                epic: None,
-                base_branch: None,
-                external_id: None,
-                first_comment: None,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("no epic");
-        };
-        let child = |n: u32| otaq_core::domain::TicketKey {
-            child: Some(n),
-            ..epic.key.clone()
-        };
-        let mut outcome = EpicQueueOutcome {
-            epic: epic.key.clone(),
-            queued: vec![child(1)],
-            resumed: Vec::new(),
-            project: "shop-web".into(),
-            lead_started: false,
-        };
-        show_epic_queued(&h.app, &outcome).await;
-        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
-        assert_eq!(
-            toast_titles(&view),
-            [format!("Moved {} of Search to Ready for Dev", child(1))]
-        );
-
-        outcome.queued.push(child(2));
-        show_epic_queued(&h.app, &outcome).await;
-        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
-        let toast = &view["toasts"][1];
-        assert_eq!(
-            toast["title"],
-            format!("Moved 2 children of {} to Ready for Dev", epic.key)
-        );
-        let buttons = &toast["link"]["actions"];
-        assert_eq!(buttons[0]["label"], "Undo");
         h.service.stop_all().await;
     }
 

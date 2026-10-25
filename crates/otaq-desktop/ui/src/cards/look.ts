@@ -3,7 +3,6 @@
 // variants below is checked against its union, so a variant added in Rust can't go undrawn.
 import type { CardLook } from "../generated/CardLook";
 import type { CardTone } from "../generated/CardTone";
-import type { EpicChildState } from "../generated/EpicChildState";
 import type { PillPalette } from "../generated/PillPalette";
 
 /** A tone's ink and its soft background, as CSS colours from the theme's variables. */
@@ -68,32 +67,6 @@ export function paletteInk(palette: PillPalette): string {
       return "var(--st-investigate)";
     case "pinned":
       return "var(--accent)";
-  }
-}
-
-/** An epic child's icon and status colour in the list. */
-export function childInk(state: EpicChildState): string {
-  switch (state) {
-    case "merged":
-    case "closed":
-      return "var(--st-done)";
-    case "working":
-      return "var(--st-working)";
-    case "not_started":
-      return "var(--st-queued)";
-  }
-}
-
-/** An epic child's segment in the progress bar. */
-export function segmentFill(state: EpicChildState): string {
-  switch (state) {
-    case "merged":
-      return "var(--st-approved)";
-    case "working":
-      return "var(--st-working)";
-    case "closed":
-    case "not_started":
-      return "var(--border-strong)";
   }
 }
 
@@ -163,7 +136,6 @@ export const PALETTES = every<PillPalette>()([
   "epic",
   "pinned",
 ] as const);
-export const CHILD_STATES = every<EpicChildState>()(["merged", "closed", "working", "not_started"] as const);
 export const LOOKS = every<CardLook>()([
   "plain",
   "selected",

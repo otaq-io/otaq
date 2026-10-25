@@ -18,11 +18,9 @@
 //! closed children stay cards.
 
 use otaq_core::agents::{Agent, AgentList, AgentModel};
-use otaq_core::board::epic_flight::{EpicPlace, REVIEW_EPIC, children_of, epic_place};
-use otaq_core::board::epics::EpicProgress;
 use otaq_core::board::order::{ColumnOrder, fold_dev};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Kind, Status, StatusSet, TicketKey};
+use otaq_core::domain::{Status, StatusSet, TicketKey};
 use otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS;
 use otaq_core::flow::{CheckBy, Delivers, DeliveryMode, Flow, Stage, StageKind, StageOption};
 
@@ -30,7 +28,6 @@ use crate::icons::IconName;
 use crate::view_models::agents::model_label;
 use crate::view_models::board_page::{ColumnId, DropTargetId, ReviewSectionId};
 use crate::view_models::card::{CardExtras, CardViewModel};
-use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::flow_columns::{ColumnKind, Columns, FlowColumn, keeps_default_look};
 use crate::view_models::queue::queue_facts;
 use crate::view_models::tool_problems::tool_word;
@@ -50,14 +47,12 @@ pub const COLUMN_GAP: f32 = 12.;
 #[derive(Debug, Clone, PartialEq)]
 pub enum CardEntry {
     Ticket(CardViewModel),
-    Epic(EpicViewModel),
 }
 
 impl CardEntry {
     pub fn key(&self) -> &TicketKey {
         match self {
             Self::Ticket(t) => &t.key,
-            Self::Epic(e) => &e.key,
         }
     }
 }
@@ -175,51 +170,8 @@ pub struct DoneFold {
 
 /// Folds the merged epic children among `keys` (a column's cards in order): each epic's merged children move up
 /// to where the first of them sorts, and get a [`DoneFold`]. Closed children and other cards stay where they are.
-pub fn done_folds(keys: &[TicketKey], all: &[Ticket]) -> (Vec<TicketKey>, Vec<DoneFold>) {
-    let folded_under = |key: &TicketKey| {
-        all.iter()
-            .find(|t| &t.key == key)
-            .filter(|t| t.status == Status::Merged)
-            .and_then(|t| t.epic.as_ref())
-    };
-    let mut order = Vec::with_capacity(keys.len());
-    let mut folds: Vec<DoneFold> = Vec::new();
-    for key in keys {
-        let Some(epic) = folded_under(key) else {
-            order.push(key.clone());
-            continue;
-        };
-        if folds.iter().any(|f| &f.epic == epic) {
-            continue;
-        }
-        let members: Vec<TicketKey> = keys
-            .iter()
-            .filter(|k| folded_under(k) == Some(epic))
-            .cloned()
-            .collect();
-        let title = all
-            .iter()
-            .find(|t| &t.key == epic)
-            .map_or_else(|| epic.to_string(), |t| t.title.clone());
-        let progress = all.iter().find(|t| &t.key == epic).map_or_else(
-            || {
-                let n = u32::try_from(members.len()).unwrap_or(u32::MAX);
-                EpicProgress {
-                    merged: n,
-                    total: n,
-                    closed: 0,
-                }
-            },
-            |e| EpicProgress::of(children_of(e, all).into_iter()),
-        );
-        order.extend(members.iter().cloned());
-        folds.push(DoneFold {
-            epic: epic.clone(),
-            label: format!("{title} · {}", progress.label()),
-            keys: members,
-        });
-    }
-    (order, folds)
+pub fn done_folds(keys: &[TicketKey], _all: &[Ticket]) -> (Vec<TicketKey>, Vec<DoneFold>) {
+    (keys.to_vec(), Vec::new())
 }
 
 /// How many items `keys` make with their folds: a fold is one.
@@ -395,29 +347,6 @@ pub struct BoardInput<'a> {
 /// a stage it was dragged or moved into; Ready for Dev's says "starts next" (`s24-07`).
 pub const KEPT_START: &str = "Paused \u{b7} starts when you resume";
 
-/// An epic waiting at the implicit Review epic stop (a flow with no human check, d0108 rule 7, Q273): a card in the
-/// Delivery's column, where the user passes it.
-pub fn at_review_epic(ticket: &Ticket) -> bool {
-    ticket.kind == Kind::Epic && ticket.place.is_in(REVIEW_EPIC)
-}
-
-/// Whether the ticket is a card in its column (EPC-11, EPL-01): an epic in its Card or Delivery place (in flight it
-/// is its children's cards and, with Lanes: Epic, its lane); an epic child anywhere but in Backlog while its epic is
-/// a card (then it is one of the card's rows). `all` is the ticket's project.
-pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
-    if ticket.kind == Kind::Epic {
-        return epic_place(ticket, all) != EpicPlace::Track;
-    }
-    let Some(epic) = ticket.epic.as_ref() else {
-        return true;
-    };
-    !ticket.place.is_backlog()
-        || all
-            .iter()
-            .find(|t| &t.key == epic)
-            .is_none_or(|e| epic_place(e, all) != EpicPlace::Card)
-}
-
 /// One state's cards, in its order, with what its count counts.
 struct StateCards {
     order: ColumnOrder,
@@ -523,7 +452,6 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         starting: queue.starting,
         closed_parent: queue.closed_parent,
         project_base: input.project_base.map(str::to_owned),
-        sleeve: crate::view_models::card::sleeve(t, all),
         start_failure: (t.status == Status::StartInterrupted)
             .then(|| {
                 t.start_problem
@@ -537,7 +465,12 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
         was_validating: input.was_validating.contains(&t.key),
         // Its Delivery (FLW-15): Ready to merge or Ready for PR, and who opens the PR.
-        delivers: otaq_core::board::epic_flight::delivery_of(input.flow, t).map(|d| d.delivers),
+        delivers: input
+            .flow
+            .stages
+            .iter()
+            .find_map(|s| s.delivery)
+            .map(|d| d.delivers),
         delivery_agent: delivery_agent(input.flow),
         custom_flow,
         paused: input.paused,
@@ -565,11 +498,7 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
 
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
-    let cards: Vec<&TicketKey> = all
-        .iter()
-        .filter(|t| is_card(t, all))
-        .map(|t| &t.key)
-        .collect();
+    let cards: Vec<&TicketKey> = all.iter().map(|t| &t.key).collect();
     let shown: Vec<&TicketKey> = match input.visible {
         Some(keys) => cards.iter().copied().filter(|k| keys.contains(k)).collect(),
         None => cards.clone(),
@@ -577,11 +506,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let filtered = input.visible.is_some();
     let entry = |key: &TicketKey| -> Option<CardEntry> {
         let t = all.iter().find(|t| &t.key == key)?;
-        Some(if t.kind == Kind::Epic {
-            CardEntry::Epic(EpicViewModel::from(t, all, None).with_pr_comments(t))
-        } else {
-            CardEntry::Ticket(ticket_card(input, t))
-        })
+        Some(CardEntry::Ticket(ticket_card(input, t)))
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();
     let columns = Columns::of(input.flow);
@@ -864,16 +789,11 @@ mod tests {
     fn board() -> Vec<Ticket> {
         let mut pinned = ticket("SHOP-19", "Price table", Status::Working);
         pinned.flags.pinned_at = Some(10);
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let mut child = ticket("SHOP-40.3", "Wishlist page", Status::Backlog);
-        child.epic = Some("SHOP-40".parse().unwrap());
         let mut t20 = ticket("SHOP-20", "Checkout page", Status::Queued);
         t20.depends_on = vec!["SHOP-18".parse().unwrap()];
         vec![
             ticket("SHOP-24", "Update footer links", Status::Backlog),
-            epic,
-            child,
+            ticket("SHOP-40", "Wishlist", Status::Backlog),
             pinned,
             ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
             ticket("SHOP-23", "Split user full name", Status::AsksYou),
@@ -1073,209 +993,6 @@ mod tests {
         assert!(vm.situation.unwrap().text.starts_with("Starting…"));
     }
 
-    /// SHOP-45 Search with its two children, and the standalone SHOP-51.
-    fn search(child_status: [Status; 2]) -> Vec<Ticket> {
-        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
-        epic.kind = Kind::Epic;
-        epic.external_id = Some("PAY-130".into());
-        let child = |key: &str, title: &str, status| {
-            let mut t = ticket(key, title, status);
-            t.epic = Some("SHOP-45".parse().unwrap());
-            t
-        };
-        vec![
-            epic,
-            child("SHOP-45.1", "Search index API", child_status[0]),
-            child("SHOP-45.2", "Search results page", child_status[1]),
-            ticket("SHOP-51", "Fix checkout rounding", Status::Backlog),
-        ]
-    }
-
-    fn column_keys(column: &ColumnView) -> Vec<String> {
-        match &column.dev {
-            Some(dev) => keys(&dev.top)
-                .into_iter()
-                .chain(keys(&dev.working))
-                .collect(),
-            None => keys(&column.cards)
-                .into_iter()
-                .chain(column.sections.iter().flat_map(|s| keys(&s.cards)))
-                .collect(),
-        }
-    }
-
-    /// Each child is on the board exactly once: never a card in Backlog.
-    fn no_child_card_in_backlog(columns: &[ColumnView], tickets: &[Ticket]) {
-        for key in column_keys(&columns[0]) {
-            let t = tickets.iter().find(|t| t.key.to_string() == key).unwrap();
-            assert!(t.epic.is_none(), "{key} is an epic child card in Backlog");
-        }
-    }
-
-    /// EPC-11: SHOP-45 with nothing started is one card with its children as rows, and no child cards.
-    #[test]
-    fn an_epic_before_it_starts_is_one_card() {
-        let tickets = search([Status::Backlog, Status::Backlog]);
-        let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-45", "SHOP-51"]);
-        assert_eq!(columns[0].count, "2");
-        let Some(CardEntry::Epic(epic)) = columns[0].cards.first() else {
-            panic!("the epic card")
-        };
-        assert_eq!(epic.children.len(), 2);
-        assert!(epic.children.iter().all(|c| c.draggable));
-        assert!(columns[1..].iter().all(|c| column_keys(c).is_empty()));
-        no_child_card_in_backlog(&columns, &tickets);
-    }
-
-    /// EPC-11, EPC-12, EPL-01: SHOP-45.1 queued puts the epic in flight: no epic card, 45.1 in Ready for Dev, 45.2
-    /// a Backlog card of its own (no "not queued" stop above the columns). Backlog counts
-    /// what it shows.
-    #[test]
-    fn a_queued_child_puts_the_epic_in_flight() {
-        let tickets = search([Status::Queued, Status::Backlog]);
-        let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-45.2", "SHOP-51"]);
-        assert_eq!(columns[0].count, "2");
-        assert_eq!(column_keys(&columns[1]), ["SHOP-45.1"]);
-        assert_eq!(columns[1].count, "1");
-        assert!(
-            columns
-                .iter()
-                .all(|c| !column_keys(c).iter().any(|k| k == "SHOP-45")),
-            "no epic card"
-        );
-
-        // Running children are cards as usual; a merged one is in Done.
-        let tickets = search([Status::Merged, Status::Working]);
-        let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
-        assert_eq!(column_keys(&columns[2]), ["SHOP-45.2"]);
-        assert_eq!(column_keys(&columns[5]), ["SHOP-45.1"]);
-
-        // SHOP-45.1 merged and SHOP-45.2 taken back: still in flight, 45.2 is a Backlog card.
-        let tickets = search([Status::Merged, Status::Backlog]);
-        let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-45.2", "SHOP-51"]);
-    }
-
-    /// EPC-14: after Park all the epic is a card again, its rows "Parked · has work" and draggable.
-    #[test]
-    fn after_park_all_the_epic_is_a_card_with_parked_rows() {
-        let tickets = search([Status::Parked, Status::Parked]);
-        let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-45", "SHOP-51"]);
-        let Some(CardEntry::Epic(epic)) = columns[0].cards.first() else {
-            panic!("the epic card")
-        };
-        let rows: Vec<(&str, bool)> = epic
-            .children
-            .iter()
-            .map(|c| (c.status_label, c.draggable))
-            .collect();
-        assert_eq!(
-            rows,
-            [("Parked · has work", true), ("Parked · has work", true)]
-        );
-        no_child_card_in_backlog(&columns, &tickets);
-    }
-
-    /// EPC-04: SHOP-40 in Review is its delivery card there, as before; its merged children stay in Done.
-    #[test]
-    fn an_epic_in_review_is_its_delivery_card() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        let mut tickets = vec![epic];
-        for key in ["SHOP-40.1", "SHOP-40.2"] {
-            let mut t = ticket(key, "Child", Status::Merged);
-            t.epic = Some("SHOP-40".parse().unwrap());
-            tickets.push(t);
-        }
-        let columns = build(&input(&tickets, None));
-        assert!(column_keys(&columns[0]).is_empty());
-        assert_eq!(columns[0].count, "0");
-        assert!(matches!(
-            columns[4].sections[0].cards.as_slice(),
-            [CardEntry::Epic(e)] if e.key.to_string() == "SHOP-40"
-        ));
-        assert_eq!(column_keys(&columns[5]), ["SHOP-40.1", "SHOP-40.2"]);
-    }
-
-    /// SHOP-40 Wishlist in flight: 40.1 and 40.2 merged, 40.3 working, 40.5 closed; SHOP-17 and SHOP-30 merged
-    /// on their own. `created_at` sets Done's order: 40.5, 17, 40.1, 30, 40.2.
-    fn wishlist_done() -> Vec<Ticket> {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        let child = |key: &str, status, created_at| {
-            let mut t = ticket(key, "Child", status);
-            t.epic = Some("SHOP-40".parse().unwrap());
-            t.created_at = created_at;
-            t
-        };
-        let mut t17 = ticket("SHOP-17", "Add Stripe client", Status::Merged);
-        t17.created_at = 5;
-        let mut t30 = ticket("SHOP-30", "Coupons", Status::Merged);
-        t30.created_at = 15;
-        vec![
-            epic,
-            child("SHOP-40.1", Status::Merged, 10),
-            child("SHOP-40.2", Status::Merged, 20),
-            child("SHOP-40.3", Status::Working, 30),
-            child("SHOP-40.5", Status::ClosedNotMerged, 3),
-            t17,
-            t30,
-        ]
-    }
-
-    /// EPC-16: two merged children and a closed one give one fold line ("Wishlist · 2 of 4 merged", merged out of
-    /// all four children) and one card; the fold sits where 40.1 sorts, and Done counts it as one.
-    #[test]
-    fn merged_children_fold_into_one_line_in_done() {
-        let tickets = wishlist_done();
-        let columns = build(&input(&tickets, None));
-        let done = &columns[5];
-        assert_eq!(
-            keys(&done.cards),
-            ["SHOP-40.5", "SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-30"],
-            "the merged children follow each other from where the first sorts; the closed one stays a card"
-        );
-        assert_eq!(
-            done.folds,
-            [DoneFold {
-                epic: "SHOP-40".parse().unwrap(),
-                // SHOP-40.5 is closed: counted apart (#31).
-                label: "Wishlist · 2 of 3 merged · 1 closed".into(),
-                keys: vec!["SHOP-40.1".parse().unwrap(), "SHOP-40.2".parse().unwrap()],
-            }]
-        );
-        assert_eq!(done.count, "4", "40.5, 17, the fold and 30");
-        assert!(columns[..5].iter().all(|c| c.folds.is_empty()));
-
-        // The first merged child folds at once ("1 of 4"), and a closed child never does.
-        let mut tickets = wishlist_done();
-        tickets[2].status = Status::Working;
-        tickets[2].place = otaq_core::domain::Place::stage_of("dev");
-        let done = &build(&input(&tickets, None))[5];
-        assert_eq!(done.folds.len(), 1);
-        assert_eq!(done.folds[0].label, "Wishlist · 1 of 3 merged · 1 closed");
-        assert_eq!(done.count, "4");
-
-        // Under a filter the fold counts once, shown over total.
-        let tickets = wishlist_done();
-        let visible: Vec<TicketKey> = ["SHOP-40.2", "SHOP-17"]
-            .iter()
-            .map(|k| k.parse().unwrap())
-            .collect();
-        let done = &build(&BoardInput {
-            visible: Some(&visible),
-            ..input(&tickets, None)
-        })[5];
-        assert_eq!(keys(&done.cards), ["SHOP-17", "SHOP-40.2"]);
-        assert_eq!(done.folds[0].keys.len(), 1);
-        assert_eq!(done.folds[0].label, "Wishlist · 2 of 3 merged · 1 closed");
-        assert_eq!((done.count.as_str(), done.hidden), ("2/4", 2));
-    }
-
     /// SHL-06, FLW-01: six columns (Validate has its own); Review counts both sections.
     #[test]
     fn six_columns_with_counts_and_epics_in_backlog() {
@@ -1307,14 +1024,7 @@ mod tests {
         );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
         assert_eq!(counts, ["2", "4", "7", "0", "1", "1"]);
-        // The epic is a card with SHOP-40.3 as its row, not a second Backlog card.
         assert_eq!(keys(&columns[0].cards), ["SHOP-24", "SHOP-40"]);
-        assert!(
-            columns[0]
-                .cards
-                .iter()
-                .any(|c| matches!(c, CardEntry::Epic(e) if e.children.len() == 1))
-        );
         // Ready for Dev: Start interrupted first, then the start order (the one waiting for SHOP-18 last).
         assert_eq!(
             keys(&columns[1].cards),
@@ -1566,7 +1276,7 @@ mod tests {
     #[test]
     fn a_focused_epic_dims_and_counts_its_cards() {
         let tickets = board();
-        let strong: Vec<TicketKey> = vec!["SHOP-40".parse().unwrap(), "SHOP-40.3".parse().unwrap()];
+        let strong: Vec<TicketKey> = vec!["SHOP-40".parse().unwrap()];
         let columns = build(&BoardInput {
             strong: Some(&strong),
             ..input(&tickets, None)
@@ -1845,9 +1555,7 @@ flow:
         );
         // Without a hold it starts.
         let free = build(&input(&tickets, None));
-        let CardEntry::Ticket(vm) = &free[1].cards[1] else {
-            panic!()
-        };
+        let CardEntry::Ticket(vm) = &free[1].cards[1];
         assert_eq!(vm.key.to_string(), "SHOP-21");
         assert!(vm.situation.clone().unwrap().text.starts_with("Starting"));
     }
@@ -1890,37 +1598,5 @@ flow:
             line(&paused, "SHOP-21"),
             "Paused \u{b7} starts when you resume"
         );
-    }
-
-    /// FLW-19, Q273, EPL-01: an epic of a flow with no human check, done with its children, waits at Review epic as
-    /// its card in the Delivery's column (nothing above the columns shows it).
-    #[test]
-    fn an_epic_at_review_epic_is_a_card_in_the_deliverys_column() {
-        let mut flow = crate::view_models::flow_columns::every_kind();
-        flow.stages.retain(|s| !s.is_human_check());
-        let mut epic = ticket("SHOP-12", "Plugin API", Status::WaitingForYou);
-        epic.kind = Kind::Epic;
-        epic.place = Place::stage_of(REVIEW_EPIC);
-        let mut tickets = vec![epic];
-        for key in ["SHOP-12.1", "SHOP-12.2"] {
-            let mut t = ticket(key, "Child", Status::Merged);
-            t.epic = Some("SHOP-12".parse().unwrap());
-            t.place = Place::Done;
-            tickets.push(t);
-        }
-        let columns = build(&BoardInput {
-            flow: &flow,
-            ..input(&tickets, None)
-        });
-        let ship = columns.iter().find(|c| c.id.as_str() == "ship").unwrap();
-        assert!(
-            column_keys(ship).contains(&"SHOP-12".to_owned()),
-            "its card"
-        );
-
-        // On the default flow the epic waits in Review as its card, as today.
-        tickets[0].place = Place::stage_of("review");
-        let columns = build(&input(&tickets, None));
-        assert!(column_keys(&columns[4]).contains(&"SHOP-12".to_owned()));
     }
 }

@@ -15,81 +15,6 @@ pub struct SentBack {
     pub decisions: u32,
 }
 
-/// "same file as SHOP-40.4": another running child of the same epic has changed these files too, so far
-/// (LEAD-09, d0083). Quiet: it wakes no one and pauses no one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SameFile {
-    pub other: TicketKey,
-    /// The files both changed, sorted.
-    pub files: Vec<String>,
-}
-
-/// "1 unread note from Wishlist lead": the lead's notes the running child's agent hasn't read yet (LEAD-10, d0083);
-/// the hover shows the latest. It clears once they are read.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UnreadNotes {
-    pub count: u32,
-    /// The lead's name: "Wishlist lead".
-    pub from: String,
-    pub latest_text: String,
-    /// When the latest was left, in Unix milliseconds.
-    pub latest_at: i64,
-}
-
-stored_enum! {
-    /// The stops a stuck epic child reaches (LEAD-07, d0083): its first one goes to the epic's live lead once.
-    pub enum StuckStop ("stuck stop") {
-        /// "Validation failed 3 times" (VAL-06, d0063).
-        ValidationFailed = "validation_failed",
-        /// "Keeps conflicting with `<epic branch>`" (AMG-03, d0064).
-        KeepsConflicting = "keeps_conflicting",
-        /// "Merge check keeps failing on `<epic branch>`" (d0120).
-        KeepsFailingMergeCheck = "keeps_failing_merge_check",
-        /// Idle: the agent stopped and waits for input (ATT-01, d0042).
-        Idle = "idle",
-    }
-}
-
-/// "Lead's note sent · validation round 0 of 3: “…”" (LEAD-07, d0083): the one note the epic's lead sent this child
-/// at its first stop, which counted as Answer the agent. The second stop's needs-you item and the card's hover show it
-/// with the lead's view ("LEAD'S NOTE · SENT AFTER ROUND 3").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LeadNoteSent {
-    /// The lead's name: "Wishlist lead".
-    pub lead: String,
-    pub text: String,
-    /// The lead's view of the cause (`otaq note --view`), when given.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub view: Option<String>,
-    /// The stop the note answered.
-    pub stop: StuckStop,
-    /// Validation failed: the rounds that had failed when the note was sent ("after round 3").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_rounds: Option<u32>,
-    /// When it was sent, in Unix milliseconds.
-    pub at: i64,
-}
-
-/// "Updated by lead" / "new · added by Wishlist lead" (LEAD-08, d0083): what the epic's lead did to this child. A card
-/// shows it only while the child has never started.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ByLead {
-    /// The lead's name: "Wishlist lead".
-    pub lead: String,
-    /// The lead created this child (`create --parent`).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub added: bool,
-    /// The lead changed it since the user last looked (the "Updated by agent" mark, d0019): an edit or a link.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub updated: bool,
-    /// The fields those edits set, in the words History uses: "description", "title", "priority".
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fields: Vec<String>,
-    /// The parents those links added, oldest first ("now waits for SHOP-40.4"); a card names those still linked.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub waits_for: Vec<TicketKey>,
-}
-
 /// Where a ticket's Merge check is (d0120): what the card and the sheet say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,28 +93,23 @@ pub struct Flags {
     /// Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hand_off: Option<super::HandOffKind>,
-    /// A waiting epic child that a sibling's merge freed waits for the lead's turn about it: "Waiting for the lead's
-    /// update" (d0124). From the scheduler's last pass; never stored (a restart drops it, and the lead with it).
-    /// Not a flag of its own.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub waiting_for_lead: bool,
     /// Run is running, on this port: `▶ :4020` (d0035).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_port: Option<u16>,
     /// Updated by agent (d0019).
     #[serde(default, skip_serializing_if = "is_false")]
     pub updated_by_agent: bool,
-    /// Answering another ticket's question: "answering SHOP-40.2" (d0030).
+    /// Answering another ticket's question: "answering SHOP-42" (d0030).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answering: Option<TicketKey>,
-    /// Asked another ticket and waits for the answer: "asked SHOP-40.1 · waiting" (d0030). The oldest open
+    /// Asked another ticket and waits for the answer: "asked SHOP-41 · waiting" (d0030). The oldest open
     /// question; it lasts until the answer was typed into this ticket's session (MSG-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<TicketKey>,
     /// The oldest open question's text ("Waiting for an answer: …").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked_question: Option<String>,
-    /// More open questions besides the oldest: "asked SHOP-40.1 +1 · waiting".
+    /// More open questions besides the oldest: "asked SHOP-41 +1 · waiting".
     #[serde(default, skip_serializing_if = "is_zero")]
     pub asked_more: u32,
     /// When the agent last signalled, in Unix milliseconds (d0027).
@@ -273,7 +193,7 @@ pub struct Flags {
     /// fixing" while the agent fixes what it found. Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merge_check: Option<MergeCheckState>,
-    /// A Backlog ticket (not an epic) whose dependencies are all merged: the quiet "Ready to start" hint. It never
+    /// A Backlog ticket whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ready_to_start: bool,
@@ -282,41 +202,11 @@ pub struct Flags {
     /// item, no notification; the terminal strip shows "your turn".
     #[serde(default, skip_serializing_if = "is_false")]
     pub your_turn: bool,
-    /// A running epic child that changed a file another running child of its epic changed too: one entry per
-    /// other child, by key (LEAD-09, d0083).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub same_file: Vec<SameFile>,
-    /// "asked lead · waiting" (LEAD-06, d0083): the ticket's `ask human` went to its epic's live lead, which hasn't
-    /// answered or passed it on yet. Display only, ranked as "asked SHOP-40.1 · waiting" (MSG-06), never turquoise.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub asked_lead: Option<AskedLead>,
-    /// "Asks you · via Wishlist lead" (LEAD-06): the open question was passed on by the epic's lead (its name);
-    /// the question carries the lead's recommendation and reason.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub via_lead: Option<String>,
-    /// The lead's unread notes to this child (LEAD-10, d0083).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unread_notes: Option<UnreadNotes>,
-    /// "1 decision": the open recorded decisions of a ticket in Ready for Review, an epic's with every child's
+    /// "1 decision": the open recorded decisions of a ticket in Ready for Review
     /// (DEC-03, d0084). Zero in every other column and once approved. Not a flag of its own: a neutral count in the
     /// card's meta row.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub open_decisions: u32,
-    /// The lead's one note at this child's first stop (LEAD-07, d0083); it stays once sent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lead_note_sent: Option<LeadNoteSent>,
-    /// What the epic's lead did to this child (LEAD-08, d0083).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub by_lead: Option<ByLead>,
-}
-
-/// A question waiting for the epic's lead (LEAD-06).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AskedLead {
-    /// "Wishlist lead".
-    pub lead: String,
-    /// "Should the button show a filled heart once the item is saved?"
-    pub question: String,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -351,12 +241,6 @@ stored_enum! {
         MergedAutomatically = "merged_automatically",
         DeliveredWithoutChecks = "delivered_without_checks",
         YourTurn = "your_turn",
-        SameFile = "same_file",
-        AskedLead = "asked_lead",
-        ViaLead = "via_lead",
-        UnreadNotes = "unread_notes",
-        LeadNoteSent = "lead_note_sent",
-        ByLead = "by_lead",
     }
 }
 
@@ -389,12 +273,6 @@ impl Flags {
             (Flag::MergedAutomatically, self.merged_automatically),
             (Flag::DeliveredWithoutChecks, self.delivered_without_checks),
             (Flag::YourTurn, self.your_turn),
-            (Flag::SameFile, !self.same_file.is_empty()),
-            (Flag::AskedLead, self.asked_lead.is_some()),
-            (Flag::ViaLead, self.via_lead.is_some()),
-            (Flag::UnreadNotes, self.unread_notes.is_some()),
-            (Flag::LeadNoteSent, self.lead_note_sent.is_some()),
-            (Flag::ByLead, self.by_lead.is_some()),
         ];
         present
             .into_iter()
@@ -420,11 +298,10 @@ mod tests {
             changed_since_review: true,
             messages_waiting: 2,
             hand_off: None,
-            waiting_for_lead: true,
             run_port: Some(4020),
             updated_by_agent: true,
-            answering: Some("SHOP-40.2".parse().unwrap()),
-            asked: Some("SHOP-40.1".parse().unwrap()),
+            answering: Some("SHOP-42".parse().unwrap()),
+            asked: Some("SHOP-41".parse().unwrap()),
             asked_question: Some("Which endpoint?".into()),
             asked_more: 1,
             last_signal_at: Some(5),
@@ -467,37 +344,7 @@ mod tests {
             merge_check: Some(MergeCheckState::Failed),
             ready_to_start: true,
             your_turn: true,
-            same_file: vec![SameFile {
-                other: "SHOP-40.4".parse().unwrap(),
-                files: vec!["lib/wishlist.ts".into()],
-            }],
-            asked_lead: Some(AskedLead {
-                lead: "Wishlist lead".into(),
-                question: "Should the button show a filled heart?".into(),
-            }),
-            via_lead: Some("Wishlist lead".into()),
-            unread_notes: Some(UnreadNotes {
-                count: 1,
-                from: "Wishlist lead".into(),
-                latest_text: "Use the same order on the shared list.".into(),
-                latest_at: 7,
-            }),
             open_decisions: 1,
-            lead_note_sent: Some(LeadNoteSent {
-                lead: "Wishlist lead".into(),
-                text: "The API returns `items[]`; fix the test, don't change the API.".into(),
-                view: Some("The agent keeps changing the API instead of the test.".into()),
-                stop: StuckStop::ValidationFailed,
-                after_rounds: Some(3),
-                at: 8,
-            }),
-            by_lead: Some(ByLead {
-                lead: "Wishlist lead".into(),
-                added: true,
-                updated: true,
-                fields: vec!["description".into()],
-                waits_for: vec!["SHOP-40.4".parse().unwrap()],
-            }),
         }
     }
 

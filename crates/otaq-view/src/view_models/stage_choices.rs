@@ -26,7 +26,7 @@ use otaq_core::agents::store::SessionAgentRun;
 use otaq_core::agents::{Agent, ModelRef, SessionRole};
 use otaq_core::board::stage_choices::{SetBy, StageOptions, TicketChoices};
 use otaq_core::board::stage_runs::StageRun;
-use otaq_core::domain::{Kind, Place, Status, StatusSet};
+use otaq_core::domain::{Place, Status, StatusSet};
 use otaq_core::flow::engine::RunResult;
 use serde::Serialize;
 use ts_rs::TS;
@@ -153,7 +153,7 @@ fn change(options: &StageOptions) -> Option<ChoiceChange> {
     let (who, reason, agent_made) = match &choice.set_by {
         SetBy::User => ("you".to_owned(), None, false),
         SetBy::Agent { name, reason } => (name.clone(), Some(reason.as_str()), true),
-        SetBy::ProjectAgent { .. } | SetBy::EpicLead { .. } => return None,
+        SetBy::ProjectAgent { .. } => return None,
     };
     let now = options.label();
     let from = choice.from.clone().unwrap_or_else(|| options.usual_label());
@@ -175,8 +175,7 @@ fn change(options: &StageOptions) -> Option<ChoiceChange> {
     })
 }
 
-/// Who set the ticket's choices when it was made: "set by Noyan", "set by the Epic lead" (the role,
-/// never the session's name).
+/// Who set the ticket's choices when it was made: "set by Noyan" (the role, never the session's name).
 fn set_by_line(stages: &[StageOptions]) -> Option<String> {
     let by = |pick: fn(&SetBy) -> bool| {
         stages
@@ -186,8 +185,6 @@ fn set_by_line(stages: &[StageOptions]) -> Option<String> {
     };
     if by(|s| matches!(s, SetBy::ProjectAgent { .. })) {
         Some("set by Noyan".to_owned())
-    } else if by(|s| matches!(s, SetBy::EpicLead { .. })) {
-        Some("set by the Epic lead".to_owned())
     } else {
         None
     }
@@ -232,7 +229,7 @@ pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesVie
 /// The sheet's Choices (`s05-36`, `s05-38`): the ticket's choices with who set them; `None` on a flow without
 /// options and for an epic.
 pub fn sheet_choices(t: &TicketAgents) -> Option<ChoicesView> {
-    if t.kind == Kind::Epic || t.choices.is_empty() {
+    if t.choices.is_empty() {
         return None;
     }
     Some(ChoicesView {
@@ -443,7 +440,7 @@ fn now_at(t: &TicketAgents) -> (usize, Option<usize>) {
 /// The ticket's path (`s05-36`, `s05-38`): the runs so far in order, where it is now, then the stages to come.
 /// `None` for an epic, and for a ticket whose flow wasn't read.
 pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
-    if t.kind == Kind::Epic || t.path.is_empty() {
+    if t.path.is_empty() {
         return None;
     }
     let stages = shown_stages(&t.path);
@@ -880,9 +877,6 @@ fn agent_part(t: &TicketAgents, role: SessionRole, tools: &Tools) -> Option<Stri
 /// session. The tool is never named while one tool is connected; with several, "Strong · Claude Code 58k ·
 /// Verifier · Copilot 9k (1 round)" (USG-10, d0086), the tool left out where it is the agent's name.
 pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
-    if t.kind == Kind::Epic {
-        return agent_part(t, SessionRole::EpicLead, tools);
-    }
     let developer = agent_part(t, SessionRole::Developer, tools)?;
     let Some(validator) = agent_part(t, SessionRole::Validator, tools) else {
         return Some(format!("{developer} \u{b7} no validation yet"));
@@ -1176,7 +1170,7 @@ pub mod fixtures {
         Choice, OptionAgent, SetBy, StageChoice, StageOptions, TicketChoices,
     };
     use otaq_core::board::stage_runs::StageRun;
-    use otaq_core::domain::{Kind, Place, Status};
+    use otaq_core::domain::{Place, Status};
     use otaq_core::flow::engine::RunResult;
 
     use crate::view_models::tool_problems::Tools;
@@ -1437,11 +1431,9 @@ pub mod fixtures {
     ) -> TicketAgents {
         TicketAgents {
             key: Some(key.parse().expect("key")),
-            kind: Kind::Ticket,
             status: Some(status),
             agents: shop_agents(),
             stages: Vec::new(),
-            lead: None,
             sessions,
             tokens: Vec::new(),
             holds: Vec::new(),
@@ -2036,15 +2028,6 @@ mod tests {
                 row("Done", "Local merge or PR, your click", "\u{2014}", false),
             ]
         );
-    }
-
-    /// An epic has neither choices nor a path.
-    #[test]
-    fn an_epic_has_no_choices_and_no_path() {
-        let mut t = shop_29();
-        t.kind = Kind::Epic;
-        assert_eq!(sheet_choices(&t), None);
-        assert_eq!(path(&t, &tools()), None);
     }
 
     #[test]

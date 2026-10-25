@@ -1,5 +1,4 @@
-//! `otaq create` (alias `new`) and `otaq update` (SDD §11.2; PLG-05, CLI-02, CLI-04; d0019, d0032,
-//! d0039).
+//! `otaq create` (alias `new`) and `otaq update` (SDD §11.2; PLG-05, CLI-02, CLI-04; d0019, d0032).
 //!
 //! New tickets land in **Backlog**. Long text goes through **stdin** (`--stdin`, PLG-05); `-d` is for a short
 //! line. The service records the actor, so tickets an agent creates show "created by agent" and its edits are
@@ -25,7 +24,7 @@ use otaq_core::board::stage_choices::ChoicePick;
 use otaq_core::board::tickets::{Ticket, TicketUpdate};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Kind, Priority};
+use otaq_core::domain::Priority;
 use otaq_core::protocol::{BatchParams, ErrorBody, ErrorKind, Reply, Request, TicketUpdateParams};
 
 use crate::cli::{ChoiceFlags, GlobalArgs};
@@ -41,8 +40,6 @@ pub struct CreateArgs {
     pub deps: Vec<String>,
     pub stdin: bool,
     pub file: Option<PathBuf>,
-    pub epic: bool,
-    pub parent: Option<String>,
     pub choices: ChoiceFlags,
 }
 
@@ -98,10 +95,8 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
         Some(file) => {
             // `--by-user` makes the file's choices the user's.
             if args.title.is_some()
-                || args.parent.is_some()
                 || !args.deps.is_empty()
                 || args.priority.is_some()
-                || args.epic
                 || args.description.is_some()
                 || args.stdin
                 || !choices.is_empty()
@@ -126,14 +121,11 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                     ))
                 })?;
             let body = body(args.description.clone(), args.stdin)?.unwrap_or_default();
-            let kind = if args.epic { Kind::Epic } else { Kind::Ticket };
             let ticket = BatchTicket {
                 id: None,
                 title,
-                kind,
                 body,
                 priority: args.priority,
-                parent: args.parent.clone(),
                 depends_on: args.deps.clone(),
                 choices,
             };
@@ -196,20 +188,7 @@ async fn resolve_refs(
     mut tickets: Vec<BatchTicket>,
 ) -> Result<(String, Vec<BatchTicket>), ErrorBody> {
     let ids: Vec<String> = tickets.iter().filter_map(|t| t.id.clone()).collect();
-    // The epic's project, if a ticket names one by key; else the current project.
-    let parent_key = tickets
-        .iter()
-        .filter_map(|t| t.parent.as_ref())
-        .find(|p| !ids.contains(p))
-        .cloned();
-    let project = match parent_key {
-        Some(parent) if global.project_key().is_none() => {
-            target::resolve_key(client, data, Some(parent), global)
-                .await?
-                .project
-        }
-        _ => target::require_project(client, data, global).await?,
-    };
+    let project = target::require_project(client, data, global).await?;
     let full = async |r: &String| -> Result<String, ErrorBody> {
         if ids.contains(r) || !r.trim().starts_with(|c: char| c.is_ascii_digit()) {
             return Ok(r.trim().to_owned());
@@ -219,9 +198,6 @@ async fn resolve_refs(
             .to_string())
     };
     for ticket in &mut tickets {
-        if let Some(parent) = &ticket.parent {
-            ticket.parent = Some(full(parent).await?);
-        }
         let mut deps = Vec::new();
         for dep in &ticket.depends_on {
             deps.push(full(dep).await?);

@@ -25,7 +25,7 @@ import type { ToolProblemCallout } from "./ToolProblemCallout";
 /**
  * The open ticket's sheet.
  */
-export type SheetView = { key: string, title: string, epic: boolean, priority: PriorityView, priority_hint: string, priority_menu: Array<MenuItem>, pill: PillView, branch: SheetBranch | null, copy_branch: string, base: string, signal: SheetSignal | null, tokens: SheetTokens | null, 
+export type SheetView = { key: string, title: string, priority: PriorityView, priority_hint: string, priority_menu: Array<MenuItem>, pill: PillView, branch: SheetBranch | null, copy_branch: string, base: string, signal: SheetSignal | null, tokens: SheetTokens | null, 
 /**
  * The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
  * round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.

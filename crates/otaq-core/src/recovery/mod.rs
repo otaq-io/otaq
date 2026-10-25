@@ -26,7 +26,6 @@ use serde_json::json;
 use tokio::sync::{broadcast, watch};
 
 use crate::agent_tools::{Adapters, Tool};
-use crate::board::epic_flight::epic_flow;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
 use crate::caller::SessionStage;
@@ -48,26 +47,16 @@ fn ended_payload(info: &SessionInfo) -> serde_json::Value {
     json!({ "reason": reason, "session": info.id, "tool": info.tool })
 }
 
-/// The flow a ticket walks: its project's, or for an epic the epic's own ([`epic_flow`]: its stop, e.g. Review
-/// epic, then the Delivery).
-fn walks(flow: Flow, ticket: &Ticket) -> Flow {
-    if ticket.is_epic() {
-        epic_flow(&flow)
-    } else {
-        flow
-    }
-}
-
-/// The flows tickets walk, read once per project (and once more for its epics) for a startup reconcile.
+/// The flows tickets walk, read once per project for a startup reconcile.
 #[derive(Default)]
-struct Flows(std::collections::HashMap<(String, bool), Flow>);
+struct Flows(std::collections::HashMap<String, Flow>);
 
 impl Flows {
     async fn of(&mut self, board: &Board, ticket: &Ticket) -> Result<&Flow, BoardError> {
-        let key = (ticket.key.project.to_string(), ticket.is_epic());
+        let key = ticket.key.project.to_string();
         if !self.0.contains_key(&key) {
-            let flow = board.effective_flow(&key.0).await?;
-            self.0.insert(key.clone(), walks(flow, ticket));
+            let flow = board.effective_flow(&key).await?;
+            self.0.insert(key.clone(), flow);
         }
         Ok(&self.0[&key])
     }
@@ -149,9 +138,7 @@ pub async fn remove_interrupted_warm_work(data: &crate::data_dir::DataDir) -> Ve
 }
 
 /// "Before the restart" for a ticket (REC-02): the last `limit` messages and actions of its latest agent
-/// conversation, read by the adapter of the tool it ran on.
-/// For an epic it is its lead's conversation (LEAD-12, d0083: the Lead tab after a restart), which runs in the
-/// project's folder. Read-only; never an error that blocks the ticket.
+/// conversation, read by the adapter of the tool it ran on. Read-only; never an error that blocks the ticket.
 pub async fn before_restart(
     board: &Board,
     adapters: &Adapters,
@@ -159,19 +146,10 @@ pub async fn before_restart(
     limit: usize,
 ) -> Result<BeforeRestart, BoardError> {
     let ticket = board.ticket(key).await?;
-    let latest: Option<(Tool, Option<String>)> = if ticket.is_epic() {
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT tool, tool_session_id FROM project_agents WHERE epic_id = ? LIMIT 1",
-        )
-        .bind(&ticket.id)
-        .fetch_optional(board.store().pool())
-        .await?;
-        row.and_then(|(tool, id)| Some((tool.parse().ok()?, id)))
-    } else {
+    let latest: Option<(Tool, Option<String>)> =
         crate::session::StoredConversation::latest_agent(board.store().pool(), &ticket.id)
             .await?
-            .map(|c| (c.tool, Some(c.id)))
-    };
+            .map(|c| (c.tool, Some(c.id)));
     let (tool, latest) = latest.unzip();
     let latest = latest.flatten();
     let (Some(tool), Some(session_id)) = (tool, latest.clone()) else {
@@ -180,12 +158,7 @@ pub async fn before_restart(
             tool_session_id: latest,
         });
     };
-    let cwd = match ticket
-        .work
-        .as_ref()
-        .and_then(|w| w.worktree.clone())
-        .filter(|_| !ticket.is_epic())
-    {
+    let cwd = match ticket.work.as_ref().and_then(|w| w.worktree.clone()) {
         Some(worktree) => std::path::PathBuf::from(worktree),
         None => {
             std::path::PathBuf::from(board.project(ticket.key.project.as_str()).await?.repo_path)
@@ -253,7 +226,7 @@ pub fn carry_on_text() -> String {
     )
 }
 
-/// The first prompt of a Project agent or an epic lead resumed from "Ended by restart" (d0122, d0068, d0083).
+/// The first prompt of a Project agent resumed from "Ended by restart" (d0122, d0068).
 pub const CARRY_ON_PROJECT_AGENT: &str =
     "You were interrupted by a restart. Carry on where you left off.";
 
@@ -343,10 +316,6 @@ pub struct StartupReport {
     /// "New conversation"s that never got a request: gone after the restart.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub new_agents_discarded: u32,
-    /// Epic leads the restart ended, by id: "Ended by restart · Resume", counted on their own ("1 epic lead
-    /// ended", d0083). Not part of Resume all.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub leads_ended: Vec<String>,
     /// The projects that are paused (PAU-07, d0112), by key: the pause survived the restart, nothing of theirs
     /// resumes, and the app's reboot summary leaves them out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -412,7 +381,6 @@ impl Recovery {
         let mut report = self.inner.report.lock().expect("startup report");
         report.project_agents_ended = agents.ended.clone();
         report.new_agents_discarded = agents.discarded;
-        report.leads_ended = agents.leads_ended.clone();
     }
 
     /// What the last [`startup`](Self::startup) found.
@@ -549,7 +517,7 @@ impl Recovery {
     /// The tickets of the sessions a **Pause** ended ([`END_PAUSED`]; PAU-03, d0112), the restart's way with the
     /// cause "paused": a working ticket becomes Interrupted ("Paused"), a needs-you one keeps its label and question,
     /// a check ends interrupted and its round doesn't count, an automatic Delivery is interrupted in the Agent stage
-    /// that runs it, a ticket waiting for a click gets a History note. Project agents and leads are their own
+    /// that runs it, a ticket waiting for a click gets a History note. Project agents are their own
     /// ([`crate::project_agents::AgentState::Paused`]). Called once every session has ended; the tickets that
     /// became Interrupted, in key order.
     pub async fn paused(&self, stopped: &[SessionInfo]) -> Result<Vec<TicketKey>, BoardError> {
@@ -778,7 +746,6 @@ impl Recovery {
             .board
             .effective_flow(ticket.key.project.as_str())
             .await?;
-        let flow = walks(flow, &ticket);
         Ok(Some((ticket, flow, checker)))
     }
 

@@ -9,7 +9,7 @@
 //!   as any other (Idle, or as a submit left it), unless a new turn started first.
 //! - **A key at the tool's own prompt.** Copilot sends nothing when its prompt is cancelled with Esc
 //!   ([`crate::agent_tools::AgentTool::typed_key_answers_prompt`]). A key the user types into such a terminal while
-//!   it shows Needs you counts as answering (a ticket's agent, a validator, a Project agent or an epic lead): it shows
+//!   it shows Needs you counts as answering (a ticket's agent, a validator or a Project agent): it shows
 //!   Working, and if the tool sends nothing within [`QuietTiming::answer_wait`] and nothing runs under it, the turn
 //!   counts as ended. Only the user's own keys count (the terminal's input), never Otaq's deliveries.
 //!
@@ -62,7 +62,7 @@ pub(super) struct Quiet {
     /// An answer wait is pending.
     answering: bool,
     /// The tool's last status event was a prompt for the user (needs you or a question of its own): what a validator,
-    /// Project agent or lead shows as Needs you.
+    /// Project agent shows as Needs you.
     prompting: bool,
 }
 
@@ -242,9 +242,9 @@ impl Signals {
                     self.answered(&ticket.id).await?;
                 }
             }
-            // A validator, Project agent or lead (0086: any Copilot terminal showing Needs you): its wait came from
+            // A validator or Project agent (0086: any Copilot terminal showing Needs you): its wait came from
             // the tool's prompt event; the key moves it on as the tool's own new turn would.
-            Caller::Validator { .. } | Caller::ProjectAgent { .. } | Caller::EpicLead { .. } => {
+            Caller::Validator { .. } | Caller::ProjectAgent { .. } => {
                 if !prompting && !answering {
                     return Ok(());
                 }

@@ -26,8 +26,6 @@ pub mod state;
 pub mod watch;
 
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
@@ -59,12 +57,6 @@ pub const LIVE: &[Status] = &[
     Status::WaitingForLimitReset,
 ];
 
-/// What may keep an agent whose turn ended with nothing pending from making its ticket Idle: an epic lead's unread
-/// note typed in (LEAD-10), or the child's first stop held for its lead (LEAD-07). Called with the ticket id and the
-/// agent's last line, it answers whether it took the stop. Then the ticket stays at work.
-pub type OnIdle =
-    Arc<dyn Fn(String, Option<String>) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
-
 /// The signal state of every agent session. Cheap to clone.
 #[derive(Clone)]
 pub struct Signals {
@@ -77,7 +69,6 @@ struct Inner {
     adapters: Adapters,
     sessions: Sessions,
     turns: Mutex<HashMap<String, Turn>>,
-    on_idle: Mutex<Option<OnIdle>>,
     /// What applies a refused model (AGT-05; set once at service start).
     refusals: OnceLock<Refusals>,
     /// The tools' lists, which say whether an asked model is an exact one (the swap, T-0357; set once at service
@@ -111,7 +102,6 @@ impl Signals {
                 adapters,
                 sessions,
                 turns: Mutex::new(HashMap::new()),
-                on_idle: Mutex::new(None),
                 refusals: OnceLock::new(),
                 models: OnceLock::new(),
                 turned: Mutex::new(HashSet::new()),
@@ -126,11 +116,6 @@ impl Signals {
     /// Gives the signals the tools' lists, for the swap mark (once, at service start).
     pub fn set_models(&self, models: crate::agent_tools::models::ModelLists) {
         let _ = self.inner.models.set(models);
-    }
-
-    /// Sets what may give an agent input instead of turning it Idle (once, at service start).
-    pub fn on_idle(&self, callback: OnIdle) {
-        *self.inner.on_idle.lock().expect("on_idle") = Some(callback);
     }
 
     /// The facts of a session's current turn.
@@ -229,7 +214,7 @@ impl Signals {
                 None => event,
             };
             match event {
-                // Stored, kept on a Project agent's or lead's row, and the session's file watched (ADP-07).
+                // Stored, kept on a Project agent's row, and the session's file watched (ADP-07).
                 ToolEvent::ToolIdKnown { tool_id } => {
                     if let Some(session) = session {
                         let stored = self.tool_id_known(session, tool_id).await?;
@@ -317,25 +302,12 @@ impl Signals {
             return Ok(Signal::Ignored);
         };
         self.track_turn(session, &signal);
-        if signal.ends_turn() {
-            // Its files may have changed without a stage or commit (LEAD-09).
-            self.inner.board.overlaps().touch(ticket_id);
-        }
         if let Signal::Failed { error, message } = &signal {
             tracing::warn!(%error, message = ?message, "agent turn failed");
         }
         // The agent is alive in its conversation: its first prompt arrived.
         self.inner.board.first_prompt_delivered(ticket_id).await?;
-        // Input typed in at this Stop keeps the agent at work, as any command of its own would.
-        let input = match &signal {
-            Signal::Idle { last_line }
-                if self.input_at_idle(ticket_id, last_line.clone()).await =>
-            {
-                Input::Command
-            }
-            _ => Input::Hook(signal.clone()),
-        };
-        self.apply(ticket_id, &input).await?;
+        self.apply(ticket_id, &Input::Hook(signal.clone())).await?;
         Ok(signal)
     }
 
@@ -353,7 +325,7 @@ impl Signals {
     }
 
     /// The tool reported the exact model the session runs on (ADP-04, AGT-04): the first value is saved on the
-    /// session (and on its Project agent's or lead's row) and its ticket or agent is redrawn; a later different one
+    /// session (and on its Project agent's row) and its ticket or agent is redrawn; a later different one
     /// (`/model` typed into the agent panel, the user's own business) is only logged, and the next launch passes the named
     /// agent's model again. Whether the value was the first (and saved).
     async fn model_known(
@@ -394,8 +366,7 @@ impl Signals {
                 id: ticket_id.clone(),
                 key: ticket.clone(),
             }),
-            Caller::ProjectAgent { project, agent, .. }
-            | Caller::EpicLead { project, agent, .. } => {
+            Caller::ProjectAgent { project, agent, .. } => {
                 sqlx::query("UPDATE project_agents SET model_ran = ? WHERE id = ?")
                     .bind(model)
                     .bind(agent)
@@ -405,12 +376,6 @@ impl Signals {
                     project: project.clone(),
                     id: agent.clone(),
                 });
-                if let Caller::EpicLead { epic, .. } = caller {
-                    self.inner.events.publish(Event::LeadChanged {
-                        project: project.clone(),
-                        epic: epic.clone(),
-                    });
-                }
             }
             Caller::User => {}
         }
@@ -454,7 +419,6 @@ impl Signals {
         }
         let on = match caller {
             Caller::Agent { ticket, .. } | Caller::Validator { ticket, .. } => ticket.to_string(),
-            Caller::EpicLead { epic, .. } => epic.to_string(),
             Caller::ProjectAgent { .. } | Caller::User => project,
         };
         let asked = asked.unwrap_or_default();
@@ -519,7 +483,6 @@ impl Signals {
     /// you and Idle clear (ATT-02, never an open question, d0119) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
         if let Caller::Agent { ticket_id, .. } = caller {
-            self.inner.board.overlaps().touch(ticket_id);
             self.inner.board.first_prompt_delivered(ticket_id).await?;
             self.apply(ticket_id, &Input::Command).await?;
         }
@@ -569,26 +532,6 @@ impl Signals {
     /// The user answered the agent from Needs you (or the card or sheet): the needs-you label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
-    }
-
-    /// Whether [`on_idle`](Self::on_idle) took the ticket's Idle stop.
-    async fn input_at_idle(&self, ticket_id: &str, last_line: Option<String>) -> bool {
-        let callback = self.inner.on_idle.lock().expect("on_idle").clone();
-        match callback {
-            Some(callback) => callback(ticket_id.to_owned(), last_line).await,
-            None => false,
-        }
-    }
-
-    /// A stop held for an epic's lead is handed back as Idle (LEAD-07): the ticket shows Idle with the agent's last
-    /// line, as its Stop would have made it.
-    pub async fn idle_now(
-        &self,
-        ticket_id: &str,
-        last_line: Option<String>,
-    ) -> Result<(), BoardError> {
-        self.apply(ticket_id, &Input::Hook(Signal::Idle { last_line }))
-            .await
     }
 
     /// A new turn starts afresh; a turn that ended leaves the session idle between turns.
@@ -708,8 +651,7 @@ fn session_of(caller: &Caller) -> Option<&str> {
     match caller {
         Caller::Agent { session, .. }
         | Caller::Validator { session, .. }
-        | Caller::ProjectAgent { session, .. }
-        | Caller::EpicLead { session, .. } => Some(session),
+        | Caller::ProjectAgent { session, .. } => Some(session),
         Caller::User => None,
     }
 }

@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_panel, agent_tools_page, ask_bar, board_page, card_page, cleanup, decision_change, decision_item, gallery, lead_status, lead_tab, needs_you_strip,
+    activity, agent_panel, agent_tools_page, ask_bar, board_page, card_page, cleanup, decision_change, decision_item, gallery, needs_you_strip,
     limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
@@ -24,10 +24,6 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.decisions" => reply(&decision_item::gallery()),
         // The Change… and Add a fix child dialogs (T-0288).
         "gallery.decision_change" => reply(&decision_change::gallery()),
-        // The Lead Status, the track label and the epic card with a lead (T-0289).
-        "gallery.leads" => reply(&lead_status::gallery()),
-        // The epic sheet's Lead tab in each state (T-0290).
-        "gallery.lead_tabs" => reply(&lead_tab::gallery()),
         // The Needs you strip in each state of `s24-03` and `s24-12` (T-0459).
         "gallery.needs_you_strip" => reply(&needs_you_strip::gallery()),
         // The List view by stage, status and agent (T-0461, `s24-03`, `s24-04`).
@@ -86,7 +82,6 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.sheet" => reply(&super::sheet::sheet_gallery()),
         // 25 · Overview's attachments and description words for SHOP-22 (T-0465).
         "gallery.overview" => reply(&otaq_view::view_models::overview::gallery()),
-        "gallery.epic_sheet" => reply(&otaq_view::view_models::epic_sheet::gallery()),
         // The New ticket form's report: its words and its box (T-0474).
         "gallery.new_ticket_report" => reply(&otaq_view::view_models::editor::report_field()),
         // 24 · Dependencies: a blocked card, a blocker, the sheet's section and picker, DPV-03's dialog (T-0463).
@@ -133,15 +128,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cards["variants"][0]["card"]["key"], "SHOP-31");
-        let leads = crate::api::request(&h.app, "gallery.leads", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(leads["statuses"][0]["view"]["full"], "Wishlist lead · idle");
-        assert!(cards["epics"].as_array().is_some_and(|e| !e.is_empty()));
-        let tabs = crate::api::request(&h.app, "gallery.lead_tabs", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(tabs["tabs"][0]["view"]["status"]["full"], "Wishlist lead · idle");
         let env = crate::api::request(&h.app, "gallery.env_vars", Value::Null)
             .await
             .unwrap();

@@ -49,10 +49,6 @@ stored_enum! {
         Skill = "skill",
         /// The validator's findings, or "Validation was cancelled…", for the agent (d0063).
         Validation = "validation",
-        /// A wake-up for an epic's lead: a child merged, was closed, asked or got stuck (d0083, LEAD-04).
-        LeadWake = "lead_wake",
-        /// The lead's unread notes, typed in when the child goes idle (LEAD-10, d0083).
-        LeadNote = "lead_note",
     }
 }
 

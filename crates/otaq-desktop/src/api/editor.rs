@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use otaq_core::board::agent_edits::AgentEdits;
 use otaq_core::board::settings::GlobalSettings;
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::board::tickets::{Base, Field, Ticket};
-use otaq_core::domain::{Actor, Kind, Priority, TicketKey};
+use otaq_core::board::tickets::{Field, Ticket};
+use otaq_core::domain::{Actor, Priority};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
 use otaq_core::agents::facts::TicketAgents;
@@ -72,22 +72,17 @@ fn now_ms() -> i64 {
         .map_or(0, |d| d.as_millis() as i64)
 }
 
-fn key_of(text: &str) -> Result<TicketKey, RequestError> {
-    text.parse()
-        .map_err(|_| RequestError::plain(format!("not a ticket key: {text}")))
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // What the page sends
 
-/// Which editor: a new ticket in a project (inside an epic when given), or an existing ticket.
+/// Which editor: a new ticket in a project, or an existing ticket.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 #[ts(rename = "EditorTarget")]
 pub enum Target {
     Create {
         project: Option<String>,
-        epic: Option<String>,
         /// The description it starts with: New ticket from this file puts the file's path there (FTB-03).
         #[serde(default)]
         #[ts(optional)]
@@ -108,11 +103,8 @@ pub enum Target {
 pub struct Form {
     pub title: String,
     pub body: String,
-    /// 1–4 once picked; `null`: Normal for a new ticket, the epic's for a child.
+    /// 1–4 once picked; `null`: Normal for a new ticket.
     pub priority: Option<u8>,
-    pub epic_kind: bool,
-    /// Create only: the epic the new ticket goes into.
-    pub epic: Option<String>,
     pub base_branch: Option<String>,
     pub external_id: String,
     /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
@@ -147,14 +139,13 @@ pub struct FormChoice {
 // ---------------------------------------------------------------------------------------------------------------
 // What the page gets
 
-/// The "Start from and merge into" field: a dropdown, fixed after start, or the epic's branch.
+/// The "Start from and merge into" field: a dropdown, or fixed after start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "EditorBaseField")]
 pub enum BaseView {
     Editable,
     Locked { text: String },
-    FromEpic { text: String },
 }
 
 /// The form's words.
@@ -166,12 +157,6 @@ pub struct Texts {
     pub title_required: &'static str,
     pub priority: &'static str,
     pub priority_hint: &'static str,
-    pub kind: &'static str,
-    pub kind_ticket: &'static str,
-    pub kind_epic: &'static str,
-    pub epic: &'static str,
-    pub epic_hint: &'static str,
-    pub epic_none: &'static str,
     pub body: &'static str,
     /// The description's label in the Ticket tab's read mode, over the comments (CMT-10, `s05-41`).
     pub plan: &'static str,
@@ -233,9 +218,7 @@ pub struct ReadView {
     pub priority: PriorityView,
     /// The Priority dropdown: `sheet.priority` items.
     pub priority_menu: Vec<MenuItem>,
-    /// "follows SHOP-40" for an epic child without its own priority.
-    pub follows: Option<String>,
-    /// "main", or "the epic’s branch (SHOP-40)".
+    /// "main".
     pub base: String,
     pub external_id: Option<String>,
     /// The fields an agent changed since the user last looked ("Updated by agent").
@@ -297,13 +280,9 @@ pub struct View {
     pub texts: Texts,
     pub form: Form,
     pub priorities: Vec<PriorityOption>,
-    /// The priority shown while none is picked: Normal, or the epic's.
+    /// The priority shown while none is picked: Normal.
     pub shown_priority: u8,
-    pub follows: Option<String>,
-    /// Create only: "No epic" (id "") and the open epics (a new ticket can go into one; fixed once created).
-    pub epic_menu: Vec<MenuItem>,
     pub base: BaseView,
-    /// Standalone tickets and epics; not epic children.
     pub external_id_shown: bool,
     /// "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
     pub save_hint: Option<String>,
@@ -328,12 +307,6 @@ fn texts(create: bool) -> Texts {
         title_required: TITLE_REQUIRED,
         priority: "Priority",
         priority_hint: FORM_HINT,
-        kind: "Type",
-        kind_ticket: "Ticket",
-        kind_epic: "Epic",
-        epic: "Epic",
-        epic_hint: "optional \u{b7} fixed once created (it sets the key)",
-        epic_none: "No epic",
         body: "What and why",
         plan: "Description \u{b7} the plan",
         body_hint: "Markdown \u{b7} paste keeps formatting",
@@ -387,9 +360,6 @@ fn base_view(field: BaseField) -> BaseView {
     match field {
         BaseField::Editable => BaseView::Editable,
         BaseField::Locked(text) => BaseView::Locked { text },
-        BaseField::FromEpic(epic) => BaseView::FromEpic {
-            text: format!("From the epic\u{2019}s branch ({epic})"),
-        },
     }
 }
 
@@ -398,8 +368,6 @@ fn form_of(model: &EditorModel) -> Form {
         title: model.title.clone(),
         body: model.body.clone(),
         priority: model.priority.map(Priority::number),
-        epic_kind: model.kind == Kind::Epic,
-        epic: model.epic.as_ref().map(ToString::to_string),
         base_branch: model.base_branch.clone(),
         external_id: model.external_id.clone(),
         choices: Vec::new(),
@@ -408,17 +376,11 @@ fn form_of(model: &EditorModel) -> Form {
     }
 }
 
-fn epic_priority(epic: Option<&TicketKey>, tickets: &[Ticket]) -> Option<Priority> {
-    let epic = epic?;
-    tickets.iter().find(|t| &t.key == epic).map(|t| t.priority)
-}
-
-/// The editor for a new ticket in `project` (inside `epic` when given).
-pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ticket]) -> View {
-    let mut model = EditorModel::create(&project.key, "", &project.base_branch);
-    model.epic = epic;
-    let shown = model.shown_priority(epic_priority(model.epic.as_ref(), tickets));
-    let fields = visibility(model.kind, model.epic.as_ref(), false);
+/// The editor for a new ticket in `project`.
+pub fn create_view(project: &ProjectInfo) -> View {
+    let model = EditorModel::create(&project.key, "", &project.base_branch);
+    let shown = model.shown_priority();
+    let fields = visibility(false);
     View {
         create: true,
         key: None,
@@ -429,18 +391,6 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         form: form_of(&model),
         priorities: priorities(),
         shown_priority: shown.number(),
-        follows: model.follows_epic().map(|e| format!("follows {e}")),
-        epic_menu: std::iter::once(MenuItem::new("", "No epic"))
-            .chain(
-                otaq_view::view_models::epic_actions::epic_choices(tickets)
-                    .into_iter()
-                    .map(|c| {
-                        MenuItem::new(c.key.to_string(), format!("{} {}", c.key, c.title))
-                            .icon(IconName::Layers)
-                            .hint(c.progress)
-                    }),
-            )
-            .collect(),
         base: base_view(fields.base),
         external_id_shown: fields.external_id,
         save_hint: None,
@@ -457,15 +407,13 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
 pub fn edit_view(
     ticket: &Ticket,
     project_name: &str,
-    tickets: &[Ticket],
     edits: &AgentEdits,
     live_agent: bool,
     now: i64,
 ) -> View {
     let model = EditorModel::edit(ticket);
-    let shown = model.shown_priority(epic_priority(model.epic.as_ref(), tickets));
-    let fields = visibility(model.kind, model.epic.as_ref(), model.base_locked);
-    let follows = model.follows_epic().map(|e| format!("follows {e}"));
+    let shown = model.shown_priority();
+    let fields = visibility(model.base_locked);
     let marked = [
         Field::Title,
         Field::Body,
@@ -487,8 +435,6 @@ pub fn edit_view(
         form: form_of(&model),
         priorities: priorities(),
         shown_priority: shown.number(),
-        follows: follows.clone(),
-        epic_menu: Vec::new(),
         base: base_view(fields.base),
         external_id_shown: fields.external_id,
         save_hint: agent_activity::save_hint(ticket, live_agent),
@@ -503,12 +449,8 @@ pub fn edit_view(
             body_empty: ticket.body.trim().is_empty(),
             priority: priority::view(shown),
             priority_menu: priority::menu_items(shown),
-            follows,
-            base: match &ticket.base {
-                Base::Epic(epic) => format!("the epic\u{2019}s branch ({epic})"),
-                Base::Branch(b) => b.clone(),
-            },
-            external_id: ticket.external_id.clone().filter(|_| ticket.epic.is_none()),
+            base: ticket.base.branch().to_owned(),
+            external_id: ticket.external_id.clone(),
             marked,
         }),
         source_mode: false,
@@ -537,19 +479,6 @@ async fn found(app: &App, key: &str) -> Result<Ticket, RequestError> {
     ticket(app, key)
         .await?
         .ok_or_else(|| RequestError::plain(format!("{key} is gone.")))
-}
-
-async fn tickets(app: &App, project: &str) -> Result<Vec<Ticket>, RequestError> {
-    match app
-        .service
-        .send(Request::TicketList(ProjectParams {
-            project: project.to_owned(),
-        }))
-        .await?
-    {
-        Reply::Tickets(list) => Ok(list),
-        other => Err(unexpected("ticket.list", &other)),
-    }
 }
 
 async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
@@ -605,14 +534,11 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
     let view = match target {
         Target::Create {
             project: key,
-            epic,
             body,
         } => {
-            let epic = epic.as_deref().map(key_of).transpose()?;
-            let key = match (&epic, key) {
-                (Some(e), _) => e.project.to_string(),
-                (None, Some(k)) => k,
-                (None, None) => projects(app)
+            let key = match key {
+                Some(k) => k,
+                None => projects(app)
                     .await?
                     .into_iter()
                     .next()
@@ -620,9 +546,8 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
                     .ok_or_else(|| RequestError::plain("Add a project first."))?,
             };
             let info = project(app, &key).await?;
-            let all = tickets(app, &key).await?;
             let choices = stage_choices_of(app, None, Some(&key)).await;
-            let mut view = create_view(&info, epic, &all);
+            let mut view = create_view(&info);
             if let Some(body) = body {
                 view.form.body = body;
             }
@@ -635,13 +560,12 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let ticket = found(app, &key).await?;
             let project_key = ticket.key.project.to_string();
             let info = project(app, &project_key).await?;
-            let all = tickets(app, &project_key).await?;
             let edits = agent_edits(app, &key).await;
             let live = live_agent(app, &key).await;
             let choices = stage_choices_of(app, Some(&key), None).await;
             View {
                 choices: choices.and_then(|c| stage_choices::form_choices(&c, &info.name)),
-                ..edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
+                ..edit_view(&ticket, &info.name, &edits, live, now_ms())
             }
         }
     };
@@ -754,19 +678,13 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
         .and_then(|n| Priority::from_number(i64::from(n)));
     model.external_id = form.external_id.clone();
     if model.is_create() {
-        model.kind = if form.epic_kind {
-            Kind::Epic
-        } else {
-            Kind::Ticket
-        };
-        model.epic = form.epic.as_deref().and_then(|e| e.parse().ok());
         model.report = form.report.clone().map(|r| match r {
             FormReport::File { path } => NewReport::File(path),
             FormReport::Pasted { text } => NewReport::Pasted(text),
         });
         model.report_line = form.report_line.clone().unwrap_or_default();
     }
-    if model.epic.is_none() && !model.base_locked {
+    if !model.base_locked {
         model.base_branch = form.base_branch.clone().or(model.base_branch);
     }
     model.tried = true;
@@ -775,16 +693,12 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
 
 pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestError> {
     match params.target {
-        Target::Create { project, epic, .. } => {
-            let epic_key = epic.or_else(|| params.form.epic.clone());
-            let project = match (&epic_key, project) {
-                (Some(e), _) => key_of(e)?.project.to_string(),
-                (None, Some(p)) => p,
-                (None, None) => return Err(RequestError::plain("Pick a project first.")),
+        Target::Create { project, .. } => {
+            let Some(project) = project else {
+                return Err(RequestError::plain("Pick a project first."));
             };
             let info = project_base(app, &project).await?;
-            let mut form = params.form;
-            form.epic = epic_key;
+            let form = params.form;
             let model = model_of(EditorModel::create(&project, "", &info), &form);
             if model.title_error().is_some() {
                 return Ok(SaveOutcome::TitleMissing);
@@ -814,8 +728,7 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             };
             let key = created.key.to_string();
             // The stage choices picked in the form (AGM-09), the user's, checked before any is written (AGM-11).
-            if model.kind == Kind::Ticket
-                && let Some(choices) = stage_choices_of(app, None, Some(&project)).await
+            if let Some(choices) = stage_choices_of(app, None, Some(&project)).await
             {
                 let picks = stage_choices::picks_to_send(&choices, &picked(&form.choices));
                 if let Err(e) = set_choices(app, &key, picks).await {
@@ -895,7 +808,6 @@ pub(super) fn of_ticket(key: &str) -> TicketAgentsParams {
     TicketAgentsParams {
         key: Some(key.to_owned()),
         project: None,
-        new_epic: false,
     }
 }
 
@@ -1159,8 +1071,6 @@ mod tests {
             title: title.into(),
             body: String::new(),
             priority: None,
-            epic_kind: false,
-            epic: None,
             base_branch: None,
             external_id: String::new(),
             choices: Vec::new(),
@@ -1171,10 +1081,7 @@ mod tests {
 
     #[test]
     fn a_new_ticket_starts_normal_on_the_project_base() {
-        let mut epic = fixture("SHOP-40", "Wishlist", Status::Backlog);
-        epic.kind = Kind::Epic;
-        epic.priority = Priority::High;
-        let view = create_view(&info(), None, std::slice::from_ref(&epic));
+        let view = create_view(&info());
         assert!(view.create);
         assert_eq!(view.texts.primary, "Create ticket");
         assert_eq!(view.texts.body_hint, "Markdown \u{b7} paste keeps formatting");
@@ -1185,14 +1092,6 @@ mod tests {
         assert_eq!(view.form.base_branch.as_deref(), Some("main"));
         assert_eq!(view.shown_priority, 3);
         assert_eq!(view.base, BaseView::Editable);
-        assert_eq!(view.epic_menu[0].label, "No epic");
-        assert_eq!(view.epic_menu[1].id, "SHOP-40");
-
-        let child = create_view(&info(), Some("SHOP-40".parse().unwrap()), &[epic]);
-        assert_eq!(child.shown_priority, 2, "a child shows its epic's priority");
-        assert_eq!(child.follows.as_deref(), Some("follows SHOP-40"));
-        assert!(!child.external_id_shown);
-        assert!(matches!(child.base, BaseView::FromEpic { .. }));
     }
 
     #[test]
@@ -1200,7 +1099,7 @@ mod tests {
         let mut t = fixture("SHOP-19", "Price table", Status::Working);
         t.base_locked = true;
         t.body = "Toggle.\n\n## Done when\n\n- Works".into();
-        let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
+        let view = edit_view(&t, "shop-web", &AgentEdits::default(), true, 0);
         let read = view.read.unwrap();
         assert_eq!(read.body_markdown, t.body, "the stored Markdown, untouched");
         assert!(!read.body_empty);
@@ -1256,7 +1155,7 @@ mod tests {
     fn read_mode_sends_the_stored_markdown() {
         let mut t = fixture("SHOP-47", "Checkout address autocomplete", Status::Backlog);
         t.body = "## Why\r\nUsers mistype **addresses**  \r\n* [x] 3 chars\n\n| a |\n|:-|\n| \\* |".into();
-        let read = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), false, 0)
+        let read = edit_view(&t, "shop-web", &AgentEdits::default(), false, 0)
             .read
             .unwrap();
         assert_eq!(read.body_markdown, t.body);
@@ -1264,7 +1163,7 @@ mod tests {
 
         for empty in ["", " \n\n\t"] {
             t.body = empty.into();
-            let read = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), false, 0)
+            let read = edit_view(&t, "shop-web", &AgentEdits::default(), false, 0)
                 .read
                 .unwrap();
             assert!(read.body_empty, "{empty:?}");
@@ -1277,7 +1176,7 @@ mod tests {
     fn editing_while_it_validates_warns_first() {
         let mut t = fixture("SHOP-29", "Coupon field", Status::Checking);
         t.base_locked = true;
-        let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
+        let view = edit_view(&t, "shop-web", &AgentEdits::default(), true, 0);
         assert_eq!(
             view.save_warning.as_deref(),
             Some("SHOP-29\u{2019}s validation will be cancelled and its agent told what changed.")
@@ -1287,7 +1186,7 @@ mod tests {
             Some("unsaved \u{b7} saving cancels the validation")
         );
         t.status = Status::Working;
-        let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
+        let view = edit_view(&t, "shop-web", &AgentEdits::default(), true, 0);
         assert_eq!((view.save_warning, view.unsaved_warning), (None, None));
     }
 
@@ -1349,7 +1248,7 @@ mod tests {
             Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
-        let create = json!({ "mode": "create", "project": project, "epic": null });
+        let create = json!({ "mode": "create", "project": project });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
         assert_eq!(view["heading"], "New ticket");
 
@@ -1454,7 +1353,7 @@ mod tests {
             Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
-        let create = json!({ "mode": "create", "project": project, "epic": null });
+        let create = json!({ "mode": "create", "project": project });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
         assert_eq!(view["choices"], Value::Null);
 

@@ -9,10 +9,8 @@ use std::process::{Command, Output};
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::tickets::NewTicketInput;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Kind};
 use otaq_core::flow::apply::ApplyParams;
 use otaq_core::flow::default::testing::without_validate;
 use otaq_core::flow::presets::presets;
@@ -296,31 +294,6 @@ async fn only_a_project_agent_or_the_user_may_propose() {
             .run_with_stdin(&propose, &proposal)
             .await,
     );
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: api.clone(),
-                title: "Billing".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &Actor::User("me".into()),
-        )
-        .await
-        .unwrap();
-    let lead = w
-        .project_agents
-        .leads()
-        .open(&epic.key.to_string())
-        .await
-        .unwrap();
-    refused(
-        w.shell_in(&lead.agent.session.as_ref().unwrap().id)
-            .run_with_stdin(&propose, &proposal)
-            .await,
-    );
-
     let opened = w
         .project_agents
         .open(&api, "Change the flow")

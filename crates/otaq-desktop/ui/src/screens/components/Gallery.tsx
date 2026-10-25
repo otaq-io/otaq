@@ -20,7 +20,7 @@ import { SequenceHintLine } from "../../app/SequenceHint";
 import { PaletteGallery } from "../palette/PaletteGallery";
 import { useStore } from "../../app/store";
 import { openOverlay } from "../../app/overlays";
-import { EpicCard, stateOfLook, TicketCard } from "../../cards";
+import { stateOfLook, TicketCard } from "../../cards";
 import {
   AnchoredMenu,
   Banner,
@@ -33,7 +33,6 @@ import {
   Field,
   IconButton,
   Kbd,
-  LeadStatus,
   Menu,
   MetaChip,
   OtaqMark,
@@ -77,9 +76,6 @@ import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapView } from "../../generated/KeyMapView";
 import type { ShortcutKey } from "../../generated/ShortcutKey";
-import type { LeadGallery } from "../../generated/LeadGallery";
-import type { LeadSplit } from "../../generated/LeadSplit";
-import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { AgentPanelGallery } from "../../generated/AgentPanelGallery";
 import type { AskBarGallery } from "../../generated/AskBarGallery";
@@ -110,7 +106,6 @@ import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Toolbar } from "../board/Toolbar";
-import { LaneHeadRow } from "../board/Lanes";
 import { AnswerBox as SheetAnswerBox } from "../overview/NeedsYou";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
@@ -121,7 +116,6 @@ import { FilesGallery } from "../files/FilesGallery";
 import { FilesViewGallery } from "../files_view/FilesViewGallery";
 import { SessionGallery } from "../session/SessionGallery";
 import { ListGallery } from "../list/ListGallery";
-import { EpicGallery } from "../epic/EpicGallery";
 import { DependenciesGallery } from "../dependencies/DependenciesGallery";
 import "../files/files.css";
 import { AgentPanelBody, SwitcherList } from "../agent_panel/AgentPanel";
@@ -130,9 +124,8 @@ import { DrawerBody } from "../terminals/Drawer";
 import "../terminals/terminals.css";
 import { CleanupBody } from "../recovery/Cleanup";
 import "../recovery/recovery.css";
-import { StripBody, SuggestionCard } from "../strip/Strip";
+import { StripBody } from "../strip/Strip";
 import { PauseButton, PauseMenuBox } from "../pause/Pause";
-import { SuggestedBy } from "../strip/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
 import { ShortcutCard } from "../shortcuts/ShortcutList";
 import "../shortcuts/shortcuts.css";
@@ -146,7 +139,6 @@ import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { RailAgentButton } from "../shell/Rail";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
-import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import { FlowEditorBody, recordingActions } from "../flow_editor/FlowEditor";
 import { ToolsList } from "../onboarding/Tools";
@@ -724,46 +716,6 @@ function Overlays({ view }: { view: GalleryView }) {
   );
 }
 
-/** The epic queue toast (T-0272, EPC-15): flows 2 (several children), 9 (one child) and 12 (Auto-merge off). */
-function EpicQueueToasts() {
-  const [pressed, setPressed] = useState<string>();
-  const press = (label: string) => ({
-    label,
-    onClick: () => {
-      setPressed(label);
-    },
-  });
-  return (
-    <div className="gallery-toasts">
-      <Toast
-        kind="success"
-        title="Moved 2 children of SHOP-45 to Ready for Dev"
-        actions={[press("Undo")]}
-        onClose={() => undefined}
-      />
-      <Toast
-        kind="success"
-        title="Moved 2 children of SHOP-45 to Ready for Dev · its lead started"
-        actions={[press("Undo")]}
-        onClose={() => undefined}
-      />
-      <Toast
-        kind="success"
-        title="Moved SHOP-45.1 of Search to Ready for Dev"
-        actions={[press("Undo")]}
-        onClose={() => undefined}
-      />
-      <Toast
-        kind="success"
-        title="Moved 3 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."
-        actions={[press("Turn on for epic children"), press("Undo")]}
-        onClose={() => undefined}
-      />
-      <Caption>Last press: {pressed ?? "—"}</Caption>
-    </div>
-  );
-}
-
 function Banners() {
   const noop = () => undefined;
   return (
@@ -937,33 +889,6 @@ function CardGrid({
   );
 }
 
-function EpicGrid({ cards, onPick }: { cards: CardGallery; onPick: (what: string) => void }) {
-  return (
-    <div className="gallery-cards">
-      {cards.epics.map((cell) => (
-        <div key={cell.name} className="gallery-card-cell">
-          <Caption>{cell.name.toUpperCase()}</Caption>
-          <EpicCard
-            card={cell.card}
-            onSelect={() => {
-              onPick(`${cell.card.key}: selected`);
-            }}
-            onChild={(key) => {
-              onPick(`${key}: selected`);
-            }}
-            onAdd={() => {
-              onPick(`${cell.card.key}: add ticket`);
-            }}
-            onAction={(kind) => {
-              onPick(`${cell.card.key}: ${JSON.stringify(kind)}`);
-            }}
-          />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function Cards() {
   const { view, error } = useServiceView(loadCards, []);
   const [picked, setPicked] = useState<string | null>(null);
@@ -977,15 +902,6 @@ function Cards() {
       </Section>
       <Section title="24 · One-line cards · all variants, narrowest column (BRD-03, T-0460)">
         <CardGrid cells={view.variants} width={view.width_1280} onPick={setPicked} />
-      </Section>
-      <Section title="04 · Ticket card variants · Row · epics (fixtures)">
-        <EpicGrid cards={view} onPick={setPicked} />
-      </Section>
-      <Section title="24 · One-line cards · epic children name their epic (BRD-03, T-0460)">
-        <CardGrid cells={view.sleeves} onPick={setPicked} />
-      </Section>
-      <Section title="04 · Ticket card variants · Row · Epic children & the lead · Unread notes & same file (T-0291, d0083)">
-        <CardGrid cells={view.leads} onPick={setPicked} />
       </Section>
       <Section title="04 · Variants · one tool (M22) · set by you, picked by, Start failed, No result (T-0345)">
         <CardGrid cells={view.agents} width={view.width} onPick={setPicked} />
@@ -1196,121 +1112,6 @@ function SourceSample() {
   );
 }
 
-const loadLeads = () => request("gallery.leads") as Promise<LeadGallery>;
-
-/** *01 → Row · Lead Status (0083)*, the lane heads of Lanes: Epic (`s24-06`, T-0462) at 1440 and 1280, and *Row ·
- * Epic Card with a lead (0083)* (T-0289): every form from `lead_status.rs` and `lanes.rs`; clicks are only recorded. */
-function Leads() {
-  const { view, error } = useServiceView(loadLeads, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const onOpen = (epic: string) => {
-    setPicked(`${epic}: open the Lead tab`);
-  };
-  const onAction = (kind: string, epic: string) => {
-    setPicked(`${epic}: ${kind}`);
-  };
-  // Split with the Project agent (T-0377): what it would send the Project agent panel.
-  const onSplit = (split: LeadSplit) => {
-    setPicked(`${split.project}: ${split.message}`);
-  };
-  return (
-    <>
-      <Section title="01 · Epics on the board · Row · Lead Status (0083) · full and short (T-0289)">
-        <Caption>Last click: {picked ?? "—"}</Caption>
-        {(["full", "short"] as const).map((form) => (
-          <div key={form} className="gallery-wrap">
-            {view.statuses.map((cell) => (
-              <div key={cell.name} className="gallery-stack">
-                <Caption>
-                  {form.toUpperCase()} · {cell.name.toUpperCase()}
-                </Caption>
-                <LeadStatus
-                  lead={cell.view}
-                  form={form}
-                  onOpen={onOpen}
-                  onAction={onAction}
-                  onSplit={onSplit}
-                />
-              </div>
-            ))}
-          </div>
-        ))}
-      </Section>
-      <Section title="24 · Epic lanes · lane heads (EPL-01, T-0462) · 1376 and 1216 px">
-        {["1376px", "1216px"].map((width) => (
-          <div key={width} className="gallery-stack board-lanes" style={{ width }}>
-            {view.lanes.map((cell) => (
-              <div key={cell.name} className="gallery-stack">
-                <Caption>{cell.name.toUpperCase()}</Caption>
-                <section className="board-lane" data-folded={cell.folded || undefined}>
-                  <LaneHeadRow
-                    head={cell.head}
-                    epic={cell.head.progress === null ? null : "SHOP-40"}
-                    folded={cell.folded}
-                    foldLabel={cell.folded ? "Unfold this lane" : "Fold this lane"}
-                    onFold={() => {
-                      setPicked(`${cell.name}: fold`);
-                    }}
-                  />
-                </section>
-              </div>
-            ))}
-          </div>
-        ))}
-      </Section>
-      <Section title="01 · Epics on the board · Row · Epic Card with a lead (0083)">
-        <div className="gallery-cards">
-          {view.epics.map((cell) => (
-            <div key={cell.name} className="gallery-card-cell">
-              <Caption>{cell.name.toUpperCase()}</Caption>
-              <EpicCard card={cell.card} onLead={onOpen} onLeadAction={onAction} onSplit={onSplit} />
-            </div>
-          ))}
-        </div>
-      </Section>
-    </>
-  );
-}
-
-const loadLeadTabs = () => request("gallery.lead_tabs") as Promise<LeadTabGallery>;
-
-/** *05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended (0083)* and *16 → Before the restart*
- * (T-0290): the Lead tab in each state from `lead_tab.rs`, at the sheet's default width; buttons are only recorded. */
-function LeadTabs() {
-  const { view, error } = useServiceView(loadLeadTabs, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  return (
-    <Section title="05 · Epic sheet · Lead tab (0083) · every state (T-0290)">
-      <Caption>Last click: {picked ?? "—"}</Caption>
-      <div className="gallery-wrap">
-        {view.tabs.map((cell) => (
-          <div key={cell.name} className="gallery-stack gallery-lead-tab">
-            <Caption>{cell.name.toUpperCase()}</Caption>
-            <LeadTabBody
-              view={cell.view}
-              onAction={(kind, epic) => {
-                setPicked(`${epic}: ${kind}`);
-                return Promise.resolve();
-              }}
-              onSplit={(split) => {
-                setPicked(`${split.project}: ${split.message}`);
-                return Promise.resolve();
-              }}
-              onToolProblem={(action) => {
-                setPicked(`${cell.view.epic}: ${JSON.stringify(action)}`);
-              }}
-            />
-          </div>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
 const loadStageChoices = () => request("gallery.stage_choices") as Promise<StageChoicesGallery>;
 
 /** *08 → Row · Stage choices (update AG §9)*, *05 → Row · Stage choices and path* (T-0411): the ⌘N form's pickers,
@@ -1387,10 +1188,9 @@ function Decisions() {
           ))}
         </div>
       </Section>
-      <Section title="07 · SHOP-23 review · Decisions · SHOP-40 epic review · Decisions (T-0287)">
+      <Section title="07 · SHOP-23 review · Decisions (T-0287)">
         <div className="gallery-decisions">
           <DecisionsList section={view.ticket} onChange={onChange} />
-          <DecisionsList section={view.epic} onChange={onChange} />
         </div>
       </Section>
     </>
@@ -1932,11 +1732,9 @@ function BoardReviewSection() {
 
 const NO_CARD_HANDLERS: ColumnProps["handlers"] = {
   press: () => undefined,
-  pressChild: () => undefined,
   key: () => undefined,
   open: () => undefined,
   action: () => undefined,
-  addToEpic: () => undefined,
   menu: () => undefined,
   hover: () => undefined,
 };
@@ -2279,14 +2077,12 @@ const loadStrip = () => request("gallery.needs_you_strip") as Promise<StripGalle
 /**
  * *24 → Row · The two views* `s24-03` and *Row · Needs you: the next project, and every group* `s24-12` (T-0459): the
  * Needs you strip for the example's shop-web, with every group, "Needs you · 0 here" with Next to billing-api and with
- * nothing anywhere; the lead's suggestion opened, and the line its Confirm adds to the usual confirmation. Nothing is
- * sent.
+ * nothing anywhere. Nothing is sent.
  */
 function NeedsYouStripSection() {
   const { view, error } = useServiceView(loadStrip, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
-  const suggestion = view.states.flatMap((s) => s.view.groups).flatMap((g) => g.suggestions)[0];
   return (
     <Section title="24 · The Needs you strip (T-0459)">
       <div className="gallery-stack">
@@ -2296,20 +2092,6 @@ function NeedsYouStripSection() {
             <StripBody view={state.view} project="SHOP" />
           </div>
         ))}
-        {suggestion && (
-          <div className="gallery-wrap">
-            <div className="gallery-stack-tight">
-              <Caption>A suggestion opened</Caption>
-              <div className="popover gallery-strip-suggestion">
-                <SuggestionCard suggestion={suggestion} />
-              </div>
-            </div>
-            <div className="gallery-stack-tight">
-              <Caption>Confirm → the usual confirmation (0044), with the lead's line</Caption>
-              <SuggestedBy line={suggestion.line} />
-            </div>
-          </div>
-        )}
       </div>
     </Section>
   );
@@ -2395,20 +2177,13 @@ function DecisionChange() {
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="07 · Change… on SHOP-23 · Add a fix child on 40.1 (T-0288)">
+    <Section title="07 · Change… on SHOP-23 (T-0288)">
       <div className="gallery-wrap">
         <Button
           variant="secondary"
           label="Change this decision"
           onClick={() => {
             setOpen(view.send_back);
-          }}
-        />
-        <Button
-          variant="secondary"
-          label="Add a fix child"
-          onClick={() => {
-            setOpen(view.fix_child);
           }}
         />
       </div>
@@ -2549,7 +2324,6 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Decisions />
         <DecisionChange />
-        <LeadTabs />
         <StageChoicesSection />
         <Section title="24 · The List view · by stage, status and agent (LST-01, T-0461)">
           <ListGallery />
@@ -2577,9 +2351,6 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="25 · Session's switch and lines, Activity's filters (T-0466)">
           <SessionGallery />
-        </Section>
-        <Section title="25 · The epic's sheet · progress, the lead, TICKETS and the Tickets tab (SHT-07, T-0469)">
-          <EpicGallery />
         </Section>
         <EnvVarsSection />
         <WarmSwitchSection />
@@ -2672,11 +2443,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             </Section>
           </>
         )}
-        <Section title="03 · Board & columns · epic flows 2, 9, 12 · the queue toast (T-0272, d0080)">
-          <EpicQueueToasts />
-        </Section>
         <Cards />
-        <Leads />
         <ToolAvatars />
       </div>
     </div>

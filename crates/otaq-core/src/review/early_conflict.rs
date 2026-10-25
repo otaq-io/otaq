@@ -3,7 +3,7 @@
 //! ("conflicts with `main`") and, for a ticket waiting in a human check or a click-mode Delivery, handed to its
 //! nearest earlier Agent stage at once, as a Delivery's conflict is ([`Review::delivery_conflict`]): its session
 //! resumes with `restack`, no click, the card says "Conflicts with main · fixing", and it counts toward the same
-//! three in a row (an epic child's stop goes to its lead first). The user's unsent line comments stay drafts.
+//! three in a row. The user's unsent line comments stay drafts.
 //!
 //! - **A PR open:** only the flag; its conflicts are the PR's.
 //! - **The project paused** (d0112): only the flag. The project's Resume tests the flagged tickets again and hands
@@ -109,12 +109,10 @@ impl Review {
     }
 
     /// Whether a ticket the test merge flagged goes back to its agent now (d0127): it waits in a human check or a
-    /// click-mode Delivery, it isn't an epic (an epic has no Agent stage), its PR isn't open, and its project isn't
-    /// paused.
+    /// click-mode Delivery, its PR isn't open, and its project isn't paused.
     async fn hands_back(&self, ticket: &Ticket) -> Result<bool, BoardError> {
         let board = &self.inner.board;
-        if ticket.is_epic()
-            || ticket.flags.pr_number.is_some()
+        if ticket.flags.pr_number.is_some()
             || is_paused(board.store(), ticket.key.project.as_str()).await?
         {
             return Ok(false);

@@ -16,7 +16,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Place, Status, TicketKey, ValidationTrigger};
+use otaq_core::domain::{Actor, Flags, Place, Status, TicketKey, ValidationTrigger};
 use otaq_core::flow::engine::{self, At, Move, RunResult};
 use otaq_core::flow::{Flow, FlowFile, yaml};
 use otaq_core::git::testing::commit;
@@ -45,20 +45,15 @@ fn t(key: &str, place: Place, status: Status, queued_at: i64) -> Ticket {
     Ticket {
         id: key.into(),
         key: key.parse::<TicketKey>().unwrap(),
-        kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place,
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -77,8 +72,6 @@ fn t(key: &str, place: Place, status: Status, queued_at: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 

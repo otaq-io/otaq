@@ -108,7 +108,7 @@ impl Board {
 
     /// Refuses `session`'s stage end (`stage next`, `stage done`, `check pass|fail`) until it has run `prime` since its
     /// run started or was last handed a new comment, counting the comments posted since its last prime (all of them
-    /// when it never ran), its own left out; not when every one of them is its own. Called after [`Board::refuse_unread_notes`]; never for the user's moves.
+    /// when it never ran), its own left out; not when every one of them is its own. Never for the user's moves.
     pub async fn refuse_unprimed(&self, key: &str, session: &str) -> Result<(), BoardError> {
         let ticket = self.ticket(key).await?;
         let Some(run) = self.open_run(&ticket.id, session).await? else {

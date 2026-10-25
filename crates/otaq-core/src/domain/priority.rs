@@ -1,14 +1,13 @@
 //! Ticket priorities (TKT-09, d0065): **1 Urgent · 2 High · 3 Normal · 4 Low**, default 3.
 //!
 //! The number is the stored and the wire form (`"priority": 2`, `otaq create -p 2`), so a priority reads
-//! the same in SQL, JSON and on the command line. Epic children inherit the epic's priority unless they have
-//! their own; that is computed where tickets are assembled (`board::tickets`).
+//! the same in SQL, JSON and on the command line. Every ticket has one (d0133).
 
 use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// A ticket's or epic's priority. Ordered by urgency: `Urgent < High < Normal < Low`, as the start order sorts.
+/// A ticket's priority. Ordered by urgency: `Urgent < High < Normal < Low`, as the start order sorts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Priority {
     Urgent = 1,

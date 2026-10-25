@@ -2,13 +2,12 @@
 //! in `otaq-view`). `strip.view` answers the open project's strip with what the page shows now; `strip.next` is ⌘J
 //! (and the strip's Next): where it goes from there, in this project or the next one with items, or nothing. Next only
 //! answers where to go; the page opens it, so nothing moves on by itself (d0016). `strip.resume_all_confirm` words
-//! Resume all's confirmation and `strip.resume_all` is its confirm (a project's, or every project's for the banner);
-//! `strip.suggestion` confirms or dismisses an epic lead's suggestion (LEAD-08). The items, their order and the
-//! back-pressure count are the service's (`needs_you.list`).
+//! Resume all's confirmation and `strip.resume_all` is its confirm (a project's, or every project's for the banner).
+//! The items, their order and the back-pressure count are the service's (`needs_you.list`).
 
 use otaq_core::attention::needs_you::NeedsYouList;
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::protocol::{IdParams, Reply, Request, ResumeAllParams};
+use otaq_core::protocol::{Reply, Request, ResumeAllParams};
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::needs_you_strip::{
     self as vm, Item, Open, ResumeAllDialog, Target, View,
@@ -30,7 +29,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             resume_all(app, parse(params)?).await;
             Ok(Value::Null)
         }
-        "strip.suggestion" => reply(&suggestion(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -146,35 +144,6 @@ async fn resume_all(app: &App, params: ResumeAllRequest) {
     }
 }
 
-/// What `strip.suggestion` takes: an epic lead's suggestion, and the user's answer: Confirm (from the close or
-/// delete confirmation) or Not now.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "StripSuggestionParams")]
-pub struct SuggestionRequest {
-    pub id: String,
-    pub confirm: bool,
-}
-
-async fn suggestion(app: &App, params: SuggestionRequest) -> Result<(), RequestError> {
-    let id = IdParams { id: params.id };
-    let request = if params.confirm {
-        Request::SuggestionConfirm(id)
-    } else {
-        Request::SuggestionDismiss(id)
-    };
-    match app.service.send(request).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            app.notices.toast(NewToast::new(
-                ToastLevel::Error,
-                "That didn\u{2019}t work",
-                Some(e.message.clone()),
-            ));
-            Err(e)
-        }
-    }
-}
-
 #[cfg(test)]
 pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     Params::export_all(cfg)?;
@@ -182,7 +151,6 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     Target::export_all(cfg)?;
     ResumeAllRequest::export_all(cfg)?;
     ResumeAllDialog::export_all(cfg)?;
-    SuggestionRequest::export_all(cfg)?;
     vm::Gallery::export_all(cfg)?;
     Ok(())
 }

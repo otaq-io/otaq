@@ -10,7 +10,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, Transaction};
 
-use super::epic_flight::epic_flow;
 use super::tickets::Ticket;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Place, Status};
@@ -173,12 +172,6 @@ impl Board {
         mv: Move,
     ) -> Result<Moved, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        // An epic walks its own flow: its stop, then the Delivery (d0108 rule 7).
-        let flow = if ticket.is_epic() {
-            epic_flow(&flow)
-        } else {
-            flow
-        };
         // The stages it skips by its choices (AGM-08): walked over with a skipped run.
         let skips = self.ticket_skips(ticket, &flow).await?;
         let at = At {

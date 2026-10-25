@@ -12,7 +12,7 @@ use std::path::Path;
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::moves::{DropOn, DropTarget, MoveAction, MoveCheck};
-use otaq_core::domain::{Actor, Kind, Place, Status, ValidationTrigger};
+use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::default::{DELIVER, DEV, REVIEW, VALIDATE};
 use otaq_core::flow::engine::{self, At, Counters, Move, RunResult, Step};
 use otaq_core::flow::{Delivers, DeliveryMode, Flow, default_flow, yaml};
@@ -65,19 +65,13 @@ fn backlog_and_ready_for_dev() {
     for target in [DropTarget::ReadyForDev, DropTarget::Dev] {
         for status in [Status::Backlog, Status::Parked] {
             assert_eq!(
-                engine::drag(&flow, &Place::Backlog, status, Kind::Ticket, target),
+                engine::drag(&flow, &Place::Backlog, status, target),
                 MoveCheck::Allowed {
                     action: MoveAction::Start
                 },
                 "{status} → {target}"
             );
         }
-        assert_eq!(
-            engine::drag(&flow, &Place::Backlog, Status::Backlog, Kind::Epic, target),
-            MoveCheck::Allowed {
-                action: MoveAction::QueueEpic
-            }
-        );
     }
     let start = go(&flow, &Place::Backlog, Status::Backlog, Move::Start);
     assert_eq!(
@@ -86,13 +80,7 @@ fn backlog_and_ready_for_dev() {
     );
     let waiting = Place::Waiting(None);
     assert_eq!(
-        engine::drag(
-            &flow,
-            &waiting,
-            Status::Queued,
-            Kind::Ticket,
-            DropTarget::Backlog
-        ),
+        engine::drag(&flow, &waiting, Status::Queued, DropTarget::Backlog),
         MoveCheck::Allowed {
             action: MoveAction::Unqueue
         }
@@ -111,13 +99,7 @@ fn backlog_and_ready_for_dev() {
 fn from_dev() {
     let flow = default_flow();
     assert_eq!(
-        engine::drag(
-            &flow,
-            &stage(DEV),
-            Status::Working,
-            Kind::Ticket,
-            DropTarget::Backlog
-        ),
+        engine::drag(&flow, &stage(DEV), Status::Working, DropTarget::Backlog),
         MoveCheck::Confirm {
             action: MoveAction::Park
         }
@@ -324,13 +306,7 @@ fn review_and_delivery() {
         "Approve asks Local merge or Open PR; nothing moves yet"
     );
     assert_eq!(
-        engine::drag(
-            &flow,
-            &review,
-            Status::WaitingForYou,
-            Kind::Ticket,
-            DropTarget::Approved
-        ),
+        engine::drag(&flow, &review, Status::WaitingForYou, DropTarget::Approved),
         MoveCheck::Choose {
             action: MoveAction::Approve
         }
@@ -363,13 +339,7 @@ fn review_and_delivery() {
         (stage(REVIEW), Status::WaitingForYou)
     );
     assert_eq!(
-        engine::drag(
-            &flow,
-            &deliver,
-            Status::PrOpen,
-            Kind::Ticket,
-            DropTarget::ReadyForReview
-        ),
+        engine::drag(&flow, &deliver, Status::PrOpen, DropTarget::ReadyForReview),
         MoveCheck::Allowed {
             action: MoveAction::PrRework
         }
@@ -396,7 +366,6 @@ fn review_and_delivery() {
             &flow,
             &Place::Done,
             Status::ClosedNotMerged,
-            Kind::Ticket,
             DropTarget::Backlog
         ),
         MoveCheck::Allowed {
@@ -408,7 +377,6 @@ fn review_and_delivery() {
             &flow,
             &Place::Done,
             Status::Merged,
-            Kind::Ticket,
             DropTarget::Backlog
         )),
         "Merged tickets are locked"
@@ -421,9 +389,7 @@ fn review_and_delivery() {
 #[test]
 fn drags_on_the_default_flow() {
     let flow = default_flow();
-    let drag = |place: &Place, status, target: DropOn| {
-        engine::drag(&flow, place, status, Kind::Ticket, target)
-    };
+    let drag = |place: &Place, status, target: DropOn| engine::drag(&flow, place, status, target);
     let on = DropOn::stage;
     let allowed = |action| MoveCheck::Allowed { action };
     let confirm = |action| MoveCheck::Confirm { action };
@@ -475,17 +441,6 @@ fn drags_on_the_default_flow() {
     assert_eq!(
         drag(&stage(DELIVER), Status::PrOpen, DropTarget::Approved.into()),
         MoveCheck::Unchanged
-    );
-    // An epic can't be dragged back (0059).
-    assert_eq!(
-        reason(&engine::drag(
-            &flow,
-            &stage(REVIEW),
-            Status::WaitingForYou,
-            Kind::Epic,
-            DropTarget::ReadyForDev
-        )),
-        "An epic can\u{2019}t be dragged back"
     );
 }
 

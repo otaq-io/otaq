@@ -1,6 +1,6 @@
 // The editor's form (UI-05, TKT-03, TKT-09, DEP-02, DEP-04; d0019, d0051, d0065, d0067; *08 · Ticket editor → Full
-// form · filled, Validation · empty form, Row · base branch per ticket, Row · epics and base branches*): Title,
-// Priority, Type and Epic (when creating), What and why, Start from and merge into, External ID. Dependencies are the
+// form · filled, Validation · empty form, Row · base branch per ticket*): Title, Priority, What and why, Start from
+// and merge into, External ID. Dependencies are the
 // sheet's (DPV-04, `screens/dependencies`). Text fields are the webview's own (selection, IME,
 // undo); What and why is the Markdown editor with its toolbar (TKT-10; d0078 D5; *08 → b · Filled · edit mode,
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
@@ -47,7 +47,7 @@ export function RefusalBox({ refusal }: { refusal: EditorRefusal | null }) {
 
 /**
  * "Stage choices" under Priority (AGM-09; *08 → Row · Stage choices (update AG §9)*): a select per stage with options,
- * each on its stage's own agent until picked; none on the default flow and once Type is Epic. The picks stay in the
+ * each on its stage's own agent until picked; none on the default flow. The picks stay in the
  * form and go with Create or Save (`form.choices`).
  */
 function ChoicesField({
@@ -59,7 +59,7 @@ function ChoicesField({
   form: EditorForm;
   onChange: (form: EditorForm) => void;
 }) {
-  if (view.choices === null || form.epic_kind) return null;
+  if (view.choices === null) return null;
   const picks = Object.fromEntries(form.choices.map((c) => [c.stage_id, c.choice]));
   return (
     <div className="editor-field">
@@ -103,7 +103,7 @@ function BaseSelect({
     return (
       <Select
         label={view.texts.base}
-        value={view.base.kind === "locked" ? `${form.base_branch ?? ""} · ${view.base.text}` : view.base.text}
+        value={`${form.base_branch ?? ""} · ${view.base.text}`}
         icon="git-branch"
         mono
         trailing="lock"
@@ -317,8 +317,6 @@ export function EditorFields({
 }: FieldsProps) {
   const t = view.texts;
   const priority = shownPriority(view, form);
-  const epicChild = form.epic !== null;
-  const epicLabel = view.epic_menu.find((i) => i.id === (form.epic ?? ""))?.label ?? form.epic ?? t.epic_none;
   return (
     <div className="editor-fields">
       <Field label={t.title} error={titleMissing && form.title.trim() === "" ? t.title_required : null}>
@@ -342,7 +340,7 @@ export function EditorFields({
       <div className="editor-field">
         <div className="editor-label">
           <span>{t.priority}</span>
-          <span className="editor-hint">{view.follows ?? t.priority_hint}</span>
+          <span className="editor-hint">{t.priority_hint}</span>
         </div>
         <Segmented
           label={t.priority}
@@ -358,43 +356,6 @@ export function EditorFields({
         />
       </div>
       <ChoicesField view={view} form={form} onChange={onChange} />
-      {view.create && (
-        <div className="editor-row">
-          <div className="editor-field">
-            <div className="editor-label">
-              <span>{t.kind}</span>
-            </div>
-            <Segmented
-              label={t.kind}
-              options={[t.kind_ticket, t.kind_epic]}
-              selected={form.epic_kind ? 1 : 0}
-              onSelect={(i) => {
-                // An epic has no stage choices: its picks don't carry over.
-                if ((i === 1) !== form.epic_kind) {
-                  onChange({ ...form, epic_kind: i === 1, epic: i === 1 ? null : form.epic });
-                }
-              }}
-            />
-          </div>
-          {!form.epic_kind && view.epic_menu.length > 1 && (
-            <div className="editor-field editor-grow">
-              <div className="editor-label">
-                <span>{t.epic}</span>
-                <span className="editor-hint">{t.epic_hint}</span>
-              </div>
-              <Select
-                label={t.epic}
-                value={epicLabel}
-                icon="layers"
-                items={view.epic_menu.map((i) => ({ ...i, checked: i.id === (form.epic ?? "") }))}
-                onChange={(id) => {
-                  onChange({ ...form, epic: id === "" ? null : id });
-                }}
-              />
-            </div>
-          )}
-        </div>
-      )}
       <div className="editor-field">
         <div className="editor-label">
           <span>{t.body}</span>
@@ -410,17 +371,15 @@ export function EditorFields({
           onSave={onSave}
         />
       </div>
-      {!(view.create && epicChild) && (
-        <div className="editor-field">
-          <div className="editor-label">
-            <span>{t.base}</span>
-            <span className="editor-hint">{t.base_hint}</span>
-          </div>
-          <BaseSelect view={view} form={form} onChange={onChange} />
-          <RefusalBox refusal={refusalFor(refusal, "base")} />
+      <div className="editor-field">
+        <div className="editor-label">
+          <span>{t.base}</span>
+          <span className="editor-hint">{t.base_hint}</span>
         </div>
-      )}
-      {view.external_id_shown && !epicChild && (
+        <BaseSelect view={view} form={form} onChange={onChange} />
+        <RefusalBox refusal={refusalFor(refusal, "base")} />
+      </div>
+      {view.external_id_shown && (
         <div className="editor-field">
           <div className="editor-label">
             <span>{t.external_id}</span>

@@ -374,7 +374,6 @@ pub const NEW_AGENT: &str = "New agent";
 pub fn moved_line(role: Role, to: &str, from: Option<&str>) -> String {
     let now = match role {
         Role::ProjectAgent => format!("{to} is now {}", role.label()),
-        Role::EpicLead => format!("{to} is now your {}", role.label()),
     };
     match from {
         Some(from) if from == role.label() => format!("{now} \u{b7} the agent {from} has no role"),
@@ -548,11 +547,6 @@ pub fn page(input: &Inputs) -> Page {
                 Role::ProjectAgent.as_str(),
                 Role::ProjectAgent.label(),
                 a.role == Some(Role::ProjectAgent),
-            ),
-            choice(
-                Role::EpicLead.as_str(),
-                Role::EpicLead.label(),
-                a.role == Some(Role::EpicLead),
             ),
         ],
         hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it."
@@ -737,7 +731,7 @@ mod tests {
     fn effort_shows_only_where_the_tool_has_one() {
         let (mut list, uses) = example();
         let all = tools(Tool::ALL);
-        list.agents[4].effort = Some("high".into());
+        list.agents[3].effort = Some("high".into());
         let strong = page_of(&list, &all, "strong", &uses);
         let effort = strong.model.effort.expect("Claude Code has levels");
         assert_eq!(effort.label, "Effort");
@@ -752,7 +746,7 @@ mod tests {
             strong.model.picker.as_ref().map(|p| p.value.label.as_str()),
             Some("opus")
         );
-        list.agents[5] = on(Tool::OpenCode, list.agents[5].clone());
+        list.agents[4] = on(Tool::OpenCode, list.agents[4].clone());
         let light = page_of(&list, &all, "light", &uses);
         assert!(light.model.effort.is_none(), "OpenCode has none");
         list.agents[0].model = AgentModel::Default;
@@ -791,10 +785,7 @@ mod tests {
             .iter()
             .map(|o| (o.label.as_str(), o.selected))
             .collect();
-        assert_eq!(
-            options,
-            [("None", true), ("Noyan", false), ("Epic lead", false)]
-        );
+        assert_eq!(options, [("None", true), ("Noyan", false)]);
         assert_eq!(
             role.hint,
             "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it."
@@ -842,12 +833,12 @@ mod tests {
         // Noyan's page after Strong took its role… is Strong's, with the line.
         let mut moved = list.clone();
         moved.agents[0].role = None;
-        moved.agents[4].role = Some(Role::ProjectAgent);
+        moved.agents[3].role = Some(Role::ProjectAgent);
         let strong = page(&Inputs {
             list: &moved,
             tools: &tools,
             id: Some("strong"),
-            draft: &Draft::of(&moved.agents[4]),
+            draft: &Draft::of(&moved.agents[3]),
             uses: None,
             refused: None,
             moved: Some(moved_line(Role::ProjectAgent, "Strong", Some("Noyan"))),
@@ -909,7 +900,7 @@ mod tests {
         assert_eq!((back.model, back.effort), (None, None));
         assert_eq!(back.tool, None);
         // Duplicate's draft keeps the imported copy.
-        let validator = &list.agents[3];
+        let validator = &list.agents[2];
         let copy = Draft::of(validator);
         assert_eq!(copy.skills, ["imported:team-validate"]);
         assert_eq!(copy.fields().skills, validator.skills);

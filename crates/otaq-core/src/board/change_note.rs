@@ -115,26 +115,21 @@ fn lines(text: &str) -> Vec<&str> {
 mod tests {
     use super::*;
     use crate::board::tickets::Base;
-    use crate::domain::{Actor, Flags, Kind, Status};
+    use crate::domain::{Actor, Flags, Status};
 
     fn ticket(body: &str) -> Ticket {
         Ticket {
             id: "t19".into(),
             key: "SHOP-19".parse().unwrap(),
-            kind: Kind::Ticket,
             title: "Price table".into(),
             body: body.into(),
             priority: Default::default(),
-            priority_inherited: false,
-            epic: None,
             place: crate::domain::Place::stage_of(crate::flow::default::DEV),
             status: Status::Working,
             base: Base::Branch("main".into()),
             base_locked: true,
             external_id: None,
             depends_on: vec![],
-            aliases: vec![],
-            next_child_number: None,
             flags: Flags::default(),
             created_by: Actor::User("me".into()),
             updated_by: None,
@@ -153,8 +148,6 @@ mod tests {
             signal: None,
             question: None,
             pushed_differs: None,
-            epic_queue_mode: Default::default(),
-            joined_queue_by: None,
         }
     }
 

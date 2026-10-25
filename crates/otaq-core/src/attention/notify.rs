@@ -14,7 +14,7 @@
 //! items; failed rounds that go back to the agent and auto-merges raise no item, so they never notify.
 //!
 //! From M25 (d0090): a notification says what happened (title), where (subtitle: the project and the ticket title,
-//! agent name or epic) and what the user is asked (body); it is threaded per project, carries its [`Target`] (what a
+//! agent name) and what the user is asked (body); it is threaded per project, carries its [`Target`] (what a
 //! click opens) and plays the default sound unless Settings turns it off. [`pace`] holds new ones for 2 minutes after
 //! a pop-up.
 //!
@@ -47,9 +47,9 @@ pub const GROUP_AFTER: usize = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
-    /// Permission prompts of agents, validators, Project agents and epic leads.
+    /// Permission prompts of agents, validators and Project agents.
     Permission,
-    /// Questions of agents, Project agents and epic leads.
+    /// Questions of agents and Project agents.
     Question,
     /// An agent ended its turn waiting for the user (Idle).
     TurnEnded,
@@ -97,8 +97,6 @@ pub enum Target {
     Validator { key: TicketKey },
     /// The Project agent in the agent panel, focused.
     ProjectAgent { project: String, agent: String },
-    /// The epic's lead terminal, focused.
-    Lead { epic: TicketKey },
     /// Needs you, the strip (grouped notifications and summaries).
     NeedsYou,
     /// The board (a tool that isn't available: its limit banner explains it), of `project` when one is named.
@@ -112,18 +110,16 @@ pub enum Target {
 pub const OPEN_NEEDS_YOU: &str = "needs_you";
 const OPEN_VALIDATOR: &str = "validator:";
 const OPEN_AGENT: &str = "agent:";
-const OPEN_LEAD: &str = "lead:";
 const OPEN_BOARD: &str = "board";
 
 impl Target {
     /// The target as one string, for [`open_env_var`] and a notification's `userInfo`: `SHOP-22` (a ticket, as
-    /// before M25), `validator:SHOP-22`, `agent:SHOP:pa7`, `lead:SHOP-40`, `needs_you`, `board` or `board:SHOP`.
+    /// before M25), `validator:SHOP-22`, `agent:SHOP:pa7`, `needs_you`, `board` or `board:SHOP`.
     pub fn to_open_value(&self) -> String {
         match self {
             Self::Ticket { key } => key.to_string(),
             Self::Validator { key } => format!("{OPEN_VALIDATOR}{key}"),
             Self::ProjectAgent { project, agent } => format!("{OPEN_AGENT}{project}:{agent}"),
-            Self::Lead { epic } => format!("{OPEN_LEAD}{epic}"),
             Self::NeedsYou => OPEN_NEEDS_YOU.to_owned(),
             Self::Board { project: None } => OPEN_BOARD.to_owned(),
             Self::Board {
@@ -151,9 +147,6 @@ impl Target {
         }
         if let Some(key) = value.strip_prefix(OPEN_VALIDATOR) {
             return key.parse().ok().map(|key| Self::Validator { key });
-        }
-        if let Some(epic) = value.strip_prefix(OPEN_LEAD) {
-            return epic.parse().ok().map(|epic| Self::Lead { epic });
         }
         if let Some(rest) = value.strip_prefix(OPEN_AGENT) {
             let (project, agent) = rest.split_once(':')?;
@@ -218,7 +211,7 @@ pub fn presence_of(item: &NeedsYouItem) -> String {
     format!("ticket:{}:{:?}:{}", item.id, item.status, item.since)
 }
 
-/// A waiting Project agent or lead as one string ([`Held::presence`]).
+/// A waiting Project agent as one string ([`Held::presence`]).
 pub fn agent_presence(agent: &crate::project_agents::AgentNeedsYou) -> String {
     format!("agent:{}:{:?}:{}", agent.agent, agent.status, agent.since)
 }
@@ -280,10 +273,8 @@ pub struct Held {
 
 /// Whether an item blocks an agent: turquoise, or Interrupted (d0016).
 pub fn should_notify(item: &NeedsYouItem) -> bool {
-    // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification. Nor does
-    // a lead's suggestion (its own group, LEAD-08).
+    // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification.
     item.message.is_none()
-        && item.suggestion.is_none()
         && (item.group == NeedsYouGroup::Family || item.status == Status::Interrupted)
 }
 
@@ -398,11 +389,9 @@ fn sentence(text: &str) -> String {
 
 /// The notifications for waiting Project agents (PAG-07): "Noyan asks a question" / "needs permission" ·
 /// "shop-web · <agent name>", the question or prompt as the body. Once per wait, like tickets' items; focused agents
-/// raise no item, so they never notify. An epic's lead (LEAD-11) is named instead: "Wishlist lead asks a question" ·
-/// "shop-web · Wishlist" (the epic's title from `epic_titles`, by key; else its key).
+/// raise no item, so they never notify.
 pub fn plan_agents(
     items: &[crate::project_agents::AgentNeedsYou],
-    epic_titles: &HashMap<String, String>,
     seen: &mut HashSet<ItemId>,
     choices: &Choices,
 ) -> Vec<Planned> {
@@ -424,24 +413,14 @@ pub fn plan_agents(
             if !choices.allows(kind) {
                 return None;
             }
-            let (title, place, target) = match &i.epic {
-                Some(epic) => (
-                    format!("{} {what}", i.name),
-                    epic_titles
-                        .get(&epic.to_string())
-                        .cloned()
-                        .unwrap_or_else(|| epic.to_string()),
-                    Target::Lead { epic: epic.clone() },
-                ),
-                None => (
-                    format!("Noyan {what}"),
-                    i.name.clone(),
-                    Target::ProjectAgent {
-                        project: i.project.clone(),
-                        agent: i.agent.clone(),
-                    },
-                ),
-            };
+            let (title, place, target) = (
+                format!("Noyan {what}"),
+                i.name.clone(),
+                Target::ProjectAgent {
+                    project: i.project.clone(),
+                    agent: i.agent.clone(),
+                },
+            );
             Some(Planned {
                 notification: OsNotification {
                     title,
@@ -511,7 +490,7 @@ fn grouped(project: &str, list: &[Planned]) -> OsNotification {
 }
 
 /// The notification for the items held in a quiet period (d0090): "<N> more agents need you", the keys per project
-/// as the body ("shop-web: SHOP-12, SHOP-33 · billing-api: BILL-6"; a Project agent or lead by its name, a tool that
+/// as the body ("shop-web: SHOP-12, SHOP-33 · billing-api: BILL-6"; a Project agent by its name, a tool that
 /// isn't available by the tool's name, last), opening Needs you, in no project's thread.
 pub fn summary(held: &[Held], sound: bool) -> OsNotification {
     let mut projects: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -1022,8 +1001,6 @@ mod tests {
             age_ms: 0,
             blocked: 0,
             message: None,
-            suggestion: None,
-            lead_note: None,
             change_agent: None,
             waiting_in: None,
         }
@@ -1055,7 +1032,6 @@ mod tests {
             project_name: "shop-web".into(),
             agent: agent.into(),
             name: "Checkout slowness".into(),
-            epic: None,
             status,
             reason: "permission: Allow pnpm test?".into(),
             question: (status == Status::AsksYou).then(|| crate::board::questions::HumanQuestion {
@@ -1065,7 +1041,6 @@ mod tests {
                 recommended: None,
                 notes: Vec::new(),
                 asked_at: since,
-                via_lead: None,
             }),
             since,
         }
@@ -1081,7 +1056,7 @@ mod tests {
             agent_wait("a1", Status::NeedsYou, 5),
             agent_wait("a2", Status::AsksYou, 6),
         ];
-        let out = notifications(plan_agents(&items, &HashMap::new(), &mut seen, &on()));
+        let out = notifications(plan_agents(&items, &mut seen, &on()));
         assert_eq!(
             shown(&out),
             [
@@ -1107,126 +1082,19 @@ mod tests {
         assert_eq!(out[0].kind, Some(Kind::Permission));
         assert_eq!(out[1].kind, Some(Kind::Question));
         assert_eq!(out[0].thread.as_deref(), Some("SHOP"));
-        assert!(
-            plan_agents(&items, &HashMap::new(), &mut seen, &on()).is_empty(),
-            "once"
-        );
+        assert!(plan_agents(&items, &mut seen, &on()).is_empty(), "once");
         // A new wait later notifies again; with the switch off it is only remembered.
         let off = Choices {
             enabled: false,
             ..on()
         };
         let later = [agent_wait("a1", Status::NeedsYou, 9)];
-        assert!(plan_agents(&later, &HashMap::new(), &mut seen, &off).is_empty());
-        assert!(plan_agents(&later, &HashMap::new(), &mut seen, &on()).is_empty());
+        assert!(plan_agents(&later, &mut seen, &off).is_empty());
+        assert!(plan_agents(&later, &mut seen, &on()).is_empty());
         assert_eq!(
-            plan_agents(
-                &[agent_wait("a1", Status::NeedsYou, 12)],
-                &HashMap::new(),
-                &mut seen,
-                &on()
-            )
-            .len(),
+            plan_agents(&[agent_wait("a1", Status::NeedsYou, 12)], &mut seen, &on()).len(),
             1
         );
-    }
-
-    /// T-0292 (LEAD-06, LEAD-07, LEAD-08, LEAD-11), T-0371: a passed-on question and a second stop notify as group 1
-    /// items; a lead's own question notifies with the lead's name and its epic's title, and opens the lead; a
-    /// suggestion never notifies.
-    #[test]
-    fn the_epic_lead_items_notify_except_suggestions() {
-        use crate::board::needs_you::SuggestionItem;
-        use crate::domain::{LeadNoteSent, StuckStop};
-        let mut passed = item("SHOP-40.2", Status::AsksYou, NeedsYouGroup::Family, 1);
-        passed.question = Some(crate::board::questions::HumanQuestion {
-            id: "q8".into(),
-            text: "Can guests save items without logging in?".into(),
-            options: vec!["Logged-in users only".into()],
-            recommended: Some(1),
-            notes: Vec::new(),
-            asked_at: 1,
-            via_lead: Some(crate::board::questions::ViaLead {
-                lead: "Wishlist lead".into(),
-                reason: "PAY-123 only mentions signed-in users.".into(),
-            }),
-        });
-        let mut stuck = item("SHOP-40.3", Status::CheckFailed, NeedsYouGroup::Family, 1);
-        stuck.lead_note = Some(LeadNoteSent {
-            lead: "Wishlist lead".into(),
-            text: "Fix the test.".into(),
-            view: None,
-            stop: StuckStop::ValidationFailed,
-            after_rounds: Some(3),
-            at: 0,
-        });
-        let mut suggestion = item("SHOP-40.6", Status::Backlog, NeedsYouGroup::Suggestions, 1);
-        suggestion.suggestion = Some(SuggestionItem {
-            id: "sg1".into(),
-            epic: "SHOP-40".parse().unwrap(),
-            lead: "Wishlist lead".into(),
-            kind: crate::epic_lead::suggest::SuggestionKind::Close,
-            reason: "PAY-123 doesn't ask for an export.".into(),
-        });
-        assert!(should_notify(&passed));
-        assert!(should_notify(&stuck));
-        assert!(!should_notify(&suggestion));
-        let mut seen = HashSet::new();
-        let out = notifications(plan(
-            &[passed, stuck, suggestion],
-            &texts(),
-            &mut seen,
-            &on(),
-        ));
-        let targets: Vec<&Target> = out.iter().map(|n| &n.target).collect();
-        assert_eq!(
-            targets,
-            [
-                &Target::Ticket {
-                    key: "SHOP-40.2".parse().unwrap()
-                },
-                &Target::Ticket {
-                    key: "SHOP-40.3".parse().unwrap()
-                }
-            ]
-        );
-
-        let lead = crate::project_agents::AgentNeedsYou {
-            project: "SHOP".into(),
-            project_name: "shop-web".into(),
-            agent: "pa7".into(),
-            name: "Wishlist lead".into(),
-            epic: Some("SHOP-40".parse().unwrap()),
-            status: Status::NeedsYou,
-            reason: "permission: Allow gh issue view?".into(),
-            question: None,
-            since: 3,
-        };
-        let titles = HashMap::from([("SHOP-40".to_owned(), "Wishlist".to_owned())]);
-        let out = notifications(plan_agents(&[lead], &titles, &mut seen, &on()));
-        assert_eq!(
-            shown(&out),
-            [(
-                "Wishlist lead needs permission",
-                "shop-web · Wishlist",
-                "Allow gh issue view?"
-            )]
-        );
-        assert_eq!(
-            out[0].target,
-            Target::Lead {
-                epic: "SHOP-40".parse().unwrap()
-            }
-        );
-    }
-
-    /// T-0280 (LEAD-08, d0083): a lead's suggestion blocks no agent, so it never notifies.
-    #[test]
-    fn suggestions_never_notify() {
-        let suggestion = item("SHOP-40.6", Status::Backlog, NeedsYouGroup::Suggestions, 1);
-        assert!(!should_notify(&suggestion));
-        let mut seen = HashSet::new();
-        assert!(plan(&[suggestion], &texts(), &mut seen, &on()).is_empty());
     }
 
     #[test]
@@ -1288,7 +1156,7 @@ mod tests {
             ),
             titled("SHOP-34", "Tax display", Status::CheckNoResult, Family),
             titled(
-                "SHOP-40.4",
+                "SHOP-44",
                 "Wishlist share link",
                 Status::DeliveryStopped,
                 Family,
@@ -1325,7 +1193,7 @@ mod tests {
                 },
             ),
             (
-                "SHOP-40.4".to_owned(),
+                "SHOP-44".to_owned(),
                 ItemText::from("Keeps conflicting with `wishlist`"),
             ),
         ]);
@@ -1370,7 +1238,7 @@ mod tests {
                     decide.as_str()
                 ),
                 (
-                    "SHOP-40.4 · Delivery stopped",
+                    "SHOP-44 · Delivery stopped",
                     "shop-web · Wishlist share link",
                     "Keeps conflicting with wishlist"
                 ),
@@ -1487,8 +1355,8 @@ mod tests {
         let mut no_questions = on();
         no_questions.kinds.question = false;
         let asks = [agent_wait("a2", Status::AsksYou, 6)];
-        assert!(plan_agents(&asks, &HashMap::new(), &mut seen, &no_questions).is_empty());
-        assert!(plan_agents(&asks, &HashMap::new(), &mut seen, &on()).is_empty());
+        assert!(plan_agents(&asks, &mut seen, &no_questions).is_empty());
+        assert!(plan_agents(&asks, &mut seen, &on()).is_empty());
 
         let off = Choices {
             enabled: false,
@@ -1557,7 +1425,7 @@ mod tests {
         let agents: Vec<_> = (1..=4)
             .map(|n| agent_wait(&format!("a{n}"), Status::NeedsYou, n))
             .collect();
-        let planned = plan_agents(&agents, &HashMap::new(), &mut HashSet::new(), &on());
+        let planned = plan_agents(&agents, &mut HashSet::new(), &on());
         assert_eq!(group(planned).len(), 4);
     }
 
@@ -1612,7 +1480,7 @@ mod tests {
                 key: "SHOP-22".parse().unwrap(),
             },
             Target::Ticket {
-                key: "SHOP-40.1".parse().unwrap(),
+                key: "SHOP-40".parse().unwrap(),
             },
             Target::Validator {
                 key: "SHOP-33".parse().unwrap(),
@@ -1620,9 +1488,6 @@ mod tests {
             Target::ProjectAgent {
                 project: "SHOP".into(),
                 agent: "pa7".into(),
-            },
-            Target::Lead {
-                epic: "SHOP-40".parse().unwrap(),
             },
             Target::NeedsYou,
             Target::Board { project: None },
@@ -1635,10 +1500,9 @@ mod tests {
             values,
             [
                 "SHOP-22",
-                "SHOP-40.1",
+                "SHOP-40",
                 "validator:SHOP-33",
                 "agent:SHOP:pa7",
-                "lead:SHOP-40",
                 "needs_you",
                 "board",
                 "board:SHOP"
@@ -1657,7 +1521,7 @@ mod tests {
             "agent:SHOP",
             "agent::pa7",
             "board:",
-            "lead:x",
+            "lead:SHOP-40",
         ] {
             assert_eq!(Target::parse_open_value(bad), None, "{bad}");
         }

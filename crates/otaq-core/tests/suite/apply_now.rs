@@ -2,7 +2,7 @@
 //! board" with Apply now, "Dragging a card back…", "Other drags", "After a Fail"; d0045), on the test flow
 //! (`tests/flows/every-kind.yaml`: Grill · Dev · Validate · Security · QA · Done): the plan (moves with their choices,
 //! defaults and hints, the tickets that keep their place, the stamp) for one ticket in a removed human check, four
-//! tickets in two removed stages, an epic, a merged change and no change; applying (the flow, the moves and the
+//! tickets in two removed stages, a merged change and no change; applying (the flow, the moves and the
 //! stopped sessions together, a failure leaving nothing done, a pick back resuming Dev's conversation, a forward pick
 //! marking skips, a stale stamp or a bad pick refused with the fresh plan, "already applied"); and the example's run
 //! with stand-in sessions. `claude` is stood in for by an ordinary command.
@@ -14,8 +14,8 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::FixedModels;
 use otaq_core::board::moves::{DropOn, DropTarget};
-use otaq_core::board::tickets::{EventKind, HistoryEvent, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Kind, Place, Status};
+use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
+use otaq_core::domain::{Actor, Place, Status};
 use otaq_core::flow::apply_now::{
     ApplyNowAnswer, ApplyNowParams, ApplyNowPlan, FORWARD_HINT, Pick, PlannedMove, Refreshed, Way,
 };
@@ -344,42 +344,6 @@ async fn the_plan_for_four_tickets_in_two_removed_stages() {
             ("SHOP-6".to_owned(), "Dev", false)
         ]
     );
-    w.stop().await;
-}
-
-/// An epic waits at QA, its stop; the change removes QA, so the new flow's epics stop at Review epic. Its choices are
-/// only forward (an epic can't go back): Review epic first, then Done.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_epic_offers_forward_stages_only() {
-    let w = world().await;
-    let epic = w
-        .board
-        .create_ticket(
-            &NewTicketInput {
-                project: "SHOP".into(),
-                title: "Billing".into(),
-                kind: Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    w.force_stage(&epic, "qa", Status::WaitingForYou).await;
-    at(&w, "Coupons", "dev", Status::Working).await;
-    remove(&w, &["qa"]).await;
-
-    let plan = plan(&w).await;
-    let m = move_of(&plan, &epic.key.to_string());
-    assert_eq!(m.kind, Kind::Epic);
-    assert_eq!(
-        choices(m),
-        [
-            ("Review epic".to_owned(), Way::Next),
-            ("Done".to_owned(), Way::Forward)
-        ]
-    );
-    assert_eq!(m.default, DropOn::stage("_review-epic"));
     w.stop().await;
 }
 

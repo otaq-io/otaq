@@ -1,11 +1,11 @@
-// The board (*24 · The two views*; UI-02, SHL-06, BRD-01, BRD-02): the toolbar (Board · List, Lanes or Group by, Fold
+// The board (*24 · The two views*; UI-02, SHL-06, BRD-01, BRD-02): the toolbar (Board · List, Group by, Fold
 // empty columns, All tickets, New ticket; `Toolbar.tsx`), then the columns of the shown project's flow from
 // `board.view`, refetched on the service's events, at the board's size (one width rule: every open column at least
 // `min_column_width`, sharing the width when they fit, else the board scrolls sideways with the "7 more stages" pill at
 // its right edge; Rust folds Dev by height). The List view (`list/List.tsx`, LST-01) draws `board.view`'s `list` in
 // place of the columns: its rows press, open, drag and open their menu as cards do, and Group by Stage's groups are the
 // drop targets (a row dragged onto Ready queues it); ↑/↓ walk the rows. How the board looks is
-// the project's view preferences, kept by the service (SHB-05): folds, the view and the lanes change with
+// the project's view preferences, kept by the service (SHB-05): folds and the view change with
 // `board.set_view`, then the board asks for its view again; `g b`, `g l` and ⇧⌘O / `g f` switch the view. On Files
 // (FIL-01) the project Files view (`files_view/FilesView.tsx`) takes the columns' place under the same toolbar and
 // strip; the columns stay mounted, hidden, so switching back lays them out at once. A drag is the UIT-04 way
@@ -20,14 +20,7 @@
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain, with its tooltip, and Dependencies: Always keeps every
 // link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02); a blocked ticket started or dragged past Ready for Dev
-// opens DPV-03's dialog (`BlockedDialog`). With Lanes: Epic
-// (EPL-01, `Lanes.tsx`) the columns' headers sit once on top and each epic has its lane across them, "No epic" last;
-// with Lanes: None an epic child's card names its epic. The epic card, one of
-// its rows and a lane's head are dragged the same way (EPC-12, EPC-14, T-0270, T-0271): Rust answers what each queues
-// or takes back, and the drop sends `board.drop`, whose outcome is the queue toast or the Park-all confirmation; a row
-// lifts as a small row, a lane head as its name. `g` `e` on a selected epic, child or lane head focuses the epic
-// (EPC-18, T-0274): its `epic:` token goes in the filter, the other cards, lanes and Done lines dim (Q55), the arrow
-// keys walk only its cards, and Esc leaves. A lane head's right click is its epic's menu.
+// opens DPV-03's dialog (`BlockedDialog`).
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -45,7 +38,7 @@ import { openOverlay } from "../../app/overlays";
 import { useShortcut } from "../../app/registry";
 import { closeTicket, openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { EpicCard, RESTING, TicketCard } from "../../cards";
+import { RESTING, TicketCard } from "../../cards";
 import { type Anchor, Tooltip } from "../../components";
 import type { ApproveChoice as Choice } from "../../generated/ApproveChoice";
 import type { ApproveMenu } from "../../generated/ApproveMenu";
@@ -55,7 +48,6 @@ import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
-import type { BoardLane } from "../../generated/BoardLane";
 import type { BoardParams } from "../../generated/BoardParams";
 import type { BoardSetViewParams } from "../../generated/BoardSetViewParams";
 import type { BoardTicketParams } from "../../generated/BoardTicketParams";
@@ -64,7 +56,6 @@ import type { CardActionKind } from "../../generated/CardActionKind";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { NewToast } from "../../generated/NewToast";
-import type { ParkAllDialog } from "../../generated/ParkAllDialog";
 import type { ParkDialog } from "../../generated/ParkDialog";
 import type { ViewChange } from "../../generated/ViewChange";
 import { asRequestError, useServiceView } from "../../service";
@@ -86,16 +77,12 @@ import {
   type ColumnSpan,
   createDrag,
   type DragState,
-  type LiftedRow,
-  liftedLane,
-  liftedRow,
   moveFocus,
   revealScroll,
   targetOrder,
   verdictOf,
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
-import { type LaneHandlers, Lanes, laneWalk } from "./Lanes";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
 import { Toolbar } from "./Toolbar";
@@ -106,7 +93,6 @@ import {
   clearAgentFilter,
   escapeStep,
   filterOf,
-  focusEpic,
   requestSearchFocus,
 } from "./filter";
 import { rememberBoardScroll, rememberColumnScroll, scrollPlace } from "./prefs";
@@ -128,8 +114,6 @@ export const BOARD_EVENTS = [
   "settings_changed",
   // A renamed Project agent: the cards it created name it (T-0243).
   "project_agent_changed",
-  // An epic lead opened, resumed, ended or changed its status: the Lead row and the track's lead line (T-0289).
-  "lead_changed",
   // A named agent renamed or a role default changed: the footers' agent names (T-0345).
   "agents_changed",
   // A flow change waits (Ready for Dev's "Waiting for the flow change") or applied (the columns change; FLW-06).
@@ -215,27 +199,6 @@ export function confirmPark(dialog: ParkDialog, ask: typeof request = request): 
   });
 }
 
-/**
- * Opens the Park-all confirmation of an epic's track dropped on Backlog (state 11); Cancel is the default and leaves
- * everything running, its button sends `board.park_all` (EPC-14, d0052).
- */
-export function confirmParkAll(dialog: ParkAllDialog, ask: typeof request = request): void {
-  openOverlay("confirm", {
-    title: dialog.title,
-    body: dialog.message,
-    confirmLabel: dialog.confirm,
-    confirmIcon: dialog.confirm_icon,
-    destructive: false,
-    cancelDefault: true,
-    onConfirm: () => {
-      const params: BoardTicketParams = { key: dialog.key };
-      ask("board.park_all", params).catch((error: unknown) => {
-        toast(error, ask);
-      });
-    },
-  });
-}
-
 /** An approve choice opens its dialog (T-0226's Local merge, T-0227's Open PR / Push to PR). */
 export function openApproveChoice(choice: Choice, ticket: string): void {
   switch (choice) {
@@ -261,9 +224,6 @@ export function afterDrop(
       return;
     case "park":
       confirmPark(outcome.dialog, ask);
-      return;
-    case "park_all":
-      confirmParkAll(outcome.dialog, ask);
       return;
     case "approve":
       // One way to deliver: its dialog at once, without the choice (dogfood #18).
@@ -332,7 +292,13 @@ export function startTicket(key: string, ask: typeof request = request): Promise
   );
 }
 
-/** A row of the epic card while it is dragged out (*03 → epic flows 3 → 8 · Dragged row*). */
+/** A dragged List row: its key and title. */
+interface LiftedRow {
+  key: string;
+  title: string;
+}
+
+/** A List row while it is dragged. */
 function LiftedChild({ row }: { row: LiftedRow }) {
   return (
     <div className="board-ghost-row">
@@ -343,26 +309,9 @@ function LiftedChild({ row }: { row: LiftedRow }) {
   );
 }
 
-/** An epic while it is dragged by its lane's head (*03 → epic flows 1 → 3 · Dragged track handle*). */
-function LiftedLane({ lane }: { lane: BoardLane }) {
-  return (
-    <div className="board-ghost-lane">
-      <span className="board-ghost-lane-icon">
-        <Icon name="layers" size={12} />
-      </span>
-      <span className="board-ghost-lane-name">{lane.head.name}</span>
-      <span className="board-ghost-lane-detail">{lane.head.detail}</span>
-    </div>
-  );
-}
-
 function Lifted({ card }: { card: BoardCard }) {
   const state = { ...RESTING, dragging: true };
-  return card.kind === "ticket" ? (
-    <TicketCard card={card.card} state={state} />
-  ) : (
-    <EpicCard card={card.card} state={state} collapsed />
-  );
+  return <TicketCard card={card.card} state={state} />;
 }
 
 /** The part of the board an element covers on its right (the sheet over the board), in px; 0 when it doesn't. */
@@ -626,35 +575,16 @@ export function Board() {
     };
   }, [controller, spans, release, placeGhost, background]);
 
-  // The focused epic (EPC-18): read by Esc without re-registering it.
-  const focus = view?.focus ?? null;
-  const focusRef = useRef(focus);
-  useLayoutEffect(() => {
-    focusRef.current = focus;
-  }, [focus]);
-  const focusOn = useCallback(
-    (key: string | null) => {
-      if (project === null) return;
-      focusEpic(project, key).catch((error: unknown) => {
-        toast(error);
-      });
-    },
-    [project],
-  );
-
-  // Esc while dragging: the card flies back (before the sheet's Close takes the key). Otherwise Esc leaves a
-  // focused epic (its token leaves the filter), then clears the agent filter (`escapeStep`).
+  // Esc while dragging: the card flies back (before the sheet's Close takes the key). Otherwise Esc clears the agent
+  // filter (`escapeStep`).
   const agentRef = useRef(agent);
   useLayoutEffect(() => {
     agentRef.current = agent;
   }, [agent]);
   const cancelDrag = useCallback(() => {
-    switch (escapeStep(controller.state() !== null, focusRef.current !== null, agentRef.current !== null)) {
+    switch (escapeStep(controller.state() !== null, agentRef.current !== null)) {
       case "drag":
         controller.cancel();
-        return true;
-      case "focus":
-        focusOn(null);
         return true;
       case "agent":
         if (project !== null) clearAgentFilter(project);
@@ -662,37 +592,16 @@ export function Board() {
       case null:
         return false;
     }
-  }, [controller, focusOn, project]);
+  }, [controller, project]);
   useShortcut("close_sheet", cancelDrag);
-
-  // `g` `e`: focus the epic of the lane head with the keyboard, else of the selected card. A standalone ticket has
-  // none: Rust answers nothing and the filter stays.
-  const focusSelected = useCallback(() => {
-    const name = document.activeElement?.closest<HTMLElement>(".board-lane-head[data-epic]");
-    const key = name?.dataset.epic ?? selected;
-    if (key === null) return false;
-    focusOn(key);
-    return true;
-  }, [selected, focusOn]);
-  useShortcut("focus_epic", focusSelected);
 
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
   const targets = useMemo(() => targetOrder(view?.columns ?? []), [view]);
-  // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18); never those of a folded section.
-  const keys = useMemo(() => {
-    const strong = view?.focus ? new Set(view.focus.keys) : null;
-    if (view?.lanes != null)
-      return laneWalk(view.columns, view.lanes).map((keys) =>
-        keys.filter((key) => strong === null || strong.has(key)),
-      );
-    return (
-      view?.columns.map((c) =>
-        walkOf(c, foldedSections)
-          .map((card) => card.card.key)
-          .filter((key) => strong === null || strong.has(key)),
-      ) ?? []
-    );
-  }, [view, foldedSections]);
+  // The arrow keys walk the cards; never those of a folded section.
+  const keys = useMemo(
+    () => view?.columns.map((c) => walkOf(c, foldedSections).map((card) => card.card.key)) ?? [],
+    [view, foldedSections],
+  );
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
   const targetsRef = useRef(targets);
@@ -724,11 +633,6 @@ export function Board() {
       press: (key, _column, e: PointerEvent) => {
         // Buttons on the card (actions, options, chips) keep their own clicks.
         if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-        controller.press(key, e.clientX, e.clientY);
-        placeGhost(e.clientX, e.clientY);
-      },
-      pressChild: (key, e: PointerEvent) => {
-        if (e.button !== 0) return;
         controller.press(key, e.clientX, e.clientY);
         placeGhost(e.clientX, e.clientY);
       },
@@ -774,9 +678,6 @@ export function Board() {
         openTicket(key);
         requestCardAction(key, kind);
       },
-      addToEpic: (epic) => {
-        openOverlay("new_ticket", { epic });
-      },
       menu: openMenu,
       hover: (key, over) => {
         setHovered((old) => (over ? key : old === key ? null : old));
@@ -785,8 +686,7 @@ export function Board() {
     [controller, release, placeGhost, openMenu],
   );
 
-  // ⌘D: start the selected ticket, as if it was dropped on Dev (the first agent column). On an epic (its card, or its
-  // track's name) it queues the children still in Backlog; on a child row only that child (EPC-12, d0058).
+  // ⌘D: start the selected ticket, as if it was dropped on Dev (the first agent column).
   const startOn = view?.columns.find((c) => c.kind === "agent")?.id;
   const startSelected = useCallback(() => {
     if (selected === null || startOn === undefined) return false;
@@ -861,9 +761,6 @@ export function Board() {
         void dropCard(key, target, showApprove);
       },
       menu: openMenu,
-      open: (key) => {
-        openTicket(key);
-      },
     }),
     [controller, release, placeGhost, openMenu, showApprove],
   );
@@ -893,47 +790,10 @@ export function Board() {
   const draggedRow = useMemo(() => {
     if (drag === null || !view || draggedCard !== null) return null;
     // A List row lifts as a small row with its key and title.
-    if (view.list !== null) {
-      const found = findRow(view.list, drag.key);
-      return found ? { key: drag.key, title: found.row.card.title } : null;
-    }
-    const epics = view.columns.flatMap((c) =>
-      cardsOf(c).flatMap((card) => (card.kind === "epic" ? [card.card] : [])),
-    );
-    return liftedRow(drag.key, epics);
+    if (view.list === null) return null;
+    const found = findRow(view.list, drag.key);
+    return found ? { key: drag.key, title: found.row.card.title } : null;
   }, [drag, view, draggedCard]);
-  const draggedLane = useMemo(
-    () => (drag === null || !view || draggedCard !== null ? null : liftedLane(drag.key, view.lanes ?? [])),
-    [drag, view, draggedCard],
-  );
-
-  // A lane head is its epic (EPL-01): pressed, it may be dragged like the epic's card (a short press, or ↵, opens the
-  // epic); its right click is the epic's menu.
-  const laneHandlers: LaneHandlers = useMemo(
-    () => ({
-      press: (epic, e) => {
-        controller.press(epic, e.clientX, e.clientY);
-        placeGhost(e.clientX, e.clientY);
-      },
-      menu: openMenu,
-      open: (epic) => {
-        openTicket(epic);
-      },
-    }),
-    [controller, placeGhost, openMenu],
-  );
-
-  // An epic's items in its menu do what the board does: a drop, and the focus.
-  const menuBoard = useMemo(
-    () => ({
-      drop: (key: string, column: BoardDropTarget) => {
-        void dropCard(key, column, showApprove);
-      },
-      focus: focusOn,
-    }),
-    [showApprove, focusOn],
-  );
-
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
   // Over Approved (a section with a target of its own) the hint is drawn in the section itself (*Review column · drop
   // target*).
@@ -965,11 +825,7 @@ export function Board() {
     if (!board) return null;
     const b = board.getBoundingClientRect();
     const pad = parseFloat(getComputedStyle(board).paddingLeft) || 0;
-    const spans = [
-      ...board.querySelectorAll<HTMLElement>(
-        ".board-columns > [data-column], .board-lane-headers > [data-column]",
-      ),
-    ].map((el) => {
+    const spans = [...board.querySelectorAll<HTMLElement>(".board-columns > [data-column]")].map((el) => {
       const r = el.getBoundingClientRect();
       return { left: r.left, right: r.right };
     });
@@ -1080,25 +936,6 @@ export function Board() {
             group={group$}
             onView={changeView}
           />
-        ) : view?.lanes != null ? (
-          <Lanes
-            columns={view.columns}
-            lanes={view.lanes}
-            verdictOf={(id) => (drag ? verdictOf(drag.answer, id) : undefined)}
-            dragging={drag !== null}
-            selected={selected}
-            chain={chain}
-            lifted={drag?.key ?? null}
-            focus={focus}
-            handlers={handlers}
-            laneHandlers={laneHandlers}
-            onView={changeView}
-            onAdd={() => {
-              openOverlay("new_ticket");
-            }}
-            doneLine={view.done}
-            element={element$}
-          />
         ) : (
           <div className="board-columns">
             {view?.columns.map((column) => (
@@ -1111,7 +948,6 @@ export function Board() {
                 selected={selected}
                 chain={chain}
                 lifted={drag?.key ?? null}
-                focus={focus}
                 handlers={handlers}
                 showEmptyHint={!view.empty}
                 scrollTop={place.columns[column.id] ?? 0}
@@ -1147,7 +983,6 @@ export function Board() {
             </div>
           )}
           {draggedRow && <LiftedChild row={draggedRow} />}
-          {draggedLane && <LiftedLane lane={draggedLane} />}
           {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
             <div className="board-drop-hint">
               <Icon name={ghostHint.icon} size={11} />
@@ -1175,7 +1010,6 @@ export function Board() {
         {cardMenu && (
           <CardMenu
             menu={cardMenu}
-            board={menuBoard}
             onError={(error) => {
               toast(error);
             }}

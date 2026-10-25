@@ -1,5 +1,5 @@
 // The editor as a modal (UI-05, TKT-03; d0019; *08 · Ticket editor → Quick-create in Backlog, Full form · filled,
-// Validation · empty form, Dark · full form*). ⌘N, the board's + and Add ticket to epic open **quick-create**, a
+// Validation · empty form, Dark · full form*). ⌘N and the board's + open **quick-create**, a
 // title field at the top of the Backlog column: ↵ creates, ⇧↵ opens the full form with the title kept, Esc
 // cancels. The full form saves with ⌘↵ or its button; Esc discards. `edit_ticket` opens the same form on a ticket.
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
@@ -71,8 +71,8 @@ function FullForm({
     editor.save(close);
   };
   useFormKeys(root, save);
-  // A new ticket's report (RPT-03): not for an epic, whose lead reads no comments of its own.
-  const takesReport = view.report !== null && !editor.form.epic_kind;
+  // A new ticket's report (RPT-03).
+  const takesReport = view.report !== null;
   const { patchForm } = editor;
   const report = useReportAttach(root, takesReport, patchForm);
   const t = view.texts;
@@ -197,12 +197,11 @@ function QuickCreate({
 
 export function NewTicket({ params, close }: OverlayProps<"new_ticket">) {
   const { project } = useSelection();
-  const epic = params?.epic ?? null;
   const body = params?.body;
-  const target: EditorTarget = { mode: "create", project, epic };
+  const target: EditorTarget = { mode: "create", project };
   const load = useCallback(
-    () => request("editor.open", { mode: "create", project, epic, body }) as Promise<EditorView>,
-    [project, epic, body],
+    () => request("editor.open", { mode: "create", project, body }) as Promise<EditorView>,
+    [project, body],
   );
   const { view, error } = useServiceView(load, []);
   const [full, setFull] = useState<EditorForm | null>(null);

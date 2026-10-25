@@ -1,6 +1,6 @@
 //! "What this agent reads" (T-0440; AGR-01…AGR-04; d0108 rule 12, d0092, d0098): the reads text equals what the
 //! agent is given when it starts: `prime`'s instructions, notes, stage skill and commit skill for a stage agent, and
-//! the Project agent's and the epic lead's prime instructions and the skill their launch runs first. A skill part per
+//! the Project agent's prime instructions and the skill its launch runs first. A skill part per
 //! stage the agent runs (a ticket's choice doesn't move it), one for its role, the other skills with the commit skill
 //! and the Project agent's `flow` marked; nothing for an agent in no stage.
 //!
@@ -10,11 +10,11 @@ use std::path::Path;
 
 use otaq_core::agent_reads::{AgentReads, RunsAs, SkillMark};
 use otaq_core::agent_tools::claude::{ClaudeLaunch, find_plugin_dir};
-use otaq_core::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchContext};
+use otaq_core::agent_tools::{FirstPrompt, LaunchContext};
 use otaq_core::agents::{Agent, Role};
 use otaq_core::board::stage_choices::{ChoicePick, Chooser};
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, Kind, Status};
+use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::project_agents::{FLOW_COMMAND, first_skill};
 use otaq_core::protocol::{Reply, Request};
@@ -225,8 +225,7 @@ async fn a_stage_agent_reads_what_prime_gives() {
 }
 
 /// AGR-03, AGR-04: the Project agent reads its prime's instructions and notes, the skill its launch runs first ("as
-/// Project agent"), and `flow` marked for flow changes, which its `/flow` start runs; the epic lead the same with its
-/// own skill.
+/// Project agent"), and `flow` marked for flow changes, which its `/flow` start runs.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_role_agents_read_what_their_launch_gives() {
     let dir = TempDir::new().unwrap();
@@ -268,26 +267,6 @@ async fn the_role_agents_read_what_their_launch_gives() {
         )]
     );
 
-    let lead = w
-        .board
-        .store()
-        .role_agent(Role::EpicLead)
-        .await
-        .unwrap()
-        .unwrap();
-    let prime = otaq_core::epic_lead::prime::context(&w.board, "SHOP-40")
-        .await
-        .unwrap();
-    let r = reads(&w, &lead, "SHOP").await;
-    assert_eq!(r.instructions, "");
-    assert_eq!(prime.instructions.unwrap().notes, r.notes);
-    assert_eq!(r.skills.len(), 1);
-    assert_eq!(r.skills[0].runs, RunsAs::Role(Role::EpicLead));
-    assert_eq!(
-        r.skills[0].skill,
-        launch_runs(&w, &lead, EPIC_LEAD_SKILL).await
-    );
-    assert!(r.others.is_empty(), "{r:#?}");
     w.stop().await;
 }
 
@@ -306,7 +285,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
         .check_choices(
             "SHOP",
             Some(&t),
-            (Kind::Ticket, ""),
+            "",
             &[ChoicePick {
                 stage: "Dev".into(),
                 choice: "Quick developer".into(),
@@ -318,7 +297,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
         .await
         .unwrap();
     w.board
-        .write_choices(&t, &writes, &Actor::User("me".into()), None)
+        .write_choices(&t, &writes, &Actor::User("me".into()))
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;

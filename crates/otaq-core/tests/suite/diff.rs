@@ -1,26 +1,10 @@
-//! The diff engine (T-0084): a ticket's branch against its `base_sha`, epics grouped by child, against
-//! temporary repositories.
-
-use std::path::Path;
+//! The diff engine (T-0084): a ticket's branch against its `base_sha`, against temporary repositories.
 
 use crate::common::Fixture;
 use otaq_core::board::Refusal;
 use otaq_core::domain::Status;
 use otaq_core::git::diff::{FileStatus, LineKind};
 use otaq_core::git::testing::{commit, git};
-
-/// Squash-merges `branch` into `target` the way Local merge leaves it (one commit with the branch's tree on top
-/// of the target), without touching any checkout. Returns the commit.
-fn squash_into(repo: &Path, target: &str, branch: &str, message: &str) -> String {
-    let tree = git(repo, &["rev-parse", &format!("{branch}^{{tree}}")]);
-    let parent = git(repo, &["rev-parse", target]);
-    let sha = git(repo, &["commit-tree", &tree, "-p", &parent, "-m", message]);
-    git(
-        repo,
-        &["update-ref", &format!("refs/heads/{target}"), &sha, &parent],
-    );
-    sha
-}
 
 #[tokio::test]
 async fn a_branch_shows_every_kind_of_change_against_its_base_sha() {
@@ -76,11 +60,7 @@ async fn a_branch_shows_every_kind_of_change_against_its_base_sha() {
     assert_eq!((diff.added, diff.removed), (4, 2));
     assert_ne!(base_before, head);
 
-    let file = f
-        .board
-        .diff_file("SHOP-1", "lib/pricing.ts", None)
-        .await
-        .unwrap();
+    let file = f.board.diff_file("SHOP-1", "lib/pricing.ts").await.unwrap();
     let lines: Vec<_> = file.hunks[0]
         .lines
         .iter()
@@ -96,13 +76,9 @@ async fn a_branch_shows_every_kind_of_change_against_its_base_sha() {
             (LineKind::Added, None, Some(4), "d"),
         ]
     );
-    let logo = f.board.diff_file("SHOP-1", "logo.png", None).await.unwrap();
+    let logo = f.board.diff_file("SHOP-1", "logo.png").await.unwrap();
     assert!(logo.file.binary && logo.hunks.is_empty());
-    let renamed = f
-        .board
-        .diff_file("SHOP-1", "new_name.ts", None)
-        .await
-        .unwrap();
+    let renamed = f.board.diff_file("SHOP-1", "new_name.ts").await.unwrap();
     assert_eq!(renamed.file.old_path.as_deref(), Some("old_name.ts"));
 }
 
@@ -151,89 +127,6 @@ async fn the_diff_works_from_the_branch_once_the_worktree_is_gone() {
     f.force_status(&t, Status::Merged).await;
     let diff = f.board.diff_summary("SHOP-1").await.unwrap();
     assert_eq!(diff.files.len(), 1);
-    let file = f.board.diff_file("SHOP-1", "done.ts", None).await.unwrap();
+    let file = f.board.diff_file("SHOP-1", "done.ts").await.unwrap();
     assert_eq!(file.hunks[0].lines[0].text, "x");
-}
-
-#[tokio::test]
-async fn an_epic_diff_is_its_branch_grouped_by_merged_child() {
-    let f = Fixture::shop().await;
-    let epic = f.epic("Wishlist").await;
-    let api = f.child(&epic, "Wishlist API").await;
-    let button = f.child(&epic, "Wishlist button").await;
-    let page = f.child(&epic, "Wishlist page").await;
-    let repo = f.repo();
-    let epic_branch = "otaq/SHOP-1";
-
-    let wt = f.start_worktree(&api).await;
-    commit(&wt, "api.ts", "api\n");
-    let api_sha = squash_into(&repo, epic_branch, "otaq/SHOP-1.1", "SHOP-1.1 Wishlist API");
-    let wt = f.start_worktree(&button).await;
-    commit(&wt, "button.ts", "b\nb\n");
-    commit(&wt, "api.ts", "api\nmore\n");
-    let button_sha = squash_into(
-        &repo,
-        epic_branch,
-        "otaq/SHOP-1.2",
-        "SHOP-1.2 Wishlist button",
-    );
-    for (child, sha) in [(&api, &api_sha), (&button, &button_sha)] {
-        f.force_status(child, Status::Merged).await;
-        sqlx::query("UPDATE tickets SET merge_commit_sha = ? WHERE id = ?")
-            .bind(sha)
-            .bind(&child.id)
-            .execute(f.board.store().pool())
-            .await
-            .unwrap();
-    }
-    // Started but nothing merged: not listed.
-    f.start_worktree(&page).await;
-    // main moves on: the epic's diff stays its own.
-    commit(&repo, "elsewhere.ts", "x\n");
-
-    let diff = f.board.diff_summary("SHOP-1").await.unwrap();
-    assert_eq!(diff.base_branch, "main");
-    assert_eq!(diff.branch, epic_branch);
-    let paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
-    assert_eq!(paths, ["api.ts", "button.ts"]);
-    let children: Vec<_> = diff
-        .children
-        .iter()
-        .map(|c| {
-            (
-                c.key.to_string(),
-                c.commit.clone(),
-                c.files.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        children,
-        [
-            ("SHOP-1.1".to_owned(), api_sha, vec!["api.ts".to_owned()]),
-            (
-                "SHOP-1.2".to_owned(),
-                button_sha,
-                vec!["api.ts".to_owned(), "button.ts".to_owned()]
-            ),
-        ]
-    );
-    // A child's own change to a file.
-    let file = f
-        .board
-        .diff_file("SHOP-1", "api.ts", Some("SHOP-1.2"))
-        .await
-        .unwrap();
-    let added: Vec<_> = file.hunks[0]
-        .lines
-        .iter()
-        .filter(|l| l.kind == LineKind::Added)
-        .map(|l| l.text.as_str())
-        .collect();
-    assert_eq!(added, ["more"]);
-
-    // A child's diff is against the epic branch.
-    let child = f.board.diff_summary("SHOP-1.3").await.unwrap();
-    assert_eq!(child.base_branch, epic_branch);
-    assert!(child.files.is_empty());
 }

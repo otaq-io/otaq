@@ -16,7 +16,6 @@ use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::TempRepos;
-use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::protocol::{InputParams, Request, encode_bytes};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
@@ -26,8 +25,8 @@ use serde_json::{Value, json};
 
 const QUESTION: &str = "Which email provider should I use?";
 
-/// The sample board (SHOP-40 Wishlist with 40.2 Working); `claude` is an interactive `sh` in the service's data
-/// folder, so Project agents and leads can open.
+/// The sample board (SHOP-40 Wishlist, SHOP-42 Working); `claude` is an interactive `sh` in the service's data
+/// folder, so Project agents can open.
 async fn world() -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let data = home.path().join("h");
@@ -389,7 +388,14 @@ async fn a_question_during_a_check_holds() {
     w.validating_with(&t, &validator.session).await;
     asks(&w, &t, &shell, QUESTION).await;
     assert_eq!(w.status("SHOP-1").await, Status::AsksYou);
-    ok(&send(&w, &shell, "ticket.notes", json!({"key": "SHOP-1"})).await);
+    ok(&send(
+        &w,
+        &shell,
+        "decision.record",
+        json!({"key": "SHOP-1", "question": "Which order?", "built": "newest first",
+               "other_options": ["oldest first"], "why": "the list reads that way"}),
+    )
+    .await);
     hook(
         &w,
         &caller(&t, &shell),
@@ -399,10 +405,6 @@ async fn a_question_during_a_check_holds() {
     .await;
     assert_eq!(w.status("SHOP-1").await, Status::AsksYou);
     w.stop().await;
-}
-
-fn session(lead: &Lead) -> String {
-    lead.agent.session.as_ref().expect("a session").id.clone()
 }
 
 /// A Project agent's question (#25's shape): Enter on a line in its terminal answers it, and so does the Ask bar's
@@ -465,36 +467,5 @@ async fn a_project_agents_question_closes_from_its_terminal_or_continue() {
             ),
         ]
     );
-    w.stop().await;
-}
-
-/// The epic lead (#25): its question shows on the lane ("asks you") and in the strip until the user replies in its
-/// terminal or with Continue; then both clear.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_leads_question_clears_once_answered() {
-    let w = world().await;
-    let lead = w.project_agents.leads().open("SHOP-40").await.unwrap();
-    let id = lead.agent.id.clone();
-    let shell = w.shell_in(&session(&lead));
-    let status = async || w.project_agents.leads().status("SHOP-40").await.unwrap();
-    let ask = async |question: &str| {
-        ok(&send(&w, &shell, "agent.ask_human", json!({"question": question})).await);
-    };
-
-    ask("Should 40.4 wait for 40.2?").await;
-    assert_eq!(status().await, LeadStatus::AsksYou);
-    assert_eq!(w.needs_you.list().await.unwrap().project_agents.len(), 1);
-    type_in(&w, &session(&lead), b"Yes, both touch routes.ts\r").await;
-    eventually("the lane clearing", async || {
-        status().await != LeadStatus::AsksYou
-    })
-    .await;
-    assert!(w.needs_you.list().await.unwrap().project_agents.is_empty());
-
-    ask("Add a child for the export?").await;
-    assert_eq!(status().await, LeadStatus::AsksYou);
-    w.project_agents.send(&id, "Not yet").await.unwrap();
-    assert_ne!(status().await, LeadStatus::AsksYou);
-    assert!(w.needs_you.list().await.unwrap().project_agents.is_empty());
     w.stop().await;
 }

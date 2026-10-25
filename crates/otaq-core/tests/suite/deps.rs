@@ -1,5 +1,5 @@
 //! Dependencies (DEP-01, DEP-02, DEP-04, PRJ-05) with the shop-web sample: SHOP-17 → SHOP-18 → SHOP-20 ← SHOP-19,
-//! SHOP-21 depending on SHOP-20, the hotfix SHOP-31 on `release/2.3`, and SHOP-50 depending on epic SHOP-40.
+//! SHOP-21 depending on SHOP-20, the hotfix SHOP-31 on `release/2.3`.
 
 use crate::common::{Fixture, me, shop_input};
 use otaq_core::board::Refusal;
@@ -191,79 +191,6 @@ async fn linked_tickets_share_a_base() {
         .add_dependency("SHOP-31", "SHOP-20", &me())
         .await
         .unwrap();
-}
-
-#[tokio::test]
-async fn depending_on_an_epic() {
-    let f = sample().await;
-    f.skip_to(40).await;
-    let epic = f.epic("Wishlist").await;
-    assert_eq!(epic.key.to_string(), "SHOP-40");
-    let c1 = f.child(&epic, "Wishlist API").await;
-    let c2 = f.child(&epic, "Wishlist UI").await;
-    f.skip_to(50).await;
-    let dependent = f.create("Share wishlist").await;
-    assert_eq!(dependent.key.to_string(), "SHOP-50");
-
-    f.board
-        .add_dependency("SHOP-50", "SHOP-40", &me())
-        .await
-        .unwrap();
-    // Siblings share the epic's branch.
-    f.board
-        .add_dependency(&c2.key.to_string(), &c1.key.to_string(), &me())
-        .await
-        .unwrap();
-
-    let err = f
-        .board
-        .add_dependency(&c1.key.to_string(), "SHOP-40", &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::DependsOnOwnEpic));
-    let err = f
-        .board
-        .add_dependency(&c1.key.to_string(), "SHOP-20", &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::CrossBase));
-    assert_eq!(
-        err.to_string(),
-        "SHOP-40.1 merges into the epic's branch (SHOP-40), SHOP-20 into `main`. Linked tickets must use the same base branch."
-    );
-
-    let hotfix = f
-        .create_with(NewTicketInput {
-            title: "Hotfix".into(),
-            base_branch: Some("release/2.3".into()),
-            ..shop_input()
-        })
-        .await;
-    let err = f
-        .board
-        .add_dependency(&hotfix.key.to_string(), "SHOP-40", &me())
-        .await
-        .unwrap_err();
-    assert_eq!(
-        err.refusal(),
-        Some(Refusal::CrossBase),
-        "a dependent needs the epic's base"
-    );
-
-    // The epic's base can't move away from its dependents' base.
-    let err = f
-        .board
-        .update_ticket(
-            "SHOP-40",
-            &TicketUpdate {
-                base_branch: Some("develop".into()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::CrossBase));
 }
 
 #[tokio::test]

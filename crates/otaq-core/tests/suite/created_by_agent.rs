@@ -1,4 +1,4 @@
-//! A ticket an agent created (T-0500, #47; d0016, d0083, d0091): `otaq create` from a ticket's agent or an epic lead
+//! A ticket an agent created (T-0500, #47; d0016, d0083, d0091): `otaq create` from a ticket's agent
 //! (sent from inside its session, an ordinary `sh` running `nc`) tells the app with `created_by_agent`, naming the
 //! creator and where the ticket landed, and the creating ticket's History logs it. The user's and a Project agent's
 //! creations tell nothing (its agent panel lists them).
@@ -15,8 +15,7 @@ use otaq_core::service::testing::{AgentShell, TestService, path_without_build_fo
 use serde_json::{Value, json};
 use tokio::sync::broadcast::Receiver;
 
-/// The sample board, with `claude` an interactive `sh` in the service's data folder (for the lead and the Project
-/// agent).
+/// The sample board, with `claude` an interactive `sh` in the service's data folder (for the Project agent).
 async fn world() -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let data = home.path().join("h");
@@ -73,7 +72,7 @@ fn created(events: &mut Receiver<Event>) -> Vec<(String, String, Status)> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_s_and_a_lead_s_new_tickets_tell_the_app_the_user_s_and_a_project_agent_s_dont() {
+async fn an_agent_s_new_tickets_tell_the_app_the_user_s_and_a_project_agent_s_dont() {
     let w = world().await;
     let mut events = w.events.subscribe();
 
@@ -104,20 +103,6 @@ async fn an_agent_s_and_a_lead_s_new_tickets_tell_the_app_the_user_s_and_a_proje
     assert_eq!(
         logged.payload,
         json!({"child": key, "title": "Fix the broken build", "to": "backlog"})
-    );
-
-    // An epic lead's new child: named by the lead.
-    let lead = w.project_agents.leads().open("SHOP-40").await.unwrap();
-    let lead_shell = w.shell_in(&lead.agent.session.as_ref().unwrap().id);
-    let child = create_from(
-        &w,
-        &lead_shell,
-        json!({"project": "SHOP", "title": "Wishlist empty state", "epic": "SHOP-40"}),
-    )
-    .await;
-    assert_eq!(
-        created(&mut events),
-        [(child, "Wishlist lead".to_owned(), Status::Backlog)]
     );
 
     // A Project agent's: its agent panel's "Created" list has it, no toast.

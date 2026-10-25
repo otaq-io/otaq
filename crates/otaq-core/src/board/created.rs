@@ -54,7 +54,7 @@ impl Board {
         };
         let ids: Vec<(String,)> = sqlx::query_as(
             "SELECT id FROM tickets WHERE created_in_session = ? AND created_at > ?
-             ORDER BY created_at, number, child_number",
+             ORDER BY created_at, number",
         )
         .bind(&session)
         .bind(dismissed_at.unwrap_or(0))

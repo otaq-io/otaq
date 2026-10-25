@@ -4,16 +4,10 @@
 //!
 //! Groups, in order:
 //! 1. the needs-you family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
-//!    (d0045; M10 adds agent-to-agent questions routed to Needs you). An epic child's question that went to its live
-//!    lead is no item until the lead passes it on or hands it back (LEAD-06). Nor is a child's first stop that went
-//!    to its live lead (LEAD-07); its second stop's item carries the lead's note and view;
-//!
-//! 1b. an epic lead's suggestions to close or delete a child (LEAD-08, d0083): no OS notification, they block no
-//!    agent;
+//!    (d0045; M10 adds agent-to-agent questions routed to Needs you);
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
 //! 3. "Waiting for you in a check or a delivery" (FLW-14, FLW-15, STG-11; d0108 smaller rule 13): waiting in a human
-//!    check (on the default flow Ready for Review, tickets and epics, an epic at its own stop, Review epic
-//!    included), or To deliver in a **click-mode** Delivery only (Q265): an automatic Delivery's card delivers by
+//!    check (on the default flow Ready for Review), or To deliver in a **click-mode** Delivery only (Q265): an automatic Delivery's card delivers by
 //!    itself. Each item names its stage ([`WaitingIn`]).
 //!
 //! Inside a group, tickets that block more tickets come first, then the oldest (the longest in that status),
@@ -29,7 +23,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::epic_flight::{REVIEW_EPIC, epic_stop};
 use super::merge::DELIVERY_CONFLICT_LIMIT;
 use super::order::blocked_counts;
 use super::readiness::{ReadyState, readiness};
@@ -48,8 +41,6 @@ use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 pub enum NeedsYouGroup {
     /// Asks you, Needs you, Idle.
     Family,
-    /// An epic lead's suggestions (LEAD-08): right after group 1, never notified.
-    Suggestions,
     /// Interrupted, Start interrupted, Resume failed, Parent closed.
     Stopped,
     /// Waiting in a human check or a click Delivery: Ready for Review (and To deliver).
@@ -90,13 +81,12 @@ pub fn waits_for_click(ticket: &Ticket) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WaitingIn {
     pub stage: String,
-    /// Its name: "Review", "QA", "Review epic".
+    /// Its name: "Review", "QA".
     pub name: String,
-    /// Closest to Done ranks highest: twice the stage's position in the project's flow, the implicit Review epic
-    /// stop one before the Delivery's.
+    /// Closest to Done ranks highest: twice the stage's position in the project's flow.
     pub rank: u32,
-    /// Waiting at its Delivery (To deliver): what the click does, a Local merge or Open PR (an epic child always
-    /// merges locally). `None` in a human check.
+    /// Waiting at its Delivery (To deliver): what the click does, a Local merge or Open PR. `None` in a human
+    /// check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivers: Option<crate::flow::model::Delivers>,
 }
@@ -104,21 +94,10 @@ pub struct WaitingIn {
 /// Where a group 3 ticket waits, from its project's flow; `None` for a stage the flow doesn't have.
 fn waiting_in(ticket: &Ticket, flow: &Flow) -> Option<WaitingIn> {
     let id = ticket.place.stage()?;
-    let rank = |i: usize| u32::try_from(i * 2).unwrap_or(u32::MAX);
-    let (name, rank) = match flow.position(id) {
-        Some(i) => (flow.stages[i].name.clone(), rank(i)),
-        // An epic at the implicit Review epic stop: just before the Delivery (d0108 rule 7).
-        None if id == REVIEW_EPIC => {
-            let delivery = flow.stages.iter().position(|s| s.is_delivery())?;
-            (epic_stop(flow).name, rank(delivery).saturating_sub(1))
-        }
-        None => return None,
-    };
-    let delivers = flow
-        .stage(id)
-        .filter(|s| s.is_delivery())
-        .and_then(|_| super::epic_flight::delivery_of(flow, ticket))
-        .map(|d| d.delivers);
+    let i = flow.position(id)?;
+    let name = flow.stages[i].name.clone();
+    let rank = u32::try_from(i * 2).unwrap_or(u32::MAX);
+    let delivers = flow.stage(id).and_then(|s| s.delivery).map(|d| d.delivers);
     Some(WaitingIn {
         stage: id.to_owned(),
         name,
@@ -178,14 +157,6 @@ pub struct NeedsYouItem {
     /// question's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<QuestionItem>,
-    /// An epic lead's suggestion (LEAD-08): the item is the child's, `id` is the suggestion's and `reason` the
-    /// headline "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suggestion: Option<SuggestionItem>,
-    /// The second stop of a stuck epic child (LEAD-07): the note its lead sent at the first stop, with the lead's
-    /// view ("LEAD'S NOTE · SENT AFTER THE FIRST 3 FAILURES", "LEAD'S VIEW"). The lead isn't woken a second time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lead_note: Option<crate::domain::LeadNoteSent>,
     /// The tool refused the model of this role's agent (AGT-05, SDD §7.2 `[M22]`): the item offers Change agent
     /// (Developer: a Start failed ticket) or Change validator (Validator: No result) in place of its first action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -193,19 +164,6 @@ pub struct NeedsYouItem {
     /// Group 3: the stage it waits in (FLW-14: each row names its stage).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_in: Option<WaitingIn>,
-}
-
-/// The lead's suggestion behind a [`NeedsYouGroup::Suggestions`] item: Close… / Delete… confirms it
-/// (`suggestion.confirm`), Dismiss dismisses it (`suggestion.dismiss`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SuggestionItem {
-    pub id: String,
-    pub epic: TicketKey,
-    /// "Wishlist lead".
-    pub lead: String,
-    pub kind: crate::epic_lead::suggest::SuggestionKind,
-    /// The lead's reason: "PAY-123 doesn't ask for an export."
-    pub reason: String,
 }
 
 /// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
@@ -274,11 +232,6 @@ pub fn needs_you_items_with(
                     blocked: u32::try_from(blocks.get(&ticket.key).copied().unwrap_or(0))
                         .unwrap_or(u32::MAX),
                     message: None,
-                    suggestion: None,
-                    lead_note: ticket.flags.lead_note_sent.clone().filter(|_| {
-                        use crate::epic_lead::stuck::is_stop;
-                        is_stop(ticket.status) || ticket.interrupted_from.is_some_and(is_stop)
-                    }),
                     change_agent: change_agent(ticket),
                     waiting_in,
                 })
@@ -350,15 +303,9 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
     match ticket.status {
         Status::AsksYou => {
             let question = ticket.question.as_ref().map(|q| q.text.trim()).or(signal);
-            // A question its epic's lead passed on (LEAD-06): "asks · passed on by Wishlist lead: …".
-            let asks = match ticket.question.as_ref().and_then(|q| q.via_lead.as_ref()) {
-                Some(via) => format!("asks \u{b7} passed on by {}", via.lead),
-                None => "asks".to_owned(),
-            };
             match question {
-                Some(q) => format!("{asks}: {q}"),
-                None if asks == "asks" => "asks you".into(),
-                None => asks,
+                Some(q) => format!("asks: {q}"),
+                None => "asks you".into(),
             }
         }
         Status::NeedsYou => match signal {
@@ -511,54 +458,6 @@ impl Board {
                     target_status: target.status,
                     question,
                 }),
-                suggestion: None,
-                lead_note: None,
-                change_agent: None,
-                waiting_in: None,
-            });
-        }
-        // The epic leads' suggestions (LEAD-08), while their child hasn't started or closed.
-        for suggestion in crate::epic_lead::suggest::open(self).await? {
-            let (Some((project, child)), Some((_, epic))) = (
-                find(&views, &suggestion.child_id),
-                find(&views, &suggestion.epic_id),
-            ) else {
-                continue;
-            };
-            if !crate::epic_lead::suggest::shown(&suggestion, child) {
-                continue;
-            }
-            let lead = crate::project_agents::lead::lead_name(&epic.title);
-            let blocks = blocked_counts(project.tickets);
-            items.push(NeedsYouItem {
-                group: NeedsYouGroup::Suggestions,
-                project: project.key.to_owned(),
-                project_name: project.name.to_owned(),
-                id: suggestion.id.clone(),
-                key: child.key.clone(),
-                title: child.title.clone(),
-                status: child.status,
-                interrupted_from: None,
-                question: None,
-                reason: crate::epic_lead::suggest::headline(
-                    &lead,
-                    suggestion.kind,
-                    &child.key,
-                    &child.title,
-                ),
-                since: suggestion.created_at,
-                age_ms: (now - suggestion.created_at).max(0),
-                blocked: u32::try_from(blocks.get(&child.key).copied().unwrap_or(0))
-                    .unwrap_or(u32::MAX),
-                message: None,
-                suggestion: Some(SuggestionItem {
-                    id: suggestion.id,
-                    epic: epic.key.clone(),
-                    lead,
-                    kind: suggestion.kind,
-                    reason: suggestion.reason,
-                }),
-                lead_note: None,
                 change_agent: None,
                 waiting_in: None,
             });

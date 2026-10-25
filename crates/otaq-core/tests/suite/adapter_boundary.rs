@@ -295,16 +295,6 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "`fixtures`, Settings → Agents' sample agents and model lists on every tool for tests (T-0361, T-0405)",
     },
     Exception {
-        path: "otaq-view/src/view_models/lead_tab.rs",
-        pattern: "Tool::Claude",
-        reason: "the lead tab's fixtures, for tests and the design gallery",
-    },
-    Exception {
-        path: "otaq-view/src/view_models/lead_status.rs",
-        pattern: "Tool::Claude",
-        reason: "`sample`, a lead for tests and the design gallery",
-    },
-    Exception {
         path: "otaq-view/src/view_models/overview.rs",
         pattern: "Tool::Claude",
         reason: "`fixtures`, SHOP-22's comments and reports for tests and the design gallery (T-0465)",

@@ -1,5 +1,5 @@
 //! The copy writer (AGM-07; d0098, d0092): Otaq's copy of a skill in a working folder (a ticket's worktree, or the
-//! project's checkout while a Project agent or an epic lead runs there, 0023's exception) is written twice, as
+//! project's checkout while a Project agent runs there, 0023's exception) is written twice, as
 //! `.agents/skills/<name>/` (where Codex, Copilot and OpenCode look) and `.claude/skills/<name>/` (Claude Code and
 //! Copilot), `<name>` being [`crate::naming::copy_name`]. Each folder holds the skill's files with their modes, a
 //! `.gitignore` holding `*` (so neither shows in `git status` or a commit) and **Otaq's marker** ([`marker_file`]);
@@ -36,9 +36,9 @@ pub fn marker_file() -> String {
 /// What a copy is for, written into its marker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Marker {
-    /// A session in a ticket's worktree (or an epic's delivery worktree).
+    /// A session in a ticket's worktree.
     Worktree,
-    /// A Project agent or an epic lead in the project's checkout: removed when no running one needs it.
+    /// A Project agent in the project's checkout: removed when no running one needs it.
     Checkout,
 }
 

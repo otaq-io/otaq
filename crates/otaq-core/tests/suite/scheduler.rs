@@ -10,12 +10,10 @@ use std::time::Duration;
 use crate::common::{Fixture, me};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::{Base, NewTicketInput, StartProblem, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Priority, StartStep, Status, TicketKey};
-use otaq_core::epic_lead::wake::LeadWait;
+use otaq_core::domain::{Actor, Flags, Priority, StartStep, Status, TicketKey};
 use otaq_core::protocol::Event;
 use otaq_core::scheduler::{
-    Gate, Holds, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, plan_holding,
-    plan_with, stock_limit, waiting_for_lead,
+    Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, plan_holding, stock_limit,
 };
 use otaq_core::service::EventBus;
 use otaq_core::start::Starter;
@@ -25,20 +23,15 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
     Ticket {
         id: key.into(),
         key: key.parse::<TicketKey>().unwrap(),
-        kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -57,8 +50,6 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 
@@ -201,24 +192,6 @@ fn start_order_pins_then_priority_then_ready_the_longest() {
     assert!(pass.ready_since.contains(&("SHOP-7".into(), None)));
 }
 
-/// EPC-17 (d0080): a pinned epic's children start first, as if each were pinned. SHOP-40 pinned, SHOP-51 not,
-/// both P3 and SHOP-51 queued earlier: SHOP-40.1 starts first; SHOP-51 pinned later than SHOP-40: SHOP-51 first.
-#[test]
-fn a_pinned_epics_children_start_first() {
-    let mut epic = t("SHOP-40", Status::Backlog, 0);
-    epic.kind = Kind::Epic;
-    epic.flags.pinned_at = Some(100);
-    let mut child = t("SHOP-40.1", Status::Queued, 50);
-    child.epic = Some(epic.key.clone());
-    let shop51 = t("SHOP-51", Status::Queued, 10);
-    let mut board = [epic, child, shop51];
-    let pass = plan(&board, &HashSet::new(), &Gate::default());
-    assert_eq!(keys(&pass.start), ["SHOP-40.1", "SHOP-51"]);
-    board[2].flags.pinned_at = Some(200);
-    let pass = plan(&board, &HashSet::new(), &Gate::default());
-    assert_eq!(keys(&pass.start), ["SHOP-51", "SHOP-40.1"]);
-}
-
 #[test]
 fn the_scheduler_never_queues_retries_or_touches_other_states() {
     let mut board: Vec<Ticket> = [
@@ -277,68 +250,6 @@ fn a_paused_project_starts_nothing_and_a_waiting_flow_change_holds_only_ready_fo
     assert!(paused.changes.is_empty(), "they wait as they are");
     let flow_change = plan_holding(&board, &none, &Gate::default(), &bill, &none);
     assert_eq!(keys(&flow_change.start), ["SHOP-1", "SHOP-2", "BILL-2"]);
-}
-
-/// d0124: with a live lead, a child that a sibling finished since the lead's session started waits for the lead's
-/// turn about it; a sibling outside the epic, or one that finished before the lead started, holds nothing; a turn
-/// that ended releases it until the sibling finishes again; `freed` holds a child whose link the lead removed.
-#[test]
-fn freed_children_wait_for_the_leads_turn() {
-    let child = |key: &str, status: Status, at: i64| {
-        let mut c = t(key, status, 0);
-        c.epic = Some("SHOP-40".parse().unwrap());
-        c.status_since = Some(at);
-        c
-    };
-    let api = child("SHOP-40.1", Status::Merged, 200);
-    let mut other = t("SHOP-7", Status::Merged, 0);
-    other.status_since = Some(200);
-    let old = child("SHOP-40.2", Status::Merged, 50);
-    let page = deps(child("SHOP-40.3", Status::Queued, 0), &["SHOP-40.1"]);
-    let outside = deps(
-        child("SHOP-40.4", Status::Queued, 0),
-        &["SHOP-7", "SHOP-40.2"],
-    );
-    let unlinked = child("SHOP-40.5", Status::Queued, 0);
-    let board = [api, other, old, page, outside, unlinked];
-    let mut wait = LeadWait {
-        epic: "SHOP-40".parse().unwrap(),
-        since: 100,
-        released: HashMap::new(),
-        freed: HashSet::from(["SHOP-40.5".to_owned()]),
-    };
-    let ids = |w: &LeadWait| {
-        let mut ids: Vec<String> = waiting_for_lead(&board, std::slice::from_ref(w))
-            .into_iter()
-            .collect();
-        ids.sort();
-        ids
-    };
-    assert_eq!(ids(&wait), ["SHOP-40.3", "SHOP-40.5"]);
-    assert!(waiting_for_lead(&board, &[]).is_empty(), "no live lead");
-
-    // They don't start, and wait in Queued.
-    let lead: HashSet<String> = waiting_for_lead(&board, std::slice::from_ref(&wait));
-    let none = HashSet::new();
-    let pass = plan_with(
-        &board,
-        &none,
-        &Gate::default(),
-        &Holds {
-            flow: &HashMap::new(),
-            paused: &none,
-            lead: &lead,
-        },
-    );
-    assert_eq!(keys(&pass.start), ["SHOP-40.4"]);
-
-    // The turn about 40.1 ended; the lead's turn about the close of 40.5's old parent too.
-    wait.released.insert("SHOP-40.1".into(), 300);
-    wait.freed.clear();
-    assert!(ids(&wait).is_empty());
-    // 40.1 finished again (reopened, merged) after that: 40.3 waits again.
-    wait.released.insert("SHOP-40.1".into(), 150);
-    assert_eq!(ids(&wait), ["SHOP-40.3"]);
 }
 
 #[test]

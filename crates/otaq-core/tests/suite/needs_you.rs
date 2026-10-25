@@ -7,7 +7,7 @@ use otaq_core::board::needs_you::{
 };
 use otaq_core::board::questions::HumanQuestion;
 use otaq_core::board::tickets::{AgentSignal, Base, NewTicketInput, StartProblem, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, StartStep, Status, TicketKey};
+use otaq_core::domain::{Actor, Flags, StartStep, Status, TicketKey};
 use otaq_core::store::now_ms;
 
 const NOW: i64 = 1_791_600_000_000;
@@ -17,20 +17,15 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
     Ticket {
         id: key.into(),
         key: key.parse::<TicketKey>().unwrap(),
-        kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
         priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
         place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,
@@ -49,8 +44,6 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
     }
 }
 
@@ -85,7 +78,6 @@ fn shop_web() -> Vec<Ticket> {
         recommended: None,
         notes: Vec::new(),
         asked_at: NOW - 6 * MIN,
-        via_lead: None,
     });
     let mut start = t("SHOP-28", "Cart badge count", Status::StartInterrupted, 20);
     start.start_problem = Some(StartProblem {

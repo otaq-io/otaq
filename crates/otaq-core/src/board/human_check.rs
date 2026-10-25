@@ -17,7 +17,6 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::epic_flight::epic_flow;
 use super::stage_runs::{Moved, StageRun};
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
@@ -77,15 +76,6 @@ impl Arrival {
     }
 }
 
-/// The flow a ticket walks: its project's, or an epic's own ([`epic_flow`]).
-fn walks(flow: Flow, ticket: &Ticket) -> Flow {
-    if ticket.is_epic() {
-        epic_flow(&flow)
-    } else {
-        flow
-    }
-}
-
 impl Board {
     /// Where the user's Pass takes `ticket` (STG-06): refused unless it waits in a human check.
     pub(crate) async fn pass_step(&self, ticket: &Ticket) -> Result<Moved, BoardError> {
@@ -113,7 +103,6 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let flow = walks(flow, ticket);
         let from = ticket.place.stage().unwrap_or_default();
         let name = flow
             .stage(from)
@@ -185,10 +174,7 @@ impl Board {
         let Some(here) = ticket.place.stage() else {
             return Ok(None);
         };
-        let flow = walks(
-            self.effective_flow(ticket.key.project.as_str()).await?,
-            &ticket,
-        );
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let runs = self.stage_runs(key).await?;
         let Some(at) = runs.iter().rposition(|r| r.stage == here) else {
             return Ok(None);
@@ -212,7 +198,7 @@ impl Board {
 
     /// [`Board::arrival`] for every ticket of a project that waits in a human check or at its Delivery (To deliver),
     /// by ticket id: the cards' "Passed Security · round 2", "Skipped Security · by you" (FLW-14, FLW-15). `flow` is
-    /// the project's applied flow (an epic walks its own).
+    /// the project's applied flow.
     pub(crate) async fn project_arrivals(
         &self,
         project_id: &str,
@@ -228,16 +214,9 @@ impl Board {
             .map(|s| format!("'{s}'"))
             .collect::<Vec<_>>()
             .join(", ");
-        type Row = (
-            String,
-            String,
-            Option<String>,
-            String,
-            Option<i64>,
-            Option<String>,
-        );
+        type Row = (String, Option<String>, String, Option<i64>, Option<String>);
         let sql = format!(
-            "SELECT t.id, t.kind, t.stage_id, r.stage_id, r.round, r.result
+            "SELECT t.id, t.stage_id, r.stage_id, r.round, r.result
              FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
              WHERE t.project_id = ? AND t.state IN ({states})
              ORDER BY t.id, r.started_at, r.rowid"
@@ -254,13 +233,10 @@ impl Board {
         .bind(project_id)
         .fetch_all(self.store.pool())
         .await?;
-        let epic = epic_flow(flow);
-        let mut runs: HashMap<String, (bool, Option<String>, Vec<StageRun>)> = HashMap::new();
-        for (id, kind, here, stage, round, result) in rows {
-            let entry = runs
-                .entry(id)
-                .or_insert_with(|| (kind == "epic", here, Vec::new()));
-            entry.2.push(StageRun {
+        let mut runs: HashMap<String, (Option<String>, Vec<StageRun>)> = HashMap::new();
+        for (id, here, stage, round, result) in rows {
+            let entry = runs.entry(id).or_insert_with(|| (here, Vec::new()));
+            entry.1.push(StageRun {
                 stage,
                 kind: String::new(),
                 session: None,
@@ -275,11 +251,10 @@ impl Board {
         }
         Ok(runs
             .into_iter()
-            .filter_map(|(id, (is_epic, here, runs))| {
+            .filter_map(|(id, (here, runs))| {
                 let here = here?;
                 let at = runs.iter().rposition(|r| r.stage == here)?;
                 let before = runs[..at].last()?;
-                let flow = if is_epic { &epic } else { flow };
                 let skipped_by: Vec<(String, String)> = choices
                     .iter()
                     .filter(|(t, _, _)| *t == id)

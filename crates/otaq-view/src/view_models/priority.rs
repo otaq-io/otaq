@@ -190,11 +190,11 @@ mod tests {
 
     #[test]
     fn a_change_is_a_ticket_update_with_the_priority_only() {
-        let key: TicketKey = "SHOP-40.2".parse().unwrap();
+        let key: TicketKey = "SHOP-42".parse().unwrap();
         let Request::TicketUpdate(params) = request(&key, Priority::Low) else {
             panic!("not an update");
         };
-        assert_eq!(params.key, "SHOP-40.2");
+        assert_eq!(params.key, "SHOP-42");
         assert_eq!(
             params.update,
             TicketUpdate {

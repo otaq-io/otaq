@@ -5,7 +5,6 @@ import type { EditorPriorityOption } from "./EditorPriorityOption";
 import type { EditorReadView } from "./EditorReadView";
 import type { EditorReportField } from "./EditorReportField";
 import type { EditorTexts } from "./EditorTexts";
-import type { MenuItem } from "./MenuItem";
 import type { StageChoicesView } from "./StageChoicesView";
 
 /**
@@ -21,17 +20,9 @@ key: string | null, project: string, project_name: string,
  */
 heading: string, texts: EditorTexts, form: EditorForm, priorities: Array<EditorPriorityOption>, 
 /**
- * The priority shown while none is picked: Normal, or the epic's.
+ * The priority shown while none is picked: Normal.
  */
-shown_priority: number, follows: string | null, 
-/**
- * Create only: "No epic" (id "") and the open epics (a new ticket can go into one; fixed once created).
- */
-epic_menu: Array<MenuItem>, base: EditorBaseField, 
-/**
- * Standalone tickets and epics; not epic children.
- */
-external_id_shown: boolean, 
+shown_priority: number, base: EditorBaseField, external_id_shown: boolean, 
 /**
  * "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
  */

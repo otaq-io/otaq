@@ -7,19 +7,15 @@
 // (`list_view.rs`, inside `board.view`). The Board (`board/Board.tsx`) owns the drag, the menu and the keys: a row is
 // pressed, clicked and dragged as a card is (`board.drag` / `board.drop`), and a group that is a drop target (Group by
 // Stage) registers its element so a row dragged onto Ready queues it with the drop zone's words; Done's "show" sends
-// its fold (`board.set_view`). Grouped by Epic (EPL-02), each epic is a parent row (its fold chevron, key or External
-// ID, name, track, "1 of 5 merged · Wishlist lead is re-planning" and its lead) with its children's rows under it; a
-// click on the parent opens the epic.
+// its fold (`board.set_view`).
 import { type KeyboardEvent, memo, type PointerEvent, useLayoutEffect, useRef } from "react";
 
 import { paletteInk, toneInk } from "../../cards/look";
 import { Button, PriorityChip, ToolAvatar, Tooltip } from "../../components";
-import { LeadStatus } from "../../components/LeadStatus";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { ListGroup } from "../../generated/ListGroup";
-import type { ListParent } from "../../generated/ListParent";
 import type { ListRow } from "../../generated/ListRow";
 import type { ListTrack } from "../../generated/ListTrack";
 import type { ListView } from "../../generated/ListView";
@@ -36,8 +32,6 @@ export interface ListHandlers {
   /** Start on a Backlog row: the drop ⌘D sends. */
   start: (key: string, target: BoardDropTarget) => void;
   menu: (key: string, at: { left: number; top: number }) => void;
-  /** A click (or ↵) on an epic's parent row: opens the epic. */
-  open: (key: string) => void;
 }
 
 export interface ListProps {
@@ -52,7 +46,7 @@ export interface ListProps {
   onView: (change: ViewChange) => void;
 }
 
-/** A row's track: a step per stage, then its place (the epic sheet's Tickets tab draws it too). */
+/** A row's track: a step per stage, then its place. */
 export function Track({ track }: { track: ListTrack }) {
   return (
     <span className="list-track">
@@ -80,7 +74,7 @@ export interface RowProps {
   handlers: ListHandlers;
 }
 
-/** One ticket's row (LST-01); the epic sheet's Tickets tab draws its children with it (SHT-07). */
+/** One ticket's row (LST-01). */
 export const Row = memo(function Row({ row, target, selected, lifted, focusable, handlers }: RowProps) {
   const { card } = row;
   const key = card.key;
@@ -184,72 +178,6 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
   );
 });
 
-interface ParentProps {
-  parent: ListParent;
-  handlers: ListHandlers;
-  onView: ListProps["onView"];
-}
-
-/** An epic's parent row (EPL-02): the fold chevron in the icon's place, then as a row. */
-function Parent({ parent, handlers, onView }: ParentProps) {
-  const { row } = parent;
-  const stop = (e: { stopPropagation: () => void }) => {
-    e.stopPropagation();
-  };
-  return (
-    <div
-      className="list-row list-parent"
-      data-edge={row.needs_you ? "attention" : undefined}
-      style={row.needs_you ? { borderLeftColor: toneInk("attention").fg } : undefined}
-      role="button"
-      tabIndex={-1}
-      aria-label={`${row.key} ${row.name}`}
-      onClick={() => {
-        handlers.open(row.key);
-      }}
-      onKeyDown={(e) => {
-        if (e.target === e.currentTarget && e.key === "Enter") handlers.open(row.key);
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        handlers.menu(row.key, { left: e.clientX, top: e.clientY });
-      }}
-    >
-      <Tooltip text={parent.fold_label}>
-        <button
-          type="button"
-          className="list-parent-fold"
-          aria-label={parent.fold_label}
-          aria-expanded={!parent.folded}
-          onClick={(e) => {
-            stop(e);
-            onView(parent.fold);
-          }}
-        >
-          <Icon name={parent.folded ? "chevron-right" : "chevron-down"} size={14} />
-        </button>
-      </Tooltip>
-      <span className="list-row-key">{row.external_id ?? row.key}</span>
-      <span className="list-row-title">
-        <span className="list-row-epic">
-          <Icon name="layers" size={11} />
-        </span>
-        <Tooltip text={row.name}>
-          <span className="list-row-title-text">{row.name}</span>
-        </Tooltip>
-      </span>
-      <Track track={parent.track} />
-      <span className="list-row-status">{row.line}</span>
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- only keeps the click from opening the epic; the lead's status is the control */}
-      <span className="list-row-who" onClick={stop}>
-        {row.lead && <LeadStatus lead={row.lead} form="short" />}
-      </span>
-      <span />
-      <span />
-    </div>
-  );
-}
-
 interface GroupProps {
   group: ListGroup;
   selected: string | null;
@@ -305,26 +233,17 @@ function Group({ group, selected, lifted, tabStop, verdict, handlers, element, o
         {verdict?.kind === "forbidden" && <span className="list-group-refused">{verdict.title}</span>}
       </div>
       {group.empty !== null && <div className="list-group-empty">{group.empty}</div>}
-      {group.entries.map((entry) => {
-        const draw = (row: ListRow) => (
-          <Row
-            key={row.card.key}
-            row={row}
-            target={target}
-            selected={row.card.key === selected}
-            lifted={row.card.key === lifted}
-            focusable={row.card.key === tabStop}
-            handlers={handlers}
-          />
-        );
-        if (entry.kind === "ticket") return draw(entry.row);
-        return (
-          <div key={entry.parent.row.key} className="list-family">
-            <Parent parent={entry.parent} handlers={handlers} onView={onView} />
-            {entry.parent.children.map(draw)}
-          </div>
-        );
-      })}
+      {group.entries.map(({ row }) => (
+        <Row
+          key={row.card.key}
+          row={row}
+          target={target}
+          selected={row.card.key === selected}
+          lifted={row.card.key === lifted}
+          focusable={row.card.key === tabStop}
+          handlers={handlers}
+        />
+      ))}
     </section>
   );
 }

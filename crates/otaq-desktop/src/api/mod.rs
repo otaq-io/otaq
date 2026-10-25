@@ -27,8 +27,8 @@ pub use ask_bar::export_types as export_ask_bar_types;
 #[cfg(test)]
 pub use board::{
     DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
-    FocusParams as BoardFocusParams, MenuParams as CardMenuParams, SearchParams,
-    SetViewParams as BoardSetViewParams, TicketParams as BoardTicketParams,
+    MenuParams as CardMenuParams, SearchParams, SetViewParams as BoardSetViewParams,
+    TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
 pub use dependencies::export_types as export_dependency_types;
@@ -43,8 +43,6 @@ pub use editor::{
     CompareParams as EditorCompareParams, SaveOutcome as EditorSaved,
     SaveParams as EditorSaveParams, SourceModeParams as EditorSourceModeParams, View as EditorView,
 };
-#[cfg(test)]
-pub use epic::export_types as export_epic_types;
 #[cfg(test)]
 pub use file_links::{FileLinkCheck, FileLinksFind};
 #[cfg(test)]
@@ -62,8 +60,6 @@ pub use flow_editor::export_types as export_flow_editor_types;
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use layout::AgentPanelWidthParams as LayoutAgentPanelWidthParams;
-#[cfg(test)]
-pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
 pub use notices::{
     DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId, ToastPress,
@@ -112,8 +108,7 @@ pub use run::{
 pub use sections::NoteRequest as CreateFromNoteParams;
 #[cfg(test)]
 pub use sections::{
-    AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, HistoryView,
-    MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams,
+    AnswerMessage as AnswerMessageParams, HistoryView, MessagesView, Params as SectionParams,
 };
 #[cfg(test)]
 pub use settings::{
@@ -209,7 +204,6 @@ areas! {
     pr,
     recovery,
     run,
-    lead,
     usage,
     agent_panel,
     ask_bar,
@@ -222,7 +216,6 @@ areas! {
     ticket_comments,
     report,
     overview,
-    epic,
     dependencies,
 }
 

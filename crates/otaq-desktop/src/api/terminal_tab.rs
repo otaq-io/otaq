@@ -992,11 +992,9 @@ mod tests {
             .service
             .send(Request::TicketCreate(NewTicketInput {
                 project: project.key.clone(),
-                kind: Default::default(),
                 title: "Price table".into(),
                 body: String::new(),
                 priority: None,
-                epic: None,
                 base_branch: None,
                 external_id: None,
                 first_comment: None,

@@ -283,11 +283,8 @@ const FEATURES: &[&str] = &[
     // The board.
     "board.drop",
     "board.park",
-    "board.park_all",
     "board.delete",
     "board.search",
-    "board.lead_open",
-    "board.lead_resume",
     "board.menu_choose",
     // The ticket editor.
     "editor.save",
@@ -319,7 +316,6 @@ const FEATURES: &[&str] = &[
     // The Needs you strip.
     "strip.next",
     "strip.resume_all",
-    "strip.suggestion",
     // Epics.
     "sections.create_from_note",
     "sections.move_to_epic",

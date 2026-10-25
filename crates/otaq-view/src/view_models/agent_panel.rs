@@ -663,7 +663,6 @@ pub fn gallery() -> Gallery {
             ..Default::default()
         },
         session: None,
-        epic: None,
         turn_ended_at: None,
     };
     let mut working = agent("a1", "Search slowness", 3);
@@ -881,7 +880,6 @@ fn gallery_agent(id: &str, name: &str) -> ProjectAgent {
             ..Default::default()
         },
         session: None,
-        epic: None,
         turn_ended_at: None,
     }
 }
@@ -948,7 +946,6 @@ mod tests {
                 ..Default::default()
             },
             session: None,
-            epic: None,
             turn_ended_at: None,
         }
     }
@@ -1149,7 +1146,6 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
-            via_lead: None,
         });
         assert_eq!(
             pill(&a),

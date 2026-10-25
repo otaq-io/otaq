@@ -1,5 +1,4 @@
-//! Priorities (T-0177, TKT-09; d0065): the default, an epic child following its epic, its own override, and
-//! pinning leaving the field alone.
+//! Priorities (T-0177, TKT-09; d0065): the default, never empty in the store, and pinning leaving the field alone.
 
 use crate::common::{Fixture, agent, me, shop_input};
 use otaq_core::board::tickets::{NewTicketInput, TicketUpdate};
@@ -13,14 +12,22 @@ fn set(priority: Priority) -> TicketUpdate {
 }
 
 #[tokio::test]
-async fn new_tickets_and_epics_are_normal() {
+async fn new_tickets_are_normal() {
     let f = Fixture::shop().await;
     let ticket = f.create("Checkout").await;
-    let epic = f.epic("Wishlist").await;
-    for t in [&ticket, &epic] {
-        assert_eq!(t.priority, Priority::Normal);
-        assert!(!t.priority_inherited);
-    }
+    assert_eq!(ticket.priority, Priority::Normal);
+    // Never NULL in the store (migration 0066).
+    let stored: i64 = sqlx::query_scalar("SELECT priority FROM tickets WHERE id = ?")
+        .bind(&ticket.id)
+        .fetch_one(f.board.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(stored, 3);
+    let null = sqlx::query("UPDATE tickets SET priority = NULL WHERE id = ?")
+        .bind(&ticket.id)
+        .execute(f.board.store().pool())
+        .await;
+    assert!(null.is_err(), "priority is NOT NULL");
     let urgent = f
         .create_with(NewTicketInput {
             title: "Payments down".into(),
@@ -29,56 +36,6 @@ async fn new_tickets_and_epics_are_normal() {
         })
         .await;
     assert_eq!(urgent.priority, Priority::Urgent);
-}
-
-#[tokio::test]
-async fn children_follow_their_epic_until_they_have_their_own() {
-    let f = Fixture::shop().await;
-    let epic = f.epic("Wishlist").await;
-    let key = epic.key.to_string();
-    f.board
-        .update_ticket(&key, &set(Priority::High), &me())
-        .await
-        .unwrap();
-    let child = f.child(&epic, "API").await;
-    let other = f.child(&epic, "Button").await;
-    assert_eq!(child.priority, Priority::High);
-    assert!(child.priority_inherited);
-
-    // The epic changes: children without their own follow.
-    f.board
-        .update_ticket(&key, &set(Priority::Urgent), &me())
-        .await
-        .unwrap();
-    assert_eq!(
-        f.ticket(&child.key.to_string()).await.priority,
-        Priority::Urgent
-    );
-
-    // A child's own priority wins, also after the epic changes again.
-    let own = f
-        .board
-        .update_ticket(
-            &other.key.to_string(),
-            &set(Priority::Low),
-            &agent("SHOP-9"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(own.priority, Priority::Low);
-    assert!(!own.priority_inherited);
-    f.board
-        .update_ticket(&key, &set(Priority::Normal), &me())
-        .await
-        .unwrap();
-    assert_eq!(
-        f.ticket(&other.key.to_string()).await.priority,
-        Priority::Low
-    );
-    assert_eq!(
-        f.ticket(&child.key.to_string()).await.priority,
-        Priority::Normal
-    );
 }
 
 #[tokio::test]

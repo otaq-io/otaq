@@ -274,7 +274,7 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
 }
 
 #[tokio::test]
-async fn send_back_is_refused_on_epics_and_outside_review() {
+async fn send_back_is_refused_outside_review() {
     let world = TestService::start().await;
     world.add_project("shop-web").await;
     let t = world.create("SHOP", "Working").await;
@@ -286,26 +286,6 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
 
-    let epic = world
-        .board
-        .create_ticket(
-            &otaq_core::board::tickets::NewTicketInput {
-                project: "SHOP".into(),
-                title: "Wishlist".into(),
-                kind: otaq_core::domain::Kind::Epic,
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    world.force_status(&epic, Status::WaitingForYou).await;
-    let err = world
-        .review
-        .fail(&epic.key.to_string(), "", None, false, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.to_string(), "Add or reopen a child ticket to change it");
     world.stop().await;
 }
 

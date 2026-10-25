@@ -1,9 +1,8 @@
-//! Dependencies (DEP-01, DEP-02, DEP-04, PRJ-05; d0005 DAG part, d0024, d0046, d0049, d0051).
+//! Dependencies (DEP-01, DEP-02, PRJ-05; d0005 DAG part, d0024, d0049, d0051, d0133).
 //!
 //! Tickets form a DAG with any number of parents. A link is refused when it points at itself, already exists,
 //! crosses projects, would close a loop (the error names the loop, "SHOP-21 → SHOP-20 → SHOP-21"), or joins
-//! tickets with different bases. Bases compare resolved: a standalone ticket or epic has its own branch, an epic
-//! child the epic's branch, so a ticket may depend on an epic only with the epic's base (d0046, d0051).
+//! tickets with different bases (d0051). A ticket depends only on tickets (d0133).
 //! Readiness ("every parent merged") is the scheduler's (M5); this module only stores and validates links.
 
 use std::collections::{HashMap, HashSet};
@@ -13,7 +12,7 @@ use serde_json::json;
 
 use super::tickets::{Base, EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Kind, Status, TicketKey};
+use crate::domain::{Actor, Status, TicketKey};
 
 /// One line of a dependency tree: a ticket and, nested, its parents (in [`DepTree::parents`]) or its
 /// dependents (in [`DepTree::children`]).
@@ -21,7 +20,6 @@ use crate::domain::{Actor, Kind, Status, TicketKey};
 pub struct DepNode {
     pub key: TicketKey,
     pub title: String,
-    pub kind: Kind,
     pub status: Status,
     pub nodes: Vec<DepNode>,
 }
@@ -33,7 +31,6 @@ pub struct DepNode {
 pub struct DepTree {
     pub key: TicketKey,
     pub title: String,
-    pub kind: Kind,
     pub status: Status,
     pub parents: Vec<DepNode>,
     pub children: Vec<DepNode>,
@@ -68,15 +65,6 @@ impl Board {
             return Err(BoardError::refused(
                 Refusal::DuplicateDependency,
                 format!("{} already depends on {}", child.key, parent.key),
-            ));
-        }
-        if child.epic.as_ref() == Some(&parent.key) {
-            return Err(BoardError::refused(
-                Refusal::DependsOnOwnEpic,
-                format!(
-                    "{} is part of {} and can't depend on it",
-                    child.key, parent.key
-                ),
             ));
         }
         check_same_base(&child, &parent)?;
@@ -158,7 +146,6 @@ impl Board {
             children: graph.nodes(&ticket.key, Direction::Down),
             key: ticket.key,
             title: ticket.title,
-            kind: ticket.kind,
             status: ticket.status,
         })
     }
@@ -356,7 +343,6 @@ impl<'a> Graph<'a> {
                 Some(DepNode {
                     key: ticket.key.clone(),
                     title: ticket.title.clone(),
-                    kind: ticket.kind,
                     status: ticket.status,
                     nodes: self.built(k, under),
                 })

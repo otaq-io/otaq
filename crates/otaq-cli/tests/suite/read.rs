@@ -1,10 +1,10 @@
 //! The read commands (T-0068): `show`, `list`, `ready`, `blocked`, `project list | show` against a service in a
-//! temporary data folder with the sample board (SHOP-12…SHOP-40.3).
+//! temporary data folder with the sample board (SHOP-12…SHOP-43).
 
 use std::process::{Command, Output};
 
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Status};
+use otaq_core::domain::Status;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
@@ -37,7 +37,7 @@ fn json(out: &Output) -> Value {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn show_reads_a_ticket_by_key_number_alias_and_variable() {
+async fn show_reads_a_ticket_by_key_number_and_variable() {
     let w = TestService::start().await;
     w.shop_sample().await;
 
@@ -53,7 +53,7 @@ async fn show_reads_a_ticket_by_key_number_alias_and_variable() {
     let shown = json(&cb(&w, &["show", "SHOP-20", "--json"]));
     assert_eq!(shown["ticket"]["key"], "SHOP-20");
     assert_eq!(shown["ticket"]["depends_on"][1], "SHOP-19");
-    assert!(shown.get("history").is_none() && shown.get("children").is_none());
+    assert!(shown.get("history").is_none());
 
     // A bare number in the current project; the ticket variable when the key is omitted.
     let by_number = json(&cb(&w, &["-P", "SHOP", "show", "18", "--json"]));
@@ -66,15 +66,6 @@ async fn show_reads_a_ticket_by_key_number_alias_and_variable() {
         .unwrap();
     assert_eq!(json(&out)["ticket"]["title"], "Split user full name");
 
-    // An old key resolves through its alias (SHOP-41 moved into SHOP-40).
-    w.create("SHOP", "Wishlist sharing").await;
-    w.board
-        .move_to_epic("SHOP-41", "SHOP-40", &Actor::User("me".into()))
-        .await
-        .unwrap();
-    let moved = json(&cb(&w, &["show", "SHOP-41", "--json"]));
-    assert_eq!(moved["ticket"]["key"], "SHOP-40.4");
-
     // --long adds the history.
     let long = json(&cb(&w, &["show", "SHOP-20", "--long", "--json"]));
     assert!(
@@ -85,47 +76,6 @@ async fn show_reads_a_ticket_by_key_number_alias_and_variable() {
             .any(|e| e["kind"] == "dependency_added")
     );
     assert!(stdout(&cb(&w, &["show", "SHOP-20", "--long"])).contains("History (newest first)"));
-    w.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn epics_list_their_children() {
-    let w = TestService::start().await;
-    w.shop_sample().await;
-
-    let text = stdout(&cb(&w, &["show", "SHOP-40", "--children"]));
-    assert!(text.contains("Status:      Epic · Backlog"), "{text}");
-    for line in [
-        "SHOP-40.1  P3 Merged",
-        "SHOP-40.2  P3 Working",
-        "SHOP-40.3  P3 Backlog",
-    ] {
-        assert!(text.contains(line), "{line} in\n{text}");
-    }
-    let children = json(&cb(&w, &["show", "SHOP-40", "--children", "--json"]));
-    assert_eq!(children["children"].as_array().unwrap().len(), 3);
-
-    let listed = json(&cb(&w, &["list", "--parent", "SHOP-40", "--json"]));
-    let keys: Vec<&str> = listed
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|t| t["key"].as_str().unwrap())
-        .collect();
-    assert_eq!(keys, ["SHOP-40.1", "SHOP-40.2", "SHOP-40.3"]);
-
-    let tree = stdout(&cb(&w, &["-P", "SHOP", "list", "--tree"]));
-    let epic_line = tree
-        .lines()
-        .position(|l| l.starts_with("SHOP-40 "))
-        .unwrap();
-    assert!(
-        tree.lines()
-            .nth(epic_line + 1)
-            .unwrap()
-            .starts_with("  SHOP-40.1"),
-        "{tree}"
-    );
     w.stop().await;
 }
 
@@ -144,7 +94,7 @@ async fn list_filters_and_readiness() {
         .iter()
         .map(|t| t["key"].as_str().unwrap())
         .collect();
-    assert_eq!(keys, ["SHOP-19", "SHOP-27", "SHOP-40.2"]);
+    assert_eq!(keys, ["SHOP-19", "SHOP-27", "SHOP-42"]);
     let dev = json(&cb(
         &w,
         &["--project", "SHOP", "list", "--status", "dev", "--json"],
@@ -193,10 +143,7 @@ async fn list_filters_and_readiness() {
         .iter()
         .map(|t| t["key"].as_str().unwrap())
         .collect();
-    assert!(
-        ready.contains(&"SHOP-40.2"),
-        "its parent SHOP-40.1 is merged"
-    );
+    assert!(ready.contains(&"SHOP-42"), "its parent SHOP-41 is merged");
     assert!(
         !ready.contains(&"SHOP-20") && !ready.contains(&"SHOP-17"),
         "{ready:?}"

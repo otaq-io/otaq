@@ -12,21 +12,19 @@
 // drop target of its own. Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the
 // verdict's outline. Under the chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's
 // fold and the rail turn accent for members they hide. In Done an epic's merged children fold into one line (EPC-16):
-// a click shows their cards, another folds them; which folds are open is this screen's only. While an epic is focused
-// (EPC-18, Q55) the other cards and Done lines stay in place, dimmed.
+// a click shows their cards, another folds them; which folds are open is this screen's only.
 import {
   type KeyboardEvent,
   memo,
   type PointerEvent,
   useCallback,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 
 import { useSelection } from "../../app/selection";
-import { type ChainState, EpicCard, RESTING, TicketCard } from "../../cards";
+import { type ChainState, RESTING, TicketCard } from "../../cards";
 import { AnchoredMenu, type Anchor, Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
@@ -35,7 +33,6 @@ import type { BoardColumnKind } from "../../generated/BoardColumnKind";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardDoneFold } from "../../generated/BoardDoneFold";
 import type { BoardDoneLine } from "../../generated/BoardDoneLine";
-import type { BoardEpicFocus } from "../../generated/BoardEpicFocus";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { CardActionKind } from "../../generated/CardActionKind";
@@ -50,12 +47,9 @@ import { type AboveChip, aboveChip } from "./drag";
 /** What a card does on the board; the same functions for every card, so the card lists don't redraw. */
 export interface CardHandlers {
   press: (key: string, column: BoardColumnId, e: PointerEvent) => void;
-  /** The button went down on a draggable row of an epic card: that child may be dragged out (EPC-12). */
-  pressChild: (key: string, e: PointerEvent) => void;
   key: (key: string, column: BoardColumnId, e: KeyboardEvent) => void;
   open: (key: string) => void;
   action: (key: string, kind: CardActionKind) => void;
-  addToEpic: (epic: string) => void;
   /** The card's right-click menu, at the pointer (or under the card, from the keyboard). */
   menu: (key: string, at: { left: number; top: number }) => void;
   /** The pointer came onto (`true`) or left (`false`) the card: its chain lights up. */
@@ -78,8 +72,6 @@ interface CardItemProps {
   selected: boolean;
   chain: ChainState;
   lifted: boolean;
-  /** Another epic is focused: the card stays, faded. */
-  dimmed: boolean;
   focusable: boolean;
   handlers: CardHandlers;
 }
@@ -90,7 +82,6 @@ const CardItem = memo(function CardItem({
   selected,
   chain,
   lifted,
-  dimmed,
   focusable,
   handlers,
 }: CardItemProps) {
@@ -100,9 +91,8 @@ const CardItem = memo(function CardItem({
     <div
       className="board-card"
       data-card={key}
-      data-needs-you={(card.kind === "ticket" && card.needs_you) || undefined}
+      data-needs-you={card.needs_you || undefined}
       data-lifted={lifted || undefined}
-      data-dimmed={dimmed || undefined}
       role="button"
       tabIndex={focusable ? 0 : -1}
       aria-label={`${key} ${card.card.title}`}
@@ -124,35 +114,16 @@ const CardItem = memo(function CardItem({
         handlers.hover(key, false);
       }}
     >
-      {card.kind === "ticket" ? (
-        <TicketCard
-          card={card.card}
-          state={state}
-          onAction={(kind) => {
-            handlers.action(key, kind);
-          }}
-          onOpenSheet={() => {
-            handlers.open(key);
-          }}
-        />
-      ) : (
-        <EpicCard
-          card={card.card}
-          state={state}
-          onChild={handlers.open}
-          onChildPress={handlers.pressChild}
-          onChildHover={(child, over) => {
-            // Off a row the pointer is back on the epic card (its own leave follows if it left the card too).
-            handlers.hover(over ? child : key, true);
-          }}
-          onAdd={() => {
-            handlers.addToEpic(key);
-          }}
-          onAction={(kind) => {
-            handlers.action(key, kind);
-          }}
-        />
-      )}
+      <TicketCard
+        card={card.card}
+        state={state}
+        onAction={(kind) => {
+          handlers.action(key, kind);
+        }}
+        onOpenSheet={() => {
+          handlers.open(key);
+        }}
+      />
     </div>
   );
 });
@@ -165,8 +136,6 @@ interface CardListProps {
   lifted: string | null;
   /** The card that is the column's tab stop (the selected one, else the first). */
   tabStop: string | null;
-  /** The cards a focused epic keeps at full strength; `null` without a focus. */
-  strong: ReadonlySet<string> | null;
   handlers: CardHandlers;
 }
 
@@ -177,7 +146,6 @@ export const CardList = memo(function CardList({
   chain,
   lifted,
   tabStop,
-  strong,
   handlers,
 }: CardListProps) {
   return (
@@ -188,13 +156,8 @@ export const CardList = memo(function CardList({
           card={card}
           column={column}
           selected={card.card.key === selected}
-          chain={chainStateOf(
-            chain,
-            card.card.key,
-            card.kind === "epic" ? card.card.children.map((c) => c.key) : [],
-          )}
+          chain={chainStateOf(chain, card.card.key, [])}
           lifted={card.card.key === lifted}
-          dimmed={strong !== null && !strong.has(card.card.key)}
           focusable={card.card.key === tabStop}
           handlers={handlers}
         />
@@ -203,7 +166,7 @@ export const CardList = memo(function CardList({
   );
 });
 
-/** The column a card is in, by its key; `null` for a key that is no card (an epic's row, a track's chip). */
+/** The column a card is in, by its key; `null` for a key that is no card. */
 export function columnOfCard(columns: readonly BoardColumn[], key: string): BoardColumnId | null {
   return columns.find((c) => cardsOf(c).some((card) => card.card.key === key))?.id ?? null;
 }
@@ -248,13 +211,11 @@ export function FoldLine({
   fold,
   open,
   chain,
-  dimmed,
   onToggle,
 }: {
   fold: BoardDoneFold;
   open: boolean;
   chain: boolean;
-  dimmed: boolean;
   onToggle: () => void;
 }) {
   return (
@@ -263,7 +224,6 @@ export function FoldLine({
       className="board-done-fold"
       data-epic={fold.epic}
       data-chain={chain || undefined}
-      data-dimmed={dimmed || undefined}
       aria-expanded={open}
       onClick={onToggle}
     >
@@ -285,8 +245,6 @@ export interface ColumnProps {
   /** The highlighted chain, if any (T-0229). */
   chain?: ChainView | null;
   lifted: string | null;
-  /** The focused epic (EPC-18): its cards stay, the others dim. */
-  focus?: BoardEpicFocus | null;
   handlers: CardHandlers;
   /** The column's own empty hint and "Add ticket" row; off while the empty board's card covers the board. */
   showEmptyHint?: boolean;
@@ -511,7 +469,6 @@ export function Column({
   selected,
   chain = null,
   lifted,
-  focus = null,
   handlers,
   showEmptyHint = true,
   scrollTop,
@@ -527,7 +484,6 @@ export function Column({
   const [chip, setChip] = useState<AboveChip | null>(null);
   const [aboveKeys, setAboveKeys] = useState<string[]>([]);
   const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
-  const strong = useMemo(() => (focus ? new Set(focus.keys) : null), [focus]);
   const all = cardsOf(column);
   const walk = walkOf(column, foldedSections);
   const tabStop = walk.some((c) => c.card.key === selected) ? selected : (walk[0]?.card.key ?? null);
@@ -631,7 +587,6 @@ export function Column({
               chain={chain}
               lifted={lifted}
               tabStop={tabStop}
-              strong={strong}
               handlers={handlers}
             />
             <CardList
@@ -641,7 +596,6 @@ export function Column({
               chain={chain}
               lifted={lifted}
               tabStop={tabStop}
-              strong={strong}
               handlers={handlers}
             />
             {column.dev.fold !== null && (
@@ -680,7 +634,6 @@ export function Column({
               chain={chain}
               lifted={lifted}
               tabStop={tabStop}
-              strong={strong}
               handlers={handlers}
             />
           ))
@@ -695,7 +648,6 @@ export function Column({
                 chain={chain}
                 lifted={lifted}
                 tabStop={tabStop}
-                strong={strong}
                 handlers={handlers}
               />
             );
@@ -708,7 +660,6 @@ export function Column({
                 fold={run.fold}
                 open={open}
                 chain={!open && membersIn(chain, run.fold.keys).length > 0}
-                dimmed={focus !== null && !focus.epics.includes(epic)}
                 onToggle={() => {
                   setOpenFolds((old) => {
                     const next = new Set(old);

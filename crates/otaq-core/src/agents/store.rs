@@ -395,21 +395,6 @@ impl Store {
         .await?)
     }
 
-    /// Whether the epic's lead has started (opened, or the epic dragged; d0083). A lead whose only sessions ended in
-    /// "not started" (refused on the model, Q-C, or before its conversation's id) hasn't.
-    pub async fn lead_started(&self, epic_id: &str) -> Result<bool, StoreError> {
-        Ok(sqlx::query_scalar(concat!(
-            "SELECT EXISTS (SELECT 1 FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
-                            WHERE a.epic_id = ? AND ",
-            started!("s."),
-            ")"
-        ))
-        .bind(epic_id)
-        .bind(END_MODEL_REFUSED)
-        .fetch_one(self.pool())
-        .await?)
-    }
-
     /// The agent of each running session of a project's tickets, by ticket id: the developer's side (agent, answer,
     /// delivery) or the validator's (the board's footer names whoever has the turn, T-0345), with the tool it runs on
     /// and its model (the one the tool reported, else the one passed; the card's avatar, T-0362) and the fallback it
@@ -447,29 +432,22 @@ impl Store {
     }
 
     /// The ticket's agent sessions with the agent each ran on (the sheet and History), with what `SessionInfo` doesn't
-    /// carry: the session role, each session's tokens and round outcome, and an epic's lead sessions (the agent kept
-    /// on the lead's `project_agents` row when the session has none). Oldest first.
+    /// carry: the session role, and each session's tokens and round outcome. Oldest first.
     pub async fn session_agents(
         &self,
         ticket_id: &str,
     ) -> Result<Vec<SessionAgentRun>, StoreError> {
         let rows: Vec<SessionAgentRunRecord> = sqlx::query_as(
-            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at, COALESCE(s.tool, pa.tool) AS tool,
-                    COALESCE(s.agent_id, pa.agent_id) AS agent_id,
-                    COALESCE(s.agent_name, pa.agent_name) AS agent_name,
-                    COALESCE(s.model, pa.model) AS model,
-                    COALESCE(s.model_ran, pa.model_ran) AS model_ran,
-                    COALESCE(s.effort, pa.effort) AS effort,
+            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at, s.tool, s.agent_id, s.agent_name, s.model,
+                    s.model_ran, s.effort,
                     (SELECT SUM(u.input + u.output + COALESCE(u.reasoning, 0)) FROM usage u
                      WHERE u.session_id = s.id) AS tokens,
                     (SELECT v.outcome FROM validations v WHERE v.session_id = s.id
                      ORDER BY v.started_at DESC LIMIT 1) AS round_outcome
-             FROM sessions s LEFT JOIN project_agents pa ON pa.id = s.project_agent_id
-             WHERE (s.ticket_id = ? OR pa.epic_id = ?)
-               AND s.kind IN ('agent', 'answer', 'delivery', 'validator', 'project_agent')
+             FROM sessions s
+             WHERE s.ticket_id = ? AND s.kind IN ('agent', 'answer', 'delivery', 'validator')
              ORDER BY s.started_at, s.id",
         )
-        .bind(ticket_id)
         .bind(ticket_id)
         .fetch_all(self.pool())
         .await?;
@@ -539,7 +517,7 @@ async fn write_skills(
     Ok(())
 }
 
-/// Where an agent hold belongs: a ticket's (or epic's) session, one check agent of a ticket's agent check (d0130
+/// Where an agent hold belongs: a ticket's session, one check agent of a ticket's agent check (d0130
 /// row 17), or a project's Project agent. A ticket's scope covers every check agent of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldScope<'a> {
@@ -639,7 +617,7 @@ impl Store {
             .find(|h| h.role == role && agent.is_none_or(|a| h.check_agent.as_deref() == Some(a))))
     }
 
-    /// The holds of a ticket or an epic, by role.
+    /// The holds of a ticket, by role.
     pub async fn ticket_holds(&self, ticket_id: &str) -> Result<Vec<AgentHold>, StoreError> {
         self.holds_where("ticket_id = ?", ticket_id).await
     }
@@ -649,7 +627,7 @@ impl Store {
         self.holds_where("project_id = ?", project_id).await
     }
 
-    /// The holds of every ticket and epic of a project, oldest first (the board's cards, T-0362).
+    /// The holds of every ticket of a project, oldest first (the board's cards, T-0362).
     pub async fn project_ticket_holds(
         &self,
         project_id: &str,
@@ -755,7 +733,7 @@ pub struct RunningAgent {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SessionAgentRun {
     pub id: String,
-    /// Developer (agent, answer and PR sessions), Validator, or Epic lead.
+    /// Developer (agent, answer and PR sessions) or Validator.
     pub role: SessionRole,
     pub running: bool,
     pub started_at: i64,
@@ -803,7 +781,6 @@ impl SessionAgentRunRecord {
     fn into_session(self) -> SessionAgentRun {
         let role = match self.kind.as_str() {
             "validator" => SessionRole::Validator,
-            "project_agent" => SessionRole::EpicLead,
             _ => SessionRole::Developer,
         };
         SessionAgentRun {

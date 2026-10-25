@@ -3,6 +3,6 @@ import type { DecisionVariant } from "./DecisionVariant";
 import type { DecisionsSection } from "./DecisionsSection";
 
 /**
- * The Gallery's Decision Items: every variant of *Row · Decision Item (0084)*, and the SHOP-23 and SHOP-40 lists.
+ * The Gallery's Decision Items: every variant of *Row · Decision Item (0084)*, and the SHOP-23 list.
  */
-export type DecisionGallery = { variants: Array<DecisionVariant>, ticket: DecisionsSection, epic: DecisionsSection, };
+export type DecisionGallery = { variants: Array<DecisionVariant>, ticket: DecisionsSection, };

@@ -44,14 +44,7 @@ afterEach(() => {
 
 describe("where buttons and menu items go", () => {
   it("service buttons call sheet.action; the rest open a tab or a dialog", () => {
-    const service: SheetAction[] = [
-      "retry_start",
-      "resume",
-      "retry_resume",
-      "reopen",
-      "mark_merged",
-      "resume_lead",
-    ];
+    const service: SheetAction[] = ["retry_start", "resume", "retry_resume", "reopen", "mark_merged"];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
     // Start opens DPV-03's dialog for a blocked ticket (`board.start`).
     expect(actionRoute("start")).toEqual({ kind: "start" });
@@ -67,7 +60,6 @@ describe("where buttons and menu items go", () => {
     // Your check in another flow (FLW-14) and an open PR (FLW-16).
     expect(actionRoute("pass")).toEqual({ kind: "pass" });
     expect(actionRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });
-    expect(actionRoute("add_child_from_pr")).toEqual({ kind: "service" });
     expect(actionRoute("edit")).toEqual({ kind: "edit" });
     expect(actionRoute("mark_closed")).toEqual({ kind: "mark_closed" });
   });
@@ -187,7 +179,6 @@ describe("answer options", () => {
     const html = render({
       ...VIEW,
       answer: {
-        asker: null,
         question: "q1",
         text: "Which email provider?",
         rows,
@@ -210,7 +201,6 @@ describe("answer options", () => {
     const html = render({
       ...VIEW,
       answer: {
-        asker: null,
         question: "q1",
         text: "Which email provider?",
         rows: rows.map((r) => (r.number === 1 ? { ...r, note: long } : r)),

@@ -1,24 +1,19 @@
 //! `otaq decision record [KEY] --stdin` (DEC-02, d0084): an agent records a product choice it made instead of
-//! stopping to ask. `otaq decision mark <ID> --source "<source>" --stdin` (DEC-04, d0083): an epic lead marks a
-//! child's decision that a written source contradicts (one line on stdin); the service refuses everyone else. Stdin holds labelled lines (`Question:`, `Built:`, `Other option:` (repeatable), `Why:`; a
+//! stopping to ask. Stdin holds labelled lines (`Question:`, `Built:`, `Other option:` (repeatable), `Why:`; a
 //! field may wrap onto following lines). It works on `$OTAQ_TICKET` unless a key is given; the service lets an
 //! agent record on its own ticket only (CLI-02), and refuses a missing field with what's missing.
 //!
 //! # `--json` shape
 //!
 //! The recorded decision (`otaq_core::decisions::Decision`): `{"id": "SHOP-23#1", "question", "built",
-//! "other_options": […], "why", "recorded_by", "recorded_at", "outcome": "open", …}`; after `mark`, with
-//! `"mark": {"text", "source", "by", "at"}`. `--silent` prints the ID.
+//! "other_options": […], "why", "recorded_by", "recorded_at", "outcome": "open", …}`. `--silent` prints the ID.
 
 use std::io::Read;
 
 use otaq_core::data_dir::DataDir;
-use otaq_core::decisions::mark::marked_message;
 use otaq_core::decisions::{NewDecision, recorded_message};
 use otaq_core::naming;
-use otaq_core::protocol::{
-    DecisionMarkParams, DecisionRecordParams, ErrorBody, ErrorKind, Reply, Request,
-};
+use otaq_core::protocol::{DecisionRecordParams, ErrorBody, ErrorKind, Reply, Request};
 
 use crate::cli::{DecisionCommand, GlobalArgs};
 use crate::output::Output;
@@ -29,52 +24,7 @@ use crate::target;
 pub fn run(command: DecisionCommand, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     match command {
         DecisionCommand::Record { key, stdin } => record(key, stdin, global, out),
-        DecisionCommand::Mark { id, source, stdin } => mark(id, source, stdin, global, out),
     }
-}
-
-fn mark(
-    id: String,
-    source: String,
-    stdin: bool,
-    global: &GlobalArgs,
-    out: &Output,
-) -> Result<(), ErrorBody> {
-    if !stdin {
-        return Err(ErrorBody::new(
-            ErrorKind::Usage,
-            format!(
-                "give the mark on stdin: `{} decision mark {id} --source \"{source}\" --stdin`",
-                naming::COMMAND_NAME
-            ),
-        ));
-    }
-    let mut text = String::new();
-    std::io::stdin()
-        .read_to_string(&mut text)
-        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
-    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
-    service::runtime()?.block_on(async {
-        let client = service::connect(&data, global).await?;
-        let marked = match client
-            .request(Request::DecisionMark(DecisionMarkParams {
-                id,
-                source,
-                text,
-            }))
-            .await
-            .map_err(client_error)?
-        {
-            Reply::Decision(d) => *d,
-            other => return Err(unexpected(&other)),
-        };
-        out.print(
-            &marked_message(&marked),
-            &marked,
-            Some(&marked.id.to_string()),
-        );
-        Ok(())
-    })
 }
 
 fn record(
