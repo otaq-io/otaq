@@ -334,7 +334,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         SessionKind::Project => "Project terminal",
         SessionKind::Run => "Run",
         SessionKind::Validator => "Validator session",
-        SessionKind::ProjectAgent => "Project agent",
+        SessionKind::ProjectAgent => "Noyan",
     };
     let agent = agent_ran(s.kind);
     let duration = match s.ended_at {
@@ -395,7 +395,7 @@ fn who(actor: &Actor) -> String {
     match actor {
         Actor::User(_) => "by you".to_owned(),
         Actor::Agent(key) => format!("by {key}'s agent"),
-        Actor::ProjectAgent(_) => "by a Project agent".to_owned(),
+        Actor::ProjectAgent(_) => "by Noyan".to_owned(),
     }
 }
 
@@ -519,7 +519,7 @@ fn lead_stuck(p: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
-/// A stage choice (AGM-08): "Dev: Quick developer (set by the Project agent)" · "typo fix"; on an epic for a child,
+/// A stage choice (AGM-08): "Dev: Quick developer (set by Noyan)" · "typo fix"; on an epic for a child,
 /// "Wishlist lead set SHOP-40.3's Dev: Quick developer".
 fn choice_line(p: &serde_json::Value) -> (String, Option<String>) {
     let stage = text(p, "stage").unwrap_or_default();
@@ -750,7 +750,7 @@ fn changed_by(e: &HistoryEvent) -> String {
     match &e.actor {
         Actor::User(_) => "You".to_owned(),
         Actor::Agent(key) => format!("{key}\u{2019}s agent"),
-        Actor::ProjectAgent(_) => "A Project agent".to_owned(),
+        Actor::ProjectAgent(_) => "Noyan".to_owned(),
     }
 }
 
@@ -2110,7 +2110,7 @@ mod tests {
             ),
             (
                 lead_event(EventKind::Updated, json!({"changes": []})),
-                ("Edited", Some("by a Project agent")),
+                ("Edited", Some("by Noyan")),
             ),
             (
                 lead_event(
@@ -2681,13 +2681,13 @@ mod tests {
     #[test]
     fn a_stage_choice_line() {
         let p = serde_json::json!({
-            "stage": "Dev", "choice": "Quick developer", "set_by": "project_agent", "by": "the Project agent",
+            "stage": "Dev", "choice": "Quick developer", "set_by": "project_agent", "by": "Noyan",
             "reason": "typo fix"
         });
         assert_eq!(
             choice_line(&p),
             (
-                "Dev: Quick developer (set by the Project agent)".to_owned(),
+                "Dev: Quick developer (set by Noyan)".to_owned(),
                 Some("typo fix".to_owned())
             )
         );

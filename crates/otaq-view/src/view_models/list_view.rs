@@ -1472,10 +1472,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(
-            slowness.row.line,
-            "0 of 1 merged \u{b7} from the Project agent"
-        );
+        assert_eq!(slowness.row.line, "0 of 1 merged \u{b7} from Noyan");
         assert_eq!(slowness.track.label, "\u{2014}");
         assert_eq!(slowness.children[0].start.as_ref().unwrap().label, "Start");
         assert_eq!(groups[1].0, "No epic");

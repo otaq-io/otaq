@@ -2,7 +2,7 @@
 import type { ToolProblemButton } from "./ToolProblemButton";
 
 /**
- * One Project agent the restart ended (*16 → Opening after a reboot*, PROJECT AGENTS). `AfterRestartAgent` on the
+ * One Project agent the restart ended (*16 → Opening after a reboot*, CONVERSATIONS WITH NOYAN). `AfterRestartAgent` on the
  * page.
  */
 export type AfterRestartAgent = { id: string, project: string, 

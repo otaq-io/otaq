@@ -11,7 +11,7 @@ export type BoardLaneHead = {
  */
 name: string, 
 /**
- * "PAY-123 · 5 tickets", "SHOP-34 · 3 tickets · from the Project agent", "5 tickets".
+ * "PAY-123 · 5 tickets", "SHOP-34 · 3 tickets · from Noyan", "5 tickets".
  */
 detail: string, 
 /**

@@ -2499,14 +2499,10 @@ mod tests {
         assert_eq!(empty.title, "shop-web is ready");
         assert_eq!(
             empty.text,
-            "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
+            "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
         );
         let labels: Vec<&str> = empty.buttons.iter().map(|b| b.label).collect();
-        assert_eq!(
-            labels,
-            ["New ticket"],
-            "no Project agent or terminal button"
-        );
+        assert_eq!(labels, ["New ticket"], "no Noyan or terminal button");
         assert_eq!(page.columns.len(), 6);
         let review = &page.columns[4];
         let empties: Vec<(&str, &str)> = review
@@ -2803,7 +2799,7 @@ mod tests {
         );
         assert_eq!(g.drags.len(), 5);
         assert_eq!(g.drags[1].from, "SHOP-25 · Dev");
-        assert!(g.empty.text.starts_with("Tell the Project agent"));
+        assert!(g.empty.text.starts_with("Tell Noyan"));
     }
 
     /// d0087 (Q-G): the agent filter shows only the tickets the agent created or changed, combines with search,

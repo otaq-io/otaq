@@ -8,7 +8,7 @@
 //! Park all, its status "Parked · has work", EPC-14).
 //!
 //! From M17 (d0083, T-0289) a Backlog epic card has a **Lead** row under the branch line: its lead's
-//! [`LeadStatusView`] in the full form, or **Open lead** when it has none (**Split with the Project agent** while it
+//! [`LeadStatusView`] in the full form, or **Open lead** when it has none (**Split with Noyan** while it
 //! has no children either, LEAD-13, d0091). A review card keeps the ended lead
 //! ("Wishlist lead · ended · in review"). Child rows the lead created say "added by Wishlist lead", and a lead that
 //! asks you turns the card's border turquoise ([`EpicViewModel::with_lead`]).
@@ -465,11 +465,11 @@ mod tests {
         assert!(vm.children.iter().all(|c| c.origin.is_none()));
         assert!(!vm.lead_asks());
 
-        // No children (LEAD-13, d0091): Split with the Project agent in Open lead's place.
+        // No children (LEAD-13, d0091): Split with Noyan in Open lead's place.
         let alone = [epic.clone()];
         let vm = EpicViewModel::from(&epic, &alone, None).with_lead(&epic, &alone, None);
         let lead = vm.lead.as_ref().expect("a Lead row");
-        assert_eq!(lead.full, "Split with the Project agent");
+        assert_eq!(lead.full, "Split with Noyan");
         let action = lead.action.as_ref().unwrap();
         assert_eq!(action.kind, ActionKind::Split);
         assert_eq!(

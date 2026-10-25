@@ -8,6 +8,6 @@ import type { LeadSplit } from "./LeadSplit";
  */
 export type LeadButton = { kind: LeadActionKind, label: string, icon: IconName, 
 /**
- * Split with the Project agent: what it sends; `None` for Open lead and Resume.
+ * Split with Noyan: what it sends; `None` for Open lead and Resume.
  */
 split: LeadSplit | null, };

@@ -1026,7 +1026,10 @@ mod tests {
             panic!("a Backlog card")
         };
         assert!(vm.fresh);
-        assert_eq!(vm.origin.as_deref(), Some("Created by Checkout slowness"));
+        assert_eq!(
+            vm.origin.as_deref(),
+            Some("Created by Noyan \u{b7} Checkout slowness")
+        );
     }
 
     /// T-0083: Queued cards render from the readiness reason and update as a parent moves.

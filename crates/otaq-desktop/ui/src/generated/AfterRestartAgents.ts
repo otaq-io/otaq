@@ -6,7 +6,7 @@ import type { AfterRestartAgent } from "./AfterRestartAgent";
  */
 export type AfterRestartAgents = { 
 /**
- * "PROJECT AGENTS · NOT IN RESUME SELECTED · TERMINALS ARE GONE".
+ * "CONVERSATIONS WITH NOYAN · NOT IN RESUME SELECTED · TERMINALS ARE GONE".
  */
 title: string, rows: Array<AfterRestartAgent>, 
 /**

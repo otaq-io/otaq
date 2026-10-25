@@ -1302,13 +1302,13 @@ mod tests {
         n.on_startup_agents(2, 0);
         assert_eq!(
             n.view().banners[0].title,
-            "4 sessions were interrupted \u{b7} 2 Project agents ended"
+            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended"
         );
         // And the epic leads, counted on their own (T-0289).
         n.on_startup_agents(2, 1);
         assert_eq!(
             n.view().banners[0].title,
-            "4 sessions were interrupted \u{b7} 2 Project agents ended \u{b7} 1 epic lead ended"
+            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended \u{b7} 1 epic lead ended"
         );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
         n.dismiss_banner(SituationKind::SessionsInterrupted);

@@ -13,7 +13,7 @@
 //!     the first merge are its first turn, which checks the plan ("checking the plan · 10:12"; the lead no longer
 //!     plans an epic from scratch, d0091). While the lead works, the newest group is "this turn" when nothing
 //!     finished after it.
-//! - **The body:** the live terminal; "Open lead" when the epic has none (**Split with the Project agent** while it
+//! - **The body:** the live terminal; "Open lead" when the epic has none (**Split with Noyan** while it
 //!   has no children either, LEAD-13, d0091); "Before the restart" (REC-02, from
 //!   Claude's saved conversation) with Resume after a restart; the last terminal, read-only, with "Ended · epic in
 //!   review" once the epic reached Ready for Review; the last terminal with Resume when its agent tool exited.
@@ -97,7 +97,7 @@ pub struct RecoveryLine {
 pub enum Body {
     /// The lead's live terminal: type to it as to a ticket's (§9.3).
     Live { session: String, label: String },
-    /// The epic has no lead: what Open lead does, and the button; Split with the Project agent with no children
+    /// The epic has no lead: what Open lead does, and the button; Split with Noyan with no children
     /// (no text).
     OpenLead {
         title: String,
@@ -1076,7 +1076,7 @@ mod tests {
         assert!(matches!(asks.body, Body::Live { .. }));
     }
 
-    /// No lead and no children (LEAD-13, d0091): Split with the Project agent instead of Open lead, no text.
+    /// No lead and no children (LEAD-13, d0091): Split with Noyan instead of Open lead, no text.
     #[test]
     fn an_empty_epic_offers_split_with_the_project_agent() {
         let epic = epic();
@@ -1090,7 +1090,7 @@ mod tests {
             agent_list: &[],
             tools: &Tools::default(),
         });
-        assert_eq!(t.status.full, "Split with the Project agent");
+        assert_eq!(t.status.full, "Split with Noyan");
         assert_eq!(t.changes, None);
         let Body::OpenLead {
             title,
@@ -1102,7 +1102,7 @@ mod tests {
         };
         assert_eq!(title, "SHOP-40 has no lead");
         assert_eq!(text, None);
-        assert_eq!(button.label, "Split with the Project agent");
+        assert_eq!(button.label, "Split with Noyan");
         assert_eq!(button.kind, ActionKind::Split);
         assert_eq!(
             button.split.map(|s| (s.project, s.message)),
@@ -1139,7 +1139,7 @@ mod tests {
     fn the_gallery_has_every_state() {
         let g = gallery();
         assert_eq!(g.tabs.len(), 12);
-        assert_eq!(g.tabs[11].view.status.full, "Split with the Project agent");
+        assert_eq!(g.tabs[11].view.status.full, "Split with Noyan");
         assert!(g.tabs[2].view.asks_you);
         assert!(matches!(g.tabs[3].view.body, Body::BeforeRestart { .. }));
     }

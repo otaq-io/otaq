@@ -2,7 +2,7 @@
 import type { BoardLaneHead } from "./BoardLaneHead";
 
 /**
- * The gallery's lane heads (`s24-06`): Wishlist with its lead in each state, an epic from the Project agent, and
+ * The gallery's lane heads (`s24-06`): Wishlist with its lead in each state, an epic from Noyan, and
  * "No epic". `LaneGalleryHead` on the page.
  */
 export type LaneGalleryHead = { name: string, head: BoardLaneHead, folded: boolean, };
