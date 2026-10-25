@@ -68,7 +68,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 2
     why: CONTRIBUTING.md asks for a security review

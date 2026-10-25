@@ -1,0 +1,42 @@
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: review
+    name: Review
+    kind: check
+    by: you
+    column: own
+  - id: spec-review
+    name: Spec review
+    kind: check
+    by: agent
+    column: own
+    agents: [Validator]
+    skill: validate
+    rounds: 3
+    fail_to: Validate
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: own
+    agents: [Validator]
+    skill: validate
+    rounds: 3
+    fail_to: Review
+  - id: qa
+    name: QA
+    kind: check
+    by: you
+    column: own
+    fail_to: Spec review
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: own
+    mode: click
+    delivers: local

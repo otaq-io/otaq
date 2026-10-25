@@ -135,6 +135,31 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let json: Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(json["project"], api);
     assert_eq!(json["document"]["flow"][0]["name"], "Dev");
+    assert_eq!(
+        json["document"]["flow"][1]["agents"],
+        serde_json::json!(["Validator"])
+    );
+
+    // A check that names where its fails go, and an agent check with two agents (d0131, d0130): shown as set.
+    let notes = key_of(&w, "pocket-notes").await;
+    let mut file = otaq_core::flow::default_file().clone();
+    for stage in &mut file.flow.stages {
+        if stage.id == "validate" {
+            stage.agents = vec!["Validator".into(), "Developer".into()];
+        }
+        if stage.id == "review" {
+            stage.fail_to = Some("dev".into());
+        }
+    }
+    w.board.use_flow_for_tests(&notes, &file).await;
+    let notes_repo = repo_of(&w, &notes).await;
+    let shown_notes = user(&w, &notes_repo, &["flow", "show"], None);
+    let shown_notes = text(&shown_notes.stdout);
+    assert!(
+        shown_notes.contains("    agents: [Validator, Developer]\n")
+            && shown_notes.contains("    by: you\n    column: own\n    fail_to: Dev\n"),
+        "{shown_notes}"
+    );
 
     // `presets`: the four shipped files, one line each.
     let listed = user(&w, &repo, &["flow", "presets"], None);
@@ -154,6 +179,17 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     assert!(
         lines[0].starts_with("otaq-default.yaml \u{b7} "),
         "{lines:?}"
+    );
+    // --json: each preset's file too, with its agent checks' agents (d0130).
+    let json = user(&w, &repo, &["flow", "presets", "--json"], None);
+    let json: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(json[0]["yaml"], naming::DEFAULT_FLOW_YAML);
+    assert!(
+        json[0]["yaml"]
+            .as_str()
+            .unwrap()
+            .contains("    agents: [Validator]\n"),
+        "{json}"
     );
 
     // A broken file: its problems, exit 1, nothing opens.

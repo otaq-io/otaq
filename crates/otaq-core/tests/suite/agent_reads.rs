@@ -337,6 +337,20 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
     let rust = reads(&w, &agent(&w, "Rust developer").await, "SHOP").await;
     assert_eq!(rust.skills.len(), 1);
     assert_eq!(stage_part(&rust, "Dev").skill, "work-ticket");
+    // Validator runs Validate, and Security as its second check agent (d0130): a part for each.
+    let validator = reads(&w, &agent(&w, "Validator").await, "SHOP").await;
+    let parts: Vec<(&RunsAs, &str)> = validator
+        .skills
+        .iter()
+        .map(|p| (&p.runs, p.skill.as_str()))
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            (&RunsAs::Stage("Validate".into()), "validate"),
+            (&RunsAs::Stage("Security".into()), "security-review")
+        ]
+    );
 
     // Noyan, the Project agent, also runs Grill.
     w.board

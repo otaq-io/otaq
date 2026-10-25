@@ -83,18 +83,25 @@ fn the_default_flow_is_dev_validate_review_done() {
             validate.kind,
             validate.column,
             validate.agent.as_deref(),
+            validate.check_agents(),
             validate.skill.as_deref(),
             validate.rounds
         ),
         (
             StageKind::Check { by: CheckBy::Agent },
             Column::Own,
-            Some("Validator"),
+            None,
+            &["Validator".to_owned()][..],
             Some("validate"),
             Some(3)
         )
     );
-    assert!(review.is_human_check() && review.agent.is_none() && review.column == Column::Own);
+    assert!(
+        review.is_human_check()
+            && !review.has_agent()
+            && review.fail_to.is_none()
+            && review.column == Column::Own
+    );
     assert_eq!(
         (
             deliver.name.as_str(),
@@ -251,6 +258,45 @@ fn each_rule_refuses_its_broken_file() {
             &[(Rule::NeedsSkill, Some("plan"), "Plan needs a skill")],
         ),
         (
+            // Every check's fails go to an Agent stage before it (d0131): not a later stage, a check by you or an
+            // agent check.
+            "fail-to",
+            &[
+                (
+                    Rule::FailTo,
+                    Some("spec-review"),
+                    "Spec review's fails go to Validate, which isn't an Agent stage before it",
+                ),
+                (
+                    Rule::FailTo,
+                    Some("validate"),
+                    "Validate's fails go to Review, which isn't an Agent stage before it",
+                ),
+                (
+                    Rule::FailTo,
+                    Some("qa"),
+                    "QA's fails go to Spec review, which isn't an Agent stage before it",
+                ),
+            ],
+        ),
+        (
+            // The editor's draft holds an agent check with no check agent yet (d0130: one or more).
+            "no-check-agent",
+            &[(
+                Rule::NoCheckAgent,
+                Some("validate"),
+                "Validate is an agent check with no check agent: name one or more",
+            )],
+        ),
+        (
+            "check-agent-twice",
+            &[(
+                Rule::Duplicate,
+                Some("validate"),
+                "Validate lists validator twice: each check agent runs once",
+            )],
+        ),
+        (
             "duplicate",
             &[
                 (
@@ -338,7 +384,7 @@ fn folding_follows_the_chain_to_its_owner() {
     let text = "flow:
   - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}
   - {name: Review, kind: check, by: you}
-  - {name: Polish, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 1}
+  - {name: Polish, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 1}
   - {name: Done, kind: delivery, column: with-previous, mode: click, delivers: local}
 ";
     let problems = check(&yaml::read(text).unwrap().flow).unwrap_err();
@@ -355,8 +401,8 @@ fn folding_follows_the_chain_to_its_owner() {
 fn the_format_refuses_what_isnt_a_flow() {
     assert_eq!(
         refused("flow:\n  - id: dev\n    name: Dev\n    colour: blue\n"),
-        "line 4 column 5: unknown field `colour`, expected one of id, name, kind, by, column, agent, skill, \
-         options, rounds, mode, delivers, why"
+        "line 4 column 5: unknown field `colour`, expected one of id, name, kind, by, column, agent, agents, \
+         skill, options, rounds, fail_to, mode, delivers, why"
     );
     assert_eq!(
         refused("flows: []\n"),
@@ -373,7 +419,7 @@ fn the_format_refuses_what_isnt_a_flow() {
             "Check is a check: say who does it with `by: agent` or `by: you`",
         ),
         (
-            "{name: Validate, kind: check, by: agent, agent: V, skill: validate}",
+            "{name: Validate, kind: check, by: agent, agents: [V], skill: validate}",
             "Validate is an agent check: set its `rounds` (1 to 5)",
         ),
         (
@@ -383,6 +429,32 @@ fn the_format_refuses_what_isnt_a_flow() {
         (
             "{name: Dev, kind: agent, agent: D, skill: s, rounds: 2}",
             "Dev is an Agent stage: `rounds` belongs to an agent check",
+        ),
+        (
+            // d0130: an agent check lists its agents; `agent:` on one is refused, never read.
+            "{name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}",
+            "Validate is an agent check: an agent check lists its agents: `agents: [Validator]`",
+        ),
+        (
+            "{name: Dev, kind: agent, agent: D, agents: [D], skill: s}",
+            "Dev is an Agent stage: `agents` belongs to an agent check",
+        ),
+        (
+            "{name: Review, kind: check, by: you, agents: [Validator]}",
+            "Review is a check by you: `agents` belongs to an agent check",
+        ),
+        (
+            "{name: Dev, kind: agent, agent: D, skill: s, fail_to: Dev}",
+            "Dev is an Agent stage: `fail_to` belongs to a check",
+        ),
+        (
+            "{name: Done, kind: delivery, mode: click, delivers: local, fail_to: Dev}",
+            "Done is a Delivery stage: `fail_to` belongs to a check",
+        ),
+        (
+            "{name: Review, kind: check, by: you, fail_to: Planning}",
+            "Review's fails go to Planning, which isn't a stage of this flow: name an Agent stage before it with \
+             `fail_to:`, or leave it out for the nearest one",
         ),
         (
             "{name: Review, kind: check, by: you, agent: Developer}",
@@ -438,4 +510,132 @@ fn ids_are_kept_as_written_and_given_when_left_out() {
     let written = yaml::write(&read);
     assert_eq!(yaml::read(&written).unwrap(), read);
     assert_eq!(yaml::write(&yaml::read(&written).unwrap()), written);
+}
+
+/// d0130, d0131: an agent check's `agents` and a check's `fail_to` read and write back in their place in the field
+/// order (`agents` where `agent` sits, `fail_to` after `rounds`); `fail_to` is read by name and kept as the stage's id.
+#[test]
+fn check_agents_and_fails_go_to_round_trip() {
+    let text = "flow:
+  - id: plan
+    name: Product spec
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: checks
+    name: Checks
+    kind: check
+    by: agent
+    column: with-previous
+    agents: [Security reviewer, Performance reviewer]
+    skill: validate
+    options: [skip]
+    rounds: 2
+    fail_to: Product spec
+  - id: review
+    name: Review
+    kind: check
+    by: you
+    column: own
+    fail_to: dev
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: own
+    mode: click
+    delivers: local
+";
+    let read = yaml::read(text).unwrap();
+    let checks = read.flow.stage("checks").unwrap();
+    assert_eq!(
+        checks.check_agents(),
+        ["Security reviewer", "Performance reviewer"]
+    );
+    assert_eq!(checks.agent, None);
+    assert_eq!(checks.fail_to.as_deref(), Some("plan"), "kept by id");
+    // A name is matched ignoring case when no stage has it exactly; written back as the stage's own name.
+    assert_eq!(
+        read.flow.stage("review").unwrap().fail_to.as_deref(),
+        Some("dev")
+    );
+    assert_eq!(
+        yaml::write(&read),
+        text.replace("fail_to: dev", "fail_to: Dev")
+    );
+    assert_eq!(check(&read.flow), Ok(()));
+
+    // The test flow: Security has two check agents, QA's fails go to Grill rather than the nearest (Dev).
+    let every = yaml::read(&every_kind()).unwrap();
+    let security = every.flow.stage("security").unwrap();
+    assert_eq!(security.check_agents(), ["Security reviewer", "Validator"]);
+    let qa = every.flow.stage("qa").unwrap();
+    assert_eq!(
+        every.flow.fail_to_of(qa).map(|s| s.id.as_str()),
+        Some("grill")
+    );
+}
+
+/// d0131: a check that sets nothing sends its fails to the nearest Agent stage before it; one that names a stage
+/// sends them there, and one whose stage is gone is the nearest again.
+#[test]
+fn fails_go_to_the_named_stage_else_the_nearest() {
+    let every = yaml::read(&every_kind()).unwrap();
+    let flow = &every.flow;
+    let target = |id: &str| {
+        flow.fail_to_of(flow.stage(id).unwrap())
+            .map(|s| s.id.clone())
+    };
+    assert_eq!(target("validate").as_deref(), Some("dev"));
+    assert_eq!(target("security").as_deref(), Some("dev"));
+    assert_eq!(target("qa").as_deref(), Some("grill"));
+    let mut gone = flow.clone();
+    gone.stages.retain(|s| s.id != "grill");
+    let qa = gone.stage("qa").unwrap();
+    assert_eq!(qa.fail_to.as_deref(), Some("grill"), "still set in memory");
+    assert_eq!(gone.fail_to_of(qa).map(|s| s.id.as_str()), Some("dev"));
+    assert_eq!(
+        check(&gone),
+        Ok(()),
+        "a stage gone is the nearest again, no problem"
+    );
+    // Written without it: the file says nearest.
+    let written = yaml::write(&flow::FlowFile {
+        agents: Vec::new(),
+        flow: gone,
+    });
+    assert!(!written.contains("fail_to"), "{written}");
+}
+
+/// d0130: each listed check agent is checked against the agents (AGM-01), every one named.
+#[test]
+fn every_check_agent_must_be_an_agent() {
+    let every = yaml::read(&every_kind()).unwrap();
+    let known = |name: &str| name != "Validator";
+    let problems = flow::check_agents(&every.flow, known).unwrap_err();
+    let got: Vec<(Rule, Option<&str>, &str)> = problems
+        .iter()
+        .map(|p| (p.rule, p.stage.as_deref(), p.message.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (
+                Rule::UnknownAgent,
+                Some("validate"),
+                "Validate names the agent Validator, which isn't one of your agents"
+            ),
+            (
+                Rule::UnknownAgent,
+                Some("security"),
+                "Security names the agent Validator, which isn't one of your agents"
+            ),
+        ]
+    );
 }

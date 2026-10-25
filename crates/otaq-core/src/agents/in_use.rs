@@ -95,9 +95,9 @@ async fn uses_in(
             StageOption::Agent(name) => Some(name),
             StageOption::Skip => None,
         });
+        // An agent check's check agents each count (d0130).
         for (name, option) in stage
-            .agent
-            .iter()
+            .named_agents()
             .map(|n| (n, false))
             .chain(options.map(|n| (n, true)))
         {

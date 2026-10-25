@@ -17,7 +17,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::model::{FlowFile, StageOption};
+use super::model::FlowFile;
 use super::proposal::{
     ApplyChoices, Proposal, ProposedBy, Row, SAME, Source, flow_agent_of, match_ids,
 };
@@ -166,11 +166,7 @@ impl Board {
             flow: applied.flow,
         };
         for stage in &file.flow.stages {
-            let options = stage.options.iter().filter_map(|o| match o {
-                StageOption::Agent(name) => Some(name),
-                StageOption::Skip => None,
-            });
-            for name in stage.agent.iter().chain(options) {
+            for name in stage.every_agent() {
                 if file
                     .agents
                     .iter()

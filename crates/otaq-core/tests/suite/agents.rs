@@ -270,6 +270,36 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
     agents.delete(&spare.id).await.unwrap();
 }
 
+/// AGM-01 with d0130: every check agent an agent check lists is used there, the second as much as the first.
+#[tokio::test]
+async fn every_check_agent_is_in_use() {
+    let (f, agents) = world().await;
+    let second = agents
+        .add(&fields("Performance reviewer", AgentModel::Default))
+        .await
+        .unwrap();
+    f.board
+        .edit_flow_for_tests("SHOP", |file| {
+            for stage in file.flow.stages.iter_mut().filter(|s| s.id == "validate") {
+                stage.agents.push("Performance reviewer".into());
+            }
+        })
+        .await;
+    assert_eq!(
+        refusal(agents.delete(&second.id).await),
+        (
+            Refusal::AgentInUse,
+            "Performance reviewer is used in shop-web \u{b7} Validate. Change that stage first."
+                .into()
+        )
+    );
+    let validator = named(&agents, "Validator").await;
+    assert_eq!(
+        refusal(agents.delete(&validator.id).await).1,
+        "Validator is used in shop-web \u{b7} Validate. Change that stage first."
+    );
+}
+
 /// AGT-02, AGM-01: a model from the tool's list (or the tool's default, or `default`); the tool's own effort level
 /// only with a tool that has one, and one of its levels.
 #[tokio::test]

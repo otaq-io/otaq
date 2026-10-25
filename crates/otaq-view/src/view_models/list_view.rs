@@ -563,10 +563,8 @@ fn by_agent<'t>(stages: Vec<Bucket<'t>>, columns: &Columns) -> Vec<Bucket<'t>> {
         ..Bucket::new("done", FINISHED_THIS_WEEK, IconName::CircleCheck)
     };
     // Every agent of the flow has its group, in order, even before a ticket reaches it.
-    for stage in &columns.flow().stages {
-        if let Some(agent) = &stage.agent
-            && !agents.iter().any(|b| &b.title == agent)
-        {
+    for agent in columns.flow().stages.iter().flat_map(Stage::named_agents) {
+        if !agents.iter().any(|b| &b.title == agent) {
             agents.push(Bucket::new(
                 format!("agent:{agent}"),
                 agent.clone(),
@@ -585,7 +583,8 @@ fn by_agent<'t>(stages: Vec<Bucket<'t>>, columns: &Columns) -> Vec<Bucket<'t>> {
                 .card
                 .who
                 .clone()
-                .or_else(|| stage.and_then(|s| s.agent.clone()))
+                // T-0527: every check agent (a row has one: an agent check's first).
+                .or_else(|| stage.and_then(|s| s.named_agents().next().cloned()))
             {
                 Some(agent) => {
                     let at = match agents.iter().position(|b| b.title == agent) {
@@ -806,8 +805,8 @@ pub mod samples {
 flow:
   - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
   - {id: pr, name: PR open, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
 ";

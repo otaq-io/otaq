@@ -168,8 +168,8 @@ async fn a_rename_follows_into_every_stored_flow() {
     }
     let running = f.board.effective_flow("SHOP").await.unwrap();
     assert_eq!(
-        running.stage("validate").unwrap().agent.as_deref(),
-        Some("Checker")
+        running.stage("validate").unwrap().check_agents(),
+        ["Checker"]
     );
     assert_eq!(running.stage("validate").unwrap().rounds, Some(2));
     // Saving it with its name unchanged rewrites nothing.

@@ -406,7 +406,7 @@ mod tests {
         let yaml = "\
 flow:
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, agents: [Validator], skill: validate, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
   - {id: ship, name: Done, kind: delivery, agent: Shipper, skill: open-pr, mode: automatic, delivers: pr}
 ";

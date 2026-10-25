@@ -25,7 +25,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::apply::{ProposeFrom, Span, Wait, affected_span, still_working};
-use super::model::{Flow, FlowFile, Stage, StageOption};
+use super::model::{Flow, FlowFile, Stage};
 use super::proposal::{
     ApplyChoices, Change, Proposal, ProposedBy, Row, Source, applied_now, edits_only,
     effective_file, match_ids, stage_changes,
@@ -238,14 +238,8 @@ fn marks_between(
 
 /// Whether `stage` names an agent that isn't one of the stored ones (the draft brings it).
 fn brings_an_agent(stage: &Stage, stored: &[Agent]) -> bool {
-    let options = stage.options.iter().filter_map(|o| match o {
-        StageOption::Agent(name) => Some(name),
-        StageOption::Skip => None,
-    });
     stage
-        .agent
-        .iter()
-        .chain(options)
+        .every_agent()
         .any(|name| !stored.iter().any(|a| a.name.eq_ignore_ascii_case(name)))
 }
 
@@ -277,15 +271,7 @@ fn undo_stage(before: &FlowFile, draft: &FlowFile, id: &str) -> FlowFile {
         .flow
         .stages
         .iter()
-        .flat_map(|s| {
-            s.agent
-                .iter()
-                .cloned()
-                .chain(s.options.iter().filter_map(|o| match o {
-                    StageOption::Agent(name) => Some(name.clone()),
-                    StageOption::Skip => None,
-                }))
-        })
+        .flat_map(Stage::every_agent)
         .map(|n| n.to_lowercase())
         .collect();
     file.agents.retain(|a| {

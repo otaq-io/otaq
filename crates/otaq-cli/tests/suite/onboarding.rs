@@ -59,7 +59,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 2
     why: You asked for a security review before 4 of your last merges
@@ -99,7 +99,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 2
     why: You asked for a security review before 4 of your last merges

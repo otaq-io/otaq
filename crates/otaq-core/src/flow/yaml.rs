@@ -11,11 +11,22 @@
 //!     agent: Developer
 //!     skill: work-ticket
 //!     options: [Quick developer]
+//!   - id: validate
+//!     name: Validate
+//!     kind: check
+//!     by: agent
+//!     column: own
+//!     agents: [Security reviewer, Performance reviewer]
+//!     skill: validate
+//!     rounds: 3
+//!     fail_to: Dev
 //! ```
 //!
-//! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds mode delivers why`;
-//! agents: `name role instructions skills model why`); a field with nothing in it is left out, except `column`.
-//! `agents:` is left out when the file defines none. Comments are not kept.
+//! Fields come in a fixed order (stages: `id name kind by column agent agents skill options rounds fail_to mode
+//! delivers why`; agents: `name role instructions skills model why`); a field with nothing in it is left out, except
+//! `column`. `agents:` is left out when the file defines none. A check's `fail_to` names a stage by its name, as
+//! `agent:` names agents; Otaq keeps it by the stage's id, so a rename carries it along, and a stage removed leaves
+//! the check on the nearest Agent stage (d0131). Comments are not kept.
 
 use std::fmt;
 
@@ -68,10 +79,12 @@ struct RawStage {
     by: Option<CheckBy>,
     column: Option<Column>,
     agent: Option<String>,
+    agents: Option<Vec<String>>,
     skill: Option<String>,
     #[serde(default)]
     options: Vec<String>,
     rounds: Option<u32>,
+    fail_to: Option<String>,
     mode: Option<DeliveryMode>,
     delivers: Option<Delivers>,
     why: Option<String>,
@@ -127,6 +140,7 @@ pub fn read_with_written_ids(text: &str) -> Result<(FlowFile, Vec<bool>), Format
     }
     let written = stages.iter().map(|s| !s.id.is_empty()).collect();
     give_ids(&mut stages);
+    fail_to_ids(&mut stages)?;
     Ok((
         FlowFile {
             agents,
@@ -188,12 +202,23 @@ pub fn write(file: &FlowFile) -> String {
         if let Some(agent) = &stage.agent {
             item.field("agent", agent);
         }
+        if stage.is_agent_check() {
+            item.list("agents", stage.agents.iter().map(String::as_str));
+        }
         if let Some(skill) = &stage.skill {
             item.field("skill", skill);
         }
         item.list("options", stage.options.iter().map(StageOption::as_str));
         if let Some(rounds) = stage.rounds {
             item.number("rounds", rounds);
+        }
+        // By the stage's name; a stage gone from the flow writes nothing: the nearest Agent stage again.
+        let fail_to = stage
+            .fail_to
+            .as_deref()
+            .filter(|_| matches!(stage.kind, StageKind::Check { .. }));
+        if let Some(target) = fail_to.and_then(|id| file.flow.stage(id)) {
+            item.field("fail_to", &target.name);
         }
         if let Some(delivery) = stage.delivery {
             item.field("mode", delivery.mode.as_str());
@@ -243,8 +268,21 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
             return refuse(what, "delivers", "the Delivery stage");
         }
     }
-    if kind != (StageKind::Check { by: CheckBy::Agent }) && raw.rounds.is_some() {
+    let agent_check = kind == StageKind::Check { by: CheckBy::Agent };
+    if !agent_check && raw.rounds.is_some() {
         return refuse(what, "rounds", "an agent check");
+    }
+    if !agent_check && raw.agents.is_some() {
+        return refuse(what, "agents", "an agent check");
+    }
+    if !matches!(kind, StageKind::Check { .. }) && raw.fail_to.is_some() {
+        return refuse(what, "fail_to", "a check");
+    }
+    // An agent check lists its check agents (d0130); `agent:` is never read for one.
+    if let (true, Some(agent)) = (agent_check, &raw.agent) {
+        return Err(FormatError(format!(
+            "{name} is an agent check: an agent check lists its agents: `agents: [{agent}]`"
+        )));
     }
     let delivery = match kind {
         StageKind::Delivery => {
@@ -265,9 +303,10 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
         StageKind::Delivery => delivery.is_some_and(|d| d.delivers != Delivers::Local),
     };
     // An Agent stage or an agent check with no `skill:` reads (the editor's draft holds one until its skill is
-    // picked or written, FED-06); the checks refuse it ("Plan needs a skill", [`super::check`]).
+    // picked or written, FED-06); the checks refuse it ("Plan needs a skill", [`super::check`]). So does an agent
+    // check with no check agents yet (Rule::NoCheckAgent).
     if runs_agent {
-        if raw.agent.is_none() {
+        if raw.agent.is_none() && !agent_check {
             return Err(FormatError(format!(
                 "{name} is {what}: name the agent that runs it with `agent:`"
             )));
@@ -313,9 +352,17 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
         kind,
         column: raw.column.unwrap_or_default(),
         agent: raw.agent,
+        agents: raw
+            .agents
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| a.trim().to_owned())
+            .collect(),
         skill: raw.skill,
         options,
         rounds: raw.rounds,
+        // A stage's name until [`fail_to_ids`] makes it the stage's id.
+        fail_to: raw.fail_to.map(|n| n.trim().to_owned()),
         delivery,
         why: why(raw.why),
     })
@@ -343,6 +390,30 @@ fn give_ids(stages: &mut [Stage]) {
         }
         stages[i].id = id;
     }
+}
+
+/// Each check's `fail_to`, read as a stage's name, as that stage's id: the same name, else the same name ignoring
+/// case. A name no stage has is refused; whether the stage is a fit is [`super::check`]'s [`super::Rule::FailTo`].
+fn fail_to_ids(stages: &mut [Stage]) -> Result<(), FormatError> {
+    for i in 0..stages.len() {
+        let Some(name) = stages[i].fail_to.clone() else {
+            continue;
+        };
+        let target = stages
+            .iter()
+            .find(|s| s.name == name)
+            .or_else(|| stages.iter().find(|s| s.name.eq_ignore_ascii_case(&name)))
+            .map(|s| s.id.clone());
+        let Some(id) = target else {
+            return Err(FormatError(format!(
+                "{}'s fails go to {name}, which isn't a stage of this flow: name an Agent stage before it with \
+                 `fail_to:`, or leave it out for the nearest one",
+                stages[i].name
+            )));
+        };
+        stages[i].fail_to = Some(id);
+    }
+    Ok(())
 }
 
 /// A stage id from its name: `Code review` → `code-review`.

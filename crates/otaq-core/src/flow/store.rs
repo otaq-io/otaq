@@ -189,6 +189,9 @@ pub fn rename_agent(file: &mut FlowFile, old: &str, new: &str) -> bool {
         if let Some(agent) = &mut stage.agent {
             rename(agent);
         }
+        for agent in &mut stage.agents {
+            rename(agent);
+        }
         for option in &mut stage.options {
             if let super::model::StageOption::Agent(agent) = option {
                 rename(agent);

@@ -195,7 +195,7 @@ pub enum Applies {
     /// Removing or reordering stages, or a stage's kind (FED-08): once no ticket is inside the affected span, from
     /// `first` to `last` ([`super::apply::affected_span`]).
     Span { first: String, last: String },
-    /// A stage's agent, skill, options or rounds: when that stage next starts.
+    /// A stage's agent (an agent check's check agents), skill, options or rounds: when that stage next starts.
     StageStarts { stage: String },
     /// A stage's name and column, a Delivery's mode or target: the next card that arrives.
     AtOnce,
@@ -248,6 +248,11 @@ pub enum Change {
         from: Option<String>,
         to: Option<String>,
     },
+    /// An agent check's check agents (d0130).
+    Agents {
+        from: Vec<String>,
+        to: Vec<String>,
+    },
     Skill {
         from: Option<String>,
         to: Option<String>,
@@ -259,6 +264,14 @@ pub enum Change {
     Rounds {
         from: Option<u32>,
         to: Option<u32>,
+    },
+    /// A check's fails-go-to stage (d0131), by name; `None` for the nearest Agent stage before it. `gone`: the stage
+    /// it named was removed, so it is the nearest again.
+    FailTo {
+        from: Option<String>,
+        to: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        gone: bool,
     },
     Column {
         from: String,
@@ -295,6 +308,7 @@ impl Change {
                 last: s.last.clone(),
             }),
             Self::Agent { .. }
+            | Self::Agents { .. }
             | Self::Skill { .. }
             | Self::Options { .. }
             | Self::Rounds { .. } => Applies::StageStarts {
@@ -494,8 +508,23 @@ fn same_name(a: &str, b: &str) -> bool {
 
 /// Gives each proposed stage its permanent id (d0108 "Identity and deleting"): a written id is kept; otherwise the id
 /// of `base`'s stage with the same name, else of `base`'s stage at the same position when that stage's name is gone
-/// from the proposal, else a new one from its name. `written[i]` says whether stage `i` had its id written.
+/// from the proposal, else a new one from its name. `written[i]` says whether stage `i` had its id written. A check's
+/// `fail_to` keeps naming the same stage of the proposal under its matched id.
 pub fn match_ids(base: &Flow, proposed: &mut Flow, written: &[bool]) {
+    let targets: Vec<Option<usize>> = proposed
+        .stages
+        .iter()
+        .map(|s| s.fail_to.as_deref().and_then(|id| proposed.position(id)))
+        .collect();
+    assign_ids(base, proposed, written);
+    for (i, target) in targets.into_iter().enumerate() {
+        if let Some(t) = target {
+            proposed.stages[i].fail_to = Some(proposed.stages[t].id.clone());
+        }
+    }
+}
+
+fn assign_ids(base: &Flow, proposed: &mut Flow, written: &[bool]) {
     let stages = &mut proposed.stages;
     let mut decided: Vec<bool> = (0..stages.len())
         .map(|i| written.get(i).copied().unwrap_or(false))
@@ -618,6 +647,9 @@ fn kept_in_order(base: &[&str], new: &[&str]) -> HashSet<String> {
     kept
 }
 
+/// A check's fails-go-to stage left unset: the nearest Agent stage before it (d0131), as the flow editor's picker says.
+pub const NEAREST: &str = "nearest";
+
 fn or_none(value: Option<&str>) -> String {
     value.unwrap_or("none").to_owned()
 }
@@ -702,6 +734,40 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
                 Change::Agent {
                     from: old.agent.clone(),
                     to: stage.agent.clone(),
+                },
+            );
+        }
+        if old.agents != stage.agents {
+            push(
+                stage,
+                Change::Agents {
+                    from: old.agents.clone(),
+                    to: stage.agents.clone(),
+                },
+            );
+        }
+        // By the stages' names, each in its own flow: a rename of the target alone is no change here.
+        let target = |flow: &Flow, s: &Stage| {
+            s.fail_to
+                .as_deref()
+                .and_then(|id| flow.stage(id))
+                .map(|t| t.name.clone())
+        };
+        let (was, now) = (target(base, old), target(new, stage));
+        let same_id = old.fail_to.is_some() && old.fail_to == stage.fail_to;
+        if was != now && !(same_id && now.is_some()) {
+            let gone = was.is_some()
+                && now.is_none()
+                && old
+                    .fail_to
+                    .as_deref()
+                    .is_some_and(|id| new.stage(id).is_none());
+            push(
+                stage,
+                Change::FailTo {
+                    from: was,
+                    to: now,
+                    gone,
                 },
             );
         }
@@ -810,6 +876,26 @@ fn describe(stage: &Stage, change: &Change) -> (String, String) {
         }
         Change::Skill { from, to } => {
             let text = detail("skill", or_none(from.as_deref()), or_none(to.as_deref()));
+            (text.clone(), text)
+        }
+        Change::Agents { from, to } => {
+            let text = detail("agents", list_or_none(from), list_or_none(to));
+            (text.clone(), text)
+        }
+        Change::FailTo {
+            to: None,
+            gone: true,
+            ..
+        } => {
+            let text = format!("{name}'s fails go to the nearest Agent stage now");
+            (text.clone(), text)
+        }
+        Change::FailTo { from, to, .. } => {
+            let text = detail(
+                "fails go to",
+                from.clone().unwrap_or_else(|| NEAREST.to_owned()),
+                to.clone().unwrap_or_else(|| NEAREST.to_owned()),
+            );
             (text.clone(), text)
         }
         Change::Options { from, to } => {
@@ -1483,7 +1569,7 @@ impl Board {
                     continue;
                 }
                 keys.sort();
-                let runs = now.agent.clone().unwrap_or_default();
+                let runs = now.agents_line();
                 let count = match keys.len() {
                     1 => "1 ticket".to_owned(),
                     n => format!("{n} tickets"),
@@ -1734,7 +1820,7 @@ mod tests {
   - name: Validate
     kind: check
     by: agent
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 3
   - name: QA
@@ -1860,6 +1946,130 @@ mod tests {
                 id: "review".into(),
                 name: "Review".into()
             }
+        );
+    }
+
+    /// Spec first's shape (d0131): Product spec → Dev → Spec review (fails to Product spec) → Done.
+    const FAILS_TO_SPEC: &str = "flow:
+  - name: Product spec
+    kind: agent
+    agent: Developer
+    skill: work-ticket
+  - name: Dev
+    kind: agent
+    agent: Developer
+    skill: work-ticket
+  - name: Spec review
+    kind: check
+    by: agent
+    agents: [Validator]
+    skill: validate
+    rounds: 3
+    fail_to: Product spec
+  - name: Done
+    kind: delivery
+    mode: click
+    delivers: local
+";
+
+    /// d0131 with d0108's ids: `fail_to` keeps the stage's id, so renaming Product spec keeps Spec review's target
+    /// (only the rename shows); the ids matched to the flow it changes carry it along.
+    #[test]
+    fn a_rename_keeps_where_fails_go() {
+        let base = read(FAILS_TO_SPEC, &Flow::default());
+        assert_eq!(
+            base.stage("spec-review").unwrap().fail_to.as_deref(),
+            Some("product-spec")
+        );
+        // Matched by position: the new name is gone from the old flow, so the id stays.
+        let renamed = read(
+            &FAILS_TO_SPEC.replace("Product spec", "Product brief"),
+            &base,
+        );
+        assert_eq!(renamed.stages[0].id, "product-spec");
+        assert_eq!(
+            renamed.stage("spec-review").unwrap().fail_to.as_deref(),
+            Some("product-spec")
+        );
+        let texts: Vec<String> = stage_changes(&base, &renamed, false)
+            .into_iter()
+            .map(|c| c.text)
+            .collect();
+        assert_eq!(texts, ["stage Product spec \u{2192} Product brief"]);
+        // An id given from the name and then matched elsewhere: fail_to follows the stage, not the id it read with.
+        let mut proposed = yaml::read(FAILS_TO_SPEC).unwrap().flow;
+        let mut old = proposed.clone();
+        old.stages[0].id = "spec".into();
+        old.stages[0].name = "Product spec".into();
+        match_ids(&old, &mut proposed, &[false; 4]);
+        assert_eq!(proposed.stages[0].id, "spec");
+        assert_eq!(proposed.stages[2].fail_to.as_deref(), Some("spec"));
+        assert_eq!(
+            proposed.fail_to_of(&proposed.stages[2]).unwrap().name,
+            "Product spec"
+        );
+    }
+
+    /// d0131: setting where a check's fails go, and removing that stage later: the check is on the nearest Agent
+    /// stage again, and the preview says so.
+    #[test]
+    fn removing_the_target_resets_it_and_says_so() {
+        let base = read(FAILS_TO_SPEC, &Flow::default());
+        let mut gone = base.clone();
+        gone.stages.retain(|s| s.id != "product-spec");
+        // Written and read back, as the editor's draft is: the removed stage leaves no `fail_to`.
+        let gone = yaml::read(&yaml::write(&FlowFile {
+            agents: Vec::new(),
+            flow: gone,
+        }))
+        .unwrap()
+        .flow;
+        assert_eq!(gone.stage("spec-review").unwrap().fail_to, None);
+        let changes = stage_changes(&base, &gone, false);
+        let texts: Vec<(&str, String)> = changes
+            .iter()
+            .map(|c| (c.text.as_str(), c.applies.text()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                (
+                    "Spec review's fails go to the nearest Agent stage now",
+                    "applies at once".to_owned()
+                ),
+                (
+                    "stage Product spec removed",
+                    "waits until no ticket is between Product spec and Dev".to_owned()
+                ),
+            ]
+        );
+        assert_eq!(
+            changes[0].change,
+            Change::FailTo {
+                from: Some("Product spec".into()),
+                to: None,
+                gone: true
+            }
+        );
+
+        // Setting it, and changing a check's agents, are changes of their own.
+        let unset = read(
+            &FAILS_TO_SPEC
+                .replace("    fail_to: Product spec\n", "")
+                .replace("[Validator]", "[Validator, Security reviewer]"),
+            &base,
+        );
+        let texts: Vec<String> = stage_changes(&base, &unset, false)
+            .into_iter()
+            .map(|c| format!("{} \u{2014} {}", c.text, c.applies.text()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "Spec review \u{b7} agents: Validator \u{2192} Validator, Security reviewer \u{2014} applies when \
+                 Spec review next starts",
+                "Spec review \u{b7} fails go to: Product spec \u{2192} nearest \u{2014} applies at once",
+            ]
         );
     }
 

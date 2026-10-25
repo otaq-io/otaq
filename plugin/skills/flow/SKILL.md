@@ -173,10 +173,12 @@ flow:
 | `kind` | every stage | `agent`: an agent works on the ticket. `check`: an agent or the user passes or fails it. `delivery`: Local merge or PR, always last. |
 | `by` | check | `agent` (an agent check: read-only, ends with a verdict) or `you` (the user's check: Pass or Fail). |
 | `column` | every stage | `own`: its own column. `with-previous`: its cards show in the column before it. Default `own`. |
-| `agent` | agent, agent check, PR delivery | The agent that runs it, by name. A check by you and a Local merge have none. |
+| `agent` | agent, PR delivery | The agent that runs it, by name. A check by you and a Local merge have none. |
+| `agents` | agent check | Its check agents, by name, one or more: `[Validator]`, `[Security reviewer, Performance reviewer]`. They run side by side, each read-only, each running the stage's skill; the stage passes when every one passes. An agent check never takes `agent:`. |
 | `skill` | agent, agent check, PR delivery | The skill it runs first (`work-ticket`, `validate`, `open-pr`…). |
 | `options` | agent, check | Other agents a ticket may use instead (`[Quick developer]`), and `skip` when a ticket may skip the stage. Default: none. |
-| `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user. |
+| `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user, whichever check agent failed. |
+| `fail_to` | check | Where a Fail goes back to: an Agent stage before the check, by name (`fail_to: Product spec`). Leave it out for the nearest Agent stage before it (the usual). |
 | `mode` | delivery | `click`: waits for the user's Local merge or Open PR. `automatic`: merges, or pushes and opens the PR, with no click and no dialog. |
 | `why` | every stage | One line on why the stage is there, naming its source (below). The flow editor shows it; Otaq doesn't act on it. |
 | `delivers` | delivery | `local` (Local merge, no agent), `pr` (runs its agent and skill), or `either` (the user picks; click mode only). |
@@ -212,7 +214,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 3
   - id: review
@@ -239,8 +241,10 @@ flow:
 - `with-previous` is refused on the first stage, and into a column that belongs to a check by you (only the Delivery
   may share it, as Done shares Review's on the default flow).
 - `either` only with `mode: click`; a Delivery can't be skipped; `rounds` from 1 to 5.
+- An agent check lists one or more `agents:`, each once.
+- A check's `fail_to` names an Agent stage before it.
 - With every `skip` taken, an Agent stage must still run, and every check by you must still have one before it.
-- Every agent a stage or an option names is in `agents:` or already exists.
+- Every agent a stage, a check's `agents` or an option names is in `agents:` or already exists.
 
 ### What you add only when the user asks
 

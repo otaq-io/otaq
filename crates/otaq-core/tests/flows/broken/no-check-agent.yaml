@@ -1,0 +1,20 @@
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: own
+    skill: validate
+    rounds: 3
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: own
+    mode: click
+    delivers: local

@@ -195,9 +195,11 @@ pub fn epic_stop(flow: &Flow) -> Stage {
             // Its own column (`column: own`).
             column: Default::default(),
             agent: None,
+            agents: Vec::new(),
             skill: None,
             options: Vec::new(),
             rounds: None,
+            fail_to: None,
             delivery: None,
             why: None,
         });

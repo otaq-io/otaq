@@ -64,7 +64,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Security reviewer
+    agents: [Security reviewer]
     skill: security-review
     rounds: 2
   - id: review

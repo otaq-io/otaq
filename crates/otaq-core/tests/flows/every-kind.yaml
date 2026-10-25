@@ -50,7 +50,7 @@ flow:
     kind: check
     by: agent
     column: with-previous
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 3
   - id: security
@@ -58,7 +58,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Security reviewer
+    agents: [Security reviewer, Validator]
     skill: security-review
     rounds: 2
   - id: qa
@@ -67,6 +67,7 @@ flow:
     by: you
     column: own
     options: [skip]
+    fail_to: Grill
   - id: ship
     name: Done
     kind: delivery

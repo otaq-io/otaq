@@ -7,7 +7,8 @@
 //! # `--json` shapes
 //!
 //! - `show`: `{project, version, yaml, document}`, `document` the YAML as JSON.
-//! - `presets`: `[{file, name, line, stages}]`, `stages` the preset's stage names in order.
+//! - `presets`: `[{file, name, line, stages, yaml}]`, `stages` the preset's stage names in order, `yaml` its file
+//!   (every field: an agent check's `agents`, a check's `fail_to`).
 //! - `propose`: the proposal as the flow editor shows it (`id`, `problems`, `diff`, …).
 //! - `write-skill`: `{stage, folder, skill?, text}`; `--quiet` prints the folder (the skill's name with `--done`).
 
@@ -114,7 +115,7 @@ fn list_presets(out: &Output) {
         .iter()
         .map(|p| {
             let stages: Vec<String> = p.read().flow.stages.into_iter().map(|s| s.name).collect();
-            json!({ "file": p.file, "name": p.name, "line": p.line, "stages": stages })
+            json!({ "file": p.file, "name": p.name, "line": p.line, "stages": stages, "yaml": p.yaml })
         })
         .collect();
     let files: Vec<&str> = presets().iter().map(|p| p.file).collect();

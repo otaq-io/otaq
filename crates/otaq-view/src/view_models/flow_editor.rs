@@ -1010,16 +1010,33 @@ fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
         .find(|m| m.stage_id == id && m.mark != Mark::Removed)
 }
 
+/// T-0529: an agent check's several check agents (d0130). The editor shows and sets one agent per stage for now: an
+/// agent check's first check agent.
+fn the_agent(stage: &Stage) -> Option<&String> {
+    stage.named_agents().next()
+}
+
+/// T-0529: sets the agent [`the_agent`] reads: an agent check's first check agent, else the stage's agent.
+fn set_agent(stage: &mut Stage, agent: Option<String>) {
+    if stage.is_agent_check() {
+        stage.agent = None;
+        match (agent, stage.agents.is_empty()) {
+            (Some(name), true) => stage.agents.push(name),
+            (Some(name), false) => stage.agents[0] = name,
+            (None, _) => stage.agents.clear(),
+        }
+    } else {
+        stage.agents.clear();
+        stage.agent = agent;
+    }
+}
+
 /// The stages that run the agent `name`, or offer it as an option: where its problems and its clash show (Q426).
 fn agent_stages<'a>(file: &'a FlowFile, name: &'a str) -> impl Iterator<Item = &'a Stage> + 'a {
-    file.flow.stages.iter().filter(move |s| {
-        s.agent
-            .as_deref()
-            .is_some_and(|a| a.eq_ignore_ascii_case(name))
-            || s.options
-                .iter()
-                .any(|o| matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(name)))
-    })
+    file.flow
+        .stages
+        .iter()
+        .filter(move |s| s.every_agent().any(|a| a.eq_ignore_ascii_case(name)))
 }
 
 /// A problem shows on `stage`: it is about the stage, or about an agent the stage runs or offers.
@@ -1294,7 +1311,7 @@ fn choices_kept(f: &Facts) -> Choices {
 
 /// What the walking ticket says in a stage, and its colour.
 fn ticket_state(stage: &Stage, long: bool) -> (String, PillView) {
-    let who = |word: &str| match (long, &stage.agent) {
+    let who = |word: &str| match (long, the_agent(stage)) {
         (true, Some(agent)) => format!("{word} \u{b7} {agent}"),
         _ => word.to_owned(),
     };
@@ -1400,7 +1417,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             StageKind::Delivery => (None, Some(delivers_word(stage).to_owned())),
             // "needs a skill" takes the agent's place (`s27-05`).
             _ if stage.needs_skill() => (None, None),
-            _ => match &stage.agent {
+            _ => match the_agent(stage) {
                 Some(name) => (agent_on(name, f).0, Some(name.clone())),
                 None => (None, None),
             },
@@ -1473,7 +1490,7 @@ fn agent_items(f: &Facts, current: &str) -> Vec<MenuItem> {
 }
 
 fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
-    let name = stage.agent.as_deref()?;
+    let name = the_agent(stage)?;
     let (avatar, model) = agent_on(name, f);
     let default = match stage.kind {
         StageKind::Agent => Some((WORKS_AGENT, "An agent works")),
@@ -1499,9 +1516,9 @@ fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
 /// "A ticket can": skipping it, each other agent it may use, and (fixed) coming back here when a later check fails.
 fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
     let mut rows = Vec::new();
-    let runs_agent = stage.agent.is_some() && !stage.is_delivery();
+    let runs_agent = the_agent(stage).is_some() && !stage.is_delivery();
     if runs_agent {
-        let current = stage.agent.as_deref().unwrap_or_default();
+        let current = the_agent(stage).map(String::as_str).unwrap_or_default();
         let named: Vec<String> = f
             .stored
             .iter()
@@ -1626,7 +1643,7 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
 
 /// The Skill field of a stage an agent runs (FED-06): set, empty with Pick and Ask, being written, or written.
 fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
-    stage.agent.as_ref()?;
+    the_agent(stage)?;
     let state = if let Some(written) = written_of(f, stage) {
         SkillState::Written {
             skill: written.skill.clone(),
@@ -2407,10 +2424,7 @@ fn fresh_name(file: &FlowFile) -> String {
 fn with_kind(stage: &Stage, kind: EditorKind) -> Stage {
     let mut s = stage.clone();
     let was_default = |agent: &str, skill: &str| {
-        stage
-            .agent
-            .as_deref()
-            .is_none_or(|a| a.eq_ignore_ascii_case(agent))
+        the_agent(stage).is_none_or(|a| a.eq_ignore_ascii_case(agent))
             && stage.skill.as_deref().is_none_or(|k| k == skill)
     };
     let defaults = match editor_kind(stage) {
@@ -2426,7 +2440,7 @@ fn with_kind(stage: &Stage, kind: EditorKind) -> Stage {
     match kind {
         EditorKind::YouCheck => {
             s.kind = StageKind::Check { by: CheckBy::You };
-            s.agent = None;
+            set_agent(&mut s, None);
             s.skill = None;
             s.rounds = None;
             s.options.retain(|o| *o == StageOption::Skip);
@@ -2436,10 +2450,17 @@ fn with_kind(stage: &Stage, kind: EditorKind) -> Stage {
                 EditorKind::Works => StageKind::Agent,
                 _ => StageKind::Check { by: CheckBy::Agent },
             };
+            if kind == EditorKind::Works {
+                // Only a check has a fails-go-to stage (d0131).
+                s.fail_to = None;
+            }
             // A stage with no skill yet keeps none: the user picks or has one written (FED-05, FED-06).
-            let skilless = stage.agent.is_some() && stage.skill.is_none();
-            if defaults || s.agent.is_none() {
-                s.agent = Some(agent.to_owned());
+            let skilless = the_agent(stage).is_some() && stage.skill.is_none();
+            // The agent moves to the new kind's field (an agent check lists it, d0130).
+            let kept = the_agent(stage).cloned();
+            set_agent(&mut s, kept);
+            if defaults || the_agent(&s).is_none() {
+                set_agent(&mut s, Some(agent.to_owned()));
                 s.skill = (!skilless).then(|| skill.to_owned());
             }
             s.rounds =
@@ -2478,7 +2499,7 @@ fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stag
         EditorKind::AgentChecks => (Some(CHECKS_AGENT), Some(CHECK_ROUNDS)),
         EditorKind::YouCheck => (None, None),
     };
-    Stage {
+    let mut stage = Stage {
         id: fresh_id(&others, &name),
         name,
         kind: match kind {
@@ -2487,23 +2508,23 @@ fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stag
             EditorKind::YouCheck => StageKind::Check { by: CheckBy::You },
         },
         column: Column::Own,
-        agent: agent.map(str::to_owned),
+        agent: None,
+        agents: Vec::new(),
         skill: None,
         options: Vec::new(),
         rounds,
+        fail_to: None,
         delivery: None,
         why: None,
-    }
+    };
+    set_agent(&mut stage, agent.map(str::to_owned));
+    stage
 }
 
 /// The agents `stage` names that neither the document nor `stored` has, from `brought` (a preset's): they come with
 /// it, created on Apply.
 fn bring_agents(out: &mut FlowFile, stage: &Stage, brought: &[FlowAgent], stored: &[Agent]) {
-    let options = stage.options.iter().filter_map(|o| match o {
-        StageOption::Agent(name) => Some(name),
-        StageOption::Skip => None,
-    });
-    for name in stage.agent.iter().chain(options) {
+    for name in stage.every_agent() {
         let known = out.agents.iter().any(|a| a.name.eq_ignore_ascii_case(name))
             || stored_agent(stored, name).is_some();
         if let Some(agent) = brought
@@ -2547,10 +2568,10 @@ pub fn edited(
         StageEdit::Agent { stage, agent } => {
             let i = at(stage)?;
             let s = &mut out.flow.stages[i];
-            if s.agent.is_none() {
+            if the_agent(s).is_none() {
                 return Err(format!("No agent runs {}", s.name));
             }
-            s.agent = Some(agent.clone());
+            set_agent(s, Some(agent.clone()));
             s.options
                 .retain(|o| !matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(agent)));
         }
@@ -2602,10 +2623,12 @@ pub fn edited(
                     kind: StageKind::Agent,
                     column: Column::Own,
                     agent: Some(WORKS_AGENT.to_owned()),
+                    agents: Vec::new(),
                     // Blank: the user picks the skill or has it written (FED-05, FED-06).
                     skill: None,
                     options: Vec::new(),
                     rounds: None,
+                    fail_to: None,
                     delivery: None,
                     why: None,
                 },
@@ -2621,7 +2644,7 @@ pub fn edited(
         }
         StageEdit::Skill { stage, skill } => {
             let i = at(stage)?;
-            let Some(agent) = out.flow.stages[i].agent.clone() else {
+            let Some(agent) = the_agent(&out.flow.stages[i]).cloned() else {
                 return Err(format!("No agent runs {}", out.flow.stages[i].name));
             };
             let skill = skill.trim();
@@ -2888,7 +2911,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agents: [Validator]
     skill: validate
     rounds: 3
   - id: security
@@ -2896,7 +2919,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Security reviewer
+    agents: [Security reviewer]
     skill: security-review
     rounds: 3
   - id: review
@@ -4024,7 +4047,7 @@ mod tests {
         )
         .unwrap();
         let s = you.flow.stage("validate").unwrap();
-        assert!(s.is_human_check() && s.agent.is_none() && s.rounds.is_none());
+        assert!(s.is_human_check() && !s.has_agent() && s.rounds.is_none() && s.fail_to.is_none());
         let (back, _) = edited(
             &you,
             &StageEdit::Kind {
@@ -4035,8 +4058,8 @@ mod tests {
         .unwrap();
         let s = back.flow.stage("validate").unwrap();
         assert_eq!(
-            (s.agent.as_deref(), s.skill.as_deref(), s.rounds),
-            (Some("Validator"), Some("validate"), Some(3))
+            (s.check_agents(), s.skill.as_deref(), s.rounds),
+            (&["Validator".to_owned()][..], Some("validate"), Some(3))
         );
         assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&back)).is_ok());
         // Rename, agent, an option.
@@ -4324,7 +4347,7 @@ mod tests {
             (
                 s.name.as_str(),
                 s.kind,
-                s.agent.as_deref(),
+                the_agent(s).map(String::as_str),
                 s.skill.as_deref(),
                 s.rounds
             ),
@@ -4376,7 +4399,7 @@ mod tests {
         .unwrap();
         let s = checks.flow.stage("plan").unwrap();
         assert_eq!(
-            (s.agent.as_deref(), s.skill.as_deref()),
+            (the_agent(s).map(String::as_str), s.skill.as_deref()),
             (Some("Validator"), None)
         );
         // The draft with no skill reads back (the checks say "Plan needs a skill").

@@ -153,7 +153,7 @@ async fn an_agents_proposal_lands_in_the_draft_with_marks() {
         let mut visual = file.flow.stage("security").unwrap().clone();
         visual.id = String::new();
         visual.name = "Visual check".into();
-        visual.agent = Some("Visual checker".into());
+        visual.agents = vec!["Visual checker".into()];
         visual.skill = Some("validate".into());
         let after = file.flow.position("validate").unwrap() + 1;
         file.flow.stages.insert(after, visual);
