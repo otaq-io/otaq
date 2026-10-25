@@ -29,6 +29,10 @@ added: boolean,
  */
 written: FlowEditorMark | null, 
 /**
+ * A check's "fails go to Dev" under its kind (d0131).
+ */
+fails_to: string | null, 
+/**
  * Its problem from the check, in the error colour ("needs a skill").
  */
 problem: string | null, selected: boolean, 

@@ -10,7 +10,8 @@
 // A new stage's details start with its templates, and the Skill field offers Pick a skill… and Ask the agent to
 // write it (T-0472; FED-05, FED-06; `s26-09`, `s27-05`, `s27-06`), which only prefills the panel's box (Q441). A
 // problem that needs a pick shows its fix in the step's details, with FLW-04's controls (Q426); the picks stay here
-// until Apply sends them.
+// until Apply sends them. A check's details have Fails go to (the Agent stages before it, the nearest by default); an
+// agent check's list its check agents (add, remove) and one Rounds limit (T-0529; d0131, d0130; `s29-04`).
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { keymap } from "../../app/keyboard";
@@ -35,17 +36,20 @@ import {
   Radio,
 } from "../../components";
 import type { FlowEditorAgent } from "../../generated/FlowEditorAgent";
+import type { FlowEditorCheckAgents } from "../../generated/FlowEditorCheckAgents";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
 import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
 import type { FlowEditorClashPick } from "../../generated/FlowEditorClashPick";
 import type { FlowEditorDetails } from "../../generated/FlowEditorDetails";
 import type { FlowEditorEntry } from "../../generated/FlowEditorEntry";
+import type { FlowEditorFailTo } from "../../generated/FlowEditorFailTo";
 import type { FlowEditorFix } from "../../generated/FlowEditorFix";
 import type { FlowEditorFlow } from "../../generated/FlowEditorFlow";
 import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
 import type { FlowEditorMark } from "../../generated/FlowEditorMark";
 import type { FlowEditorParams } from "../../generated/FlowEditorParams";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
+import type { FlowEditorRounds } from "../../generated/FlowEditorRounds";
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
 import type { FlowEditorTemplates } from "../../generated/FlowEditorTemplates";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
@@ -427,6 +431,7 @@ function StepItem({
       <span className="fe-step-text">
         <span className="fe-step-name">{step.name}</span>
         <span className="fe-step-kind">{step.kind}</span>
+        {step.fails_to !== null && <span className="fe-step-kind fe-step-fails">{step.fails_to}</span>}
         {step.problem !== null && <span className="fe-step-problem">{step.problem}</span>}
       </span>
       {step.mark !== null && (
@@ -796,6 +801,132 @@ export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorA
   );
 }
 
+/** An agent check's Check agents (d0130): a row per agent (tool badge, name, model, remove) and Add a check agent. */
+function CheckAgentsField({
+  field,
+  stage,
+  actions,
+}: {
+  field: FlowEditorCheckAgents;
+  stage: string;
+  actions: EditorActions;
+}) {
+  const [adding, setAdding] = useState(false);
+  const anchor = useRef<HTMLSpanElement>(null);
+  return (
+    <div className="fe-field">
+      <span className="fe-label">{field.label}</span>
+      <div className="fe-check-agents">
+        {field.rows.map((row) => (
+          <div key={row.name} className="fe-check-agent">
+            {row.avatar !== null && <ToolAvatar avatar={row.avatar} />}
+            <span className="fe-check-agent-name">{row.name}</span>
+            {row.model !== null && <span className="fe-muted">{row.model}</span>}
+            <span className="fe-spacer" />
+            <IconButton
+              icon="x"
+              label={row.remove}
+              onClick={() => {
+                actions.edit({ edit: "remove_check_agent", stage, agent: row.name });
+              }}
+            />
+          </div>
+        ))}
+        <span ref={anchor} className="fe-skill-anchor">
+          <button
+            type="button"
+            className="fe-link fe-add-agent"
+            disabled={field.add_items.length === 0}
+            onClick={() => {
+              setAdding(true);
+            }}
+          >
+            <Icon name="plus" size={12} />
+            {field.add}
+          </button>
+        </span>
+      </div>
+      <span className="fe-hint">{field.note}</span>
+      {adding && (
+        <AnchoredMenu
+          anchor={anchor}
+          align="start"
+          label={field.add}
+          items={field.add_items}
+          list
+          onChoose={(agent) => {
+            setAdding(false);
+            if (agent !== "") actions.edit({ edit: "add_check_agent", stage, agent });
+          }}
+          onClose={() => {
+            setAdding(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** An agent check's Rounds: one limit for the stage, whichever check agent fails (d0130). */
+function RoundsField({
+  field,
+  stage,
+  actions,
+}: {
+  field: FlowEditorRounds;
+  stage: string;
+  actions: EditorActions;
+}) {
+  return (
+    <div className="fe-field">
+      <span className="fe-label">{field.label}</span>
+      <Select
+        label={field.label}
+        value={field.value}
+        items={field.items}
+        onChange={(id) => {
+          const rounds = Number(id);
+          if (id !== field.value && Number.isInteger(rounds)) actions.edit({ edit: "rounds", stage, rounds });
+        }}
+      />
+      <span className="fe-muted">{field.note}</span>
+    </div>
+  );
+}
+
+/** A check's Fails go to (d0131): the Agent stages before it, "nearest" on the default, which leaves `to` out. */
+function FailToField({
+  field,
+  stage,
+  actions,
+}: {
+  field: FlowEditorFailTo;
+  stage: string;
+  actions: EditorActions;
+}) {
+  return (
+    <div className="fe-field">
+      <span className="fe-label">{field.label}</span>
+      <Select
+        label={field.label}
+        value={field.value}
+        items={field.items}
+        onChange={(id) => {
+          if (id === "") return;
+          actions.edit(
+            id === field.nearest ? { edit: "fail_to", stage } : { edit: "fail_to", stage, to: id },
+          );
+        }}
+      />
+      {field.problem !== null && (
+        <p className="fe-problem" role="alert">
+          {field.problem}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DetailsPanel({ details, actions }: { details: FlowEditorDetails; actions: EditorActions }) {
   const stage = details.stage;
   const kindIndex = details.kinds.findIndex((k) => k.kind === details.kind);
@@ -880,9 +1011,22 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
           </span>
         </div>
       )}
+      {details.check_agents !== null && (
+        <CheckAgentsField field={details.check_agents} stage={stage} actions={actions} />
+      )}
       {details.skill !== null && (
         <SkillField key={stage} field={details.skill} stage={stage} actions={actions} />
       )}
+      {(details.rounds !== null || details.fail_to !== null) && (
+        <div className="fe-field-pair">
+          {details.rounds !== null && <RoundsField field={details.rounds} stage={stage} actions={actions} />}
+          {details.fail_to !== null && (
+            <FailToField field={details.fail_to} stage={stage} actions={actions} />
+          )}
+        </div>
+      )}
+      {details.fail_to !== null && <span className="fe-hint">{details.fail_to.explanation}</span>}
+      {details.rule !== null && <p className="fe-rule">{details.rule}</p>}
       {details.can.length > 0 && (
         <div className="fe-field">
           <span className="fe-label">{details.can_label}</span>

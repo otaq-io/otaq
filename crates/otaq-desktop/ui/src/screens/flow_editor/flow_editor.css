@@ -844,6 +844,70 @@
   gap: 8px;
 }
 
+/* A check's Fails go to and an agent check's Check agents and Rounds (T-0529, `s29-04`). */
+.fe-step-fails {
+  color: var(--text-secondary);
+}
+
+.fe-check-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.fe-check-agent {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 4px 4px 10px;
+  border-radius: 7px;
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+}
+
+.fe-check-agent-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fe-add-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px;
+}
+
+.fe-add-agent:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+.fe-field-pair {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.fe-field-pair > .fe-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.fe-rule {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .fe-hint {
   display: flex;
   align-items: flex-start;

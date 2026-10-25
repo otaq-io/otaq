@@ -38,19 +38,28 @@
 //! menu for an agent whose model isn't listed or whose tool isn't connected, and "Import its folder…" for a missing
 //! skill. The page keeps the picks ([`Choices`]) until Apply sends them, as the preview did; a picked problem no
 //! longer marks its step, and Apply turns on once none is left.
+//!
+//! **Checks** (T-0529; d0131, d0130; `s29-04` "Fails go to" and "One check, several agents"): every check in the
+//! steps list says where its fails go ("fails go to Dev"), and an agent check with several agents says "2 check
+//! agents" in the agent's place. A check's details have **Fails go to** ([`FailToField`]): the Agent stages before it,
+//! the nearest marked and picked by default (the flow file leaves `fail_to` out for it). An agent check's details list
+//! its **Check agents** ([`CheckAgentsField`]: add, remove), one **Rounds** limit for the stage ([`RoundsField`]) and
+//! the rule text; the change line says what a new set of check agents does ("Validate now runs Security reviewer and
+//! Performance reviewer side by side…"). A `fail_to` that no longer fits, and an agent check left with no agent, are
+//! the check's problems: they show in the step's details and keep Apply off until fixed.
 
 use std::collections::{BTreeMap, HashSet};
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::{Agent, AgentModel, shipped};
+use otaq_core::flow::check::{VALIDATION_ROUNDS, fail_to_message};
 use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark, WrittenSkill};
-use otaq_core::flow::engine::back_to;
 use otaq_core::flow::model::{
-    CheckBy, Column, Delivers, FlowAgent, FlowFile, Stage, StageKind, StageOption,
+    CheckBy, Column, Delivers, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption,
 };
 use otaq_core::flow::presets::{preset, presets};
 use otaq_core::flow::proposal::{
-    About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, Proposal,
+    About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
     ProposalProblem, Source, flow_agent_of,
 };
 use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow};
@@ -141,6 +150,28 @@ pub enum StageEdit {
     Template {
         stage: String,
         template: Template,
+    },
+    /// **Add a check agent** on an agent check (d0130).
+    AddCheckAgent {
+        stage: String,
+        agent: String,
+    },
+    /// A check agent's remove.
+    RemoveCheckAgent {
+        stage: String,
+        agent: String,
+    },
+    /// An agent check's Rounds (1–5, d0063).
+    Rounds {
+        stage: String,
+        rounds: u32,
+    },
+    /// A check's Fails go to (d0131): an Agent stage before it by id; `None` for the nearest one.
+    FailTo {
+        stage: String,
+        #[serde(default)]
+        #[ts(optional)]
+        to: Option<String>,
     },
 }
 
@@ -538,6 +569,8 @@ pub struct StepRow {
     pub added: bool,
     /// Its skill the Project agent wrote: "New", tinted, with Undo (FED-06, `s27-06`).
     pub written: Option<MarkView>,
+    /// A check's "fails go to Dev" under its kind (d0131).
+    pub fails_to: Option<String>,
     /// Its problem from the check, in the error colour ("needs a skill").
     pub problem: Option<String>,
     pub selected: bool,
@@ -582,6 +615,58 @@ pub struct AgentField {
     /// Every agent: the stored ones, then those the draft brings ("new").
     pub items: Vec<MenuItem>,
     pub hint: &'static str,
+}
+
+/// One check agent of an agent check: its tool badge, name and model, and its remove (`s29-04`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowEditorCheckAgent")]
+pub struct CheckAgentRow {
+    pub name: String,
+    pub avatar: Option<ToolAvatarView>,
+    pub model: Option<String>,
+    /// "Remove Security reviewer" (the x's label).
+    pub remove: String,
+}
+
+/// An agent check's Check agents (d0130): one row per agent, **Add a check agent** (the agents not listed yet) and the
+/// note. `FlowEditorCheckAgents` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowEditorCheckAgents")]
+pub struct CheckAgentsField {
+    pub label: &'static str,
+    pub rows: Vec<CheckAgentRow>,
+    pub add: &'static str,
+    /// The stored agents, then the ones only the draft brings ("new"), but those already listed; empty: Add is off.
+    pub add_items: Vec<MenuItem>,
+    pub note: &'static str,
+}
+
+/// An agent check's Rounds: one limit for the stage, whichever agent fails (d0130). `FlowEditorRounds` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowEditorRounds")]
+pub struct RoundsField {
+    pub label: &'static str,
+    pub value: String,
+    /// 1–5, the current one checked; the id is the number.
+    pub items: Vec<MenuItem>,
+    pub note: &'static str,
+}
+
+/// A check's Fails go to (d0131): the Agent stages before it under a header, "nearest" on the nearest, the stage its
+/// fails go to checked. `FlowEditorFailTo` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowEditorFailTo")]
+pub struct FailToField {
+    pub label: &'static str,
+    /// The stage's name.
+    pub value: String,
+    /// The header, then one item per stage, its id the stage's.
+    pub items: Vec<MenuItem>,
+    /// The nearest stage's id: what picking it sends (as `to` left out).
+    pub nearest: String,
+    pub explanation: &'static str,
+    /// "Spec review's fails go to Validate, which isn't an Agent stage before it": its stage moved or changed kind.
+    pub problem: Option<String>,
 }
 
 /// What the Skill field shows (FED-06). `FlowEditorSkillState` on the page.
@@ -693,8 +778,14 @@ pub struct Details {
     pub fixed_kind: Option<&'static str>,
     /// A stage the user added: its templates (FED-05).
     pub templates: Option<Templates>,
+    /// The agent of a stage one agent runs; an agent check has [`Details::check_agents`] instead.
     pub agent: Option<AgentField>,
+    pub check_agents: Option<CheckAgentsField>,
     pub skill: Option<SkillField>,
+    pub rounds: Option<RoundsField>,
+    pub fail_to: Option<FailToField>,
+    /// An agent check's rule (d0130).
+    pub rule: Option<&'static str>,
     pub can_label: &'static str,
     pub can: Vec<CanRow>,
     /// Its problem that no pick fixes (a problem with a fix shows in [`Details::fixes`]).
@@ -956,7 +1047,7 @@ fn caption(file: &FlowFile, stage: &Stage, captions: &BTreeMap<String, String>) 
         _ => {
             let skill = stage.skill.as_deref()?;
             captions.get(skill).cloned().or_else(|| {
-                let back = back_to(&file.flow, &stage.id, &[]).map(|s| s.name.as_str());
+                let back = file.flow.fail_to_of(stage).map(|s| s.name.as_str());
                 shipped_caption(skill, back)
             })
         }
@@ -1010,13 +1101,21 @@ fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
         .find(|m| m.stage_id == id && m.mark != Mark::Removed)
 }
 
-/// T-0529: an agent check's several check agents (d0130). The editor shows and sets one agent per stage for now: an
-/// agent check's first check agent.
+/// The stage's one agent: an Agent stage's or a Delivery's, an agent check's first check agent (a kind change keeps
+/// it; its options replace it).
 fn the_agent(stage: &Stage) -> Option<&String> {
     stage.named_agents().next()
 }
 
-/// T-0529: sets the agent [`the_agent`] reads: an agent check's first check agent, else the stage's agent.
+/// "Security reviewer", or "2 check agents" for an agent check with several (`s29-04`).
+fn who_runs(stage: &Stage) -> Option<String> {
+    match stage.check_agents() {
+        several @ [_, _, ..] => Some(format!("{} check agents", several.len())),
+        _ => the_agent(stage).cloned(),
+    }
+}
+
+/// Sets the agent [`the_agent`] reads: an agent check's first check agent, else the stage's agent.
 fn set_agent(stage: &mut Stage, agent: Option<String>) {
     if stage.is_agent_check() {
         stage.agent = None;
@@ -1311,7 +1410,7 @@ fn choices_kept(f: &Facts) -> Choices {
 
 /// What the walking ticket says in a stage, and its colour.
 fn ticket_state(stage: &Stage, long: bool) -> (String, PillView) {
-    let who = |word: &str| match (long, the_agent(stage)) {
+    let who = |word: &str| match (long, who_runs(stage)) {
         (true, Some(agent)) => format!("{word} \u{b7} {agent}"),
         _ => word.to_owned(),
     };
@@ -1403,6 +1502,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
         mark: None,
         added: false,
         written: None,
+        fails_to: None,
         problem: None,
         selected: false,
         draggable: false,
@@ -1417,6 +1517,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             StageKind::Delivery => (None, Some(delivers_word(stage).to_owned())),
             // "needs a skill" takes the agent's place (`s27-05`).
             _ if stage.needs_skill() => (None, None),
+            _ if stage.check_agents().len() > 1 => (None, who_runs(stage)),
             _ => match the_agent(stage) {
                 Some(name) => (agent_on(name, f).0, Some(name.clone())),
                 None => (None, None),
@@ -1434,6 +1535,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             added: mark_of(f.marks, &stage.id).is_none()
                 && f.in_use.flow.stage(&stage.id).is_none(),
             written: written_of(f, stage).map(written_view),
+            fails_to: fails_to(&f.file.flow, stage).map(|t| format!("fails go to {}", t.name)),
             problem,
             selected: f.selected == Some(stage.id.as_str()),
             draggable: !stage.is_delivery(),
@@ -1490,11 +1592,13 @@ fn agent_items(f: &Facts, current: &str) -> Vec<MenuItem> {
 }
 
 fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
+    if stage.is_agent_check() {
+        return None;
+    }
     let name = the_agent(stage)?;
     let (avatar, model) = agent_on(name, f);
     let default = match stage.kind {
         StageKind::Agent => Some((WORKS_AGENT, "An agent works")),
-        StageKind::Check { by: CheckBy::Agent } => Some((CHECKS_AGENT, "An agent checks")),
         _ => None,
     };
     let note = match default {
@@ -1561,7 +1665,7 @@ fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
         let back = f.file.flow.stages[later.min(f.file.flow.stages.len())..]
             .iter()
             .filter(|s| matches!(s.kind, StageKind::Check { .. }))
-            .any(|s| back_to(&f.file.flow, &s.id, &[]).is_some_and(|b| b.id == stage.id));
+            .any(|s| f.file.flow.fail_to_of(s).is_some_and(|b| b.id == stage.id));
         if back {
             rows.push(CanRow {
                 option: "back".to_owned(),
@@ -1572,6 +1676,108 @@ fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
         }
     }
     rows
+}
+
+/// Where a check's fails go, as the step and its field show it (d0131): the stage its `fail_to` names (even one that
+/// doesn't fit: its problem says why), else the nearest Agent stage before it. `None` for a stage that isn't a check.
+fn fails_to<'a>(flow: &'a Flow, stage: &Stage) -> Option<&'a Stage> {
+    if !matches!(stage.kind, StageKind::Check { .. }) {
+        return None;
+    }
+    stage
+        .fail_to
+        .as_deref()
+        .and_then(|id| flow.stage(id))
+        .or_else(|| flow.fail_to_of(stage))
+}
+
+/// "A fail resumes that stage’s session…" (d0131, `s29-04`).
+pub const FAIL_TO_EXPLANATION: &str = "A fail resumes that stage\u{2019}s session with the report or your comments; \
+     the card then walks every stage after it again. To send one card somewhere else, drag it back.";
+
+/// An agent check's rule (d0130, `s29-04`).
+pub const CHECK_AGENTS_RULE: &str = "Passes when every check agent passes. If one fails, the card goes back once all \
+     have given their verdict, with every report together; the next round runs them all again.";
+
+/// A check's Fails go to: the Agent stages before it (d0131); `None` with none before it (the flow check says so).
+fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
+    let flow = &f.file.flow;
+    let at = flow.position(&stage.id)?;
+    if !matches!(stage.kind, StageKind::Check { .. }) {
+        return None;
+    }
+    let before: Vec<&Stage> = flow.stages[..at]
+        .iter()
+        .filter(|s| s.is_agent_stage())
+        .collect();
+    let nearest = before.last()?;
+    let target = fails_to(flow, stage)?;
+    let mut items = vec![MenuItem::header(
+        "STAGES WHERE AN AGENT WORKS, BEFORE THIS ONE",
+    )];
+    items.extend(before.iter().map(|s| {
+        let item = MenuItem::new(s.id.clone(), s.name.clone()).checked(s.id == target.id);
+        match s.id == nearest.id {
+            true => item.hint(NEAREST),
+            false => item,
+        }
+    }));
+    let fits = before.iter().any(|s| s.id == target.id);
+    Some(FailToField {
+        label: "Fails go to",
+        value: target.name.clone(),
+        items,
+        nearest: nearest.id.clone(),
+        explanation: FAIL_TO_EXPLANATION,
+        problem: (!fits).then(|| fail_to_message(stage, target)),
+    })
+}
+
+/// An agent check's Check agents (d0130).
+fn check_agents_field(f: &Facts, stage: &Stage) -> Option<CheckAgentsField> {
+    if !stage.is_agent_check() {
+        return None;
+    }
+    let listed = stage.check_agents();
+    let rows = listed
+        .iter()
+        .map(|name| {
+            let (avatar, model) = agent_on(name, f);
+            CheckAgentRow {
+                name: name.clone(),
+                avatar,
+                model,
+                remove: format!("Remove {name}"),
+            }
+        })
+        .collect();
+    let add_items = agent_items(f, "")
+        .into_iter()
+        .filter(|i| !listed.iter().any(|a| a.eq_ignore_ascii_case(&i.id)))
+        .collect();
+    Some(CheckAgentsField {
+        label: "Check agents",
+        rows,
+        add: "Add a check agent",
+        add_items,
+        note: "They run side by side, each read-only.",
+    })
+}
+
+/// An agent check's Rounds (d0063, d0130).
+fn rounds_field(stage: &Stage) -> Option<RoundsField> {
+    if !stage.is_agent_check() {
+        return None;
+    }
+    let rounds = stage.rounds.unwrap_or(CHECK_ROUNDS);
+    Some(RoundsField {
+        label: "Rounds",
+        value: rounds.to_string(),
+        items: VALIDATION_ROUNDS
+            .map(|n| MenuItem::new(n.to_string(), n.to_string()).checked(n == rounds))
+            .collect(),
+        note: "for the stage, whichever fails",
+    })
 }
 
 /// A step's "needs a skill" (`s27-05`).
@@ -1643,7 +1849,9 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
 
 /// The Skill field of a stage an agent runs (FED-06): set, empty with Pick and Ask, being written, or written.
 fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
-    the_agent(stage)?;
+    if the_agent(stage).is_none() && !stage.is_agent_check() {
+        return None;
+    }
     let state = if let Some(written) = written_of(f, stage) {
         SkillState::Written {
             skill: written.skill.clone(),
@@ -1744,6 +1952,7 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         .collect(),
         None => Vec::new(),
     };
+    let fail_to = fail_to_field(f, stage);
     Details {
         stage: stage.id.clone(),
         title: stage.name.clone(),
@@ -1757,15 +1966,21 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         fixed_kind: stage.is_delivery().then_some("Delivery"),
         templates: templates(f, stage),
         agent: agent_field(f, stage),
+        check_agents: check_agents_field(f, stage),
         skill: skill_field(f, stage),
-        can_label: "A ticket can",
-        can: can_rows(f, stage),
+        rounds: rounds_field(stage),
         problem: f
             .proposal
             .problems
             .iter()
-            .find(|p| p.fix.is_none() && shows_on(f.file, p, stage))
+            .filter(|p| p.fix.is_none() && shows_on(f.file, p, stage))
+            // Fails go to shows its own.
+            .find(|p| fail_to.as_ref().and_then(|t| t.problem.as_ref()) != Some(&p.message))
             .map(|p| p.message.clone()),
+        fail_to,
+        rule: stage.is_agent_check().then_some(CHECK_AGENTS_RULE),
+        can_label: "A ticket can",
+        can: can_rows(f, stage),
         fixes: stage_fixes(f, stage),
         mark: mark_of(f.marks, &stage.id).map(mark_view),
     }
@@ -1858,6 +2073,34 @@ fn inside_words(inside: &[Inside]) -> String {
         .join(", ")
 }
 
+/// "Validate now runs Security reviewer and Performance reviewer side by side. It applies at once: the next round of
+/// a ticket at Validate runs both." for each agent check whose check agents the draft changes (d0130, d0115: a stage's
+/// agents apply when it next starts, `s29-04`); one sentence per stage.
+fn check_agents_words(f: &Facts) -> Vec<String> {
+    f.proposal
+        .diff
+        .stages
+        .iter()
+        .filter_map(|c| match &c.change {
+            Change::Agents { to, .. } if !to.is_empty() => {
+                let names: Vec<&str> = to.iter().map(String::as_str).collect();
+                let stage = &c.stage;
+                let (side, them) = match names.len() {
+                    1 => ("", "it".to_owned()),
+                    2 => (" side by side", "both".to_owned()),
+                    n => (" side by side", format!("all {n}")),
+                };
+                Some(format!(
+                    "{stage} now runs {}{side}. It applies at once: the next round of a ticket at {stage} runs \
+                     {them}.",
+                    joined_words(&names)
+                ))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The change line (FED-08; `s27-07`): which part waits, how many tickets are in it, and that Apply now is there.
 fn change_line(f: &Facts) -> Option<String> {
     if f.opened == Opened::Onboarding {
@@ -1866,9 +2109,22 @@ fn change_line(f: &Facts) -> Option<String> {
     Some(match f.applies {
         DraftApplies::Nothing => return None,
         DraftApplies::AtOnce => {
-            "This applies at once: tickets that haven\u{2019}t reached a changed step follow \
-                                 it; tickets in it or past it finish as they are."
-                .to_owned()
+            let mut words = check_agents_words(f);
+            // Anything else changed: the line for it too.
+            let others = f
+                .proposal
+                .diff
+                .stages
+                .iter()
+                .any(|c| !matches!(c.change, Change::Agents { .. }));
+            if words.is_empty() || others {
+                words.push(
+                    "This applies at once: tickets that haven\u{2019}t reached a changed step follow it; tickets \
+                     in it or past it finish as they are."
+                        .to_owned(),
+                );
+            }
+            words.join(" ")
         }
         DraftApplies::Span { span, inside } => {
             let what = shape_words(f);
@@ -2640,37 +2896,115 @@ pub fn edited(
             if out.flow.stages[i].is_delivery() {
                 return Err("The Delivery stage stays: a flow ends with one".to_owned());
             }
-            out.flow.stages.remove(i);
+            let gone = out.flow.stages.remove(i);
+            // A check whose fails went there sends them to the nearest Agent stage again (d0131).
+            for s in &mut out.flow.stages {
+                if s.fail_to.as_deref() == Some(gone.id.as_str()) {
+                    s.fail_to = None;
+                }
+            }
         }
         StageEdit::Skill { stage, skill } => {
             let i = at(stage)?;
-            let Some(agent) = the_agent(&out.flow.stages[i]).cloned() else {
+            let runs: Vec<String> = out.flow.stages[i].named_agents().cloned().collect();
+            if runs.is_empty() && !out.flow.stages[i].is_agent_check() {
                 return Err(format!("No agent runs {}", out.flow.stages[i].name));
-            };
+            }
             let skill = skill.trim();
             if skill.is_empty() {
                 return Err("Pick a skill".to_owned());
             }
             out.flow.stages[i].skill = Some(skill.to_owned());
-            // The stage runs its agent's skill of that name: the agent gets it unless it has it.
+            // The stage runs its agents' skill of that name (each check agent its own, d0130): each gets it unless it
+            // has it.
             let has = |skills: &[String]| skills.iter().any(|s| s.eq_ignore_ascii_case(skill));
-            match out
-                .agents
-                .iter_mut()
-                .find(|a| a.name.eq_ignore_ascii_case(&agent))
-            {
-                Some(a) if !has(&a.skills) => a.skills.push(skill.to_owned()),
-                Some(_) => {}
-                None => {
-                    if let Some(mine) = stored_agent(stored, &agent) {
-                        let mut a = flow_agent_of(mine);
-                        if !has(&a.skills) {
-                            a.skills.push(skill.to_owned());
-                            out.agents.push(a);
+            for agent in runs {
+                match out
+                    .agents
+                    .iter_mut()
+                    .find(|a| a.name.eq_ignore_ascii_case(&agent))
+                {
+                    Some(a) if !has(&a.skills) => a.skills.push(skill.to_owned()),
+                    Some(_) => {}
+                    None => {
+                        if let Some(mine) = stored_agent(stored, &agent) {
+                            let mut a = flow_agent_of(mine);
+                            if !has(&a.skills) {
+                                a.skills.push(skill.to_owned());
+                                out.agents.push(a);
+                            }
                         }
                     }
                 }
             }
+        }
+        StageEdit::AddCheckAgent { stage, agent } => {
+            let i = at(stage)?;
+            let s = &mut out.flow.stages[i];
+            if !s.is_agent_check() {
+                return Err(format!("{} isn\u{2019}t an agent check", s.name));
+            }
+            let agent = agent.trim();
+            if agent.is_empty() {
+                return Err("Pick an agent".to_owned());
+            }
+            if s.agents.iter().any(|a| a.eq_ignore_ascii_case(agent)) {
+                return Err(format!("{agent} already checks {}", s.name));
+            }
+            s.agents.push(agent.to_owned());
+            s.options
+                .retain(|o| !matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(agent)));
+        }
+        StageEdit::RemoveCheckAgent { stage, agent } => {
+            let i = at(stage)?;
+            let s = &mut out.flow.stages[i];
+            let before = s.agents.len();
+            // The last one may go too: the check then says the stage needs one, and Apply waits (d0130).
+            s.agents.retain(|a| !a.eq_ignore_ascii_case(agent));
+            if s.agents.len() == before {
+                return Err(format!("{agent} doesn\u{2019}t check {}", s.name));
+            }
+        }
+        StageEdit::Rounds { stage, rounds } => {
+            let i = at(stage)?;
+            let s = &mut out.flow.stages[i];
+            if !s.is_agent_check() {
+                return Err(format!("{} isn\u{2019}t an agent check", s.name));
+            }
+            if !VALIDATION_ROUNDS.contains(rounds) {
+                return Err("A check has 1 to 5 rounds".to_owned());
+            }
+            s.rounds = Some(*rounds);
+        }
+        StageEdit::FailTo { stage, to } => {
+            let i = at(stage)?;
+            let check = &out.flow.stages[i];
+            if !matches!(check.kind, StageKind::Check { .. }) {
+                return Err(format!("{} isn\u{2019}t a check", check.name));
+            }
+            let nearest = out.flow.stages[..i]
+                .iter()
+                .rev()
+                .find(|s| s.is_agent_stage())
+                .map(|s| s.id.clone());
+            let to = match to {
+                Some(id) => {
+                    let target = out.flow.stages[..i]
+                        .iter()
+                        .find(|s| s.id == *id && s.is_agent_stage());
+                    if target.is_none() {
+                        let name = out.flow.stage(id).map_or(id.as_str(), |s| s.name.as_str());
+                        return Err(format!(
+                            "{name} isn\u{2019}t a stage where an agent works before {}",
+                            check.name
+                        ));
+                    }
+                    // The nearest is the default: the file leaves it out (d0131).
+                    Some(id.clone()).filter(|id| Some(id) != nearest.as_ref())
+                }
+                None => None,
+            };
+            out.flow.stages[i].fail_to = to;
         }
         StageEdit::Template { stage, template } => {
             let i = at(stage)?;
@@ -2758,6 +3092,46 @@ pub fn gallery() -> Gallery {
     let written = [written_plan()];
     let no_choices = Choices::default();
     let imported_proposal = imported(&shop);
+    let two_agents = checks(
+        &shop,
+        &[StageEdit::AddCheckAgent {
+            stage: "validate".into(),
+            agent: "Security reviewer".into(),
+        }],
+    );
+    let review_to_grill = checks(
+        &shop,
+        &[StageEdit::FailTo {
+            stage: "review".into(),
+            to: Some("grill".into()),
+        }],
+    );
+    let check = |(file, proposal): &'_ (FlowFile, Proposal), selected: &'_ str| -> View {
+        view(&Facts {
+            project: "SHOP",
+            project_name: "shop-web",
+            opened: Opened::Project,
+            proposal,
+            marks: &[],
+            can_undo_all: false,
+            swap: false,
+            applies: &at_once,
+            file,
+            in_use: &shop,
+            stored: &stored,
+            tools: &tools,
+            setup: &setup,
+            projects: &[],
+            captions: &captions,
+            writing: &[],
+            written: &[],
+            selected: Some(selected),
+            agent: None,
+            new_agent: None,
+            keys: &keys,
+            choices: &no_choices,
+        })
+    };
     let plan = |proposal: &'_ Proposal,
                 file: &'_ FlowFile,
                 writing: &'_ [SkillWriting],
@@ -2863,6 +3237,14 @@ pub fn gallery() -> Gallery {
                     choices: &no_choices,
                 }),
             ),
+            (
+                "One check, several agents".to_owned(),
+                check(&two_agents, "validate"),
+            ),
+            (
+                "Fails go to on a check by you".to_owned(),
+                check(&review_to_grill, "review"),
+            ),
         ],
     }
 }
@@ -2878,6 +3260,39 @@ pub mod fixtures {
     };
 
     use super::{StageEdit, Template, edited};
+
+    /// The draft's proposal of `new` against `base`: its changes, and the flow check's problems on their stages.
+    pub fn checked_proposal(base: &FlowFile, new: &FlowFile) -> Proposal {
+        let mut draft = proposal(new, false);
+        draft.diff.stages = otaq_core::flow::proposal::stage_changes(&base.flow, &new.flow, false);
+        if let Err(found) = otaq_core::flow::check(&new.flow) {
+            draft.problems = found
+                .into_iter()
+                .map(|p| ProposalProblem {
+                    about: p.stage.as_deref().map_or(About::Flow, |id| About::Stage {
+                        id: id.to_owned(),
+                        name: new
+                            .flow
+                            .stage(id)
+                            .map(|s| s.name.clone())
+                            .unwrap_or_default(),
+                    }),
+                    message: p.message,
+                    fix: None,
+                })
+                .collect();
+        }
+        draft
+    }
+
+    /// `file` after `edits`, and its draft's proposal against `file` ([`checked_proposal`]).
+    pub fn checks(file: &FlowFile, edits: &[StageEdit]) -> (FlowFile, Proposal) {
+        let new = edits.iter().fold(file.clone(), |f, edit| {
+            edited(&f, edit, &stored()).expect("the edit applies").0
+        });
+        let draft = checked_proposal(file, &new);
+        (new, draft)
+    }
 
     /// shop-web on Grill first with a Security check (the ticket file's example): 7 steps.
     pub const SHOP_WEB: &str = "agents:
@@ -4121,7 +4536,7 @@ mod tests {
 
     #[test]
     fn the_gallery_builds() {
-        assert_eq!(gallery().cells.len(), 6);
+        assert_eq!(gallery().cells.len(), 8);
     }
 
     fn plan_details(v: &View) -> &Details {
@@ -4479,5 +4894,512 @@ mod tests {
         assert!(whole.flow.details.is_none() && !whole.flow.folded);
         assert!(whole.flow.steps.iter().all(|s| !s.selected && !s.added));
         assert_eq!(whole.footer.apply, "No changes");
+    }
+
+    /// The draft of `file` against shop-web, checked: the flow check's problems on their stages (as the core's
+    /// proposal has them), the changes from shop-web.
+    fn checked(file: &FlowFile) -> Draft {
+        let mut d = draft(file, false);
+        d.proposal = checked_proposal(&shop_web(), file);
+        d
+    }
+
+    /// `edits` in turn on shop-web.
+    fn shop_with(edits: &[StageEdit]) -> FlowFile {
+        edits.iter().fold(shop_web(), |file, edit| {
+            edited(&file, edit).expect("the edit applies").0
+        })
+    }
+
+    fn add_check_agent(stage: &str, agent: &str) -> StageEdit {
+        StageEdit::AddCheckAgent {
+            stage: stage.into(),
+            agent: agent.into(),
+        }
+    }
+
+    fn fail_to(stage: &str, to: Option<&str>) -> StageEdit {
+        StageEdit::FailTo {
+            stage: stage.into(),
+            to: to.map(str::to_owned),
+        }
+    }
+
+    /// T-0529 (d0131, d0130, `s29-04`): every check says where its fails go under its kind; an agent check with two
+    /// agents says "2 check agents" in the agent's place.
+    #[test]
+    fn the_steps_list_says_where_each_checks_fails_go() {
+        let e = env(not_asked());
+        let file = shop_with(&[
+            add_check_agent("validate", "Security reviewer"),
+            fail_to("review", Some("grill")),
+        ]);
+        let d = checked(&file);
+        let v = render(&e, Opened::Project, &d, &file, &shop_web(), None, None);
+        let rows: Vec<(&str, &str, Option<&str>, Option<&str>)> = v
+            .flow
+            .steps
+            .iter()
+            .map(|s| {
+                (
+                    s.name.as_str(),
+                    s.kind.as_str(),
+                    s.fails_to.as_deref(),
+                    s.who.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Ready for Dev", "Waits", None, None),
+                ("Grill", "Agent works", None, Some("Griller")),
+                ("Dev", "Agent works", None, Some("Rust developer")),
+                (
+                    "Validate",
+                    "Agent checks",
+                    Some("fails go to Dev"),
+                    Some("2 check agents")
+                ),
+                (
+                    "Security",
+                    "Agent checks",
+                    Some("fails go to Dev"),
+                    Some("Security reviewer")
+                ),
+                (
+                    "Review",
+                    "You check",
+                    Some("fails go to Grill"),
+                    Some("You")
+                ),
+                ("Done", "Delivery \u{b7} PR", None, Some("PR")),
+            ]
+        );
+        assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));
+        // The walking ticket names them too; the caption and "come back here" follow fail_to.
+        assert_eq!(v.flow.tiles[3].ticket, "Checking");
+        let grill = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &shop_web(),
+            Some("grill"),
+            None,
+        );
+        let can = grill.flow.details.expect("Grill's details").can;
+        assert!(
+            can.iter().any(|c| c.option == "back"),
+            "Review's fails go to Grill"
+        );
+    }
+
+    /// d0131: Fails go to lists the Agent stages before the check, the nearest marked and picked by default; picking
+    /// another sets `fail_to`, picking the nearest leaves it out; a stage that isn't one is refused.
+    #[test]
+    fn fails_go_to_offers_the_agent_stages_before_the_check() {
+        let e = env(not_asked());
+        let file = shop_web();
+        let d = draft(&file, true);
+        let v = render(&e, Opened::Project, &d, &file, &file, Some("review"), None);
+        let details = v.flow.details.expect("Review's details");
+        let field = details.fail_to.expect("a check's Fails go to");
+        assert_eq!(field.label, "Fails go to");
+        assert_eq!(field.value, "Dev");
+        assert_eq!(field.nearest, "dev");
+        let items: Vec<(&str, &str, Option<&str>, bool, bool)> = field
+            .items
+            .iter()
+            .map(|i| {
+                (
+                    i.id.as_str(),
+                    i.label.as_str(),
+                    i.hint.as_deref(),
+                    i.checked,
+                    i.header,
+                )
+            })
+            .collect();
+        assert_eq!(
+            items,
+            [
+                (
+                    "",
+                    "STAGES WHERE AN AGENT WORKS, BEFORE THIS ONE",
+                    None,
+                    false,
+                    true
+                ),
+                ("grill", "Grill", None, false, false),
+                ("dev", "Dev", Some("nearest"), true, false),
+            ]
+        );
+        assert_eq!(
+            field.explanation,
+            "A fail resumes that stage\u{2019}s session with the report or your comments; the card then walks every \
+             stage after it again. To send one card somewhere else, drag it back."
+        );
+        assert_eq!(field.problem, None);
+        // A check by you has no agents, no rounds and no rule; "A ticket can: skip it" stays.
+        assert!(details.check_agents.is_none() && details.rounds.is_none());
+        assert_eq!(details.rule, None);
+        assert_eq!(
+            details
+                .can
+                .iter()
+                .map(|c| c.label.as_str())
+                .collect::<Vec<_>>(),
+            ["skip it"]
+        );
+        // An Agent stage has none.
+        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
+        assert!(v.flow.details.expect("Dev's details").fail_to.is_none());
+
+        // Picking Grill sets it, and it shows; picking the nearest leaves it out again.
+        let (to_grill, _) = edited(&file, &fail_to("review", Some("grill"))).unwrap();
+        assert_eq!(
+            to_grill.flow.stage("review").unwrap().fail_to.as_deref(),
+            Some("grill")
+        );
+        let d = checked(&to_grill);
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &to_grill,
+            &file,
+            Some("review"),
+            None,
+        );
+        let field = v.flow.details.unwrap().fail_to.unwrap();
+        assert_eq!(field.value, "Grill");
+        assert!(field.items[1].checked && !field.items[2].checked);
+        assert!(v.footer.apply_enabled);
+        assert_eq!(
+            v.flow.change_line.as_deref(),
+            Some(
+                "This applies at once: tickets that haven\u{2019}t reached a changed step follow it; tickets in it \
+                 or past it finish as they are."
+            )
+        );
+        for nearest in [Some("dev"), None] {
+            let (back, _) = edited(&to_grill, &fail_to("review", nearest)).unwrap();
+            assert_eq!(back.flow.stage("review").unwrap().fail_to, None);
+        }
+        // Read back from the flow file by name.
+        let yaml = otaq_core::flow::yaml::write(&to_grill);
+        assert!(yaml.contains("fail_to: Grill"), "{yaml}");
+
+        for (stage, to, why) in [
+            (
+                "review",
+                "validate",
+                "Validate isn\u{2019}t a stage where an agent works before Review",
+            ),
+            (
+                "validate",
+                "review",
+                "Review isn\u{2019}t a stage where an agent works before Validate",
+            ),
+            ("dev", "grill", "Dev isn\u{2019}t a check"),
+        ] {
+            assert_eq!(
+                edited(&file, &fail_to(stage, Some(to))).unwrap_err(),
+                why,
+                "{stage} → {to}"
+            );
+        }
+        // Removing Grill sends Review's fails to the nearest again.
+        let (gone, _) = edited(
+            &to_grill,
+            &StageEdit::Remove {
+                stage: "grill".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(gone.flow.stage("review").unwrap().fail_to, None);
+    }
+
+    /// d0130: an agent check lists its check agents (tool badge, name, model), adds one of the account's agents not
+    /// listed, removes one; one Rounds limit for the stage; the rule text. The agent field is gone from it.
+    #[test]
+    fn an_agent_check_lists_its_check_agents() {
+        let e = env(not_asked());
+        let file = shop_web();
+        let d = draft(&file, true);
+        let details = |file: &FlowFile, d: &Draft| {
+            render(
+                &e,
+                Opened::Project,
+                d,
+                file,
+                &shop_web(),
+                Some("validate"),
+                None,
+            )
+            .flow
+            .details
+            .expect("Validate's details")
+        };
+        let one = details(&file, &d);
+        assert!(
+            one.agent.is_none(),
+            "an agent check lists its agents instead"
+        );
+        let field = one.check_agents.expect("Check agents");
+        assert_eq!(field.label, "Check agents");
+        assert_eq!(
+            field
+                .rows
+                .iter()
+                .map(|r| (r.name.as_str(), r.remove.as_str()))
+                .collect::<Vec<_>>(),
+            [("Validator", "Remove Validator")]
+        );
+        assert_eq!(field.add, "Add a check agent");
+        assert_eq!(field.note, "They run side by side, each read-only.");
+        let offered: Vec<&str> = field.add_items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(
+            offered,
+            [
+                "Developer",
+                "Griller",
+                "Rust developer",
+                "Security reviewer"
+            ]
+        );
+        let rounds = one.rounds.expect("Rounds");
+        assert_eq!(
+            (rounds.label, rounds.value.as_str(), rounds.note),
+            ("Rounds", "3", "for the stage, whichever fails")
+        );
+        assert_eq!(
+            rounds
+                .items
+                .iter()
+                .map(|i| (i.id.as_str(), i.checked))
+                .collect::<Vec<_>>(),
+            [
+                ("1", false),
+                ("2", false),
+                ("3", true),
+                ("4", false),
+                ("5", false)
+            ]
+        );
+        assert_eq!(
+            one.rule,
+            Some(
+                "Passes when every check agent passes. If one fails, the card goes back once all have given their \
+                 verdict, with every report together; the next round runs them all again."
+            )
+        );
+        assert_eq!(one.fail_to.map(|f| f.value), Some("Dev".to_owned()));
+        assert!(one.skill.is_some());
+
+        // Add Security reviewer: both listed, neither offered; twice is refused.
+        let (two, _) = edited(&file, &add_check_agent("validate", "Security reviewer")).unwrap();
+        assert_eq!(
+            two.flow.stage("validate").unwrap().agents,
+            ["Validator", "Security reviewer"]
+        );
+        let d = checked(&two);
+        let field = details(&two, &d).check_agents.unwrap();
+        assert_eq!(
+            field
+                .rows
+                .iter()
+                .map(|r| r.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Validator", "Security reviewer"]
+        );
+        assert!(
+            !field
+                .add_items
+                .iter()
+                .any(|i| i.id == "Validator" || i.id == "Security reviewer")
+        );
+        assert_eq!(
+            edited(&two, &add_check_agent("validate", "security reviewer")).unwrap_err(),
+            "security reviewer already checks Validate"
+        );
+        assert_eq!(
+            edited(&file, &add_check_agent("dev", "Validator")).unwrap_err(),
+            "Dev isn\u{2019}t an agent check"
+        );
+        let yaml = otaq_core::flow::yaml::write(&two);
+        assert!(
+            yaml.contains("agents: [Validator, Security reviewer]"),
+            "{yaml}"
+        );
+
+        // Rounds.
+        let (fewer, _) = edited(
+            &two,
+            &StageEdit::Rounds {
+                stage: "validate".into(),
+                rounds: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!(fewer.flow.stage("validate").unwrap().rounds, Some(2));
+        for (stage, rounds) in [("validate", 6), ("review", 2)] {
+            assert!(
+                edited(
+                    &two,
+                    &StageEdit::Rounds {
+                        stage: stage.into(),
+                        rounds
+                    }
+                )
+                .is_err()
+            );
+        }
+
+        // Remove Validator, then Security reviewer: the check has none, which shows and keeps Apply off.
+        let remove = |file: &FlowFile, agent: &str| {
+            edited(
+                file,
+                &StageEdit::RemoveCheckAgent {
+                    stage: "validate".into(),
+                    agent: agent.into(),
+                },
+            )
+        };
+        let (left_one, _) = remove(&two, "Validator").unwrap();
+        assert_eq!(
+            left_one.flow.stage("validate").unwrap().agents,
+            ["Security reviewer"]
+        );
+        let (none, _) = remove(&left_one, "Security reviewer").unwrap();
+        assert!(remove(&none, "Security reviewer").is_err());
+        let d = checked(&none);
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &none,
+            &file,
+            Some("validate"),
+            None,
+        );
+        let details = v.flow.details.unwrap();
+        let message = "Validate is an agent check with no check agent: name one or more";
+        assert_eq!(details.problem.as_deref(), Some(message));
+        assert!(details.check_agents.unwrap().rows.is_empty());
+        assert!(details.skill.is_some(), "its skill stays");
+        assert_eq!(v.flow.steps[3].problem.as_deref(), Some(message));
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(v.footer.reason.as_deref(), Some(message));
+    }
+
+    /// d0130, d0115 (`s29-04`): the change line for a check's new agents names them and when they run.
+    #[test]
+    fn the_change_line_for_new_check_agents() {
+        let e = env(not_asked());
+        let line = |file: &FlowFile| {
+            let d = checked(file);
+            render(&e, Opened::Project, &d, file, &shop_web(), None, None)
+                .flow
+                .change_line
+        };
+        let replaced = shop_with(&[
+            add_check_agent("validate", "Security reviewer"),
+            add_check_agent("validate", "Performance reviewer"),
+            StageEdit::RemoveCheckAgent {
+                stage: "validate".into(),
+                agent: "Validator".into(),
+            },
+        ]);
+        assert_eq!(
+            line(&replaced).as_deref(),
+            Some(
+                "Validate now runs Security reviewer and Performance reviewer side by side. It applies at once: \
+                 the next round of a ticket at Validate runs both."
+            )
+        );
+        let one = shop_with(&[
+            add_check_agent("validate", "Security reviewer"),
+            StageEdit::RemoveCheckAgent {
+                stage: "validate".into(),
+                agent: "Validator".into(),
+            },
+        ]);
+        assert_eq!(
+            line(&one).as_deref(),
+            Some(
+                "Validate now runs Security reviewer. It applies at once: the next round of a ticket at Validate \
+                 runs it."
+            )
+        );
+        // With another change, its line follows.
+        let more = shop_with(&[
+            add_check_agent("validate", "Security reviewer"),
+            fail_to("review", Some("grill")),
+        ]);
+        assert_eq!(
+            line(&more).as_deref(),
+            Some(
+                "Validate now runs Validator and Security reviewer side by side. It applies at once: the next round \
+                 of a ticket at Validate runs both. This applies at once: tickets that haven\u{2019}t reached a \
+                 changed step follow it; tickets in it or past it finish as they are."
+            )
+        );
+    }
+
+    /// d0131: a check whose fails go to a stage that no longer fits (it moved after the check) shows the problem on
+    /// its Fails go to, not twice, and keeps Apply off until another stage is picked.
+    #[test]
+    fn a_fail_to_problem_keeps_apply_off_until_fixed() {
+        let e = env(not_asked());
+        let file = shop_with(&[
+            fail_to("review", Some("grill")),
+            StageEdit::Move {
+                stage: "grill".into(),
+                to: 4,
+            },
+        ]);
+        let d = checked(&file);
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &shop_web(),
+            Some("review"),
+            None,
+        );
+        let message = "Review's fails go to Grill, which isn't an Agent stage before it";
+        let details = v.flow.details.as_ref().unwrap();
+        let field = details.fail_to.as_ref().unwrap();
+        assert_eq!(field.value, "Grill");
+        assert_eq!(field.problem.as_deref(), Some(message));
+        assert!(
+            field.items.iter().all(|i| !i.checked),
+            "Grill isn't offered"
+        );
+        assert_eq!(details.problem, None, "shown once, on its field");
+        assert_eq!(v.flow.steps[4].problem.as_deref(), Some(message));
+        assert_eq!(
+            v.flow.steps[4].fails_to.as_deref(),
+            Some("fails go to Grill")
+        );
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(v.footer.reason.as_deref(), Some(message));
+
+        let (fixed, _) = edited(&file, &fail_to("review", Some("dev"))).unwrap();
+        let d = checked(&fixed);
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &fixed,
+            &shop_web(),
+            Some("review"),
+            None,
+        );
+        assert_eq!(v.flow.details.unwrap().fail_to.unwrap().problem, None);
+        assert!(v.footer.apply_enabled);
     }
 }
