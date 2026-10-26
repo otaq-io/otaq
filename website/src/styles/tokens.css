@@ -1,13 +1,19 @@
 /*
- * Otaq Dark, copied from the app's theme: crates/otaq-desktop/ui/src/theme/generated/tokens.css
- * (the font stacks from its `:root`, the colours from its `[data-theme="otaq-dark"]` block).
- * Don't edit the values here: when the app's theme changes, copy them again from that file (WEB-03).
+ * Otaq Dark and Otaq Light, copied from the app's theme: crates/otaq-desktop/ui/src/theme/generated/tokens.css
+ * (the font stacks from its `:root`, the colours from its `[data-theme="otaq-dark"]` and `[data-theme="otaq-light"]`
+ * blocks). Dark is the default; light applies when the system asks for it and the visitor hasn't picked dark, or when
+ * the visitor picked light (`data-theme` on <html>, set by Base.astro's head script and ThemeToggle).
+ * Don't edit the values here: when the app's theme changes, copy both blocks again from that file (WEB-03, WEB-11).
  */
 
 :root {
   --font-ui: "Geist", system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
+}
 
+/* Otaq Dark */
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
   --bg-app: #0e0f11;
   --bg-panel: #15161a;
@@ -74,4 +80,146 @@
   --ansi-13: #c7b3ff;
   --ansi-14: #6be3d3;
   --ansi-15: #ffffff;
+}
+
+/* Otaq Light, from the system setting */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg-app: #f6f6f4;
+    --bg-panel: #ffffff;
+    --bg-column: #eeeeeb;
+    --bg-card: #ffffff;
+    --bg-raised: #ffffff;
+    --bg-hover: #ededea;
+    --bg-pressed: #e4e4e0;
+    --border: #e2e2de;
+    --border-strong: #959588;
+    --border-card: #8a8a7a;
+    --text-primary: #1a1b1e;
+    --text-secondary: #5b5f67;
+    --text-muted: #676b74;
+    --text-on-accent: #ffffff;
+    --accent: #4c57d6;
+    --accent-hover: #3f49c2;
+    --accent-soft: #eceefd;
+    --focus: #4c57d6;
+    --selection: #4c57d633;
+    --st-attn: #087a6f;
+    --st-attn-bg: #e0f5f2;
+    --on-attn: #ffffff;
+    --st-error: #cc2f3b;
+    --st-error-bg: #fdebed;
+    --st-working: #2a68d6;
+    --st-working-bg: #eaf1fd;
+    --st-investigate: #7650d2;
+    --st-investigate-bg: #f2eefc;
+    --st-queued: #646a75;
+    --st-queued-bg: #eff0f2;
+    --st-review: #ba3888;
+    --st-review-bg: #fbeaf4;
+    --st-paused: #976400;
+    --st-paused-bg: #faf2da;
+    --st-approved: #237d46;
+    --st-approved-bg: #e6f4ea;
+    --st-done: #868992;
+    --term-bg: #fafaf8;
+    --term-fg: #2a2c31;
+    --diff-add-bg: #e5f6ea;
+    --diff-del-bg: #fcebec;
+    --tool-cc: #e4e9cf;
+    --tool-cc-fg: #4a5a12;
+    --tool-cx: #dce3ec;
+    --tool-cx-fg: #2e405a;
+    --tool-cp: #ede3d3;
+    --tool-cp-fg: #6b4a1f;
+    --tool-oc: #e6e6e8;
+    --tool-oc-fg: #3d3d42;
+    --ansi-0: #2a2c31;
+    --ansi-1: #cc2f3b;
+    --ansi-2: #25854a;
+    --ansi-3: #9a6600;
+    --ansi-4: #2c6ad6;
+    --ansi-5: #7650d2;
+    --ansi-6: #0b8478;
+    --ansi-7: #9a9da4;
+    --ansi-8: #5b5f67;
+    --ansi-9: #e0434f;
+    --ansi-10: #2e9e59;
+    --ansi-11: #b57a00;
+    --ansi-12: #4c84e6;
+    --ansi-13: #8d6ae0;
+    --ansi-14: #13a090;
+    --ansi-15: #c9cbd0;
+  }
+}
+
+/* Otaq Light, picked */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-app: #f6f6f4;
+  --bg-panel: #ffffff;
+  --bg-column: #eeeeeb;
+  --bg-card: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-hover: #ededea;
+  --bg-pressed: #e4e4e0;
+  --border: #e2e2de;
+  --border-strong: #959588;
+  --border-card: #8a8a7a;
+  --text-primary: #1a1b1e;
+  --text-secondary: #5b5f67;
+  --text-muted: #676b74;
+  --text-on-accent: #ffffff;
+  --accent: #4c57d6;
+  --accent-hover: #3f49c2;
+  --accent-soft: #eceefd;
+  --focus: #4c57d6;
+  --selection: #4c57d633;
+  --st-attn: #087a6f;
+  --st-attn-bg: #e0f5f2;
+  --on-attn: #ffffff;
+  --st-error: #cc2f3b;
+  --st-error-bg: #fdebed;
+  --st-working: #2a68d6;
+  --st-working-bg: #eaf1fd;
+  --st-investigate: #7650d2;
+  --st-investigate-bg: #f2eefc;
+  --st-queued: #646a75;
+  --st-queued-bg: #eff0f2;
+  --st-review: #ba3888;
+  --st-review-bg: #fbeaf4;
+  --st-paused: #976400;
+  --st-paused-bg: #faf2da;
+  --st-approved: #237d46;
+  --st-approved-bg: #e6f4ea;
+  --st-done: #868992;
+  --term-bg: #fafaf8;
+  --term-fg: #2a2c31;
+  --diff-add-bg: #e5f6ea;
+  --diff-del-bg: #fcebec;
+  --tool-cc: #e4e9cf;
+  --tool-cc-fg: #4a5a12;
+  --tool-cx: #dce3ec;
+  --tool-cx-fg: #2e405a;
+  --tool-cp: #ede3d3;
+  --tool-cp-fg: #6b4a1f;
+  --tool-oc: #e6e6e8;
+  --tool-oc-fg: #3d3d42;
+  --ansi-0: #2a2c31;
+  --ansi-1: #cc2f3b;
+  --ansi-2: #25854a;
+  --ansi-3: #9a6600;
+  --ansi-4: #2c6ad6;
+  --ansi-5: #7650d2;
+  --ansi-6: #0b8478;
+  --ansi-7: #9a9da4;
+  --ansi-8: #5b5f67;
+  --ansi-9: #e0434f;
+  --ansi-10: #2e9e59;
+  --ansi-11: #b57a00;
+  --ansi-12: #4c84e6;
+  --ansi-13: #8d6ae0;
+  --ansi-14: #13a090;
+  --ansi-15: #c9cbd0;
 }
