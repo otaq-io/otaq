@@ -38,5 +38,6 @@ mod stage_choices;
 mod stage_path;
 mod statusline;
 mod terminals;
+mod uninstall;
 mod validate;
 mod write;

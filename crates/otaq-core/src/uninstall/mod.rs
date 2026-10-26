@@ -47,6 +47,121 @@ pub(crate) fn uninstalling_refusal() -> String {
     format!("{} is being uninstalled", naming::PRODUCT_NAME)
 }
 
+/// What [`delete_data_folder`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FolderDeleted {
+    /// The bytes still in the folder afterwards: what `--keep-data` kept, or 0 (symlinks not followed).
+    pub left_bytes: u64,
+    /// What couldn't be deleted, with why. The rest was deleted anyway.
+    pub failed: Vec<(PathBuf, String)>,
+}
+
+/// The data folder's entries `--keep-data` keeps (UNI-05): the database files and the comment reports.
+fn kept_entries(data: &DataDir) -> Vec<PathBuf> {
+    let db = data.database_path();
+    let with_suffix = |suffix: &str| {
+        let mut name = db.clone().into_os_string();
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    vec![
+        db.clone(),
+        with_suffix("-wal"),
+        with_suffix("-shm"),
+        data.reports_dir(),
+    ]
+}
+
+/// The size of what `--keep-data` keeps.
+pub fn kept_size(data: &DataDir) -> u64 {
+    kept_entries(data)
+        .iter()
+        .map(|path| match path.symlink_metadata() {
+            Ok(meta) if meta.is_dir() => folder_size(path),
+            Ok(meta) => meta.len(),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+/// Deletes the data folder (UNI-05), or with `keep_data` everything in it but the database files and `reports/`.
+/// Run by the CLI once the service has exited: it takes the service's lock itself (waiting up to `wait` for the
+/// stopping service to let go of it) and holds it while it deletes, so no service runs or starts meanwhile.
+/// Refused, with nothing deleted, for a folder that doesn't hold Otaq's database, for the home folder and for a
+/// filesystem root. Symlinks are deleted, never followed. A failure doesn't stop the rest.
+pub fn delete_data_folder(
+    data: &DataDir,
+    keep_data: bool,
+    wait: Duration,
+) -> Result<FolderDeleted, String> {
+    let root = data.root();
+    let is_home = std::env::home_dir().is_some_and(|home| {
+        crate::paths::canonical(&home).ok() == crate::paths::canonical(root).ok()
+    });
+    if root.parent().is_none() || is_home || !data.database_path().is_file() {
+        return Err(format!(
+            "{} doesn't look like {}'s data folder; nothing deleted",
+            root.display(),
+            naming::PRODUCT_NAME
+        ));
+    }
+    let lock_path = data.service_lock_path();
+    let deadline = std::time::Instant::now() + wait;
+    let lock = loop {
+        match crate::service::lock::ServiceLock::acquire(&lock_path) {
+            Ok(lock) => break lock,
+            Err(crate::service::lock::LockError::Held { .. })
+                if std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(crate::service::lock::LockError::Held { .. }) => {
+                return Err("the background service is still running; nothing deleted".into());
+            }
+            Err(crate::service::lock::LockError::Io(e)) => {
+                return Err(format!("can't check the background service: {e}"));
+            }
+        }
+    };
+    let kept = if keep_data {
+        kept_entries(data)
+    } else {
+        Vec::new()
+    };
+    let mut failed = Vec::new();
+    let entries: Vec<PathBuf> = std::fs::read_dir(root)
+        .map(|entries| entries.filter_map(Result::ok).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    for path in entries {
+        if path == lock_path || kept.contains(&path) {
+            continue;
+        }
+        let removed = match path.symlink_metadata() {
+            Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(&path),
+            Ok(_) => std::fs::remove_file(&path),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = removed {
+            failed.push((path, e.to_string()));
+        }
+    }
+    // Lets go of the lock and removes its file.
+    drop(lock);
+    if !keep_data && let Err(e) = std::fs::remove_dir(root) {
+        failed.push((root.to_owned(), e.to_string()));
+    }
+    let after = if root.exists() { folder_size(root) } else { 0 };
+    tracing::info!(
+        keep_data,
+        failed = failed.len(),
+        "uninstall: data folder deleted"
+    );
+    Ok(FolderDeleted {
+        left_bytes: after,
+        failed,
+    })
+}
+
 /// "worktrees not confirmed": the CLI asks about them first (UNI-03).
 pub const NOT_CONFIRMED: &str = "worktrees not confirmed";
 
