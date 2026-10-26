@@ -2,6 +2,7 @@
 // React only draws their result and calls the store's methods.
 
 import {
+  type Answer,
   type CheckResult,
   type Column,
   type DiffFile,
@@ -457,7 +458,7 @@ export interface TicketView {
   canStart: boolean;
   isRunning: boolean;
   isPR: boolean;
-  ask: { title: string; icon: string; opts: { n: number; label: string; rec: string; act: string }[] } | null;
+  ask: { title: string; icon: string; opts: { n: number; label: string; rec: string; act: Answer }[] } | null;
   /** The number of the Other… option, after the ask's own. */
   otherN: number;
   desc: string;

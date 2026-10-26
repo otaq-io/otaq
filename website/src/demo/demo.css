@@ -1,10 +1,12 @@
 /*
- * The demo's styles, from the canvas's Demo.dc.html (<helmet><style>), scoped to the demo's root so nothing leaks into
- * the page: every rule gains one `.oq` (`.btn` → `.oq .btn`, `.oq button` → `.oq.oq button`), which keeps their order
- * of precedence as drawn. The short variables point at the Otaq Dark tokens (src/styles/tokens.css); --flag and --sh
- * keep their drawn values. --done is --text-muted, not the drawn #7a7e87 (nor the token --st-done, #6a6f79): as text on
- * a card both are under 4.5:1 (WCAG AA, decision 0096). The light theme (.oq.light) is left out: the site is dark only
- * (WEB-03).
+ * The demo's styles, from the canvas's Demo3.dc.html (<helmet><style>), scoped to the demo's root so nothing leaks into
+ * the page and the page's rules don't reach in: every rule gains `.oq.oq` (`.btn` → `.oq.oq .btn`, `.oq button` →
+ * `.oq.oq button`), which beats the page's one-class `.lp` scope and keeps the drawn order of precedence. The short
+ * variables point at the page's tokens (src/styles/tokens.css), so the demo switches theme with the page (decision
+ * 0138 §1): the canvas's `.oq.light` block isn't ported, and where its light values differ the token wins (AA, 0096).
+ * --sh has no token and keeps its drawn value per theme. --done is --text-muted, as on the page. The drawn logo mark's
+ * rules (.mk, --flag) are left out: the demo doesn't draw the mark. The canvas uses `.pill` and `pl-*` without
+ * defining them; they're the page's `.pill`/`p-*` rules from Landing3.dc.html, at the end.
  */
 .oq.oq {
   --bg: var(--bg-app);
@@ -45,7 +47,6 @@
   --termfg: var(--term-fg);
   --addbg: var(--diff-add-bg);
   --delbg: var(--diff-del-bg);
-  --flag: #14b8a6;
   --cc: var(--tool-cc);
   --ccfg: var(--tool-cc-fg);
   --cx: var(--tool-cx);
@@ -69,6 +70,15 @@
     sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+/* --sh in Otaq Light: from the system setting, or the visitor's pick (as tokens.css). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .oq.oq {
+    --sh: 0 8px 24px rgb(0 0 0 / 12%), 0 1px 3px rgb(0 0 0 / 8%);
+  }
+}
+:root[data-theme="light"] .oq.oq {
+  --sh: 0 8px 24px rgb(0 0 0 / 12%), 0 1px 3px rgb(0 0 0 / 8%);
+}
 .oq.oq * {
   box-sizing: border-box;
 }
@@ -77,16 +87,14 @@
   color: inherit;
 }
 .oq.oq button:focus-visible,
-.oq.oq input:focus-visible,
-.oq.oq select:focus-visible,
-.oq.oq textarea:focus-visible {
+.oq.oq input:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
-.oq .mono {
+.oq.oq .mono {
   font-family: "Geist Mono", ui-monospace, monospace;
 }
-.oq .ic {
+.oq.oq .ic {
   width: 14px;
   height: 14px;
   fill: none;
@@ -96,15 +104,15 @@
   stroke-linejoin: round;
   flex: none;
 }
-.oq .ic.s12 {
+.oq.oq .ic.s12 {
   width: 12px;
   height: 12px;
 }
-.oq .ic.s16 {
+.oq.oq .ic.s16 {
   width: 16px;
   height: 16px;
 }
-.oq .spin {
+.oq.oq .spin {
   animation: oqspin 1s linear infinite;
 }
 @keyframes oqspin {
@@ -122,6 +130,16 @@
     opacity: 1;
   }
 }
+@keyframes oqslidel {
+  from {
+    transform: translateX(-40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
 @keyframes oqfade {
   from {
     opacity: 0;
@@ -132,32 +150,8 @@
     transform: none;
   }
 }
-@keyframes oqglow {
-  0% {
-    box-shadow: 0 0 0 0 var(--inv);
-  }
-  100% {
-    box-shadow: 0 0 0 6px transparent;
-  }
-}
-.oq .mk {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.oq .mk .o {
-  stroke-width: 9;
-}
-.oq .mk .c {
-  stroke-width: 8;
-}
-.oq .mk .f {
-  fill: var(--flag);
-  stroke: none;
-}
 /* header */
-.oq .hd {
+.oq.oq .hd {
   height: 44px;
   flex: none;
   display: flex;
@@ -167,31 +161,43 @@
   background: var(--panel);
   border-bottom: 1px solid var(--bd);
 }
-.oq .lights {
+.oq.oq .lights {
   display: flex;
   gap: 7px;
   margin-right: 6px;
 }
-.oq .lights i {
+.oq.oq .lights i {
   width: 11px;
   height: 11px;
   border-radius: 50%;
   background: var(--bds);
 }
-.oq .lights i:nth-child(1) {
+.oq.oq .lights i:nth-child(1) {
   background: #ff5f57;
 }
-.oq .lights i:nth-child(2) {
+.oq.oq .lights i:nth-child(2) {
   background: #febc2e;
 }
-.oq .lights i:nth-child(3) {
+.oq.oq .lights i:nth-child(3) {
   background: #28c840;
 }
-.oq .pname {
+.oq.oq .pbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
   font-size: 15px;
   font-weight: 600;
 }
-.oq .chip {
+.oq.oq .pbtn:hover {
+  background: var(--hover);
+}
+.oq.oq .chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -205,12 +211,12 @@
   color: var(--tx2);
   white-space: nowrap;
 }
-.oq .search {
+.oq.oq .search {
   flex: 1;
   display: flex;
   justify-content: center;
 }
-.oq .search label {
+.oq.oq .search label {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -222,7 +228,7 @@
   border: 1px solid var(--bd);
   color: var(--tx3);
 }
-.oq .search input {
+.oq.oq .search input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -233,10 +239,10 @@
     13px "Geist",
     sans-serif;
 }
-.oq .search input::placeholder {
+.oq.oq .search input::placeholder {
   color: var(--tx3);
 }
-.oq .kbd {
+.oq.oq .kbd {
   font:
     11px/1 "Geist Mono",
     monospace;
@@ -246,7 +252,7 @@
   border-radius: 4px;
   padding: 3px 5px;
 }
-.oq .hbtn {
+.oq.oq .hbtn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -260,38 +266,24 @@
   white-space: nowrap;
   transition: background 0.12s;
 }
-.oq .hbtn:hover {
+.oq.oq .hbtn:hover {
   background: var(--hover);
   color: var(--tx);
 }
-.oq .hbtn.out {
+.oq.oq .hbtn.out {
   border-color: var(--bds);
   color: var(--tx);
 }
-.oq .hbtn.attn {
-  border-color: var(--attn);
-  color: var(--attn);
-  background: var(--attnbg);
-}
-.oq .hbtn.on {
+.oq.oq .hbtn.on {
   background: var(--press);
   color: var(--tx);
 }
-.oq .badge {
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font:
-    600 11px/1 "Geist Mono",
-    monospace;
-  background: var(--attn);
-  color: var(--bg);
+.oq.oq .hbtn.pau {
+  border-color: var(--pau);
+  color: var(--pau);
+  background: var(--paubg);
 }
-.oq .btn {
+.oq.oq .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -305,34 +297,34 @@
   white-space: nowrap;
   transition: background 0.12s;
 }
-.oq .btn-p {
+.oq.oq .btn-p {
   background: var(--ac);
   color: var(--onac) !important;
 }
-.oq .btn-p:hover {
+.oq.oq .btn-p:hover {
   background: var(--ach);
 }
-.oq .btn-s {
+.oq.oq .btn-s {
   background: var(--raised);
   border-color: var(--bds);
 }
-.oq .btn-s:hover {
+.oq.oq .btn-s:hover {
   background: var(--hover);
 }
-.oq .btn-g {
+.oq.oq .btn-g {
   background: none;
   color: var(--tx2);
 }
-.oq .btn-g:hover {
+.oq.oq .btn-g:hover {
   background: var(--hover);
   color: var(--tx);
 }
-.oq .btn-sm {
+.oq.oq .btn-sm {
   height: 24px;
   padding: 0 8px;
   font-size: 12px;
 }
-.oq .ibtn {
+.oq.oq .ibtn {
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -344,35 +336,37 @@
   cursor: pointer;
   color: var(--tx2);
 }
-.oq .ibtn:hover {
+.oq.oq .ibtn:hover {
   background: var(--hover);
   color: var(--tx);
 }
-.oq .dot {
+.oq.oq .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   display: inline-block;
   flex: none;
 }
-/* layout */
-.oq .body {
+/* body */
+.oq.oq .body {
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
+  overflow: hidden;
 }
-.oq .rail {
-  width: 56px;
+.oq.oq .rail {
+  width: 64px;
   flex: none;
   background: var(--panel);
   border-right: 1px solid var(--bd);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 10px 0;
 }
-.oq .proj {
+.oq.oq .proj {
   position: relative;
   width: 40px;
   height: 40px;
@@ -381,7 +375,6 @@
   background: var(--card);
   cursor: pointer;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   font:
@@ -389,432 +382,154 @@
     monospace;
   color: var(--tx2);
 }
-.oq .proj:hover {
+.oq.oq .proj:hover {
   background: var(--hover);
 }
-.oq .proj.on {
+.oq.oq .proj.on {
   border-color: var(--ac);
   color: var(--tx);
   box-shadow: 0 0 0 1px var(--ac);
 }
-.oq .proj .pb {
+.oq.oq .proj .pb {
   position: absolute;
   top: -5px;
   right: -6px;
 }
-.oq .proj-n {
+.oq.oq .proj-n {
   font:
     10px/1 "Geist",
     sans-serif;
   color: var(--tx3);
-  margin-top: -6px;
-  max-width: 52px;
+  margin-top: -4px;
+  max-width: 58px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.oq .rail .sp {
+.oq.oq .rail .sp {
   flex: 1;
 }
-/* pane */
-.oq .pane {
-  width: 340px;
-  flex: none;
-  background: var(--panel);
-  border-right: 1px solid var(--bd);
+.oq.oq .badge {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font:
+    600 11px/1 "Geist Mono",
+    monospace;
+  background: var(--attn);
+  color: var(--bg);
+}
+.oq.oq .main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
-.oq .pane-h {
+.oq.oq .tb {
+  height: 40px;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 8px 0 12px;
-}
-.oq .pane-t {
-  font:
-    500 11px/1 "Geist Mono",
-    monospace;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tx3);
-  flex: 1;
-}
-.oq .atabs {
-  display: flex;
-  gap: 4px;
-  padding: 8px 8px;
+  gap: 10px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--bd);
-  overflow-x: auto;
 }
-.oq .atab {
+.oq.oq .seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--col);
+}
+.oq.oq .seg button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 9px;
+  padding: 4px 10px;
   border-radius: 6px;
-  border: 1px solid var(--bd);
-  background: none;
-  cursor: pointer;
-  color: var(--tx2);
-  white-space: nowrap;
-  font-size: 12px;
-}
-.oq .atab:hover {
-  background: var(--hover);
-}
-.oq .atab.on {
-  background: var(--acs);
-  border-color: var(--ac);
-  color: var(--tx);
-}
-.oq .ag-h {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 8px;
-}
-.oq .ag-n {
-  font-weight: 600;
-  font-size: 14px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.oq .ag-sub {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px 10px;
-  color: var(--tx3);
-  font-size: 11px;
-}
-.oq .created {
-  margin: 0 12px 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--bd);
-  border-radius: 6px;
-  background: var(--col);
-  font-size: 12px;
-  color: var(--tx2);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.oq .klink {
-  background: none;
   border: 0;
-  padding: 0;
-  cursor: pointer;
-  font:
-    500 12px "Geist Mono",
-    monospace;
-  color: var(--ac);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.oq .pterm {
-  flex: 1;
-  min-height: 0;
-  margin: 0 8px;
-  border-radius: 8px;
-  background: var(--termbg);
-  border: 1px solid var(--bd);
-  overflow-y: auto;
-  padding: 12px 12px 8px;
-}
-.oq .empty {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 8px 4px;
-  color: var(--tx2);
-  font-size: 12.5px;
-}
-.oq .sugg {
-  text-align: left;
-  border: 1px solid var(--bd);
-  background: var(--card);
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-  color: var(--tx);
-  font-size: 12.5px;
-  line-height: 1.4;
-}
-.oq .sugg:hover {
-  background: var(--hover);
-}
-.oq .compose {
-  margin: 8px;
-  border: 1px solid var(--bds);
-  border-radius: 8px;
-  background: var(--card);
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 6px 6px 6px 10px;
-}
-.oq .compose input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
   background: none;
-  color: var(--tx);
-  font:
-    13px "Geist",
-    sans-serif;
-  height: 26px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--tx2);
 }
-.oq .compose input::placeholder {
-  color: var(--tx3);
-}
-.oq .pane-f {
-  padding: 0 12px 10px;
-  color: var(--tx3);
-  font-size: 11px;
-  display: flex;
-  justify-content: space-between;
-}
-.oq .strip {
-  width: 28px;
-  flex: none;
+.oq.oq .seg button.on {
   background: var(--panel);
-  border-right: 1px solid var(--bd);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 8px;
-  gap: 8px;
-}
-/* terminal lines */
-.oq .tl {
-  font:
-    12px/1.55 "Geist Mono",
-    monospace;
-  color: var(--termfg);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.oq .tl.u {
   color: var(--tx);
-  background: var(--col);
-  border-radius: 4px;
-  padding: 2px 6px;
-  margin: 4px 0;
-}
-.oq .tl.a::before {
-  content: "● ";
-  color: var(--tx);
-}
-.oq .tl.tool::before {
-  content: "● ";
-  color: var(--ok);
-}
-.oq .tl.tool {
-  color: var(--tx);
-}
-.oq .tl.o {
-  color: var(--tx2);
-  padding-left: 16px;
-}
-.oq .tl.d {
-  color: var(--tx3);
-}
-.oq .tl.ok {
-  color: var(--ok);
-}
-.oq .tl.w {
-  color: var(--pau);
-}
-.oq .tl.e {
-  color: var(--err);
-}
-.oq .tl.q {
-  color: var(--attn);
-  font-weight: 500;
-}
-.oq .tl.q::before {
-  content: "? ";
-}
-.oq .tl.h {
   font-weight: 600;
-  color: var(--tx);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
-.oq .tl.sp {
-  height: 8px;
+.oq.oq .tb .sp {
+  flex: 1;
 }
-.oq .tl.tb {
-  color: var(--tx);
-  padding-left: 16px;
-}
-.oq .opts {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 10px 0 4px;
-  padding: 10px;
-  border: 1px solid var(--attn);
-  border-radius: 6px;
-  background: var(--attnbg);
-}
-.oq .opts-t {
-  font:
-    500 11px/1.3 "Geist",
-    sans-serif;
-  color: var(--attn);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.oq .opt {
+.oq.oq .strip {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  text-align: left;
-  border: 1px solid var(--bds);
-  background: var(--card);
-  border-radius: 6px;
-  padding: 7px 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--bd);
+  background: var(--attnbg);
+  font-size: 12px;
+  min-height: 38px;
+}
+.oq.oq .strip .t {
+  color: var(--attn);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.oq.oq .ch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--attn);
+  background: var(--panel);
+  color: var(--tx);
+  font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
-  font-size: 12.5px;
 }
-.oq .opt:hover {
-  border-color: var(--attn);
+.oq.oq .ch:hover {
+  background: var(--hover);
 }
-.oq .opt .n {
+.oq.oq .ch .k {
   font:
     11px "Geist Mono",
     monospace;
   color: var(--tx3);
 }
-.oq .opt .rec {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--tx3);
-}
-/* main */
-.oq .main {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.oq .mtabs {
-  height: 38px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--bd);
-}
-.oq .mtab {
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  cursor: pointer;
-  color: var(--tx2);
-  font-weight: 500;
-}
-.oq .mtab:hover {
-  color: var(--tx);
-}
-.oq .mtab.on {
-  color: var(--tx);
-  border-bottom-color: var(--ac);
-}
-.oq .mhint {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--tx3);
-}
-.oq .epics {
-  flex: none;
-  padding: 10px 12px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.oq .ep-t {
-  font:
-    500 11px/1 "Geist Mono",
-    monospace;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tx3);
-}
-.oq .ep {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  background: var(--invbg);
-  border: 1px solid var(--bd);
-}
-.oq .ep-n {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--inv);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.oq .ep-l {
-  font-size: 11px;
-  color: var(--tx2);
-  white-space: nowrap;
-}
-.oq .stops {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
-  flex-wrap: wrap;
-}
-.oq .stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 4px;
-  border: 1px solid var(--bd);
-  background: var(--card);
-  cursor: pointer;
-  font:
-    11px/1 "Geist Mono",
-    monospace;
-  color: var(--tx2);
-}
-.oq .stop:hover {
+.oq.oq .ch.pk {
   border-color: var(--bds);
-  color: var(--tx);
 }
-.oq .cols {
+.oq.oq .strip .nx {
+  margin-left: auto;
+}
+.oq.oq .strip.clear {
+  background: var(--col);
+  color: var(--tx2);
+}
+.oq.oq .cols {
   flex: 1;
   min-height: 0;
   display: flex;
   gap: 8px;
-  padding: 10px 12px 12px;
+  padding: 10px 12px 56px;
   overflow-x: auto;
+  overflow-y: hidden;
 }
-.oq .colm {
+.oq.oq .colm {
   flex: 1 1 0;
-  min-width: 194px;
+  min-width: 180px;
   display: flex;
   flex-direction: column;
   background: var(--col);
@@ -825,55 +540,65 @@
     border-color 0.12s,
     background 0.12s;
 }
-.oq .colm.drop {
+.oq.oq .colm.drop {
   border-color: var(--ac);
   background: var(--acs);
 }
-.oq .colm.nodrop {
+.oq.oq .colm.nodrop {
   opacity: 0.6;
 }
-.oq .col-h {
+.oq.oq .col-h {
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 9px 10px 2px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
-.oq .col-h .n {
+.oq.oq .col-h .k {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.oq.oq .col-h .n {
   font:
     500 11px "Geist Mono",
     monospace;
   color: var(--tx3);
   font-weight: 400;
 }
-.oq .col-s {
+.oq.oq .col-h .kd {
+  margin-left: auto;
+  font:
+    10.5px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+  font-weight: 400;
+}
+.oq.oq .col-h .ibtn {
+  width: 20px;
+  height: 20px;
+}
+.oq.oq .col-s {
   padding: 0 10px 6px;
   font-size: 11px;
   color: var(--tx3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.oq .col-b {
+.oq.oq .col-b {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 2px 6px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
-.oq .sec-h {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font:
-    500 10.5px/1 "Geist Mono",
-    monospace;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--tx3);
-  padding: 8px 4px 2px;
-}
-.oq .ph {
+.oq.oq .ph {
   border: 1px dashed var(--bds);
   border-radius: 6px;
   padding: 14px 10px;
@@ -881,126 +606,65 @@
   color: var(--tx3);
   font-size: 11.5px;
 }
-.oq .coach {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--acs);
-  border: 1px solid var(--ac);
-  font-size: 11.5px;
-  color: var(--tx);
-  margin-bottom: 2px;
-}
-.oq .coach .ibtn {
-  width: 20px;
-  height: 20px;
-  margin-left: auto;
-}
-.oq .donerail {
-  width: 40px;
-  flex: none;
-  border: 1px solid var(--bd);
-  border-radius: 8px;
-  background: var(--col);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  cursor: pointer;
-  color: var(--tx2);
-}
-.oq .donerail:hover {
-  background: var(--hover);
-}
-.oq .donerail span {
-  writing-mode: vertical-rl;
-  font-size: 12px;
-  font-weight: 600;
-}
-/* card */
-.oq .cd {
+.oq.oq .cd {
   position: relative;
   background: var(--card);
   border: 1px solid var(--bdc);
   border-radius: 6px;
-  padding: 9px 10px 10px;
+  padding: 7px 9px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   cursor: pointer;
   transition:
     opacity 0.15s,
     border-color 0.12s,
     box-shadow 0.12s;
 }
-.oq .cd:hover {
+.oq.oq .cd:hover {
   border-color: var(--tx3);
 }
-.oq .cd.attn {
+.oq.oq .cd.attn {
   border-color: var(--attn);
   box-shadow: inset 3px 0 0 var(--attn);
 }
-.oq .cd.err {
+.oq.oq .cd.err {
   border-color: var(--err);
+  box-shadow: inset 3px 0 0 var(--err);
 }
-.oq .cd.fresh {
-  border-color: var(--inv);
-  animation: oqglow 1.2s ease-out 2;
-}
-.oq .cd.sel {
+.oq.oq .cd.sel {
   border-color: var(--ac);
   box-shadow: 0 0 0 1px var(--ac);
 }
-.oq .cd.rel {
-  border-color: var(--ac);
-}
-.oq .cd.dim {
-  opacity: 0.4;
-}
-.oq .cd.drag {
+.oq.oq .cd.drag {
   opacity: 0.35;
 }
-.oq .cd.donec {
-  background: transparent;
-}
-.oq .cd-top {
+.oq.oq .cd-top {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 18px;
 }
-.oq .key {
+.oq.oq .key {
   font:
     11px/1 "Geist Mono",
     monospace;
   color: var(--tx3);
 }
-.oq .prio {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 4px;
+.oq.oq .prio {
   font:
     500 10.5px/1 "Geist Mono",
     monospace;
-  border: 1px solid var(--bd);
-  color: var(--tx3);
+  color: var(--tx);
+  border: 1px solid var(--bds);
+  border-radius: 4px;
+  padding: 2px 4px;
 }
-.oq .prio.p1 {
+.oq.oq .prio.p1 {
   background: var(--tx);
   color: var(--card);
   border-color: var(--tx);
 }
-.oq .prio.p2 {
-  color: var(--tx);
-  border-color: var(--bds);
-}
-.oq .av {
+.oq.oq .av {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1012,46 +676,32 @@
     monospace;
   flex: none;
 }
-.oq .av.lg {
+.oq.oq .av.lg {
   width: 22px;
   height: 22px;
   font-size: 9.5px;
 }
-.oq .av.xl {
-  width: 30px;
-  height: 30px;
-  font-size: 11px;
-}
-.oq .av-CC {
+.oq.oq .av-CC {
   background: var(--cc);
   color: var(--ccfg);
 }
-.oq .av-CX {
+.oq.oq .av-CX {
   background: var(--cx);
   color: var(--cxfg);
 }
-.oq .av-CP {
+.oq.oq .av-CP {
   background: var(--cp);
   color: var(--cpfg);
 }
-.oq .av-OC {
+.oq.oq .av-OC {
   background: var(--oc);
   color: var(--ocfg);
 }
-.oq .epchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--invbg);
-  color: var(--inv);
-  font-size: 10.5px;
-  font-weight: 500;
-  white-space: nowrap;
+.oq.oq .av-U {
+  background: var(--revbg);
+  color: var(--rev);
 }
-.oq .cd-ti {
+.oq.oq .cd-ti {
   background: none;
   border: 0;
   padding: 0;
@@ -1062,181 +712,542 @@
     sans-serif;
   color: var(--tx);
 }
-.oq .cd.donec .cd-ti {
-  color: var(--tx2);
-}
-.oq .meta {
+.oq.oq .cd .st {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--tx3);
-  min-width: 0;
-}
-.oq .meta span {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.oq .meta.m {
+.oq.oq .cd .st.a {
+  color: var(--attn);
+}
+.oq.oq .cd .st.e {
+  color: var(--err);
+}
+.oq.oq .cd .st.w {
+  color: var(--work);
+}
+.oq.oq .cd .st.r {
+  color: var(--rev);
+}
+.oq.oq .cd .st.ok {
+  color: var(--ok);
+}
+.oq.oq .cd .st.i {
+  color: var(--inv);
+}
+.oq.oq .cd .st.pa {
+  color: var(--pau);
+}
+.oq.oq .cd .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+.oq.oq .cd .who .ago {
+  margin-left: auto;
   font-family: "Geist Mono", monospace;
 }
-.oq .meta.inv {
-  color: var(--inv);
+.oq.oq .cd .act {
+  align-self: flex-start;
+  margin-top: 0;
 }
-.oq .meta.aq {
-  color: var(--attn);
+.oq.oq .pieces {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
 }
-.oq .meta.pa {
-  color: var(--pau);
+.oq.oq .pieces .ph2 {
+  font:
+    500 10px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  margin-bottom: 2px;
 }
-.oq .meta.wk {
+.oq.oq .pieces .pr {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 6px;
+  font-size: 11px;
+  color: var(--tx2);
+}
+.oq.oq .pieces .pr .n {
+  font-family: "Geist Mono", monospace;
+  color: var(--tx3);
+}
+.oq.oq .pieces .pr .s {
+  color: var(--tx3);
+}
+.oq.oq .pieces .pr .s.ok {
+  color: var(--ok);
+}
+.oq.oq .pieces .pr .s.w {
   color: var(--work);
 }
-.oq .warnbox {
+.oq.oq .pieces .pr .s.a {
+  color: var(--attn);
+}
+.oq.oq .pieces .pr .s.r {
+  color: var(--rev);
+}
+.oq.oq .donerail {
+  width: 40px;
+  flex: none;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--col);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--tx2);
+}
+.oq.oq .donerail:hover {
+  background: var(--hover);
+}
+.oq.oq .donerail span {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 600;
+}
+.oq.oq .cnt {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+/* list view */
+.oq.oq .list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 56px;
+}
+.oq.oq .lh {
+  display: grid;
+  grid-template-columns: 200px 120px minmax(0, 1fr) 160px;
+  gap: 12px;
+  padding: 8px 10px;
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  border-bottom: 1px solid var(--bd);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+.oq.oq .lg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.oq.oq .lg .k {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.oq.oq .lr {
+  display: grid;
+  grid-template-columns: 200px 120px minmax(0, 1fr) 160px;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  align-items: center;
+  font-size: 12.5px;
+  border-left: 3px solid transparent;
+}
+.oq.oq .lr:hover {
+  background: var(--hover);
+}
+.oq.oq .lr.attn {
+  border-left-color: var(--attn);
+}
+.oq.oq .lr.err {
+  border-left-color: var(--err);
+}
+.oq.oq .lr .k {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+  margin-right: 8px;
+}
+.oq.oq .lr .w {
+  color: var(--tx2);
+}
+.oq.oq .lr .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx3);
+  font-size: 11.5px;
+}
+/* ask bar + noyan panel */
+.oq.oq .ask {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 420px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--bds);
+  background: var(--raised);
+  box-shadow: var(--sh);
+  font-size: 13px;
+  color: var(--tx3);
+  z-index: 4;
+  cursor: text;
+}
+.oq.oq .ask .ic {
+  color: var(--inv);
+}
+.oq.oq .ask input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--tx);
+  font:
+    13px "Geist",
+    sans-serif;
+}
+.oq.oq .ask input::placeholder {
+  color: var(--tx3);
+}
+.oq.oq .noyan {
+  width: 400px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: oqslidel 0.22s ease-out;
+}
+.oq.oq .ny-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bd);
+}
+.oq.oq .ny-h b {
+  flex: 1;
+  font-size: 14px;
+}
+.oq.oq .ny-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--bd);
+  font-size: 12px;
+  color: var(--tx3);
+}
+.oq.oq .ny-b {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.oq.oq .msg {
+  max-width: 92%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--col);
+  font-size: 12.5px;
+  line-height: 1.5;
+  animation: oqfade 0.2s ease-out both;
+}
+.oq.oq .msg.u {
+  align-self: flex-end;
+  background: var(--acs);
+}
+.oq.oq .msg .lk {
+  font:
+    500 12px "Geist Mono",
+    monospace;
+  color: var(--ac);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.oq.oq .msg .tbl {
+  margin-top: 6px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.oq.oq .msg .tbl div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 110px;
+  gap: 8px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--bd);
+  font-size: 11.5px;
+}
+.oq.oq .msg .tbl div:first-child {
+  border-top: 0;
+  background: var(--bg);
+  color: var(--tx3);
+  font:
+    500 10px/1.3 "Geist Mono",
+    monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.oq.oq .msg .opts {
   display: flex;
   gap: 6px;
-  align-items: flex-start;
-  padding: 6px 7px;
-  border-radius: 4px;
-  background: var(--paubg);
-  color: var(--pau);
-  font-size: 11px;
-  line-height: 1.35;
+  margin-top: 8px;
+  flex-wrap: wrap;
 }
-.oq .pill {
-  display: inline-flex;
+.oq.oq .ny-in {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 4px;
+  gap: 8px;
+  margin: 10px 12px 12px;
+  padding: 0 6px 0 10px;
+  height: 34px;
+  border: 1px solid var(--bds);
+  border-radius: 999px;
+}
+.oq.oq .ny-in input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--tx);
   font:
-    500 11px/1 "Geist",
+    13px "Geist",
     sans-serif;
-  white-space: nowrap;
-  align-self: flex-start;
 }
-.oq .pill .ic {
-  width: 12px;
-  height: 12px;
-}
-.oq .pl-q {
-  color: var(--q);
-  background: var(--qbg);
-}
-.oq .pl-w {
-  color: var(--work);
-  background: var(--workbg);
-}
-.oq .pl-a {
-  color: var(--attn);
-  background: var(--attnbg);
-}
-.oq .pl-r {
-  color: var(--rev);
-  background: var(--revbg);
-}
-.oq .pl-ok {
-  color: var(--ok);
-  background: var(--okbg);
-}
-.oq .pl-i {
-  color: var(--inv);
-  background: var(--invbg);
-}
-.oq .pl-pa {
-  color: var(--pau);
-  background: var(--paubg);
-}
-.oq .pl-e {
-  color: var(--err);
-  background: var(--errbg);
-}
-.oq .pl-d {
-  color: var(--done);
-  background: var(--qbg);
-}
-/* panel */
-.oq .panel {
+/* ticket view */
+.oq.oq .ts-dim {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 640px;
+  inset: 0;
+  background: rgb(0 0 0 / 28%);
+  z-index: 4;
+}
+.oq.oq .tsheet {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  bottom: 18px;
+  width: 1040px;
+  max-width: calc(100% - 36px);
   background: var(--panel);
-  border-left: 1px solid var(--bds);
-  box-shadow: -16px 0 40px rgb(0 0 0 / 28%);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 20%);
   display: flex;
   flex-direction: column;
   animation: oqslide 0.26s ease-out;
   z-index: 5;
+  overflow: hidden;
 }
-.oq .pn-h {
+.oq.oq .ts-h {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 14px 14px 8px 16px;
+  padding: 16px 20px 10px 24px;
 }
-.oq .pn-ti {
+.oq.oq .ts-heading {
   flex: 1;
   min-width: 0;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
-  line-height: 1.3;
-}
-.oq .pn-ti .key {
-  font-size: 13px;
-  margin-right: 6px;
-  vertical-align: 1px;
-}
-.oq .pn-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 16px 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
 }
-.oq .pn-ag {
-  display: flex;
-  gap: 16px;
-  padding: 6px 16px 10px;
-  font-size: 12px;
-  color: var(--tx2);
-  flex-wrap: wrap;
-}
-.oq .pn-ag div {
+.oq.oq .ts-crumbs {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-size: 12px;
+  color: var(--tx3);
 }
-.oq .pn-ag b {
+.oq.oq .ts-crumb.mono {
+  color: var(--tx2);
+}
+.oq.oq .ts-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.oq.oq .ts-title {
+  margin: 0;
+  font:
+    600 20px/28px "Geist",
+    sans-serif;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oq.oq .ts-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.oq.oq .ts-details {
+  display: flex;
+  align-items: center;
+  padding: 0 24px 10px;
+  overflow: hidden;
+}
+.oq.oq .ts-det {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.oq.oq .ts-det + .ts-det::before {
+  content: "";
+  width: 1px;
+  height: 14px;
+  margin: 0 12px;
+  background: var(--bd);
+}
+.oq.oq .ts-dl {
+  color: var(--tx3);
+  font-size: 11.5px;
+}
+.oq.oq .ts-dv {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
   color: var(--tx);
-  font-weight: 500;
 }
-.oq .pn-act {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 16px 12px;
+.oq.oq .ts-dbtn {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
 }
-.oq .pn-act .note {
+.oq.oq .ts-dbtn:hover {
+  background: var(--hover);
+}
+.oq.oq .ts-dn {
   font-size: 12px;
-  color: var(--tx2);
+  color: var(--tx3);
+}
+.oq.oq .ts-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--work);
+}
+.oq.oq .ts-path {
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  padding: 4px 24px 12px;
+  list-style: none;
+}
+.oq.oq .ts-step {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 72px;
+}
+.oq.oq .ts-line {
+  flex: 1;
+  height: 2px;
+  margin-top: 9px;
+  background: var(--bd);
+}
+.oq.oq .ts-line.done {
+  background: var(--ok);
+}
+.oq.oq .ts-node {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--bds);
+  border-radius: 50%;
+  background: var(--panel);
+  box-sizing: border-box;
 }
-.oq .ptabs {
+.oq.oq .ts-step.done .ts-node {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--onac);
+}
+.oq.oq .ts-step.current .ts-node {
+  border: 2px solid var(--work);
+}
+.oq.oq .ts-step.current.attn .ts-node {
+  border-color: var(--attn);
+  background: var(--attnbg);
+}
+.oq.oq .ts-sdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--work);
+}
+.oq.oq .ts-step.attn .ts-sdot {
+  background: var(--attn);
+}
+.oq.oq .ts-sname {
+  max-width: 72px;
+  font-size: 11.5px;
+  color: var(--tx3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oq.oq .ts-step.done .ts-sname,
+.oq.oq .ts-step.current .ts-sname {
+  color: var(--tx);
+}
+.oq.oq .ptabs {
   display: flex;
   gap: 2px;
-  padding: 0 10px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--bd);
-  border-top: 1px solid var(--bd);
 }
-.oq .ptab {
-  height: 36px;
+.oq.oq .ptab {
+  height: 38px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1246,48 +1257,412 @@
   background: none;
   cursor: pointer;
   color: var(--tx2);
+  font-size: 13px;
 }
-.oq .ptab:hover {
+.oq.oq .ptab:hover {
   color: var(--tx);
 }
-.oq .ptab.on {
+.oq.oq .ptab.on {
   color: var(--tx);
   border-bottom-color: var(--ac);
 }
-.oq .pbody {
+.oq.oq .ptab .kbd {
+  font-size: 10px;
+  padding: 2px 4px;
+  opacity: 0.7;
+}
+.oq.oq .ts-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 16px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.oq .tterm {
+.oq.oq .ov {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+  align-items: start;
+}
+.oq.oq .ov-l {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.oq.oq .ov-l section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.oq.oq .ov-r {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 20px;
+  border-left: 1px solid var(--bd);
+}
+.oq.oq .sname {
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.oq.oq .actbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.oq.oq .callout {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12.5px;
+}
+.oq.oq .callout.attn {
+  border-color: var(--attn);
+  background: var(--attnbg);
+}
+.oq.oq .callout .ic {
+  margin-top: 2px;
+  flex: none;
+}
+.oq.oq .callout b {
+  display: block;
+  font-weight: 600;
+}
+.oq.oq .callout span {
+  color: var(--tx2);
+}
+.oq.oq .before {
+  gap: 6px;
+}
+.oq.oq .bagent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12.5px;
+}
+.oq.oq .bagent .verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+.oq.oq .bagent p {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  color: var(--tx2);
+  font-size: 12.5px;
+}
+.oq.oq .manual {
+  gap: 6px;
+}
+.oq.oq .deps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.oq.oq .dep {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 10px;
+}
+.oq.oq .cmt {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.oq.oq .cmt-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.oq.oq .cmt p {
+  margin: 2px 0 0;
+  color: var(--tx2);
+}
+.oq.oq .cbox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--bds);
+  border-radius: 8px;
+  background: var(--card);
+}
+.oq.oq .cbox input[type="text"] {
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--tx);
+  font:
+    13px "Geist",
+    sans-serif;
+  height: 24px;
+}
+.oq.oq .att {
+  display: flex;
+  gap: 9px;
+  text-align: left;
+  padding: 8px 9px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 12px;
+}
+.oq.oq .att:hover {
+  border-color: var(--bds);
+}
+.oq.oq .att .ic {
+  margin-top: 2px;
+}
+.oq.oq .att-n {
+  font-weight: 500;
+  color: var(--tx);
+}
+.oq.oq .att-l {
+  color: var(--tx2);
+  margin-top: 2px;
+}
+.oq.oq .sess-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.oq.oq .sw {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--col);
+}
+.oq.oq .swb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+  font-size: 12.5px;
+}
+.oq.oq .swb.on {
+  background: var(--panel);
+  color: var(--tx);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.oq.oq .runbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.oq.oq .files-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--tx2);
+  margin-bottom: 4px;
+}
+.oq.oq .rbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--bd);
+  background: var(--panel);
+}
+.oq.oq .slab {
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.oq.oq .prose {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.oq.oq .rep {
+  display: flex;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  font-size: 12.5px;
+  background: var(--bg);
+}
+.oq.oq .rep .ic {
+  margin-top: 2px;
+  flex: none;
+}
+.oq.oq .rep b {
+  font-weight: 600;
+  display: block;
+}
+.oq.oq .rep span {
+  color: var(--tx2);
+}
+.oq.oq .chk {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--tx2);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+.oq.oq .chk i {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--bds);
+  border-radius: 3px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.oq.oq .chk i.on {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--onac);
+}
+.oq.oq .opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--attn);
+  border-radius: 6px;
+  background: var(--attnbg);
+}
+.oq.oq .opts-t {
+  font:
+    500 11.5px/1.3 "Geist",
+    sans-serif;
+  color: var(--attn);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.oq.oq .opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--bds);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.oq.oq .opt:hover {
+  border-color: var(--attn);
+}
+.oq.oq .opt .n {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+.oq.oq .opt .rec {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tx3);
+}
+.oq.oq .tterm {
   background: var(--termbg);
   border: 1px solid var(--bd);
   border-radius: 8px;
   padding: 12px 14px;
-  min-height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 260px;
 }
-.oq .tterm .grow {
-  flex: 1;
+.oq.oq .tl {
+  font:
+    12px/1.55 "Geist Mono",
+    monospace;
+  color: var(--termfg);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.oq .tterm .tl {
-  font-size: calc(1em - 1px);
+.oq.oq .tl.u {
+  color: var(--tx);
+  background: var(--col);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 4px 0;
 }
-.oq .tprompt {
+.oq.oq .tl.a::before {
+  content: "● ";
+  color: var(--tx);
+}
+.oq.oq .tl.tool::before {
+  content: "● ";
+  color: var(--ok);
+}
+.oq.oq .tl.tool {
+  color: var(--tx);
+}
+.oq.oq .tl.o {
+  color: var(--tx2);
+  padding-left: 16px;
+}
+.oq.oq .tl.d {
+  color: var(--tx3);
+}
+.oq.oq .tl.ok {
+  color: var(--ok);
+}
+.oq.oq .tl.e {
+  color: var(--err);
+}
+.oq.oq .tl.q {
+  color: var(--attn);
+  font-weight: 500;
+}
+.oq.oq .tprompt {
   display: flex;
   align-items: center;
   gap: 8px;
   border-top: 1px solid var(--bd);
-  margin-top: 10px;
+  margin-top: auto;
   padding-top: 8px;
   font:
     12px "Geist Mono",
     monospace;
   color: var(--tx3);
 }
-.oq .tprompt input {
+.oq.oq .tprompt input {
   flex: 1;
   background: none;
   border: 0;
@@ -1297,56 +1672,33 @@
     12px "Geist Mono",
     monospace;
 }
-.oq .tprompt input::placeholder {
-  color: var(--tx3);
-}
-.oq .term-bar {
+.oq.oq .sess {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
-  font-size: 11px;
+  padding: 7px 10px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.oq.oq .sess.on {
+  border-color: var(--ac);
+  background: var(--acs);
+}
+.oq.oq .sess .m {
+  margin-left: auto;
+  font:
+    11px "Geist Mono",
+    monospace;
   color: var(--tx3);
 }
-.oq .sess {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
-  border: 1px solid var(--bd);
-  font-size: 11.5px;
-  color: var(--tx2);
-}
-.oq .sess.on {
-  background: var(--acs);
-  border-color: var(--ac);
-  color: var(--tx);
-}
-.oq .dstat {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: var(--tx2);
-}
-.oq .add {
-  color: var(--ok);
-  font-family: "Geist Mono", monospace;
-}
-.oq .del {
-  color: var(--err);
-  font-family: "Geist Mono", monospace;
-}
-.oq .dfile {
+.oq.oq .dfile {
   border: 1px solid var(--bd);
   border-radius: 8px;
   overflow: hidden;
-  margin-bottom: 10px;
 }
-.oq .dfile-h {
+.oq.oq .dfile-h {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1357,7 +1709,15 @@
     12px "Geist Mono",
     monospace;
 }
-.oq .dl {
+.oq.oq .add {
+  color: var(--ok);
+  font-family: "Geist Mono", monospace;
+}
+.oq.oq .del {
+  color: var(--err);
+  font-family: "Geist Mono", monospace;
+}
+.oq.oq .dl {
   display: flex;
   font:
     11.5px/1.6 "Geist Mono",
@@ -1365,58 +1725,37 @@
   white-space: pre;
   color: var(--termfg);
 }
-.oq .dl .ln {
+.oq.oq .dl .ln {
   width: 38px;
   flex: none;
   text-align: right;
   padding-right: 8px;
   color: var(--tx3);
-  user-select: none;
 }
-.oq .dl .tx {
+.oq.oq .dl .tx {
   flex: 1;
   padding-right: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.oq .dl.add-l {
+.oq.oq .dl.add-l {
   background: var(--addbg);
 }
-.oq .dl.del-l {
+.oq.oq .dl.del-l {
   background: var(--delbg);
 }
-.oq .dl.hunk {
+.oq.oq .dl.hunk {
   color: var(--tx3);
   background: var(--col);
 }
-.oq .slab {
-  font:
-    500 10.5px/1 "Geist Mono",
-    monospace;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tx3);
-  margin: 6px 0 8px;
-}
-.oq .prose {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--tx);
-  margin: 0 0 16px;
-}
-.oq .ul {
-  margin: 0 0 16px;
-  padding-left: 18px;
-  line-height: 1.7;
-}
-.oq .hist {
+.oq.oq .hist {
   display: flex;
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px solid var(--bd);
   font-size: 12.5px;
 }
-.oq .hist .t {
+.oq.oq .hist .t {
   width: 90px;
   flex: none;
   color: var(--tx3);
@@ -1425,394 +1764,330 @@
     monospace;
   padding-top: 2px;
 }
-.oq .phd {
-  border: 1px dashed var(--bds);
-  border-radius: 8px;
-  padding: 28px 20px;
-  text-align: center;
-  color: var(--tx2);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-}
-.oq .dec {
-  border: 1px solid var(--bd);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  background: var(--card);
-}
-.oq .dec-h {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
+.oq.oq .pieces.big .pr {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   font-size: 12.5px;
-  margin-bottom: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  background: var(--bg);
 }
-/* popover / dialog */
-.oq .pop {
+.oq.oq .pieces.big .pr .s {
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* menus, sheets, toasts */
+.oq.oq .menu {
   position: absolute;
-  top: 48px;
-  right: 110px;
-  width: 420px;
-  max-height: 600px;
-  display: flex;
-  flex-direction: column;
+  z-index: 30;
+  min-width: 220px;
   background: var(--raised);
   border: 1px solid var(--bds);
   border-radius: 8px;
   box-shadow: var(--sh);
-  z-index: 20;
-  animation: oqfade 0.2s ease-out;
+  padding: 4px;
+  animation: oqfade 0.15s ease-out;
 }
-.oq .pop-h {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 12px 8px 14px;
-}
-.oq .pop-h b {
-  font-size: 14px;
-  flex: 1;
-}
-.oq .pop-b {
-  overflow-y: auto;
-  padding: 0 8px 8px;
-}
-.oq .grp {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 6px 6px;
+.oq.oq .menu .h {
+  padding: 6px 10px;
   font:
     500 10.5px/1 "Geist Mono",
     monospace;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tx3);
 }
-.oq .item {
+.oq.oq .menu .i {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
+  padding: 7px 10px;
   border: 0;
-  background: none;
   border-radius: 6px;
-  padding: 8px;
+  background: none;
   cursor: pointer;
-  align-items: flex-start;
+  font-size: 12.5px;
 }
-.oq .item:hover {
+.oq.oq .menu .i:hover {
   background: var(--hover);
 }
-.oq .item .bar {
-  width: 3px;
-  align-self: stretch;
-  border-radius: 2px;
-  flex: none;
+.oq.oq .menu .i span {
+  margin-left: auto;
+  color: var(--tx3);
+  font-size: 11px;
 }
-.oq .item .main-i {
+.oq.oq .menu .n {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--tx3);
+  border-top: 1px solid var(--bd);
+  margin-top: 4px;
+}
+.oq.oq .menu .sep {
+  height: 1px;
+  background: var(--bd);
+  margin: 4px 0;
+}
+.oq.oq .scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: oqfade 0.2s ease-out;
+}
+.oq.oq .sheet {
+  width: 1080px;
+  height: 640px;
+  background: var(--panel);
+  border: 1px solid var(--bds);
+  border-radius: 10px;
+  box-shadow: var(--sh);
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 280px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.oq.oq .sh-l {
+  border-right: 1px solid var(--bd);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+.oq.oq .sh-l .lbl,
+.oq.oq .sh-r .lbl {
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  padding: 8px 8px 4px;
+}
+.oq.oq .sh-l .it {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+}
+.oq.oq .sh-l .it:hover {
+  background: var(--hover);
+}
+.oq.oq .sh-l .it.on {
+  background: var(--acs);
+  border-color: var(--ac);
+}
+.oq.oq .sh-l .it b {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.oq.oq .sh-l .it span {
+  font-size: 11px;
+  color: var(--tx3);
+}
+.oq.oq .sh-m {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+.oq.oq .sh-m .hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.oq.oq .sh-m .hd .n {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+  font-weight: 400;
+}
+.oq.oq .prev {
+  display: flex;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow-x: auto;
+}
+.oq.oq .prev .st {
+  flex: 1 1 0;
+  min-width: 90px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+  animation: oqfade 0.3s ease-out both;
+}
+.oq.oq .prev .st b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.oq.oq .prev .st b .k {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.oq.oq .prev .st span {
+  color: var(--tx3);
+  font-size: 11px;
+}
+.oq.oq .step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.oq.oq .step:hover {
+  border-color: var(--bds);
+}
+.oq.oq .step.sel {
+  border-color: var(--ac);
+}
+.oq.oq .step .k {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.oq.oq .step .kd {
+  margin-left: auto;
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+.oq.oq .det {
+  padding: 10px 12px;
+  border: 1px dashed var(--bds);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--tx2);
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 6px 10px;
+}
+.oq.oq .det b {
+  color: var(--tx);
+  font-weight: 500;
+}
+.oq.oq .sh-r {
+  border-left: 1px solid var(--bd);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.oq.oq .sh-r .in {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--bds);
+  border-radius: 999px;
+  color: var(--tx3);
+  font-size: 12px;
+}
+.oq.oq .sh-f {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--bd);
+  font-size: 12.5px;
+  color: var(--tx3);
+}
+.oq.oq .sh-f .sp {
+  flex: 1;
+}
+.oq.oq .menu.act {
+  padding: 4px 4px 0;
+}
+.oq.oq .arow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--bd);
+}
+.oq.oq .arow:first-of-type {
+  border-top: 0;
+}
+.oq.oq .ainfo {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.oq .item .t1 {
+.oq.oq .an {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
+  gap: 8px;
+  font-size: 13px;
 }
-.oq .item .t1 b {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.oq .item .t2 {
-  font-size: 11.5px;
+.oq.oq .al {
+  font-size: 12px;
   color: var(--tx2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.oq .item .age {
+.oq.oq .al.pa {
+  color: var(--pau);
+}
+.oq.oq .abar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--col);
+  overflow: hidden;
+  margin: 2px 0;
+}
+.oq.oq .abar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+.oq.oq .at {
   font:
     11px "Geist Mono",
     monospace;
   color: var(--tx3);
 }
-.oq .pk {
-  font:
-    600 9.5px/1 "Geist Mono",
-    monospace;
-  padding: 3px 4px;
-  border-radius: 3px;
-  background: var(--col);
-  border: 1px solid var(--bd);
-  color: var(--tx2);
-}
-.oq .allclear {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 36px 20px;
-  color: var(--tx2);
-  text-align: center;
-}
-.oq .scrim {
-  position: absolute;
-  inset: 0;
-  background: rgb(0 0 0 / 45%);
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: oqfade 0.2s ease-out;
-}
-.oq .dlg {
-  width: 920px;
-  height: 620px;
-  background: var(--panel);
-  border: 1px solid var(--bds);
-  border-radius: 10px;
-  box-shadow: var(--sh);
-  display: flex;
-  overflow: hidden;
-}
-.oq .snav {
-  width: 220px;
-  flex: none;
-  border-right: 1px solid var(--bd);
-  background: var(--col);
-  padding: 16px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-}
-.oq .snav h2 {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  margin: 0 8px 12px;
-}
-.oq .snav .gl {
-  font:
-    500 10.5px/1 "Geist Mono",
-    monospace;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--tx3);
-  padding: 12px 8px 6px;
-}
-.oq .srow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  color: var(--tx2);
-  text-align: left;
-  width: 100%;
-}
-.oq .srow:hover {
-  background: var(--hover);
-  color: var(--tx);
-}
-.oq .srow.on {
-  background: var(--acs);
-  color: var(--tx);
-}
-.oq .spage {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.oq .spage-h {
-  display: flex;
-  align-items: center;
-  padding: 14px 14px 10px 24px;
-  border-bottom: 1px solid var(--bd);
-}
-.oq .spage-h h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  flex: 1;
-}
-.oq .spage-b {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 24px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.oq .sdesc {
-  font-size: 12.5px;
-  color: var(--tx2);
-  margin: 0;
-}
-.oq .trow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--bd);
-  border-radius: 8px;
-  background: var(--card);
-}
-.oq .trow .tt {
-  flex: 1;
-  min-width: 0;
-}
-.oq .trow .tt b {
-  font-weight: 600;
-  display: block;
-  font-size: 13px;
-}
-.oq .trow .tt span {
-  font-size: 12px;
-  color: var(--tx2);
-}
-.oq .field {
-  display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--bd);
-}
-.oq .field > label,
-.oq .field > .fl {
-  font-weight: 500;
-  padding-top: 5px;
-}
-.oq .field .hint {
-  font-size: 11.5px;
-  color: var(--tx3);
-  margin-top: 4px;
-}
-.oq .inp {
-  width: 100%;
-  height: 30px;
-  border-radius: 4px;
-  border: 1px solid var(--bds);
-  background: var(--card);
-  color: var(--tx);
-  padding: 0 9px;
-  font:
-    12.5px "Geist Mono",
-    monospace;
-}
-.oq .inp.ro {
-  background: var(--col);
-  color: var(--tx2);
-}
-.oq textarea.inp {
-  height: 74px;
-  padding: 7px 9px;
-  font-family: "Geist", sans-serif;
-  font-size: 12.5px;
-  resize: none;
-  line-height: 1.5;
-}
-.oq select.inp {
-  font-family: "Geist", sans-serif;
-}
-.oq .sw {
-  width: 34px;
-  height: 20px;
-  border-radius: 10px;
-  border: 0;
-  background: var(--bds);
-  position: relative;
-  cursor: pointer;
-  flex: none;
-  transition: background 0.12s;
-}
-.oq .sw::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  transition: left 0.12s;
-}
-.oq .sw.on {
-  background: var(--ac);
-}
-.oq .sw.on::after {
-  left: 17px;
-}
-.oq .themes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.oq .theme {
-  border: 1px solid var(--bd);
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--card);
-  cursor: pointer;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.oq .theme.on {
-  border-color: var(--ac);
-  box-shadow: 0 0 0 1px var(--ac);
-}
-.oq .tprev {
-  height: 70px;
-  border-radius: 6px;
-  display: flex;
-  gap: 5px;
-  padding: 7px;
-  border: 1px solid var(--bd);
-}
-.oq .tprev i {
-  flex: 1;
-  border-radius: 3px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px;
-}
-.oq .tprev b {
-  display: block;
-  height: 9px;
-  border-radius: 2px;
-}
-.oq .kbrow {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--bd);
-  font-size: 12.5px;
-}
-.oq .toast {
+.oq.oq .toast {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 60px;
   transform: translateX(-50%);
-  max-width: 620px;
+  max-width: 640px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1822,27 +2097,83 @@
   border: 1px solid var(--bds);
   box-shadow: var(--sh);
   font-size: 12.5px;
-  z-index: 40;
+  z-index: 50;
   animation: oqfade 0.2s ease-out;
 }
-.oq .toast .ic {
+.oq.oq .toast .ic {
   color: var(--tx2);
 }
-.oq .cnt {
+.oq.oq .banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--bd);
+  background: var(--paubg);
+  color: var(--pau);
+  font-size: 12px;
+}
+.oq.oq .banner .btn {
+  margin-left: auto;
+}
+/* the sheet's status pill (Landing3.dc.html's .pill and p-*) */
+.oq.oq .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
   font:
-    11px "Geist Mono",
-    monospace;
-  color: var(--tx3);
+    500 11.5px/1 "Geist",
+    sans-serif;
+  white-space: nowrap;
+  align-self: flex-start;
 }
-
-/* Focus the demo moves onto a region (the panel, the inbox, Settings, the pane, the board) shows the drawn ring. */
-.oq.oq:focus-visible,
-.oq [data-home]:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
+.oq.oq .pill .ic {
+  width: 12px;
+  height: 12px;
 }
-
-/* WEB-06: prefers-reduced-motion stops every animation. */
+.oq.oq .pl-q {
+  color: var(--q);
+  background: var(--qbg);
+}
+.oq.oq .pl-w {
+  color: var(--work);
+  background: var(--workbg);
+}
+.oq.oq .pl-a {
+  color: var(--attn);
+  background: var(--attnbg);
+}
+.oq.oq .pl-r {
+  color: var(--rev);
+  background: var(--revbg);
+}
+.oq.oq .pl-ok {
+  color: var(--ok);
+  background: var(--okbg);
+}
+.oq.oq .pl-i {
+  color: var(--inv);
+  background: var(--invbg);
+}
+.oq.oq .pl-pa {
+  color: var(--pau);
+  background: var(--paubg);
+}
+.oq.oq .pl-e {
+  color: var(--err);
+  background: var(--errbg);
+}
+/* the sprite takes no room */
+.oq.oq .sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+/* Reduced motion stops every animation (WEB-06). */
 @media (prefers-reduced-motion: reduce) {
   .oq.oq *,
   .oq.oq *::before,
@@ -1851,38 +2182,10 @@
     transition: none !important;
   }
 }
-
-/*
- * The page (src/styles/landing.css) uses some of the same class names for its own parts. Undo what its rules would add
- * here: the hero's floating cards (.fl), the "Works with" chips (.tool), the waving flag of the brand mark (.mk .f) and
- * its pressed buttons (.btn).
- */
-.oq .fl {
-  position: static;
-  z-index: auto;
-  width: auto;
-  text-align: inherit;
+/* The list's rows and the helpers' sessions are buttons here (drawn as divs): no button look of their own. */
+:where(.oq.oq button.lr, .oq.oq button.sess) {
+  width: 100%;
+  border-width: 0;
   background: none;
-  border: 0;
-  border-radius: 0;
-  padding: 0;
-  display: block;
-  gap: normal;
-  box-shadow: none;
-  animation: none;
-}
-.oq .tool {
-  display: block;
-  gap: normal;
-  height: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-}
-.oq .mk .f {
-  animation: none;
-}
-.oq .btn:active {
-  transform: none;
+  text-align: left;
 }
