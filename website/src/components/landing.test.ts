@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { demoFrame } from "./demoScale";
-import { BEAT_COUNT, beatView, jump, tick, toggle } from "./flow";
+import { BEAT_COUNT, BEAT_MS, LANES, STEP_LABELS, beatView, jump, laneLeft, tick, toggle } from "./flow";
 import { FAQS } from "./faq";
 import { KIND_COLOR, PRESETS, isLong } from "./presets";
 import { STORAGE_KEY, nextTheme, readPick, savePick, shownTheme } from "./theme";
 
 describe("How it works player", () => {
-  it("has 8 beats and the timer wraps from 8 to 1", () => {
-    expect(BEAT_COUNT).toBe(8);
+  it("has 6 beats over 5 lanes, every 4.2 s, and the timer wraps from 6 to 1", () => {
+    expect(BEAT_COUNT).toBe(6);
+    expect(LANES).toHaveLength(5);
+    expect(STEP_LABELS).toEqual(["Filed", "Started", "Asks you", "Failed → fixed", "Review", "Merged"]);
+    expect(BEAT_MS).toBe(4200);
     let p = { beat: 0, playing: true };
-    for (let i = 1; i < 8; i++) {
+    for (let i = 1; i < 6; i++) {
       p = tick(p);
       expect(p.beat).toBe(i);
     }
@@ -18,8 +21,10 @@ describe("How it works player", () => {
   });
 
   it("jumps to a clicked step and keeps playing or paused as it was", () => {
-    expect(jump({ beat: 1, playing: true }, 5)).toEqual({ beat: 5, playing: true });
-    expect(jump({ beat: 6, playing: false }, 2)).toEqual({ beat: 2, playing: false });
+    expect(jump({ beat: 1, playing: true }, 4)).toEqual({ beat: 4, playing: true });
+    expect(jump({ beat: 5, playing: false }, 2)).toEqual({ beat: 2, playing: false });
+    expect(jump({ beat: 0, playing: true }, 9)).toEqual({ beat: 5, playing: true });
+    expect(jump({ beat: 3, playing: true }, -1)).toEqual({ beat: 0, playing: true });
   });
 
   it("stays on its beat while paused, and Play carries on from there", () => {
@@ -29,27 +34,44 @@ describe("How it works player", () => {
     expect(tick(toggle(paused))).toEqual({ beat: 4, playing: true });
   });
 
+  it("places the card, the ghost and the bubble on the drawn lanes", () => {
+    expect(laneLeft(0)).toBe("calc(10px + (100% - 20px - 32px) / 5 * 0 + 8px * 0)");
+    expect(laneLeft(3)).toBe("calc(10px + (100% - 20px - 32px) / 5 * 3 + 8px * 3)");
+    const lanes = Array.from({ length: BEAT_COUNT }, (_, i) => beatView(i).card.left);
+    expect(lanes).toEqual([0, 1, 1, 1, 3, 4].map(laneLeft));
+    // The bubble never goes past the Review lane; it would hang off the stage.
+    expect(beatView(4).bubble?.left).toBe(laneLeft(3));
+    expect(beatView(5).bubble).toBeNull();
+  });
+
   it("draws the beats as the canvas does", () => {
     const first = beatView(0);
-    expect(first.n).toBe("1 of 8");
-    expect(first.lanesOn).toEqual([true, false, false, false, false, false]);
-    expect(first.ghost.label).toBe("Backlog");
-    expect(first.bubble?.who).toBe("Project agent");
+    expect(first.n).toBe("1 of 6");
+    expect(first.lanesOn).toEqual([true, false, false, false, false]);
+    expect(first.card).toMatchObject({
+      pillClass: "p-q",
+      label: "Ready for Dev",
+      meta: "filed by Noyan · P2",
+    });
+    expect(first.ghost).toMatchObject({ left: laneLeft(0), label: "waits for SHOP-29", spin: false });
+    expect(first.bubble).toBeNull();
     expect(first.bar).toBe("a");
 
-    const asks = beatView(3);
+    const asks = beatView(2);
     expect(asks.card.attn).toBe(true);
-    expect(asks.bubble).toMatchObject({ avClass: "p-q", initials: "U", who: "You" });
-    expect(asks.steps.map((s) => s.cls)).toEqual(["past", "past", "past", "on", "", "", "", ""]);
-    expect(asks.bar).toBe("b");
+    expect(asks.bubble).toMatchObject({ av: "U", who: "You", text: "answered: one per order" });
+    expect(asks.steps.map((s) => s.cls)).toEqual(["past", "past", "on", "", "", ""]);
+    expect(asks.steps.map((s) => s.current)).toEqual([false, false, true, false, false, false]);
 
-    expect(beatView(1).bubble).toBeNull();
-    expect(beatView(1).ghost.label).toBe("waits for NOTE-14");
+    expect(beatView(1).card).toMatchObject({ pillClass: "p-w", spin: true });
+    expect(beatView(3).bubble).toMatchObject({ av: "CC", who: "Security reviewer" });
+    expect(beatView(3).bar).toBe("b");
 
-    const last = beatView(7);
-    expect(last.lanesOn).toEqual([false, false, true, false, false, true]);
-    expect(last.ghost).toMatchObject({ pillClass: "p-w", label: "Working" });
-    expect(last.card.pillLabel).toBe("Merged");
+    const last = beatView(5);
+    expect(last.n).toBe("6 of 6");
+    expect(last.lanesOn).toEqual([false, true, false, false, true]);
+    expect(last.ghost).toMatchObject({ left: laneLeft(1), pillClass: "p-w", label: "Working", spin: true });
+    expect(last.card.label).toBe("Merged");
   });
 });
 

@@ -1,7 +1,7 @@
 // The How it works player in the browser: draws a beat of flow.ts into HowItWorks.astro's markup and runs the
-// 3.2 s timer, Pause / Play and the step buttons, as the canvas's script does (WEB-05).
+// 4.2 s timer, Pause / Play and the step buttons, as the canvas's script does (WEB-05).
 
-import { BEAT_MS, type Player, beatView, jump, tick, toggle } from "./flow";
+import { BEAT_MS, type Pill, type Player, beatView, jump, tick, toggle } from "./flow";
 
 function setIcon(svg: Element | null, name: string): void {
   svg?.querySelector("use")?.setAttribute("href", `#m-${name}`);
@@ -10,6 +10,14 @@ function setIcon(svg: Element | null, name: string): void {
 function setText(el: Element | null, text: string): void {
   const target = el?.querySelector("[data-text]") ?? el;
   if (target && target.textContent !== text) target.textContent = text;
+}
+
+function drawPill(pill: Element | null, p: Pill): void {
+  if (!pill) return;
+  pill.className = `pill ${p.pillClass}`;
+  setIcon(pill, p.icon);
+  pill.querySelector("svg")?.classList.toggle("spin", p.spin);
+  setText(pill, p.label);
 }
 
 export function startPlayer(): void {
@@ -35,30 +43,14 @@ export function startPlayer(): void {
     card.classList.toggle("attn", v.card.attn);
     const av = card.querySelector("[data-card-av]");
     if (av) {
-      av.className = `av ${v.card.avClass}`;
-      av.textContent = v.card.av;
+      av.className = `av av-${v.card.tool}`;
+      av.textContent = v.card.tool;
     }
-    const pill = card.querySelector("[data-card-pill]");
-    if (pill) {
-      pill.className = `pill ${v.card.pillClass}`;
-      setIcon(pill, v.card.pillIcon);
-      pill.querySelector("svg")?.classList.toggle("spin", v.card.spin);
-      setText(pill, v.card.pillLabel);
-    }
-    const meta = card.querySelector("[data-card-meta]");
-    if (meta) {
-      meta.classList.toggle("inv", v.card.metaInv);
-      setIcon(meta, v.card.metaIcon);
-      setText(meta, v.card.meta);
-    }
+    drawPill(card.querySelector("[data-card-pill]"), v.card);
+    setText(card.querySelector("[data-card-meta]"), v.card.meta);
 
     ghost.style.left = v.ghost.left;
-    const ghostPill = ghost.querySelector("[data-ghost-pill]");
-    if (ghostPill) {
-      ghostPill.className = `pill ${v.ghost.pillClass}`;
-      setIcon(ghostPill, v.ghost.icon);
-      setText(ghostPill, v.ghost.label);
-    }
+    drawPill(ghost.querySelector("[data-ghost-pill]"), v.ghost);
 
     // The bubble is added when a beat has one (it pops in) and kept while the next beat has one too (it slides).
     let bubble = stage.querySelector<HTMLElement>("[data-bubble]");
@@ -69,16 +61,14 @@ export function startPlayer(): void {
         bubble = document.createElement("div");
         bubble.className = "bub";
         bubble.dataset["bubble"] = "";
-        const avatar = document.createElement("span");
-        avatar.style.cssText = "width:20px;height:20px;font-size:8px";
-        bubble.append(avatar, document.createElement("span"));
+        bubble.append(document.createElement("span"), document.createElement("span"));
         stage.append(bubble);
       }
       bubble.style.left = v.bubble.left;
       const [avatar, line] = bubble.children;
       if (avatar) {
-        avatar.className = `av ${v.bubble.avClass}`;
-        avatar.textContent = v.bubble.initials;
+        avatar.className = `av av-${v.bubble.av}`;
+        avatar.textContent = v.bubble.av;
       }
       if (line) {
         const who = document.createElement("b");
@@ -104,7 +94,7 @@ export function startPlayer(): void {
   }
 
   // Not drawn, so the drawing can't show it: the timer only runs while the section is on screen and the tab is
-  // visible. Coming back starts the beat's 3.2 s (and its progress bar) afresh, so the bar and the timer stay together.
+  // visible. Coming back starts the beat's 4.2 s (and its progress bar) afresh, so the bar and the timer stay together.
   let onScreen = false;
   const running = (): boolean => onScreen && !document.hidden;
 
