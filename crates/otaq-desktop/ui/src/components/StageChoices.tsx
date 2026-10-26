@@ -96,9 +96,11 @@ export function StageChoices({ view, look, picks, onPick }: StageChoicesProps) {
         <span className="stage-choices-heading">{view.heading}</span>
         {view.set_by !== null && <span className="stage-choices-by">{view.set_by}</span>}
       </div>
-      {view.rows.map((row) => (
-        <ChoiceLine key={row.stage_id} row={shownChoice(row, picks?.[row.stage_id])} onPick={onPick} />
-      ))}
+      <div className="stage-choices-rows">
+        {view.rows.map((row) => (
+          <ChoiceLine key={row.stage_id} row={shownChoice(row, picks?.[row.stage_id])} onPick={onPick} />
+        ))}
+      </div>
       {view.note !== null && <p className="stage-choices-note">{view.note}</p>}
     </div>
   );
