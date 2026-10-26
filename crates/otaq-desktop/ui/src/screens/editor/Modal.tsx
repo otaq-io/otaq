@@ -1,5 +1,5 @@
 // The editor as a modal (UI-05, TKT-03; d0019; *08 · Ticket editor → Quick-create in Backlog, Full form · filled,
-// Validation · empty form, Dark · full form*). ⌘N and the board's + open **quick-create**, a
+// Validation · empty form, Dark · full form*). ⌘N and the Backlog column's + open **quick-create**, a
 // title field at the top of the Backlog column: ↵ creates, ⇧↵ opens the full form with the title kept, Esc
 // cancels. The full form saves with ⌘↵ or its button; Esc discards. `edit_ticket` opens the same form on a ticket.
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
@@ -79,7 +79,7 @@ function FullForm({
   return (
     <Dialog
       title={`${view.heading} ${t.in_word} ${view.project_name}`}
-      width={620}
+      width={760}
       hint={t.discard_word}
       onCancel={close}
       onConfirm={save}
@@ -208,8 +208,10 @@ export function NewTicket({ params, close }: OverlayProps<"new_ticket">) {
   if (error) return null;
   if (!view) return null;
   if (full !== null) return <FullForm view={view} target={target} initial={full} close={close} />;
-  // With a description to start from (New ticket from this file), the whole form: quick-create has only a title.
-  if (body !== undefined) return <FullForm view={view} target={target} close={close} />;
+  // With a description to start from (New ticket from this file), or from the board's New ticket button, the whole
+  // form: quick-create has only a title.
+  if (body !== undefined || params?.full === true)
+    return <FullForm view={view} target={target} close={close} />;
   return <QuickCreate view={view} target={target} onFull={setFull} close={close} />;
 }
 

@@ -635,6 +635,19 @@
   outline: none;
 }
 
+/* A dropdown's list (branches, agents, models) stops at 320 px and scrolls; a long name ends in an ellipsis instead of
+   widening the list. */
+.menu[data-list] {
+  max-height: min(320px, calc(100vh - 16px));
+}
+
+.menu[data-list] .menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .popover {
   z-index: 20;
   padding: 12px;

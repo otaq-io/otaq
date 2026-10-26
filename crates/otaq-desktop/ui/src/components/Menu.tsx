@@ -95,6 +95,7 @@ export function Menu({
     <div
       ref={root}
       className="menu"
+      data-list={list || undefined}
       role="menu"
       aria-label={label}
       tabIndex={-1}

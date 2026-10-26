@@ -121,6 +121,9 @@ describe("overlays and feedback", () => {
       createElement(Menu, { label: "Priority", items, list: true, onChoose: noop, onClose: noop }),
     );
     expect(list).toContain('role="menuitemradio" aria-checked="false"');
+    // A dropdown's list is marked, so its height stops at 320 px and it scrolls (components.css).
+    expect(list).toContain('class="menu" data-list="true"');
+    expect(out).not.toContain("data-list");
   });
 
   it("a destructive confirm dialog makes Cancel the default button, outlined; an ordinary one the confirm", () => {
