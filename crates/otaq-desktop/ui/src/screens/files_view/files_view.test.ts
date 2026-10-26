@@ -200,7 +200,7 @@ const PICKER: FilesViewPicker = {
       ],
     },
   ],
-  no_worktree: "No worktree yet: SHOP-12 (Grill). A ticket gets its worktree when it reaches Dev.",
+  no_worktree: "No worktree yet: SHOP-12 (Product spec). A ticket gets its worktree when it reaches Dev.",
 };
 
 describe("the picker (FIL-07, s28-04)", () => {
@@ -210,7 +210,7 @@ describe("the picker (FIL-07, s28-04)", () => {
     );
     expect(out).toMatch(/BASE BRANCH.*TICKETS · THEIR WORKTREE/);
     expect(out).toContain("Dev · 3 files");
-    expect(out).toContain("No worktree yet: SHOP-12 (Grill).");
+    expect(out).toContain("No worktree yet: SHOP-12 (Product spec).");
     expect(out).toContain('placeholder="Find a ticket"');
   });
 

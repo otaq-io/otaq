@@ -87,7 +87,7 @@ export const SHEET: SheetFrame = {
     },
   ],
   steps: [
-    { stage: "Grill", state: "done", attention: false },
+    { stage: "Product spec", state: "done", attention: false },
     { stage: "Dev", state: "current", attention: false },
     { stage: "Review", state: "to_come", attention: false },
   ],

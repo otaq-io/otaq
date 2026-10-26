@@ -626,7 +626,7 @@ async fn park_and_drag_back_stop_every_session_and_keep_the_worktrees() {
     w2.review
         .drag(
             "SHOP-1",
-            &DropOn::stage("grill"),
+            &DropOn::stage("product-spec"),
             DragAnswers {
                 note: "Ask about shared carts.",
                 report: None,

@@ -914,7 +914,7 @@ impl Starter {
                 )
             }
             (None, None) => {
-                // The stage's own skill (Q261): `grill` for a Grill stage, `work-ticket` for Dev.
+                // The stage's own skill (Q261): `product-spec` for a Product spec stage, `work-ticket` for Dev.
                 let skill = agent_stage
                     .and_then(|stage| stage.skill.clone())
                     .unwrap_or_else(|| WORK_TICKET_SKILL.to_owned());
@@ -1451,33 +1451,33 @@ mod tests {
     #[test]
     fn the_rewalk_names_a_failed_check_of_several_agents() {
         let name = |id: &str| match id {
-            "grill" => "Grill".to_owned(),
+            "product-spec" => "Product spec".to_owned(),
             "security" => "Security".to_owned(),
             other => other.to_owned(),
         };
         let runs = [
-            run("grill", "agent", RunResult::Done),
+            run("product-spec", "agent", RunResult::Done),
             run("dev", "agent", RunResult::Done),
             run("security", "check", RunResult::Failed),
             run("security", "check", RunResult::Passed),
-            run("grill", "agent", RunResult::Cancelled),
-            run("grill", "agent", RunResult::Done),
+            run("product-spec", "agent", RunResult::Cancelled),
+            run("product-spec", "agent", RunResult::Done),
         ];
         assert_eq!(
             rewalk_why(&runs, "dev", false, name).as_deref(),
-            Some("Security sent it to Grill, which finished")
+            Some("Security sent it to Product spec, which finished")
         );
         let passed = [
             run("security", "check", RunResult::Passed),
-            run("grill", "agent", RunResult::Done),
+            run("product-spec", "agent", RunResult::Done),
         ];
         assert_eq!(
             rewalk_why(&passed, "dev", false, name).as_deref(),
-            Some("Grill finished")
+            Some("Product spec finished")
         );
         assert_eq!(
             rewalk_why(&passed, "dev", true, name).as_deref(),
-            Some("you moved it back to Grill, which finished")
+            Some("you moved it back to Product spec, which finished")
         );
     }
 }

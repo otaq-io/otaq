@@ -67,7 +67,7 @@ pub struct ViewParams {
     pub changed: Option<ChangedLine>,
 }
 
-/// "The board changed: SHOP-41 entered Grill." for the plan `stamp`.
+/// "The board changed: SHOP-41 entered Product spec." for the plan `stamp`.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "ApplyNowChanged")]
 pub struct ChangedLine {

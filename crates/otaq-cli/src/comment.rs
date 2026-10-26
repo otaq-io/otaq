@@ -266,7 +266,7 @@ pub fn list(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<()
 /// ```text
 /// SHOP-34 · 2 comments
 ///
-/// 1 · Griller · Grill · 2:14 pm
+/// 1 · Spec writer · Product spec · 2:14 pm
 /// Agreed with you: CSV only, admins only.
 ///
 /// 2 · Validator · Validate · round 2 · 3:05 pm · edited

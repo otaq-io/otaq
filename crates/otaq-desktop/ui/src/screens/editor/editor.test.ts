@@ -667,14 +667,14 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
     checked,
     header: false,
   });
-  /** shop-web's flow (*08 → Row · Stage choices*): Grill and Review skippable, Dev with Quick developer. */
+  /** shop-web's flow (*08 → Row · Stage choices*): Product spec and Review skippable, Dev with Quick developer. */
   const CHOICES: StageChoicesView = {
     heading: "Stage choices",
     set_by: null,
     rows: [
       {
-        stage_id: "grill",
-        label: "Grill:",
+        stage_id: "product-spec",
+        label: "Product spec:",
         value: "required",
         items: [item("required", true), item("skip", false)],
         lock: null,
@@ -724,7 +724,7 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
     const host = mount(createElement(Form, { view: { ...VIEW, choices: CHOICES } }));
     expect(host.textContent).toContain("Stage choices");
     expect([...host.querySelectorAll(".stage-choice-label")].map((l) => l.textContent)).toEqual([
-      "Grill:",
+      "Product spec:",
       "Dev:",
       "Review:",
     ]);

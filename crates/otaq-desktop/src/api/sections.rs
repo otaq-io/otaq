@@ -250,7 +250,7 @@ pub async fn answer_message(app: &App, params: AnswerMessage) -> Result<(), Requ
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryRowView")]
 pub struct HistoryRowView {
-    /// "You created the ticket", "Grill started · Griller".
+    /// "You created the ticket", "Product spec started · Spec writer".
     pub title: String,
     /// "Claude Code · sonnet", "“Don’t touch the auth middleware…”".
     pub detail: Option<String>,

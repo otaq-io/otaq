@@ -26,7 +26,6 @@ pub const SKILLS: &[&str] = &[
     "answer-question",
     "commit",
     "flow",
-    "grill",
     "milestone-plan",
     "noyan",
     "open-pr",

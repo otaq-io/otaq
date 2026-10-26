@@ -89,7 +89,7 @@ pub enum Source {
     Previous,
     /// Copy from another project…: its stages.
     Project { project: String },
-    /// Use a preset…: the preset's file ("grill-first.yaml").
+    /// Use a preset…: the preset's file ("spec-first.yaml").
     Preset { file: String },
     /// Reset to the default flow.
     Default,
@@ -111,7 +111,7 @@ impl From<Source> for ProposeFrom {
     }
 }
 
-/// `{"project": "SHOP", "source": {"from": "preset", "file": "grill-first.yaml"}}`.
+/// `{"project": "SHOP", "source": {"from": "preset", "file": "spec-first.yaml"}}`.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowProposeParams")]
 pub struct FlowPropose {
@@ -341,13 +341,13 @@ mod tests {
         request(
             &h.app,
             "settings.flow_propose",
-            json!({ "project": shop, "source": { "from": "preset", "file": "grill-first.yaml" } }),
+            json!({ "project": shop, "source": { "from": "preset", "file": "spec-first.yaml" } }),
         )
         .await
         .unwrap();
-        let grill = proposal(&h, &shop).await;
-        assert_eq!(grill["diff"]["same"], false);
-        assert!(grill["yaml"].as_str().unwrap().contains("name: Grill"));
+        let product_spec = proposal(&h, &shop).await;
+        assert_eq!(product_spec["diff"]["same"], false);
+        assert!(product_spec["yaml"].as_str().unwrap().contains("name: Product spec"));
 
         let back = request(
             &h.app,

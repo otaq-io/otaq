@@ -1,11 +1,12 @@
-//! M36's example end to end (T-0448; CMT-15; d0109, d0056, d0079): shop-web (SHOP) on the Grill first preset,
-//! SHOP-34 "Export orders as CSV", with a stand-in `claude` that runs the real `otaq`. Grill reads `prime`, writes
-//! Agreed into the description and ends with comment 1; the user posts comment 2 while Dev runs (it isn't typed into
-//! Dev's session); Dev's `prime` shows both and it ends with comment 3; Validate saves its run in `$OTAQ_RESOURCE_DIR`
-//! and fails with it as a report (comment 4); Dev is told only "Validate failed round 1. Run `otaq prime`.", its
-//! `stage next` is refused until it runs `prime` (which names the report and never prints it), it greps the report
-//! through `otaq report --path`, ends again; Validate passes; the ticket reaches Review. Every comment's author, stage
-//! and round, and History's lines, are checked; a 2,001-character comment and a 21 MB report are refused.
+//! M36's example end to end (T-0448; CMT-15; d0109, d0056, d0079): shop-web (SHOP) on the Spec first preset with
+//! Product spec its only planning stage, SHOP-34 "Export orders as CSV", with a stand-in `claude` that runs the real
+//! `otaq`. Product spec reads `prime`, writes Agreed into the description and ends with comment 1; the user posts
+//! comment 2 while Dev runs (it isn't typed into Dev's session); Dev's `prime` shows both and it ends with comment 3;
+//! Validate saves its run in `$OTAQ_RESOURCE_DIR` and fails with it as a report (comment 4); Dev is told only "Validate
+//! failed round 1. Run `otaq prime`.", its `stage next` is refused until it runs `prime` (which names the report and
+//! never prints it), it greps the report through `otaq report --path`, ends again; Validate passes; the ticket reaches
+//! Code review. Every comment's author, stage and round, and History's lines, are checked; a 2,001-character comment
+//! and a 21 MB report are refused.
 //!
 //! No agent tool runs; every folder is temporary (the stand-in's `HOME` too), and the stand-in's PATH has no other
 //! `otaq` (`path_without_build_folders`): it only ever runs this build's, by its full path.
@@ -22,7 +23,7 @@ use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use otaq_core::board::tickets::{EventKind, NewTicketInput};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Place, Status};
-use otaq_core::flow::presets::{GRILL_FIRST_FILE, preset};
+use otaq_core::flow::presets::{SPEC_FIRST_FILE, preset};
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
@@ -32,7 +33,7 @@ const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
 const DESCRIPTION: &str = "Admins need the orders as a file for the accountant.";
 const AGREED: &str = "\n\n## Agreed\n\n- CSV only, no Excel.\n- Admins only.\n- Reuse the CSV writer in export.rs (SHOP-12).\n";
-const GRILL_SAYS: &str =
+const PRODUCT_SPEC_SAYS: &str =
     "Agreed with you: CSV only, admins only. Reuse the CSV writer in export.rs from SHOP-12.";
 const YOU_SAY: &str = "Also keep the column order the same as the table on screen.";
 const DEV_SAYS: &str =
@@ -48,8 +49,8 @@ fn me() -> Actor {
 
 /// The stand-in `claude`. Its state is in `state` (Otaq's data folder in `state/data`, so its `otaq` reaches the
 /// test's service); it logs its arguments, then acts by the skill it was started with:
-/// - Grill (`/otaq-grill`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next` with comment 1,
-///   its turn ends;
+/// - Product spec (`/otaq-product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next`
+///   with comment 1, its turn ends;
 /// - Dev (`/otaq-work-ticket`): waits for `state/go-dev` (the user's comment comes first), `prime`, a commit, `stage
 ///   next` with comment 3, its turn ends; then records each line typed into it, and on a failed check tries `stage
 ///   next` first (refused), runs `prime`, greps the report through `otaq report --path`, commits and ends again;
@@ -78,10 +79,10 @@ commit() {{
     git -c user.name=t -c user.email=t@t commit -qm "$OTAQ_TICKET: $1"
 }}
 case "$*" in
-*otaq-grill*)
-    otaq prime > "$STATE/grill-prime.md"
+*otaq-product-spec*)
+    otaq prime > "$STATE/product-spec-prime.md"
     otaq update --stdin < "$STATE/agreed.md" > /dev/null
-    otaq stage next --stdin < "$STATE/say-grill"
+    otaq stage next --stdin < "$STATE/say-product-spec"
     stop
     exec sleep 300
     ;;
@@ -243,7 +244,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     std::fs::write(state.join("data"), w.data.root().display().to_string()).unwrap();
     std::fs::write(state.join("agreed.md"), format!("{DESCRIPTION}{AGREED}")).unwrap();
     for (file, text) in [
-        ("say-grill", GRILL_SAYS),
+        ("say-product-spec", PRODUCT_SPEC_SAYS),
         ("say-dev", DEV_SAYS),
         ("say-validate-fails", VALIDATE_SAYS),
         ("say-dev-fixed", DEV_FIXED),
@@ -252,9 +253,11 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         std::fs::write(state.join(file), text).unwrap();
     }
     w.add_project("shop-web").await;
-    w.board
-        .use_flow_for_tests("SHOP", &preset(GRILL_FIRST_FILE).unwrap().read())
-        .await;
+    let mut flow = preset(SPEC_FIRST_FILE).unwrap().read();
+    flow.flow
+        .stages
+        .retain(|s| !["tech-spec", "milestone-plan", "spec-review"].contains(&s.id.as_str()));
+    w.board.use_flow_for_tests("SHOP", &flow).await;
     for _ in 1..34 {
         w.create("SHOP", "filler").await;
     }
@@ -274,7 +277,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     let key = t.key.to_string();
     assert_eq!(key, "SHOP-34");
 
-    // Grill: comment 1 and the Agreed section; the ticket goes on to Dev, whose agent waits for the go.
+    // Product spec: comment 1 and the Agreed section; the ticket goes on to Dev, whose agent waits for the go.
     w.board
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
@@ -290,10 +293,10 @@ async fn the_example_hands_over_through_comments_and_a_report() {
             && w.sessions.running_of(&t.id, SessionKind::Agent).is_some()
     })
     .await;
-    let grill_prime = read(state, "grill-prime.md");
+    let product_spec_prime = read(state, "product-spec-prime.md");
     assert!(
-        grill_prime.contains("\n## Your stage\n\nGrill, as Griller"),
-        "{grill_prime}"
+        product_spec_prime.contains("\n## Your stage\n\nProduct spec, as Spec writer"),
+        "{product_spec_prime}"
     );
     assert_eq!(
         w.board.ticket(&key).await.unwrap().body,
@@ -308,10 +311,10 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     assert!(posted.status.success(), "{posted:?}");
     std::fs::write(state.join("go-dev"), "").unwrap();
 
-    // Dev → Validate fails round 1 → Dev fixes → Validate passes → Review.
-    until(&w, state, &key, "reached Review", async |w| {
+    // Dev → Validate fails round 1 → Dev fixes → Validate passes → Code review.
+    until(&w, state, &key, "reached Code review", async |w| {
         let t = w.board.ticket(&key).await.unwrap();
-        t.place == Place::stage_of("review") && t.status == Status::WaitingForYou
+        t.place == Place::stage_of("code-review") && t.status == Status::WaitingForYou
     })
     .await;
 
@@ -321,11 +324,11 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         .split("\n## Comments\n")
         .nth(1)
         .unwrap_or_else(|| panic!("no comments in Dev's prime: {prime}"));
-    let first = section.find(GRILL_SAYS).expect(GRILL_SAYS);
+    let first = section.find(PRODUCT_SPEC_SAYS).expect(PRODUCT_SPEC_SAYS);
     let second = section.find(YOU_SAY).expect(YOU_SAY);
     assert!(first < second, "{section}");
     assert!(
-        section.contains("\n### Griller \u{b7} Grill \u{b7} "),
+        section.contains("\n### Spec writer \u{b7} Product spec \u{b7} "),
         "{section}"
     );
     assert!(section.contains("\n### You \u{b7} "), "{section}");
@@ -340,7 +343,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     assert_eq!(
         bodies,
         [
-            (1, GRILL_SAYS),
+            (1, PRODUCT_SPEC_SAYS),
             (2, YOU_SAY),
             (3, DEV_SAYS),
             (4, VALIDATE_SAYS),
@@ -348,7 +351,10 @@ async fn the_example_hands_over_through_comments_and_a_report() {
             (6, VALIDATE_PASSES),
         ]
     );
-    assert_eq!(agent(&all[0]), (Some("Griller"), Some("grill"), None));
+    assert_eq!(
+        agent(&all[0]),
+        (Some("Spec writer"), Some("product-spec"), None)
+    );
     assert!(
         matches!(all[1].author, CommentAuthor::User { .. }),
         "{:?}",
@@ -475,7 +481,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         "{check}"
     );
 
-    // History (newest first): Griller's description edit and every comment.
+    // History (newest first): Spec writer's description edit and every comment.
     let mut history = w.board.history(&key).await.unwrap();
     history.reverse();
     let edit = history
@@ -483,8 +489,8 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         .find(|e| e.kind == EventKind::Updated)
         .expect("the description edit");
     assert_eq!(edit.payload["author"]["kind"], "agent", "{edit:?}");
-    assert_eq!(edit.payload["author"]["name"], "Griller", "{edit:?}");
-    assert_eq!(edit.payload["author"]["stage"], "grill", "{edit:?}");
+    assert_eq!(edit.payload["author"]["name"], "Spec writer", "{edit:?}");
+    assert_eq!(edit.payload["author"]["stage"], "product-spec", "{edit:?}");
     let posted: Vec<u64> = history
         .iter()
         .filter(|e| e.kind == EventKind::CommentPosted)

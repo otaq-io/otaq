@@ -24,7 +24,7 @@ use otaq_core::board::tickets::NewTicketInput;
 use otaq_core::client::{ClientError, request_once};
 use otaq_core::domain::Actor;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom, ProposeFromParams};
-use otaq_core::flow::presets::{GRILL_FIRST_FILE, SOLO_AUTOPILOT_FILE, TEAM_PR_FILE, preset};
+use otaq_core::flow::presets::{SOLO_AUTOPILOT_FILE, SPEC_FIRST_FILE, TEAM_PR_FILE, preset};
 use otaq_core::flow::proposal::{ApplyChoices, Proposal, ProposedBy};
 use otaq_core::flow::propose::Proposed;
 use otaq_core::project_agents::first_flow::{
@@ -431,7 +431,7 @@ async fn the_flow_setup_rows_follow_each_tool() {
         "{s:?}"
     );
 
-    let proposal = propose(&w, &shop, &claude, GRILL_FIRST_FILE).await;
+    let proposal = propose(&w, &shop, &claude, SPEC_FIRST_FILE).await;
     w.project_agents.close(&opencode.id, true).await.unwrap();
     let s = setup(&w, &shop).await;
     assert_eq!(
@@ -458,7 +458,7 @@ async fn two_proposals_and_use_this_flow_closes_the_other_and_ends_its_agent() {
     let claude = ask(&w, &shop, Tool::Claude).await.unwrap();
     let opencode = ask(&w, &shop, Tool::OpenCode).await.unwrap();
 
-    let first = propose(&w, &shop, &claude, GRILL_FIRST_FILE).await;
+    let first = propose(&w, &shop, &claude, SPEC_FIRST_FILE).await;
     let theirs = propose(&w, &shop, &opencode, TEAM_PR_FILE).await;
     let open = open_proposals(&w, &shop).await;
     let by: Vec<(u32, Option<Tool>)> = open.iter().map(|p| (p.id, p.proposed_by.tool())).collect();
@@ -519,7 +519,7 @@ async fn use_the_default_and_a_preset_close_every_proposal_and_agent() {
     let shop = add_in_flow_setup(&w, "shop-web").await;
     let claude = ask(&w, &shop, Tool::Claude).await.unwrap();
     let opencode = ask(&w, &shop, Tool::OpenCode).await.unwrap();
-    propose(&w, &shop, &claude, GRILL_FIRST_FILE).await;
+    propose(&w, &shop, &claude, SPEC_FIRST_FILE).await;
     let before = w.board.effective_flow(&shop).await.unwrap();
     let reply = send(
         &w,
@@ -552,7 +552,7 @@ async fn use_the_default_and_a_preset_close_every_proposal_and_agent() {
         Request::FlowProposeFrom(ProposeFromParams {
             project: api.clone(),
             source: ProposeFrom::Preset {
-                file: GRILL_FIRST_FILE.into(),
+                file: SPEC_FIRST_FILE.into(),
             },
         }),
     )
@@ -581,7 +581,7 @@ async fn use_the_default_and_a_preset_close_every_proposal_and_agent() {
     assert!(!in_flow_setup(&w, &api).await);
     assert_eq!(
         w.board.effective_flow(&api).await.unwrap(),
-        preset(GRILL_FIRST_FILE).unwrap().read().flow
+        preset(SPEC_FIRST_FILE).unwrap().read().flow
     );
     w.wait_for_output(&opencode.session.as_ref().unwrap().id, CHOSE_ANOTHER_FLOW)
         .await;
@@ -595,7 +595,7 @@ async fn outside_flow_setup_a_new_proposal_still_replaces_the_old() {
     let shop = w.add_project("shop-web").await.key;
     let a = w
         .project_agents
-        .open(&shop, "/flow add a Grill stage")
+        .open(&shop, "/flow add a Product spec stage")
         .await
         .unwrap();
     let mut b = w
@@ -605,7 +605,7 @@ async fn outside_flow_setup_a_new_proposal_still_replaces_the_old() {
         .unwrap();
     // Even from another tool.
     b.tool = Tool::OpenCode;
-    let first = propose(&w, &shop, &a, GRILL_FIRST_FILE).await;
+    let first = propose(&w, &shop, &a, SPEC_FIRST_FILE).await;
     let second = propose(&w, &shop, &b, TEAM_PR_FILE).await;
     // Both land in the project's one draft (FED-02): the second replaces the first's content, the agent waiting for
     // the answer is the second's.

@@ -413,14 +413,17 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
     let file = flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
     f.board.use_flow_for_tests("SHOP", &file).await;
-    let griller = named(&agents, "Griller").await;
+    let spec_writer = named(&agents, "Spec writer").await;
     assert_eq!(
-        griller.came_from,
+        spec_writer.came_from,
         CameFrom::Flow {
             project: "SHOP".into()
         }
     );
-    assert_eq!(griller.skills, [SkillRef::Shipped("grill".into())]);
+    assert_eq!(
+        spec_writer.skills,
+        [SkillRef::Shipped("product-spec".into())]
+    );
     assert_eq!(
         named(&agents, "Noyan").await.came_from,
         CameFrom::AgentsFile
@@ -434,7 +437,7 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
         .map(|a| a.name)
         .collect();
     for name in [
-        "Griller",
+        "Spec writer",
         "Rust developer",
         "Quick developer",
         "Security reviewer",
@@ -446,7 +449,10 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
     let running = resolve::session_agent(&f.board, &t, SessionRole::Developer)
         .await
         .unwrap();
-    assert_eq!(running.name, "Griller", "the first Agent stage is Grill");
+    assert_eq!(
+        running.name, "Spec writer",
+        "the first Agent stage is Product spec"
+    );
 
     // Every name is known: the check passes; an unknown one names its stage.
     assert_eq!(

@@ -334,18 +334,18 @@ async fn ticket_env_columns_reach_work_only_when_set() {
     assert_eq!(t.work, None, "back at the defaults");
 }
 
-/// CMT-14: an agent's description edit records who it was, so History reads "Griller · Grill edited the
+/// CMT-14: an agent's description edit records who it was, so History reads "Spec writer · Product spec edited the
 /// description"; the user's records no author.
 #[tokio::test]
 async fn an_agents_edit_names_its_author() {
     use otaq_core::board::ticket_comments::CommentAuthor;
     let f = Fixture::shop().await;
     let t = f.create("Export orders as CSV").await;
-    let griller = CommentAuthor::Agent {
-        id: Some("griller".into()),
-        name: Some("Griller".into()),
+    let spec_writer = CommentAuthor::Agent {
+        id: Some("spec-writer".into()),
+        name: Some("Spec writer".into()),
         tool: None,
-        stage: Some("grill".into()),
+        stage: Some("product-spec".into()),
         round: None,
     };
     let body = |text: &str| TicketUpdate {
@@ -357,7 +357,7 @@ async fn an_agents_edit_names_its_author() {
             &t.key.to_string(),
             &body("Plan\n## Agreed"),
             &agent("SHOP-1"),
-            Some(&griller),
+            Some(&spec_writer),
         )
         .await
         .unwrap();
@@ -372,8 +372,8 @@ async fn an_agents_edit_names_its_author() {
         .map(|(_, _, payload)| payload)
         .collect();
     assert_eq!(updated.len(), 2);
-    assert_eq!(updated[0]["author"]["name"], "Griller");
-    assert_eq!(updated[0]["author"]["stage"], "grill");
+    assert_eq!(updated[0]["author"]["name"], "Spec writer");
+    assert_eq!(updated[0]["author"]["stage"], "product-spec");
     assert_eq!(updated[0]["changes"][0]["after"], "Plan\n## Agreed");
     assert!(updated[1].get("author").is_none());
 }

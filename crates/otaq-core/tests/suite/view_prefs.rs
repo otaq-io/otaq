@@ -41,7 +41,7 @@ async fn view_preferences_survive_a_service_restart() {
         fold_empty_columns: true,
         hide_empty_stages: true,
         dependencies: Dependencies::Always,
-        folded_columns: vec!["grill".into()],
+        folded_columns: vec!["product-spec".into()],
         folded_sections: vec!["delivery".into()],
         dev_unfolded: true,
     };

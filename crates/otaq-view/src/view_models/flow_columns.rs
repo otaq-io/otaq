@@ -7,7 +7,7 @@
 //! is `approved`, so the page and its stored state (folds, scroll places) read as before.
 //!
 //! Where a card shows comes from its place: Backlog, Ready for Dev (waiting before the first Agent stage), Done,
-//! or the column of the stage it is in, or waits before (a card waiting between Grill and Dev shows in Dev's
+//! or the column of the stage it is in, or waits before (a card waiting between Product spec and Dev shows in Dev's
 //! column with its waiting status). A card in a stage its flow no longer has (Validation turned off while it
 //! validated) shows where its status's kind does, as the core's drag rules see it.
 
@@ -463,8 +463,8 @@ mod tests {
         );
     }
 
-    /// STG-08 on the test flow: Grill, Dev with Validate in it, Security, QA and the Delivery stage each a column
-    /// of their own; a card waiting between Grill and Dev shows in Dev's column.
+    /// STG-08 on the test flow: Product spec, Dev with Validate in it, Security, QA and the Delivery stage each a
+    /// column of their own; a card waiting between Product spec and Dev shows in Dev's column.
     #[test]
     fn the_test_flow_gives_a_column_per_own_stage() {
         let flow = every_kind();
@@ -474,7 +474,7 @@ mod tests {
             [
                 "backlog",
                 "ready_for_dev",
-                "grill",
+                "product-spec",
                 "dev",
                 "security",
                 "qa",
@@ -503,7 +503,7 @@ mod tests {
             [
                 "Backlog",
                 "Ready for Dev",
-                "Grill",
+                "Product spec",
                 "Dev",
                 "Security",
                 "QA",

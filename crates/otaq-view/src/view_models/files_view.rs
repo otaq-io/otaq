@@ -572,7 +572,8 @@ pub struct Picker {
     pub placeholder: &'static str,
     /// BASE BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
     pub sections: Vec<PickerSection>,
-    /// "No worktree yet: SHOP-12, SHOP-44 (Grill) … and 3 in Backlog. A ticket gets its worktree when it reaches Dev."
+    /// "No worktree yet: SHOP-12, SHOP-44 (Product spec) … and 3 in Backlog. A ticket gets its worktree when it reaches
+    /// Dev."
     pub no_worktree: Option<String>,
 }
 
@@ -612,8 +613,8 @@ fn worktree_row(w: &UserWorktree) -> PickerRow {
     }
 }
 
-/// The tickets with no worktree yet, by where they are: "SHOP-12, SHOP-44 (Grill), SHOP-35, SHOP-20 (Ready) and 3 in
-/// Backlog", then why ("when it reaches Dev": `first_stage`, the flow's first agent stage).
+/// The tickets with no worktree yet, by where they are: "SHOP-12, SHOP-44 (Product spec), SHOP-35, SHOP-20 (Ready) and
+/// 3 in Backlog", then why ("when it reaches Dev": `first_stage`, the flow's first agent stage).
 pub fn no_worktree_line(tickets: &[NoWorktree], first_stage: &str) -> Option<String> {
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     let mut backlog = 0;
@@ -2047,7 +2048,7 @@ pub fn gallery() -> Gallery {
             key: key("SHOP-12"),
             title: String::new(),
             status: Status::Working,
-            stage: Some("Grill".to_owned()),
+            stage: Some("Product spec".to_owned()),
         }],
         yours: vec![UserWorktree {
             path: "~/code/habitat-experiment".to_owned(),
@@ -2437,13 +2438,13 @@ mod tests {
                     key: key("SHOP-12"),
                     title: String::new(),
                     status: Status::Working,
-                    stage: Some("Grill".to_owned()),
+                    stage: Some("Product spec".to_owned()),
                 },
                 NoWorktree {
                     key: key("SHOP-44"),
                     title: String::new(),
                     status: Status::Working,
-                    stage: Some("Grill".to_owned()),
+                    stage: Some("Product spec".to_owned()),
                 },
                 NoWorktree {
                     key: key("SHOP-35"),
@@ -2538,7 +2539,7 @@ mod tests {
         assert_eq!(
             p.no_worktree.as_deref(),
             Some(
-                "No worktree yet: SHOP-12, SHOP-44 (Grill), SHOP-35, SHOP-20 (Ready) and 3 in Backlog. A ticket \
+                "No worktree yet: SHOP-12, SHOP-44 (Product spec), SHOP-35, SHOP-20 (Ready) and 3 in Backlog. A ticket \
                  gets its worktree when it reaches Dev."
             )
         );

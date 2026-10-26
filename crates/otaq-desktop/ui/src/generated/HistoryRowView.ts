@@ -8,7 +8,7 @@ import type { HistoryOpens } from "./HistoryOpens";
  */
 export type HistoryRowView = { 
 /**
- * "You created the ticket", "Grill started · Griller".
+ * "You created the ticket", "Product spec started · Spec writer".
  */
 title: string, 
 /**

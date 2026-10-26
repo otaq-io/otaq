@@ -62,7 +62,7 @@ pub struct StageEnded {
 
 /// What `otaq stage next` answers (AGM-10), from the ticket `before` and `after` the move: the stage it finished and
 /// where it is now. "Finished Dev. Validate is running; the result will come back to you here. End your turn." /
-/// "Finished Dev. SHOP-18 is Ready for Review." / "Finished Grill. Dev starts next; end your turn."
+/// "Finished Dev. SHOP-18 is Ready for Review." / "Finished Product spec. Dev starts next; end your turn."
 pub fn stage_next_text(flow: &crate::flow::Flow, before: &Ticket, after: &Ticket) -> String {
     let name = |place: &crate::domain::Place| {
         place

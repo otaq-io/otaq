@@ -216,34 +216,6 @@ fn read_skill(name: &str) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
-/// T-0415 (FLW-21, d0108 "Grill first"): `grill` asks one question at a time with `ask human`, writes the
-/// agreement with `update`, ends with `stage next`, and never edits files.
-#[test]
-fn grill_asks_writes_the_agreement_and_moves_on() {
-    let cmd = naming::COMMAND_NAME;
-    let grill = read_skill("grill");
-    for step in [
-        format!("{cmd} ask human"),
-        format!("{cmd} update"),
-        format!("{cmd} stage next --stdin"),
-        "one question at a time".to_owned(),
-        "never edit files".to_owned(),
-    ] {
-        assert!(grill.contains(&step), "grill must say {step:?}");
-    }
-    let ask = grill.find(&format!("{cmd} ask human")).unwrap();
-    let update = grill.find(&format!("{cmd} update")).unwrap();
-    let next = grill.find(&format!("{cmd} stage next")).unwrap();
-    assert!(
-        ask < update && update < next,
-        "ask, then update, then stage next"
-    );
-    assert!(
-        !grill.contains(&format!("{cmd} check ")),
-        "grill gives no verdict"
-    );
-}
-
 /// A skill's text with every run of whitespace as one space, so a phrase reads the same wherever the text wraps.
 fn flat(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -444,8 +416,8 @@ fn flow_writes_a_stages_skill_only_in_otaqs_folder() {
     }
 }
 
-/// T-0415 (FLW-11), T-0546 (d0129): the `flow` skill's whole example is a flow `propose` reads and the checks pass:
-/// Spec first's stages and agents, Spec review's fails going to Product spec.
+/// T-0415 (FLW-11), T-0546 (d0129, Q556): the `flow` skill's whole example is a flow `propose` reads and the checks
+/// pass: the Spec first preset without its `skip` options, Spec review's fails going to Product spec.
 #[test]
 fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     let flow = read_skill("flow");
@@ -454,43 +426,14 @@ fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     let end = start + flow[start..].find("```").unwrap();
     let file = otaq_core::flow::yaml::read(&flow[start..end]).expect("the example reads");
     assert_eq!(otaq_core::flow::check(&file.flow), Ok(()));
-    let stages: Vec<&str> = file.flow.stages.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(
-        stages,
-        [
-            "Product spec",
-            "Tech spec",
-            "Milestone plan",
-            "Spec review",
-            "Dev",
-            "Validate",
-            "Code review",
-            "Done"
-        ]
-    );
-    let agents: Vec<(&str, &[String])> = file
-        .agents
-        .iter()
-        .map(|a| (a.name.as_str(), a.skills.as_slice()))
-        .collect();
-    for (agent, skill) in [
-        ("Spec writer", "product-spec"),
-        ("Architect", "tech-spec"),
-        ("Milestone planner", "milestone-plan"),
-    ] {
-        assert!(
-            agents
-                .iter()
-                .any(|(a, s)| *a == agent && s == &[skill.to_owned()]),
-            "{agent} runs {skill}"
-        );
+    let mut spec_first = otaq_core::flow::presets::preset("spec-first.yaml")
+        .unwrap()
+        .read();
+    for stage in &mut spec_first.flow.stages {
+        stage.options.clear();
     }
-    let review = file
-        .flow
-        .stages
-        .iter()
-        .find(|s| s.name == "Spec review")
-        .unwrap();
+    assert_eq!(file, spec_first);
+    let review = file.flow.stage("spec-review").unwrap();
     assert_eq!(review.fail_to.as_deref(), Some("product-spec"));
     assert!(flow.contains("Backlog \u{2192} Ready \u{2192}\nProduct spec"));
 }

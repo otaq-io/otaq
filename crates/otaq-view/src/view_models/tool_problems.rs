@@ -279,8 +279,8 @@ fn model_text(hold: &AgentHold, tools: &Tools) -> String {
 }
 
 /// "its fallback Claude Code can't start either": a held role whose tool's fallback is blocked too, on the card
-/// ("Griller's model can't run: Codex isn't available · its fallback Claude Code can't start either") and in the sheet
-/// (Q155: one wording).
+/// ("Spec writer's model can't run: Codex isn't available · its fallback Claude Code can't start either") and in the
+/// sheet (Q155: one wording).
 pub fn fallback_blocked_too(fallback: &str) -> String {
     format!("its fallback {fallback} can\u{2019}t start either")
 }

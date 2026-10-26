@@ -2,7 +2,7 @@
 import type { SheetStepState } from "./SheetStepState";
 
 /**
- * One stage of the flow path under the details line (`s25-03`: Grill ✓ — Dev ● — Validate — …).
+ * One stage of the flow path under the details line (`s25-03`: Product spec ✓ — Dev ● — Validate — …).
  */
 export type SheetStep = { stage: string, state: SheetStepState, 
 /**

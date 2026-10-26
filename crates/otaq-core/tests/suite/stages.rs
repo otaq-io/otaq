@@ -516,14 +516,14 @@ impl<'f> Card<'f> {
 }
 
 /// A Security fail returns to Dev (its session resumes) and the card walks Validate, Security and QA again; each
-/// check counts its own fails, Security stops at its 2; a QA Fail goes to Grill (its `fail_to`) and resets every
+/// check counts its own fails, Security stops at its 2; a QA Fail goes to Product spec (its `fail_to`) and resets every
 /// counter.
 #[test]
 fn a_fail_walks_every_later_stage_again() {
     let flow = every_kind();
     let mut card = Card::new(&flow, &[]);
     card.apply(Move::Begin);
-    assert_eq!(card.at(), Some("grill"));
+    assert_eq!(card.at(), Some("product-spec"));
     card.apply(Move::NextStage);
     // Dev is an Agent stage: the card waits before it until the scheduler starts it (STG-07).
     assert_eq!(
@@ -572,12 +572,15 @@ fn a_fail_walks_every_later_stage_again() {
         (card.at(), card.status),
         (Some("qa"), Status::WaitingForYou)
     );
-    // A QA Fail: back to Grill, where QA's fails go (d0131), every counter at 0; from there every later stage again,
-    // Dev included.
+    // A QA Fail: back to Product spec, where QA's fails go (d0131), every counter at 0; from there every later stage
+    // again, Dev included.
     let fail = card.apply(Move::HumanFail);
     assert_eq!(fail.counters, Counters::ResetAll);
-    assert!(fail.resume, "Grill's session resumes with the comments");
-    assert_eq!(card.at(), Some("grill"));
+    assert!(
+        fail.resume,
+        "Product spec's session resumes with the comments"
+    );
+    assert_eq!(card.at(), Some("product-spec"));
     assert!(card.fails.values().all(|n| *n == 0) || card.fails.is_empty());
     card.apply(Move::NextStage);
     assert_eq!(card.place, Place::Waiting(Some("dev".into())));
@@ -594,18 +597,30 @@ fn a_fail_walks_every_later_stage_again() {
     assert_eq!(
         stages,
         [
-            "grill", "dev", "validate", "security", "dev", "validate", "dev", "validate",
-            "security", "qa", "grill", "dev", "validate", "security"
+            "product-spec",
+            "dev",
+            "validate",
+            "security",
+            "dev",
+            "validate",
+            "dev",
+            "validate",
+            "security",
+            "qa",
+            "product-spec",
+            "dev",
+            "validate",
+            "security"
         ]
     );
 }
 
-/// Grill skipped (its `skip` option taken): the start goes straight to Dev, and Grill has a skipped run. QA skipped
-/// too: its Delivery is in click mode (AGM-08).
+/// Product spec skipped (its `skip` option taken): the start goes straight to Dev, and Product spec has a skipped run.
+/// QA skipped too: its Delivery is in click mode (AGM-08).
 #[test]
 fn a_skipped_stage_gets_a_skipped_run() {
     let flow = every_kind();
-    let mut card = Card::new(&flow, &["grill"]);
+    let mut card = Card::new(&flow, &["product-spec"]);
     let begin = card.apply(Move::Begin);
     assert_eq!(card.at(), Some("dev"));
     let skipped: Vec<_> = begin
@@ -613,13 +628,13 @@ fn a_skipped_stage_gets_a_skipped_run() {
         .iter()
         .map(|(s, r)| (s.id.as_str(), *r))
         .collect();
-    assert_eq!(skipped, [("grill", RunResult::Skipped)]);
+    assert_eq!(skipped, [("product-spec", RunResult::Skipped)]);
     // Dev can't be skipped (no option), and a Fail never goes back into a skipped stage.
     assert_eq!(
         engine::back_to(&flow, "validate", &card.skips).map(|s| s.id.as_str()),
         Some("dev")
     );
-    let mut both = Card::new(&flow, &["grill", "qa"]);
+    let mut both = Card::new(&flow, &["product-spec", "qa"]);
     both.apply(Move::Begin);
     both.apply(Move::NextStage);
     both.apply(Move::Pass);

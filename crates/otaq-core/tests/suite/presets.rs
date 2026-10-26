@@ -1,6 +1,7 @@
 //! The presets (T-0415; FLW-08, FLW-22; d0108; design `s14-18`, `s15-62`): the four shipped flow files read, write
 //! back unchanged, pass the checks with the agents they define, and show the columns, lines and file names the
-//! design draws. Each sets no `skip`, has Validate in its own column and delivers automatically only after a check.
+//! design draws. Only Spec first's planning stages and Spec review take `skip` (d0129); each has Validate in its own
+//! column and delivers automatically only after a check.
 
 use std::path::Path;
 
@@ -35,16 +36,19 @@ fn the_four_presets_are_listed_as_drawn() {
                 "Done \u{b7} Local merge, automatic".to_owned(),
             ),
             (
-                "Grill first",
-                "Settle the ticket with you before any code is written",
-                "grill-first.yaml",
+                "Spec first",
+                "Plan on the board, then build",
+                "spec-first.yaml",
                 cols(&[
                     "Ready for Dev",
-                    "Grill",
+                    "Product spec",
+                    "Tech spec",
+                    "Milestone plan",
+                    "Spec review",
                     "Dev",
                     "Validate",
-                    "Review",
-                    "Done"
+                    "Code review",
+                    "Done",
                 ]),
                 "Done \u{b7} click".to_owned(),
             ),
@@ -59,8 +63,8 @@ fn the_four_presets_are_listed_as_drawn() {
     );
     assert_eq!(preset("TEAM-PR.yaml").map(|p| p.file), Some("team-pr.yaml"));
     assert_eq!(
-        preset("grill first").map(|p| p.file),
-        Some("grill-first.yaml")
+        preset("spec first").map(|p| p.file),
+        Some("spec-first.yaml")
     );
     assert_eq!(preset("plan-first.yaml"), None);
 }
@@ -97,13 +101,25 @@ fn every_preset_reads_and_passes_the_checks() {
     }
 }
 
-/// The presets set no skip, show Validate in its own column, and deliver automatically only after a check (d0108:
-/// "The onboarding agent and the presets don't set a skip on their own"; changelog 2026-10-20, Validate's column).
+/// Only Spec first's planning stages and Spec review can be skipped (d0129: required by default, `skip` in their
+/// options); every preset shows Validate in its own column and delivers automatically only after a check (changelog
+/// 2026-10-20, Validate's column).
 #[test]
-fn presets_skip_nothing_and_check_before_an_automatic_delivery() {
+fn presets_skip_only_planning_and_check_before_an_automatic_delivery() {
     for p in presets() {
         let flow = p.read().flow;
-        assert!(flow.stages.iter().all(|s| !s.can_skip()), "{}", p.file);
+        let skippable: Vec<&str> = flow
+            .stages
+            .iter()
+            .filter(|s| s.can_skip())
+            .map(|s| s.name.as_str())
+            .collect();
+        let planning: &[&str] = if p.file == presets::SPEC_FIRST_FILE {
+            &["Product spec", "Tech spec", "Milestone plan", "Spec review"]
+        } else {
+            &[]
+        };
+        assert_eq!(skippable, planning, "{}", p.file);
         let validate = flow.stage("validate").expect("every preset validates");
         assert!(validate.is_agent_check() && validate.column == Column::Own);
         let (at, delivery) = flow
@@ -124,8 +140,10 @@ fn presets_skip_nothing_and_check_before_an_automatic_delivery() {
     }
 }
 
-/// Grill first's Grill runs Griller with `grill`; Team PR's Done opens the PR with no click, run by Shipper with
-/// `open-pr`; Solo autopilot merges locally with no agent; the default flow's Delivery names `open-pr` (Q254).
+/// Spec first's planning stages run Spec writer, Architect and Milestone planner with their own skills, Spec review's
+/// fails go to Product spec and Validate's and Code review's to Dev (d0129, d0131), and its Done is the default flow's,
+/// folded into Code review; Team PR's Done opens the PR with no click, run by Shipper with `open-pr`; Solo autopilot
+/// merges locally with no agent; the default flow's Delivery names `open-pr` (Q254).
 #[test]
 fn the_presets_stages_run_their_agents_and_skills() {
     let stage = |file: &str, id: &str| {
@@ -136,12 +154,38 @@ fn the_presets_stages_run_their_agents_and_skills() {
     use otaq_core::flow::Delivers;
     let some = |s: &str| Some(s.to_owned());
     assert_eq!(
-        stage("grill-first.yaml", "grill"),
-        (some("Griller"), some("grill"), None)
+        stage("spec-first.yaml", "product-spec"),
+        (some("Spec writer"), some("product-spec"), None)
     );
     assert_eq!(
-        preset("grill-first.yaml").unwrap().read().flow.stages[0].id,
-        "grill"
+        stage("spec-first.yaml", "tech-spec"),
+        (some("Architect"), some("tech-spec"), None)
+    );
+    assert_eq!(
+        stage("spec-first.yaml", "milestone-plan"),
+        (some("Milestone planner"), some("milestone-plan"), None)
+    );
+    let spec_first = preset("spec-first.yaml").unwrap().read().flow;
+    assert_eq!(spec_first.stages[0].id, "product-spec");
+    let fails: Vec<(&str, Option<&str>)> = spec_first
+        .stages
+        .iter()
+        .filter(|s| s.is_agent_check() || s.is_human_check())
+        .map(|s| (s.name.as_str(), s.fail_to.as_deref()))
+        .collect();
+    assert_eq!(
+        fails,
+        [
+            ("Spec review", Some("product-spec")),
+            ("Validate", Some("dev")),
+            ("Code review", Some("dev")),
+        ]
+    );
+    let done = spec_first.stage("deliver").unwrap();
+    assert_eq!(done.column, Column::WithPrevious);
+    assert_eq!(
+        stage("spec-first.yaml", "deliver"),
+        stage(naming::DEFAULT_FLOW_FILE, "deliver")
     );
     assert_eq!(
         stage("team-pr.yaml", "deliver"),
@@ -181,5 +225,15 @@ fn shared_agents_read_the_same_in_every_preset() {
         }
     }
     let names: Vec<&str> = seen.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(names, ["Developer", "Validator", "Griller", "Shipper"]);
+    assert_eq!(
+        names,
+        [
+            "Developer",
+            "Validator",
+            "Spec writer",
+            "Architect",
+            "Milestone planner",
+            "Shipper"
+        ]
+    );
 }

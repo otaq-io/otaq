@@ -6,10 +6,10 @@
  */
 export type SessionTyping = { 
 /**
- * "Typing goes to Griller · DEMO-15".
+ * "Typing goes to Spec writer · DEMO-15".
  */
 focused: string, 
 /**
- * "Click to type to Griller · DEMO-15".
+ * "Click to type to Spec writer · DEMO-15".
  */
 unfocused: string, };

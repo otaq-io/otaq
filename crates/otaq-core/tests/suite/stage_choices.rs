@@ -1,6 +1,6 @@
-//! Stage choices (T-0407; AGM-08, AGM-11, AGM-13; d0108, d0087) on the test flow `tests/flows/every-kind.yaml`: Grill
-//! (skip), Dev (Rust developer, or Quick developer), Validate, Security (no options), QA (a check by you, skip) and
-//! an automatic PR Delivery. Who may set what, the locks, the skipped stages and the click Delivery after a skipped
+//! Stage choices (T-0407; AGM-08, AGM-11, AGM-13; d0108, d0087) on the test flow `tests/flows/every-kind.yaml`: Product
+//! spec (skip), Dev (Rust developer, or Quick developer), Validate, Security (no options), QA (a check by you, skip)
+//! and an automatic PR Delivery. Who may set what, the locks, the skipped stages and the click Delivery after a skipped
 //! human check. The default flow has no choices. `claude` is stood in for by an ordinary command.
 
 use std::path::Path;
@@ -44,9 +44,9 @@ fn planner() -> Chooser {
     }
 }
 
-fn griller() -> Chooser {
+fn spec_writer() -> Chooser {
     Chooser::TicketAgent {
-        name: "Griller".into(),
+        name: "Spec writer".into(),
     }
 }
 
@@ -108,9 +108,9 @@ async fn at_work_in(w: &TestService, ticket: &Ticket, stage: &str) {
 }
 
 /// AGM-08's rules, sentence by sentence: the Project agent sets Dev: Quick developer at creation; the user changes
-/// it and wins; a later agent can't override the user's choice (unless in the user's words, d0087); Griller, at work
-/// in Grill, can't choose for Security (no options) and changes Dev with a reason; an option not in the stage's list
-/// is refused naming them; a choice locks when Dev starts.
+/// it and wins; a later agent can't override the user's choice (unless in the user's words, d0087); Spec writer, at
+/// work in Product spec, can't choose for Security (no options) and changes Dev with a reason; an option not in the
+/// stage's list is refused naming them; a choice locks when Dev starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn who_may_set_what() {
     let w = world().await;
@@ -143,13 +143,22 @@ async fn who_may_set_what() {
     );
     // Before the ticket starts, an agent may set any stage's choice, but always with a reason.
     assert_eq!(
-        refusal(choose(&w, &typo, &[pick("Grill", "skip", None)], &planner(), false).await),
+        refusal(
+            choose(
+                &w,
+                &typo,
+                &[pick("Product spec", "skip", None)],
+                &planner(),
+                false
+            )
+            .await
+        ),
         (Refusal::EmptyField, "Say why with --reason".into())
     );
     choose(
         &w,
         &typo,
-        &[pick("Grill", "skip", Some("nothing to ask"))],
+        &[pick("Product spec", "skip", Some("nothing to ask"))],
         &planner(),
         false,
     )
@@ -187,15 +196,15 @@ async fn who_may_set_what() {
         ),
         set_by_you
     );
-    // Griller, at work in Grill, can't override it either.
-    at_work_in(&w, &typo, "grill").await;
+    // Spec writer, at work in Product spec, can't override it either.
+    at_work_in(&w, &typo, "product-spec").await;
     assert_eq!(
         refusal(
             choose(
                 &w,
                 &typo,
                 &[pick("Dev", "Quick developer", Some("x"))],
-                &griller(),
+                &spec_writer(),
                 false
             )
             .await
@@ -207,7 +216,7 @@ async fn who_may_set_what() {
         &w,
         &typo,
         &[pick("Dev", "Quick developer", None)],
-        &griller(),
+        &spec_writer(),
         true,
     )
     .await
@@ -217,8 +226,8 @@ async fn who_may_set_what() {
         ("Quick developer".to_owned(), Some(SetBy::User))
     );
 
-    // Another ticket at work in Grill: Griller changes the later Dev with a reason, not Grill (started), and
-    // Security has no options.
+    // Another ticket at work in Product spec: Spec writer changes the later Dev with a reason, not Product spec
+    // (started), and Security has no options.
     let session = w.create("SHOP", "Sessions survive a restart").await;
     choose(
         &w,
@@ -229,14 +238,14 @@ async fn who_may_set_what() {
     )
     .await
     .unwrap();
-    at_work_in(&w, &session, "grill").await;
+    at_work_in(&w, &session, "product-spec").await;
     assert_eq!(
         refusal(
             choose(
                 &w,
                 &session,
                 &[pick("Security", "Quick developer", Some("x"))],
-                &griller(),
+                &spec_writer(),
                 false
             )
             .await
@@ -251,8 +260,8 @@ async fn who_may_set_what() {
             choose(
                 &w,
                 &session,
-                &[pick("Grill", "skip", Some("x"))],
-                &griller(),
+                &[pick("Product spec", "skip", Some("x"))],
+                &spec_writer(),
                 false
             )
             .await
@@ -266,7 +275,7 @@ async fn who_may_set_what() {
                 &w,
                 &session,
                 &[pick("Dev", "Rust developer", None)],
-                &griller(),
+                &spec_writer(),
                 false
             )
             .await
@@ -281,7 +290,7 @@ async fn who_may_set_what() {
             "Rust developer",
             Some("touches session handling"),
         )],
-        &griller(),
+        &spec_writer(),
         false,
     )
     .await
@@ -291,7 +300,7 @@ async fn who_may_set_what() {
         (
             "Rust developer".to_owned(),
             Some(SetBy::Agent {
-                name: "Griller".into(),
+                name: "Spec writer".into(),
                 reason: "touches session handling".into()
             })
         )
@@ -302,11 +311,11 @@ async fn who_may_set_what() {
         .iter()
         .find(|e| {
             e.kind == otaq_core::board::tickets::EventKind::StageChoiceSet
-                && e.payload["by"] == "Griller"
+                && e.payload["by"] == "Spec writer"
         })
         .unwrap();
     assert_eq!(last.payload["from"], "Quick developer");
-    assert_eq!(last.payload["by"], "Griller");
+    assert_eq!(last.payload["by"], "Spec writer");
     assert_eq!(last.payload["reason"], "touches session handling");
 
     // An option not in the stage's list is refused, naming the options; so is an unknown stage.
@@ -316,7 +325,7 @@ async fn who_may_set_what() {
             choose(
                 &w,
                 &fresh,
-                &[pick("Dev", "Griller", None)],
+                &[pick("Dev", "Spec writer", None)],
                 &Chooser::User,
                 false
             )
@@ -324,7 +333,7 @@ async fn who_may_set_what() {
         ),
         (
             Refusal::NotAnOption,
-            "Griller isn't one of Dev's options: Rust developer, Quick developer".into()
+            "Spec writer isn't one of Dev's options: Rust developer, Quick developer".into()
         )
     );
     assert_eq!(
@@ -351,7 +360,7 @@ async fn who_may_set_what() {
     .await;
     assert_eq!(
         unknown.unwrap_err().to_string(),
-        "SHOP's flow has no stage Lint (stages with options: Grill, Dev, QA)"
+        "SHOP's flow has no stage Lint (stages with options: Product spec, Dev, QA)"
     );
 
     // A choice locks when its stage starts: Dev at work.
@@ -417,7 +426,7 @@ async fn the_running_agent_and_choices_the_flow_dropped() {
         &t,
         &[
             pick("Dev", "Quick developer", None),
-            pick("Grill", "skip", None),
+            pick("Product spec", "skip", None),
         ],
         &Chooser::User,
         false,
@@ -426,14 +435,17 @@ async fn the_running_agent_and_choices_the_flow_dropped() {
     .unwrap();
     assert_eq!(running(t.clone(), "dev").await, "Quick developer");
     let flow = w.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(w.board.ticket_skips(&t, &flow).await.unwrap(), ["grill"]);
+    assert_eq!(
+        w.board.ticket_skips(&t, &flow).await.unwrap(),
+        ["product-spec"]
+    );
     let agents = otaq_core::agents::facts::ticket_agents(&w.board, "SHOP-1")
         .await
         .unwrap();
     let dev = agents.stages.iter().find(|s| s.stage_id == "dev").unwrap();
     assert_eq!(dev.agent.as_ref().unwrap().name, "Quick developer");
 
-    // The flow drops Dev's option and Grill's skip: the choices are ignored, the usual agents run.
+    // The flow drops Dev's option and Product spec's skip: the choices are ignored, the usual agents run.
     let mut file = every_kind_file();
     for stage in &mut file.flow.stages {
         stage.options.clear();
@@ -443,9 +455,9 @@ async fn the_running_agent_and_choices_the_flow_dropped() {
     let flow = w.board.effective_flow("SHOP").await.unwrap();
     assert!(w.board.ticket_skips(&t, &flow).await.unwrap().is_empty());
     assert!(choices(&w, &t).await.stages.is_empty());
-    // And a flow without Grill: its choice is ignored too.
+    // And a flow without Product spec: its choice is ignored too.
     let mut file = every_kind_file();
-    file.flow.stages.retain(|s| s.id != "grill");
+    file.flow.stages.retain(|s| s.id != "product-spec");
     w.board.use_flow_for_tests("SHOP", &file).await;
     let left = choices(&w, &t).await;
     assert_eq!(
@@ -490,11 +502,11 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
     assert!(reached.is_ok(), "{key} never became {want}");
 }
 
-/// Grill skipped and Dev on Quick developer: the start waits in Ready for Dev like any, then goes straight into
-/// Dev, where Quick developer runs; Grill has a run of result `skipped`; both choices are locked now. The card's mark
-/// reads "Skipped Grill · this ticket's choice".
+/// Product spec skipped and Dev on Quick developer: the start waits in Ready for Dev like any, then goes straight into
+/// Dev, where Quick developer runs; Product spec has a run of result `skipped`; both choices are locked now. The card's
+/// mark reads "Skipped Product spec · this ticket's choice".
 #[tokio::test(flavor = "multi_thread")]
-async fn a_skipped_grill_starts_in_dev_on_the_chosen_agent() {
+async fn a_skipped_product_spec_starts_in_dev_on_the_chosen_agent() {
     let w = TestService::start_with(launch).await;
     w.add_project("shop-web").await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
@@ -503,7 +515,7 @@ async fn a_skipped_grill_starts_in_dev_on_the_chosen_agent() {
         &w,
         &t,
         &[
-            pick("Grill", "skip", None),
+            pick("Product spec", "skip", None),
             pick("Dev", "Quick developer", None),
         ],
         &Chooser::User,
@@ -534,7 +546,7 @@ async fn a_skipped_grill_starts_in_dev_on_the_chosen_agent() {
         runs.iter().map(|r| (r.stage.as_str(), r.result)).collect();
     assert_eq!(
         summary,
-        [("grill", Some(RunResult::Skipped)), ("dev", None)]
+        [("product-spec", Some(RunResult::Skipped)), ("dev", None)]
     );
     let agent: Option<String> = sqlx::query_scalar(
         "SELECT agent_name FROM sessions WHERE ticket_id = ? AND kind = 'agent' ORDER BY started_at DESC",
@@ -550,11 +562,14 @@ async fn a_skipped_grill_starts_in_dev_on_the_chosen_agent() {
         .iter()
         .map(|s| (s.stage.as_str(), s.locked))
         .collect();
-    assert_eq!(locked, [("Grill", true), ("Dev", true), ("QA", false)]);
+    assert_eq!(
+        locked,
+        [("Product spec", true), ("Dev", true), ("QA", false)]
+    );
     assert!(now.stages[0].skipped());
     assert_eq!(
-        skipped_mark("Grill"),
-        "Skipped Grill · this ticket's choice"
+        skipped_mark("Product spec"),
+        "Skipped Product spec · this ticket's choice"
     );
     w.stop().await;
 }

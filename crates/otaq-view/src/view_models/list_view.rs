@@ -635,11 +635,11 @@ pub mod samples {
     use crate::view_models::board::BoardInput;
     use crate::view_models::card_fixtures::{NOW, ticket};
 
-    /// The example's shop-web flow (`s24-03`): Grill, Dev with Validate shown in it, Security, Review, PR.
+    /// The example's shop-web flow (`s24-03`): Product spec, Dev with Validate shown in it, Security, Review, PR.
     pub fn shop_web() -> Flow {
         let yaml = "\
 flow:
-  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
+  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
   - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
   - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
@@ -736,11 +736,11 @@ flow:
                     "SHOP-12",
                     "Add dark mode toggle",
                     Status::AsksYou,
-                    Place::stage_of("grill"),
+                    Place::stage_of("product-spec"),
                 ),
                 "Follow the system setting?",
             ),
-            working("SHOP-44", "Saved carts", "grill", 60_000),
+            working("SHOP-44", "Saved carts", "product-spec", 60_000),
             asks(
                 at(
                     "SHOP-22",
@@ -882,7 +882,7 @@ mod tests {
                     keys(&["SHOP-35", "SHOP-20"])
                 ),
                 (
-                    "Grill".into(),
+                    "Product spec".into(),
                     "2".into(),
                     None,
                     keys(&["SHOP-12", "SHOP-44"])
@@ -1050,7 +1050,7 @@ mod tests {
         .iter()
         .map(|g| g.title.clone())
         .collect();
-        assert_eq!(shown, ["Backlog", "Ready", "Grill", "Finished"]);
+        assert_eq!(shown, ["Backlog", "Ready", "Product spec", "Finished"]);
         let all = view(&input(&flow, &tickets), &prefs(G::Stage));
         let dev = all.groups.iter().find(|g| g.title == "Dev").unwrap();
         assert_eq!(
@@ -1138,7 +1138,7 @@ mod tests {
             groups,
             [
                 ("Not started".into(), "5".into()),
-                ("Griller".into(), "2".into()),
+                ("Spec writer".into(), "2".into()),
                 ("Rust developer".into(), "3".into()),
                 ("Validator".into(), "1".into()),
                 ("Security reviewer".into(), "2".into()),
@@ -1195,7 +1195,14 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["Grill", "Dev", "Validate", "Security", "Review", "PR open"]
+            [
+                "Product spec",
+                "Dev",
+                "Validate",
+                "Security",
+                "Review",
+                "PR open"
+            ]
         );
     }
 
@@ -1236,7 +1243,7 @@ mod tests {
             row(&list, "SHOP-41").start,
             Some(RowStart {
                 label: "Start".into(),
-                target: DropTargetId::new("grill"),
+                target: DropTargetId::new("product-spec"),
             })
         );
         assert_eq!(row(&list, "SHOP-35").start, None);

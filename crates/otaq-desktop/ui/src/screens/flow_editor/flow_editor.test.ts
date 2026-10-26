@@ -35,10 +35,10 @@ beforeEach(() => {
 describe("the flow editor's calls", () => {
   it("an edit goes to the draft and hands back the stage to select", async () => {
     ask.mockResolvedValueOnce({ selected: "plan" });
-    expect(await editStage("SHOP", { edit: "add", after: "grill" }, ask)).toBe("plan");
+    expect(await editStage("SHOP", { edit: "add", after: "product-spec" }, ask)).toBe("plan");
     expect(ask).toHaveBeenCalledWith("flow_editor.edit", {
       project: "SHOP",
-      edit: { edit: "add", after: "grill" },
+      edit: { edit: "add", after: "product-spec" },
     });
   });
 
@@ -201,15 +201,15 @@ describe("moving a step", () => {
 
 describe("where the editor opens (FED-09, BRD-04)", () => {
   it("a column's ⋯: Edit <stage>… selects it; Add a stage after <stage> adds one there; Change the whole flow…", () => {
-    expect(columnEditorOpen("SHOP", { open: "stage", stage: "grill" })).toEqual({
+    expect(columnEditorOpen("SHOP", { open: "stage", stage: "product-spec" })).toEqual({
       project: "SHOP",
       from: "project",
-      select_stage: "grill",
+      select_stage: "product-spec",
     });
-    expect(columnEditorOpen("SHOP", { open: "add_after", after: "grill" })).toEqual({
+    expect(columnEditorOpen("SHOP", { open: "add_after", after: "product-spec" })).toEqual({
       project: "SHOP",
       from: "project",
-      add_after: "grill",
+      add_after: "product-spec",
     });
     // Ready for Dev's: first, right after it.
     expect(columnEditorOpen("SHOP", { open: "add_after", after: null })).toEqual({
@@ -222,7 +222,7 @@ describe("where the editor opens (FED-09, BRD-04)", () => {
   });
 
   it("the stage a column asked for is added on opening, after its stage or first", () => {
-    expect(addOnOpening("grill")).toEqual({ edit: "add", after: "grill" });
+    expect(addOnOpening("product-spec")).toEqual({ edit: "add", after: "product-spec" });
     expect(addOnOpening(null)).toEqual({ edit: "add" });
   });
 

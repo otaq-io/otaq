@@ -1,9 +1,9 @@
 //! Every preset walked end to end (T-0425; FLW-23; d0108, d0056, d0079): each shipped preset is applied to a fresh
 //! project the way the user applies one (a proposal from the preset, then Apply), and a ticket walks it with stand-in
-//! sessions: Grill first through Griller's question to a click Local merge, Solo autopilot to an automatic merge, Team
-//! PR to a PR opened with a stand-in `gh`, and the default flow (Reset to the default flow) to a click Local merge.
-//! d0108: "Otaq has no code path only presets use … The shipped files are its test cases". `claude` stands in as an
-//! `sh` that prints its arguments and then echoes what is typed; `origin` is a local bare repository.
+//! sessions: Spec first through Spec writer's question to a click Local merge, Solo autopilot to an automatic merge,
+//! Team PR to a PR opened with a stand-in `gh`, and the default flow (Reset to the default flow) to a click Local
+//! merge. d0108: "Otaq has no code path only presets use … The shipped files are its test cases". `claude` stands in as
+//! an `sh` that prints its arguments and then echoes what is typed; `origin` is a local bare repository.
 
 use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
@@ -214,14 +214,14 @@ async fn dev_and_validate(w: &TestService, t: &Ticket, file: &str) -> Ticket {
         .unwrap()
 }
 
-/// Review's Pass, right before the click Delivery, offers both deliveries; the click Local merge lands the ticket on
-/// `main` and it is Done.
-async fn pass_review_and_merge(w: &TestService, repo: &Path, t: &Ticket) {
+/// The human check `review`'s Pass, right before the click Delivery, offers both deliveries; the click Local merge
+/// lands the ticket on `main` and it is Done.
+async fn pass_review_and_merge(w: &TestService, repo: &Path, t: &Ticket, review: &str) {
     let key = t.key.to_string();
-    let review = w.board.ticket(&key).await.unwrap();
+    let at = w.board.ticket(&key).await.unwrap();
     assert_eq!(
-        (review.status, &review.place),
-        (Status::WaitingForYou, &Place::stage_of("review"))
+        (at.status, &at.place),
+        (Status::WaitingForYou, &Place::stage_of(review))
     );
     let passed = w.review.pass(&key, &w.validation, &me()).await.unwrap();
     assert!(
@@ -264,21 +264,25 @@ fn run(stage: &str, result: RunResult) -> (String, Option<RunResult>) {
     (stage.to_owned(), Some(result))
 }
 
-/// Grill first: Griller (started with `grill`) asks one question, the user's answer is typed into its session, it
-/// writes what was agreed into the ticket and runs `stage next`; the ticket waits before Dev and starts there in the
-/// same worktree, in a new session; Validate passes, Review's Pass offers both, and the click Local merge lands it.
+/// Spec first (d0129): Spec writer (started with `product-spec`) asks one question, the user's answer is typed into its
+/// session, it writes what was agreed into the ticket and runs `stage next`; Architect (`tech-spec`) and Milestone
+/// planner (`milestone-plan`) each run in the same worktree, in a new session; Spec review's Pass sends the ticket on
+/// to Dev; Validate passes, Code review's Pass offers both, and the click Local merge lands it.
 #[tokio::test(flavor = "multi_thread")]
-async fn grill_first_from_the_question_to_a_click_local_merge() {
+async fn spec_first_from_the_question_to_a_click_local_merge() {
     let (w, repo) = world().await;
-    apply_preset(&w, "grill-first.yaml").await;
+    apply_preset(&w, "spec-first.yaml").await;
     let t = started(&w, "Export as CSV").await;
     let key = t.key.to_string();
-    let t = working_in(&w, &key, "grill").await;
-    let griller = session(&w, &t, SessionKind::Agent).await;
-    w.wait_for_output(&griller.id, &format!("/{}", naming::copy_name("grill")))
-        .await;
+    let t = working_in(&w, &key, "product-spec").await;
+    let spec_writer = session(&w, &t, SessionKind::Agent).await;
+    w.wait_for_output(
+        &spec_writer.id,
+        &format!("/{}", naming::copy_name("product-spec")),
+    )
+    .await;
 
-    // `otaq ask human`: the question waits for the user; the answer is typed into Griller's session.
+    // `otaq ask human`: the question waits for the user; the answer is typed into Spec writer's session.
     let question = "Which columns go in the CSV?";
     w.board
         .store_question(&t.id, question, &[], &[], None)
@@ -287,7 +291,7 @@ async fn grill_first_from_the_question_to_a_click_local_merge() {
     let caller = Caller::Agent {
         ticket: t.key.clone(),
         ticket_id: t.id.clone(),
-        session: griller.id.clone(),
+        session: spec_writer.id.clone(),
     };
     w.signals.ask_human(&caller, &t.id, question).await.unwrap();
     assert_eq!(w.status(&key).await, Status::AsksYou);
@@ -295,10 +299,10 @@ async fn grill_first_from_the_question_to_a_click_local_merge() {
         .answer(&key, &Choice::Other("Title and date".into()), false, &me())
         .await
         .unwrap();
-    w.wait_for_output(&griller.id, "Title and date").await;
+    w.wait_for_output(&spec_writer.id, "Title and date").await;
     assert_eq!(w.status(&key).await, Status::Working);
 
-    // `otaq update` with what was agreed, then `otaq stage next`: the ticket waits before Dev.
+    // `otaq update` with what was agreed, then `otaq stage next`: the ticket waits before Tech spec.
     let agreed = "Export the notes as CSV: title and date columns, a header row.";
     w.board
         .update_ticket(
@@ -312,26 +316,60 @@ async fn grill_first_from_the_question_to_a_click_local_merge() {
         .await
         .unwrap();
     let waiting = stage_next(&w, &t, "Agreed: title and date.").await;
-    assert_eq!(waiting.place, Place::Waiting(Some("dev".into())));
+    assert_eq!(waiting.place, Place::Waiting(Some("tech-spec".into())));
     assert_eq!(waiting.body, agreed);
     schedule(&w).await;
 
-    // The scheduler starts Dev in the same worktree, in a new conversation; Grill's session ended.
+    // Tech spec, then Milestone plan: each starts in the same worktree, in a new conversation, with its own skill;
+    // the one before ended. Milestone plan's `stage next` brings the ticket to Spec review.
+    let mut before = spec_writer.id.clone();
+    for (stage, next) in [
+        ("tech-spec", Place::Waiting(Some("milestone-plan".into()))),
+        ("milestone-plan", Place::stage_of("spec-review")),
+    ] {
+        let at = working_in(&w, &key, stage).await;
+        assert_eq!(worktree(&at), worktree(&t));
+        let planning = session(&w, &at, SessionKind::Agent).await;
+        assert_ne!(planning.id, before);
+        assert!(!w.sessions.info(&before).unwrap().is_running());
+        w.wait_for_output(&planning.id, &format!("/{}", naming::copy_name(stage)))
+            .await;
+        let after = stage_next(&w, &at, "Written.").await;
+        assert_eq!(after.place, next, "{stage}");
+        before = planning.id;
+        schedule(&w).await;
+    }
+    let spec_review = w.board.ticket(&key).await.unwrap();
+    assert_eq!(spec_review.status, Status::WaitingForYou);
+    let passed = w.review.pass(&key, &w.validation, &me()).await.unwrap();
+    assert!(matches!(passed, PassOutcome::Moved { .. }), "{passed:?}");
+    schedule(&w).await;
+
+    // Dev starts in the same worktree, in a new conversation; Milestone plan's session ended.
     let in_dev = working_in(&w, &key, "dev").await;
     assert_eq!(worktree(&in_dev), worktree(&t));
     let dev = session(&w, &in_dev, SessionKind::Agent).await;
-    assert_ne!(dev.id, griller.id);
-    assert!(!w.sessions.info(&griller.id).unwrap().is_running());
+    assert_ne!(dev.id, before);
+    assert!(!w.sessions.info(&before).unwrap().is_running());
 
     dev_and_validate(&w, &in_dev, "export.ts").await;
-    pass_review_and_merge(&w, &repo, &in_dev).await;
+    pass_review_and_merge(&w, &repo, &in_dev, "code-review").await;
     let walked = runs(&w, &t).await;
     assert_eq!(
-        &walked[..3],
+        &walked[..4],
         [
-            run("grill", RunResult::Done),
+            run("product-spec", RunResult::Done),
+            run("tech-spec", RunResult::Done),
+            run("milestone-plan", RunResult::Done),
+            run("spec-review", RunResult::Passed),
+        ],
+        "{walked:?}"
+    );
+    assert_eq!(
+        &walked[4..6],
+        [
             run("dev", RunResult::Done),
-            run("validate", RunResult::Passed),
+            run("validate", RunResult::Passed)
         ],
         "{walked:?}"
     );
@@ -481,6 +519,6 @@ async fn the_default_flow_to_a_click_local_merge() {
     apply_preset(&w, naming::DEFAULT_FLOW_FILE).await;
     let t = started(&w, "Checkout page").await;
     dev_and_validate(&w, &t, "checkout.ts").await;
-    pass_review_and_merge(&w, &repo, &t).await;
+    pass_review_and_merge(&w, &repo, &t, "review").await;
     w.stop().await;
 }

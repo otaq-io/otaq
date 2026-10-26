@@ -7,7 +7,7 @@ import type { ViewChange } from "./ViewChange";
  */
 export type BoardColumnRail = { 
 /**
- * "Grill · 2 tickets, 1 needs you".
+ * "Product spec · 2 tickets, 1 needs you".
  */
 tooltip: string, 
 /**

@@ -640,12 +640,12 @@ mod tests {
         request(
             &h.app,
             "flow_editor.pick",
-            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "grill-first.yaml" } }),
+            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "spec-first.yaml" } }),
         )
         .await
         .unwrap();
         let step = editor(&h).await;
-        assert_eq!(step["flow"]["steps"][1]["name"], "Grill");
+        assert_eq!(step["flow"]["steps"][1]["name"], "Product spec");
         assert_ne!(step["proposal"], 0);
         request(
             &h.app,
@@ -673,7 +673,7 @@ mod tests {
         let Reply::FlowVersion(version) = current else {
             panic!("{current:?}")
         };
-        assert!(version.file().unwrap().flow.stage("grill").is_some());
+        assert!(version.file().unwrap().flow.stage("product-spec").is_some());
         h.service.stop_all().await;
     }
 

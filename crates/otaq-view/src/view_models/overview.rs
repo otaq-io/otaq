@@ -382,7 +382,7 @@ pub fn gallery() -> OverviewView {
     )
 }
 
-/// SHOP-22's comments in the frames (`s25-03`, `s25-05`): the user's first comment with safari-notes, Griller's
+/// SHOP-22's comments in the frames (`s25-03`, `s25-05`): the user's first comment with safari-notes, Spec writer's
 /// repro with its findings, the user's line, and Rust developer's test run. Shared by the tests and the gallery.
 pub mod fixtures {
     use otaq_core::agent_tools::Tool;
@@ -446,8 +446,8 @@ pub mod fixtures {
             comment(1, you(), None, "Steps I used to reproduce it", Some(1), 0),
             comment(
                 2,
-                agent("Griller", Tool::Claude, "Grill"),
-                Some("Grill"),
+                agent("Spec writer", Tool::Claude, "Product spec"),
+                Some("Product spec"),
                 "Repro: 18 of 20 pass on Safari; the cookie is set after the first navigation.",
                 Some(2),
                 14,
@@ -529,7 +529,7 @@ mod tests {
                 (
                     2,
                     "2 KB",
-                    "Griller \u{b7} Grill",
+                    "Spec writer \u{b7} Product spec",
                     "Repro: 18 of 20 pass on Safari; the cookie is set after the first navigation.",
                     false
                 ),

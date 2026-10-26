@@ -418,18 +418,20 @@ async fn an_imported_skill_keeps_its_own_files() {
     w.stop().await;
 }
 
-/// The test flow's Grill (Q261): the ticket's first session runs Grill's own skill, `/otaq-grill`, with Griller's
-/// skills copied (Otaq's shipped `grill`).
+/// The test flow's Product spec (Q261): the ticket's first session runs Product spec's own skill, `/otaq-product-spec`,
+/// with Spec writer's skills copied (Otaq's shipped `product-spec`).
 #[tokio::test(flavor = "multi_thread")]
-async fn the_grill_stage_starts_with_otaq_grill() {
+async fn the_product_spec_stage_starts_with_otaq_product_spec() {
     let World { w, _dir } = world().await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Coupon codes").await;
     let out = started(&w, &t).await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with("/otaq-grill"), "{args}");
+    assert!(args.ends_with("/otaq-product-spec"), "{args}");
     assert!(
-        out.contains("AGENTS otaq-address-review otaq-grill otaq-open-pr otaq-push otaq-restack ."),
+        out.contains(
+            "AGENTS otaq-address-review otaq-open-pr otaq-product-spec otaq-push otaq-restack ."
+        ),
         "{out}"
     );
     w.stop().await;

@@ -1824,7 +1824,7 @@ pub fn notes_gallery() -> NotesGallery {
 
 /// The sheet's header and details line for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
 /// connected: SHOP-22 needing you in Dev on Rust developer (Codex · gpt-5.5, 3 minutes, 64k tokens), SHOP-18 in your
-/// check for 12 minutes, SHOP-24 working, and SHOP-41 in Backlog with Grill's agent to pick.
+/// check for 12 minutes, SHOP-24 working, and SHOP-41 in Backlog with Product spec's agent to pick.
 pub fn sheet_gallery() -> Vec<View> {
     use otaq_core::agents::SessionRole;
     use otaq_core::board::tickets::Work;
@@ -2071,7 +2071,7 @@ mod tests {
     }
 
     /// The gallery's sheets (T-0464): SHOP-22's details as drawn in `s25-03`, SHOP-18 waiting for you, SHOP-24
-    /// working, SHOP-41's Grill agent to pick.
+    /// working, SHOP-41's Product spec agent to pick.
     #[test]
     fn the_sheet_gallery_draws_the_frames_details() {
         let views = sheet_gallery();
@@ -2477,7 +2477,7 @@ mod tests {
             reason: HoldReason::ToolUnavailable,
             tool: Tool::Claude,
             model: Some("sonnet".into()),
-            agent_id: Some("griller".into()),
+            agent_id: Some("spec-writer".into()),
             fallback_tool: Some(Tool::Codex),
             fallback_held: false,
             fallback_asked: false,
@@ -2491,7 +2491,7 @@ mod tests {
         });
         let labels: Vec<&str> = view.holds[0].buttons.iter().map(|b| b.label.as_str()).collect();
         assert_eq!(labels, ["Use fallback", "Open agent\u{2026}"]);
-        assert_eq!(view.open_agent.as_deref(), Some("griller"));
+        assert_eq!(view.open_agent.as_deref(), Some("spec-writer"));
     }
 
     #[test]

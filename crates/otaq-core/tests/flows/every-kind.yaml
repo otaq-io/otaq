@@ -1,11 +1,11 @@
 agents:
-  - name: Griller
+  - name: Spec writer
     instructions: |
       Ask one question at a time.
       Write what was agreed into the ticket.
 
       Never write code.
-    skills: [grill]
+    skills: [product-spec]
     model: default
   - name: Rust developer
     instructions: "Follow our error-handling rules: no unwrap in library code."
@@ -31,12 +31,12 @@ agents:
     skills: [noyan, flow]
     model: default
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
+    agent: Spec writer
+    skill: product-spec
     options: [skip]
   - id: dev
     name: Dev
@@ -67,7 +67,7 @@ flow:
     by: you
     column: own
     options: [skip]
-    fail_to: Grill
+    fail_to: Product spec
   - id: ship
     name: Done
     kind: delivery

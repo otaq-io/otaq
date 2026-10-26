@@ -2,12 +2,11 @@
 //! now of 2026-10-21, "Dragging a card back to any earlier stage", "Other drags", "After a Fail"; d0045).
 //!
 //! **The plan** ([`plan`], `flow.apply_now_plan`): from the waiting change ([`Board::waiting_change`]; a merged change
-//! counts whole) and [`super::apply::still_working`]: the change's summary ("Removes Grill and Security from shop-web's
-//! flow"); the **moves**, one per ticket in a stage the new flow doesn't have (in it, or waiting before it), each with
-//! whether its agent will stop, its state line ("failed ×3"), its choices and its default; the tickets that **keep**
-//! their place (every other ticket still working inside what the change waits for, its span or the whole board,
-//! FED-08: "keeps running" or "keeps its place"); and a **stamp** of the board
-//! the plan was made from.
+//! counts whole) and [`super::apply::still_working`]: the change's summary ("Removes Product spec and Security from
+//! shop-web's flow"); the **moves**, one per ticket in a stage the new flow doesn't have (in it, or waiting before it),
+//! each with whether its agent will stop, its state line ("failed ×3"), its choices and its default; the tickets that
+//! **keep** their place (every other ticket still working inside what the change waits for, its span or the whole
+//! board, FED-08: "keeps running" or "keeps its place"); and a **stamp** of the board the plan was made from.
 //!
 //! **The removed stage's place** in the new flow is just before the first surviving stage that followed it in the old
 //! flow ([`removed_place`]). A ticket's choices are Backlog, Ready for Dev and every stage of the new flow.
@@ -51,7 +50,7 @@ pub fn removed_note(stage: &str) -> String {
     format!("{stage} was removed")
 }
 
-/// "Removes Grill and Security from shop-web's flow" (APN-02).
+/// "Removes Product spec and Security from shop-web's flow" (APN-02).
 pub fn removes_summary(stages: &[String], project: &str) -> String {
     let names = match stages {
         [] => String::new(),
@@ -95,8 +94,8 @@ pub struct ApplyNowPlan {
     pub project: String,
     /// The project's name ("shop-web").
     pub project_name: String,
-    /// "Removes Grill and Security from shop-web's flow", "Removes QA (your check) from shop-web's flow"; the waiting
-    /// change's own words ("QA after Security") when it removes no stage.
+    /// "Removes Product spec and Security from shop-web's flow", "Removes QA (your check) from shop-web's flow"; the
+    /// waiting change's own words ("QA after Security") when it removes no stage.
     pub summary: String,
     /// What the waiting change changes, every merged change's parts in order (the banner's words).
     pub changes: Vec<String>,
@@ -115,7 +114,7 @@ pub struct ApplyNowPlan {
 pub struct PlannedMove {
     pub ticket: TicketKey,
     pub title: String,
-    /// The removed stage's id and name ("in Grill (removed)").
+    /// The removed stage's id and name ("in Product spec (removed)").
     pub stage: String,
     pub stage_name: String,
     /// Waiting before that (Agent) stage rather than in it.
@@ -935,12 +934,15 @@ mod tests {
     fn the_summary_names_each_removed_stage() {
         let names = |n: &[&str]| n.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(
-            removes_summary(&names(&["Grill", "Security"]), "shop-web"),
-            "Removes Grill and Security from shop-web\u{2019}s flow"
+            removes_summary(&names(&["Product spec", "Security"]), "shop-web"),
+            "Removes Product spec and Security from shop-web\u{2019}s flow"
         );
         assert_eq!(
-            removes_summary(&names(&["Grill", "Validate", "Security"]), "shop-web"),
-            "Removes Grill, Validate and Security from shop-web\u{2019}s flow"
+            removes_summary(
+                &names(&["Product spec", "Validate", "Security"]),
+                "shop-web"
+            ),
+            "Removes Product spec, Validate and Security from shop-web\u{2019}s flow"
         );
         assert_eq!(
             removes_summary(&names(&["QA"]), "pocket-notes"),

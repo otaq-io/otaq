@@ -277,8 +277,8 @@ mod tests {
     }
 
     /// d0093, d0131: the button names the stage the engine sends the ticket to: the nearest Agent stage (the default
-    /// flow's Review → Dev), the check's own `fail_to` (QA → Grill), and the nearest one the ticket runs when it skips
-    /// that stage (→ Dev).
+    /// flow's Review → Dev), the check's own `fail_to` (QA → Product spec), and the nearest one the ticket runs when it
+    /// skips that stage (→ Dev).
     #[test]
     fn the_button_names_where_the_fails_go() {
         let default = otaq_core::flow::default_flow();
@@ -295,10 +295,10 @@ mod tests {
         let to = back_stage(&qa, &flow, &[]).unwrap();
         assert_eq!(
             button_label(&to.name, 0),
-            "Send back \u{b7} to Grill\u{2026}",
+            "Send back \u{b7} to Product spec\u{2026}",
             "not the nearest (Dev)"
         );
-        let skipping = vec!["grill".to_owned()];
+        let skipping = vec!["product-spec".to_owned()];
         let to = back_stage(&qa, &flow, &skipping).unwrap();
         assert_eq!(button_label(&to.name, 0), "Send back \u{b7} to Dev\u{2026}");
         assert_eq!(
@@ -313,9 +313,9 @@ mod tests {
     fn the_checks_that_run_again() {
         let flow = every_kind();
         let qa = waiting_in("qa");
-        let grill = flow.stage("grill").unwrap();
+        let product_spec = flow.stage("product-spec").unwrap();
         assert_eq!(
-            runs_again(&qa, &flow, grill, &[]).as_deref(),
+            runs_again(&qa, &flow, product_spec, &[]).as_deref(),
             Some("Then Validate and Security run again before it comes back to you.")
         );
         let dev = flow.stage("dev").unwrap();
@@ -355,11 +355,11 @@ mod tests {
             tokens: Vec::new(),
             holds: Vec::new(),
             place: None,
-            path: vec![stage("grill", true), stage("dev", false)],
+            path: vec![stage("product-spec", true), stage("dev", false)],
             runs: Vec::new(),
             choices: Vec::new(),
         };
-        assert_eq!(skips(Some(&agents)), ["grill"]);
+        assert_eq!(skips(Some(&agents)), ["product-spec"]);
         assert!(skips(None).is_empty());
     }
 

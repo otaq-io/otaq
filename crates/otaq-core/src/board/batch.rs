@@ -470,7 +470,7 @@ Agents run the CLI without prompts.
     fn stage_lines_are_choices() {
         use crate::board::stage_choices::ChoicePick;
         let tickets = parse_markdown(
-            "### Fix README typo\n- **Stage:** Dev=Quick developer · typo fix\n- **Stage:** Grill=skip\n\nTypo.\n",
+            "### Fix README typo\n- **Stage:** Dev=Quick developer · typo fix\n- **Stage:** Product spec=skip\n\nTypo.\n",
         )
         .unwrap();
         let pick = |stage: &str, choice: &str, reason: Option<&str>| ChoicePick {
@@ -482,7 +482,7 @@ Agents run the CLI without prompts.
             tickets[0].choices,
             [
                 pick("Dev", "Quick developer", Some("typo fix")),
-                pick("Grill", "skip", None)
+                pick("Product spec", "skip", None)
             ]
         );
         assert_eq!(tickets[0].body, "Typo.");

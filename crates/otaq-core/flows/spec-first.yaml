@@ -1,0 +1,74 @@
+agents:
+  - name: Spec writer
+    skills: [product-spec, commit]
+    model: default
+  - name: Architect
+    skills: [tech-spec, commit]
+    model: default
+  - name: Milestone planner
+    skills: [milestone-plan, commit]
+    model: default
+  - name: Developer
+    skills: [work-ticket, commit]
+    model: default
+  - name: Validator
+    skills: [validate]
+    model: default
+flow:
+  - id: product-spec
+    name: Product spec
+    kind: agent
+    column: own
+    agent: Spec writer
+    skill: product-spec
+    options: [skip]
+  - id: tech-spec
+    name: Tech spec
+    kind: agent
+    column: own
+    agent: Architect
+    skill: tech-spec
+    options: [skip]
+  - id: milestone-plan
+    name: Milestone plan
+    kind: agent
+    column: own
+    agent: Milestone planner
+    skill: milestone-plan
+    options: [skip]
+  - id: spec-review
+    name: Spec review
+    kind: check
+    by: you
+    column: own
+    options: [skip]
+    fail_to: Product spec
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: own
+    agents: [Validator]
+    skill: validate
+    rounds: 3
+    fail_to: Dev
+  - id: code-review
+    name: Code review
+    kind: check
+    by: you
+    column: own
+    fail_to: Dev
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: with-previous
+    agent: Developer
+    skill: open-pr
+    mode: click
+    delivers: either

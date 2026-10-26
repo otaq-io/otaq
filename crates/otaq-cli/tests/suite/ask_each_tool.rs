@@ -37,11 +37,11 @@ use serde_json::Value;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
-/// Claude Code's proposal: Grill first, and a Security check before the user's review.
+/// Claude Code's proposal: Product spec before Dev, and a Security check before the user's review.
 const CLAUDE_FLOW: &str = "\
 agents:
-  - name: Griller
-    skills: [grill]
+  - name: Spec writer
+    skills: [product-spec]
     model: default
   - name: Developer
     skills: [work-ticket, commit]
@@ -50,13 +50,13 @@ agents:
     skills: [validate]
     model: default
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
-    why: Most of your Claude Code sessions start with /grill
+    agent: Spec writer
+    skill: product-spec
+    why: Most of your Claude Code sessions start with /product-spec
   - id: dev
     name: Dev
     kind: agent
@@ -406,7 +406,7 @@ async fn both_tools_propose_and_use_this_flow_settles_the_project() {
     assert_eq!(
         why(theirs_claude),
         [
-            "Most of your Claude Code sessions start with /grill",
+            "Most of your Claude Code sessions start with /product-spec",
             "CONTRIBUTING.md asks for a security review"
         ]
     );
@@ -456,7 +456,7 @@ async fn both_tools_propose_and_use_this_flow_settles_the_project() {
     assert!(applied.waiting.is_none(), "a quiet board applies at once");
     assert_eq!(
         stage_names(&w, &shop).await,
-        ["Grill", "Dev", "Security", "Review", "Done"]
+        ["Product spec", "Dev", "Security", "Review", "Done"]
     );
     assert!(!in_flow_setup(&w, &shop).await, "Flow setup is cleared");
     assert!(

@@ -1,9 +1,9 @@
 //! The user's hand-overs from the window, end to end (T-0448; CMT-15, CMT-05, CMT-13; d0109, d0056, d0079): shop-web
-//! (SHOP) on the Grill first preset, SHOP-34 "Export orders as CSV" waiting in Review after Dev ran. **Send back**
+//! (SHOP) on the Spec first preset, SHOP-34 "Export orders as CSV" waiting in Code review after Dev ran. **Send back**
 //! with a pasted log (over 2,000 characters, so a report) and a note: the note is the user's comment with the log as
 //! its report, posted before Dev's conversation resumes, and Dev is told only that a comment came. Then SHOP-34 is
-//! **dragged back** from Review to Dev with a comment: the user's comment, and Dev told "SHOP-34 was sent back to Dev
-//! by you with a comment. Run `otaq prime`.".
+//! **dragged back** from Code review to Dev with a comment: the user's comment, and Dev told "SHOP-34 was sent back to
+//! Dev by you with a comment. Run `otaq prime`.".
 //!
 //! The app talks to a core `TestService` (temporary `OTAQ_HOME` and repositories); `claude` is stood in for by `sh`
 //! printing its arguments and sleeping, on a PATH without any `otaq`. No agent tool runs.
@@ -15,7 +15,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::domain::{Actor, Place, Status};
-use otaq_core::flow::presets::{GRILL_FIRST_FILE, preset};
+use otaq_core::flow::presets::{SPEC_FIRST_FILE, preset};
 use otaq_core::git::testing::commit;
 use otaq_core::naming::COMMAND_NAME as CMD;
 use otaq_core::service::ServiceConfig;
@@ -37,7 +37,8 @@ fn me() -> Actor {
     Actor::User("me".into())
 }
 
-/// shop-web on Grill first, with the stand-in `claude`; SHOP-34 in Review, its Dev conversation `SHOP-34-dev` ended.
+/// shop-web on Spec first, with the stand-in `claude`; SHOP-34 in Code review, its Dev conversation `SHOP-34-dev`
+/// ended.
 async fn world() -> (TestService, Ticket) {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
@@ -54,7 +55,7 @@ async fn world() -> (TestService, Ticket) {
     .await;
     w.add_project("shop-web").await;
     w.board
-        .use_flow_for_tests("SHOP", &preset(GRILL_FIRST_FILE).unwrap().read())
+        .use_flow_for_tests("SHOP", &preset(SPEC_FIRST_FILE).unwrap().read())
         .await;
     for _ in 1..34 {
         w.create("SHOP", "filler").await;
@@ -77,7 +78,7 @@ async fn world() -> (TestService, Ticket) {
     commit(&wt, "export.rs", "pub fn export_csv() {}\n");
     w.force_stage(&t, "dev", Status::Working).await;
     w.record_ended_agent(&t, "SHOP-34-dev").await;
-    w.force_stage(&t, "review", Status::WaitingForYou).await;
+    w.force_stage(&t, "code-review", Status::WaitingForYou).await;
     (w, t)
 }
 
@@ -140,7 +141,7 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
     assert!(out.contains("--resume SHOP-34-dev"), "{out}");
     assert!(
         out.contains(&format!(
-            "Review sent SHOP-34 back to you with a comment. Run `{CMD} prime`."
+            "Code review sent SHOP-34 back to you with a comment. Run `{CMD} prime`."
         )),
         "{out}"
     );
@@ -165,9 +166,9 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
     let report = w.board.ticket_report("SHOP-34", note.n).await.unwrap();
     assert_eq!(std::fs::read_to_string(&report.path).unwrap(), log);
 
-    // Dev's conversation ends; SHOP-34 comes back to Review and is dragged back to Dev with a comment.
+    // Dev's conversation ends; SHOP-34 comes back to Code review and is dragged back to Dev with a comment.
     w.sessions.stop(&dev.id).await.unwrap();
-    w.force_stage(&t, "review", Status::WaitingForYou).await;
+    w.force_stage(&t, "code-review", Status::WaitingForYou).await;
     let sent = request(
         &app,
         "board.drag_back",

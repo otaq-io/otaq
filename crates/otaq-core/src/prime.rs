@@ -155,7 +155,7 @@ pub struct CurrentStage {
 /// A stage the ticket ran before (AGM-06), as its latest run ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EarlierStage {
-    /// The stage's name ("Grill").
+    /// The stage's name ("Product spec").
     pub stage: String,
     /// The agent that ran it; "you" for a human check; `None` when it ran none (a skipped stage).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,7 +167,7 @@ pub struct EarlierStage {
 }
 
 impl EarlierStage {
-    /// "Grill · Griller · finished", "Validate · Validator · round 2 · passed", "QA · skipped".
+    /// "Product spec · Spec writer · finished", "Validate · Validator · round 2 · passed", "QA · skipped".
     pub fn label(&self) -> String {
         let result = match self.result {
             RunResult::Passed => "passed",

@@ -528,7 +528,7 @@ pub enum StepState {
     Skipped,
 }
 
-/// One stage of the flow path under the details line (`s25-03`: Grill ✓ — Dev ● — Validate — …).
+/// One stage of the flow path under the details line (`s25-03`: Product spec ✓ — Dev ● — Validate — …).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetStep")]
 pub struct Step {
@@ -882,16 +882,16 @@ mod tests {
         assert_eq!(
             shown(&details),
             [
-                ("Assignee", "Griller".into(), None),
+                ("Assignee", "Spec writer".into(), None),
                 ("Model", "Claude Code \u{b7} sonnet".into(), None),
                 ("Priority", "P3".into(), None),
                 ("Branch", String::new(), Some("from main")),
             ]
         );
         let Some(DetailChange::Choice { stage, items }) = &details[0].change else {
-            panic!("Grill's agent can change: {:?}", details[0].change);
+            panic!("Product spec's agent can change: {:?}", details[0].change);
         };
-        assert_eq!(stage, "grill");
+        assert_eq!(stage, "product-spec");
         assert!(items.iter().any(|i| i.checked));
     }
 
@@ -920,7 +920,7 @@ mod tests {
         );
     }
 
-    /// SHOP-22's path (`s25-03`): Grill done, Dev current and needing you, the rest to come.
+    /// SHOP-22's path (`s25-03`): Product spec done, Dev current and needing you, the rest to come.
     #[test]
     fn the_flow_path_as_steps() {
         let t = shop_22();
@@ -933,7 +933,7 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ("Grill", StepState::Done, false),
+                ("Product spec", StepState::Done, false),
                 ("Dev", StepState::Current, true),
                 ("Validate", StepState::ToCome, false),
                 ("Security", StepState::ToCome, false),

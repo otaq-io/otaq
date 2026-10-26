@@ -1,14 +1,14 @@
 //! A Fail goes to the check's stage, and a re-walked Agent stage resumes its session (T-0526; d0131 and its row 8,
-//! d0108 sessions rules 2 and 4, d0118, d0122). On the test flow (`tests/flows/every-kind.yaml`: Grill · Dev ·
-//! Validate · Security · QA, whose fails go to Grill · Done):
+//! d0108 sessions rules 2 and 4, d0118, d0122). On the test flow (`tests/flows/every-kind.yaml`: Product spec · Dev ·
+//! Validate · Security · QA, whose fails go to Product spec · Done):
 //!
-//! - QA's Send back stops Dev's live session and resumes Grill's conversation, on the tool it ran on, with the plain
-//!   sentence ("QA sent SHOP-1 back to you with a comment. Run `otaq prime`."), never `address-review`; with line
+//! - QA's Send back stops Dev's live session and resumes Product spec's conversation, on the tool it ran on, with the
+//!   plain sentence ("QA sent SHOP-1 back to you with a comment. Run `otaq prime`."), never `address-review`; with line
 //!   comments it is a code review and `address-review` goes first.
-//! - Grill finishing walks the card into Dev again: Dev's own conversation resumes, told why ("SHOP-1 is back in Dev:
-//!   QA sent it to Grill, which finished. Run `otaq prime`."); a stage's first run is a fresh session.
-//! - Validate's fails set to Grill: its Fail stops Dev's live session and resumes Grill's conversation with "Validate
-//!   failed round 1. Run `otaq prime`."; History's event names the check and the stage.
+//! - Product spec finishing walks the card into Dev again: Dev's own conversation resumes, told why ("SHOP-1 is back in
+//!   Dev: QA sent it to Product spec, which finished. Run `otaq prime`."); a stage's first run is a fresh session.
+//! - Validate's fails set to Product spec: its Fail stops Dev's live session and resumes Product spec's conversation
+//!   with "Validate failed round 1. Run `otaq prime`."; History's event names the check and the stage.
 //! - A Send back into the live Dev session (QA's fails set to Dev) types the plain sentence with only a comment, and
 //!   `/otaq-address-review` with a line comment.
 //!
@@ -162,9 +162,9 @@ async fn sent_back_row(w: &TestService, key: &str) -> serde_json::Value {
         .payload
 }
 
-/// QA's fails go to Grill: its Send back stops Dev and resumes Grill's conversation with the plain sentence; Grill
-/// finishing walks the card into Dev again, which resumes Dev's own conversation, told why. Each stage's first run
-/// was fresh.
+/// QA's fails go to Product spec: its Send back stops Dev and resumes Product spec's conversation with the plain
+/// sentence; Product spec finishing walks the card into Dev again, which resumes Dev's own conversation, told why. Each
+/// stage's first run was fresh.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     let dir = TempDir::new().unwrap();
@@ -175,14 +175,14 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    let grill = start(&w, &t, None).await;
-    let first = args(&w, &grill).await;
+    let product_spec = start(&w, &t, None).await;
+    let first = args(&w, &product_spec).await;
     assert!(
-        first.contains("/otaq-grill") && !first.contains("--resume"),
+        first.contains("/otaq-product-spec") && !first.contains("--resume"),
         "{first}"
     );
     finished(&w, &t).await;
-    let dev = start(&w, &t, Some(&grill.id)).await;
+    let dev = start(&w, &t, Some(&product_spec.id)).await;
     let first = args(&w, &dev).await;
     assert!(
         first.contains("/otaq-work-ticket") && !first.contains("--resume"),
@@ -197,9 +197,9 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
         .unwrap();
     let back = running(&w, &t, Some(&dev.id)).await;
     let resumed = args(&w, &back).await;
-    let grill_id = grill.tool_session_id.clone().unwrap();
+    let product_spec_id = product_spec.tool_session_id.clone().unwrap();
     assert!(
-        resumed.contains(&format!("--resume {grill_id}")),
+        resumed.contains(&format!("--resume {product_spec_id}")),
         "{resumed}"
     );
     assert!(
@@ -211,8 +211,8 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
         !w.sessions.info(&dev.id).unwrap().is_running(),
         "Dev's session stopped"
     );
-    until_in(&w, &key, "grill", Status::Working).await;
-    assert_eq!(sent_back_row(&w, &key).await["stage"], "Grill");
+    until_in(&w, &key, "product-spec", Status::Working).await;
+    assert_eq!(sent_back_row(&w, &key).await["stage"], "Product spec");
 
     finished(&w, &t).await;
     let again = start(&w, &t, Some(&back.id)).await;
@@ -221,7 +221,7 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     assert!(rewalk.contains(&format!("--resume {dev_id}")), "{rewalk}");
     assert!(
         rewalk.contains(
-            "SHOP-1 is back in Dev: QA sent it to Grill, which finished. Run `otaq prime`."
+            "SHOP-1 is back in Dev: QA sent it to Product spec, which finished. Run `otaq prime`."
         ),
         "{rewalk}"
     );
@@ -233,7 +233,7 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     w.stop().await;
 }
 
-/// A Send back with a line comment is a code review: Grill's conversation resumes with `address-review` first.
+/// A Send back with a line comment is a code review: Product spec's conversation resumes with `address-review` first.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_back_with_line_comments_runs_address_review_in_any_stage() {
     let dir = TempDir::new().unwrap();
@@ -244,9 +244,9 @@ async fn a_send_back_with_line_comments_runs_address_review_in_any_stage() {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    let grill = start(&w, &t, None).await;
+    let product_spec = start(&w, &t, None).await;
     finished(&w, &t).await;
-    let dev = start(&w, &t, Some(&grill.id)).await;
+    let dev = start(&w, &t, Some(&product_spec.id)).await;
     let t = w.board.ticket(&key).await.unwrap();
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
     line_comment(&w, &key).await;
@@ -257,12 +257,14 @@ async fn a_send_back_with_line_comments_runs_address_review_in_any_stage() {
     assert!(
         resumed.contains(&format!(
             "--resume {}",
-            grill.tool_session_id.clone().unwrap()
+            product_spec.tool_session_id.clone().unwrap()
         )),
         "{resumed}"
     );
     assert!(
-        resumed.contains("/otaq-address-review SHOP-1 was sent back to Grill with 1 line comment."),
+        resumed.contains(
+            "/otaq-address-review SHOP-1 was sent back to Product spec with 1 line comment."
+        ),
         "{resumed}"
     );
     w.stop().await;
@@ -283,9 +285,9 @@ async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comment
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    let grill = start(&w, &t, None).await;
+    let product_spec = start(&w, &t, None).await;
     finished(&w, &t).await;
-    let dev = start(&w, &t, Some(&grill.id)).await;
+    let dev = start(&w, &t, Some(&product_spec.id)).await;
 
     let t = w.board.ticket(&key).await.unwrap();
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
@@ -316,15 +318,15 @@ async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comment
     w.stop().await;
 }
 
-/// Validate with two check agents, its fails set to Grill (not the nearest, Dev): one fails and the other passes; the
-/// combined Fail stops Dev's live session and resumes Grill's conversation, told both verdicts; the round's event
-/// names the check and where it went.
+/// Validate with two check agents, its fails set to Product spec (not the nearest, Dev): one fails and the other
+/// passes; the combined Fail stops Dev's live session and resumes Product spec's conversation, told both verdicts; the
+/// round's event names the check and where it went.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_checks_fail_resumes_its_stage() {
     let dir = TempDir::new().unwrap();
     let mut flow = every_kind();
     let validate = flow.flow.position("validate").unwrap();
-    flow.flow.stages[validate].fail_to = Some("grill".into());
+    flow.flow.stages[validate].fail_to = Some("product-spec".into());
     flow.flow.stages[validate].agents = vec!["Security reviewer".into(), "Validator".into()];
     let w = world(&dir, &flow).await;
     let t = w.create("SHOP", "Price table").await;
@@ -333,9 +335,9 @@ async fn an_agent_checks_fail_resumes_its_stage() {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    let grill = start(&w, &t, None).await;
+    let product_spec = start(&w, &t, None).await;
     finished(&w, &t).await;
-    let dev = start(&w, &t, Some(&grill.id)).await;
+    let dev = start(&w, &t, Some(&product_spec.id)).await;
     finished(&w, &t).await;
     until_in(&w, &key, "validate", Status::Checking).await;
     let checkers = tokio::time::timeout(Duration::from_secs(20), async {
@@ -371,7 +373,7 @@ async fn an_agent_checks_fail_resumes_its_stage() {
     assert!(
         resumed.contains(&format!(
             "--resume {}",
-            grill.tool_session_id.clone().unwrap()
+            product_spec.tool_session_id.clone().unwrap()
         )),
         "{resumed}"
     );
@@ -385,7 +387,7 @@ async fn an_agent_checks_fail_resumes_its_stage() {
         !w.sessions.info(&dev.id).unwrap().is_running(),
         "Dev stopped"
     );
-    until_in(&w, &key, "grill", Status::Working).await;
+    until_in(&w, &key, "product-spec", Status::Working).await;
     let ended = w
         .board
         .history(&key)
@@ -396,7 +398,7 @@ async fn an_agent_checks_fail_resumes_its_stage() {
         .unwrap();
     assert_eq!(
         (&ended.payload["check"], &ended.payload["back_to"]),
-        (&"Validate".into(), &"Grill".into())
+        (&"Validate".into(), &"Product spec".into())
     );
     w.stop().await;
 }

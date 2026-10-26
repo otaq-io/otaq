@@ -681,31 +681,31 @@ describe("the board screen", () => {
   });
 
   it("draws a folded column as its rail: icon, count, the needs-you dot and its name (`s26-10`)", () => {
-    const grill = renderToStaticMarkup(
+    const productSpec = renderToStaticMarkup(
       createElement(
         Column,
         props(
           column({
-            id: "grill",
+            id: "product-spec",
             kind: "agent",
-            title: "Grill",
+            title: "Product spec",
             icon: "bot",
             count: "2",
             collapsed: true,
             rail: {
-              tooltip: "Grill · 2 tickets, 1 needs you",
+              tooltip: "Product spec · 2 tickets, 1 needs you",
               hint: "Click to unfold",
               dot: true,
-              unfold: { kind: "fold_column", column: "grill", folded: false },
+              unfold: { kind: "fold_column", column: "product-spec", folded: false },
             },
           }),
         ),
       ),
     );
-    expect(grill).toMatch(
-      /<button type="button" class="board-rail" data-column="grill" aria-label="Grill · 2 tickets, 1 needs you">/,
+    expect(productSpec).toMatch(
+      /<button type="button" class="board-rail" data-column="product-spec" aria-label="Product spec · 2 tickets, 1 needs you">/,
     );
-    expect(grill).toMatch(/board-rail-count">2<.*board-rail-dot.*board-rail-title">Grill</);
+    expect(productSpec).toMatch(/board-rail-count">2<.*board-rail-dot.*board-rail-title">Product spec</);
     const calm = renderToStaticMarkup(
       createElement(
         Column,

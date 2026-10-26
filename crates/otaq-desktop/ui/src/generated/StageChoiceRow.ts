@@ -24,6 +24,6 @@ value: string,
  */
 items: Array<MenuItem>, 
 /**
- * Started: the lock's tooltip ("Locked: Grill has started").
+ * Started: the lock's tooltip ("Locked: Product spec has started").
  */
 lock: string | null, change: StageChoiceChange | null, };

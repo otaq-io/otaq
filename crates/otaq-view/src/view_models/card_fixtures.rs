@@ -843,7 +843,7 @@ pub fn flow_variants() -> Vec<Variant> {
             "SHOP-27",
             "Fix README typo",
             Arrival::Skipped {
-                stage: "Grill".into(),
+                stage: "Product spec".into(),
                 by: Some("Noyan".into()),
             },
         ),

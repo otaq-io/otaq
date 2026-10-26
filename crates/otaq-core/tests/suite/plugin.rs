@@ -241,7 +241,7 @@ fn work_ticket_teaches_answer_options() {
     );
 }
 
-/// T-0546 (d0129, d0084, d0061): the planning stages that grill the user teach both forms of a question.
+/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question.
 #[test]
 fn the_spec_skills_teach_answer_options() {
     assert_teaches_answer_options(
@@ -549,7 +549,6 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     let resource = format!("`${}`", naming::resource_dir_env_var());
     let ends_stage = [
         WORK_TICKET_SKILL,
-        "grill",
         "product-spec",
         "tech-spec",
         "milestone-plan",

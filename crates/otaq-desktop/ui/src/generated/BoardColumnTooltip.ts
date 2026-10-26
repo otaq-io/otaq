@@ -5,7 +5,7 @@
  */
 export type BoardColumnTooltip = { 
 /**
- * "Grill · Griller · grill".
+ * "Product spec · Spec writer · product-spec".
  */
 title: string, 
 /**

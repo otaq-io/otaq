@@ -43,10 +43,10 @@ pub struct View {
     pub project: String,
     /// "Apply the flow change now?".
     pub title: String,
-    /// "Removes Grill and Security from shop-web’s flow."
+    /// "Removes Product spec and Security from shop-web’s flow."
     pub summary: String,
-    /// After a stale Apply now: what changed on the board ("The board changed: SHOP-41 entered Grill."). Shown above
-    /// the moves.
+    /// After a stale Apply now: what changed on the board ("The board changed: SHOP-41 entered Product spec."). Shown
+    /// above the moves.
     pub changed: Option<String>,
     /// "Moves"; empty moves draw no section (a change that removes no stage).
     pub moves_label: String,
@@ -73,7 +73,7 @@ pub struct View {
 pub struct MoveRow {
     pub ticket: String,
     pub title: String,
-    /// "in Grill (removed) · agent will stop", "in Security (removed) · failed ×3".
+    /// "in Product spec (removed) · agent will stop", "in Security (removed) · failed ×3".
     pub line: String,
     /// The current pick's id ([`choice_id`]) and name, as the picker shows it.
     pub picked: String,
@@ -188,7 +188,8 @@ fn sentence(text: &str) -> String {
     }
 }
 
-/// "in Grill (removed) · agent will stop", "waiting for Grill (removed)", "in Security (removed) · failed ×3".
+/// "in Product spec (removed) · agent will stop", "waiting for Product spec (removed)", "in Security (removed) · failed
+/// ×3".
 pub fn move_line(mv: &PlannedMove) -> String {
     let at = match mv.waiting {
         true => format!("waiting for {} (removed)", mv.stage_name),
@@ -325,8 +326,8 @@ pub fn basis(plan: &ApplyNowPlan) -> Basis {
 }
 
 /// The line a refreshed window shows (APN-04): what changed between the plan it showed (`before`) and the fresh one,
-/// one part per ticket in key order ("The board changed: SHOP-41 entered Grill · SHOP-15 is no longer working."); a
-/// pick that isn't a choice any more names its ticket and where it starts now.
+/// one part per ticket in key order ("The board changed: SHOP-41 entered Product spec · SHOP-15 is no longer
+/// working."); a pick that isn't a choice any more names its ticket and where it starts now.
 pub fn changed_line(before: &Basis, after: &ApplyNowPlan, why: &Refreshed) -> String {
     if let Refreshed::NotAChoice { ticket } = why {
         let start = after
@@ -631,8 +632,8 @@ flow:
     #[test]
     fn four_tickets_in_two_removed_stages() {
         let mut moves = vec![
-            mv("SHOP-12", "Add dark mode toggle", "Grill", "dev"),
-            mv("SHOP-44", "Saved carts", "Grill", "dev"),
+            mv("SHOP-12", "Add dark mode toggle", "Product spec", "dev"),
+            mv("SHOP-44", "Saved carts", "Product spec", "dev"),
             mv("SHOP-19", "Price table", "Security", "review"),
             mv("SHOP-32", "Address autocomplete", "Security", "review"),
         ];
@@ -641,7 +642,7 @@ flow:
         moves[2].agent_will_stop = true;
         moves[3].state = Some("failed \u{d7}3".into());
         let p = plan(
-            "Removes Grill and Security from shop-web\u{2019}s flow",
+            "Removes Product spec and Security from shop-web\u{2019}s flow",
             moves,
             vec![
                 kept("SHOP-15", "Login rate limit", "Dev", true),
@@ -653,7 +654,7 @@ flow:
         let v = view(&p, Some(&new_flow()), &Picks::new(), None);
         assert_eq!(
             v.summary,
-            "Removes Grill and Security from shop-web\u{2019}s flow."
+            "Removes Product spec and Security from shop-web\u{2019}s flow."
         );
         let lines: Vec<(&str, &str, &str)> = v
             .moves
@@ -665,12 +666,12 @@ flow:
             [
                 (
                     "SHOP-12",
-                    "in Grill (removed) \u{b7} agent will stop",
+                    "in Product spec (removed) \u{b7} agent will stop",
                     "Dev"
                 ),
                 (
                     "SHOP-44",
-                    "in Grill (removed) \u{b7} agent will stop",
+                    "in Product spec (removed) \u{b7} agent will stop",
                     "Dev"
                 ),
                 (
@@ -759,7 +760,7 @@ flow:
         // A back pick wins over a forward one; Backlog and Ready for Dev say nothing.
         let mut two = p.clone();
         two.moves
-            .push(mv("SHOP-12", "Add dark mode toggle", "Grill", "dev"));
+            .push(mv("SHOP-12", "Add dark mode toggle", "Product spec", "dev"));
         let both = view(
             &two,
             None,
@@ -785,7 +786,7 @@ flow:
         let stale = view(
             &p,
             None,
-            &picks(&[("SHOP-19", "stage:grill"), ("SHOP-99", "x")]),
+            &picks(&[("SHOP-19", "stage:product-spec"), ("SHOP-99", "x")]),
             None,
         );
         assert_eq!(stale.moves[0].picked, "stage:review");
@@ -805,9 +806,9 @@ flow:
         assert_eq!(v.summary, "QA after Security \u{b7} Review can be skipped.");
         assert!(v.moves.is_empty());
         assert_eq!(v.keep_label.as_deref(), Some("Keep their place \u{b7} 1"));
-        let mut waiting = mv("SHOP-35", "Slow checkout query", "Grill", "dev");
+        let mut waiting = mv("SHOP-35", "Slow checkout query", "Product spec", "dev");
         waiting.waiting = true;
-        assert_eq!(move_line(&waiting), "waiting for Grill (removed)");
+        assert_eq!(move_line(&waiting), "waiting for Product spec (removed)");
     }
 
     /// APN-04: the board changed under the window. The fresh plan redraws it with a line naming what changed: a ticket
@@ -817,7 +818,7 @@ flow:
         let mut before_moves = vec![mv("SHOP-19", "Price table", "Security", "review")];
         before_moves[0].agent_will_stop = true;
         let before = plan(
-            "Removes Grill and Security from shop-web\u{2019}s flow",
+            "Removes Product spec and Security from shop-web\u{2019}s flow",
             before_moves,
             vec![
                 kept("SHOP-15", "Login rate limit", "Dev", true),
@@ -830,13 +831,13 @@ flow:
         after.moves[0].agent_will_stop = false;
         after
             .moves
-            .insert(0, mv("SHOP-41", "Hotfix", "Grill", "dev"));
+            .insert(0, mv("SHOP-41", "Hotfix", "Product spec", "dev"));
         after.keep.retain(|k| k.ticket != key("SHOP-33"));
         let line = changed_line(&shown, &after, &Refreshed::BoardChanged);
         assert_eq!(
             line,
             "The board changed: SHOP-19\u{2019}s agent stopped \u{b7} SHOP-33 is no longer working \u{b7} SHOP-41 \
-             entered Grill."
+             entered Product spec."
         );
         let v = view(
             &after,
@@ -862,10 +863,10 @@ flow:
         );
         // Nothing to name: the change itself was merged, or only the stamp moved.
         let mut merged = before.clone();
-        merged.summary = "Removes Grill, Security and QA from shop-web\u{2019}s flow".into();
+        merged.summary = "Removes Product spec, Security and QA from shop-web\u{2019}s flow".into();
         assert_eq!(
             changed_line(&shown, &merged, &Refreshed::BoardChanged),
-            "The waiting change changed: Removes Grill, Security and QA from shop-web\u{2019}s flow."
+            "The waiting change changed: Removes Product spec, Security and QA from shop-web\u{2019}s flow."
         );
         assert_eq!(
             changed_line(&shown, &before, &Refreshed::BoardChanged),

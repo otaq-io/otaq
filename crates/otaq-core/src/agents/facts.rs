@@ -176,7 +176,7 @@ pub struct CardAgents {
     /// The sessions held before they start, with the names the card says.
     #[serde(default)]
     pub holds: Vec<CardHold>,
-    /// A ticket waiting before an Agent stage: where it starts, on which agent and model ("Grill · Griller ·
+    /// A ticket waiting before an Agent stage: where it starts, on which agent and model ("Product spec · Spec writer ·
     /// sonnet", AGM-09).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub starts: Option<CardStart>,

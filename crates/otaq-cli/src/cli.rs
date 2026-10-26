@@ -740,16 +740,16 @@ mod tests {
         );
     }
 
-    /// #62: `create --help` doesn't suggest skipping Grill (a stage only a flow can make skippable).
+    /// #62: `create --help` doesn't suggest skipping Product spec (a stage only a flow can make skippable).
     #[test]
-    fn the_help_of_create_suggests_no_grill_skip() {
+    fn the_help_of_create_suggests_no_product_spec_skip() {
         let mut command = Cli::command();
         let help = command
             .find_subcommand_mut("create")
             .unwrap()
             .render_long_help()
             .to_string();
-        assert!(!help.contains("Grill=skip"), "{help}");
+        assert!(!help.contains("Product spec=skip"), "{help}");
         assert!(
             help.contains("\"QA=skip\" where the flow lets QA be skipped"),
             "{help}"

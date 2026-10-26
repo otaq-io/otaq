@@ -139,7 +139,7 @@ describe("Activity", () => {
       key: "SHOP-34",
       rows: [
         row({
-          title: "Griller · Grill edited the description · added Agreed (4 lines)",
+          title: "Spec writer · Product spec edited the description · added Agreed (4 lines)",
           kind: "description",
           opens: {
             label: "DESCRIPTION",
@@ -202,13 +202,13 @@ describe("Activity", () => {
       key: "SHOP-22",
       rows: [
         row("Created", "other"),
-        row("Griller · Grill edited the description · added 2 lines", "description", {
+        row("Spec writer · Product spec edited the description · added 2 lines", "description", {
           label: "DESCRIPTION",
           caption: "Before / after",
           lines: [{ kind: "added", sign: "+", text: "· the redirect waits for the session cookie" }],
           report: null,
         }),
-        row("Griller · Grill commented", "comment"),
+        row("Spec writer · Product spec commented", "comment"),
         row("Moved to Dev", "stage"),
         row("You commented", "comment"),
       ],
