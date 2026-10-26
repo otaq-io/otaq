@@ -22,13 +22,26 @@ Astro asks to send anonymous usage data when it runs. To turn that off for a she
 
 ## Where things are
 
-- `src/pages/`: one `.astro` file per page (`index.astro` is `/`).
+- `src/pages/`: one `.astro` file per page (`index.astro` is `/`, the landing page drawn as `Landing3.dc.html`).
 - `src/layouts/Base.astro`: every page's `<html>` and `<head>` (title, description, canonical address, link-preview
-  tags, favicon).
-- `src/styles/tokens.css`: the Otaq Dark colours as CSS variables; `src/styles/fonts.css`: Geist and Geist Mono.
+  tags, favicon) and the **theme script**: an inline `<head>` script that applies the visitor's pick (`localStorage`
+  key `otaq-theme`, `dark` or `light`) as `data-theme` on `<html>` before paint. With no pick the page follows the
+  system setting.
+- `src/components/`: one Astro component per landing section, in page order: `Nav` (with `ThemeToggle`, the
+  light/dark switch), `Hero`, `HowItWorks` (with `player.ts` and the pure `flow.ts`), `Flow` (the preset picker, data
+  in `presets.ts`), `NeedsYou`, `Review`, `LiveDemo` (the demo's frame, sized by `demoScale.ts`), `BigWork`, `Agents`,
+  `Install`, `Faq` (data in `faq.ts`). `Icons.astro` is the SVG sprite, `Icon.astro` draws one, `Mark.astro` is the
+  Otaq mark; `theme.ts` is the switch's pure part; `links.ts` holds the repository links. Their tests are in
+  `landing.test.ts`.
+- `src/demo/`: the live demo (a React island, hydrated `client:idle`), ported from `Demo3.dc.html`: `data.ts` (flows,
+  tickets, projects), `state.ts` (the `DemoStore`, tested in `state.test.ts`), `view.ts` (what the components draw),
+  the components (`Demo.tsx`, `Board.tsx`, `Sheet.tsx`, `Noyan.tsx`, `FlowEditor.tsx`, `Ic.tsx` with its sprite in
+  `icons.ts`) and `demo.css`, scoped under `.oq`.
+- `src/styles/tokens.css`: the Otaq Dark and Otaq Light colours as CSS variables; `src/styles/landing.css`: the landing
+  page, scoped under `.lp`; `src/styles/fonts.css`: Geist and Geist Mono.
 - `public/`: copied to the site as they are: the fonts with their licence (`fonts/LICENSE-geist.txt`, SIL OFL 1.1) and
-  the favicon (the app icon), `og.png` (the 1200×630 link-preview image, a screenshot of the hero), `robots.txt` and
-  `sitemap.xml` (by hand: add a `<url>` there for each new page).
+  the favicon (the app icon), `og.png` (the 1200×630 link-preview image, a screenshot of the hero in Otaq Dark),
+  `robots.txt` and `sitemap.xml` (by hand: add a `<url>` there for each new page).
 - Tests: `src/**/*.test.ts` and `src/**/*.test.tsx`, run by Vitest in Node. A test that needs a DOM chooses one in its
   own file (`// @vitest-environment …`).
 
@@ -36,8 +49,23 @@ Nothing on the page loads from another site: no Google Fonts, CDN, analytics or 
 
 ## Keep it in step with the app
 
-- **Refresh the colours from the app's `tokens.css`**: copy the `[data-theme="otaq-dark"]` block of
-  `crates/otaq-desktop/ui/src/theme/generated/tokens.css` into `src/styles/tokens.css` when the app's theme changes.
+- **Refresh the colours from the app's `tokens.css`** when the app's theme changes: from
+  `crates/otaq-desktop/ui/src/theme/generated/tokens.css`, copy the `[data-theme="otaq-dark"]` block into
+  `src/styles/tokens.css`'s `:root, :root[data-theme="dark"]` block, and the `[data-theme="otaq-light"]` block into
+  both light blocks (`:root:not([data-theme="dark"])` inside `@media (prefers-color-scheme: light)`, and
+  `:root[data-theme="light"]`). Copy the values unchanged: the app's tokens meet WCAG AA contrast (decision 0096).
+- **Redraw `public/og.png`** when the hero changes: `npm run build && npm run preview`, then a headless Chrome
+  screenshot in Otaq Dark. The window is 1300 × 682 scaled down to 1200 × 630, because the hero's floating cards hide
+  below 1240 px:
+
+  ```sh
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars \
+    --window-size=1300,682 --force-device-scale-factor=0.923077 --force-dark-mode \
+    --virtual-time-budget=4000 --screenshot=public/og.png http://localhost:4321/
+  ```
+
+  No npm dependency is needed for it.
+
 - **The demo at releases** (decision 0102): when the app's screens have changed, update the demo by hand to match.
 
 ## How it deploys
