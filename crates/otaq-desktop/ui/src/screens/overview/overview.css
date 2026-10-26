@@ -31,7 +31,6 @@
 }
 
 .overview-main .sheet-overview-header,
-.overview-main .sheet-agents,
 .overview-main .sheet-start-problem {
   padding: 0;
 }
@@ -178,12 +177,99 @@
 
 /* ---- Attachments ---- */
 
+/* The right column, 300 px: STAGES over the Attachments. */
+.overview-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 20px;
+  width: 300px;
+  min-width: 0;
+}
+
+.overview-side:empty {
+  display: none;
+}
+
+/* STAGES: the choices, then the path, fitted to the column; names ellipsize, a change's or a skip's line wraps. */
+.overview-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.overview-stages .sheet-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  border-top: none;
+}
+
+.overview-stages .stage-choices-head {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 0;
+}
+
+.overview-stages .stage-choices-rows {
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+}
+
+.overview-stages .stage-choice-label {
+  max-width: 120px;
+}
+
+.overview-stages .stage-choice-select {
+  width: auto;
+}
+
+.overview-stages .stage-choice-value > span:first-child,
+.overview-stages .ticket-path-stage,
+.overview-stages .ticket-path-model {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-stages .stage-choice-value,
+.overview-stages .ticket-path-model {
+  max-width: 100%;
+}
+
+.overview-stages .ticket-path-row {
+  grid-template-columns: 16px minmax(0, 1fr) minmax(0, max-content) 14px;
+}
+
+.overview-stages .ticket-path-model {
+  max-width: 96px;
+}
+
+.overview-stages .stage-choice-change {
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  margin-top: 0;
+}
+
+.overview-stages .stage-choice-change > .icon {
+  margin-top: 1px;
+}
+
+.overview-stages .stage-choice-change,
+.overview-stages .stage-choices-by,
+.overview-stages .ticket-path-summary,
+.overview-stages .ticket-path-detail {
+  overflow-wrap: anywhere;
+}
+
 .overview-attachments {
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 8px;
   width: 300px;
+  max-width: 100%;
 }
 
 .overview-add {

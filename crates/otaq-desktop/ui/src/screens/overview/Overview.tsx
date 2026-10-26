@@ -4,7 +4,8 @@
 // Review, d0125; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
 // (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the PLAN under it (`PlanSection`, d0133) and at a check of planning WHAT PLANNING DID (`PlanningDid`, d0129), the agent's recorded decisions, the
-// DEPENDENCIES with Blocked by and Blocks (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, the Attachments column: every
+// DEPENDENCIES with Blocked by and Blocks (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, STAGES (the
+// ticket's choices and path, `ChoicesAndPath`, `sheet.view`'s words), then the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
 // report view. Add (the system picker), a file dropped anywhere on Overview, or a file pasted outside a text field
 // opens the comment box with it as a chip. Its words are Rust's (`overview.view`, `editor.open`).
@@ -20,6 +21,7 @@ import type { AttachmentRow } from "../../generated/AttachmentRow";
 import type { EditorView } from "../../generated/EditorView";
 import type { OverviewFileChip } from "../../generated/OverviewFileChip";
 import type { OverviewView } from "../../generated/OverviewView";
+import type { SheetView } from "../../generated/SheetView";
 import { asRequestError, useServiceView } from "../../service";
 import { pickReportFile, request } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
@@ -30,7 +32,7 @@ import { EDITOR_EVENTS } from "../editor/logic";
 import { openReport } from "../editor/reportOpener";
 import { BeforeYou } from "./BeforeYou";
 import { ManualChecks } from "./ManualChecks";
-import { NeedsYou } from "./NeedsYou";
+import { ChoicesAndPath, NeedsYou } from "./NeedsYou";
 import { PlanSection } from "./Plan";
 import { PlanningDid } from "./PlanningDid";
 import { TicketDecisions } from "../sections/Decisions";
@@ -70,6 +72,19 @@ function Attachment({ ticket, row }: { ticket: string; row: AttachmentRow }) {
         {row.line !== "" && <span className="overview-attachment-line">{row.line}</span>}
       </span>
     </button>
+  );
+}
+
+/** STAGES at the top of the right column: the ticket's choices, then its path; nothing without either. */
+export function Stages({ view }: { view: SheetView }) {
+  if (view.choices === null && view.path === null) return null;
+  return (
+    <section className="overview-stages" aria-label={view.stages_heading}>
+      <div className="overview-label">
+        <span className="editor-section-name">{view.stages_heading.toUpperCase()}</span>
+      </div>
+      <ChoicesAndPath view={view} />
+    </section>
   );
 }
 
@@ -259,21 +274,24 @@ export function OverviewTab({ ticket }: TicketProps) {
         })}
         <CommentThread ticket={ticket} />
       </div>
-      {overview?.key === ticket && (
-        <Attachments
-          ticket={ticket}
-          view={overview}
-          error={error}
-          onAdd={() => {
-            pickReportFile(overview.pick_title).then(
-              (path) => {
-                if (path !== null) attachPath(path);
-              },
-              () => undefined,
-            );
-          }}
-        />
-      )}
+      <div className="overview-side">
+        {sheet && <Stages view={sheet.view} />}
+        {overview?.key === ticket && (
+          <Attachments
+            ticket={ticket}
+            view={overview}
+            error={error}
+            onAdd={() => {
+              pickReportFile(overview.pick_title).then(
+                (path) => {
+                  if (path !== null) attachPath(path);
+                },
+                () => undefined,
+              );
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
