@@ -1,6 +1,6 @@
 ---
 name: validate
-description: Validate the Otaq ticket named by $OTAQ_TICKET as a read-only judge - get the context with `otaq prime --validate`, check the agent's change against the description, the checks and leftovers, then give a one- or two-line verdict with `otaq check pass|fail --stdin`, the full check run attached with `--report-file`.
+description: Validate the Otaq ticket named by $OTAQ_TICKET as a read-only judge - get the context with `otaq prime --validate`, check the agent's change against the description, the checks and leftovers, then give a one- or two-line verdict with `otaq check pass|fail --stdin` that names the log of each check it ran.
 disable-model-invocation: true
 ---
 
@@ -30,26 +30,29 @@ the worktree: your check runs' output goes there (see "Long output").
    acceptance criteria written there? When none are written, infer reasonable ones from the description. After a Send
    back, also check that **each review comment** was addressed. When helpers built the ticket's pieces (its Plan),
    the diff already holds every merged piece: judge the whole ticket against its description and Plan, not one piece.
-4. **Run the checks.** Run the checks the Agent instructions name (tests, lint, build). When they name none, run the
-   project's obvious ones if you can find them (for example `cargo test`, `npm test`, `make check`). Send each run's
-   output to a file in `$OTAQ_RESOURCE_DIR` and search it (see "Long output"). Checks may write ignored files
-   (caches, coverage output); they must not change tracked files.
+4. **Decide which checks to run**, starting from the agent's comment: what it ran, at which commit, with what
+   result. **You may rely on** a passing run at the current HEAD that covers what the diff touches, and spend the time
+   on the description. **Run a check yourself** when no run is reported, it was at an older commit, it failed or was
+   partial, it misses what the diff touches, the Agent instructions say to run it, or something makes you doubt it;
+   with none named, run the project's obvious ones (`npm test`, `cargo test`). Scope your runs from the diff (the
+   packages it touches), not from habit; the choice is yours. Checks may write ignored files (caches), never tracked
+   ones; their output goes to a file (see "Long output").
 5. **Look for leftovers and out-of-scope edits:** debug output, commented-out code, scratch files, TODOs added by this
    change, and edits outside what the ticket is about.
 6. **Write the verdict comment**, one or two lines in all: one line per finding, with its file and line, for
-   example `src/cart.ts:42: the total ignores the discount`. Keep it short and concrete: the full check run goes in
-   the attached report, never in the comment (at most 2,000 characters).
+   example `src/cart.ts:42: the total ignores the discount`. Say what you relied on and what you ran, each in a few
+   words; a run's output stays in its log, never in the comment (at most 2,000 characters).
    - A gap **covered by a linked ticket** is a **note**, never a failure:
      `Note: UI for adding items: covered by SHOP-41`.
    - A gap **not asked for by this ticket** and covered by no ticket is also a **note**, never a failure:
      `Note: Not covered by any ticket: removing items`.
    - Only gaps against **this ticket's** description, failing checks and leftovers fail it.
-7. **Give the verdict** with the comment on stdin and the check run attached, then end your turn:
+7. **Give the verdict** with the comment on stdin, then end your turn:
 
    ```sh
-   otaq check fail --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'VERDICT'
+   otaq check fail --stdin <<'VERDICT'
    Fail: src/cart.ts:42: the total ignores the discount the description asks for.
-   src/cart.test.ts:10: `npm test` fails 1 test: expected 90, got 100 (run attached).
+   `npm test` at a1b2c3d: 1 failed, src/cart.test.ts:10; log: `$OTAQ_RESOURCE_DIR/cart-tests.log`
    Note: Not covered by any ticket: removing items
    VERDICT
    ```
@@ -57,9 +60,10 @@ the worktree: your check runs' output goes there (see "Long output").
    or, when nothing fails (notes are fine):
 
    ```sh
-   otaq check pass --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+   otaq check pass --stdin \
      --manual-check "In Safari, the discount shows on the checkout page after a reload" <<'VERDICT'
-   Pass: the discount applies to the total; `npm test` passes (run attached); no leftovers.
+   Pass: the discount applies to the total; no leftovers.
+   Tests: relied on the agent's `npm test` at a1b2c3d (HEAD).
    Note: UI for adding items: covered by SHOP-41
    VERDICT
    ```
@@ -73,16 +77,15 @@ the worktree: your check runs' output goes there (see "Long output").
 ## Long output
 
 ```sh
-npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1
-grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
-tail -n 40 "$OTAQ_RESOURCE_DIR/test-run.txt"
+npm test > "$OTAQ_RESOURCE_DIR/cart-tests.log" 2>&1
+grep -n "FAIL" "$OTAQ_RESOURCE_DIR/cart-tests.log"
 ```
 
 - **Send each check's output to a file in `$OTAQ_RESOURCE_DIR`**, never in the worktree: a new file there is a change
   to the agent's work.
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
-- **Attach it** to your verdict with `--report-file` (one report per verdict, at most 20 MB; with several runs, attach
-  the one that fails).
+- **Name it** in your verdict; never attach command output, such as a log. **Attach only a document you wrote**,
+  such as an investigation write-up, with `--report-file` (at most 20 MB).
 - **Reading an earlier report:** under a comment with a report, `prime --validate` shows a line such as "Report: 48 KB,
   2,310 lines · `otaq report SHOP-29 4`". Open it only when you need it, and search it:
   `grep -n "expected" "$(otaq report SHOP-29 4 --path)"`.
@@ -94,6 +97,6 @@ tail -n 40 "$OTAQ_RESOURCE_DIR/test-run.txt"
   check runs' output into `$OTAQ_RESOURCE_DIR` is the one exception.
 - Don't file tickets and don't run `otaq stage next`: the user creates tickets from your notes.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
-  goes in the report.
+  goes to a file in `$OTAQ_RESOURCE_DIR`, named in the verdict.
 - Always finish with `otaq check pass --stdin` or `otaq check fail --stdin`. Ending your turn without
   a verdict leaves the ticket waiting for the user.

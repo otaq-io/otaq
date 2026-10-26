@@ -389,8 +389,8 @@ async fn validate_prime_plain() {
         "## The diff\n\n```diff\n",
         "\n## Your verdict\n\nKeep it short: one or two lines, one line per finding with its file and line; notes \
          start with \"Note:\". Finish with `otaq check pass --stdin` or `otaq check fail --stdin` and the verdict on \
-         stdin. Save the full check run to a file in `$OTAQ_RESOURCE_DIR` (never in the worktree) and attach it with \
-         `--report-file`: `otaq check fail --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\"`. What you couldn't \
+         stdin. The agent's comment says what it ran; decide yourself whether to run it again. Save any run to a file \
+         in `$OTAQ_RESOURCE_DIR` (never in the worktree) and name it in the verdict. What you couldn't \
          check yourself (a real browser, a device, a service you can't reach), list for the user: `--manual-check \
          \"<what to check>\"` on `otaq check pass|fail`, one line per check. The user tries them at review. Never \
          leave a check to \"the PR\": there may be no PR.\n",

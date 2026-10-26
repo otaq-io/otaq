@@ -1483,7 +1483,7 @@ pub struct ManualCheckTickParams {
 }
 
 /// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
-/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06);
+/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/notes.md"}`) is a document attached to the comment (CMT-06);
 /// `manual_checks` are what the agent couldn't check itself, one line each (`--manual-check`, d0125).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEndParams {
@@ -1521,7 +1521,7 @@ pub struct VerdictParams {
     /// The findings (one line each, file and line) and the notes: the checker's comment (CMT-05).
     #[serde(default)]
     pub report: String,
-    /// `--report-file`: the full output attached to the comment (CMT-06).
+    /// `--report-file`: a document attached to the comment (CMT-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_file: Option<crate::board::reports::ReportSource>,
     /// `--manual-check`: what the check couldn't check itself, one line each (d0125).

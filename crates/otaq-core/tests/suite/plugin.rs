@@ -463,7 +463,7 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
         "infer reasonable ones".to_owned(),
         "**each review comment**".to_owned(),
         "the diff already holds every merged piece".to_owned(),
-        "Run the checks".to_owned(),
+        "Decide which checks to run".to_owned(),
         "obvious ones".to_owned(),
         "leftovers and out-of-scope edits".to_owned(),
         "one line per finding, with its file and line".to_owned(),
@@ -540,8 +540,7 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
 
 /// Pending (M48): the skills that still attach command output, so the T-0559 checks below skip them. Each ticket
 /// takes its skills off this list; when it is empty, remove it.
-const STILL_ATTACH_OUTPUT: [&str; 4] = [
-    "validate",       // T-0560
+const STILL_ATTACH_OUTPUT: [&str; 3] = [
     "product-spec",   // T-0561
     "tech-spec",      // T-0561
     "milestone-plan", // T-0561
@@ -655,14 +654,38 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
             "{name}: the \"<command> at <commit>: … log: …\" line in\n{comment}"
         );
     }
-    let (_, validate) = skill("validate");
-    let validate = flat(&validate);
-    for verdict in ["fail", "pass"] {
+    // T-0560 (CMT-09, VAL-03; d0136, d0063): the validator starts from the agent's comment, may rely on a passing
+    // run at HEAD, lists when to run a check itself, and its verdicts attach nothing and say what was relied on and
+    // run. Nothing forces or forbids a repeat.
+    let (_, validate_body) = skill("validate");
+    let validate = flat(&validate_body);
+    for needle in [
+        "starting from the agent's comment: what it ran, at which commit, with what result",
+        "**You may rely on** a passing run at the current HEAD that covers what the diff touches",
+        "**Run a check yourself** when no run is reported, it was at an older commit, it failed or was partial, it \
+         misses what the diff touches, the Agent instructions say to run it, or something makes you doubt it",
+        "the choice is yours",
+        "Tests: relied on the agent's `npm test` at a1b2c3d (HEAD).",
+        "`npm test` at a1b2c3d: 1 failed, src/cart.test.ts:10; log: `$OTAQ_RESOURCE_DIR/cart-tests.log`",
+    ] {
+        assert!(validate.contains(needle), "validate must say {needle:?}");
+    }
+    for forced in ["must re-run", "always re-run", "never re-run", "always run"] {
         assert!(
-            validate.contains(&format!(
-                "{cmd} check {verdict} --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\""
-            )),
-            "validate: check {verdict} attaches the run"
+            !validate.to_lowercase().contains(forced),
+            "validate says {forced:?}"
+        );
+    }
+    let validate_joined = joined(&validate_body);
+    for verdict in ["fail", "pass"] {
+        let at = validate_joined
+            .find(&format!("{cmd} check {verdict} --stdin"))
+            .unwrap_or_else(|| panic!("validate: check {verdict}"));
+        let rest = &validate_joined[at..];
+        let command = &rest[..rest.find("<<'VERDICT'").expect("the verdict")];
+        assert!(
+            !command.contains("--report-file"),
+            "validate: check {verdict} attaches nothing"
         );
     }
     for needle in [
