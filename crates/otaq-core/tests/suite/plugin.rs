@@ -796,6 +796,18 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         assert!(body.contains(needle), "noyan must say {needle:?}");
     }
     assert_every_ask_human_reads_stdin(&body);
+    // 0129 (refined 2026-10-26, after OTQ-3): only small work skips planning; a Plan of several pieces runs it.
+    let text = flat(&body);
+    for needle in [
+        "a bug fix, a small feature you already understand)",
+        "when you would write a Plan of several pieces, even when its design looks settled",
+    ] {
+        assert!(text.contains(needle), "noyan must say {needle:?}");
+    }
+    assert!(
+        !text.contains("whose Plan you could settle"),
+        "noyan still skips planning on big work"
+    );
 }
 
 /// The text of the first `<<'TAG'` heredoc after `from` in a skill, with each line's indent removed.

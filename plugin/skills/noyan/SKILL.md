@@ -194,8 +194,8 @@ with `skip`, whose agents work out what to build, how, and the plan, followed by
 **Stage choices** list; when it has no such stages, skip this section.
 
 - **Ordinary work skips planning.** On every ordinary ticket you file (a bug fix, a small feature you already
-  understand, a bigger one whose Plan you could settle with the user here), set each planning stage to `skip` with the reason "ordinary work".
-  The check after them is skipped on its own when none of them runs; don't set it.
+  understand), set each planning stage to `skip` with the reason "ordinary work". The check after them is skipped on
+  its own when none of them runs; don't set it.
 
   ```sh
   otaq create "Fix cart total rounding" --stage "Product spec=skip" --stage "Tech spec=skip" \
@@ -204,10 +204,11 @@ with `skip`, whose agents work out what to build, how, and the plan, followed by
   BODY
   ```
 
-- **Work that needs settling first runs planning:** leave the planning stages on (no `--stage` for them) when what to
-  build, for whom or how is still open (a new area of the product, a choice between designs, a change to how
-  something works). If you already know the pieces, also write a draft Plan (`--plan-file`, "Writing a Plan" above)
-  for the planning stages to start from.
+- **Big work and work that needs settling first run planning:** leave the planning stages on (no `--stage` for them)
+  when you would write a Plan of several pieces, even when its design looks settled (rebuilding a website from a
+  finished design), or when what to build, for whom or how is still open (a new area of the product, a choice between
+  designs, a change to how something works). If you already know the pieces, also write a draft Plan (`--plan-file`,
+  "Writing a Plan" above) for the planning stages to start from.
 - **In the proposal table** a ticket's Choices cell says **"skips planning"** or **"runs planning"** instead of
   listing each planning stage, then any other choices after " · " ("skips planning · Dev: Quick developer"). A
   ticket with a draft Plan adds it: "runs planning · Plan · 3 pieces".
