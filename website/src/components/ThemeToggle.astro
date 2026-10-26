@@ -1,0 +1,74 @@
+---
+// The nav's light/dark switch (WEB-11, d0138 §1): a sun while the page is dark, a moon while it is light. The icon
+// follows `data-theme` on <html> and, without a pick, the system setting, in CSS, so it is right before the script
+// runs. The script flips to the other theme than the one shown, remembers the pick (theme.ts) and keeps the label
+// saying what a press does.
+---
+
+<button class="ibtn theme-toggle" type="button" aria-label="Switch between light and dark" data-theme-toggle>
+  <svg class="ic sun" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="4"></circle>
+    <path d="M12 2v2"></path>
+    <path d="M12 20v2"></path>
+    <path d="m4.93 4.93 1.41 1.41"></path>
+    <path d="m17.66 17.66 1.41 1.41"></path>
+    <path d="M2 12h2"></path>
+    <path d="M20 12h2"></path>
+    <path d="m6.34 17.66-1.41 1.41"></path>
+    <path d="m19.07 4.93-1.41 1.41"></path>
+  </svg>
+  <svg class="ic moon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+  </svg>
+</button>
+
+<style>
+  .moon {
+    display: none;
+  }
+  @media (prefers-color-scheme: light) {
+    :global(:root:not([data-theme="dark"])) .sun {
+      display: none;
+    }
+    :global(:root:not([data-theme="dark"])) .moon {
+      display: block;
+    }
+  }
+  :global(:root[data-theme="light"]) .sun {
+    display: none;
+  }
+  :global(:root[data-theme="light"]) .moon {
+    display: block;
+  }
+</style>
+
+<script>
+  import { type Theme, isTheme, nextTheme, savePick, shownTheme } from "./theme";
+
+  const root = document.documentElement;
+  const system = window.matchMedia("(prefers-color-scheme: light)");
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]")];
+
+  // The pick lives on <html> for the visit (the head script copied it from storage), so it holds with storage blocked.
+  function pick(): Theme | null {
+    const value = root.dataset.theme;
+    return isTheme(value) ? value : null;
+  }
+
+  function label(): void {
+    const next = nextTheme(shownTheme(pick(), system.matches));
+    for (const button of buttons) button.setAttribute("aria-label", `Switch to the ${next} theme`);
+  }
+
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      const next = nextTheme(shownTheme(pick(), system.matches));
+      root.dataset.theme = next;
+      savePick((key, value) => window.localStorage.setItem(key, value), next);
+      label();
+    });
+  }
+  // Without a pick, the page follows a system change live (CSS); keep the label in step.
+  system.addEventListener("change", label);
+  label();
+</script>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { demoFrame } from "./demoScale";
 import { BEAT_COUNT, beatView, jump, tick, toggle } from "./flow";
 import { OS, pickOs } from "./os";
+import { STORAGE_KEY, nextTheme, readPick, savePick, shownTheme } from "./theme";
 
 describe("pickOs", () => {
   it.each([
@@ -103,5 +104,57 @@ describe("demoFrame", () => {
     const f = demoFrame(vw);
     expect(f).toMatchObject(frame);
     expect(f.scale).toBeCloseTo(frame.width / 1280, 6);
+  });
+});
+
+describe("theme", () => {
+  it("flips to the other theme than the one shown", () => {
+    expect(nextTheme("dark")).toBe("light");
+    expect(nextTheme("light")).toBe("dark");
+  });
+
+  it("shows the pick, else the system setting", () => {
+    expect(shownTheme(null, false)).toBe("dark");
+    expect(shownTheme(null, true)).toBe("light");
+    expect(shownTheme("dark", true)).toBe("dark");
+    expect(shownTheme("light", false)).toBe("light");
+  });
+
+  it("reads a stored pick under otaq-theme", () => {
+    const keys: string[] = [];
+    const read = (key: string): string | null => {
+      keys.push(key);
+      return "light";
+    };
+    expect(readPick(read)).toBe("light");
+    expect(keys).toEqual([STORAGE_KEY]);
+    expect(STORAGE_KEY).toBe("otaq-theme");
+  });
+
+  it.each([
+    ["missing", null],
+    ["invalid", "solarized"],
+    ["empty", ""],
+  ])("treats a %s value as no pick", (_name, value) => {
+    expect(readPick(() => value)).toBeNull();
+  });
+
+  it("treats storage that throws as no pick", () => {
+    expect(
+      readPick(() => {
+        throw new Error("SecurityError");
+      }),
+    ).toBeNull();
+  });
+
+  it("saves the pick, and survives storage that throws", () => {
+    const saved: [string, string][] = [];
+    expect(savePick((key, value) => saved.push([key, value]), "dark")).toBe(true);
+    expect(saved).toEqual([["otaq-theme", "dark"]]);
+    expect(
+      savePick(() => {
+        throw new Error("QuotaExceededError");
+      }, "light"),
+    ).toBe(false);
   });
 });

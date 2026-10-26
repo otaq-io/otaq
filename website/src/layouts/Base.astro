@@ -17,7 +17,17 @@ const imageAlt = "Otaq: Your agents write the tickets. And then the code.";
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
+    <script is:inline>
+      // The visitor's theme pick (theme.ts: "otaq-theme", "dark" | "light"), applied before paint so a reload never
+      // flashes the other theme. No pick, or storage blocked: the page follows the system setting (WEB-11).
+      try {
+        var pick = window.localStorage.getItem("otaq-theme");
+        if (pick === "dark" || pick === "light") document.documentElement.dataset.theme = pick;
+      } catch {
+        // Storage blocked: follow the system.
+      }
+    </script>
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
