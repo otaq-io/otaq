@@ -45,6 +45,8 @@ pub const FORM_HEADING: &str = "Stage choices";
 /// The sheet's block.
 pub const SHEET_HEADING: &str = "Choices";
 pub const PATH_HEADING: &str = "Path";
+/// The label over the choices and the path in Overview's right column, above Attachments.
+pub const STAGES_HEADING: &str = "Stages";
 /// A row's value when nothing is known.
 const DASH: &str = "\u{2014}";
 

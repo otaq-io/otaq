@@ -89,6 +89,10 @@ choices: StageChoicesView | null,
  */
 path: TicketPathView | null, 
 /**
+ * "Stages": the label over the choices and the path in Overview's right column.
+ */
+stages_heading: string, 
+/**
  * The agent Open agent… opens (a held session's, or the one whose model the tool refused).
  */
 open_agent: string | null, 

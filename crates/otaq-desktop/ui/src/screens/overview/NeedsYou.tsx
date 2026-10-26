@@ -1,6 +1,7 @@
 // The top of the sheet's Overview, what the ticket needs from you (SHT-03, T-0465; UI-04, ATT-12, ATT-17): the action
 // bar of the ticket's state, or the answer options of an Asks-you question; the held roles' callouts, the refusal, the
-// queued notice, the conflict strip and the Start interrupted callout; the choices and the path. The M12 rows (d0063,
+// queued notice, the conflict strip and the Start interrupted callout. The choices and the path (`ChoicesAndPath`) sit
+// in Overview's right column, above Attachments. The M12 rows (d0063,
 // d0064): the validation buttons, the token split, the Auto-merge stop message and Answer the agent's note box. The
 // actions are the sheet's (`sheet/actions`); everything it says comes from `sheet.view`; it keeps only the picked
 // answer. At Review, "Manual checks for you" (the Overview's, `aboveBar`) sits above Approve, and a build set aside to
@@ -383,11 +384,11 @@ function Holds({ view }: { view: SheetView }) {
 }
 
 /**
- * The ticket's choices and its path under the action bar, in every sheet state (AGM-09; *05 → Row · Stage choices and
- * path (update AG §9)*): a pick goes to the service at once (`sheet.set_choice`), and the sheet follows the ticket's
- * change. Only the path on a flow without options.
+ * The ticket's choices and its path, in every sheet state (AGM-09; *05 → Row · Stage choices and path (update AG
+ * §9)*); Overview draws them in its right column under STAGES. A pick goes to the service at once
+ * (`sheet.set_choice`), and the sheet follows the ticket's change. Only the path on a flow without options.
  */
-function ChoicesAndPath({ view }: { view: SheetView }) {
+export function ChoicesAndPath({ view }: { view: SheetView }) {
   if (view.choices === null && view.path === null) return null;
   return (
     <div className="sheet-agents">
@@ -433,7 +434,7 @@ function MetaLine({ view }: { view: SheetView }) {
 /**
  * The top of the sheet's Overview (SHT-03's "what it needs from you", T-0465): the old panel header's lower part (the
  * conflict strip, the question with its options or the action bar with its callouts, the Auto-merge stop message,
- * Answer the agent's box), the choices and the path, the queued notice, the open PR's box and the Start interrupted
+ * Answer the agent's box), the queued notice, the open PR's box and the Start interrupted
  * callout. The registered sections (Stack, Messages) are Overview's own, under the description.
  */
 /** "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125). */
@@ -521,7 +522,6 @@ export function NeedsYou({
           />
         )}
       </div>
-      <ChoicesAndPath view={view} />
       {view.notice && <Notice view={view} notice={view.notice} />}
       {UnderTabs && <UnderTabs ticket={view.key} />}
       {view.start_problem && <StartProblem key={view.key} view={view} problem={view.start_problem} />}

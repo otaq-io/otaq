@@ -410,6 +410,8 @@ pub struct View {
     pub choices: Option<ChoicesView>,
     /// The ticket's path (AGM-09): every stage with its agent and model.
     pub path: Option<PathView>,
+    /// "Stages": the label over the choices and the path in Overview's right column.
+    pub stages_heading: &'static str,
     /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
     pub open_agent: Option<String>,
     /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
@@ -697,6 +699,7 @@ pub fn view_of(f: &Facts) -> View {
         live_agent: live,
         choices: f.agents.and_then(stage_choices::sheet_choices),
         path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
+        stages_heading: stage_choices::STAGES_HEADING,
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
         build_aside: build_aside::line(ticket),
         check_round: check_round(f),

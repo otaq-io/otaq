@@ -165,6 +165,7 @@ export const VIEW: SheetView = {
   live_agent: true,
   choices: null,
   path: null,
+  stages_heading: "Stages",
   open_agent: null,
   build_aside: null,
   check_round: null,

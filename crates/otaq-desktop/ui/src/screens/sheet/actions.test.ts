@@ -359,7 +359,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
     ],
   };
 
-  it("sit under the action bar in Overview, with the token line", () => {
+  it("sit under STAGES in Overview's right column, above Attachments, not in the left one", () => {
     const out = render({
       ...VIEW,
       choices: CHOICES,
@@ -367,9 +367,19 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
       token_split: "Rust developer 61k · no validation yet",
     });
     expect(out).toContain("Rust developer 61k · no validation yet");
+    const page = new DOMParser().parseFromString(out, "text/html");
+    expect(page.querySelector(".overview-main .sheet-bar")).not.toBeNull();
+    expect(page.querySelector(".overview-main .sheet-agents")).toBeNull();
+    const side = page.querySelector(".overview-side");
+    expect(side?.firstElementChild?.className).toBe("overview-stages");
+    const stages = side?.querySelector(".overview-stages");
+    expect(stages?.querySelector(".editor-section-name")?.textContent).toBe("STAGES");
+    expect(stages?.getAttribute("aria-label")).toBe("Stages");
+    expect(stages?.querySelector(".sheet-agents .stage-choices")).not.toBeNull();
+    expect(stages?.querySelector(".sheet-agents .ticket-path")).not.toBeNull();
+    // The choices, then the path.
     const at = (text: string) => out.indexOf(text);
-    expect(at("sheet-tabs")).toBeLessThan(at("sheet-bar"));
-    expect(at("sheet-bar")).toBeLessThan(at("sheet-agents"));
+    expect(at('class="stage-choices"')).toBeLessThan(at('class="ticket-path"'));
     expect(out).toContain("set by Noyan");
     expect(out).toContain('aria-label="Locked: Dev has started"');
     expect(out).toContain('data-agent="true"');
@@ -383,6 +393,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
     expect(only).not.toContain('class="stage-choices"');
     expect(only).toContain("ticket-path");
     expect(render(VIEW)).not.toContain("sheet-agents");
+    expect(render(VIEW)).not.toContain("overview-stages");
   });
 
   it("a pick goes to the service at once (sheet.set_choice)", () => {
