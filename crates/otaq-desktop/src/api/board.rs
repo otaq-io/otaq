@@ -751,7 +751,7 @@ mod tests {
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
         assert_eq!(view["columns"][4]["sections"][1]["empty"], "Nothing approved");
-        assert_eq!(view["min_column_width"], 180.0);
+        assert_eq!(view["min_column_width"], 240.0);
 
         // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
         let mut gone = params.clone();

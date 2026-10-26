@@ -1716,7 +1716,7 @@ mod tests {
                 "Done"
             ]
         );
-        assert_eq!(page.min_column_width, 180.);
+        assert_eq!(page.min_column_width, 240.);
         assert_eq!(page.folded_width, 52.);
         assert_eq!(page.empty, None);
         let backlog = &page.columns[0];
@@ -2843,10 +2843,10 @@ flow:
         c.cards.iter().chain(dev).chain(sections).collect()
     }
 
-    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no agent panel) the seven columns fit and share
-    /// the width, Done is its "Done 4 →" line, Ready says "Starts in priority order", and each card reads as drawn.
+    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no agent panel) the seven columns keep their
+    /// 240 px and the board scrolls with "2 more stages", Done is its "Done 4 →" line, Ready says "Starts in priority order", and each card reads as drawn.
     #[test]
-    fn the_example_board_fits_at_1440_with_one_line_cards() {
+    fn the_example_board_scrolls_at_1440_with_one_line_cards() {
         use crate::view_models::card::Tone;
         let flow = shop_web();
         let tickets = shop_web_tickets();
@@ -2879,7 +2879,11 @@ flow:
                 "PR open \u{b7} PR"
             ]
         );
-        assert_eq!(page.more_stages.at_start, None, "seven columns fit at 1440");
+        assert_eq!(
+            page.more_stages.at_start.as_deref(),
+            Some("2 more stages"),
+            "seven columns scroll at 1440"
+        );
         assert_eq!(page.done.as_ref().unwrap().text, "Done 4 \u{2192}");
         assert_eq!(
             page.columns[1].hint.as_deref(),
@@ -2966,10 +2970,10 @@ flow:
         assert_eq!(working.time.as_ref().unwrap().text, "3m");
     }
 
-    /// BRD-02 on a 12-stage flow (`s24-04`): every column keeps 180 px, nothing folds by itself, and at 1440 the
-    /// board scrolls with "7 more stages"; Fold empty columns folds the empty ones to rails.
+    /// BRD-02 on a 12-stage flow (`s24-04`): every column keeps 240 px, nothing folds by itself, and at 1440 the
+    /// board scrolls with "9 more stages"; Fold empty columns folds the empty ones to rails.
     #[test]
-    fn a_twelve_stage_flow_scrolls_with_seven_more_stages() {
+    fn a_twelve_stage_flow_scrolls_with_nine_more_stages() {
         let flow = twelve_stages();
         let tickets = shop_web_tickets()
             .into_iter()
@@ -2989,7 +2993,7 @@ flow:
         );
         let open = page.columns.iter().filter(|c| !c.collapsed).count();
         assert_eq!(open, 14, "Backlog, Ready for Dev and twelve stages");
-        assert_eq!(page.more_stages.at_start.as_deref(), Some("7 more stages"));
+        assert_eq!(page.more_stages.at_start.as_deref(), Some("9 more stages"));
         assert_eq!(
             (
                 page.more_stages.one.as_str(),
