@@ -872,9 +872,9 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     out.push_str(&format!(
         "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nKeep it short: one or two lines, one line per \
          finding with its file and line; notes start with \"Note:\". Finish with `{cmd} check pass --stdin` or \
-         `{cmd} check fail --stdin` and the verdict on stdin. Save the full check run to a file in `${dir}` (never \
-         in the worktree) and attach it with `--report-file`: `{cmd} check fail --stdin --report-file \
-         \"${dir}/test-run.txt\"`. {manual}\n",
+         `{cmd} check fail --stdin` and the verdict on stdin. The agent's comment says what it ran; decide yourself \
+         whether to run it again. Save any run to a file in `${dir}` (never in the worktree) and name it in the \
+         verdict. {manual}\n",
         ctx.diff.trim_end(),
         dir = naming::resource_dir_env_var(),
         manual = MANUAL_CHECK_RULE.replace("{cmd}", cmd).replace("{command}", "check pass|fail"),

@@ -216,7 +216,7 @@ impl Validation {
     }
 
     /// `otaq check pass|fail --stdin [--report-file PATH]` from the ticket's checker (VAL-03 … VAL-06): the verdict's
-    /// text is the checker's comment (`hand_over`, with its report; CMT-05). Pass: Ready for Review, "Validated ·
+    /// text is the checker's comment (`hand_over`; `--report-file` is a document attached to the comment, CMT-05). Pass: Ready for Review, "Validated ·
     /// round N". Fail with rounds left: the agent is told "Validate failed round 2. Run `otaq prime`." and works
     /// again, "Validation failed · round N of M". The last round: "Validation failed M times", nothing delivered. The
     /// validator ends once its turn ends. A refused verdict posts nothing.
