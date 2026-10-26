@@ -52,7 +52,7 @@ function row(
     palette: "queued",
     track: {
       steps: [
-        { name: "Grill", fill: null },
+        { name: "Product spec", fill: null },
         { name: "Dev", fill: null },
       ],
       label: "—",
@@ -87,7 +87,7 @@ const LIST: ListView = {
     group(
       "backlog",
       "Backlog",
-      [row("SHOP-41", "Fix README typo", { start: { label: "Start", target: "grill" } })],
+      [row("SHOP-41", "Fix README typo", { start: { label: "Start", target: "product-spec" } })],
       {
         hint: "drag a row to Ready, or Start",
         target: "backlog",
@@ -98,8 +98,8 @@ const LIST: ListView = {
       target: "ready_for_dev",
     }),
     group(
-      "grill",
-      "Grill",
+      "product-spec",
+      "Product spec",
       [
         row(
           "SHOP-12",
@@ -110,10 +110,10 @@ const LIST: ListView = {
             needs_you: true,
             track: {
               steps: [
-                { name: "Grill", fill: "attn" },
+                { name: "Product spec", fill: "attn" },
                 { name: "Dev", fill: null },
               ],
-              label: "Grill",
+              label: "Product spec",
             },
           },
           {
@@ -124,13 +124,13 @@ const LIST: ListView = {
               icon: null,
             },
             edge: "attention",
-            who: "Griller",
+            who: "Spec writer",
             time: { text: "8m", stale: false },
             action: { kind: "open", label: "Reply", icon: null, primary: true },
           },
         ),
       ],
-      { target: "grill" },
+      { target: "product-spec" },
     ),
     group("validate", "Validate", [], { target: null }),
     group("done", "Done", [], {
@@ -160,12 +160,12 @@ describe("the List's rows", () => {
     expect(nextRow(rowKeys(LIST), "SHOP-35", 1)).toBe("SHOP-12");
     expect(nextRow(rowKeys(LIST), "SHOP-41", -1)).toBeNull();
     expect(nextRow(rowKeys(LIST), "SHOP-99", 1)).toBeNull();
-    expect(findRow(LIST, "SHOP-12")?.group.title).toBe("Grill");
+    expect(findRow(LIST, "SHOP-12")?.group.title).toBe("Product spec");
     expect(findRow(LIST, "SHOP-99")).toBeNull();
   });
 
   it("takes drops only on the groups with a target, from head to last row", () => {
-    expect(listTargets(LIST)).toEqual(["backlog", "ready_for_dev", "grill", "done"]);
+    expect(listTargets(LIST)).toEqual(["backlog", "ready_for_dev", "product-spec", "done"]);
     expect(dragsRows(LIST)).toBe(true);
     const byStatus: ListView = { ...LIST, groups: LIST.groups.map((g) => ({ ...g, target: null })) };
     expect(dragsRows(byStatus)).toBe(false);
@@ -199,7 +199,7 @@ describe("the List", () => {
       "drag a row to Ready, or Start",
       "starts in priority order",
       "Asks you: follow the system setting?",
-      "Griller",
+      "Spec writer",
       "8m",
       "Reply",
       "Start",
@@ -255,7 +255,7 @@ describe("the List", () => {
         button("Start").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
         button("Start").click();
       });
-      expect(h.start).toHaveBeenCalledWith("SHOP-41", "grill");
+      expect(h.start).toHaveBeenCalledWith("SHOP-41", "product-spec");
       expect(h.press).not.toHaveBeenCalled();
       act(() => {
         button("Reply").click();
@@ -271,7 +271,7 @@ describe("the List", () => {
       });
       expect(h.press).toHaveBeenCalledWith("SHOP-35", expect.anything());
       // Group by Stage's targets registered their elements; Validate (no target) didn't.
-      expect([...groups.keys()].sort()).toEqual(["backlog", "done", "grill", "ready_for_dev"]);
+      expect([...groups.keys()].sort()).toEqual(["backlog", "done", "product-spec", "ready_for_dev"]);
       expect(host.querySelector('[aria-label="Ready"]')?.getAttribute("data-verdict")).toBe("allowed");
     });
   });

@@ -28,11 +28,11 @@ use otaq_core::tools::CheckEnv;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
-/// The stand-in's first proposal: Grill first, and a Security check before the user's review.
+/// The stand-in's first proposal: Product spec before Dev, and a Security check before the user's review.
 const FIRST: &str = "\
 agents:
-  - name: Griller
-    skills: [grill]
+  - name: Spec writer
+    skills: [product-spec]
     model: default
   - name: Developer
     skills: [work-ticket, commit]
@@ -41,13 +41,13 @@ agents:
     skills: [validate]
     model: default
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
-    why: Most of your sessions start with /grill
+    agent: Spec writer
+    skill: product-spec
+    why: Most of your sessions start with /product-spec
   - id: dev
     name: Dev
     kind: agent
@@ -78,7 +78,7 @@ flow:
     delivers: either
 ";
 
-/// After "Leave out Grill": the same without it.
+/// After "Leave out Product spec": the same without it.
 const SECOND: &str = "\
 agents:
   - name: Developer
@@ -301,7 +301,7 @@ async fn the_flow_agent_proposes_and_the_second_proposal_applies() {
     assert_eq!(
         why,
         [
-            "Most of your sessions start with /grill",
+            "Most of your sessions start with /product-spec",
             "You asked for a security review before 4 of your last merges"
         ]
     );
@@ -312,7 +312,7 @@ async fn the_flow_agent_proposes_and_the_second_proposal_applies() {
     );
 
     // Ask for more changes reaches the agent as its next message; it proposes again.
-    let changes = "Leave out Grill: I write my own tickets";
+    let changes = "Leave out Product spec: I write my own tickets";
     let reply = ask(
         &w,
         Request::FlowAskForChanges(AskForChangesParams {
@@ -400,7 +400,7 @@ async fn with_no_tool_connected_a_preset_applies_instead() {
     );
     assert!(!mac.files.join("first.id").exists());
 
-    let file = "grill-first.yaml";
+    let file = "spec-first.yaml";
     let reply = ask(
         &w,
         Request::FlowProposeFrom(ProposeFromParams {

@@ -364,11 +364,11 @@ mod tests {
             column: column.into(),
             folded,
         };
-        apply(&mut prefs, &fold("grill", true));
-        apply(&mut prefs, &fold("grill", true));
-        assert_eq!(prefs.folded_columns, ["done", "grill"]);
+        apply(&mut prefs, &fold("product-spec", true));
+        apply(&mut prefs, &fold("product-spec", true));
+        assert_eq!(prefs.folded_columns, ["done", "product-spec"]);
         apply(&mut prefs, &fold("done", false));
-        assert_eq!(prefs.folded_columns, ["grill"]);
+        assert_eq!(prefs.folded_columns, ["product-spec"]);
         apply(
             &mut prefs,
             &Change::View {
@@ -404,10 +404,10 @@ mod tests {
         );
         assert!(page.fold_empty_columns && page.hide_empty_stages && page.dev_unfolded);
         assert_eq!(page.folded_sections, ["ship"]);
-        // On the wire: `{"kind": "fold_column", "column": "grill", "folded": true}`.
+        // On the wire: `{"kind": "fold_column", "column": "product-spec", "folded": true}`.
         assert_eq!(
-            serde_json::to_value(fold("grill", true)).unwrap(),
-            serde_json::json!({"kind": "fold_column", "column": "grill", "folded": true})
+            serde_json::to_value(fold("product-spec", true)).unwrap(),
+            serde_json::json!({"kind": "fold_column", "column": "product-spec", "folded": true})
         );
     }
 

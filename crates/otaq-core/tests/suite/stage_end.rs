@@ -78,8 +78,9 @@ async fn submit(w: &TestService, ticket: &Ticket, summary: &str) -> Ticket {
         .unwrap()
 }
 
-/// The test flow: finishing Grill waits before Dev and records "Finished Grill"; finishing Dev starts the Validate
-/// check and records "Finished Dev"; neither is "Submitted for review". `prime` still finds the latest summary.
+/// The test flow: finishing Product spec waits before Dev and records "Finished Product spec"; finishing Dev starts the
+/// Validate check and records "Finished Dev"; neither is "Submitted for review". `prime` still finds the latest
+/// summary.
 #[tokio::test(flavor = "multi_thread")]
 async fn finished_stages_on_the_test_flow() {
     let w = TestService::start().await;
@@ -88,7 +89,7 @@ async fn finished_stages_on_the_test_flow() {
     let t = w.create("SHOP", "Export as CSV").await;
     w.start_worktree(&t).await;
     w.force_status(&t, Status::Working).await;
-    into_stage(&w, &t, "grill").await;
+    into_stage(&w, &t, "product-spec").await;
 
     let after = submit(&w, &t, "Agreed: CSV with a header row.").await;
     assert_eq!(after.place, Place::Waiting(Some("dev".into())));
@@ -96,7 +97,7 @@ async fn finished_stages_on_the_test_flow() {
         stage_ends(&w, "SHOP-1").await,
         [(
             EventKind::StageFinished,
-            Some("Grill".into()),
+            Some("Product spec".into()),
             "Agreed: CSV with a header row.".into()
         )]
     );

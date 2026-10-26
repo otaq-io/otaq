@@ -2,6 +2,6 @@
 import type { FlowSource } from "./FlowSource";
 
 /**
- * `{"project": "SHOP", "source": {"from": "preset", "file": "grill-first.yaml"}}`.
+ * `{"project": "SHOP", "source": {"from": "preset", "file": "spec-first.yaml"}}`.
  */
 export type FlowProposeParams = { project: string, source: FlowSource, };

@@ -16,8 +16,8 @@
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
 //!   Its **agent part** (M22, AGT-04, AGM-09; [`footer_agent`]): while an agent runs, the agent of whoever has the
 //!   turn and its model ("Rust developer · sonnet"); a ticket waiting before an Agent stage says where it starts
-//!   ("Grill · Griller · sonnet"); a held role names the agent it would start on. No choice line before the start
-//!   (the sheet and the form show the choices), and nothing names an agent while there is only one (d0086).
+//!   ("Product spec · Spec writer · sonnet"); a held role names the agent it would start on. No choice line before the
+//!   start (the sheet and the form show the choices), and nothing names an agent while there is only one (d0086).
 //! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
 //! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you / Idle
@@ -32,7 +32,7 @@
 //! role held before it starts ([`AgentFacts::holds`], T-0357's `agent_holds`) takes the head with **Unavailable**
 //! (amber: its tool isn't available, or its model is no longer listed) or **Limit** (neutral: its tool is at its
 //! limit), never turquoise and never in Needs you. A model that can't run (its tool not available, the model no
-//! longer listed) says **Can't start** ("Griller's model can't run: Claude Code isn't available"); the card offers
+//! longer listed) says **Can't start** ("Spec writer's model can't run: Claude Code isn't available"); the card offers
 //! **Use fallback** (when the tool's fallback can take it) and **Open agent…** (AGM-03, d0108 second gap review rule
 //! 7). A session on its tool's fallback says so while it runs, amber ("On Codex · Claude Code limit", AGM-03). A
 //! swapped model changes nothing on the card (the sheet says it).
@@ -1960,7 +1960,7 @@ pub fn hold_reason_text(reason: HoldReason, tool: &str) -> String {
 }
 
 /// The flag and line of a held role (0086, SDD §7.2; *03 → A model that can't run*): **Can't start** (red) for a
-/// model that can't run, its tool not available or the model no longer listed ("Griller's model can't run: Claude
+/// model that can't run, its tool not available or the model no longer listed ("Spec writer's model can't run: Claude
 /// Code isn't available"); Limit (neutral) for a tool at its limit ("Claude Code limit · resets 3:45 pm"). The
 /// buttons say what helps (Use fallback, Open agent…).
 fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
@@ -2313,8 +2313,8 @@ fn footer(
 
 /// The footer's agent part (update Y §8, AGT-04, AGM-09; *03 → Two projects, two flows*): never while there is only
 /// one agent (d0086). While an agent runs, whoever has the turn's with its model ("Rust developer · sonnet", the
-/// validator while it validates); a ticket waiting before an Agent stage says where it starts ("Grill · Griller ·
-/// sonnet"); a held role names the agent it would start on. No choice line before the start.
+/// validator while it validates); a ticket waiting before an Agent stage says where it starts ("Product spec · Spec
+/// writer · sonnet"); a held role names the agent it would start on. No choice line before the start.
 pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<FooterAgent> {
     let a = &x.agents;
     if a.count < 2 {
@@ -3151,7 +3151,7 @@ mod tests {
             (
                 "Your check \u{b7} skipped by Noyan",
                 Some("Your check"),
-                Some("Skipped Grill \u{b7} by Noyan"),
+                Some("Skipped Product spec \u{b7} by Noyan"),
                 Some("[Approve] [Send back\u{2026}]"),
             ),
             (
@@ -5115,20 +5115,20 @@ mod tests {
         let waiting = CardExtras {
             agents: AgentFacts {
                 starts: Some(CardStart {
-                    stage: "Grill".into(),
-                    agent: "Griller".into(),
+                    stage: "Product spec".into(),
+                    agent: "Spec writer".into(),
                     model: Some(ModelRef {
                         tool: Tool::Claude,
                         model: Some("sonnet".into()),
                     }),
                 }),
-                ..card_fixtures::named("Griller")
+                ..card_fixtures::named("Spec writer")
             },
             ..main_project()
         };
         assert_eq!(
             agent_of(Status::Queued, &waiting).as_deref(),
-            Some("Grill \u{b7} Griller \u{b7} sonnet")
+            Some("Product spec \u{b7} Spec writer \u{b7} sonnet")
         );
         assert_eq!(agent_of(Status::Backlog, &waiting), None);
         // One agent only: nothing (d0086).
@@ -5153,16 +5153,16 @@ mod tests {
             H::ToolUnavailable,
             Tool::Claude,
             None,
-            "Griller",
+            "Spec writer",
             Some(Tool::Codex),
             true,
             false,
         );
-        hold.agent_id = Some("griller".into());
+        hold.agent_id = Some("spec-writer".into());
         let x = CardExtras {
             agents: AgentFacts {
                 holds: vec![hold],
-                ..card_fixtures::named("Griller")
+                ..card_fixtures::named("Spec writer")
             },
             ..main_project()
         };
@@ -5171,7 +5171,7 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Can\u{2019}t start"));
         assert_eq!(
             line(&vm),
-            Some("Griller\u{2019}s model can\u{2019}t run: Claude Code isn\u{2019}t available")
+            Some("Spec writer\u{2019}s model can\u{2019}t run: Claude Code isn\u{2019}t available")
         );
         let footer = vm.footer.unwrap();
         assert_eq!(
@@ -5184,7 +5184,7 @@ mod tests {
                 Some((CardActionKind::OpenAgent, "Open agent\u{2026}"))
             )
         );
-        assert_eq!(open_agent(&t, &x).as_deref(), Some("griller"));
+        assert_eq!(open_agent(&t, &x).as_deref(), Some("spec-writer"));
         let refused = CardExtras {
             agents: AgentFacts {
                 refused_agent: Some("fable".into()),

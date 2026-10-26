@@ -135,7 +135,7 @@ fn the_default_and_the_test_flow_pass_the_checks() {
         dev.options,
         [StageOption::Agent("Quick developer".to_owned())]
     );
-    assert!(every.flow.stage("grill").unwrap().can_skip());
+    assert!(every.flow.stage("product-spec").unwrap().can_skip());
     // Validate shows in Dev's column; Security has its own.
     assert_eq!(every.flow.column_owner(2), Some(1));
     assert_eq!(every.flow.column_owner(3), Some(3));
@@ -342,7 +342,7 @@ fn each_rule_refuses_its_broken_file() {
 fn every_skip_combination_is_walked() {
     // Three Agent stages, all skippable: skipping all three leaves none.
     let text = "flow:
-  - {name: Grill, kind: agent, agent: Griller, skill: grill, options: [skip]}
+  - {name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
   - {name: Plan, kind: agent, agent: Noyan, skill: plan, options: [skip]}
   - {name: Dev, kind: agent, agent: Developer, skill: work-ticket, options: [skip]}
   - {name: Done, kind: delivery, mode: click, delivers: local}
@@ -353,7 +353,7 @@ fn every_skip_combination_is_walked() {
             .iter()
             .map(|p| p.message.as_str())
             .collect::<Vec<_>>(),
-        ["If Grill, Plan and Dev are all skipped, no Agent stage runs"]
+        ["If Product spec, Plan and Dev are all skipped, no Agent stage runs"]
     );
 
     // A skippable human check after only skippable Agent stages is allowed (0129 row 4: a ticket that skips them
@@ -574,14 +574,14 @@ fn check_agents_and_fails_go_to_round_trip() {
     );
     assert_eq!(check(&read.flow), Ok(()));
 
-    // The test flow: Security has two check agents, QA's fails go to Grill rather than the nearest (Dev).
+    // The test flow: Security has two check agents, QA's fails go to Product spec rather than the nearest (Dev).
     let every = yaml::read(&every_kind()).unwrap();
     let security = every.flow.stage("security").unwrap();
     assert_eq!(security.check_agents(), ["Security reviewer", "Validator"]);
     let qa = every.flow.stage("qa").unwrap();
     assert_eq!(
         every.flow.fail_to_of(qa).map(|s| s.id.as_str()),
-        Some("grill")
+        Some("product-spec")
     );
 }
 
@@ -597,11 +597,15 @@ fn fails_go_to_the_named_stage_else_the_nearest() {
     };
     assert_eq!(target("validate").as_deref(), Some("dev"));
     assert_eq!(target("security").as_deref(), Some("dev"));
-    assert_eq!(target("qa").as_deref(), Some("grill"));
+    assert_eq!(target("qa").as_deref(), Some("product-spec"));
     let mut gone = flow.clone();
-    gone.stages.retain(|s| s.id != "grill");
+    gone.stages.retain(|s| s.id != "product-spec");
     let qa = gone.stage("qa").unwrap();
-    assert_eq!(qa.fail_to.as_deref(), Some("grill"), "still set in memory");
+    assert_eq!(
+        qa.fail_to.as_deref(),
+        Some("product-spec"),
+        "still set in memory"
+    );
     assert_eq!(gone.fail_to_of(qa).map(|s| s.id.as_str()), Some("dev"));
     assert_eq!(
         check(&gone),

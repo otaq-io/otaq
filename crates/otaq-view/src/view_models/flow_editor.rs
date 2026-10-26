@@ -25,13 +25,14 @@
 //!
 //! **Templates and skills** (T-0472; FED-05, FED-06; d0115 "Stage templates fill the shape, the user supplies the
 //! skill"; `s26-09`, `s27-05`, `s27-06`): a stage the user added has **Start from** templates in its details
-//! ([`Templates`]): Plan, Security check, Visual check, Docs and Blank fill only the name and the kind; Grill,
-//! Validate, Review and PR delivery come from Otaq's presets complete, skill included. An agent stage with no skill
-//! offers **Pick a skill…** (the user's imported skills, searchable) and **Ask the agent to write it** (the Project
-//! agent writes it in Otaq's folder and hands it in as Otaq's copy, d0092, never the repo, d0023); while it writes the
-//! field says so with Stop, then shows the skill tinted with Open and Undo ([`SkillState`]). Apply stays off while an
-//! agent stage has no skill ("Plan needs a skill"). **Ask the agent to write it** sends nothing (Q441): it puts "Write a
-//! skill for the Plan stage: " in the panel's box ([`write_skill_prefill`]) for the user to finish and send.
+//! ([`Templates`]): Plan, Security check, Visual check, Docs and Blank fill only the name and the kind; Product
+//! spec, Tech spec, Milestone plan, Validate, Review and PR delivery come from Otaq's presets complete, skill included.
+//! An agent stage with no skill offers **Pick a skill…** (the user's imported skills, searchable) and **Ask the agent
+//! to write it** (the Project agent writes it in Otaq's folder and hands it in as Otaq's copy, d0092, never the repo,
+//! d0023); while it writes the field says so with Stop, then shows the skill tinted with Open and Undo
+//! ([`SkillState`]). Apply stays off while an agent stage has no skill ("Plan needs a skill"). **Ask the agent to write
+//! it** sends nothing (Q441): it puts "Write a skill for the Plan stage: " in the panel's box ([`write_skill_prefill`])
+//! for the user to finish and send.
 //!
 //! **Problems that need a pick** (Q426; FED-04, FLW-04's controls): a step whose problem has a fix shows it in its
 //! details ([`FixRow`]): an import clash's Keep mine (the default) · Take theirs · Add as "<name> (<file>)", the model
@@ -57,7 +58,7 @@ use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark
 use otaq_core::flow::model::{
     CheckBy, Column, Delivers, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption,
 };
-use otaq_core::flow::presets::{preset, presets};
+use otaq_core::flow::presets::{SPEC_FIRST_FILE, preset, presets};
 use otaq_core::flow::proposal::{
     About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
     ProposalProblem, Source, flow_agent_of,
@@ -185,7 +186,9 @@ pub enum Template {
     Visual,
     Docs,
     Blank,
-    Grill,
+    ProductSpec,
+    TechSpec,
+    MilestonePlan,
     Validate,
     Review,
     PrDelivery,
@@ -201,8 +204,14 @@ impl Template {
         Self::Blank,
     ];
     /// "From Otaq's presets · complete, skill included".
-    pub const FROM_PRESETS: [Self; 4] =
-        [Self::Grill, Self::Validate, Self::Review, Self::PrDelivery];
+    pub const FROM_PRESETS: [Self; 6] = [
+        Self::ProductSpec,
+        Self::TechSpec,
+        Self::MilestonePlan,
+        Self::Validate,
+        Self::Review,
+        Self::PrDelivery,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -211,7 +220,9 @@ impl Template {
             Self::Visual => "Visual check",
             Self::Docs => "Docs",
             Self::Blank => "Blank",
-            Self::Grill => "Grill",
+            Self::ProductSpec => "Product spec",
+            Self::TechSpec => "Tech spec",
+            Self::MilestonePlan => "Milestone plan",
             Self::Validate => "Validate",
             Self::Review => "Review",
             Self::PrDelivery => "PR delivery",
@@ -225,7 +236,7 @@ impl Template {
             Self::Visual => IconName::ScanEye,
             Self::Docs => IconName::BookOpen,
             Self::Blank => IconName::SquareDashed,
-            Self::Grill => IconName::Bot,
+            Self::ProductSpec | Self::TechSpec | Self::MilestonePlan => IconName::Bot,
             Self::Review => IconName::UserCheck,
             Self::PrDelivery => IconName::GitPullRequest,
         }
@@ -244,11 +255,13 @@ impl Template {
         })
     }
 
-    /// The shipped preset and stage a preset template copies: Grill from Grill first, Validate and Review from Otaq
-    /// default, the PR delivery from Team PR.
+    /// The shipped preset and stage a preset template copies: Product spec, Tech spec and Milestone plan from Spec
+    /// first, Validate and Review from Otaq default, the PR delivery from Team PR.
     fn preset_source(self) -> Option<(&'static str, &'static str)> {
         Some(match self {
-            Self::Grill => ("grill-first.yaml", "grill"),
+            Self::ProductSpec => (SPEC_FIRST_FILE, "product-spec"),
+            Self::TechSpec => (SPEC_FIRST_FILE, "tech-spec"),
+            Self::MilestonePlan => (SPEC_FIRST_FILE, "milestone-plan"),
             Self::Validate => (otaq_core::naming::DEFAULT_FLOW_FILE, "validate"),
             Self::Review => (otaq_core::naming::DEFAULT_FLOW_FILE, "review"),
             Self::PrDelivery => ("team-pr.yaml", "deliver"),
@@ -423,8 +436,16 @@ pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
             "An agent writes the code in the ticket\u{2019}s own copy of the repo (a worktree)."
                 .to_owned()
         }
-        "grill" => {
-            "An agent asks you questions until the ticket is clear, before any code is written."
+        "product-spec" => {
+            "An agent asks you what to build, for whom and why, then writes down what you agreed."
+                .to_owned()
+        }
+        "tech-spec" => {
+            "An agent works out how to build it, asking you where a choice matters, and writes it down."
+                .to_owned()
+        }
+        "milestone-plan" => {
+            "An agent writes the ticket\u{2019}s plan: the pieces, their order and what each waits for."
                 .to_owned()
         }
         "validate" => format!(
@@ -440,7 +461,7 @@ pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
 fn preset_line(file: &str) -> &'static str {
     match file {
         "solo-autopilot.yaml" => "No review; merges when checks pass",
-        "grill-first.yaml" => "Settle the ticket before code",
+        "spec-first.yaml" => "Plan on the board, then build",
         "team-pr.yaml" => "Your team reviews the PR",
         _ => "Agents build and check; you review",
     }
@@ -731,12 +752,12 @@ pub struct TemplateChip {
     pub chosen: bool,
 }
 
-/// A new stage's Start from (FED-05, `s27-05`): "New stage after Grill", the plain templates and the presets' ones.
-/// `FlowEditorTemplates` on the page.
+/// A new stage's Start from (FED-05, `s27-05`): "New stage after Product spec", the plain templates and the presets'
+/// ones. `FlowEditorTemplates` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorTemplates")]
 pub struct Templates {
-    /// "New stage after Grill".
+    /// "New stage after Product spec".
     pub title: String,
     pub label: &'static str,
     /// "name and kind; no skill".
@@ -1415,7 +1436,7 @@ fn ticket_state(stage: &Stage, long: bool) -> (String, PillView) {
         _ => word.to_owned(),
     };
     match stage.kind {
-        StageKind::Agent if stage.skill.as_deref() == Some("grill") => (
+        StageKind::Agent if stage.skill.as_deref() == Some("product-spec") => (
             "Asks you a question".to_owned(),
             PillView::legend(Legend::AsksYou, None),
         ),
@@ -1986,7 +2007,7 @@ fn details(f: &Facts, stage: &Stage) -> Details {
     }
 }
 
-/// The source's name in onboarding's summary: "Otaq default", "Grill first", "By Claude Code".
+/// The source's name in onboarding's summary: "Otaq default", "Spec first", "By Claude Code".
 fn source_name(f: &Facts) -> String {
     if let Some(tool) = f.proposal.proposed_by.tool().filter(|_| f.swap) {
         return format!("By {}", tool.display_name());
@@ -3099,11 +3120,11 @@ pub fn gallery() -> Gallery {
             agent: "Security reviewer".into(),
         }],
     );
-    let review_to_grill = checks(
+    let review_to_product_spec = checks(
         &shop,
         &[StageEdit::FailTo {
             stage: "review".into(),
-            to: Some("grill".into()),
+            to: Some("product-spec".into()),
         }],
     );
     let check = |(file, proposal): &'_ (FlowFile, Proposal), selected: &'_ str| -> View {
@@ -3243,7 +3264,7 @@ pub fn gallery() -> Gallery {
             ),
             (
                 "Fails go to on a check by you".to_owned(),
-                check(&review_to_grill, "review"),
+                check(&review_to_product_spec, "review"),
             ),
         ],
     }
@@ -3294,10 +3315,10 @@ pub mod fixtures {
         (new, draft)
     }
 
-    /// shop-web on Grill first with a Security check (the ticket file's example): 7 steps.
+    /// shop-web with Product spec before Dev and a Security check (the ticket file's example): 7 steps.
     pub const SHOP_WEB: &str = "agents:
-  - name: Griller
-    skills: [grill]
+  - name: Spec writer
+    skills: [product-spec]
     model: default
   - name: Rust developer
     skills: [work-ticket]
@@ -3309,12 +3330,12 @@ pub mod fixtures {
     skills: [security-review]
     model: default
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
+    agent: Spec writer
+    skill: product-spec
   - id: dev
     name: Dev
     kind: agent
@@ -3392,19 +3413,19 @@ flow:
         vec![
             agent("a1", "Developer", "work-ticket"),
             agent("a2", "Validator", "validate"),
-            agent("a3", "Griller", "grill"),
+            agent("a3", "Spec writer", "product-spec"),
             agent("a4", "Rust developer", "work-ticket"),
             security,
         ]
     }
 
-    /// shop-web with Plan picked after Grill (`s27-05`), its skill `skill` (none: "Plan needs a skill"), and the
+    /// shop-web with Plan picked after Product spec (`s27-05`), its skill `skill` (none: "Plan needs a skill"), and the
     /// draft's proposal.
     pub fn plan_draft(skill: Option<&str>) -> (FlowFile, Proposal) {
         let (added, new) = edited(
             &shop_web(),
             &StageEdit::Add {
-                after: Some("grill".into()),
+                after: Some("product-spec".into()),
             },
             &stored(),
         )
@@ -3645,10 +3666,22 @@ mod tests {
             [
                 (default.as_str(), 5, true),
                 ("Solo autopilot", 4, false),
-                ("Grill first", 6, false),
+                ("Spec first", 9, false),
                 ("Team PR", 4, false)
             ]
         );
+        // Start from reads the shipped list, in its order, with no names of its own.
+        let listed: Vec<(&str, &str)> = presets()
+            .iter()
+            .map(|p| (p.name.as_str(), p.file))
+            .collect();
+        let shown: Vec<(&str, &str)> = v
+            .start_from
+            .entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.key.as_str()))
+            .collect();
+        assert_eq!(shown, listed);
         assert_eq!(
             v.start_from.entries[0].line,
             "Agents build and check; you review"
@@ -3698,7 +3731,7 @@ mod tests {
             names(&v),
             [
                 "Ready for Dev",
-                "Grill",
+                "Product spec",
                 "Dev",
                 "Validate",
                 "Security",
@@ -3767,6 +3800,32 @@ mod tests {
                 "A file\u{2026}",
                 "FROM A PROJECT",
                 "billing-api\u{2019}s flow"
+            ]
+        );
+    }
+
+    /// d0115, d0129: Spec first's planning skills show Otaq's own captions, not their agent-facing descriptions.
+    #[test]
+    fn the_planning_skills_show_otaqs_own_captions() {
+        let captions: Vec<Option<String>> = ["product-spec", "tech-spec", "milestone-plan"]
+            .into_iter()
+            .map(|skill| shipped_caption(skill, None))
+            .collect();
+        assert_eq!(
+            captions,
+            [
+                Some(
+                    "An agent asks you what to build, for whom and why, then writes down what you agreed."
+                        .to_owned()
+                ),
+                Some(
+                    "An agent works out how to build it, asking you where a choice matters, and writes it down."
+                        .to_owned()
+                ),
+                Some(
+                    "An agent writes the ticket\u{2019}s plan: the pieces, their order and what each waits for."
+                        .to_owned()
+                ),
             ]
         );
     }
@@ -3941,12 +4000,12 @@ mod tests {
         let e = env(not_asked());
         let base = otaq_default();
         let mut file = base.clone();
-        let (with_grill, _) = edited(&file, &StageEdit::Add { after: None }).unwrap();
-        file = with_grill;
-        file.flow.stages[0].name = "Grill".into();
-        file.flow.stages[0].id = "grill".into();
-        file.flow.stages[0].skill = Some("grill".into());
-        file.flow.stages[0].agent = Some("Griller".into());
+        let (with_product_spec, _) = edited(&file, &StageEdit::Add { after: None }).unwrap();
+        file = with_product_spec;
+        file.flow.stages[0].name = "Product spec".into();
+        file.flow.stages[0].id = "product-spec".into();
+        file.flow.stages[0].skill = Some("product-spec".into());
+        file.flow.stages[0].agent = Some("Spec writer".into());
         file.flow
             .stages
             .last_mut()
@@ -3958,11 +4017,11 @@ mod tests {
         let mut d = draft(&file, false);
         d.marks = vec![
             StageMark {
-                stage_id: "grill".into(),
-                stage: "Grill".into(),
+                stage_id: "product-spec".into(),
+                stage: "Product spec".into(),
                 mark: Mark::Added,
                 by: "Claude Code".into(),
-                why: Some("From 12 /grill-me runs".into()),
+                why: Some("From 12 /interview-me runs".into()),
             },
             StageMark {
                 stage_id: "deliver".into(),
@@ -3974,10 +4033,13 @@ mod tests {
         ];
         d.undo = true;
         let v = render(&e, Opened::Onboarding, &d, &file, &base, None, None);
-        let grill = &v.flow.steps[1];
-        let mark = grill.mark.as_ref().expect("Grill is tinted");
+        let product_spec = &v.flow.steps[1];
+        let mark = product_spec.mark.as_ref().expect("Product spec is tinted");
         assert_eq!(mark.label, "Added");
-        assert_eq!(mark.why, "Changed by Claude Code: From 12 /grill-me runs");
+        assert_eq!(
+            mark.why,
+            "Changed by Claude Code: From 12 /interview-me runs"
+        );
         assert_eq!(mark.undo, "Undo");
         assert_eq!(
             v.flow.steps.last().unwrap().mark.as_ref().map(|m| m.label),
@@ -4391,16 +4453,16 @@ mod tests {
                 .map(|s| s.id.clone())
                 .collect::<Vec<_>>()
         };
-        // Add after Grill: a new agent stage with the kind's default agent and no skill (Blank), selected.
+        // Add after Product spec: a new agent stage with the kind's default agent and no skill (Blank), selected.
         let (added, select) = edited(
             &file,
             &StageEdit::Add {
-                after: Some("grill".into()),
+                after: Some("product-spec".into()),
             },
         )
         .unwrap();
         assert_eq!(select.as_deref(), Some("new-stage"));
-        assert_eq!(ids(&added)[..3], ["grill", "new-stage", "dev"]);
+        assert_eq!(ids(&added)[..3], ["product-spec", "new-stage", "dev"]);
         let new = added.flow.stage("new-stage").unwrap();
         assert_eq!(
             (new.agent.as_deref(), new.skill.as_deref()),
@@ -4415,14 +4477,21 @@ mod tests {
         let (moved, _) = edited(
             &file,
             &StageEdit::Move {
-                stage: "grill".into(),
+                stage: "product-spec".into(),
                 to: 99,
             },
         )
         .unwrap();
         assert_eq!(
             ids(&moved),
-            ["dev", "validate", "security", "review", "grill", "deliver"]
+            [
+                "dev",
+                "validate",
+                "security",
+                "review",
+                "product-spec",
+                "deliver"
+            ]
         );
         assert!(
             edited(
@@ -4542,7 +4611,7 @@ mod tests {
         v.flow.details.as_ref().expect("Plan's details")
     }
 
-    /// FED-05, FED-06 (`s27-05`): Plan picked in a new stage after Grill fills the name and kind; the skill is
+    /// FED-05, FED-06 (`s27-05`): Plan picked in a new stage after Product spec fills the name and kind; the skill is
     /// empty with both options; the step says it needs a skill; Apply is off with the reason; the panel offers to
     /// write it.
     #[test]
@@ -4557,7 +4626,7 @@ mod tests {
         let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
         let details = plan_details(&v);
         let t = details.templates.as_ref().expect("a new stage's templates");
-        assert_eq!(t.title, "New stage after Grill");
+        assert_eq!(t.title, "New stage after Product spec");
         assert_eq!(
             (t.label, t.plain_note),
             ("Start from", "name and kind; no skill")
@@ -4579,7 +4648,17 @@ mod tests {
         );
         assert_eq!(t.presets_note, "complete, skill included");
         let presets: Vec<&str> = t.presets.iter().map(|c| c.label).collect();
-        assert_eq!(presets, ["Grill", "Validate", "Review", "PR delivery"]);
+        assert_eq!(
+            presets,
+            [
+                "Product spec",
+                "Tech spec",
+                "Milestone plan",
+                "Validate",
+                "Review",
+                "PR delivery"
+            ]
+        );
         assert_eq!(details.kind, Some(EditorKind::Works));
         let agent = details.agent.as_ref().unwrap();
         assert_eq!(
@@ -4739,7 +4818,7 @@ mod tests {
         let (added, new) = edited(
             &shop_web(),
             &StageEdit::Add {
-                after: Some("grill".into()),
+                after: Some("product-spec".into()),
             },
         )
         .unwrap();
@@ -4776,13 +4855,40 @@ mod tests {
         let (blank, id) = template(Template::Blank);
         let s = blank.flow.stage(id.as_deref().unwrap()).unwrap();
         assert_eq!((s.name.as_str(), s.skill.as_deref()), ("New stage", None));
-        // From the presets: Grill complete (named Grill 2 beside shop-web's own), its agent kept.
-        let (grill, id) = template(Template::Grill);
-        let s = grill.flow.stage(id.as_deref().unwrap()).unwrap();
+        // From the presets: Product spec complete (named Product spec 2 beside shop-web's own), its agent kept; Tech
+        // spec and Milestone plan complete too (d0115, d0129), skippable, bringing Spec first's agents.
+        let (product_spec, id) = template(Template::ProductSpec);
+        let s = product_spec.flow.stage(id.as_deref().unwrap()).unwrap();
         assert_eq!(
             (s.name.as_str(), s.agent.as_deref(), s.skill.as_deref()),
-            ("Grill 2", Some("Griller"), Some("grill"))
+            ("Product spec 2", Some("Spec writer"), Some("product-spec"))
         );
+        assert!(s.kind == StageKind::Agent && s.can_skip());
+        for (t, name, agent, skill) in [
+            (Template::TechSpec, "Tech spec", "Architect", "tech-spec"),
+            (
+                Template::MilestonePlan,
+                "Milestone plan",
+                "Milestone planner",
+                "milestone-plan",
+            ),
+        ] {
+            let (planning, id) = template(t);
+            let s = planning.flow.stage(id.as_deref().unwrap()).unwrap();
+            assert_eq!(
+                (
+                    s.name.as_str(),
+                    s.kind,
+                    s.agent.as_deref(),
+                    s.skill.as_deref(),
+                    s.can_skip()
+                ),
+                (name, StageKind::Agent, Some(agent), Some(skill), true)
+            );
+            let brought = planning.agents.iter().find(|a| a.name == agent).unwrap();
+            assert_eq!(brought.skills, [skill, "commit"]);
+            assert!(!shop_web().agents.iter().any(|a| a.name == agent));
+        }
         let (validate, id) = template(Template::Validate);
         let s = validate.flow.stage(id.as_deref().unwrap()).unwrap();
         assert_eq!((s.skill.as_deref(), s.rounds), (Some("validate"), Some(3)));
@@ -4852,26 +4958,34 @@ mod tests {
         );
     }
 
-    /// FED-09 (`s26-08`, `s27-05`): each column ⋯ entry opens the editor over shop-web's flow in use. Edit Grill…
-    /// selects Grill with its details; Add a stage after Grill puts a new stage right after it, selected, dashed, its
-    /// details open, Apply on; Change the whole flow… opens on the legend with nothing to apply.
+    /// FED-09 (`s26-08`, `s27-05`): each column ⋯ entry opens the editor over shop-web's flow in use. Edit Product
+    /// spec… selects Product spec with its details; Add a stage after Product spec puts a new stage right after it,
+    /// selected, dashed, its details open, Apply on; Change the whole flow… opens on the legend with nothing to apply.
     #[test]
     fn each_column_entry_opens_the_editor_in_its_state() {
         let e = env(not_asked());
         let file = shop_web();
         let d = draft(&file, true);
 
-        let edit = render(&e, Opened::Project, &d, &file, &file, Some("grill"), None);
+        let edit = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &file,
+            Some("product-spec"),
+            None,
+        );
         assert!(edit.flow.steps[1].selected && !edit.flow.steps[1].added);
         assert_eq!(
             edit.flow.details.as_ref().map(|d| d.title.as_str()),
-            Some("Grill")
+            Some("Product spec")
         );
 
         let (added, select) = edited(
             &file,
             &StageEdit::Add {
-                after: Some("grill".into()),
+                after: Some("product-spec".into()),
             },
         )
         .unwrap();
@@ -4931,7 +5045,7 @@ mod tests {
         let e = env(not_asked());
         let file = shop_with(&[
             add_check_agent("validate", "Security reviewer"),
-            fail_to("review", Some("grill")),
+            fail_to("review", Some("product-spec")),
         ]);
         let d = checked(&file);
         let v = render(&e, Opened::Project, &d, &file, &shop_web(), None, None);
@@ -4952,7 +5066,7 @@ mod tests {
             rows,
             [
                 ("Ready for Dev", "Waits", None, None),
-                ("Grill", "Agent works", None, Some("Griller")),
+                ("Product spec", "Agent works", None, Some("Spec writer")),
                 ("Dev", "Agent works", None, Some("Rust developer")),
                 (
                     "Validate",
@@ -4969,7 +5083,7 @@ mod tests {
                 (
                     "Review",
                     "You check",
-                    Some("fails go to Grill"),
+                    Some("fails go to Product spec"),
                     Some("You")
                 ),
                 ("Done", "Delivery \u{b7} PR", None, Some("PR")),
@@ -4978,19 +5092,23 @@ mod tests {
         assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));
         // The walking ticket names them too; the caption and "come back here" follow fail_to.
         assert_eq!(v.flow.tiles[3].ticket, "Checking");
-        let grill = render(
+        let product_spec = render(
             &e,
             Opened::Project,
             &d,
             &file,
             &shop_web(),
-            Some("grill"),
+            Some("product-spec"),
             None,
         );
-        let can = grill.flow.details.expect("Grill's details").can;
+        let can = product_spec
+            .flow
+            .details
+            .expect("Product spec's details")
+            .can;
         assert!(
             can.iter().any(|c| c.option == "back"),
-            "Review's fails go to Grill"
+            "Review's fails go to Product spec"
         );
     }
 
@@ -5030,7 +5148,7 @@ mod tests {
                     false,
                     true
                 ),
-                ("grill", "Grill", None, false, false),
+                ("product-spec", "Product spec", None, false, false),
                 ("dev", "Dev", Some("nearest"), true, false),
             ]
         );
@@ -5055,24 +5173,29 @@ mod tests {
         let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
         assert!(v.flow.details.expect("Dev's details").fail_to.is_none());
 
-        // Picking Grill sets it, and it shows; picking the nearest leaves it out again.
-        let (to_grill, _) = edited(&file, &fail_to("review", Some("grill"))).unwrap();
+        // Picking Product spec sets it, and it shows; picking the nearest leaves it out again.
+        let (to_product_spec, _) = edited(&file, &fail_to("review", Some("product-spec"))).unwrap();
         assert_eq!(
-            to_grill.flow.stage("review").unwrap().fail_to.as_deref(),
-            Some("grill")
+            to_product_spec
+                .flow
+                .stage("review")
+                .unwrap()
+                .fail_to
+                .as_deref(),
+            Some("product-spec")
         );
-        let d = checked(&to_grill);
+        let d = checked(&to_product_spec);
         let v = render(
             &e,
             Opened::Project,
             &d,
-            &to_grill,
+            &to_product_spec,
             &file,
             Some("review"),
             None,
         );
         let field = v.flow.details.unwrap().fail_to.unwrap();
-        assert_eq!(field.value, "Grill");
+        assert_eq!(field.value, "Product spec");
         assert!(field.items[1].checked && !field.items[2].checked);
         assert!(v.footer.apply_enabled);
         assert_eq!(
@@ -5083,12 +5206,12 @@ mod tests {
             )
         );
         for nearest in [Some("dev"), None] {
-            let (back, _) = edited(&to_grill, &fail_to("review", nearest)).unwrap();
+            let (back, _) = edited(&to_product_spec, &fail_to("review", nearest)).unwrap();
             assert_eq!(back.flow.stage("review").unwrap().fail_to, None);
         }
         // Read back from the flow file by name.
-        let yaml = otaq_core::flow::yaml::write(&to_grill);
-        assert!(yaml.contains("fail_to: Grill"), "{yaml}");
+        let yaml = otaq_core::flow::yaml::write(&to_product_spec);
+        assert!(yaml.contains("fail_to: Product spec"), "{yaml}");
 
         for (stage, to, why) in [
             (
@@ -5101,7 +5224,7 @@ mod tests {
                 "review",
                 "Review isn\u{2019}t a stage where an agent works before Validate",
             ),
-            ("dev", "grill", "Dev isn\u{2019}t a check"),
+            ("dev", "product-spec", "Dev isn\u{2019}t a check"),
         ] {
             assert_eq!(
                 edited(&file, &fail_to(stage, Some(to))).unwrap_err(),
@@ -5109,11 +5232,11 @@ mod tests {
                 "{stage} → {to}"
             );
         }
-        // Removing Grill sends Review's fails to the nearest again.
+        // Removing Product spec sends Review's fails to the nearest again.
         let (gone, _) = edited(
-            &to_grill,
+            &to_product_spec,
             &StageEdit::Remove {
-                stage: "grill".into(),
+                stage: "product-spec".into(),
             },
         )
         .unwrap();
@@ -5163,7 +5286,7 @@ mod tests {
             offered,
             [
                 "Developer",
-                "Griller",
+                "Spec writer",
                 "Rust developer",
                 "Security reviewer"
             ]
@@ -5335,7 +5458,7 @@ mod tests {
         // With another change, its line follows.
         let more = shop_with(&[
             add_check_agent("validate", "Security reviewer"),
-            fail_to("review", Some("grill")),
+            fail_to("review", Some("product-spec")),
         ]);
         assert_eq!(
             line(&more).as_deref(),
@@ -5353,9 +5476,9 @@ mod tests {
     fn a_fail_to_problem_keeps_apply_off_until_fixed() {
         let e = env(not_asked());
         let file = shop_with(&[
-            fail_to("review", Some("grill")),
+            fail_to("review", Some("product-spec")),
             StageEdit::Move {
-                stage: "grill".into(),
+                stage: "product-spec".into(),
                 to: 4,
             },
         ]);
@@ -5369,20 +5492,20 @@ mod tests {
             Some("review"),
             None,
         );
-        let message = "Review's fails go to Grill, which isn't an Agent stage before it";
+        let message = "Review's fails go to Product spec, which isn't an Agent stage before it";
         let details = v.flow.details.as_ref().unwrap();
         let field = details.fail_to.as_ref().unwrap();
-        assert_eq!(field.value, "Grill");
+        assert_eq!(field.value, "Product spec");
         assert_eq!(field.problem.as_deref(), Some(message));
         assert!(
             field.items.iter().all(|i| !i.checked),
-            "Grill isn't offered"
+            "Product spec isn't offered"
         );
         assert_eq!(details.problem, None, "shown once, on its field");
         assert_eq!(v.flow.steps[4].problem.as_deref(), Some(message));
         assert_eq!(
             v.flow.steps[4].fails_to.as_deref(),
-            Some("fails go to Grill")
+            Some("fails go to Product spec")
         );
         assert!(!v.footer.apply_enabled);
         assert_eq!(v.footer.reason.as_deref(), Some(message));

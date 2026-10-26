@@ -1,5 +1,5 @@
 //! The presets (FLW-08, d0108; design `s14-18`, `s15-62`): the ready-made flows Otaq ships as files, each with its
-//! agents, embedded at build time: the default flow, Solo autopilot, Grill first and Team PR. `otaq flow presets`
+//! agents, embedded at build time: the default flow, Solo autopilot, Spec first and Team PR. `otaq flow presets`
 //! and Use a preset… list them with [`presets`]; Otaq has no code path only presets use, so each is read and checked
 //! as any proposed file is.
 
@@ -71,7 +71,7 @@ fn delivery_line(stage: &Stage, mode: DeliveryMode, delivers: Delivers) -> Strin
 }
 
 pub const SOLO_AUTOPILOT_FILE: &str = "solo-autopilot.yaml";
-pub const GRILL_FIRST_FILE: &str = "grill-first.yaml";
+pub const SPEC_FIRST_FILE: &str = "spec-first.yaml";
 pub const TEAM_PR_FILE: &str = "team-pr.yaml";
 
 static PRESETS: LazyLock<Vec<Preset>> = LazyLock::new(|| {
@@ -89,10 +89,10 @@ static PRESETS: LazyLock<Vec<Preset>> = LazyLock::new(|| {
             yaml: include_str!("../../flows/solo-autopilot.yaml"),
         },
         Preset {
-            name: "Grill first".to_owned(),
-            line: "Settle the ticket with you before any code is written",
-            file: GRILL_FIRST_FILE,
-            yaml: include_str!("../../flows/grill-first.yaml"),
+            name: "Spec first".to_owned(),
+            line: "Plan on the board, then build",
+            file: SPEC_FIRST_FILE,
+            yaml: include_str!("../../flows/spec-first.yaml"),
         },
         Preset {
             name: "Team PR".to_owned(),

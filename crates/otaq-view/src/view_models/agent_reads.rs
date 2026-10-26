@@ -478,12 +478,21 @@ mod tests {
         assert_eq!(also.skills[0].name, "flow");
         assert_eq!(also.skills[0].note.as_deref(), Some("(for flow changes)"));
         // An agent with a role and a stage: a part for each.
-        r.skills
-            .insert(0, part("grill", RunsAs::Stage("Grill".into()), "# grill"));
+        r.skills.insert(
+            0,
+            part(
+                "product-spec",
+                RunsAs::Stage("Product spec".into()),
+                "# product-spec",
+            ),
+        );
         let v = view("noyan", "Noyan", projects(), Some(&r));
         assert_eq!(
             headings(&v)[2..],
-            ["Skill: grill \u{b7} Grill", "Skill: noyan \u{b7} as Noyan"]
+            [
+                "Skill: product-spec \u{b7} Product spec",
+                "Skill: noyan \u{b7} as Noyan"
+            ]
         );
     }
 

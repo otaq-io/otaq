@@ -7,7 +7,7 @@ import type { MenuItem } from "./MenuItem";
  */
 export type ApplyNowMove = { ticket: string, title: string, 
 /**
- * "in Grill (removed) · agent will stop", "in Security (removed) · failed ×3".
+ * "in Product spec (removed) · agent will stop", "in Security (removed) · failed ×3".
  */
 line: string, 
 /**

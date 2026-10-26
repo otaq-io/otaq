@@ -597,8 +597,8 @@ impl Agents {
     }
 
     /// Deletes an agent nothing uses (AGM-01): refused for a role's agent ("Noyan has the Noyan role. Give the role
-    /// to another agent first") and while a stage or a stage option names it ("Griller is used in shop-web ·
-    /// Grill. Change that stage first.").
+    /// to another agent first") and while a stage or a stage option names it ("Spec writer is used in shop-web ·
+    /// Product spec. Change that stage first.").
     pub async fn delete(&self, id: &str) -> Result<(), BoardError> {
         let uses = self.in_use(id).await?;
         if let Some(message) = uses.refusal() {

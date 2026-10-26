@@ -4,10 +4,11 @@
 //! (VAL-12, `validation_report.rs`).
 //!
 //! **Description and comments** (*05 → Row · History* `s05-45` / `s05-46`): every description change by anyone
-//! ("Griller · Grill edited the description · added Agreed (4 lines)", "You edited the description · 1 line changed")
-//! and every comment posted ("Validator · Validate · round 2 commented · with a report (48 KB)"), edited ("You edited
-//! Rust developer's comment") or deleted ("You deleted a comment"), each with its author's mark, opening a before /
-//! after or what the comment said, with its report (a deleted comment's still opens). Agents never see History.
+//! ("Spec writer · Product spec edited the description · added Agreed (4 lines)", "You edited the description · 1 line
+//! changed") and every comment posted ("Validator · Validate · round 2 commented · with a report (48 KB)"), edited
+//! ("You edited Rust developer's comment") or deleted ("You deleted a comment"), each with its author's mark, opening a
+//! before / after or what the comment said, with its report (a deleted comment's still opens). Agents never see
+//! History.
 //!
 //! **Activity** (SHT-05, T-0466; canvas `s25-07`): the sheet's tab shows these rows oldest first ([`oldest_first`]),
 //! each tagged with its [`Kind`], under the filters **All · Comments · Stages · Description** ([`Filter`]).
@@ -423,8 +424,9 @@ fn agent_ran(kind: SessionKind) -> bool {
     )
 }
 
-/// A session's rows: its start ("Agent session started", named by [`with_agents`]: "Grill started · Griller") and, once
-/// an agent's session ended, its end with the duration and tokens ("Agent session ended · 18 min · 64k tokens").
+/// A session's rows: its start ("Agent session started", named by [`with_agents`]: "Product spec started · Spec
+/// writer") and, once an agent's session ended, its end with the duration and tokens ("Agent session ended · 18 min ·
+/// 64k tokens").
 fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<HistoryRow> {
     let title = match s.kind {
         SessionKind::Agent => "Agent session",
@@ -1190,7 +1192,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         // A helper's change (d0133, `s30-03`): "Developer started a helper for 40.3" · "Wishlist page", "Developer sent
         // 40.3 back: no empty state", "Developer merged 40.1" · "Wishlist API"; who is the agent in charge then.
         EventKind::Helper => helper_line(p, &in_charge_at(facts, e.at)),
-        // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
+        // A drag to another stage (FLW-18): "Moved back to Dev" · "Product spec · run by you", the note, or "by you";
         // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
         // "Moved to Review" · "by you · Security was removed".
         EventKind::Dragged => {
@@ -1454,10 +1456,10 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
     }
 }
 
-/// The named agents in Activity (AGT-05, d0086; Q432): each session's start reads "Grill started · Griller" over
-/// "Claude Code · claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on, and the swap note after
-/// it), its end "Grill finished · Griller" with its duration and tokens, and a Done ticket's agents are lines of their
-/// own, newest first like the rest.
+/// The named agents in Activity (AGT-05, d0086; Q432): each session's start reads "Product spec started · Spec writer"
+/// over "Claude Code · claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on, and the swap note
+/// after it), its end "Product spec finished · Spec writer" with its duration and tokens, and a Done ticket's agents
+/// are lines of their own, newest first like the rest.
 pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
     for line in lines {
         match line {
@@ -1810,7 +1812,10 @@ mod tests {
                 "round 2 \u{b7} agent submitted".into()
             )
         );
-        assert_eq!(title("Grill").0, "Validate failed \u{b7} back to Grill");
+        assert_eq!(
+            title("Product spec").0,
+            "Validate failed \u{b7} back to Product spec"
+        );
     }
 
     /// One entry per validation round in place of its bare event, sorted with the rest (VAL-12).
@@ -1897,7 +1902,7 @@ mod tests {
             &[event(
                 EventKind::ValidationEnded,
                 24 * MIN,
-                json!({ "round": 1, "outcome": "fail", "check": "Security", "back_to": "Grill" }),
+                json!({ "round": 1, "outcome": "fail", "check": "Security", "back_to": "Product spec" }),
             )],
             &[],
             &[],
@@ -1916,7 +1921,7 @@ mod tests {
             rows,
             [
                 (
-                    "Security failed \u{b7} back to Grill",
+                    "Security failed \u{b7} back to Product spec",
                     "round 1 \u{b7} Security reviewer \u{b7} agent submitted"
                 ),
                 ("Round 1 · Validator passed", "agent submitted")
@@ -1955,10 +1960,14 @@ mod tests {
         let agreed =
             format!("{plan}\n## Agreed\n- CSV only, no Excel\n- admins only\n- up to 10,000 rows");
         let facts = Facts {
-            stages: [("grill", "Grill"), ("dev", "Dev"), ("validate", "Validate")]
-                .into_iter()
-                .map(|(a, b)| (a.to_owned(), b.to_owned()))
-                .collect(),
+            stages: [
+                ("product-spec", "Product spec"),
+                ("dev", "Dev"),
+                ("validate", "Validate"),
+            ]
+            .into_iter()
+            .map(|(a, b)| (a.to_owned(), b.to_owned()))
+            .collect(),
             avatars: true,
             agents: Vec::new(),
         };
@@ -1967,13 +1976,13 @@ mod tests {
                 EventKind::Updated,
                 MIN,
                 json!({"changes": [{"field": "body", "before": plan, "after": agreed}],
-                       "author": agent("Griller", "grill", None, Tool::Claude)}),
+                       "author": agent("Spec writer", "product-spec", None, Tool::Claude)}),
             ),
             by_agent(
                 EventKind::CommentPosted,
                 2 * MIN,
                 json!({"n": 1, "excerpt": "Agreed with you: CSV only, admins only. Reuse the CSV writer in export.rs from SHOP-12.",
-                       "report": null, "author": agent("Griller", "grill", None, Tool::Claude)}),
+                       "report": null, "author": agent("Spec writer", "product-spec", None, Tool::Claude)}),
             ),
             event(
                 EventKind::CommentPosted,
@@ -2025,11 +2034,11 @@ mod tests {
             lines,
             [
                 (
-                    "Griller \u{b7} Grill edited the description \u{b7} added Agreed (4 lines)",
+                    "Spec writer \u{b7} Product spec edited the description \u{b7} added Agreed (4 lines)",
                     None
                 ),
                 (
-                    "Griller \u{b7} Grill commented",
+                    "Spec writer \u{b7} Product spec commented",
                     Some("\u{201c}Agreed with you: CSV only, admins only\u{2026}\u{201d}")
                 ),
                 (
@@ -2054,13 +2063,16 @@ mod tests {
         );
         let at = |title: &str| rows.iter().find(|r| r.title.starts_with(title)).unwrap();
         // The description edit opens its before / after: the line before and the four added.
-        let grill = at("Griller \u{b7} Grill edited").opens.clone().unwrap();
+        let product_spec = at("Spec writer \u{b7} Product spec edited")
+            .opens
+            .clone()
+            .unwrap();
         assert_eq!(
-            (grill.label.as_str(), grill.caption.as_deref()),
+            (product_spec.label.as_str(), product_spec.caption.as_deref()),
             ("DESCRIPTION", Some("Before / after"))
         );
         assert_eq!(
-            sign(&grill.lines),
+            sign(&product_spec.lines),
             [
                 plan.to_owned(),
                 "+## Agreed".into(),
@@ -2070,7 +2082,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            at("Griller \u{b7} Grill edited").mark,
+            at("Spec writer \u{b7} Product spec edited").mark,
             Mark::Tool {
                 avatar: crate::view_models::tool_avatar::ToolAvatarView::of(Tool::Claude, None)
             }
@@ -2122,7 +2134,7 @@ mod tests {
             "{before}\n- the redirect waits for the session cookie\n- e2e/login.spec passes 20 times in a row"
         );
         let facts = Facts {
-            stages: [("grill", "Grill"), ("dev", "Dev")]
+            stages: [("product-spec", "Product spec"), ("dev", "Dev")]
                 .into_iter()
                 .map(|(a, b)| (a.to_owned(), b.to_owned()))
                 .collect(),
@@ -2135,18 +2147,18 @@ mod tests {
                 EventKind::Updated,
                 3 * MIN,
                 json!({"changes": [{"field": "body", "before": before, "after": after}],
-                       "author": agent("Griller", "grill", None, Tool::Claude)}),
+                       "author": agent("Spec writer", "product-spec", None, Tool::Claude)}),
             ),
             by_agent(
                 EventKind::CommentPosted,
                 4 * MIN,
                 json!({"n": 1, "excerpt": "Repro: 18 of 20 pass on Safari.", "report": null,
-                       "author": agent("Griller", "grill", None, Tool::Claude)}),
+                       "author": agent("Spec writer", "product-spec", None, Tool::Claude)}),
             ),
             event(
                 EventKind::StageFinished,
                 5 * MIN,
-                json!({"stage": "grill", "to": "dev"}),
+                json!({"stage": "product-spec", "to": "dev"}),
             ),
             event(
                 EventKind::CommentPosted,
@@ -2181,12 +2193,12 @@ mod tests {
         assert_eq!(titles(Filter::All).len(), rows.len());
         assert_eq!(
             titles(Filter::Comments),
-            ["Griller \u{b7} Grill commented", "You commented"]
+            ["Spec writer \u{b7} Product spec commented", "You commented"]
         );
         assert_eq!(
             titles(Filter::Description),
             [
-                "Griller \u{b7} Grill edited the description \u{b7} added the redirect waits for the session\u{2026} (2 lines)"
+                "Spec writer \u{b7} Product spec edited the description \u{b7} added the redirect waits for the session\u{2026} (2 lines)"
             ]
         );
         assert_eq!(filtered(&rows, Filter::Stages).len(), 2);
@@ -2342,8 +2354,8 @@ mod tests {
         );
     }
 
-    /// T-0406 (Q263, AGM-10): "Finished Grill" and "Finished Dev" for stages that end on their way to anything but
-    /// a human check, "Submitted for review" before one, and `stage done`'s "Closed · nothing to merge" with the
+    /// T-0406 (Q263, AGM-10): "Finished Product spec" and "Finished Dev" for stages that end on their way to anything
+    /// but a human check, "Submitted for review" before one, and `stage done`'s "Closed · nothing to merge" with the
     /// reason.
     #[test]
     fn how_stages_ended() {
@@ -2352,7 +2364,7 @@ mod tests {
                 event(
                     EventKind::StageFinished,
                     MIN,
-                    json!({"stage": "Grill", "stage_id": "grill", "summary": "Agreed: CSV.\nWith a header."}),
+                    json!({"stage": "Product spec", "stage_id": "product-spec", "summary": "Agreed: CSV.\nWith a header."}),
                 ),
                 event(
                     EventKind::StageFinished,
@@ -2386,7 +2398,7 @@ mod tests {
                 ),
                 ("Submitted for review", Some("CSV export, sorted.")),
                 ("Finished Dev", Some("CSV export.")),
-                ("Finished Grill", Some("Agreed: CSV.")),
+                ("Finished Product spec", Some("Agreed: CSV.")),
             ]
         );
     }
@@ -2545,8 +2557,8 @@ mod tests {
     #[test]
     fn activity_rows_read_as_a_timeline() {
         let events = vec![event(EventKind::Created, 0, json!({}))];
-        let mut griller = session("g", 5 * MIN, Some(23 * MIN), Some("exited"));
-        griller.model = Some("sonnet".into());
+        let mut spec_writer = session("g", 5 * MIN, Some(23 * MIN), Some("exited"));
+        spec_writer.model = Some("sonnet".into());
         let shell = SessionInfo {
             kind: SessionKind::Shell,
             ..session("sh", 6 * MIN, Some(30 * MIN), None)
@@ -2562,7 +2574,7 @@ mod tests {
         }];
         let base = rows_in(
             &events,
-            &[griller.clone(), shell],
+            &[spec_writer.clone(), shell],
             &usage,
             &Facts::default(),
         );
@@ -2578,10 +2590,10 @@ mod tests {
             base,
             &[HistoryLine::Session {
                 session: "g".into(),
-                started: "Grill started \u{b7} Griller".into(),
+                started: "Product spec started \u{b7} Spec writer".into(),
                 detail: "Claude Code \u{b7} sonnet".into(),
                 note: None,
-                ended: "Grill finished \u{b7} Griller".into(),
+                ended: "Product spec finished \u{b7} Spec writer".into(),
             }],
         ));
         let read: Vec<_> = named
@@ -2592,10 +2604,10 @@ mod tests {
             read,
             [
                 ("You created the ticket", Mark::You, None),
-                ("Grill started \u{b7} Griller", Mark::Agent, None),
+                ("Product spec started \u{b7} Spec writer", Mark::Agent, None),
                 ("Shell", Mark::You, None),
                 (
-                    "Grill finished \u{b7} Griller",
+                    "Product spec finished \u{b7} Spec writer",
                     Mark::Agent,
                     Some("\u{b7} 18 min \u{b7} 64k tokens".to_owned())
                 ),
@@ -2612,7 +2624,7 @@ mod tests {
             avatars: true,
             ..Facts::default()
         };
-        let shown = session_rows(&griller, &usage, &facts);
+        let shown = session_rows(&spec_writer, &usage, &facts);
         assert!(matches!(shown[0].mark, Mark::Tool { .. }));
         // An agent row with nothing recorded has no trailing text; tokens alone read alone.
         let end = &named[3];
@@ -2705,16 +2717,19 @@ mod tests {
         );
         let skipped = row(
             EventKind::Dragged,
-            serde_json::json!({ "stage": "QA", "back": false, "skipped": ["Dev"], "removed": "Grill" }),
+            serde_json::json!({ "stage": "QA", "back": false, "skipped": ["Dev"], "removed": "Product spec" }),
         );
         assert_eq!(
             skipped.detail.as_deref(),
-            Some("Skipped Dev \u{b7} by you \u{b7} Grill was removed")
+            Some("Skipped Dev \u{b7} by you \u{b7} Product spec was removed")
         );
-        let parked = row(EventKind::Parked, serde_json::json!({ "removed": "Grill" }));
+        let parked = row(
+            EventKind::Parked,
+            serde_json::json!({ "removed": "Product spec" }),
+        );
         assert_eq!(
             parked.detail.as_deref(),
-            Some("by you \u{b7} Grill was removed")
+            Some("by you \u{b7} Product spec was removed")
         );
         let dragged = row(
             EventKind::Dragged,

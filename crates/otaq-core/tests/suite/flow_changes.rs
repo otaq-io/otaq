@@ -646,7 +646,7 @@ async fn a_removed_choice_falls_back_with_a_history_note() {
     let t = create(&w, &key, "Fix README typo").await;
     let picks = [
         ChoicePick {
-            stage: "Grill".into(),
+            stage: "Product spec".into(),
             choice: "skip".into(),
             reason: None,
         },

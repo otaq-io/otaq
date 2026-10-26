@@ -201,15 +201,15 @@ describe("the Flow section", () => {
       cancel: "Cancel",
       presets: [
         {
-          name: "Grill first",
+          name: "Spec first",
           delivers: "Done · click",
-          line: "Settle the ticket with you before any code is written",
+          line: "Plan on the board, then build",
           columns: [
             { icon: "hourglass", label: "Ready for Dev" },
-            { icon: "bot", label: "Grill" },
+            { icon: "bot", label: "Product spec" },
             { icon: "git-merge", label: "Done" },
           ],
-          file: "grill-first.yaml",
+          file: "spec-first.yaml",
         },
       ],
     };
@@ -218,21 +218,21 @@ describe("the Flow section", () => {
       root.render(createElement(PresetDialog, { dialog, onPick, onCancel: vi.fn() }));
     });
     expect(document.body.textContent).toContain("Use a preset for shop-web");
-    expect(document.body.textContent).toContain("grill-first.yaml");
+    expect(document.body.textContent).toContain("spec-first.yaml");
     act(() => {
       document.querySelector<HTMLButtonElement>(".settings-preset")?.click();
     });
-    expect(onPick).toHaveBeenCalledWith("grill-first.yaml");
+    expect(onPick).toHaveBeenCalledWith("spec-first.yaml");
   });
 });
 
 describe("the Flow actions", () => {
   it("an action's flow lands in the draft and the editor opens on it; a refusal keeps Settings open", async () => {
     const r = routes();
-    await proposeFrom("SHOP", { from: "preset", file: "grill-first.yaml" }, r);
+    await proposeFrom("SHOP", { from: "preset", file: "spec-first.yaml" }, r);
     expect(ask).toHaveBeenCalledWith("settings.flow_propose", {
       project: "SHOP",
-      source: { from: "preset", file: "grill-first.yaml" },
+      source: { from: "preset", file: "spec-first.yaml" },
     });
     expect(r.closed()).toBe(1);
     expect(r.editors).toEqual(["SHOP"]);

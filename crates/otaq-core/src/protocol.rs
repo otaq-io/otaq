@@ -911,8 +911,8 @@ pub enum Request {
     #[serde(rename = "agents.duplicate")]
     AgentsDuplicate(IdParams),
     /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Noyan has
-    /// the Noyan role. Give the role to another agent first.") and while a stage names it ("Griller is used in
-    /// shop-web · Grill. Change that stage first.").
+    /// the Noyan role. Give the role to another agent first.") and while a stage names it ("Spec writer is used in
+    /// shop-web · Product spec. Change that stage first.").
     #[serde(rename = "agents.delete")]
     AgentsDelete(IdParams),
     /// `{"id": "0199…"}`: what uses an agent, before Delete asks. Answered with [`Reply::AgentInUse`].

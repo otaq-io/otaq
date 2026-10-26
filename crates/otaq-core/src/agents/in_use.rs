@@ -1,7 +1,7 @@
 //! What uses an agent, for Delete (AGM-01, d0108): a stage or a stage option of any project's flow (in M32 each
 //! project's flow derives from the default one), Otaq's default flow itself (every project's flow derives from it,
 //! and a project that turns Validation on gets its Validate stage back), or a role. "Noyan has the Noyan role.
-//! Give the role to another agent first"; "Griller is used in shop-web · Grill. Change that stage first."
+//! Give the role to another agent first"; "Spec writer is used in shop-web · Product spec. Change that stage first."
 
 use serde::{Deserialize, Serialize};
 
@@ -14,14 +14,14 @@ use crate::flow::{Stage, StageOption};
 pub struct StageUse {
     /// The project's name; `None` for Otaq's default flow.
     pub project: Option<String>,
-    /// The stage's name ("Grill").
+    /// The stage's name ("Product spec").
     pub stage: String,
     /// The agent is one of the stage's options rather than its usual agent.
     pub option: bool,
 }
 
 impl StageUse {
-    /// "shop-web · Grill", "Otaq's default flow · Validate".
+    /// "shop-web · Product spec", "Otaq's default flow · Validate".
     pub fn label(&self) -> String {
         let flow = self
             .project
@@ -148,14 +148,14 @@ mod tests {
 
     #[test]
     fn the_refusals_read_as_agm_01_says() {
-        let griller = InUse {
-            agent: "Griller".into(),
+        let spec_writer = InUse {
+            agent: "Spec writer".into(),
             role: None,
-            stages: vec![stage("shop-web", "Grill")],
+            stages: vec![stage("shop-web", "Product spec")],
         };
         assert_eq!(
-            griller.refusal().unwrap(),
-            "Griller is used in shop-web \u{b7} Grill. Change that stage first."
+            spec_writer.refusal().unwrap(),
+            "Spec writer is used in shop-web \u{b7} Product spec. Change that stage first."
         );
         let noyan = InUse {
             agent: "Noyan".into(),

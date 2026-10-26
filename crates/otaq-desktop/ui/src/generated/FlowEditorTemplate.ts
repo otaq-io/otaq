@@ -3,4 +3,4 @@
 /**
  * The templates of a new stage's details (FED-05, `s26-09`, `s27-05`). `FlowEditorTemplate` on the page.
  */
-export type FlowEditorTemplate = "plan" | "security" | "visual" | "docs" | "blank" | "grill" | "validate" | "review" | "pr_delivery";
+export type FlowEditorTemplate = "plan" | "security" | "visual" | "docs" | "blank" | "product_spec" | "tech_spec" | "milestone_plan" | "validate" | "review" | "pr_delivery";

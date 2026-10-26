@@ -191,13 +191,13 @@ preset also gives the three planning stages and Spec review `options: [skip]`, s
 ```yaml
 agents:
   - name: Spec writer
-    skills: [product-spec]
+    skills: [product-spec, commit]
     model: default
   - name: Architect
-    skills: [tech-spec]
+    skills: [tech-spec, commit]
     model: default
   - name: Milestone planner
-    skills: [milestone-plan]
+    skills: [milestone-plan, commit]
     model: default
   - name: Developer
     skills: [work-ticket, commit]

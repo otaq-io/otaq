@@ -1,8 +1,8 @@
 //! Waiting before every Agent stage, and the limit (T-0401; STG-07; d0108, d0016, d0049, d0079): on the test flow
-//! (`tests/flows/every-kind.yaml`) a ticket finishing Grill waits before Dev like a queued ticket, through the
-//! scheduler and the limit, and starts there in the worktree it has; a skipped Grill goes straight to waiting before
-//! Dev. The limit counts every ticket with a live agent session, whatever its stage (an agent check, a PR Delivery
-//! session), and no waiting card. `claude` stands in as `sh`; every data folder is temporary.
+//! (`tests/flows/every-kind.yaml`) a ticket finishing Product spec waits before Dev like a queued ticket, through the
+//! scheduler and the limit, and starts there in the worktree it has; a skipped Product spec goes straight to waiting
+//! before Dev. The limit counts every ticket with a live agent session, whatever its stage (an agent check, a PR
+//! Delivery session), and no waiting card. `claude` stands in as `sh`; every data folder is temporary.
 
 use otaq_core::service::testing::said;
 use std::collections::HashSet;
@@ -99,14 +99,14 @@ fn started(tickets: &[Ticket], gate: &Gate) -> Vec<String> {
 
 // ---- The engine and the scheduler ----
 
-/// Finishing Grill (the agent's `stage next`, or the user's Move to next stage) waits before Dev: Grill's run is done, the
-/// card is queued before Dev, and only the scheduler's start enters Dev.
+/// Finishing Product spec (the agent's `stage next`, or the user's Move to next stage) waits before Dev: Product spec's
+/// run is done, the card is queued before Dev, and only the scheduler's start enters Dev.
 #[test]
-fn finishing_grill_waits_before_dev() {
+fn finishing_product_spec_waits_before_dev() {
     let flow = every_kind();
-    let grill = Place::stage_of("grill");
+    let product_spec = Place::stage_of("product-spec");
     for mv in [Move::NextStage, Move::SubmitByUser] {
-        let step = engine::step(At::new(&flow, &grill, Status::Working), mv).unwrap();
+        let step = engine::step(At::new(&flow, &product_spec, Status::Working), mv).unwrap();
         assert_eq!(
             (&step.place, step.status, step.ended, step.stage),
             (&before("dev"), Status::Queued, Some(RunResult::Done), None),
@@ -128,12 +128,12 @@ fn finishing_grill_waits_before_dev() {
     assert_eq!((fail.place, fail.resume), (Place::stage_of("dev"), true));
 }
 
-/// A skipped Grill goes straight to waiting before Dev: Ready for Dev is the wait before the first Agent stage the
-/// ticket runs, and its start enters Dev with a skipped run of Grill.
+/// A skipped Product spec goes straight to waiting before Dev: Ready for Dev is the wait before the first Agent stage
+/// the ticket runs, and its start enters Dev with a skipped run of Product spec.
 #[test]
-fn a_skipped_grill_waits_before_dev_from_ready_for_dev() {
+fn a_skipped_product_spec_waits_before_dev_from_ready_for_dev() {
     let flow = every_kind();
-    let skips = ["grill".to_owned()];
+    let skips = ["product-spec".to_owned()];
     let at = |place: &'static Place, status| At {
         skips: &skips,
         ..At::new(&flow, place, status)
@@ -160,7 +160,7 @@ fn a_skipped_grill_waits_before_dev_from_ready_for_dev() {
         .iter()
         .map(|(s, r)| (s.id.as_str(), *r))
         .collect();
-    assert_eq!(through, [("grill", RunResult::Skipped)]);
+    assert_eq!(through, [("product-spec", RunResult::Skipped)]);
 }
 
 /// The scheduler treats a ticket waiting before Dev as it treats Ready for Dev: it waits for a slot, then starts, in
@@ -220,7 +220,12 @@ fn the_scheduler_waits_and_starts_before_any_agent_stage() {
 #[test]
 fn a_checking_ticket_holds_a_slot_and_waiting_cards_do_not() {
     let tickets = [
-        t("NOTE-1", Place::stage_of("grill"), Status::Working, 0),
+        t(
+            "NOTE-1",
+            Place::stage_of("product-spec"),
+            Status::Working,
+            0,
+        ),
         t("NOTE-2", Place::stage_of("security"), Status::Checking, 0),
         t(
             "NOTE-3",
@@ -384,11 +389,11 @@ async fn until(w: &TestService, key: &str, status: Status) -> Ticket {
     panic!("{key} never became {status}");
 }
 
-/// pocket-notes on the test flow, with one slot: NOTE-1 runs Grill; while NOTE-2 holds the slot, NOTE-1's submit
+/// pocket-notes on the test flow, with one slot: NOTE-1 runs Product spec; while NOTE-2 holds the slot, NOTE-1's submit
 /// waits before Dev ("Waiting for a slot", in its worktree); once the slot frees it starts Dev there, in a new
-/// session (Grill's stopped), and Grill's run is done.
+/// session (Product spec's stopped), and Product spec's run is done.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
+async fn a_ticket_finishing_product_spec_waits_for_a_slot_before_dev() {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(stand_in()),
         ..config
@@ -405,7 +410,7 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
         .unwrap();
     w.board.use_flow_for_tests("NOTE", &every_kind_file()).await;
     one_slot_on(&w.board).await;
-    let grilled = w.create("NOTE", "Export as CSV").await;
+    let specced = w.create("NOTE", "Export as CSV").await;
     let other = w.create("NOTE", "Search notes").await;
     let me = Actor::User("me".into());
     w.board
@@ -416,13 +421,19 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
         .start("NOTE-1", &me, otaq_core::session::Start::Auto)
         .await
         .unwrap();
-    let in_grill = until(&w, "NOTE-1", Status::Working).await;
-    assert_eq!(in_grill.place, Place::stage_of("grill"));
-    let grill_session = w
+    let in_product_spec = until(&w, "NOTE-1", Status::Working).await;
+    assert_eq!(in_product_spec.place, Place::stage_of("product-spec"));
+    let product_spec_session = w
         .sessions
-        .running_of(&grilled.id, SessionKind::Agent)
-        .expect("Grill's agent runs");
-    let worktree = in_grill.work.as_ref().unwrap().worktree.clone().unwrap();
+        .running_of(&specced.id, SessionKind::Agent)
+        .expect("Product spec's agent runs");
+    let worktree = in_product_spec
+        .work
+        .as_ref()
+        .unwrap()
+        .worktree
+        .clone()
+        .unwrap();
 
     // NOTE-2 takes the only slot.
     w.force_status(&other, Status::Working).await;
@@ -434,7 +445,7 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
             said(&w.board, "NOTE-1", "Agreed: CSV with a header row.")
                 .await
                 .as_ref(),
-            &Actor::Agent(grilled.key.clone()),
+            &Actor::Agent(specced.key.clone()),
             ValidationTrigger::Agent,
         )
         .await
@@ -466,15 +477,18 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
     );
     let dev_session = w
         .sessions
-        .running_of(&grilled.id, SessionKind::Agent)
+        .running_of(&specced.id, SessionKind::Agent)
         .expect("Dev's agent runs");
     assert_ne!(
-        dev_session.id, grill_session.id,
+        dev_session.id, product_spec_session.id,
         "a new conversation for Dev"
     );
     assert!(
-        !w.sessions.info(&grill_session.id).unwrap().is_running(),
-        "Grill's session was stopped"
+        !w.sessions
+            .info(&product_spec_session.id)
+            .unwrap()
+            .is_running(),
+        "Product spec's session was stopped"
     );
     let runs: Vec<_> = w
         .board
@@ -488,8 +502,8 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
         runs,
         [
             (
-                "grill".to_owned(),
-                Some(grill_session.id.clone()),
+                "product-spec".to_owned(),
+                Some(product_spec_session.id.clone()),
                 Some(RunResult::Done)
             ),
             ("dev".to_owned(), Some(dev_session.id.clone()), None),

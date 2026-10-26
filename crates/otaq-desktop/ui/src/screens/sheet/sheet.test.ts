@@ -91,7 +91,7 @@ describe("the sheet", () => {
       "3 min · 182k tokens",
       "otaq/SHOP-19",
       "from main",
-      "Grill",
+      "Product spec",
     ]) {
       expect(html).toContain(text);
     }

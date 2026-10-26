@@ -1,7 +1,7 @@
 //! Agent checks in any flow (T-0417; FLW-13, Q259, Q277; d0108, d0063, d0083): on the test flow
-//! (`tests/flows/every-kind.yaml`: Grill · Dev · Validate · Security · QA · Done), each agent check counts its own fails
-//! in a row and stops at its own rounds; a pass into the next check starts that check's own checker; a human Fail
-//! resets every counter; Move on anyway and Skip this check take the card to the engine's next stage, and its
+//! (`tests/flows/every-kind.yaml`: Product spec · Dev · Validate · Security · QA · Done), each agent check counts its
+//! own fails in a row and stops at its own rounds; a pass into the next check starts that check's own checker; a human
+//! Fail resets every counter; Move on anyway and Skip this check take the card to the engine's next stage, and its
 //! Delivery is then in click mode with the reason. Skip this check is offered on a check held for the plan limit only
 //! when no fallback can take it, never on a held Agent stage. `claude` stands in as `sh` printing its arguments.
 

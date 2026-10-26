@@ -12,12 +12,12 @@ export type ApplyNowView = { project: string,
  */
 title: string, 
 /**
- * "Removes Grill and Security from shop-web’s flow."
+ * "Removes Product spec and Security from shop-web’s flow."
  */
 summary: string, 
 /**
- * After a stale Apply now: what changed on the board ("The board changed: SHOP-41 entered Grill."). Shown above
- * the moves.
+ * After a stale Apply now: what changed on the board ("The board changed: SHOP-41 entered Product spec."). Shown
+ * above the moves.
  */
 changed: string | null, 
 /**

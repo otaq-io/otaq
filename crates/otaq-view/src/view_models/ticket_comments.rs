@@ -73,12 +73,12 @@ pub struct ReportChip {
 pub struct CommentRow {
     /// Its number on the ticket: what Edit, Delete and Open send.
     pub n: u32,
-    /// "Griller", "You".
+    /// "Spec writer", "You".
     pub author: String,
     /// The user's own: tinted with the accent.
     pub mine: bool,
     pub mark: Mark,
-    /// After the name: "Grill · 2:14 pm", "2:20 pm", "Validate · round 2 · 3:05 pm".
+    /// After the name: "Product spec · 2:14 pm", "2:20 pm", "Validate · round 2 · 3:05 pm".
     pub meta: String,
     /// The same while it is being edited: "2:20 pm · editing".
     pub editing_meta: String,
@@ -444,8 +444,8 @@ mod tests {
         }
     }
 
-    /// SHOP-34's four comments (`s05-41`): Grill's hand-over, the user's, Dev's, and Validate's failed round 2 with
-    /// its 48 KB report.
+    /// SHOP-34's four comments (`s05-41`): Product spec's hand-over, the user's, Dev's, and Validate's failed round 2
+    /// with its 48 KB report.
     fn shop_34() -> Vec<TicketComment> {
         let mut validate = comment(
             4,
@@ -461,8 +461,8 @@ mod tests {
         vec![
             comment(
                 1,
-                agent("Griller", Tool::Claude, "Grill", None),
-                Some("Grill"),
+                agent("Spec writer", Tool::Claude, "Product spec", None),
+                Some("Product spec"),
                 "Agreed with you: CSV only, admins only. Reuse the CSV writer in export.rs from SHOP-12.",
                 at(14, 14),
             ),
@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                ("Griller", "Grill \u{b7} 2:14 pm", false),
+                ("Spec writer", "Product spec \u{b7} 2:14 pm", false),
                 ("You", "2:20 pm", true),
                 ("Rust developer", "Dev \u{b7} 2:58 pm", false),
                 ("Validator", "Validate \u{b7} round 2 \u{b7} 3:05 pm", false),

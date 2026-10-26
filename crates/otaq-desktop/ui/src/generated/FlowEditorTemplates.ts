@@ -2,12 +2,12 @@
 import type { FlowEditorTemplateChip } from "./FlowEditorTemplateChip";
 
 /**
- * A new stage's Start from (FED-05, `s27-05`): "New stage after Grill", the plain templates and the presets' ones.
- * `FlowEditorTemplates` on the page.
+ * A new stage's Start from (FED-05, `s27-05`): "New stage after Product spec", the plain templates and the presets'
+ * ones. `FlowEditorTemplates` on the page.
  */
 export type FlowEditorTemplates = { 
 /**
- * "New stage after Grill".
+ * "New stage after Product spec".
  */
 title: string, label: string, 
 /**

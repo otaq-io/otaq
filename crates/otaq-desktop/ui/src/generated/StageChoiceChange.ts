@@ -6,7 +6,7 @@ import type { IconName } from "./IconName";
  */
 export type StageChoiceChange = { 
 /**
- * "Dev: Quick developer → Rust developer · by Griller · touches session handling".
+ * "Dev: Quick developer → Rust developer · by Spec writer · touches session handling".
  */
 text: string, 
 /**

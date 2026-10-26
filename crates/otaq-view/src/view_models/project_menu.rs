@@ -1,6 +1,6 @@
 //! The **project menu** (FED-09, d0115; *26 → Row · Changing the flow later: where it is* `s26-08`, *Row · …: waiting
 //! to apply* `s26-12`): a click on the project's name in the title bar. Its head is the project's name and folder;
-//! then **Change flow…** with the flow in use under it ("shop-web’s flow · 7 steps", or "shop-web’s flow → Grill first
+//! then **Change flow…** with the flow in use under it ("shop-web’s flow · 7 steps", or "shop-web’s flow → Spec first
 //! · waiting" while a change waits), **Export flow…**, **Project settings…** with the user's key, **Open in Finder**
 //! and **Open a terminal here**. Changing the flow is rare, so it lives here and not on the board.
 
@@ -63,7 +63,7 @@ pub fn open_folder_label(os: Os) -> &'static str {
 }
 
 /// Change flow…'s second line: the flow in use and its steps (Ready for Dev counted, as the editor counts them), or
-/// where a waiting change goes ("→ Grill first · waiting" for a preset, else "· a change waiting").
+/// where a waiting change goes ("→ Spec first · waiting" for a preset, else "· a change waiting").
 pub fn flow_line(
     name: &str,
     flow: Option<&FlowFile>,
@@ -118,7 +118,7 @@ pub fn rail_menu(keys: &KeyLabels) -> Vec<MenuItem> {
     ]
 }
 
-/// The menu in the component gallery: shop-web's flow in use, and with Grill first waiting.
+/// The menu in the component gallery: shop-web's flow in use, and with Spec first waiting.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ProjectMenuGallery")]
 pub struct Gallery {
@@ -128,7 +128,7 @@ pub struct Gallery {
 pub fn gallery() -> Gallery {
     let keys = &KeyLabels::default();
     let flow = fixtures::seven_steps();
-    let waiting = fixtures::waiting_for("grill-first.yaml");
+    let waiting = fixtures::waiting_for("spec-first.yaml");
     let facts = |waiting| Facts {
         name: "shop-web",
         path: "~/code/shop-web",
@@ -145,22 +145,27 @@ pub fn gallery() -> Gallery {
     }
 }
 
-/// shop-web's flow (Grill first with a Security check: 7 steps) and a waiting swap.
+/// shop-web's flow (Spec first's Product spec and the default flow's stages with a Security check: 7 steps) and a
+/// waiting swap.
 pub mod fixtures {
     use otaq_core::flow::apply::{Hold, Wait, WaitingChange};
     use otaq_core::flow::model::{FlowFile, Stage};
     use otaq_core::flow::presets::preset;
     use otaq_core::flow::store::AppliedBy;
 
-    /// Grill first (Ready, Grill, Dev, Validate, Review, Done) with Security after Validate.
+    /// Spec first with Product spec its only planning stage (Ready, Product spec, Dev, Validate, Code review, Done)
+    /// and Security after Validate.
     pub fn seven_steps() -> FlowFile {
-        let mut file = preset("grill-first.yaml").expect("a shipped preset").read();
+        let mut file = preset("spec-first.yaml").expect("a shipped preset").read();
+        file.flow
+            .stages
+            .retain(|s| !["tech-spec", "milestone-plan", "spec-review"].contains(&s.id.as_str()));
         let validate = file
             .flow
             .stages
             .iter()
             .position(|s| s.id == "validate")
-            .expect("Grill first has Validate");
+            .expect("Spec first has Validate");
         let mut security: Stage = file.flow.stages[validate].clone();
         security.id = "security".into();
         security.name = "Security".into();
@@ -176,7 +181,7 @@ pub mod fixtures {
             applied_by: AppliedBy::User,
             agent_name: None,
             preset: Some(file.into()),
-            changes: vec!["Grill first".into()],
+            changes: vec!["Spec first".into()],
             since: 0,
             wait: Wait::WholeBoard,
             hold: Hold::READY_FOR_DEV,
@@ -255,10 +260,10 @@ mod tests {
     #[test]
     fn a_waiting_swap_shows_where_the_flow_goes_s26_12() {
         let flow = fixtures::seven_steps();
-        let waiting = fixtures::waiting_for("grill-first.yaml");
+        let waiting = fixtures::waiting_for("spec-first.yaml");
         assert_eq!(
             flow_line("shop-web", Some(&flow), Some(&waiting)).as_deref(),
-            Some("shop-web\u{2019}s flow \u{2192} Grill first \u{b7} waiting")
+            Some("shop-web\u{2019}s flow \u{2192} Spec first \u{b7} waiting")
         );
         let mut edit = waiting.clone();
         edit.preset = None;

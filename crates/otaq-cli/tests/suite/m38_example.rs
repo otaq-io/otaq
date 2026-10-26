@@ -1,15 +1,16 @@
 //! M38's example end to end (T-0475; PAU-01…PAU-08, FED-02, FED-08, DPV-03; d0112, d0115, d0056, d0079): shop-web
-//! (SHOP) on Grill first with a Security check, billing-api (BILL) on Otaq's default, and a stand-in `claude` that
-//! runs the real `otaq`. Every click is the request the app sends.
+//! (SHOP) on Product spec · Dev with a Security check, billing-api (BILL) on Otaq's default, and a stand-in
+//! `claude` that runs the real `otaq`. Every click is the request the app sends.
 //! - Pause shop-web: its agents stop as paused, billing-api keeps working and SHOP-33's Run is left alone; answering
-//!   SHOP-12's question starts only its Griller and the pause stays; a ticket queued meanwhile keeps its start; after a
-//!   restart nothing resumes; Resume brings each one back once.
+//!   SHOP-12's question starts only its Spec writer and the pause stays; a ticket queued meanwhile keeps its start;
+//!   after a restart nothing resumes; Resume brings each one back once.
 //! - The blocked drag: SHOP-20 waits for SHOP-18 (in Review) and SHOP-29 (in Dev); dragged into Dev it is refused
-//!   and stays put, dragged onto Ready for Dev it queues and nothing starts it; once both merge it starts in Grill.
+//!   and stays put, dragged onto Ready for Dev it queues and nothing starts it; once both merge it starts in Product
+//!   spec.
 //! - The flow editor: a Project agent's `otaq flow propose` lands in the draft with its marks and no preview opens;
-//!   Plan added after Grill applies at once, so SHOP-12 (in Grill) goes through it and SHOP-33 (in Dev) never meets
-//!   it; Security moved before Validate waits only for Dev…Review, SHOP-12 leaving Plan waits at the span's edge, and
-//!   Apply now applies it.
+//!   Plan added after Product spec applies at once, so SHOP-12 (in Product spec) goes through it and SHOP-33 (in Dev)
+//!   never meets it; Security moved before Validate waits only for Dev…Review, SHOP-12 leaving Plan waits at the span's
+//!   edge, and Apply now applies it.
 //!
 //! No agent tool runs; every folder is temporary (the stand-in's `HOME` too), and the stand-in's PATH has no other
 //! `otaq` (`path_without_build_folders`): it only ever runs this build's, by its full path.
@@ -43,7 +44,7 @@ use otaq_core::session::{END_PAUSED, SessionInfo, SessionKind, SessionTicket};
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
 const QUESTION: &str = "Should dark mode follow the system setting?";
-const ASK_PLAN: &str = "Add a stage after Grill that writes a plan for big tickets";
+const ASK_PLAN: &str = "Add a stage after Product spec that writes a plan for big tickets";
 const PLAN_WHY: &str = "Big tickets in shop-web get a plan first";
 
 /// The stand-in `claude`. Its state is in `state` (Otaq's data folder in `state/data`, so its `otaq` reaches the
@@ -52,7 +53,7 @@ const PLAN_WHY: &str = "Big tickets in shop-web get a plan first";
 /// - a ticket's agent then waits for `state/go-<KEY>` (taken when seen), commits if it is a Dev
 ///   (`/otaq-work-ticket`), reads `otaq prime` and ends its stage (`otaq stage next`); it waits again, for the next `go`, whatever comes
 ///   after;
-/// - a Project agent asked to add a stage after Grill proposes `state/plan.yaml` (`otaq flow propose --stdin`).
+/// - a Project agent asked to add a stage after Product spec proposes `state/plan.yaml` (`otaq flow propose --stdin`).
 ///
 /// Nothing typed into it is ever run.
 fn stand_in(state: &Path) -> String {
@@ -98,7 +99,7 @@ done
     )
 }
 
-/// shop-web's flow: Grill, Dev, Validate, Security, Review (a check by you), Done (a PR).
+/// shop-web's flow: Product spec, Dev, Validate, Security, Review (a check by you), Done (a PR).
 fn shop_flow() -> FlowFile {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../otaq-core/tests/flows/every-kind.yaml");
@@ -112,9 +113,9 @@ fn shop_flow() -> FlowFile {
     file
 }
 
-/// Plan, an Agent stage run by Griller, after Grill.
-fn plan_after_grill(file: &mut FlowFile) {
-    let mut plan = file.flow.stage("grill").unwrap().clone();
+/// Plan, an Agent stage run by Spec writer, after Product spec.
+fn plan_after_product_spec(file: &mut FlowFile) {
+    let mut plan = file.flow.stage("product-spec").unwrap().clone();
     plan.id = "plan".into();
     plan.name = "Plan".into();
     plan.options.clear();
@@ -345,12 +346,14 @@ async fn pause_answer_restart_and_resume() {
     .await;
     std::fs::write(world.path("ask-SHOP-12"), QUESTION).unwrap();
 
-    // SHOP-12 asks in Grill; SHOP-33 works in Dev with its Run open; BILL-7 works.
+    // SHOP-12 asks in Product spec; SHOP-33 works in Dev with its Run open; BILL-7 works.
     for key in ["SHOP-12", "SHOP-33", "BILL-7"] {
         world.to_ready(key).await;
     }
     world.until_status("SHOP-12", Status::AsksYou).await;
-    world.until_in("SHOP-33", "grill", Status::Working).await;
+    world
+        .until_in("SHOP-33", "product-spec", Status::Working)
+        .await;
     world.go("SHOP-33");
     world.until_in("SHOP-33", "dev", Status::Working).await;
     // Entering Dev sets Working before its agent starts: wait for the stand-in's start.
@@ -404,7 +407,7 @@ async fn pause_answer_restart_and_resume() {
     assert_eq!(world.w.status("SHOP-35").await, Status::Queued);
     assert!(world.starts_of("SHOP-35").is_empty());
 
-    // Answering SHOP-12 starts only its Griller, with the answer; the pause stays.
+    // Answering SHOP-12 starts only its Spec writer, with the answer; the pause stays.
     let reply = world
         .ask(Request::NeedsYouAnswer(NeedsYouAnswerParams {
             key: "SHOP-12".into(),
@@ -416,20 +419,24 @@ async fn pause_answer_restart_and_resume() {
     assert!(matches!(reply, Reply::Delivery(_)), "{reply:?}");
     world.until_status("SHOP-12", Status::Working).await;
     world
-        .until("SHOP-12's Griller starts with the answer", async || {
+        .until("SHOP-12's Spec writer starts with the answer", async || {
             world.starts_of("SHOP-12").len() == 2
         })
         .await;
-    let griller = &world.sessions("SHOP-12").await[0];
-    assert!(griller.is_running());
+    let spec_writer = &world.sessions("SHOP-12").await[0];
+    assert!(spec_writer.is_running());
     assert_eq!(
-        griller.agent.as_ref().map(|a| a.name.as_str()),
-        Some("Griller")
+        spec_writer.agent.as_ref().map(|a| a.name.as_str()),
+        Some("Spec writer")
     );
     settle().await;
     assert_eq!(world.w.status("SHOP-33").await, Status::Interrupted);
     assert_eq!(world.w.status("SHOP-35").await, Status::Queued);
-    assert_eq!(world.running_in("SHOP").len(), 1, "only SHOP-12's Griller");
+    assert_eq!(
+        world.running_in("SHOP").len(),
+        1,
+        "only SHOP-12's Spec writer"
+    );
     assert!(
         world.w.pause.is_paused("SHOP").await.unwrap(),
         "the pause stays"
@@ -451,14 +458,22 @@ async fn pause_answer_restart_and_resume() {
         }
         n
     };
-    assert_eq!(before, [2, 2, 0], "Grill and the answer; Grill and Dev");
+    assert_eq!(
+        before,
+        [2, 2, 0],
+        "Product spec and the answer; Product spec and Dev"
+    );
 
     // Resume: each comes back once, SHOP-33 on its own conversation, and SHOP-35's kept start runs.
     let resumed = world.pause(Request::AgentsResume(shop())).await;
     assert_eq!(resumed.projects[0].paused_since, None);
     world.until_in("SHOP-33", "dev", Status::Working).await;
-    world.until_in("SHOP-12", "grill", Status::Working).await;
-    world.until_in("SHOP-35", "grill", Status::Working).await;
+    world
+        .until_in("SHOP-12", "product-spec", Status::Working)
+        .await;
+    world
+        .until_in("SHOP-35", "product-spec", Status::Working)
+        .await;
     let again = world.pause(Request::AgentsResume(shop())).await;
     assert_eq!(again.projects[0].paused_since, None);
     let starts = |world: &World| -> Vec<usize> {
@@ -482,8 +497,8 @@ async fn pause_answer_restart_and_resume() {
     world.stop().await;
 }
 
-/// FED-02, FED-08: the agent's proposal lands in the draft; Plan added after Grill; Security moved before Validate
-/// waits for its span; Apply now.
+/// FED-02, FED-08: the agent's proposal lands in the draft; Plan added after Product spec; Security moved before
+/// Validate waits for its span; Apply now.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_flow_editor_adds_plan_and_moves_security() {
     let world = world(
@@ -493,14 +508,18 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
     )
     .await;
     let mut with_plan = shop_flow();
-    plan_after_grill(&mut with_plan);
+    plan_after_product_spec(&mut with_plan);
     std::fs::write(world.path("plan.yaml"), yaml::write(&with_plan)).unwrap();
 
-    // SHOP-12 in Grill, SHOP-33 in Dev.
+    // SHOP-12 in Product spec, SHOP-33 in Dev.
     world.to_ready("SHOP-12").await;
     world.to_ready("SHOP-33").await;
-    world.until_in("SHOP-12", "grill", Status::Working).await;
-    world.until_in("SHOP-33", "grill", Status::Working).await;
+    world
+        .until_in("SHOP-12", "product-spec", Status::Working)
+        .await;
+    world
+        .until_in("SHOP-33", "product-spec", Status::Working)
+        .await;
     world.go("SHOP-33");
     world.until_in("SHOP-33", "dev", Status::Working).await;
 
@@ -566,7 +585,7 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         .collect();
     assert!(!stages.contains(&"plan".to_owned()), "nothing applies yet");
 
-    // Apply: at once. SHOP-12 leaves Grill for Plan; SHOP-33 leaves Dev for Validate.
+    // Apply: at once. SHOP-12 leaves Product spec for Plan; SHOP-33 leaves Dev for Validate.
     let reply = world
         .ask(Request::FlowApply(ApplyParams {
             project: "SHOP".into(),
@@ -590,17 +609,17 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
     };
     assert_eq!(
         stages(world.w.board.stage_runs("SHOP-12").await.unwrap()),
-        ["grill", "plan"]
+        ["product-spec", "plan"]
     );
     assert_eq!(
         stages(world.w.board.stage_runs("SHOP-33").await.unwrap()),
-        ["grill", "dev", "validate"],
+        ["product-spec", "dev", "validate"],
         "SHOP-33 never meets Plan"
     );
 
     // Security moved before Validate in the editor: it waits for Dev…Review, where SHOP-33 checks.
     let mut moved = shop_flow();
-    plan_after_grill(&mut moved);
+    plan_after_product_spec(&mut moved);
     security_first(&mut moved);
     let draft = world
         .draft(Request::FlowDraftUpdate(DraftUpdateParams {
@@ -702,7 +721,15 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         .collect();
     assert_eq!(
         order,
-        ["grill", "plan", "dev", "security", "validate", "qa", "ship"]
+        [
+            "product-spec",
+            "plan",
+            "dev",
+            "security",
+            "validate",
+            "qa",
+            "ship"
+        ]
     );
     world.until_in("SHOP-12", "dev", Status::Working).await;
     // The stand-in logs its start a moment after the session counts as working.
@@ -774,13 +801,15 @@ async fn a_blocked_ticket_waits_in_ready_for_dev() {
     let again = world.ask(drag("SHOP-20", "dev")).await.unwrap_err();
     assert!(again.message.contains("SHOP-20 is blocked"), "{again:?}");
 
-    // Both merge: it starts in Grill.
+    // Both merge: it starts in Product spec.
     world.w.force_status(&shop18, Status::Merged).await;
     world.w.force_status(&shop29, Status::Merged).await;
     world.w.events.publish(Event::ProjectsChanged);
-    world.until_in("SHOP-20", "grill", Status::Working).await;
     world
-        .until("SHOP-20's Griller starts", async || {
+        .until_in("SHOP-20", "product-spec", Status::Working)
+        .await;
+    world
+        .until("SHOP-20's Spec writer starts", async || {
             world.starts_of("SHOP-20").len() == 1
         })
         .await;

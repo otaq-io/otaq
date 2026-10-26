@@ -181,7 +181,7 @@ pub fn check_only_verdict(ticket: &TicketKey, stage: &str) -> String {
     format!("{ticket}'s {stage} check can only give its verdict")
 }
 
-/// An Agent stage session's refusal of a verdict (STG-10): "NOTE-4's Grill session can't give a check verdict".
+/// An Agent stage session's refusal of a verdict (STG-10): "NOTE-4's Product spec session can't give a check verdict".
 pub fn agent_stage_no_verdict(ticket: &TicketKey, stage: &str) -> String {
     format!("{ticket}'s {stage} session can't give a check verdict")
 }
@@ -619,7 +619,7 @@ mod tests {
     }
 
     /// T-0402 (STG-10, d0108): a session's rights are its stage's kind's, and its refusals name the stage. A
-    /// Security check session gives its verdict only (no `stage next`); a Grill session never gives one.
+    /// Security check session gives its verdict only (no `stage next`); a Product spec session never gives one.
     #[test]
     fn rights_by_stage_kind() {
         let security = Caller::Validator {
@@ -627,7 +627,7 @@ mod tests {
             ticket_id: "t4".into(),
             session: "s".into(),
         };
-        let grill = agent("NOTE-4", "t4");
+        let product_spec = agent("NOTE-4", "t4");
         let own = facts("NOTE-4", "t4", "nevzat");
         let in_stage = |caller: &Caller, stage: &str, action: &Action| {
             message(authorize_in_stage(
@@ -647,11 +647,15 @@ mod tests {
         );
         assert_eq!(in_stage(&security, "Security", &Action::Read), None);
         assert_eq!(
-            in_stage(&grill, "Grill", &Action::Verdict(own.clone())).as_deref(),
-            Some("NOTE-4's Grill session can't give a check verdict")
+            in_stage(&product_spec, "Product spec", &Action::Verdict(own.clone())).as_deref(),
+            Some("NOTE-4's Product spec session can't give a check verdict")
         );
         assert_eq!(
-            in_stage(&grill, "Grill", &Action::ChangeTicket(own.clone())),
+            in_stage(
+                &product_spec,
+                "Product spec",
+                &Action::ChangeTicket(own.clone())
+            ),
             None
         );
         // The default flow's stages are named too (Q269).
@@ -673,7 +677,7 @@ mod tests {
         // A session without a stage run.
         assert_eq!(
             message(authorize_in_stage(
-                &grill,
+                &product_spec,
                 Names::default(),
                 None,
                 &Action::Verdict(own)

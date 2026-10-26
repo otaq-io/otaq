@@ -4,9 +4,9 @@
 //!
 //! **What applies when** ([`Board::apply_proposal`]): agent changes and skill imports apply now (each session's next
 //! start; running ones keep what they started with, d0088). **Adding a stage or editing one applies at once**: stored
-//! as a new version now, so a ticket that hasn't reached that point follows it (Plan added after Grill: SHOP-12 in
-//! Grill goes to Plan next) and tickets in or past it finish as they are; a stage's agent, skill, options and rounds
-//! are read when that stage next starts, its name, column and a Delivery's mode or target by the next card that
+//! as a new version now, so a ticket that hasn't reached that point follows it (Plan added after Product spec: SHOP-12
+//! in Product spec goes to Plan next) and tickets in or past it finish as they are; a stage's agent, skill, options and
+//! rounds are read when that stage next starts, its name, column and a Delivery's mode or target by the next card that
 //! arrives. **Removing or reordering stages, or a stage's kind, waits for its affected span** ([`affected_span`]): the
 //! parts that don't wait are stored now ([`super::proposal::applied_now`]) and the whole proposed flow becomes the
 //! project's **waiting change**. **A swap to another flow** (a Start from pick, `flow propose --from`) waits for the

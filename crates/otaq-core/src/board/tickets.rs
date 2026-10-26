@@ -417,7 +417,7 @@ stored_enum! {
         FallbackUsed = "fallback_used",
         /// A ticket's stage choice changed (AGM-08): payload `stage` (its name), `stage_id`, `choice` ("Quick
         /// developer", "skip", "required"), `from` (before; null = nobody had chosen), `set_by` (`user`,
-        /// `project_agent`, `agent`), `by` ("you", "Noyan", "Griller") and `reason` (an agent's). History reads
+        /// `project_agent`, `agent`), `by` ("you", "Noyan", "Spec writer") and `reason` (an agent's). History reads
         /// "Dev: Quick developer (set by Noyan)" · "typo fix".
         StageChoiceSet = "stage_choice_set",
         /// The user's Pass on a human check that moved the card on (FLW-14, d0108): payload `stage` (its name),
@@ -432,7 +432,8 @@ stored_enum! {
         /// `stage_id`, `from` (the stage it left, by name), `back` (true for a drag back), `skipped` (the names of
         /// the stages a forward drag walked over), `run_by_you` (a drag back into a stage the ticket skips by its
         /// choice: it runs once) and `note` (the instructions or the check's note). History reads "Moved back to
-        /// Dev" · "Grill · run by you" (or the note, or "by you"), "Moved to Review" · "Skipped Validate · by you".
+        /// Dev" · "Product spec · run by you" (or the note, or "by you"), "Moved to Review" · "Skipped Validate · by
+        /// you".
         Dragged = "dragged",
         /// One of the ticket's helpers changed (d0133): payload `piece`, `label` ("40.3"), `title`, `what` (`started`,
         /// `held`, `sent_back`, `handed_back`, `merged`) and `note` (the first line of a note or a hand-back). History
@@ -625,7 +626,7 @@ impl Board {
     }
 
     /// [`Self::update_ticket`] naming who made the change in History (CMT-14): an agent's edit records its comment
-    /// author ("Griller · Grill edited the description"); the user's needs none.
+    /// author ("Spec writer · Product spec edited the description"); the user's needs none.
     pub async fn update_ticket_by(
         &self,
         key: &str,

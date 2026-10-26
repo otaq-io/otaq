@@ -841,13 +841,13 @@ mod tests {
         request(
             &h.app,
             "flow_editor.pick",
-            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "grill-first.yaml" } }),
+            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "spec-first.yaml" } }),
         )
         .await
         .unwrap();
         let v = load(&h, None).await;
-        assert!(v.start_from.entries.iter().any(|e| e.name == "Grill first" && e.chosen));
-        assert_eq!(v.flow.steps[1].name, "Grill");
+        assert!(v.start_from.entries.iter().any(|e| e.name == "Spec first" && e.chosen));
+        assert_eq!(v.flow.steps[1].name, "Product spec");
         request(
             &h.app,
             "flow_editor.apply",
@@ -857,11 +857,11 @@ mod tests {
         .unwrap();
         let v = load(&h, None).await;
         assert_eq!(v.proposal, 0);
-        assert_eq!(v.flow.summary, "6 steps \u{b7} in use");
+        assert_eq!(v.flow.summary, "9 steps \u{b7} in use");
     }
 
-    /// T-0529 (d0130, d0131): a second check agent on Validate and Review's fails sent to Grill go through the draft
-    /// (the change line names the agents), apply, and read back from the flow in use.
+    /// T-0529 (d0130, d0131): a second check agent on Validate and Code review's fails sent to Product spec go through
+    /// the draft (the change line names the agents), apply, and read back from the flow in use.
     #[tokio::test(flavor = "multi_thread")]
     async fn check_agents_and_fails_go_to_apply() {
         let h = Harness::new(None);
@@ -878,7 +878,7 @@ mod tests {
         request(
             &h.app,
             "flow_editor.pick",
-            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "grill-first.yaml" } }),
+            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "spec-first.yaml" } }),
         )
         .await
         .unwrap();
@@ -886,7 +886,7 @@ mod tests {
 
         for edit in [
             json!({ "edit": "add_check_agent", "stage": "validate", "agent": "Developer" }),
-            json!({ "edit": "fail_to", "stage": "review", "to": "grill" }),
+            json!({ "edit": "fail_to", "stage": "code-review", "to": "product-spec" }),
         ] {
             request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
                 .await
@@ -909,7 +909,7 @@ mod tests {
         let step = |name: &str| v.flow.steps.iter().find(|s| s.name == name).unwrap();
         assert_eq!(step("Validate").who.as_deref(), Some("2 check agents"));
         assert_eq!(step("Validate").fails_to.as_deref(), Some("fails go to Dev"));
-        assert_eq!(step("Review").fails_to.as_deref(), Some("fails go to Grill"));
+        assert_eq!(step("Code review").fails_to.as_deref(), Some("fails go to Product spec"));
         let agents = v.flow.details.unwrap().check_agents.unwrap();
         assert_eq!(
             agents.rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),

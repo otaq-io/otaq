@@ -2,6 +2,6 @@
 import type { ProjectMenuView } from "./ProjectMenuView";
 
 /**
- * The menu in the component gallery: shop-web's flow in use, and with Grill first waiting.
+ * The menu in the component gallery: shop-web's flow in use, and with Spec first waiting.
  */
 export type ProjectMenuGallery = { cells: Array<[string, ProjectMenuView]>, };

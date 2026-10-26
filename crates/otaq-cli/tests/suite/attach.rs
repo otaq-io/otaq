@@ -265,7 +265,7 @@ async fn errors_name_the_ticket_and_exit_non_zero() {
             ),
             (
                 w2.command(&["attach", "SHOP-2", "--stage", "nope"]),
-                "SHOP's flow has no stage nope (its stages: Grill, Dev, Validate, Security, QA, Done)",
+                "SHOP's flow has no stage nope (its stages: Product spec, Dev, Validate, Security, QA, Done)",
             ),
             (
                 w2.command(&["attach", "SHOP-2", "--validator"]),

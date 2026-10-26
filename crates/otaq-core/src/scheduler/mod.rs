@@ -3,8 +3,8 @@
 //! readiness, [`crate::board::readiness`]), in the **start order**: pinned → priority 1→4 → ready the longest
 //! ([`crate::board::order::start_order`]). It keeps each queued ticket's `ready_since` up to date. The wait is the
 //! same before every Agent stage (d0108): Ready for Dev before the first, and between two Agent stages before the
-//! next (a ticket that finished Grill waits before Dev, keeping its worktree); the start enters the stage it waited
-//! before ([`crate::start::sequence`]).
+//! next (a ticket that finished Product spec waits before Dev, keeping its worktree); the start enters the stage it
+//! waited before ([`crate::start::sequence`]).
 //!
 //! It runs a pass on every state change (the service's event bus) plus a slow tick ([`DEFAULT_TICK`]) that
 //! catches anything missed. A pass is [`plan`]: pure, from all projects' tickets. The scheduler:

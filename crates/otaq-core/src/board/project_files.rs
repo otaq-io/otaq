@@ -313,7 +313,7 @@ pub struct ProjectChanges {
     pub counts: ProjectCounts,
 }
 
-/// A ticket without a worktree yet: "No worktree yet: SHOP-12, SHOP-44 (Grill), … and 3 in Backlog".
+/// A ticket without a worktree yet: "No worktree yet: SHOP-12, SHOP-44 (Product spec), … and 3 in Backlog".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoWorktree {
     pub key: TicketKey,

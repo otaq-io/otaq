@@ -196,7 +196,7 @@ describe("the Apply now window", () => {
   });
 
   it("a stale answer redraws it with the line naming what changed", async () => {
-    const line = "The board changed: SHOP-41 entered Grill.";
+    const line = "The board changed: SHOP-41 entered Product spec.";
     answer = { outcome: "refreshed", view: view("stage:review", { stamp: "s2", changed: line }) };
     act(() => {
       button("Apply now")?.click();

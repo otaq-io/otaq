@@ -1,11 +1,11 @@
 //! Apply now on a waiting flow change (T-0438; APN-02…APN-05, FLW-06, FLW-18; d0108 "A flow change waits for a quiet
 //! board" with Apply now, "Dragging a card back…", "Other drags", "After a Fail"; d0045), on the test flow
-//! (`tests/flows/every-kind.yaml`: Grill · Dev · Validate · Security · QA · Done): the plan (moves with their choices,
-//! defaults and hints, the tickets that keep their place, the stamp) for one ticket in a removed human check, four
-//! tickets in two removed stages, a merged change and no change; applying (the flow, the moves and the
-//! stopped sessions together, a failure leaving nothing done, a pick back resuming Dev's conversation, a forward pick
-//! marking skips, a stale stamp or a bad pick refused with the fresh plan, "already applied"); and the example's run
-//! with stand-in sessions. `claude` is stood in for by an ordinary command.
+//! (`tests/flows/every-kind.yaml`: Product spec · Dev · Validate · Security · QA · Done): the plan (moves with their
+//! choices, defaults and hints, the tickets that keep their place, the stamp) for one ticket in a removed human check,
+//! four tickets in two removed stages, a merged change and no change; applying (the flow, the moves and the stopped
+//! sessions together, a failure leaving nothing done, a pick back resuming Dev's conversation, a forward pick marking
+//! skips, a stale stamp or a bad pick refused with the fresh plan, "already applied"); and the example's run with
+//! stand-in sessions. `claude` is stood in for by an ordinary command.
 
 use std::path::Path;
 use std::time::Duration;
@@ -222,7 +222,7 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
         [
             ("Backlog".to_owned(), Way::Backlog),
             ("Ready for Dev".to_owned(), Way::ReadyForDev),
-            ("Grill".to_owned(), Way::Back),
+            ("Product spec".to_owned(), Way::Back),
             ("Dev".to_owned(), Way::Back),
             ("Validate".to_owned(), Way::Back),
             ("Security".to_owned(), Way::Back),
@@ -236,8 +236,8 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
         Some("Dev resumes SHOP-1\u{2019}s earlier session")
     );
     assert_eq!(
-        hint("grill").as_deref(),
-        Some("Grill starts a new session for SHOP-1")
+        hint("product-spec").as_deref(),
+        Some("Product spec starts a new session for SHOP-1")
     );
     assert_eq!(
         hint("security").as_deref(),
@@ -264,15 +264,15 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
     w.stop().await;
 }
 
-/// s11-18: four tickets in two removed stages, Grill and Security: two with running sessions (an agent in Grill, a
-/// checker in Security), one failed ×3, one idle with no session. Grill's place is before Dev, Security's before QA;
-/// moving on from Security to Done skips QA. SHOP-5's agent keeps running in Dev; SHOP-6 keeps its place waiting
-/// before Dev.
+/// s11-18: four tickets in two removed stages, Product spec and Security: two with running sessions (an agent in
+/// Product spec, a checker in Security), one failed ×3, one idle with no session. Product spec's place is before Dev,
+/// Security's before QA; moving on from Security to Done skips QA. SHOP-5's agent keeps running in Dev; SHOP-6 keeps
+/// its place waiting before Dev.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_plan_for_four_tickets_in_two_removed_stages() {
     let w = world().await;
-    let grilling = at(&w, "Price table", "grill", Status::Working).await;
-    let _grill_agent = w.agent_shell(&grilling).await;
+    let planning = at(&w, "Price table", "product-spec", Status::Working).await;
+    let _product_spec_agent = w.agent_shell(&planning).await;
     let checking = ran_dev_then(&w, "Coupons", "security", Status::Checking).await;
     let _checker = w.shell(&checking, SessionKind::Validator).await;
     let failed = ran_dev_then(&w, "Wishlist", "security", Status::CheckFailed).await;
@@ -283,16 +283,16 @@ async fn the_plan_for_four_tickets_in_two_removed_stages() {
     .execute(w.board.store().pool())
     .await
     .unwrap();
-    at(&w, "Search", "grill", Status::Idle).await;
+    at(&w, "Search", "product-spec", Status::Idle).await;
     let working = at(&w, "Checkout", "dev", Status::Working).await;
     let _dev_agent = w.agent_shell(&working).await;
     at(&w, "Reviews", "dev", Status::Queued).await;
-    remove(&w, &["grill", "security"]).await;
+    remove(&w, &["product-spec", "security"]).await;
 
     let plan = plan(&w).await;
     assert_eq!(
         plan.summary,
-        "Removes Grill and Security from shop-web\u{2019}s flow"
+        "Removes Product spec and Security from shop-web\u{2019}s flow"
     );
     let keys: Vec<String> = plan.moves.iter().map(|m| m.ticket.to_string()).collect();
     assert_eq!(keys, ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4"]);
@@ -301,11 +301,11 @@ async fn the_plan_for_four_tickets_in_two_removed_stages() {
     let states: Vec<Option<&str>> = plan.moves.iter().map(|m| m.state.as_deref()).collect();
     assert_eq!(states, [None, None, Some("failed \u{d7}3"), Some("idle")]);
 
-    let in_grill = move_of(&plan, "SHOP-1");
-    assert_eq!(in_grill.stage_name, "Grill");
-    assert_eq!(in_grill.default, DropOn::stage("dev"));
+    let in_product_spec = move_of(&plan, "SHOP-1");
+    assert_eq!(in_product_spec.stage_name, "Product spec");
+    assert_eq!(in_product_spec.default, DropOn::stage("dev"));
     assert_eq!(
-        choices(in_grill)[2..],
+        choices(in_product_spec)[2..],
         [
             ("Dev".to_owned(), Way::Next),
             ("Validate".to_owned(), Way::Forward),
@@ -351,19 +351,20 @@ async fn the_plan_for_four_tickets_in_two_removed_stages() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merged_waiting_change_counts_whole() {
     let w = world().await;
-    at(&w, "Price table", "grill", Status::Working).await;
+    at(&w, "Price table", "product-spec", Status::Working).await;
     at(&w, "Coupons", "security", Status::Checking).await;
-    remove(&w, &["grill"]).await;
+    remove(&w, &["product-spec"]).await;
     remove(&w, &["security"]).await;
 
     let plan = plan(&w).await;
-    assert_eq!(plan.removed, names(&["Grill", "Security"]));
-    // QA's fails went to Grill: with Grill gone they go to the nearest Agent stage (d0131), and the preview says so.
+    assert_eq!(plan.removed, names(&["Product spec", "Security"]));
+    // QA's fails went to Product spec: with Product spec gone they go to the nearest Agent stage (d0131), and the
+    // preview says so.
     assert_eq!(
         plan.changes,
         [
             "QA's fails go to the nearest Agent stage now",
-            "Grill removed",
+            "Product spec removed",
             "Security removed"
         ],
     );
@@ -372,16 +373,16 @@ async fn a_merged_waiting_change_counts_whole() {
     w.stop().await;
 }
 
-/// The example's Apply now with stand-in sessions (APN-04, APN-05): SHOP-1 runs in Grill and goes on to Dev (the
+/// The example's Apply now with stand-in sessions (APN-04, APN-05): SHOP-1 runs in Product spec and goes on to Dev (the
 /// default), SHOP-2's checker runs in Security and SHOP-2 is picked back to Dev, SHOP-3 runs in Dev, SHOP-4 waits in
-/// QA. Apply now stores the flow and both moves at once; Grill's agent and Security's checker stop (their runs end
-/// "stopped · flow change"); SHOP-1 starts Dev in a new session; SHOP-2's Dev conversation resumes with Send back's
+/// QA. Apply now stores the flow and both moves at once; Product spec's agent and Security's checker stop (their runs
+/// end "stopped · flow change"); SHOP-1 starts Dev in a new session; SHOP-2's Dev conversation resumes with Send back's
 /// skill (a human Fail: its counters restart); SHOP-3's agent keeps running and SHOP-4 is untouched.
 #[tokio::test(flavor = "multi_thread")]
 async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     let w = world().await;
-    // SHOP-1 starts in Grill, the flow's first stage, with the stand-in `claude`.
-    let grilling = w.create("SHOP", "Price table").await;
+    // SHOP-1 starts in Product spec, the flow's first stage, with the stand-in `claude`.
+    let planning = w.create("SHOP", "Price table").await;
     w.board
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
@@ -397,11 +398,11 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     );
     assert_eq!(
         w.board.ticket("SHOP-1").await.unwrap().place,
-        Place::stage_of("grill")
+        Place::stage_of("product-spec")
     );
-    let grill_agent = w
+    let product_spec_agent = w
         .sessions
-        .running_of(&grilling.id, SessionKind::Agent)
+        .running_of(&planning.id, SessionKind::Agent)
         .unwrap()
         .id;
     let checking = ran_dev_then(&w, "Coupons", "security", Status::Checking).await;
@@ -416,7 +417,7 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     let working = at(&w, "Checkout", "dev", Status::Working).await;
     let dev_agent = w.agent_shell(&working).await;
     let waiting = ran_dev_then(&w, "Reviews", "qa", Status::WaitingForYou).await;
-    remove(&w, &["grill", "security"]).await;
+    remove(&w, &["product-spec", "security"]).await;
     let before = w.board.current_flow("SHOP").await.unwrap().version;
 
     let plan = plan(&w).await;
@@ -437,11 +438,11 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     assert_eq!(keys(&stopped), ["SHOP-1", "SHOP-2"]);
     assert!(w.board.waiting_change("SHOP").await.unwrap().is_none());
     let flow = w.board.effective_flow("SHOP").await.unwrap();
-    assert!(flow.stage("grill").is_none() && flow.stage("security").is_none());
+    assert!(flow.stage("product-spec").is_none() && flow.stage("security").is_none());
 
     // The sessions in removed stages stopped; the agent in Dev didn't.
     let ended = |id: &str| w.sessions.info(id).map_or(true, |s| !s.is_running());
-    for id in [grill_agent.as_str(), checker.session.as_str()] {
+    for id in [product_spec_agent.as_str(), checker.session.as_str()] {
         let gone = tokio::time::timeout(Duration::from_secs(10), async {
             while !ended(id) {
                 tokio::time::sleep(Duration::from_millis(20)).await;
@@ -471,7 +472,7 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     );
 
     // The removed stages' runs ended stopped by the flow change.
-    for (key, stage) in [("SHOP-1", "grill"), ("SHOP-2", "security")] {
+    for (key, stage) in [("SHOP-1", "product-spec"), ("SHOP-2", "security")] {
         let runs = w.board.stage_runs(key).await.unwrap();
         let run = runs.iter().rfind(|r| r.stage == stage).unwrap();
         assert_eq!(run.result, Some(RunResult::Cancelled), "{key}");
@@ -497,9 +498,9 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     );
     let fresh = w
         .sessions
-        .running_of(&grilling.id, SessionKind::Agent)
+        .running_of(&planning.id, SessionKind::Agent)
         .unwrap();
-    assert_ne!(fresh.id, grill_agent);
+    assert_ne!(fresh.id, product_spec_agent);
     let out = w.wait_for_output(&fresh.id, "ARGS").await;
     assert!(!out.contains("--resume"), "{out}");
 
@@ -530,7 +531,7 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
             &event.payload["removed"],
             &event.payload["back"]
         ),
-        (&"Dev".into(), &"Grill".into(), &false.into())
+        (&"Dev".into(), &"Product spec".into(), &false.into())
     );
     let event = last_event(&w, "SHOP-2", EventKind::Dragged).await;
     assert_eq!(
@@ -544,9 +545,9 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_forward_pick_marks_skips_and_backlog_parks() {
     let w = world().await;
-    at(&w, "Price table", "grill", Status::Idle).await;
-    at(&w, "Coupons", "grill", Status::Idle).await;
-    remove(&w, &["grill"]).await;
+    at(&w, "Price table", "product-spec", Status::Idle).await;
+    at(&w, "Coupons", "product-spec", Status::Idle).await;
+    remove(&w, &["product-spec"]).await;
 
     let plan = plan(&w).await;
     let answer = apply(
@@ -579,14 +580,14 @@ async fn a_forward_pick_marks_skips_and_backlog_parks() {
         event.payload["skipped"],
         serde_json::json!(["Dev", "Validate", "Security"])
     );
-    assert_eq!(event.payload["removed"], "Grill");
+    assert_eq!(event.payload["removed"], "Product spec");
     assert_eq!(
         place_and_status(&w, "SHOP-2").await,
         (Place::Backlog, Status::Parked)
     );
     assert_eq!(
         last_event(&w, "SHOP-2", EventKind::Parked).await.payload["removed"],
-        "Grill"
+        "Product spec"
     );
     w.stop().await;
 }
@@ -596,32 +597,32 @@ async fn a_forward_pick_marks_skips_and_backlog_parks() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stale_stamp_or_a_bad_pick_is_refused_with_the_fresh_plan() {
     let w = world().await;
-    at(&w, "Price table", "grill", Status::Idle).await;
+    at(&w, "Price table", "product-spec", Status::Idle).await;
     let later = at(&w, "Coupons", "dev", Status::Working).await;
-    remove(&w, &["grill"]).await;
+    remove(&w, &["product-spec"]).await;
     let before = w.board.current_flow("SHOP").await.unwrap().version;
     let old = plan(&w).await;
 
-    place_in(&w, &later, "grill", Status::Working).await;
+    place_in(&w, &later, "product-spec", Status::Working).await;
     let answer = apply(&w, &old.stamp, Vec::new()).await;
     let ApplyNowAnswer::Refreshed { plan: fresh, why } = answer else {
         panic!("not refreshed: {answer:?}");
     };
     assert_eq!(why, Refreshed::BoardChanged);
     assert_ne!(fresh.stamp, old.stamp);
-    assert_eq!(fresh.moves.len(), 2, "SHOP-2 entered Grill");
+    assert_eq!(fresh.moves.len(), 2, "SHOP-2 entered Product spec");
     assert!(w.board.waiting_change("SHOP").await.unwrap().is_some());
     assert_eq!(w.board.current_flow("SHOP").await.unwrap().version, before);
     assert_eq!(
         place_and_status(&w, "SHOP-1").await,
-        (Place::stage_of("grill"), Status::Idle)
+        (Place::stage_of("product-spec"), Status::Idle)
     );
 
-    // Grill is no choice: it is the stage that goes.
+    // Product spec is no choice: it is the stage that goes.
     let answer = apply(
         &w,
         &fresh.stamp,
-        vec![pick("SHOP-1", DropOn::stage("grill"))],
+        vec![pick("SHOP-1", DropOn::stage("product-spec"))],
     )
     .await;
     let ApplyNowAnswer::Refreshed { why, .. } = answer else {
@@ -642,7 +643,7 @@ async fn a_stale_stamp_or_a_bad_pick_is_refused_with_the_fresh_plan() {
 async fn already_applied_or_cancelled_meanwhile() {
     let w = world().await;
     let working = at(&w, "Price table", "dev", Status::Working).await;
-    remove(&w, &["grill"]).await;
+    remove(&w, &["product-spec"]).await;
     let old = plan(&w).await;
     assert!(old.moves.is_empty());
 
@@ -672,10 +673,10 @@ async fn already_applied_or_cancelled_meanwhile() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failure_in_a_move_leaves_nothing_half_done() {
     let w = world().await;
-    let first = at(&w, "Price table", "grill", Status::Working).await;
+    let first = at(&w, "Price table", "product-spec", Status::Working).await;
     let agent = w.agent_shell(&first).await;
-    let second = at(&w, "Coupons", "grill", Status::Idle).await;
-    remove(&w, &["grill"]).await;
+    let second = at(&w, "Coupons", "product-spec", Status::Idle).await;
+    remove(&w, &["product-spec"]).await;
     let before = w.board.current_flow("SHOP").await.unwrap().version;
     let history = w.board.history("SHOP-1").await.unwrap().len();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
@@ -705,7 +706,7 @@ async fn a_failure_in_a_move_leaves_nothing_half_done() {
     assert!(w.board.waiting_change("SHOP").await.unwrap().is_some());
     assert_eq!(
         place_and_status(&w, "SHOP-1").await,
-        (Place::stage_of("grill"), Status::Working)
+        (Place::stage_of("product-spec"), Status::Working)
     );
     assert_eq!(w.board.history("SHOP-1").await.unwrap().len(), history);
     assert!(
@@ -716,7 +717,10 @@ async fn a_failure_in_a_move_leaves_nothing_half_done() {
     );
     let runs = w.board.stage_runs("SHOP-1").await.unwrap();
     assert_eq!(
-        runs.iter().rfind(|r| r.stage == "grill").unwrap().ended_at,
+        runs.iter()
+            .rfind(|r| r.stage == "product-spec")
+            .unwrap()
+            .ended_at,
         None
     );
     w.stop().await;

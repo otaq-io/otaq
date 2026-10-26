@@ -56,7 +56,7 @@ pub enum Source {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         file: Option<String>,
     },
-    /// A shipped preset file ("grill-first.yaml"; [`super::presets`]).
+    /// A shipped preset file ("spec-first.yaml"; [`super::presets`]).
     Preset { file: String },
     /// Another project's stages (Copy from another project…, `otaq flow propose --from`): its key and name.
     Project { key: String, name: String },
@@ -929,8 +929,8 @@ fn describe(stage: &Stage, change: &Change) -> (String, String) {
 
 /// `base` with `new`'s changes that don't wait (FED-08): its edits ([`edits_only`]) and its added stages, each just
 /// after the stage before it in `new` (first when none is); no stage is removed or moved. What applies now while a
-/// removal or reorder waits for its span. Plan added after Grill: SHOP-12 in Grill goes to Plan next, SHOP-33 in Dev
-/// never meets it.
+/// removal or reorder waits for its span. Plan added after Product spec: SHOP-12 in Product spec goes to Plan next,
+/// SHOP-33 in Dev never meets it.
 pub fn applied_now(base: &Flow, new: &Flow) -> Flow {
     let mut flow = edits_only(base, new);
     for (i, stage) in new.stages.iter().enumerate() {

@@ -6,12 +6,13 @@
 //! - **Choices** ([`form_choices`], [`sheet_choices`]): a picker only for the stages with options ("Dev: Rust
 //!   developer ▾", "Review: required ▾"); the ⌘N form preselects each stage's own agent. A stage that started is
 //!   locked. Who set them: "set by Noyan" above the rows; a change by a ticket's
-//!   agent says who and why in violet ("Dev: Quick developer → Rust developer · by Griller · touches session
+//!   agent says who and why in violet ("Dev: Quick developer → Rust developer · by Spec writer · touches session
 //!   handling"), one you made says it's yours ("… · by you"). None on a flow without options (the default flow).
 //! - **The path** ([`path`]): every stage the ticket goes through with its agent and model; stages already run with
-//!   the exact model and a lock, failed rounds kept with what they found, skipped stages marked ("Skipped Grill (this
-//!   ticket's choice)"), and a one-line summary ("Grill skipped · Dev · Quick developer · haiku · … · Review
-//!   skipped · Done"; "Back in Dev after Security failed · then Validate · Security (round 2 of 3) · Review · Done").
+//!   the exact model and a lock, failed rounds kept with what they found, skipped stages marked ("Skipped Product spec
+//!   (this ticket's choice)"), and a one-line summary ("Product spec skipped · Dev · Quick developer · haiku · … ·
+//!   Review skipped · Done"; "Back in Dev after Security failed · then Validate · Security (round 2 of 3) · Review ·
+//!   Done").
 //! - **The token line** in the sheet's header (VAL-14, Q-G): "Strong 61k · Light 23k (1 round)"; with several tools
 //!   "Strong · Claude Code 58k · Verifier · Copilot 9k (1 round)".
 //! - **History lines**: session starts and ends with the agent and the exact model, M31's row changes and moves as
@@ -98,7 +99,7 @@ fn agent_model(agent: &Agent, tools: &Tools, with_effort: bool) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "StageChoiceChange")]
 pub struct ChoiceChange {
-    /// "Dev: Quick developer → Rust developer · by Griller · touches session handling".
+    /// "Dev: Quick developer → Rust developer · by Spec writer · touches session handling".
     pub text: String,
     /// An agent's: violet.
     pub agent_made: bool,
@@ -118,7 +119,7 @@ pub struct ChoiceRow {
     /// The picker (the select's menu: each item's id is the word a pick sends, the current one checked); empty once
     /// the stage started.
     pub items: Vec<MenuItem>,
-    /// Started: the lock's tooltip ("Locked: Grill has started").
+    /// Started: the lock's tooltip ("Locked: Product spec has started").
     pub lock: Option<String>,
     pub change: Option<ChoiceChange>,
 }
@@ -135,7 +136,7 @@ pub struct ChoicesView {
     pub note: Option<String>,
 }
 
-/// "Locked: Grill has started".
+/// "Locked: Product spec has started".
 pub fn locked(stage: &str) -> String {
     format!("Locked: {stage} has started")
 }
@@ -372,8 +373,8 @@ fn agent_name(stage: &PathStage) -> String {
         .map_or_else(|| DASH.to_owned(), |a| a.name.clone())
 }
 
-/// "Skipped Grill (this ticket's choice)"; a skipped check of yours waits for your click at the Delivery, unless it
-/// skipped on its own ("Skipped Spec review · nothing before it runs", 0129 row 4).
+/// "Skipped Product spec (this ticket's choice)"; a skipped check of yours waits for your click at the Delivery, unless
+/// it skipped on its own ("Skipped Spec review · nothing before it runs", 0129 row 4).
 fn skipped_detail(
     stage: &PathStage,
     delivery: Option<&str>,
@@ -745,7 +746,7 @@ fn shown_stages(path: &[PathStage]) -> Vec<PathStage> {
         .collect()
 }
 
-/// A stage in the one-line path: "Dev · Quick developer · haiku", "Grill skipped", "Review", "Done".
+/// A stage in the one-line path: "Dev · Quick developer · haiku", "Product spec skipped", "Review", "Done".
 fn summary_part(stage: &PathStage, tools: &Tools) -> String {
     if stage.skipped {
         return format!("{} skipped", stage.stage);
@@ -922,9 +923,9 @@ pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
 /// A History line of the agents (`history.rs` adds them to Activity's timeline).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryLine {
-    /// A session's own rows (Q432, `s25-07`): its start "Grill started · Griller" with "Claude Code · sonnet" under
-    /// it ("Claude Code · claude-sonnet-5-6 (Sonnet → claude-sonnet-5-6)" when it moved on) and the swap note ("asked
-    /// for gpt-5.5, ran on auto"), and its end "Grill finished · Griller".
+    /// A session's own rows (Q432, `s25-07`): its start "Product spec started · Spec writer" with "Claude Code ·
+    /// sonnet" under it ("Claude Code · claude-sonnet-5-6 (Sonnet → claude-sonnet-5-6)" when it moved on) and the swap
+    /// note ("asked for gpt-5.5, ran on auto"), and its end "Product spec finished · Spec writer".
     Session {
         session: String,
         started: String,
@@ -941,7 +942,7 @@ pub enum HistoryLine {
     },
 }
 
-/// The stage a session ran ("Grill"), from the ticket's stage runs; its role ("Developer") when no run names it.
+/// The stage a session ran ("Product spec"), from the ticket's stage runs; its role ("Developer") when no run names it.
 fn session_stage(t: &TicketAgents, session: &SessionAgentRun) -> String {
     t.runs
         .iter()
@@ -1169,10 +1170,10 @@ pub fn gallery() -> Gallery {
 // Fixtures (the gallery and the tests)
 
 pub mod fixtures {
-    //! The sample of *update AG*: shop-web's flow (Grill · Dev · Validate · Security · Review · Done · PR,
-    //! automatic) with Griller and Rust developer on sonnet, Quick developer and Shipper on haiku, Validator on Codex
-    //! · gpt-5.5, Security reviewer on opus · effort high; and pocket-notes on the default flow (Developer on haiku,
-    //! Validator on opus).
+    //! The sample of *update AG*: shop-web's flow (Product spec · Dev · Validate · Security · Review · Done · PR,
+    //! automatic) with Spec writer and Rust developer on sonnet, Quick developer and Shipper on haiku, Validator on
+    //! Codex · gpt-5.5, Security reviewer on opus · effort high; and pocket-notes on the default flow (Developer on
+    //! haiku, Validator on opus).
 
     use otaq_core::agent_tools::Tool;
     use otaq_core::agent_tools::models::{ModelEntry, ModelKind, ModelList};
@@ -1261,7 +1262,7 @@ pub mod fixtures {
         let mut security = agent("security", "Security reviewer", CLAUDE, "opus");
         security.effort = Some("high".into());
         vec![
-            agent("griller", "Griller", CLAUDE, "sonnet"),
+            agent("spec-writer", "Spec writer", CLAUDE, "sonnet"),
             agent("rust", "Rust developer", CLAUDE, "sonnet"),
             agent("quick", "Quick developer", CLAUDE, "haiku"),
             agent("validator", "Validator", CODEX, "gpt-5.5"),
@@ -1291,7 +1292,12 @@ pub mod fixtures {
     pub fn shop_path(dev: &str) -> Vec<PathStage> {
         let a = shop_agents();
         vec![
-            stage("grill", "Grill", PathKind::Agent, find(&a, "griller")),
+            stage(
+                "product-spec",
+                "Product spec",
+                PathKind::Agent,
+                find(&a, "spec-writer"),
+            ),
             stage("dev", "Dev", PathKind::Agent, find(&a, dev)),
             PathStage {
                 shown_in: Some("Dev".into()),
@@ -1343,7 +1349,11 @@ pub mod fixtures {
             on_its_own: false,
         };
         vec![
-            options("grill", "Grill", Some(option("Griller", "griller"))),
+            options(
+                "product-spec",
+                "Product spec",
+                Some(option("Spec writer", "spec-writer")),
+            ),
             StageOptions {
                 agents: vec![option("Quick developer", "quick")],
                 can_skip: false,
@@ -1458,8 +1468,8 @@ pub mod fixtures {
         }
     }
 
-    /// SHOP-29 "Coupon field" in Dev on Rust developer after Grill, the Project agent's choices, Griller's change of
-    /// Dev (`s05-36`).
+    /// SHOP-29 "Coupon field" in Dev on Rust developer after Product spec, the Project agent's choices, Spec writer's
+    /// change of Dev (`s05-36`).
     pub fn shop_29() -> TicketAgents {
         let mut choices = shop_options();
         choices[0].choice = chose(Choice::Usual, by_project_agent("needs questions"), None);
@@ -1467,7 +1477,7 @@ pub mod fixtures {
         choices[1].choice = chose(
             Choice::Usual,
             SetBy::Agent {
-                name: "Griller".into(),
+                name: "Spec writer".into(),
                 reason: "touches session handling".into(),
             },
             Some("Quick developer"),
@@ -1481,9 +1491,9 @@ pub mod fixtures {
             choices,
             vec![
                 run(
-                    "grill",
+                    "product-spec",
                     Some("g"),
-                    Some("Griller"),
+                    Some("Spec writer"),
                     Some("claude-sonnet-5-5"),
                     Some(RunResult::Done),
                 ),
@@ -1493,7 +1503,7 @@ pub mod fixtures {
                 session(
                     "g",
                     SessionRole::Developer,
-                    "Griller",
+                    "Spec writer",
                     CLAUDE,
                     Some("sonnet"),
                     Some("claude-sonnet-5-5"),
@@ -1564,7 +1574,7 @@ pub mod fixtures {
         t
     }
 
-    /// SHOP-41 "Fix README typo", merged: Grill and Review skipped, Dev on Quick developer (`s05-38`).
+    /// SHOP-41 "Fix README typo", merged: Product spec and Review skipped, Dev on Quick developer (`s05-38`).
     pub fn shop_41() -> TicketAgents {
         let mut choices = shop_options();
         let typo = by_project_agent("typo fix");
@@ -1600,7 +1610,7 @@ pub mod fixtures {
             path,
             choices,
             vec![
-                run("grill", None, None, None, Some(RunResult::Skipped)),
+                run("product-spec", None, None, None, Some(RunResult::Skipped)),
                 run(
                     "dev",
                     Some("d"),
@@ -1746,7 +1756,7 @@ mod tests {
             shown,
             [
                 // FLW-22 (Q290): a skippable Agent stage shows its agent, a skippable human check "required".
-                ("Grill:", "Griller"),
+                ("Product spec:", "Spec writer"),
                 ("Dev:", "Rust developer"),
                 ("Review:", "required")
             ]
@@ -1759,7 +1769,7 @@ mod tests {
         assert_eq!(
             words,
             [
-                vec!["Griller", "skip"],
+                vec!["Spec writer", "skip"],
                 vec!["Rust developer", "Quick developer"],
                 vec!["required", "skip"]
             ]
@@ -1779,7 +1789,7 @@ mod tests {
         let picks = picks_to_send(
             &new_ticket(),
             &[
-                ("grill".into(), "Griller".into()),
+                ("product-spec".into(), "Spec writer".into()),
                 ("dev".into(), "Quick developer".into()),
                 ("review".into(), "skip".into()),
                 ("dev".into(), "Nobody".into()),
@@ -1794,7 +1804,7 @@ mod tests {
         );
     }
 
-    /// AGM-09, `s05-36`: mid-flow, the started stages are locked; Griller's change says who and why in violet; the
+    /// AGM-09, `s05-36`: mid-flow, the started stages are locked; Spec writer's change says who and why in violet; the
     /// path by agent and model, the stage that ran with its exact model and a lock.
     #[test]
     fn mid_flow_the_panel_shows_the_choices_and_the_path() {
@@ -1806,7 +1816,7 @@ mod tests {
         assert_eq!(
             locks,
             [
-                Some("Locked: Grill has started"),
+                Some("Locked: Product spec has started"),
                 Some("Locked: Dev has started"),
                 None
             ]
@@ -1816,7 +1826,7 @@ mod tests {
         assert_eq!(
             choices.rows[1].change,
             Some(ChoiceChange {
-                text: "Dev: Quick developer \u{2192} Rust developer \u{b7} by Griller \u{b7} touches session \
+                text: "Dev: Quick developer \u{2192} Rust developer \u{b7} by Spec writer \u{b7} touches session \
                        handling"
                     .into(),
                 agent_made: true,
@@ -1828,14 +1838,14 @@ mod tests {
         assert_eq!(p.heading, "Path");
         assert_eq!(
             p.summary,
-            "Grill \u{b7} Griller \u{b7} sonnet \u{b7} Dev \u{b7} Rust developer \u{b7} sonnet \u{b7} Validate \
+            "Product spec \u{b7} Spec writer \u{b7} sonnet \u{b7} Dev \u{b7} Rust developer \u{b7} sonnet \u{b7} Validate \
              \u{b7} Validator \u{b7} gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review \
              \u{b7} Done \u{b7} Shipper \u{b7} haiku"
         );
         assert_eq!(
             texts(&p),
             [
-                row("Grill", "Griller", "claude-sonnet-5-5", true),
+                row("Product spec", "Spec writer", "claude-sonnet-5-5", true),
                 row("Dev", "Rust developer \u{b7} working", "sonnet", false),
                 row(
                     "Validate",
@@ -1880,7 +1890,7 @@ mod tests {
         assert_eq!(
             texts(&p),
             [
-                row("Grill", "Griller", "claude-sonnet-5-5", true),
+                row("Product spec", "Spec writer", "claude-sonnet-5-5", true),
                 row(
                     "Dev",
                     "Rust developer \u{b7} round 1",
@@ -1940,15 +1950,15 @@ mod tests {
         let p = path(&t, &tools()).expect("path");
         assert_eq!(
             p.summary,
-            "Grill skipped \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \u{b7} Validator \u{b7} \
+            "Product spec skipped \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \u{b7} Validator \u{b7} \
              gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review skipped \u{b7} Done"
         );
         assert_eq!(
             texts(&p),
             [
                 row(
-                    "Grill",
-                    "Skipped Grill (this ticket\u{2019}s choice)",
+                    "Product spec",
+                    "Skipped Product spec (this ticket\u{2019}s choice)",
                     "\u{2014}",
                     false
                 ),
@@ -2006,7 +2016,7 @@ mod tests {
         let p = path(&t, &tools()).expect("path");
         assert_eq!(
             p.summary,
-            "Grill \u{b7} Griller \u{b7} sonnet \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \
+            "Product spec \u{b7} Spec writer \u{b7} sonnet \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \
              \u{b7} Validator \u{b7} gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review \
              \u{b7} Done \u{b7} Shipper \u{b7} haiku"
         );
@@ -2089,10 +2099,10 @@ mod tests {
     #[test]
     fn a_stored_choice_reads_as_its_label() {
         let mut options = shop_options();
-        options[0].choice = chose(Choice::Skip, SetBy::User, Some("Griller"));
+        options[0].choice = chose(Choice::Skip, SetBy::User, Some("Spec writer"));
         assert_eq!(
             change(&options[0]).map(|c| c.text),
-            Some("Grill: Griller \u{2192} skip \u{b7} by you".to_owned())
+            Some("Product spec: Spec writer \u{2192} skip \u{b7} by you".to_owned())
         );
     }
 

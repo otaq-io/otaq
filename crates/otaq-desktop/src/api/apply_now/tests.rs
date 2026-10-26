@@ -1,8 +1,9 @@
 //! The example's Apply now end to end through the window's requests (T-0441; APN-05; d0108, d0056, d0079): pocket-notes
-//! (NOTE) on Grill · Dev · Security · Review · Done · PR, with NOTE-1 running in Grill, NOTE-2's checker running in
-//! Security, NOTE-3 running in Dev and NOTE-4 waiting in Review. A proposal removing Grill and Security waits;
-//! `apply_now.view` shows the plan, NOTE-2 is picked back to Dev, `apply_now.apply` applies it: Grill's agent and
-//! Security's checker stop, NOTE-1 starts Dev, NOTE-2's Dev conversation resumes, NOTE-3 and NOTE-4 are untouched.
+//! (NOTE) on Product spec · Dev · Security · Review · Done · PR, with NOTE-1 running in Product spec, NOTE-2's checker
+//! running in Security, NOTE-3 running in Dev and NOTE-4 waiting in Review. A proposal removing Product spec and
+//! Security waits; `apply_now.view` shows the plan, NOTE-2 is picked back to Dev, `apply_now.apply` applies it: Product
+//! spec's agent and Security's checker stop, NOTE-1 starts Dev, NOTE-2's Dev conversation resumes, NOTE-3 and NOTE-4
+//! are untouched.
 //!
 //! The app talks to a core `TestService` (temporary `OTAQ_HOME` and repositories); `claude` is stood in for by `sh`
 //! printing its arguments and sleeping. No agent tool runs.
@@ -34,11 +35,11 @@ use crate::service::testing::{app_on, connected};
 /// Keeps running, printing its arguments.
 const KEEPS_RUNNING: &str = "printf 'ARGS %s\\n' \"$*\"; exec sleep 30";
 
-/// pocket-notes' flow: Backlog → Ready for Dev → Grill → Dev → Security (agent check) → Review → Done · PR.
+/// pocket-notes' flow: Backlog → Ready for Dev → Product spec → Dev → Security (agent check) → Review → Done · PR.
 const POCKET_NOTES: &str = "\
 agents:
-  - name: Griller
-    skills: [grill]
+  - name: Spec writer
+    skills: [product-spec]
     model: default
   - name: Rust developer
     skills: [work-ticket, commit-compact]
@@ -47,12 +48,12 @@ agents:
     skills: [security-review]
     model: default
 flow:
-  - id: grill
-    name: Grill
+  - id: product-spec
+    name: Product spec
     kind: agent
     column: own
-    agent: Griller
-    skill: grill
+    agent: Spec writer
+    skill: product-spec
   - id: dev
     name: Dev
     kind: agent
@@ -133,12 +134,12 @@ async fn ran_dev_then(w: &TestService, title: &str, stage: &str, status: Status)
     w.board.ticket(&t.key.to_string()).await.unwrap()
 }
 
-/// The user's proposal of pocket-notes' flow without Grill and Security, applied: it waits for the busy board.
-async fn remove_grill_and_security(w: &TestService) {
+/// The user's proposal of pocket-notes' flow without Product spec and Security, applied: it waits for the busy board.
+async fn remove_product_spec_and_security(w: &TestService) {
     let mut file: FlowFile = w.board.current_flow_file("NOTE").await.unwrap();
     file.flow
         .stages
-        .retain(|s| !["grill", "security"].contains(&s.id.as_str()));
+        .retain(|s| !["product-spec", "security"].contains(&s.id.as_str()));
     let proposal = w
         .board
         .open_proposal(
@@ -214,8 +215,8 @@ async fn until(w: &TestService, key: &str, want: impl Fn(&Ticket) -> bool, what:
 #[tokio::test(flavor = "multi_thread")]
 async fn the_example_applies_now_through_the_window() {
     let w = world().await;
-    // NOTE-1 starts in Grill, the flow's first stage, with the stand-in `claude`.
-    let grilling = w.create("NOTE", "Offline sync").await;
+    // NOTE-1 starts in Product spec, the flow's first stage, with the stand-in `claude`.
+    let planning = w.create("NOTE", "Offline sync").await;
     w.board
         .move_ticket("NOTE-1", DropTarget::ReadyForDev, true, &me())
         .await
@@ -224,11 +225,11 @@ async fn the_example_applies_now_through_the_window() {
     assert!(matches!(started, StartOutcome::Started(_)), "{started:?}");
     assert_eq!(
         place_and_status(&w, "NOTE-1").await.0,
-        Place::stage_of("grill")
+        Place::stage_of("product-spec")
     );
-    let grill_agent = w
+    let product_spec_agent = w
         .sessions
-        .running_of(&grilling.id, SessionKind::Agent)
+        .running_of(&planning.id, SessionKind::Agent)
         .unwrap()
         .id;
     let checking = ran_dev_then(&w, "Share a note", "security", Status::Checking).await;
@@ -237,7 +238,7 @@ async fn the_example_applies_now_through_the_window() {
     let dev_agent = w.agent_shell(&working).await;
     let waiting = ran_dev_then(&w, "Search", "review", Status::WaitingForYou).await;
     assert_eq!(waiting.key.to_string(), "NOTE-4");
-    remove_grill_and_security(&w).await;
+    remove_product_spec_and_security(&w).await;
     let before = w.board.current_flow("NOTE").await.unwrap().version;
     let app = app(&w).await;
 
@@ -245,7 +246,7 @@ async fn the_example_applies_now_through_the_window() {
     let shown = view(&app, json!({})).await;
     assert_eq!(
         shown["summary"],
-        "Removes Grill and Security from pocket-notes\u{2019}s flow."
+        "Removes Product spec and Security from pocket-notes\u{2019}s flow."
     );
     let keys: Vec<&str> = shown["moves"]
         .as_array()
@@ -291,9 +292,9 @@ async fn the_example_applies_now_through_the_window() {
     let names: Vec<&str> = flow.stages.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, ["Dev", "Review", "Done"]);
 
-    // Grill's agent and Security's checker stopped; NOTE-3's agent didn't.
+    // Product spec's agent and Security's checker stopped; NOTE-3's agent didn't.
     let ended = |id: &str| w.sessions.info(id).map_or(true, |s| !s.is_running());
-    for id in [grill_agent.as_str(), checker.session.as_str()] {
+    for id in [product_spec_agent.as_str(), checker.session.as_str()] {
         let gone = tokio::time::timeout(Duration::from_secs(10), async {
             while !ended(id) {
                 tokio::time::sleep(Duration::from_millis(20)).await;
@@ -324,9 +325,9 @@ async fn the_example_applies_now_through_the_window() {
     assert_eq!(place_and_status(&w, "NOTE-1").await.0, Place::stage_of("dev"));
     let fresh = w
         .sessions
-        .running_of(&grilling.id, SessionKind::Agent)
+        .running_of(&planning.id, SessionKind::Agent)
         .unwrap();
-    assert_ne!(fresh.id, grill_agent);
+    assert_ne!(fresh.id, product_spec_agent);
     let out = w.wait_for_output(&fresh.id, "ARGS").await;
     assert!(!out.contains("--resume"), "{out}");
     until(&w, "NOTE-2", |t| t.status == Status::Working, "resumed Dev").await;

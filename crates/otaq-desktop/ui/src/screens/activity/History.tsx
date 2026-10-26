@@ -1,6 +1,6 @@
 // The sheet's Activity (SHT-05, T-0466; canvas `s25-07`; History: UI-04, REC-03, CMT-14; d0045, d0109; Q432): the
 // ticket's story oldest first as a timeline under the filters All · Comments · Stages · Description. Each row: the
-// time, who (you, the agent's avatar, Otaq), a plain sentence ("You created the ticket", "Grill started · Griller")
+// time, who (you, the agent's avatar, Otaq), a plain sentence ("You created the ticket", "Product spec started · Spec writer")
 // and, where an agent ran, its duration and tokens as quiet text after it ("· 18 min · 64k tokens"). A session's start
 // copies its full tool session ID (so `claude --resume <id>` finds the conversation); one entry per validation round
 // (VAL-12) and the validation total. Description changes and comments open under the row: a before / after

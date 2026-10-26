@@ -127,8 +127,8 @@ async fn start_agent(w: &TestService, key: &str) {
     until_status(w, key, Status::Working).await;
 }
 
-fn grill_first() -> otaq_core::flow::FlowFile {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("flows/grill-first.yaml");
+fn spec_first() -> otaq_core::flow::FlowFile {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("flows/spec-first.yaml");
     yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
@@ -209,13 +209,13 @@ async fn the_backstop_refuses_only_an_automatic_start_in_a_paused_project() {
     stop_all(w).await;
 }
 
-/// The scheduler and the start sequence (PAU-04, PAU-06; d0007, d0108): SHOP-35 dragged into Grill while paused
+/// The scheduler and the start sequence (PAU-04, PAU-06; d0007, d0108): SHOP-35 dragged into Product spec while paused
 /// waits there ("Paused · starts when you resume") and starts on Resume, once; an automatic start in the meantime is
 /// kept; billing-api keeps starting. Pause and Resume again bring it back on its conversation, still once.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_ticket_dragged_into_grill_while_paused_waits_and_starts_once_on_resume() {
+async fn a_ticket_dragged_into_product_spec_while_paused_waits_and_starts_once_on_resume() {
     let w = world().await;
-    w.board.use_flow_for_tests("SHOP", &grill_first()).await;
+    w.board.use_flow_for_tests("SHOP", &spec_first()).await;
     w.create("SHOP", "Saved carts").await;
     w.create("BILL", "Invoice template").await;
     w.pause.pause(&shop()).await.unwrap();
@@ -223,7 +223,7 @@ async fn a_ticket_dragged_into_grill_while_paused_waits_and_starts_once_on_resum
     w.review
         .drag(
             "SHOP-1",
-            &DropOn::stage("grill"),
+            &DropOn::stage("product-spec"),
             DragAnswers {
                 confirmed: true,
                 ..DragAnswers::default()
@@ -260,7 +260,7 @@ async fn a_ticket_dragged_into_grill_while_paused_waits_and_starts_once_on_resum
 
     w.pause.resume(&shop(), &me()).await.unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
-    assert!(ticket(&w, "SHOP-1").await.place.is_in("grill"));
+    assert!(ticket(&w, "SHOP-1").await.place.is_in("product-spec"));
     assert!(kept_tickets(&w.board, "SHOP").await.unwrap().is_empty());
     w.pause.resume(&shop(), &me()).await.unwrap();
     settle().await;
@@ -283,14 +283,14 @@ async fn a_ticket_dragged_into_grill_while_paused_waits_and_starts_once_on_resum
 #[tokio::test(flavor = "multi_thread")]
 async fn answering_or_resuming_one_ticket_starts_only_it_and_the_pause_stays() {
     let w = world().await;
-    w.board.use_flow_for_tests("SHOP", &grill_first()).await;
+    w.board.use_flow_for_tests("SHOP", &spec_first()).await;
     for title in ["Dark mode", "Saved carts", "Gift cards"] {
         w.create("SHOP", title).await;
     }
     for key in ["SHOP-1", "SHOP-2", "SHOP-3"] {
         start_agent(&w, key).await;
     }
-    // SHOP-1 (Grill) asks.
+    // SHOP-1 (Product spec) asks.
     let asks = ticket(&w, "SHOP-1").await;
     let session = w.sessions.running_of(&asks.id, SessionKind::Agent).unwrap();
     let question = "Should dark mode follow the system setting?";
@@ -329,11 +329,11 @@ async fn answering_or_resuming_one_ticket_starts_only_it_and_the_pause_stays() {
         .await
         .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
-    let griller = &sessions_of(&w, "SHOP-1", SessionKind::Agent).await[0];
-    assert!(griller.is_running());
+    let spec_writer = &sessions_of(&w, "SHOP-1", SessionKind::Agent).await[0];
+    assert!(spec_writer.is_running());
     assert_eq!(
-        griller.agent.as_ref().map(|a| a.name.as_str()),
-        Some("Griller")
+        spec_writer.agent.as_ref().map(|a| a.name.as_str()),
+        Some("Spec writer")
     );
     w.review.resume("SHOP-3", &me()).await.unwrap();
     until_status(&w, "SHOP-3", Status::Working).await;

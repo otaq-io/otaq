@@ -1,10 +1,10 @@
 //! Drags to any stage (T-0421; FLW-18; d0108 "Dragging a card back to any earlier stage", "Other drags", second gap
-//! review rule 2; d0052, d0059): on the test flow (`tests/flows/every-kind.yaml`: Grill · Dev · Validate · Security ·
-//! QA · Done) and the default flow, each drop the board takes: back to an Agent stage with instructions (its session
-//! resumes; a skipped one runs once in a fresh session), stopping a running checker; back to an agent check with a
-//! note; back onto a human check with no dialog; forward to the next stage (Move to next stage) and past stages (they
-//! are skipped by you and the Delivery waits for a click); a parked card back to the stage it left.
-//! Every drag back resets the agent checks' counters. `claude` is stood in for by ordinary commands.
+//! review rule 2; d0052, d0059): on the test flow (`tests/flows/every-kind.yaml`: Product spec · Dev · Validate ·
+//! Security · QA · Done) and the default flow, each drop the board takes: back to an Agent stage with instructions (its
+//! session resumes; a skipped one runs once in a fresh session), stopping a running checker; back to an agent check
+//! with a note; back onto a human check with no dialog; forward to the next stage (Move to next stage) and past stages
+//! (they are skipped by you and the Delivery waits for a click); a parked card back to the stage it left. Every drag
+//! back resets the agent checks' counters. `claude` is stood in for by ordinary commands.
 
 use otaq_core::service::testing::said;
 use std::path::Path;
@@ -483,7 +483,7 @@ async fn the_next_stage_is_move_to_next_stage() {
 }
 
 /// A drag back into a stage the ticket skips by its choice runs it once (second gap review rule 2): a fresh session
-/// in Grill with its skill and the instructions; History says "Grill · run by you".
+/// in Product spec with its skill and the instructions; History says "Product spec · run by you".
 #[tokio::test(flavor = "multi_thread")]
 async fn back_into_a_skipped_stage_runs_it_once() {
     let w = world().await;
@@ -491,7 +491,7 @@ async fn back_into_a_skipped_stage_runs_it_once() {
     let t = ran_dev_then(&w, "Saved carts", "qa", Status::WaitingForYou).await;
     sqlx::query(
         "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
-         VALUES (?, 'grill', 'skip', 'user', 1)",
+         VALUES (?, 'product-spec', 'skip', 'user', 1)",
     )
     .bind(&t.id)
     .execute(w.board.store().pool())
@@ -499,19 +499,19 @@ async fn back_into_a_skipped_stage_runs_it_once() {
     .unwrap();
 
     let note = "Ask about carts shared between devices.";
-    drag(&w, "SHOP-1", DropOn::stage("grill"), note)
+    drag(&w, "SHOP-1", DropOn::stage("product-spec"), note)
         .await
         .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let after = w.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!(after.place, Place::stage_of("grill"));
+    assert_eq!(after.place, Place::stage_of("product-spec"));
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(!out.contains("--resume"), "a fresh session: {out}");
     // The stage's skill, then what came back (CMT-05): the instructions are the user's comment, not typed.
     assert!(
         out.contains(
-            "/otaq-grill SHOP-1 was sent back to Grill by you with a comment. Run `otaq prime`."
+            "/otaq-product-spec SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
         ),
         "{out}"
     );

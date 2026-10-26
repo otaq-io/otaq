@@ -5,9 +5,9 @@
 //!
 //! - **Back to an earlier Agent stage** (after the dialog): the user's instructions are their comment (CMT-05), posted
 //!   before that stage's agent goes on. Its own session resumes (typed into it when it is live, as Send back does),
-//!   or, when the stage never ran (the ticket skips it by its choice: "Grill · run by you"), a fresh session starts
-//!   there; either is told "SHOP-19 was sent back to Dev by you with a comment. Run `otaq prime`.", never the text. An
-//!   agent working where the card is now stops first. It counts as a human Fail: every agent check's counter
+//!   or, when the stage never ran (the ticket skips it by its choice: "Product spec · run by you"), a fresh session
+//!   starts there; either is told "SHOP-19 was sent back to Dev by you with a comment. Run `otaq prime`.", never the
+//!   text. An agent working where the card is now stops first. It counts as a human Fail: every agent check's counter
 //!   restarts, and the card then walks every later stage again.
 //! - **Back to an agent check** (after the dialog): the check runs again, a fresh round; the user's note is their
 //!   comment.

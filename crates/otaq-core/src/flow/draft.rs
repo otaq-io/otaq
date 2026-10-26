@@ -722,7 +722,7 @@ mod tests {
             project: "SHOP".into(),
             yaml: String::new(),
             source: Source::Preset {
-                file: "grill-first.yaml".into(),
+                file: "spec-first.yaml".into(),
             },
             proposed_by: ProposedBy::User,
             draft: DraftMemory {
@@ -734,7 +734,7 @@ mod tests {
         let json = row.source_json();
         assert_eq!(
             json,
-            r#"{"kind":"preset","file":"grill-first.yaml","draft":{"swap":true}}"#
+            r#"{"kind":"preset","file":"spec-first.yaml","draft":{"swap":true}}"#
         );
         let plain: Source = serde_json::from_str(&json).unwrap();
         assert_eq!(plain, row.source);

@@ -224,10 +224,10 @@ async fn the_list_says_how_each_card_got_into_its_check() {
     let passed = at(&w, "Export as CSV", "qa", Status::WaitingForYou).await;
     ran(&w, &passed, "security", RunResult::Passed, Some(2)).await;
     let skipped = at(&w, "Fix README typo", "qa", Status::WaitingForYou).await;
-    ran(&w, &skipped, "grill", RunResult::Skipped, None).await;
+    ran(&w, &skipped, "product-spec", RunResult::Skipped, None).await;
     sqlx::query(
         "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, by_name, reason, set_at)
-         VALUES (?, 'grill', 'skip', 'project_agent', 'Checkout slowness', 'a typo', 0)",
+         VALUES (?, 'product-spec', 'skip', 'project_agent', 'Checkout slowness', 'a typo', 0)",
     )
     .bind(&skipped.id)
     .execute(w.board.store().pool())
@@ -236,7 +236,7 @@ async fn the_list_says_how_each_card_got_into_its_check() {
     let delivering = at(&w, "Gift cards", "ship", Status::ToDeliver).await;
     ran(&w, &delivering, "qa", RunResult::Passed, None).await;
     let working = at(&w, "Saved carts", "dev", Status::Working).await;
-    ran(&w, &working, "grill", RunResult::Passed, None).await;
+    ran(&w, &working, "product-spec", RunResult::Passed, None).await;
 
     let tickets = w.board.tickets("SHOP").await.unwrap();
     let label = |key: &str| {
@@ -252,11 +252,11 @@ async fn the_list_says_how_each_card_got_into_its_check() {
     );
     assert_eq!(
         label("SHOP-2").as_deref(),
-        Some("Skipped Grill \u{b7} by Checkout slowness")
+        Some("Skipped Product spec \u{b7} by Checkout slowness")
     );
     assert_eq!(
         arrival(&w, "SHOP-2").await.as_deref(),
-        Some("Skipped Grill \u{b7} by Checkout slowness")
+        Some("Skipped Product spec \u{b7} by Checkout slowness")
     );
     assert_eq!(label("SHOP-3").as_deref(), Some("Passed QA"));
     assert_eq!(
@@ -314,9 +314,9 @@ async fn a_pass_into_an_agent_check_starts_its_checker() {
     w.stop().await;
 }
 
-/// Fail at QA of a ticket that skips Grill (QA's fails go to Grill): back to the nearest Agent stage it runs, Dev,
-/// whose conversation resumes with the address-review skill (a line comment goes with it) and the comments; the check
-/// counter restarts, and the card walks Validate and Security again before QA.
+/// Fail at QA of a ticket that skips Product spec (QA's fails go to Product spec): back to the nearest Agent stage it
+/// runs, Dev, whose conversation resumes with the address-review skill (a line comment goes with it) and the comments;
+/// the check counter restarts, and the card walks Validate and Security again before QA.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     let w = world().await;
@@ -324,7 +324,7 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     let t = at(&w, "Export as CSV", "dev", Status::Working).await;
     sqlx::query(
         "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
-         VALUES (?, 'grill', 'skip', 'user', 1)",
+         VALUES (?, 'product-spec', 'skip', 'user', 1)",
     )
     .bind(&t.id)
     .execute(w.board.store().pool())

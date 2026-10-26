@@ -67,7 +67,7 @@ fn shop_flow() -> FlowFile {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../otaq-core/tests/flows/every-kind.yaml");
     let mut file = yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
-    file.flow.stages.retain(|s| s.id != "grill");
+    file.flow.stages.retain(|s| s.id != "product-spec");
     file
 }
 

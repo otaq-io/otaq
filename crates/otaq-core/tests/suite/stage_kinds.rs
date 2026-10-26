@@ -1,8 +1,8 @@
 //! Recovery and who may run what, by stage kind (T-0402, STG-09, STG-10; d0108, d0045, d0063). Every project runs
-//! the default flow in M31, so the test flow's stages (`grill`, `security`, `qa` of `tests/flows/every-kind.yaml`)
-//! are written onto tickets by hand: a stage the flow doesn't have goes by its status's set, and its runs record the
-//! stage. The pure tables run on the test flow itself (`recovery::reconcile`'s and `policy`'s unit tests). `claude`
-//! is stood in for by ordinary commands.
+//! the default flow in M31, so the test flow's stages (`product-spec`, `security`, `qa` of
+//! `tests/flows/every-kind.yaml`) are written onto tickets by hand: a stage the flow doesn't have goes by its status's
+//! set, and its runs record the stage. The pure tables run on the test flow itself (`recovery::reconcile`'s and
+//! `policy`'s unit tests). `claude` is stood in for by ordinary commands.
 
 use std::path::Path;
 use std::time::Duration;
@@ -108,24 +108,24 @@ async fn resumes(w: &TestService, ticket: &Ticket, conversation: &str) {
     w.sessions.stop(&resumed.id).await.unwrap();
 }
 
-/// STG-09 on the test flow: after a restart, Grill working → Interrupted in Grill and Resume reopens Grill's
-/// session (Dev's likewise); Security checking → Interrupted, checked afresh on Resume; QA (a check by you) → a
-/// History note only. The startup reconcile runs before a test can put the restarted board on the test flow, so it
-/// meets these stages as ones its flow doesn't have; Resume runs on the test flow.
+/// STG-09 on the test flow: after a restart, Product spec working → Interrupted in Product spec and Resume reopens
+/// Product spec's session (Dev's likewise); Security checking → Interrupted, checked afresh on Resume; QA (a check by
+/// you) → a History note only. The startup reconcile runs before a test can put the restarted board on the test flow,
+/// so it meets these stages as ones its flow doesn't have; Resume runs on the test flow.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_by_stage_kind() {
     let w = TestService::start_with(launch).await;
     w.add_project("shop-web").await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
-    let grill = w.create("SHOP", "Sort notes by date").await; // SHOP-1
+    let product_spec = w.create("SHOP", "Sort notes by date").await; // SHOP-1
     let qa = w.create("SHOP", "Export as CSV").await; // SHOP-2
     let security = w.create("SHOP", "Search notes").await; // SHOP-3
     let dev = w.create("SHOP", "Rate limit the export").await; // SHOP-4
-    // SHOP-4 skips Grill: its session starts in Dev, the stage it is resumed in (a session belongs to the stage it
-    // started in).
+    // SHOP-4 skips Product spec: its session starts in Dev, the stage it is resumed in (a session belongs to the stage
+    // it started in).
     sqlx::query(
         "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
-         VALUES (?, 'grill', 'skip', 'user', 1)",
+         VALUES (?, 'product-spec', 'skip', 'user', 1)",
     )
     .bind(&dev.id)
     .execute(w.board.store().pool())
@@ -134,13 +134,13 @@ async fn a_restart_by_stage_kind() {
     for key in ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4"] {
         start_agent(&w, key).await;
     }
-    assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("grill"));
+    assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("product-spec"));
     w.force_status(&qa, Status::WaitingForYou).await;
     into_stage(&w, &qa, "qa").await;
     w.validating_with(&security, "checker-gone").await;
     into_stage(&w, &security, "security").await;
     into_stage(&w, &dev, "dev").await;
-    let grill_conversation = conversation_of(&w, &grill).await;
+    let product_spec_conversation = conversation_of(&w, &product_spec).await;
     let dev_conversation = conversation_of(&w, &dev).await;
 
     let w = w.restart_with(launch).await;
@@ -155,7 +155,11 @@ async fn a_restart_by_stage_kind() {
 
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!((t.status, t.interrupted_from), (Status::Interrupted, None));
-    assert_eq!(t.place, Place::stage_of("grill"), "Interrupted in Grill");
+    assert_eq!(
+        t.place,
+        Place::stage_of("product-spec"),
+        "Interrupted in Product spec"
+    );
     assert_eq!(place(&w, "SHOP-4").await, Place::stage_of("dev"));
     let t = w.board.ticket("SHOP-3").await.unwrap();
     assert_eq!(
@@ -180,15 +184,15 @@ async fn a_restart_by_stage_kind() {
     assert_eq!(place(&w, "SHOP-2").await, Place::stage_of("qa"));
 
     // Resume reopens the session of the stage the card is in, and the card stays there.
-    resumes(&w, &grill, &grill_conversation).await;
-    assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("grill"));
+    resumes(&w, &product_spec, &product_spec_conversation).await;
+    assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("product-spec"));
     resumes(&w, &dev, &dev_conversation).await;
     assert_eq!(place(&w, "SHOP-4").await, Place::stage_of("dev"));
     w.stop().await;
 }
 
-/// The other side of Resume: a plain forward wait before Dev (Grill done, nothing to come back to) starts Dev in a
-/// new conversation (STG-07), not Grill's.
+/// The other side of Resume: a plain forward wait before Dev (Product spec done, nothing to come back to) starts Dev in
+/// a new conversation (STG-07), not Product spec's.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_forward_wait_before_dev_starts_a_new_conversation() {
     let w = TestService::start_with(launch).await;
@@ -196,9 +200,9 @@ async fn a_forward_wait_before_dev_starts_a_new_conversation() {
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Sort notes by date").await;
     start_agent(&w, "SHOP-1").await;
-    assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("grill"));
-    let grill_conversation = conversation_of(&w, &t).await;
-    // Grill finished: waiting before Dev, as the engine's next stage leaves it.
+    assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("product-spec"));
+    let product_spec_conversation = conversation_of(&w, &t).await;
+    // Product spec finished: waiting before Dev, as the engine's next stage leaves it.
     sqlx::query("UPDATE tickets SET stage_id = 'dev', state = ? WHERE id = ?")
         .bind(Status::Queued.as_str())
         .bind(&t.id)
@@ -221,7 +225,7 @@ async fn a_forward_wait_before_dev_starts_a_new_conversation() {
     assert!(out.contains("/otaq-work-ticket"), "{out}");
     assert_ne!(
         dev.tool_session_id.as_deref(),
-        Some(grill_conversation.as_str())
+        Some(product_spec_conversation.as_str())
     );
     w.sessions.stop(&dev.id).await.unwrap();
     w.stop().await;
@@ -246,7 +250,7 @@ async fn ended_session(w: &TestService, ticket: &Ticket, conversation: &str, at:
 }
 
 /// d0108: "Resume after a crash reopens the session of the stage the card is in", by its stage runs: a ticket back
-/// in Dev continues Dev's conversation, not Grill's newer one. Waiting before the first stage, the newest.
+/// in Dev continues Dev's conversation, not Product spec's newer one. Waiting before the first stage, the newest.
 #[tokio::test(flavor = "multi_thread")]
 async fn resume_takes_the_session_of_the_stage_the_card_is_in() {
     let w = TestService::start().await;
@@ -255,8 +259,8 @@ async fn resume_takes_the_session_of_the_stage_the_card_is_in() {
     let now = otaq_core::store::now_ms();
     w.force_status(&t, Status::Working).await; // in Dev
     ended_session(&w, &t, "dev-conversation", now - 5000).await;
-    into_stage(&w, &t, "grill").await;
-    ended_session(&w, &t, "grill-conversation", now - 1000).await;
+    into_stage(&w, &t, "product-spec").await;
+    ended_session(&w, &t, "product-spec-conversation", now - 1000).await;
     into_stage(&w, &t, "dev").await;
     let latest = || async {
         StoredConversation::latest_agent(w.board.store().pool(), &t.id)
@@ -266,11 +270,11 @@ async fn resume_takes_the_session_of_the_stage_the_card_is_in() {
     };
     assert_eq!(latest().await.as_deref(), Some("dev-conversation"));
     w.force_status(&t, Status::Queued).await; // Ready for Dev
-    assert_eq!(latest().await.as_deref(), Some("grill-conversation"));
+    assert_eq!(latest().await.as_deref(), Some("product-spec-conversation"));
     let runs = w.board.stage_runs("SHOP-1").await.unwrap();
     assert_eq!(
         runs.iter().map(|r| r.stage.as_str()).collect::<Vec<_>>(),
-        ["dev", "grill", "dev"]
+        ["dev", "product-spec", "dev"]
     );
     w.stop().await;
 }
@@ -291,27 +295,27 @@ fn refused(answer: &Value) -> &str {
 }
 
 /// STG-10: a session's role is the kind of its stage run's stage, whatever kind of session runs it. A session
-/// checking Security may not `stage next`; a Grill session may not `check pass`.
+/// checking Security may not `stage next`; a Product spec session may not `check pass`.
 #[tokio::test(flavor = "multi_thread")]
 async fn rights_follow_the_stage_run() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
-    let grill = w.create("SHOP", "Sort notes by date").await;
+    let product_spec = w.create("SHOP", "Sort notes by date").await;
     let security = w.create("SHOP", "Search notes").await;
 
-    let grill_session = w.agent_shell(&grill).await;
-    w.force_status(&grill, Status::Working).await;
-    into_stage(&w, &grill, "grill").await;
+    let product_spec_session = w.agent_shell(&product_spec).await;
+    w.force_status(&product_spec, Status::Working).await;
+    into_stage(&w, &product_spec, "product-spec").await;
     let answer = send(
         &w,
-        &grill_session,
+        &product_spec_session,
         "validation.verdict",
         json!({"key": "SHOP-1", "pass": true}),
     )
     .await;
     assert_eq!(
         refused(&answer),
-        "SHOP-1's grill session can't give a check verdict"
+        "SHOP-1's product-spec session can't give a check verdict"
     );
 
     // An agent-kind session whose run is Security's check: a checker, the verdict only.
@@ -363,8 +367,8 @@ async fn rights_follow_the_stage_run() {
 }
 
 /// A QA Send back with the only slot full waits before Dev (QA's fails set to the nearest earlier Agent stage, not
-/// Grill, the flow's first); when the slot frees it Begins in Dev and resumes Dev's conversation (not a new one, not
-/// Grill's newer).
+/// Product spec, the flow's first); when the slot frees it Begins in Dev and resumes Dev's conversation (not a new one,
+/// not Product spec's newer).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
     let w = TestService::start_with(launch).await;
@@ -391,8 +395,8 @@ async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
     w.force_status(&t, Status::Working).await;
     into_stage(&w, &t, "dev").await;
     ended_session(&w, &t, "dev-conversation", now - 5000).await;
-    into_stage(&w, &t, "grill").await;
-    ended_session(&w, &t, "grill-conversation", now - 1000).await;
+    into_stage(&w, &t, "product-spec").await;
+    ended_session(&w, &t, "product-spec-conversation", now - 1000).await;
     w.force_status(&t, Status::WaitingForYou).await;
     into_stage(&w, &t, "qa").await;
     w.force_status(&busy, Status::Working).await;
@@ -406,7 +410,7 @@ async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
     assert_eq!(
         queued.place,
         Place::Waiting(Some("dev".into())),
-        "before Dev, not Grill"
+        "before Dev, not Product spec"
     );
 
     // The slot frees: it Begins in Dev and continues Dev's conversation with the skill.

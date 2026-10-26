@@ -126,7 +126,7 @@ async fn the_users_choices_round_trip() {
             "--stage",
             "dev=quick developer",
             "--stage",
-            "Grill=skip",
+            "Product spec=skip",
             "--json",
         ],
     ));
@@ -134,8 +134,8 @@ async fn the_users_choices_round_trip() {
     assert_eq!(
         created["choices"],
         json!([
-            {"stage": "Grill", "choice": "skip", "set_by": "user", "by": "you", "locked": false,
-             "options": ["Griller", "skip"]},
+            {"stage": "Product spec", "choice": "skip", "set_by": "user", "by": "you", "locked": false,
+             "options": ["Spec writer", "skip"]},
             {"stage": "Dev", "choice": "Quick developer", "set_by": "user", "by": "you", "locked": false,
              "options": ["Rust developer", "Quick developer"]},
             {"stage": "QA", "choice": "required", "locked": false, "options": ["required", "skip"]},
@@ -152,10 +152,10 @@ async fn the_users_choices_round_trip() {
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Grill: skip · set by you\n             Dev: Quick developer · set by you"
+        "Choices:     Product spec: skip · set by you\n             Dev: Quick developer · set by you"
     );
 
-    // update: Grill back to required, QA skipped.
+    // update: Product spec back to required, QA skipped.
     assert_eq!(
         ok(&cb(
             &w,
@@ -163,7 +163,7 @@ async fn the_users_choices_round_trip() {
                 "update",
                 "SHOP-1",
                 "--stage",
-                "Grill=required",
+                "Product spec=required",
                 "--stage",
                 "qa=skip"
             ]
@@ -185,7 +185,7 @@ async fn the_users_choices_round_trip() {
     assert_eq!(
         choices,
         [
-            ("Grill".to_owned(), "Griller".to_owned()),
+            ("Product spec".to_owned(), "Spec writer".to_owned()),
             ("Dev".to_owned(), "Quick developer".to_owned()),
             ("QA".to_owned(), "skip".to_owned())
         ]
@@ -256,7 +256,7 @@ async fn the_users_choices_round_trip() {
                 "-f",
                 plan.to_str().unwrap(),
                 "--stage",
-                "Grill=skip"
+                "Product spec=skip"
             ]
         )
         .starts_with("-f takes everything from the file")
@@ -319,7 +319,7 @@ async fn a_project_agents_choices_and_the_users_words() {
     // Without a reason: refused, nothing created.
     let ran = agent
         .run(&format!(
-            "'{CB}' -P SHOP create 'Other' --stage 'Grill=skip'"
+            "'{CB}' -P SHOP create 'Other' --stage 'Product spec=skip'"
         ))
         .await;
     assert_ne!(ran.status, 0);
@@ -387,7 +387,7 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
     let me = Actor::User("me".into());
     let other = w.create("SHOP", "Other ticket").await; // SHOP-1
     let own = w.create("SHOP", "Sessions survive a restart").await; // SHOP-2
-    // Started: at work in Grill, where Griller runs (the stand-in `sh`).
+    // Started: at work in Product spec, where Spec writer runs (the stand-in `sh`).
     w.board
         .move_ticket(
             "SHOP-2",
@@ -409,12 +409,12 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
     }
     assert_eq!(
         w.board.ticket("SHOP-2").await.unwrap().place,
-        otaq_core::domain::Place::stage_of("grill")
+        otaq_core::domain::Place::stage_of("product-spec")
     );
     let session = w
         .sessions
         .running_of(&own.id, otaq_core::session::SessionKind::Agent)
-        .expect("Griller runs");
+        .expect("Spec writer runs");
     let agent = w.shell_in(&session.id);
     let ran = agent
         .run(&format!(
@@ -425,16 +425,16 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
     let shown = ok(&cb(&w, &["show", "SHOP-2"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Dev: Quick developer · set by Griller · small change"
+        "Choices:     Dev: Quick developer · set by Spec writer · small change"
     );
     let ran = agent
         .run(&format!(
-            "'{CB}' update SHOP-2 --stage 'Grill=skip' --reason 'x'"
+            "'{CB}' update SHOP-2 --stage 'Product spec=skip' --reason 'x'"
         ))
         .await;
     assert!(
         ran.stderr
-            .contains("Grill has started on SHOP-2: its choice is locked"),
+            .contains("Product spec has started on SHOP-2: its choice is locked"),
         "{ran:?}"
     );
     let ran = agent
@@ -458,14 +458,14 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
     assert_eq!(ran.status, 0, "{ran:?}");
     let ran = agent
         .run(&format!(
-            "'{CB}' update SHOP-3 --stage 'Grill=skip' --reason 'planned already'"
+            "'{CB}' update SHOP-3 --stage 'Product spec=skip' --reason 'planned already'"
         ))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let shown = ok(&cb(&w, &["show", "SHOP-3"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Grill: skip · set by Griller · planned already"
+        "Choices:     Product spec: skip · set by Spec writer · planned already"
     );
     ok(&cb(
         &w,
@@ -493,7 +493,7 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
         .collect();
     assert_eq!(
         fixes,
-        [json!({"ticket": "SHOP-3", "change": "choices_set", "choices": ["Grill: skip"]})]
+        [json!({"ticket": "SHOP-3", "change": "choices_set", "choices": ["Product spec: skip"]})]
     );
 
     w.stop().await;

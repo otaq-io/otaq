@@ -365,7 +365,7 @@ pub struct PresetCard {
     pub delivers: String,
     pub line: String,
     pub columns: Vec<PresetColumn>,
-    /// "grill-first.yaml": what Pick sends (`flow.propose_from` with `preset`).
+    /// "spec-first.yaml": what Pick sends (`flow.propose_from` with `preset`).
     pub file: String,
 }
 
@@ -548,7 +548,7 @@ mod tests {
         };
         AgentList {
             agents: vec![
-                on(Tool::Claude, "sonnet", "Griller"),
+                on(Tool::Claude, "sonnet", "Spec writer"),
                 on(Tool::Claude, "sonnet", "Rust developer"),
                 on(Tool::Codex, "gpt-5.5", "Validator"),
                 on(Tool::Claude, "opus", "Security reviewer"),
@@ -628,9 +628,9 @@ mod tests {
             table,
             [
                 (
-                    "Grill",
+                    "Product spec",
                     "Agent",
-                    "Griller",
+                    "Spec writer",
                     Some("Claude Code \u{b7} sonnet"),
                     "skip"
                 ),
@@ -799,10 +799,10 @@ mod tests {
                     "solo-autopilot.yaml"
                 ),
                 (
-                    "Grill first",
+                    "Spec first",
                     "Done \u{b7} click",
-                    "Settle the ticket with you before any code is written",
-                    "grill-first.yaml"
+                    "Plan on the board, then build",
+                    "spec-first.yaml"
                 ),
                 (
                     "Team PR",
@@ -812,19 +812,22 @@ mod tests {
                 ),
             ]
         );
-        let grill: Vec<(&str, IconName)> = d.presets[2]
+        let spec_first: Vec<(&str, IconName)> = d.presets[2]
             .columns
             .iter()
             .map(|c| (c.label.as_str(), c.icon))
             .collect();
         assert_eq!(
-            grill,
+            spec_first,
             [
                 ("Ready for Dev", IconName::Hourglass),
-                ("Grill", IconName::Bot),
+                ("Product spec", IconName::Bot),
+                ("Tech spec", IconName::Bot),
+                ("Milestone plan", IconName::Bot),
+                ("Spec review", IconName::UserCheck),
                 ("Dev", IconName::Bot),
                 ("Validate", IconName::ShieldCheck),
-                ("Review", IconName::UserCheck),
+                ("Code review", IconName::UserCheck),
                 ("Done", IconName::GitMerge),
             ]
         );

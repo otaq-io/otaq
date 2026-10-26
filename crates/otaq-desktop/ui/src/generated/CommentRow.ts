@@ -11,7 +11,7 @@ export type CommentRow = {
  */
 n: number, 
 /**
- * "Griller", "You".
+ * "Spec writer", "You".
  */
 author: string, 
 /**
@@ -19,7 +19,7 @@ author: string,
  */
 mine: boolean, mark: CommentMark, 
 /**
- * After the name: "Grill · 2:14 pm", "2:20 pm", "Validate · round 2 · 3:05 pm".
+ * After the name: "Product spec · 2:14 pm", "2:20 pm", "Validate · round 2 · 3:05 pm".
  */
 meta: string, 
 /**

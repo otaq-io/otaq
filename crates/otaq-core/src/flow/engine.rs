@@ -910,7 +910,7 @@ mod tests {
         );
     }
 
-    /// The test flow: Grill (skippable) · Dev · Validate · Security · QA (its fails go to Grill) · Done.
+    /// The test flow: Product spec (skippable) · Dev · Validate · Security · QA (its fails go to Product spec) · Done.
     fn every_kind() -> Flow {
         let yaml = include_str!("../../tests/flows/every-kind.yaml");
         crate::flow::yaml::read(yaml).unwrap().flow
@@ -931,15 +931,15 @@ mod tests {
     #[test]
     fn a_fail_goes_to_the_checks_stage() {
         let flow = every_kind();
-        let skip_grill = ["grill".to_owned()];
-        // Set and not skipped: QA's fails go to Grill, not the nearest (Dev).
+        let skip_product_spec = ["product-spec".to_owned()];
+        // Set and not skipped: QA's fails go to Product spec, not the nearest (Dev).
         assert_eq!(
             fail_to(&flow, "qa", &[]).map(|s| s.id.as_str()),
-            Some("grill")
+            Some("product-spec")
         );
         // Set and skipped: the nearest Agent stage before QA that the ticket runs.
         assert_eq!(
-            fail_to(&flow, "qa", &skip_grill).map(|s| s.id.as_str()),
+            fail_to(&flow, "qa", &skip_product_spec).map(|s| s.id.as_str()),
             Some("dev")
         );
         // Unset: the nearest.
@@ -947,26 +947,26 @@ mod tests {
             fail_to(&flow, "validate", &[]).map(|s| s.id.as_str()),
             Some("dev")
         );
-        assert_eq!(fail_to(&flow, "grill", &[]), None);
+        assert_eq!(fail_to(&flow, "product-spec", &[]), None);
     }
 
     #[test]
     fn human_and_agent_fails_alike() {
         let mut flow = every_kind();
-        let skip_grill = ["grill".to_owned()];
+        let skip_product_spec = ["product-spec".to_owned()];
         let human = |flow: &Flow, skips: &[String]| {
             moved(flow, "qa", Status::WaitingForYou, skips, Move::HumanFail)
         };
-        assert_eq!(human(&flow, &[]), "grill");
-        assert_eq!(human(&flow, &skip_grill), "dev");
+        assert_eq!(human(&flow, &[]), "product-spec");
+        assert_eq!(human(&flow, &skip_product_spec), "dev");
         // A Validate fail in a flow where Validate's target isn't the nearest stage.
         let agent = |flow: &Flow, skips: &[String]| {
             moved(flow, "validate", Status::Checking, skips, Move::Fail)
         };
         assert_eq!(agent(&flow, &[]), "dev", "unset: the nearest");
-        flow.stages[2].fail_to = Some("grill".into());
-        assert_eq!(agent(&flow, &[]), "grill");
-        assert_eq!(agent(&flow, &skip_grill), "dev");
+        flow.stages[2].fail_to = Some("product-spec".into());
+        assert_eq!(agent(&flow, &[]), "product-spec");
+        assert_eq!(agent(&flow, &skip_product_spec), "dev");
         // The last allowed fail stays in the check, whatever its target.
         let place = Place::stage_of("validate");
         let last = At {
@@ -979,7 +979,7 @@ mod tests {
     #[test]
     fn the_other_ways_back_keep_the_nearest_stage() {
         let mut flow = every_kind();
-        flow.stages[2].fail_to = Some("grill".into());
+        flow.stages[2].fail_to = Some("product-spec".into());
         for mv in [Move::AnotherRound, Move::AnswerAgent] {
             assert_eq!(
                 moved(&flow, "validate", Status::CheckFailed, &[], mv),
@@ -1010,7 +1010,7 @@ mod tests {
         let mut flow = every_kind();
         // Only reachable through a ticket's skips (M46's skippable human check): here Dev turned skippable too.
         flow.stages[1].options = vec![crate::flow::model::StageOption::Skip];
-        let skips = ["grill".to_owned(), "dev".to_owned()];
+        let skips = ["product-spec".to_owned(), "dev".to_owned()];
         let place = Place::stage_of("qa");
         let at = At {
             skips: &skips,

@@ -105,9 +105,9 @@ pub struct FoldedView {
     pub count: String,
 }
 
-/// Who runs a column's stages, on hovering its title (FLW-12; *Row · Stage kinds on the column header*): "Grill ·
-/// Griller · grill" over "Claude Code · sonnet" and "Options: skip"; a folded stage adds its line ("Validate ·
-/// Validator · Codex · gpt-5.5 · shown in Dev").
+/// Who runs a column's stages, on hovering its title (FLW-12; *Row · Stage kinds on the column header*): "Product spec
+/// · Spec writer · product-spec" over "Claude Code · sonnet" and "Options: skip"; a folded stage adds its line
+/// ("Validate · Validator · Codex · gpt-5.5 · shown in Dev").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderTooltip {
     pub title: String,
@@ -814,9 +814,9 @@ mod tests {
         }
     }
 
-    /// STG-08 on the test flow: Grill, Dev (Validate in it), Security, QA and the Delivery each have their own
-    /// column between Ready for Dev and Done; a card waiting between Grill and Dev shows in Dev's column with its
-    /// waiting status, a validating one in Dev too, a Security check in Security, QA's card in QA's section.
+    /// STG-08 on the test flow: Product spec, Dev (Validate in it), Security, QA and the Delivery each have their own
+    /// column between Ready for Dev and Done; a card waiting between Product spec and Dev shows in Dev's column with
+    /// its waiting status, a validating one in Dev too, a Security check in Security, QA's card in QA's section.
     #[test]
     fn the_test_flow_draws_a_column_per_own_stage() {
         use otaq_core::domain::Place;
@@ -827,7 +827,7 @@ mod tests {
             t
         };
         let tickets = vec![
-            at("NOTE-1", Status::Working, Place::stage_of("grill")),
+            at("NOTE-1", Status::Working, Place::stage_of("product-spec")),
             at("NOTE-2", Status::Queued, Place::Waiting(Some("dev".into()))),
             at("NOTE-3", Status::Checking, Place::stage_of("validate")),
             at("NOTE-4", Status::Checking, Place::stage_of("security")),
@@ -845,7 +845,7 @@ mod tests {
             [
                 "backlog",
                 "ready_for_dev",
-                "grill",
+                "product-spec",
                 "dev",
                 "security",
                 "qa",
@@ -866,7 +866,7 @@ mod tests {
                 .chain(keys(&dev.working))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(dev_keys("grill"), ["NOTE-1"]);
+        assert_eq!(dev_keys("product-spec"), ["NOTE-1"]);
         assert_eq!(
             dev_keys("dev"),
             ["NOTE-3", "NOTE-2"],
@@ -1334,7 +1334,7 @@ mod tests {
         ];
         let list = AgentList {
             agents: vec![
-                agent("g", "Griller", Some("sonnet")),
+                agent("g", "Spec writer", Some("sonnet")),
                 agent("r", "Rust developer", Some("sonnet")),
                 agent("s", "Security reviewer", Some("opus")),
                 agent("p", "Shipper", Some("haiku")),
@@ -1356,7 +1356,7 @@ mod tests {
             [
                 ("Backlog", IconName::CircleDashed, true),
                 ("Ready for Dev", IconName::Hourglass, true),
-                ("Grill", IconName::Bot, true),
+                ("Product spec", IconName::Bot, true),
                 ("Dev", IconName::Bot, true),
                 ("Security", IconName::ShieldCheck, true),
                 ("QA", IconName::UserCheck, true),
@@ -1388,7 +1388,7 @@ mod tests {
             })
         );
         let tip = |i: usize| columns[i].tooltip.clone().unwrap();
-        assert_eq!(tip(2).title, "Grill · Griller · grill");
+        assert_eq!(tip(2).title, "Product spec · Spec writer · product-spec");
         assert_eq!(tip(2).detail, ["Claude Code · sonnet", "Options: skip"]);
         assert_eq!(
             tip(4).title,
@@ -1420,12 +1420,12 @@ mod tests {
         assert_eq!(filtered[3].hidden, 2);
     }
 
-    /// shop-web's ten columns (*Row · A flow with many stages*): Backlog · Ready for Dev · Grill · Dev (Validate in
-    /// it) · Security · QA · Review · Docs · Done · PR · Done.
+    /// shop-web's ten columns (*Row · A flow with many stages*): Backlog · Ready for Dev · Product spec · Dev (Validate
+    /// in it) · Security · QA · Review · Docs · Done · PR · Done.
     fn ten_stages() -> Flow {
         let yaml = "\
 flow:
-  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill, options: [skip]}
+  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
   - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
   - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
@@ -1438,7 +1438,8 @@ flow:
     }
 
     /// BRD-02, a long flow (`s24-04`): every column keeps its 180 px, nothing folds by itself (Fold empty columns
-    /// is off), Ready for Dev keeps its hint, and at 1440 the board scrolls; Fold empty columns folds Grill and Docs.
+    /// is off), Ready for Dev keeps its hint, and at 1440 the board scrolls; Fold empty columns folds Product spec and
+    /// Docs.
     #[test]
     fn a_long_flow_keeps_its_columns_and_scrolls() {
         let flow = ten_stages();
@@ -1479,7 +1480,7 @@ flow:
             .filter(|c| c.collapsed)
             .map(|c| c.title.as_str())
             .collect();
-        assert_eq!(rails, ["Grill", "Docs", "Done"]);
+        assert_eq!(rails, ["Product spec", "Docs", "Done"]);
     }
 
     /// FLW-06 (the Ready for Dev footer): while a flow change holds starts, a card that would start says why; one

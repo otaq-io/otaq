@@ -328,9 +328,9 @@ pub fn check_attach_command(key: &TicketKey, side: &CheckSide) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SessionTyping")]
 pub struct Typing {
-    /// "Typing goes to Griller · DEMO-15".
+    /// "Typing goes to Spec writer · DEMO-15".
     pub focused: String,
-    /// "Click to type to Griller · DEMO-15".
+    /// "Click to type to Spec writer · DEMO-15".
     pub unfocused: String,
 }
 
@@ -713,14 +713,17 @@ mod tests {
             agent_line("Validator", Some(Tool::Claude), None, None),
             "Validator \u{b7} Claude Code \u{b7} tool default"
         );
-        assert_eq!(agent_line("Griller", None, None, None), "Griller");
+        assert_eq!(agent_line("Spec writer", None, None, None), "Spec writer");
     }
 
     /// Finding 55: the label names the ticket, and says "Typing goes to" only while that terminal has the keyboard.
     #[test]
     fn typing_names_the_agent_and_the_ticket_focused_or_not() {
-        let typing = typing_goes_to("Griller", &"DEMO-15".parse().unwrap());
-        assert_eq!(typing.focused, "Typing goes to Griller \u{b7} DEMO-15");
-        assert_eq!(typing.unfocused, "Click to type to Griller \u{b7} DEMO-15");
+        let typing = typing_goes_to("Spec writer", &"DEMO-15".parse().unwrap());
+        assert_eq!(typing.focused, "Typing goes to Spec writer \u{b7} DEMO-15");
+        assert_eq!(
+            typing.unfocused,
+            "Click to type to Spec writer \u{b7} DEMO-15"
+        );
     }
 }

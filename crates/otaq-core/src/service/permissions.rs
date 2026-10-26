@@ -95,7 +95,8 @@ async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
     )
 }
 
-/// Who sets stage choices in a request (AGM-08, AGM-11): the user, the Project agent by its name, or a ticket's agent by the agent its session runs ("Griller").
+/// Who sets stage choices in a request (AGM-08, AGM-11): the user, the Project agent by its name, or a ticket's agent
+/// by the agent its session runs ("Spec writer").
 pub(super) async fn chooser(caller: &Caller, board: &Board) -> Chooser {
     match caller {
         Caller::User => Chooser::User,

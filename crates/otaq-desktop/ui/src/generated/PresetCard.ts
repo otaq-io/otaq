@@ -10,6 +10,6 @@ export type PresetCard = { name: string,
  */
 delivers: string, line: string, columns: Array<PresetColumn>, 
 /**
- * "grill-first.yaml": what Pick sends (`flow.propose_from` with `preset`).
+ * "spec-first.yaml": what Pick sends (`flow.propose_from` with `preset`).
  */
 file: string, };

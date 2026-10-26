@@ -204,7 +204,7 @@ pub struct FoldedStage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardColumnTooltip")]
 pub struct ColumnTooltip {
-    /// "Grill · Griller · grill".
+    /// "Product spec · Spec writer · product-spec".
     pub title: String,
     /// "Claude Code · sonnet", "Options: skip".
     pub detail: Vec<String>,
@@ -224,7 +224,7 @@ impl From<HeaderTooltip> for ColumnTooltip {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardColumnRail")]
 pub struct ColumnRail {
-    /// "Grill · 2 tickets, 1 needs you".
+    /// "Product spec · 2 tickets, 1 needs you".
     pub tooltip: String,
     /// "Click to unfold".
     pub hint: String,
@@ -577,7 +577,7 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
     }
 }
 
-/// "Grill · 2 tickets, 1 needs you" (`s26-10`).
+/// "Product spec · 2 tickets, 1 needs you" (`s26-10`).
 pub fn rail_tooltip(title: &str, tickets: usize, needs_you: usize) -> String {
     let s = if tickets == 1 { "" } else { "s" };
     match needs_you {
@@ -1440,7 +1440,7 @@ mod tests {
             [
                 "backlog",
                 "ready_for_dev",
-                "grill",
+                "product-spec",
                 "dev",
                 "security",
                 "qa",
@@ -1463,8 +1463,8 @@ mod tests {
         };
         assert_eq!(hint("dev"), "Drop to send back to Dev \u{b7} asks first");
         assert_eq!(
-            hint("grill"),
-            "Drop to send back to Grill \u{b7} asks first"
+            hint("product-spec"),
+            "Drop to send back to Product spec \u{b7} asks first"
         );
         assert_eq!(
             hint("security"),
@@ -1492,7 +1492,7 @@ mod tests {
         let answer = drag_answer_in(&flow, &ship, &[], None);
         assert!(matches!(verdict_of(&answer, "qa"), Verdict::Allowed { .. }));
         assert_eq!(
-            drop_step_in(&flow, &ship, &[], &DropTargetId::new("grill")),
+            drop_step_in(&flow, &ship, &[], &DropTargetId::new("product-spec")),
             DropStep::DragBack
         );
     }
@@ -1513,7 +1513,10 @@ mod tests {
             hint("ready_for_dev"),
             "Drop to resume \u{b7} same conversation"
         );
-        assert_eq!(hint("grill"), "Drop to resume \u{b7} same conversation");
+        assert_eq!(
+            hint("product-spec"),
+            "Drop to resume \u{b7} same conversation"
+        );
         assert_eq!(
             drop_step_in(&flow, &parked, &[], &DropTargetId::new("qa")),
             DropStep::Move
@@ -1846,8 +1849,12 @@ mod tests {
     /// folds and changes the flow.
     #[test]
     fn a_columns_menu_opens_the_flow_editor_on_its_stage() {
-        let grill = column_menu(&ColumnId::new("grill"), ColumnKind::Agent, "Grill");
-        let rows: Vec<(&str, &str, Option<&str>, bool)> = grill
+        let product_spec = column_menu(
+            &ColumnId::new("product-spec"),
+            ColumnKind::Agent,
+            "Product spec",
+        );
+        let rows: Vec<(&str, &str, Option<&str>, bool)> = product_spec
             .iter()
             .map(|m| {
                 (
@@ -1863,11 +1870,11 @@ mod tests {
             [
                 (
                     "edit_stage",
-                    "Edit Grill\u{2026}",
+                    "Edit Product spec\u{2026}",
                     Some("agent, skill, options"),
                     false
                 ),
-                ("add_stage", "Add a stage after Grill", None, false),
+                ("add_stage", "Add a stage after Product spec", None, false),
                 ("fold", "Fold this column", None, false),
                 (
                     "change_flow",
@@ -1877,25 +1884,26 @@ mod tests {
                 ),
             ]
         );
-        let editors: Vec<Option<OpenEditor>> = grill.iter().map(|m| m.editor.clone()).collect();
+        let editors: Vec<Option<OpenEditor>> =
+            product_spec.iter().map(|m| m.editor.clone()).collect();
         assert_eq!(
             editors,
             [
                 Some(OpenEditor::Stage {
-                    stage: "grill".into()
+                    stage: "product-spec".into()
                 }),
                 Some(OpenEditor::AddAfter {
-                    after: Some("grill".into())
+                    after: Some("product-spec".into())
                 }),
                 None,
                 Some(OpenEditor::Flow),
             ]
         );
-        assert!(grill[2].change.is_some() && grill[0].change.is_none());
-        let json = serde_json::to_value(&grill[1].editor).unwrap();
+        assert!(product_spec[2].change.is_some() && product_spec[0].change.is_none());
+        let json = serde_json::to_value(&product_spec[1].editor).unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "open": "add_after", "after": "grill" })
+            serde_json::json!({ "open": "add_after", "after": "product-spec" })
         );
 
         let ready = column_menu(
@@ -2655,12 +2663,12 @@ flow:
         );
     }
 
-    /// The example's shop-web flow (*24 · The two views*): Grill, Dev with Validate shown in it, Security, Review
-    /// and the PR; seven columns and Done's line.
+    /// The example's shop-web flow (*24 · The two views*): Product spec, Dev with Validate shown in it, Security,
+    /// Review and the PR; seven columns and Done's line.
     fn shop_web() -> Flow {
         let yaml = "\
 flow:
-  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
+  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
   - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
   - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
@@ -2670,11 +2678,12 @@ flow:
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
 
-    /// A 12-stage flow (`s24-04`): Grill, Plan, Dev, Validate, Tests, Security, Perf, A11y, QA, Review, PR, Deploy.
+    /// A 12-stage flow (`s24-04`): Product spec, Plan, Dev, Validate, Tests, Security, Perf, A11y, QA, Review, PR,
+    /// Deploy.
     fn twelve_stages() -> Flow {
         let yaml = "\
 flow:
-  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
+  - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: plan, name: Plan, kind: agent, agent: Planner, skill: plan}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
   - {id: validate, name: Validate, kind: check, by: agent, agents: [Validator], skill: validate, rounds: 3}
@@ -2775,7 +2784,7 @@ flow:
                     "SHOP-12",
                     "Add dark mode toggle",
                     Status::AsksYou,
-                    Place::stage_of("grill"),
+                    Place::stage_of("product-spec"),
                 ),
                 "Follow the system setting?",
             ),
@@ -2863,7 +2872,7 @@ flow:
             [
                 "Backlog",
                 "Ready for Dev",
-                "Grill",
+                "Product spec",
                 "Dev",
                 "Security",
                 "Review",
@@ -3007,12 +3016,12 @@ flow:
         assert_eq!(open, ["Backlog", "Ready for Dev"]);
         assert_eq!(folded.more_stages.at_start, None, "the rails fit");
         assert!(folded.toolbar.switch.as_ref().unwrap().selected);
-        let grill = folded.columns[2].rail.as_ref().unwrap();
-        assert_eq!(grill.tooltip, "Grill \u{b7} 0 tickets");
-        assert!(!grill.dot);
+        let product_spec = folded.columns[2].rail.as_ref().unwrap();
+        assert_eq!(product_spec.tooltip, "Product spec \u{b7} 0 tickets");
+        assert!(!product_spec.dot);
     }
 
-    /// `s26-10`: Grill folded from its ⋯ is a rail with SHOP-12's needs-you dot.
+    /// `s26-10`: Product spec folded from its ⋯ is a rail with SHOP-12's needs-you dot.
     #[test]
     fn a_folded_column_has_a_dot_when_something_needs_you() {
         let flow = shop_web();
@@ -3022,7 +3031,7 @@ flow:
             &ProjectFacts {
                 flow: &flow,
                 view: view(ViewPrefs {
-                    folded_columns: vec!["done".into(), "grill".into()],
+                    folded_columns: vec!["done".into(), "product-spec".into()],
                     ..ViewPrefs::default()
                 }),
                 ..facts()
@@ -3031,15 +3040,15 @@ flow:
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let grill = &page.columns[2];
-        assert!(grill.collapsed);
-        let rail = grill.rail.as_ref().unwrap();
-        assert_eq!(rail.tooltip, "Grill \u{b7} 1 ticket, 1 needs you");
+        let product_spec = &page.columns[2];
+        assert!(product_spec.collapsed);
+        let rail = product_spec.rail.as_ref().unwrap();
+        assert_eq!(rail.tooltip, "Product spec \u{b7} 1 ticket, 1 needs you");
         assert!(rail.dot);
         assert_eq!(
             rail.unfold,
             Change::FoldColumn {
-                column: "grill".into(),
+                column: "product-spec".into(),
                 folded: false
             }
         );

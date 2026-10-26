@@ -53,7 +53,7 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
-    expect(agentSettings("griller")).toEqual({ section: "agents", agent: "griller" });
+    expect(agentSettings("spec-writer")).toEqual({ section: "agents", agent: "spec-writer" });
     expect(agentSettings(null)).toEqual({ section: "agents" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
@@ -295,11 +295,11 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
     set_by: "set by Noyan",
     rows: [
       {
-        stage_id: "grill",
-        label: "Grill:",
+        stage_id: "product-spec",
+        label: "Product spec:",
         value: "required",
         items: [],
-        lock: "Locked: Grill has started",
+        lock: "Locked: Product spec has started",
         change: null,
       },
       {
@@ -309,7 +309,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
         items: [],
         lock: "Locked: Dev has started",
         change: {
-          text: "Dev: Quick developer → Rust developer · by Griller · touches session handling",
+          text: "Dev: Quick developer → Rust developer · by Spec writer · touches session handling",
           agent_made: true,
           icon: "bot",
         },
@@ -327,14 +327,14 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
   };
   const PATH: TicketPathView = {
     heading: "Path",
-    summary: "Grill · Griller · sonnet · Dev · Rust developer · sonnet · Review · Done",
+    summary: "Product spec · Spec writer · sonnet · Dev · Rust developer · sonnet · Review · Done",
     rows: [
       {
-        stage: "Grill",
+        stage: "Product spec",
         state: "passed",
         icon: "circle-check",
         current: false,
-        detail: "Griller",
+        detail: "Spec writer",
         model: "claude-sonnet-5-5",
         lock: "Locked: it ran on this model",
       },
@@ -373,7 +373,9 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
     expect(out).toContain("set by Noyan");
     expect(out).toContain('aria-label="Locked: Dev has started"');
     expect(out).toContain('data-agent="true"');
-    expect(out).toContain("Dev: Quick developer → Rust developer · by Griller · touches session handling");
+    expect(out).toContain(
+      "Dev: Quick developer → Rust developer · by Spec writer · touches session handling",
+    );
     expect(out).toContain(PATH.summary);
     expect(out).toContain('data-state="running" data-current="true"');
     // On the default flow only the path shows; without a path, neither.

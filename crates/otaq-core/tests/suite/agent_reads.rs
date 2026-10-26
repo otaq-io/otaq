@@ -52,8 +52,8 @@ async fn world(dir: &TempDir) -> TestService {
     w
 }
 
-/// The test flow `tests/flows/every-kind.yaml`: Grill → Dev (Rust developer; Quick developer an option) → Validate →
-/// Security → QA → Done (Shipper).
+/// The test flow `tests/flows/every-kind.yaml`: Product spec → Dev (Rust developer; Quick developer an option) →
+/// Validate → Security → QA → Done (Shipper).
 fn every_kind() -> FlowFile {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
     yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
@@ -331,7 +331,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
         ]
     );
 
-    // Noyan, the Project agent, also runs Grill.
+    // Noyan, the Project agent, also runs Product spec.
     w.board
         .use_flow_for_tests(
             "SHOP",
@@ -340,7 +340,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml"),
                 )
                 .unwrap()
-                .replace("    agent: Griller\n", "    agent: Noyan\n"),
+                .replace("    agent: Spec writer\n", "    agent: Noyan\n"),
             )
             .unwrap(),
         )
@@ -354,7 +354,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
     assert_eq!(
         parts,
         [
-            (&RunsAs::Stage("Grill".into()), "grill"),
+            (&RunsAs::Stage("Product spec".into()), "product-spec"),
             (&RunsAs::Role(Role::ProjectAgent), "noyan")
         ]
     );

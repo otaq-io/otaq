@@ -55,7 +55,7 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
         "SHOP-1",
         &[
             pick("Dev", "Quick developer", Some("typo fix")),
-            pick("Grill", "skip", Some("nothing to ask")),
+            pick("Product spec", "skip", Some("nothing to ask")),
         ],
         &planner,
     )
@@ -85,7 +85,7 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
     assert_eq!(
         path,
         [
-            ("Grill", PathKind::Agent, Some("Griller"), true),
+            ("Product spec", PathKind::Agent, Some("Spec writer"), true),
             ("Dev", PathKind::Agent, Some("Rust developer"), false),
             ("Validate", PathKind::AgentCheck, Some("Validator"), false),
             (
@@ -109,8 +109,16 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
         dev.choice.as_ref().unwrap().from.as_deref(),
         Some("Quick developer")
     );
-    let grill = t.choices.iter().find(|c| c.stage == "Grill").unwrap();
-    assert_eq!(grill.choice.as_ref().unwrap().from, None, "first set");
+    let product_spec = t
+        .choices
+        .iter()
+        .find(|c| c.stage == "Product spec")
+        .unwrap();
+    assert_eq!(
+        product_spec.choice.as_ref().unwrap().from,
+        None,
+        "first set"
+    );
     w.stop().await;
 }
 
@@ -127,7 +135,7 @@ async fn a_waiting_card_says_where_it_starts() {
         &w,
         "SHOP-1",
         &[
-            pick("Grill", "skip", None),
+            pick("Product spec", "skip", None),
             pick("Dev", "Quick developer", None),
         ],
         &Chooser::User,

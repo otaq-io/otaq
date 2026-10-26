@@ -347,20 +347,20 @@ mod tests {
             .flow
     }
 
-    /// STG-09 on the test flow (grill → dev → validate → security → qa → ship): the stage's kind decides.
+    /// STG-09 on the test flow (product-spec → dev → validate → security → qa → ship): the stage's kind decides.
     #[test]
     fn the_test_flows_rows() {
         let flow = every_kind();
         let at = |stage: &str, status: Status, from: Option<Status>| {
             reconcile(&flow, &Place::stage_of(stage), status, from, false)
         };
-        // Grill working → Interrupted in Grill; Grill asking keeps its label.
+        // Product spec working → Interrupted in Product spec; Product spec asking keeps its label.
         assert_eq!(
-            at("grill", Status::Working, None),
+            at("product-spec", Status::Working, None),
             Outcome::Interrupt { keep_label: false }
         );
         assert_eq!(
-            at("grill", Status::AsksYou, None),
+            at("product-spec", Status::AsksYou, None),
             Outcome::Interrupt { keep_label: true }
         );
         // Security checking (or waiting for the plan limit) → a fresh Security on Resume.
@@ -412,11 +412,15 @@ mod tests {
             ResumeAs::FreshCheck
         );
         assert_eq!(
-            resume_as(&flow, &Place::stage_of("grill"), None),
+            resume_as(&flow, &Place::stage_of("product-spec"), None),
             ResumeAs::Reopen
         );
         assert_eq!(
-            resume_as(&flow, &Place::stage_of("grill"), Some(Status::AsksYou)),
+            resume_as(
+                &flow,
+                &Place::stage_of("product-spec"),
+                Some(Status::AsksYou)
+            ),
             ResumeAs::Reopen
         );
     }
@@ -426,7 +430,7 @@ mod tests {
     fn a_stage_the_flow_doesnt_have() {
         let flow = default_flow();
         let at = |status: Status, from: Option<Status>| {
-            StageAt::find(&flow, &Place::stage_of("grill"), status, from)
+            StageAt::find(&flow, &Place::stage_of("product-spec"), status, from)
         };
         assert_eq!(at(Status::Working, None), Some(StageAt::Agent));
         assert_eq!(at(Status::Checking, None), Some(StageAt::AgentCheck));

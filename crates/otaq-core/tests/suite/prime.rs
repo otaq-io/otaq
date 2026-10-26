@@ -127,7 +127,7 @@ async fn ended_run(
     .unwrap();
 }
 
-/// The test flow `tests/flows/every-kind.yaml`: Grill (skippable) → Dev (Quick developer an option) → Validate →
+/// The test flow `tests/flows/every-kind.yaml`: Product spec (skippable) → Dev (Quick developer an option) → Validate →
 /// Security → QA (skippable) → Done.
 fn every_kind_file() -> FlowFile {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
@@ -269,23 +269,39 @@ async fn with_the_agents_instructions_and_the_projects_notes() {
     w.stop().await;
 }
 
-/// AGM-06 on the test flow: Dev's prime names Rust developer's instructions and its stage, lists Grill's latest run
-/// under "Earlier stages" (one line, CMT-07) and Griller's comment under "Comments", and the later stages whose
+/// AGM-06 on the test flow: Dev's prime names Rust developer's instructions and its stage, lists Product spec's latest
+/// run under "Earlier stages" (one line, CMT-07) and Spec writer's comment under "Comments", and the later stages whose
 /// choice its agent may still set (QA's skip); it names no commit skill, since Rust developer has none
 /// (`commit-compact` isn't `commit`).
 #[tokio::test(flavor = "multi_thread")]
-async fn on_the_test_flow_dev_reads_grills_comment() {
+async fn on_the_test_flow_dev_reads_product_specs_comment() {
     let w = with_agents().await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Sort notes by date").await;
-    // Grill ran twice; only its latest run is listed.
-    ended_run(&w, &t.id, ("grill", "agent"), "Griller", None, "cancelled").await;
-    ended_run(&w, &t.id, ("grill", "agent"), "Griller", None, "done").await;
+    // Product spec ran twice; only its latest run is listed.
+    ended_run(
+        &w,
+        &t.id,
+        ("product-spec", "agent"),
+        "Spec writer",
+        None,
+        "cancelled",
+    )
+    .await;
+    ended_run(
+        &w,
+        &t.id,
+        ("product-spec", "agent"),
+        "Spec writer",
+        None,
+        "done",
+    )
+    .await;
     let key = t.key.to_string();
     comment_at(
         &w,
         &key,
-        agent("Griller", "grill", None),
+        agent("Spec writer", "product-spec", None),
         "Agreed: newest first.\nDates in the user's time zone.",
         (9, 5),
     )
@@ -304,7 +320,7 @@ async fn on_the_test_flow_dev_reads_grills_comment() {
     for part in [
         "\n## Agent instructions (Rust developer)\n\nFollow our error-handling rules: no unwrap in library code.\n",
         "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n",
-        "\n## Earlier stages\n\n- Grill · Griller · finished\n\n## Comments\n\n### Griller · Grill · 9:05 am\n\nAgreed: newest first.\nDates in the user's time zone.\n",
+        "\n## Earlier stages\n\n- Product spec · Spec writer · finished\n\n## Comments\n\n### Spec writer · Product spec · 9:05 am\n\nAgreed: newest first.\nDates in the user's time zone.\n",
         "\n## Stage choices\n\nYou may change these later stages' choices for this ticket",
         &format!("`otaq update {key} --stage \"QA=skip\" --reason \"…\"`"),
         "\n- QA (now: required)\n  - skip: the ticket passes this stage\n",
@@ -334,7 +350,7 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
         None => "default".to_owned(),
     };
     let options = format!(
-        "- Grill\n  - Griller (the stage's own) · {default}: Ask one question at a time.\n  - skip: the ticket passes \
+        "- Product spec\n  - Spec writer (the stage's own) · {default}: Ask one question at a time.\n  - skip: the ticket passes \
          this stage\n- Dev\n  - Rust developer (the stage's own) · {default}: Follow our error-handling rules: no \
          unwrap in library code.\n  - Quick developer · {default}\n- QA\n  - skip: the ticket passes this stage\n"
     );
@@ -342,7 +358,7 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
         project.contains(&format!(
             "\n## Stage choices\n\nA new ticket runs each stage's own agent. Pick another option for a ticket you \
              create only when how hard the work is says so, with a reason: `otaq create \"Title\" --stage \
-             \"Grill=skip\" --reason \"…\" --stdin`. When unsure, leave the stage's own agent.\n\n{options}"
+             \"Product spec=skip\" --reason \"…\" --stdin`. When unsure, leave the stage's own agent.\n\n{options}"
         )),
         "{project}"
     );
@@ -494,14 +510,22 @@ fn models_read_as_settings_shows_them() {
     );
 }
 
-/// The example's SHOP-34 on the test flow, in Dev after Validate failed round 2: Grill and Validate ran, and four
-/// comments (Griller's, the user's, Rust developer's and Validator's with its 48 KB report), plus a fifth the user
-/// deleted. Returns the ticket's key.
+/// The example's SHOP-34 on the test flow, in Dev after Validate failed round 2: Product spec and Validate ran, and
+/// four comments (Spec writer's, the user's, Rust developer's and Validator's with its 48 KB report), plus a fifth the
+/// user deleted. Returns the ticket's key.
 async fn the_example(w: &TestService) -> String {
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Export orders as CSV").await;
     let key = t.key.to_string();
-    ended_run(w, &t.id, ("grill", "agent"), "Griller", None, "done").await;
+    ended_run(
+        w,
+        &t.id,
+        ("product-spec", "agent"),
+        "Spec writer",
+        None,
+        "done",
+    )
+    .await;
     ended_run(w, &t.id, ("dev", "agent"), "Rust developer", None, "done").await;
     ended_run(
         w,
@@ -525,7 +549,7 @@ async fn the_example(w: &TestService) -> String {
     comment_at(
         w,
         &key,
-        agent("Griller", "grill", None),
+        agent("Spec writer", "product-spec", None),
         "Agreed with you: CSV only, admins only. Reuse the CSV writer in `export.rs` from SHOP-12.",
         (13, 40),
     )
@@ -582,7 +606,7 @@ async fn the_example(w: &TestService) -> String {
 fn example_comments(key: &str) -> String {
     format!(
         "\n## Comments\n\n\
-         ### Griller · Grill · 1:40 pm\n\n\
+         ### Spec writer · Product spec · 1:40 pm\n\n\
          Agreed with you: CSV only, admins only. Reuse the CSV writer in `export.rs` from SHOP-12.\n\n\
          ### You · 2:14 pm\n\n\
          Also keep the column order the same as the table on screen.\n\n\
@@ -612,7 +636,7 @@ async fn prime_prints_the_examples_four_comments() {
     let text = render(&context);
     let expected = format!(
         "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n\
-         \n## Earlier stages\n\n- Grill · Griller · finished\n- Validate · Validator · round 2 · failed\n{}\
+         \n## Earlier stages\n\n- Product spec · Spec writer · finished\n- Validate · Validator · round 2 · failed\n{}\
          \n## Stage choices\n",
         example_comments(&key)
     );

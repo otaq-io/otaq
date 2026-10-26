@@ -699,18 +699,18 @@ mod tests {
                 "Noyan has the Noyan role. Give the role to another agent first.".to_owned()
             )
         );
-        let griller = InUse {
-            agent: "Griller".into(),
+        let spec_writer = InUse {
+            agent: "Spec writer".into(),
             role: None,
             stages: vec![StageUse {
                 project: Some("shop-web".into()),
-                stage: "Grill".into(),
+                stage: "Product spec".into(),
                 option: false,
             }],
         };
         assert_eq!(
-            refused(delete_dialog("g", &griller)).1,
-            "Griller is used in shop-web \u{b7} Grill. Change that stage first."
+            refused(delete_dialog("g", &spec_writer)).1,
+            "Spec writer is used in shop-web \u{b7} Product spec. Change that stage first."
         );
         assert_eq!(
             delete_dialog("strong", of("Strong")),

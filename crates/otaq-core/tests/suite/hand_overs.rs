@@ -582,7 +582,8 @@ fn the_sent_back_texts() {
 
 // ---- The read gate re-armed by every real resume (CMT-08 with T-0444's gate) ----
 
-/// The test flow `tests/flows/every-kind.yaml`: Grill (skippable) → Dev → Validate → Security → QA (yours) → Done.
+/// The test flow `tests/flows/every-kind.yaml`: Product spec (skippable) → Dev → Validate → Security → QA (yours) →
+/// Done.
 fn every_kind() -> otaq_core::flow::FlowFile {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
     otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
@@ -666,7 +667,7 @@ async fn send_back_and_a_human_fail_rearm_the_gate() {
     for flow in ["default", "every-kind"] {
         let w = world().await;
         if flow == "every-kind" {
-            // QA's fails to the nearest Agent stage, the live Dev (its own `fail_to` is Grill).
+            // QA's fails to the nearest Agent stage, the live Dev (its own `fail_to` is Product spec).
             let mut file = every_kind();
             let qa = file.flow.position("qa").unwrap();
             file.flow.stages[qa].fail_to = None;
@@ -777,12 +778,12 @@ async fn a_drag_back_resume_rearms_the_gate() {
     w.stop().await;
 }
 
-/// Drag back into Grill, which the ticket skipped (a fresh session there), and back to Security (its check runs
+/// Drag back into Product spec, which the ticket skipped (a fresh session there), and back to Security (its check runs
 /// again): each new session is told of the comment and has to prime first.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fresh_start_and_a_check_run_again_wait_for_prime() {
     for (to, kind) in [
-        ("grill", SessionKind::Agent),
+        ("product-spec", SessionKind::Agent),
         ("security", SessionKind::Validator),
     ] {
         let w = launching_world().await;
@@ -792,7 +793,7 @@ async fn a_fresh_start_and_a_check_run_again_wait_for_prime() {
         otaq_core::git::testing::commit(&worktree, "notes.txt", "carts\n");
         sqlx::query(
             "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
-             VALUES (?, 'grill', 'skip', 'user', 1)",
+             VALUES (?, 'product-spec', 'skip', 'user', 1)",
         )
         .bind(&t.id)
         .execute(w.board.store().pool())
