@@ -19,8 +19,8 @@ pub const OPEN_SHEET: &str = "Open panel";
 pub const OPEN_SHEET_KEYS: &str = "\u{21b5}";
 pub const OPEN_TERMINAL: &str = "Open terminal";
 
-/// The card's width in the frames (*24 · The two views*: a 7-stage flow at 1440, about 180 px; the narrowest a column
-/// gets, BRD-02) and the width the gallery draws next to it.
+/// The card's width in the frames (*24 · The two views*: a 7-stage flow at 1440, about 180 px, drawn before BRD-02's
+/// minimum became 240 px) and the width the gallery draws next to it.
 pub const CARD_WIDTH: u32 = 220;
 pub const CARD_WIDTH_1280: u32 = 164;
 

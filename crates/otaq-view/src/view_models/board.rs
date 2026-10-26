@@ -31,7 +31,7 @@ use otaq_core::agents::facts::BoardAgents;
 
 /// The one width rule (BRD-02): a column is never narrower than this; when the flow fits, the columns share the
 /// board's width, otherwise the board scrolls sideways with the "7 more stages" pill at its edge.
-pub const COLUMN_MIN_WIDTH: f32 = 180.;
+pub const COLUMN_MIN_WIDTH: f32 = 240.;
 
 /// A column folded from its ⋯ (or by Fold empty columns): the narrow rail with its icon, count and name (`s26-10`).
 pub const FOLDED_COLUMN_WIDTH: f32 = 52.;
@@ -1226,28 +1226,30 @@ mod tests {
         assert_eq!(dev_budget(300.), 4);
     }
 
-    /// BRD-02's one width rule: 180 px a column at least; columns that fit share the width, else the board scrolls
+    /// BRD-02's one width rule: 240 px a column at least; columns that fit share the width, else the board scrolls
     /// and the pill counts the columns cut off at the right edge, fewer as it scrolls.
     #[test]
     fn one_width_rule_and_the_more_stages_pill() {
-        // Seven columns at 180 with 6 gaps of 12 and 2 × 16 padding: 1364 px.
-        assert!(fits(1364., 7, 0));
-        assert!(!fits(1363., 7, 0));
+        // Seven columns at 240 with 6 gaps of 12 and 2 × 16 padding: 1784 px.
+        assert!(fits(1784., 7, 0));
+        assert!(!fits(1783., 7, 0));
         assert!(
-            fits(1364. - 180. + 52., 6, 1),
+            fits(1784. - 240. + 52., 6, 1),
             "a folded column is a 52 px rail"
         );
         let seven = [false; 7];
-        assert_eq!(columns_after(1376., 0., &seven), 0);
-        assert_eq!(columns_after(1216., 0., &seven), 1);
+        assert_eq!(columns_after(1796., 0., &seven), 0);
+        assert_eq!(columns_after(1600., 0., &seven), 1);
         assert_eq!(
-            more_stages(columns_after(1216., 0., &seven)).as_deref(),
+            more_stages(columns_after(1600., 0., &seven)).as_deref(),
             Some("1 more stage")
         );
+        // At 1440 beside the rail, seven stages already scroll.
+        assert_eq!(columns_after(1376., 0., &seven), 2);
         let fourteen = [false; 14];
-        assert_eq!(columns_after(1376., 0., &fourteen), 7);
-        assert_eq!(columns_after(1376., 192. * 3., &fourteen), 4);
-        assert_eq!(columns_after(1376., 192. * 14., &fourteen), 0);
+        assert_eq!(columns_after(1376., 0., &fourteen), 9);
+        assert_eq!(columns_after(1376., 252. * 3., &fourteen), 6);
+        assert_eq!(columns_after(1376., 252. * 14., &fourteen), 0);
         assert_eq!(more_stages(0), None);
         assert_eq!(more_stages(7).as_deref(), Some("7 more stages"));
     }
@@ -1566,7 +1568,7 @@ flow:
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
 
-    /// BRD-02, a long flow (`s24-04`): every column keeps its 180 px, nothing folds by itself (Fold empty columns
+    /// BRD-02, a long flow (`s24-04`): every column keeps its 240 px, nothing folds by itself (Fold empty columns
     /// is off), Ready for Dev keeps its hint, and at 1440 the board scrolls; Fold empty columns folds Product spec and
     /// Docs.
     #[test]
@@ -1601,7 +1603,7 @@ flow:
         let rails: Vec<bool> = columns.iter().map(|c| c.collapsed).collect();
         assert_eq!(
             more_stages(columns_after(1440. - 64., 0., &rails)).as_deref(),
-            Some("3 more stages")
+            Some("5 more stages")
         );
         let folded = build(&BoardInput {
             flow: &flow,

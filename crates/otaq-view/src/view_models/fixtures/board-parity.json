@@ -3195,7 +3195,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",
@@ -4588,9 +4588,9 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
-          "at_start": null,
+          "at_start": "1 more stage",
           "many": "{n} more stages",
           "one": "1 more stage"
         },
@@ -5981,7 +5981,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",
@@ -6600,7 +6600,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",
@@ -7148,7 +7148,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",
@@ -7696,7 +7696,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",
@@ -9080,7 +9080,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",
@@ -9949,9 +9949,9 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
-          "at_start": null,
+          "at_start": "1 more stage",
           "many": "{n} more stages",
           "one": "1 more stage"
         },
@@ -10818,7 +10818,7 @@
         "folded_width": 52.0,
         "links": [],
         "list": null,
-        "min_column_width": 180.0,
+        "min_column_width": 240.0,
         "more_stages": {
           "at_start": null,
           "many": "{n} more stages",

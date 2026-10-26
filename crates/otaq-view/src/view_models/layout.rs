@@ -217,24 +217,24 @@ mod tests {
         assert_eq!(main_width(300., None, AgentPanel::Open), 0.);
         let view = view(None);
         assert_eq!((view.rail, view.agent_panel), (64., 420.));
-        assert_eq!((view.agent_panel_min, view.board_min), (320., 404.));
+        assert_eq!((view.agent_panel_min, view.board_min), (320., 524.));
         assert_eq!(view.classes.len(), 3);
     }
 
-    /// T-0502: the edge drags the panel between 320 px and what leaves the board two columns (404 px); a narrower
+    /// T-0502: the edge drags the panel between 320 px and what leaves the board two columns (524 px); a narrower
     /// window narrows a dragged panel, which comes back once the window is wide again.
     #[test]
     fn the_dragged_width_stays_between_its_bounds() {
-        assert_eq!(agent_panel_widest(1280.), 812.);
-        assert_eq!(agent_panel_widest(1920.), 1452.);
+        assert_eq!(agent_panel_widest(1280.), 692.);
+        assert_eq!(agent_panel_widest(1920.), 1332.);
         // Too narrow for both: the panel keeps its narrowest, the board gives way.
         assert_eq!(agent_panel_widest(700.), 320.);
         for (window, stored, width) in [
             (1440., None, 420.),
             (1440., Some(640), 640.),
             (1440., Some(200), 320.),
-            (1440., Some(1400), 972.),
-            (1280., Some(900), 812.),
+            (1440., Some(1400), 852.),
+            (1280., Some(900), 692.),
             (1920., Some(900), 900.),
             (700., None, 320.),
         ] {

@@ -1,6 +1,6 @@
 /*
  * The board (*24 · The two views*): the toolbar on top (`.board-toolbar`), then the columns of the flow, which share
- * the main area's width (BRD-02), each at least `--column-width` (the view's `min_column_width`, 180 px), 16 px around
+ * the main area's width (BRD-02), each at least `--column-width` (the view's `min_column_width`, 240 px), 16 px around
  * and 12 px between them; each column scrolls by itself under its pinned header. When they don't fit, the board scrolls
  * sideways and the "7 more stages" pill sits at its right edge. While the sheet is open over the
  * board, `.board-under-sheet` adds its width of room after the columns, so any column can scroll to the uncovered
