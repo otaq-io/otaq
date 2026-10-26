@@ -9,4 +9,9 @@ export type FilesSourceView = { kind: FilesSourceKind, title: string, subtitle: 
 /**
  * The key to the tree's tags; empty while no piece changed a file.
  */
-legend: Array<FilesTag>, };
+legend: Array<FilesTag>, 
+/**
+ * At a check of planning (`s30-02`): what each stage committed, "Product spec · 2"; empty otherwise
+ * ([`with_planning`]).
+ */
+stages: Array<string>, };

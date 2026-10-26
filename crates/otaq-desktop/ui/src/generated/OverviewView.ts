@@ -6,6 +6,7 @@ import type { DescriptionSaveBar } from "./DescriptionSaveBar";
 import type { ManualChecksView } from "./ManualChecksView";
 import type { OverviewUsageLimit } from "./OverviewUsageLimit";
 import type { PlanSectionView } from "./PlanSectionView";
+import type { PlanningDid } from "./PlanningDid";
 
 /**
  * Overview's words and its attachments: `OverviewView` on the page (`overview.view`).
@@ -36,6 +37,11 @@ before_you: BeforeYouView | null,
  * The PLAN section under the description (d0133, `s30-01`); set by the service's facts ([`with_plan`]).
  */
 plan: PlanSectionView | null, 
+/**
+ * WHAT PLANNING DID under the Plan, at a human check that reviews planning (d0129, `s30-02`); set by the service's
+ * facts ([`with_planning`]).
+ */
+planning: PlanningDid | null, 
 /**
  * "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
  */

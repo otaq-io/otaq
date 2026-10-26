@@ -324,3 +324,168 @@ async fn a_done_ticket_reads_its_branch_once_the_worktree_is_gone() {
     let diff = f.board.files_diff("SHOP-1", "done.ts").await.unwrap();
     assert_eq!(diff.hunks[0].lines[0].text, "x");
 }
+
+/// A commit in `wt` made at `secs` (Unix seconds), as an agent's commit at that time.
+fn commit_at(wt: &Path, file: &str, content: &str, secs: i64) {
+    if let Some(dir) = Path::new(file).parent() {
+        std::fs::create_dir_all(wt.join(dir)).unwrap();
+    }
+    std::fs::write(wt.join(file), content).unwrap();
+    git(wt, &["add", "--", file]);
+    let date = format!("@{secs} +0000");
+    let out = std::process::Command::new("git")
+        .args(["commit", "--quiet", "-m", &format!("edit {file}")])
+        .current_dir(wt)
+        .env("GIT_COMMITTER_DATE", &date)
+        .env("GIT_AUTHOR_DATE", &date)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// `files.stages` (d0129, `s30-02`): each commit on the ticket's branch goes to the Agent stage run that held it, in
+/// the worktree and, once it is gone, on the branch; a commit made in a human check goes to no stage.
+#[tokio::test]
+async fn each_commit_goes_to_the_stage_that_made_it() {
+    use otaq_core::board::stage_files::StageFile;
+    let f = Fixture::shop().await;
+    let t = f.create("Wishlist").await;
+    let wt = f.start_worktree(&t).await;
+    let pool = f.board.store().pool();
+    sqlx::query("DELETE FROM stage_runs WHERE ticket_id = ?")
+        .bind(&t.id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let base = 1_790_000_000_i64;
+    for (stage, kind, at) in [
+        ("product-spec", "agent", base),
+        ("tech-spec", "agent", base + 100),
+        ("spec-review", "you", base + 200),
+    ] {
+        sqlx::query(
+            "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at) VALUES (?, ?, ?, ?, 'done', ?)",
+        )
+        .bind(otaq_core::store::new_id())
+        .bind(&t.id)
+        .bind(stage)
+        .bind(kind)
+        .bind(at * 1000)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    commit_at(&wt, "decisions/0140-share.md", "# 0140\n", base + 10);
+    commit_at(&wt, "DESIGN.md", "design\n", base + 20);
+    commit_at(&wt, "file1.txt", "changed\n", base + 110);
+    commit_at(&wt, "later.md", "by you\n", base + 210);
+
+    let stages = f.board.stage_files("SHOP-1").await.unwrap();
+    let got: Vec<(&str, Vec<(&str, FileStatus)>)> = stages
+        .runs
+        .iter()
+        .map(|r| {
+            (
+                r.stage.as_str(),
+                r.files
+                    .iter()
+                    .map(|StageFile { path, status }| (path.as_str(), *status))
+                    .collect(),
+            )
+        })
+        .collect();
+    let expected = [
+        (
+            "product-spec",
+            vec![
+                ("decisions/0140-share.md", FileStatus::Added),
+                ("DESIGN.md", FileStatus::Added),
+            ],
+        ),
+        ("tech-spec", vec![("file1.txt", FileStatus::Modified)]),
+    ];
+    assert_eq!(got, expected);
+    assert_eq!(stages.runs[0].started_at, base * 1000);
+
+    // The worktree gone: the same from the branch.
+    git(
+        &f.repo(),
+        &["worktree", "remove", "--force", wt.to_str().unwrap()],
+    );
+    let from_branch = f.board.stage_files("SHOP-1").await.unwrap();
+    assert_eq!(from_branch, stages);
+
+    // A ticket that never started has nothing.
+    f.create("Not started").await;
+    assert!(f.board.stage_files("SHOP-2").await.unwrap().runs.is_empty());
+}
+
+/// Spec first's planning stages each commit and end with `stage next` within one second (`files.stages`, d0129): the
+/// heads their ends recorded put each file under its own stage, as the board reads them.
+#[tokio::test]
+async fn stages_that_commit_in_one_second_keep_their_own_files() {
+    use otaq_core::domain::{Actor, Place, Status};
+    let f = Fixture::shop().await;
+    let spec_first = otaq_core::flow::presets::preset(otaq_core::flow::presets::SPEC_FIRST_FILE)
+        .unwrap()
+        .read();
+    f.board.use_flow_for_tests("SHOP", &spec_first).await;
+    let t = f.create("Wishlist").await;
+    let wt = f.start_worktree(&t).await;
+    let pool = f.board.store().pool();
+    let me = Actor::Agent(t.key.clone());
+    let second = otaq_core::store::now_ms() / 1000;
+    for (stage, file) in [
+        ("product-spec", "decisions/0001-share-link.md"),
+        ("tech-spec", "SDD.md"),
+        ("milestone-plan", "SDD.md"),
+    ] {
+        sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+            .bind(stage)
+            .bind(Status::Working.as_str())
+            .bind(&t.id)
+            .execute(pool)
+            .await
+            .unwrap();
+        // All in the second the first stage started, whatever the clock does meanwhile.
+        let before = std::fs::read_to_string(wt.join(file)).unwrap_or_default();
+        commit_at(&wt, file, &format!("{before}{stage}\n"), second);
+        f.board
+            .submit_for_review("SHOP-1", None, &me)
+            .await
+            .unwrap();
+    }
+    let at = f.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        (at.place, at.status),
+        (Place::InStage("spec-review".into()), Status::WaitingForYou)
+    );
+
+    let stages = f.board.stage_files("SHOP-1").await.unwrap();
+    let got: Vec<(&str, Vec<(&str, FileStatus)>)> = stages
+        .runs
+        .iter()
+        .map(|r| {
+            (
+                r.stage.as_str(),
+                r.files
+                    .iter()
+                    .map(|f| (f.path.as_str(), f.status))
+                    .collect(),
+            )
+        })
+        .collect();
+    let expected = [
+        (
+            "product-spec",
+            vec![("decisions/0001-share-link.md", FileStatus::Added)],
+        ),
+        ("tech-spec", vec![("SDD.md", FileStatus::Added)]),
+        ("milestone-plan", vec![("SDD.md", FileStatus::Modified)]),
+    ];
+    assert_eq!(got, expected);
+}

@@ -549,6 +549,12 @@ pub(super) async fn handle(
                 .await
                 .map(|c| Reply::FilesChanges(Box::new(c)))
         }),
+        Request::FilesStages(p) => boxed(move || async move {
+            board
+                .stage_files(&p.key)
+                .await
+                .map(|s| Reply::StageFiles(Box::new(s)))
+        }),
         Request::FilesProjectTree(p) => boxed(move || async move {
             match &p.worktree {
                 Some(wt) => board.files_worktree_tree(&p.project, wt, &p.path).await,

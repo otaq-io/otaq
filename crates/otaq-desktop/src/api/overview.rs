@@ -16,6 +16,7 @@ use otaq_core::protocol::{
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::overview::{self as vm, OverviewView};
 use otaq_view::view_models::plan;
+use otaq_view::view_models::planning;
 use otaq_view::view_models::tool_avatar;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,6 +51,7 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     FileChip::export_all(cfg)?;
     vm::UsageLimitButton::export_all(cfg)?;
     plan::PlanSection::export_all(cfg)?;
+    planning::Did::export_all(cfg)?;
     TickParams::export_all(cfg)?;
     Ok(())
 }
@@ -165,7 +167,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
             &otaq_view::view_models::pieces::Facts::new(&ticket, &helpers),
         );
     }
-    let view = vm::with_plan(
+    let mut view = vm::with_plan(
         vm::view(
             &params.key,
             ticket.status,
@@ -176,6 +178,19 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         ),
         plan,
     );
+    // A check of planning: what each planning stage did, from its comment and its commits (d0129, `s30-02`).
+    if let Some(p) = super::files::planning_facts(app, &ticket).await
+        && let Some(did) = planning::did(
+            &ticket,
+            &p.flow,
+            &p.check,
+            &p.runs,
+            &p.files,
+            plan::stage_writer(&ticket, &history).as_deref(),
+        )
+    {
+        view = vm::with_planning(view, did);
+    }
     // A human check right after a Check stage: each check agent's verdict (d0130); unread, the review goes on without.
     let Some(check) = vm::passed_check(&ticket) else {
         return Ok(view);

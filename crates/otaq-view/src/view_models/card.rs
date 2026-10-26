@@ -139,6 +139,15 @@ pub struct CardExtras {
     pub helpers: Vec<otaq_core::helpers::Helper>,
     /// The stage after the one it is in: "4 pieces merged · moving to Validate".
     pub next_stage: Option<String>,
+    /// What its agent is doing in a stage that runs a skill Otaq ships ([`crate::view_models::planning::working_on`]):
+    /// "Working · writing the architecture" (`s30-01`).
+    pub working_on: Option<String>,
+    /// It waits in a human check that reviews planning ([`crate::view_models::planning::check_line`]): "Your check · the
+    /// decisions and the plan" (`s30-01`).
+    pub check_line: Option<String>,
+    /// It waits in the waiting column and starts past planning ([`crate::view_models::planning::skips_line`]): "Dev
+    /// next · skips planning" (`s30-01`).
+    pub skips: Option<String>,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
@@ -1124,7 +1133,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         }
         Status::Working => Part::flag(
             flag(R::Working, "Working", "Working", Legend::AgentWorking),
-            None,
+            x.working_on.clone(),
             Tone::Working,
         ),
         Status::WorkingInBackground => Part::flag(
@@ -1144,7 +1153,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Muted,
         ),
         Status::WaitingForYou if !x.custom_flow => return review_part(ticket),
-        Status::WaitingForYou => return your_check_part(ticket),
+        Status::WaitingForYou => return your_check_part(ticket, x),
         Status::ToDeliver if !x.custom_flow => return None,
         Status::ToDeliver => return delivery_part(ticket, x),
         // Stays in its Delivery stage until marked merged (FLW-16, `s03-46`): "PR #481 open · Opened by Shipper · 2 h
@@ -1194,8 +1203,14 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if flags.resuming_conversation => {
             Part::quiet("Resuming conversation\u{2026}", Tone::Muted)
         }
-        Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
-        Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
+        // Past planning, where it starts says more than "Starting…" (`s30-01`).
+        Status::Queued if x.starting && x.skips.is_none() => {
+            Part::quiet("Starting\u{2026}", Tone::Muted)
+        }
+        Status::Queued => Part::quiet(
+            x.waits_for.clone().or_else(|| x.skips.clone())?,
+            Tone::Muted,
+        ),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
         Status::Backlog | Status::Merged => return None,
     })
@@ -1357,13 +1372,17 @@ fn arrival_tone(arrival: &Arrival) -> Tone {
 
 /// Your check (FLW-14, `s03-46`, `s03-54`): "Your check" and how it got here ("Passed Security · round 2", "Skipped
 /// Security · by you", "Moved back by you"); Pass and Fail are its buttons.
-fn your_check_part(ticket: &Ticket) -> Option<Part> {
+fn your_check_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     let flag = HeadFlag::new(
         Rank::Outcome,
         YOUR_CHECK,
         YOUR_CHECK,
         Legend::ReadyForReview,
     );
+    // A check of planning says what it reviews, not how the card got there (`s30-01`).
+    if let Some(line) = &x.check_line {
+        return Some(Part::flag(flag, Some(line.clone()), Tone::Muted));
+    }
     Some(match &ticket.flags.arrival {
         Some(arrival) => Part::flag(flag, Some(arrival.label()), arrival_tone(arrival)),
         None => Part::flag(flag, None, Tone::Muted),

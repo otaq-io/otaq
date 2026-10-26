@@ -99,6 +99,18 @@
   font: 500 11px var(--font-ui);
 }
 
+/* At a check of planning: each stage's count of committed files ("Product spec · 2"). */
+.files-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.files-stage {
+  color: var(--text-secondary);
+  font: 500 11px var(--font-ui);
+}
+
 /* A file being written in another worktree: whose change it is. */
 .files-writing {
   display: flex;

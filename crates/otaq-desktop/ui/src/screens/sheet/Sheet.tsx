@@ -397,7 +397,7 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
           {Body && <Body ticket={view.key} />}
         </div>
         {/* While the check is yours, under every tab (SHT-06): the sheet then opens on Files (`sheet::opens_on`). */}
-        {sheet.opens_on === "files" && <ReviewBar ticket={view.key} />}
+        {sheet.opens_on === "files" && <ReviewBar ticket={view.key} tab={shown?.tab} />}
       </section>
     </SheetContext>
   );

@@ -446,6 +446,17 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
             .cloned()
             .collect(),
         next_stage: next_stage(t, input.flow),
+        working_on: match &t.place {
+            otaq_core::domain::Place::InStage(id) => input
+                .flow
+                .stage(id)
+                .and_then(|s| s.skill.as_deref())
+                .and_then(crate::view_models::planning::working_on)
+                .map(str::to_owned),
+            _ => None,
+        },
+        check_line: crate::view_models::planning::planning_check(t, input.flow)
+            .map(|_| crate::view_models::planning::check_line(t)),
         agent_name: match &t.created_by {
             otaq_core::domain::Actor::ProjectAgent(id) => input
                 .agent_names
@@ -458,10 +469,16 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
     }
     .with_signal(t, input.now_ms);
     // Its named agents, holds, moves and avatars (T-0345, T-0362).
-    let extras = match input.agents {
+    let mut extras = match input.agents {
         Some(agents) => extras.with_agents(agents, &t.key),
         None => extras,
     };
+    // Where it starts, past the stages it skips (`s30-01`: "Dev next · skips planning").
+    extras.skips = crate::view_models::planning::skips_line(
+        input.flow,
+        t,
+        extras.agents.starts.as_ref().map(|s| s.stage.as_str()),
+    );
     CardViewModel::from(t, &extras, input.now_ms)
 }
 
@@ -522,7 +539,9 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 cards: Vec::new(),
                 dev: None,
                 sections: Vec::new(),
-                hint: (column.kind == ColumnKind::ReadyForDev).then_some(READY_FOR_DEV_HINT),
+                hint: (column.kind == ColumnKind::ReadyForDev).then(|| {
+                    crate::view_models::planning::ready_hint(input.flow, READY_FOR_DEV_HINT)
+                }),
                 empty_hint,
                 collapsed: is_folded(id, column.kind, whole.total, input.folded, input.fold_empty),
                 needs_you: needs_you_in(&columns, id, all, &cards),
@@ -1233,6 +1252,116 @@ mod tests {
         assert_eq!(more_stages(7).as_deref(), Some("7 more stages"));
     }
 
+    /// Spec first's board (`s30-01`; d0129, d0093): the waiting column is "Ready" with "Before the first stage", and
+    /// each planning card says what it is doing, as the board words it from the flow and the card's agents.
+    #[test]
+    fn spec_first_cards_say_what_planning_is_doing() {
+        use crate::view_models::plan::fixtures::WISHLIST;
+        use otaq_core::agents::facts::{CardAgents, CardStart};
+        let file = otaq_core::flow::presets::preset(otaq_core::flow::presets::SPEC_FIRST_FILE)
+            .unwrap()
+            .read();
+        let at = |key: &str, status, place: Place| {
+            let mut t = ticket(key, "Work", status);
+            t.place = place;
+            t
+        };
+        let mut planned = at(
+            "SHOP-40",
+            Status::WaitingForYou,
+            Place::stage_of("spec-review"),
+        );
+        planned.plan = WISHLIST.to_owned();
+        let mut asks = at("SHOP-60", Status::AsksYou, Place::stage_of("product-spec"));
+        asks.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("Who is the site for, first?".into()),
+            ..Default::default()
+        });
+        let tickets = vec![
+            at("SHOP-35", Status::Queued, Place::Waiting(None)),
+            asks,
+            at("SHOP-52", Status::Working, Place::stage_of("tech-spec")),
+            at(
+                "SHOP-55",
+                Status::Working,
+                Place::stage_of("milestone-plan"),
+            ),
+            planned,
+            at(
+                "SHOP-58",
+                Status::WaitingForYou,
+                Place::stage_of("spec-review"),
+            ),
+            at("SHOP-33", Status::Working, Place::stage_of("dev")),
+            at(
+                "SHOP-31",
+                Status::WaitingForYou,
+                Place::stage_of("code-review"),
+            ),
+        ];
+        let card = |key: &str, starts: Option<&str>| CardAgents {
+            key: key.parse().unwrap(),
+            running_developer: None,
+            running_validator: None,
+            running_developer_on: None,
+            running_validator_on: None,
+            holds: Vec::new(),
+            starts: starts.map(|stage| CardStart {
+                stage: stage.into(),
+                agent: "Developer".into(),
+                model: None,
+            }),
+            refused_agent: None,
+        };
+        let agents = BoardAgents {
+            agent_count: 5,
+            cards: vec![card("SHOP-35", Some("Dev"))],
+            connected: Vec::new(),
+        };
+        let input = BoardInput {
+            flow: &file.flow,
+            agents: Some(&agents),
+            ..input(&tickets, None)
+        };
+        let line = |key: &str| {
+            let t = tickets.iter().find(|t| t.key.to_string() == key).unwrap();
+            ticket_card(&input, t)
+                .one_line
+                .line
+                .map(|l| l.text)
+                .unwrap_or_default()
+        };
+        assert_eq!(line("SHOP-35"), "Dev next \u{b7} skips planning");
+        assert_eq!(line("SHOP-60"), "Asks you: who is the site for, first?");
+        assert_eq!(line("SHOP-52"), "Working \u{b7} writing the architecture");
+        assert_eq!(line("SHOP-55"), "Working \u{b7} writing the plan");
+        assert_eq!(
+            line("SHOP-40"),
+            "Your check \u{b7} the decisions and the plan"
+        );
+        assert_eq!(line("SHOP-58"), "Your check \u{b7} the decisions");
+        // The build stage and the last check read as before.
+        assert_eq!(line("SHOP-33"), "Working");
+        assert!(
+            !line("SHOP-31").contains("decisions"),
+            "{}",
+            line("SHOP-31")
+        );
+
+        let columns = build(&input);
+        assert_eq!(columns[1].title, "Ready");
+        assert_eq!(
+            columns[1].hint,
+            Some(crate::view_models::planning::BEFORE_THE_FIRST_STAGE)
+        );
+        // Today's board keeps its name and hint.
+        let today = build(&self::input(&tickets, None));
+        assert_eq!(
+            (today[1].title.as_str(), today[1].hint),
+            ("Ready for Dev", Some(READY_FOR_DEV_HINT))
+        );
+    }
+
     #[test]
     fn a_filter_shows_shown_over_total() {
         let tickets = board();
@@ -1355,7 +1484,7 @@ mod tests {
             heads,
             [
                 ("Backlog", IconName::CircleDashed, true),
-                ("Ready for Dev", IconName::Hourglass, true),
+                ("Ready", IconName::Hourglass, true),
                 ("Product spec", IconName::Bot, true),
                 ("Dev", IconName::Bot, true),
                 ("Security", IconName::ShieldCheck, true),
@@ -1464,7 +1593,11 @@ flow:
         });
         assert_eq!(columns.len(), 10);
         assert!(columns.iter().all(|c| !c.collapsed));
-        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
+        // Product spec comes first: "Ready" under "Before the first stage" (d0093, Q515).
+        assert_eq!(
+            columns[1].hint,
+            Some(crate::view_models::planning::BEFORE_THE_FIRST_STAGE)
+        );
         let rails: Vec<bool> = columns.iter().map(|c| c.collapsed).collect();
         assert_eq!(
             more_stages(columns_after(1440. - 64., 0., &rails)).as_deref(),

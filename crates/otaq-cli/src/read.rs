@@ -109,7 +109,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         };
         let agents = ticket_agents(client, &ticket.key.to_string()).await?;
         let choices = ticket_choices(client, &ticket.key.to_string()).await?;
-        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices));
+        let waiting = waiting_name(client, ticket.key.project.as_str()).await;
+        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices), waiting);
         if !decisions.is_empty() {
             human.push_str(&decisions_text(&decisions));
         }
@@ -607,15 +608,43 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
         .map_or_else(|| "?".to_owned(), |t| t.status.label().to_owned())
 }
 
-/// The full human view of one ticket.
+/// The waiting column's name in `project`'s flow (d0093, Q515): "Ready" when its first Agent stage isn't Dev, "Ready
+/// for Dev" otherwise or when the flow can't be read.
+async fn waiting_name(client: &Client, project: &str) -> &'static str {
+    match client
+        .request(Request::FlowCurrent(otaq_core::protocol::ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowVersion(version)) => version
+            .file()
+            .map_or(otaq_core::flow::model::READY_FOR_DEV, |f| {
+                f.flow.waiting_name()
+            }),
+        _ => otaq_core::flow::model::READY_FOR_DEV,
+    }
+}
+
+/// The full human view of one ticket; `waiting` is the waiting column's name in its project's flow ("Ready" in Spec
+/// first).
 pub fn show_text(
     ticket: &Ticket,
     tickets: &[Ticket],
     agents: Option<&TicketAgents>,
     choices: Option<&TicketChoices>,
+    waiting: &str,
 ) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
-    let (status, column) = (ticket.status.label(), Column::of(ticket).label());
+    // A ticket in the waiting column says the column's name for its flow.
+    let status = match ticket.place {
+        Place::Waiting(None) if ticket.status == Status::Queued => waiting,
+        _ => ticket.status.label(),
+    };
+    let column = match Column::of(ticket) {
+        Column::ReadyForDev => waiting,
+        other => other.label(),
+    };
     // A status named like its column ("Ready for Dev") says it once.
     let column = if status == column {
         String::new()

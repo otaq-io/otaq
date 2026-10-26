@@ -131,6 +131,19 @@ pub struct SourceView {
     pub subtitle: String,
     /// The key to the tree's tags; empty while no piece changed a file.
     pub legend: Vec<TagView>,
+    /// At a check of planning (`s30-02`): what each stage committed, "Product spec · 2"; empty otherwise
+    /// ([`with_planning`]).
+    pub stages: Vec<String>,
+}
+
+/// The source at a check of planning (d0129, `s30-02`): "otaq/SHOP-40 · what planning committed" with each stage's
+/// count; as it was when no stage committed anything.
+pub fn with_planning(mut view: SourceView, branch: &str, stages: Vec<String>) -> SourceView {
+    if !stages.is_empty() {
+        view.subtitle = crate::view_models::planning::source_subtitle(branch);
+        view.stages = stages;
+    }
+    view
 }
 
 pub fn source_view(source: &FilesSource) -> SourceView {
@@ -141,18 +154,21 @@ pub fn source_view(source: &FilesSource) -> SourceView {
             title: format!("{key}\u{2019}s worktree"),
             subtitle: format!("{} \u{b7} from {}", source.branch, source.base_branch),
             legend: Vec::new(),
+            stages: Vec::new(),
         },
         FilesFrom::Branch => SourceView {
             kind: SourceKind::Branch,
             title: format!("{key}\u{2019}s branch"),
             subtitle: format!("{} \u{b7} from {}", source.branch, source.base_branch),
             legend: Vec::new(),
+            stages: Vec::new(),
         },
         FilesFrom::Base => SourceView {
             kind: SourceKind::Base,
             title: source.branch.clone(),
             subtitle: format!("the base branch \u{b7} {key} hasn\u{2019}t started"),
             legend: Vec::new(),
+            stages: Vec::new(),
         },
     }
 }
@@ -1220,6 +1236,16 @@ pub fn review_bar(
             .chain([approve(true, approve_keys)])
             .collect(),
     })
+}
+
+/// The bar at a check of planning (`s30-02`): "Your check · Spec review · the decisions on Files and the plan here";
+/// with line comments it keeps their words.
+pub fn planning_bar(mut bar: ReviewBar, title: String, line: String) -> ReviewBar {
+    if bar.title == crate::view_models::card::YOUR_CHECK {
+        bar.title = title;
+        bar.line = line;
+    }
+    bar
 }
 
 // ---- The gallery ----

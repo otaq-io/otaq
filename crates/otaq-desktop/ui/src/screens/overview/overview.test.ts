@@ -16,6 +16,7 @@ import { FORM, READ, VIEW } from "../editor/editor_fixtures";
 import { DescriptionSection } from "./Description";
 import { asksFirst, descriptionDraft, descriptionState, isSaveDescriptionKey } from "./draft";
 import { Attachments } from "./Overview";
+import { PlanningDid } from "./PlanningDid";
 import { DescriptionSaveBar } from "./SaveBar";
 
 type Reply = (method: string, params: unknown) => unknown;
@@ -76,6 +77,7 @@ const OVERVIEW: OverviewView = {
   usage_limit: null,
   before_you: null,
   plan: null,
+  planning: null,
   manual_checks: null,
   attachments_heading: "Attachments · 2",
   attachments: [
@@ -374,5 +376,52 @@ describe("the Attachments column (RPT-02, s25-05)", () => {
     }
     expect(out.match(/class="overview-attachment"/g)).toHaveLength(2);
     expect(out).toContain("data-mine");
+  });
+});
+
+describe("What planning did (s30-02)", () => {
+  it("lists each planning stage with its agent and what it committed, then where the docs are", () => {
+    const out = renderToStaticMarkup(
+      createElement(PlanningDid, {
+        view: {
+          label: "What planning did",
+          rows: [
+            {
+              stage: "Product spec",
+              agent: "Spec writer",
+              what: "decisions/0140-wishlist-share-link.md; DESIGN.md",
+              comment: "Recorded the share link.",
+            },
+            {
+              stage: "Tech spec",
+              agent: "Architect",
+              what: "decisions/0141-wishlist-storage.md; SDD.md",
+              comment: null,
+            },
+            {
+              stage: "Milestone plan",
+              agent: null,
+              what: "the Plan, 4 pieces; docs/milestones/wishlist.md",
+              comment: null,
+            },
+          ],
+          note: "The docs are on SHOP-40’s branch (Files tab) and ship with its code.",
+        },
+      }),
+    );
+    for (const text of [
+      "WHAT PLANNING DID",
+      "Product spec",
+      "· Spec writer",
+      "decisions/0140-wishlist-share-link.md; DESIGN.md",
+      "Recorded the share link.",
+      "the Plan, 4 pieces; docs/milestones/wishlist.md",
+      "The docs are on SHOP-40’s branch (Files tab) and ship with its code.",
+    ]) {
+      expect(out).toContain(text);
+    }
+    expect(out.match(/class="planning-did-row"/g)).toHaveLength(3);
+    expect(out.match(/class="planning-did-agent"/g)).toHaveLength(2);
+    expect(out.match(/class="planning-did-comment"/g)).toHaveLength(1);
   });
 });

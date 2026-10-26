@@ -133,6 +133,8 @@ pub struct CardGallery {
     pub checks: Vec<GalleryCell>,
     /// *30 → The card in Dev*: a build stage's piece rows (d0133, T-0541).
     pub pieces: Vec<GalleryCell>,
+    /// *30 → Planning on the board*: one card per ticket while it plans (d0129, T-0548).
+    pub planning: Vec<GalleryCell>,
 }
 
 pub fn gallery() -> CardGallery {
@@ -153,6 +155,10 @@ pub fn gallery() -> CardGallery {
             .map(cell)
             .collect(),
         pieces: card_fixtures::piece_variants().iter().map(cell).collect(),
+        planning: card_fixtures::planning_variants()
+            .iter()
+            .map(cell)
+            .collect(),
     }
 }
 

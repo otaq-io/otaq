@@ -3,7 +3,7 @@
 // you (the question with its options or the action bar, the callouts, "Manual checks for you" above Approve at
 // Review, d0125; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
-// (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the PLAN under it (`PlanSection`, d0133), the agent's recorded decisions, the
+// (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the PLAN under it (`PlanSection`, d0133) and at a check of planning WHAT PLANNING DID (`PlanningDid`, d0129), the agent's recorded decisions, the
 // DEPENDENCIES with Blocked by and Blocks (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
 // report view. Add (the system picker), a file dropped anywhere on Overview, or a file pasted outside a text field
@@ -32,6 +32,7 @@ import { BeforeYou } from "./BeforeYou";
 import { ManualChecks } from "./ManualChecks";
 import { NeedsYou } from "./NeedsYou";
 import { PlanSection } from "./Plan";
+import { PlanningDid } from "./PlanningDid";
 import { TicketDecisions } from "../sections/Decisions";
 import { useSheet } from "../sheet/Sheet";
 import { DescriptionSection, SavedNote } from "./Description";
@@ -247,6 +248,7 @@ export function OverviewTab({ ticket }: TicketProps) {
               {overview.plan !== null && (
                 <PlanSection ticket={ticket} view={editor} plan={overview.plan} overviewTabs={overviewTabs} />
               )}
+              {overview.planning !== null && <PlanningDid view={overview.planning} />}
             </>
           )
         )}

@@ -980,6 +980,95 @@ pub fn flow_variants() -> Vec<Variant> {
     out
 }
 
+/// *30 → Planning on the board* (`s30-01`; d0129, T-0548): one card per ticket while it plans, in Spec first's
+/// columns, as the board words them ([`crate::view_models::planning`]).
+pub fn planning_variants() -> Vec<Variant> {
+    use crate::view_models::plan::fixtures::{GIFT_CARDS, WISHLIST};
+    use otaq_core::domain::Place;
+    use otaq_core::domain::plan::PlanBy;
+    let agents = |running: Option<&str>| AgentFacts {
+        count: 5,
+        running_developer: running.map(str::to_owned),
+        ..AgentFacts::default()
+    };
+    let in_stage = |key: &str, title: &str, status: Status, stage: &str| {
+        let mut t = ticket(key, title, status);
+        t.place = Place::InStage(stage.into());
+        t.flags.last_signal_at = Some(NOW - 360_000);
+        t
+    };
+    let mut ready = ticket("SHOP-35", "Slow checkout query", Status::Queued);
+    ready.place = Place::Waiting(None);
+    let mut asks = in_stage("SHOP-60", "M43: Website", Status::AsksYou, "product-spec");
+    asks.flags.last_signal_at = None;
+    let mut writing_plan = in_stage("SHOP-55", "Gift cards", Status::Working, "milestone-plan");
+    writing_plan.plan = GIFT_CARDS.to_owned();
+    writing_plan.plan_by = Some(PlanBy::Stage("Milestone plan".into()));
+    let mut planned = in_stage("SHOP-40", "Wishlist", Status::WaitingForYou, "spec-review");
+    planned.plan = WISHLIST.to_owned();
+    let check = in_stage(
+        "SHOP-58",
+        "Rate-limit sign-in",
+        Status::WaitingForYou,
+        "spec-review",
+    );
+    vec![
+        // Spec first is a flow other than the default's shape.
+        v(
+            "Ready \u{b7} skips planning",
+            ready,
+            CardExtras {
+                skips: Some("Dev next \u{b7} skips planning".into()),
+                ..base()
+            },
+        ),
+        v(
+            "Product spec \u{b7} asks you",
+            asks,
+            CardExtras {
+                question: Some("Who is the site for, first?".into()),
+                agents: agents(Some("Spec writer")),
+                ..base()
+            },
+        ),
+        v(
+            "Tech spec \u{b7} writing the architecture",
+            in_stage("SHOP-52", "Search ranking", Status::Working, "tech-spec"),
+            CardExtras {
+                working_on: Some("writing the architecture".into()),
+                agents: agents(Some("Architect")),
+                ..base()
+            },
+        ),
+        v(
+            "Milestone plan \u{b7} writing the plan",
+            writing_plan,
+            CardExtras {
+                working_on: Some("writing the plan".into()),
+                stage_name: Some("Milestone plan".into()),
+                agents: agents(Some("Milestone planner")),
+                ..base()
+            },
+        ),
+        v(
+            "Spec review \u{b7} the decisions and the plan",
+            planned,
+            CardExtras {
+                check_line: Some("the decisions and the plan".into()),
+                ..base()
+            },
+        ),
+        v(
+            "Spec review \u{b7} the decisions",
+            check,
+            CardExtras {
+                check_line: Some("the decisions".into()),
+                ..base()
+            },
+        ),
+    ]
+}
+
 /// A role held before it starts (T-0357's `agent_holds`, as `board.agents` names it).
 #[allow(clippy::too_many_arguments)]
 pub fn hold(

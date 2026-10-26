@@ -39,8 +39,9 @@ fn the_four_presets_are_listed_as_drawn() {
                 "Spec first",
                 "Plan on the board, then build",
                 "spec-first.yaml",
+                // The first stage isn't Dev: the waiting column is "Ready" (d0093, Q515).
                 cols(&[
-                    "Ready for Dev",
+                    "Ready",
                     "Product spec",
                     "Tech spec",
                     "Milestone plan",

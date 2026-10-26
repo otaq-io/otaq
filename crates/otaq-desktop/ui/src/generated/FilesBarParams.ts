@@ -3,4 +3,8 @@
 /**
  * The review bar's question: is a new comment being written in the tab now.
  */
-export type FilesBarParams = { key: string, writing: boolean, };
+export type FilesBarParams = { key: string, writing: boolean, 
+/**
+ * The sheet tab the bar sits under (`overview`, `files`, …): where its words point at a check of planning.
+ */
+tab?: string, };

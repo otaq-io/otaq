@@ -271,14 +271,11 @@ fn next_stage<'a>(ticket: &Ticket, path: &'a [PathStage]) -> Option<&'a PathStag
     }
 }
 
-/// Assignee and Model: the agent on it now (its running session), you in your check, else the agent its next stage
-/// runs (changeable until that stage starts), else the last one that ran.
+/// Assignee and Model: the agent on it now (its running session), else the agent its next stage runs (changeable
+/// until that stage starts), else the last one that ran.
 fn assignee(f: &DetailFacts) -> (Detail, Detail) {
     let ticket = f.ticket;
     let empty = || (Detail::new("Assignee", DASH), Detail::new("Model", DASH));
-    if ticket.status.set() == StatusSet::HumanCheck {
-        return (Detail::new("Assignee", "You"), Detail::new("Model", DASH));
-    }
     let Some(agents) = f.agents else {
         return empty();
     };
@@ -430,6 +427,15 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
     // A finished ticket has no one on it: no Assignee (nor its Model), not the last agent that ran (#36).
     let (who, model) = if ticket.place == Place::Done {
         (None, None)
+    } else if ticket.status.set() == StatusSet::HumanCheck {
+        // Your check has no agent on it (d0108, `s30-02`): "In charge · You", no model.
+        (
+            Some(Detail::new(
+                crate::view_models::pieces::IN_CHARGE_LABEL,
+                "You",
+            )),
+            None,
+        )
     } else {
         let (who, model) = assignee(f);
         (Some(who), Some(model))
@@ -895,7 +901,7 @@ mod tests {
         assert!(items.iter().any(|i| i.checked));
     }
 
-    /// In your check (`s25-09`): Assignee You, no model, and how long it waits for you.
+    /// In your check (`s25-09`, `s30-02`): In charge You, no model, and how long it waits for you.
     #[test]
     fn in_your_check() {
         let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
@@ -911,10 +917,9 @@ mod tests {
             usage: None,
         });
         assert_eq!(
-            &shown(&details)[..3],
+            &shown(&details)[..2],
             [
-                ("Assignee", "You".into(), None),
-                ("Model", DASH.into(), None),
+                ("In charge", "You".into(), None),
                 ("Working", "waiting for you \u{b7} 12 min".into(), None),
             ]
         );

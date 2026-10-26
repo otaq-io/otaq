@@ -221,7 +221,8 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
         choices(m),
         [
             ("Backlog".to_owned(), Way::Backlog),
-            ("Ready for Dev".to_owned(), Way::ReadyForDev),
+            // Product spec comes first: the waiting column is "Ready" (d0093, Q515).
+            ("Ready".to_owned(), Way::ReadyForDev),
             ("Product spec".to_owned(), Way::Back),
             ("Dev".to_owned(), Way::Back),
             ("Validate".to_owned(), Way::Back),

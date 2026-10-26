@@ -234,6 +234,7 @@ async fn action_for(
         | R::FilesRead(_)
         | R::FilesDiff(_)
         | R::FilesChanges(_)
+        | R::FilesStages(_)
         | R::FilesProjectTree(_)
         | R::FilesProjectSearch(_)
         | R::FilesProjectRead(_)
