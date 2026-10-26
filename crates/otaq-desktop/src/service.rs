@@ -132,7 +132,11 @@ pub struct Settings {
 impl Settings {
     pub fn new(data: DataDir, launcher: Arc<dyn Launcher>) -> Self {
         Self {
-            client: ClientConfig::new(&data),
+            // The app's subscription tells the service the app is open (`otaq uninstall` refuses then, Q565).
+            client: ClientConfig {
+                app: true,
+                ..ClientConfig::new(&data)
+            },
             data,
             launcher,
         }

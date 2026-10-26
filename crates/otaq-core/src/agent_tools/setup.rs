@@ -7,7 +7,7 @@
 //! d0086), with the note naming it, once per tool. How a tool's own config is written is its
 //! adapter's (Claude Code: [`super::claude::trust`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -68,6 +68,9 @@ struct TrustInner {
     adapters: OnceLock<Adapters>,
     /// (Project key, tool) → why its trust couldn't be recorded.
     failed: Mutex<BTreeMap<(String, Tool), String>>,
+    /// (Project key, tool) whose latest attempt recorded the trust or found it there: Otaq's own record, for
+    /// `otaq uninstall`'s summary (d0134), never read back from the tools' files.
+    trusted: Mutex<BTreeSet<(String, Tool)>>,
     /// Set once the startup pass is over.
     pass_done: watch::Sender<bool>,
 }
@@ -122,10 +125,17 @@ impl Trust {
                 })
             })?;
         let mut failed = self.inner.failed.lock().unwrap_or_else(|e| e.into_inner());
+        let mut trusted = self.inner.trusted.lock().unwrap_or_else(|e| e.into_inner());
         let key = (project_key.to_owned(), tool);
         match &outcome {
-            SetupOutcome::Failed { reason } => failed.insert(key, reason.clone()),
-            SetupOutcome::AlreadyTrusted | SetupOutcome::Recorded => failed.remove(&key),
+            SetupOutcome::Failed { reason } => {
+                trusted.remove(&key);
+                failed.insert(key, reason.clone());
+            }
+            SetupOutcome::AlreadyTrusted | SetupOutcome::Recorded => {
+                failed.remove(&key);
+                trusted.insert(key);
+            }
         };
         Some(outcome)
     }
@@ -142,6 +152,19 @@ impl Trust {
                 tool: *tool,
                 reason: reason.clone(),
             })
+            .collect()
+    }
+
+    /// The projects each tool trusts as far as this service recorded it (at Add project, the startup pass, a tool
+    /// connecting): (project key, tool) pairs whose latest attempt recorded the trust or found it there, by key, then
+    /// tool. Nothing is read from the tools' files.
+    pub fn trusted(&self) -> Vec<(String, Tool)> {
+        self.inner
+            .trusted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
             .collect()
     }
 

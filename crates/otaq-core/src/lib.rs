@@ -42,6 +42,7 @@ pub mod store;
 pub mod terminals;
 pub mod ticket_env;
 pub mod tools;
+pub mod uninstall;
 pub mod usage;
 pub mod validation;
 pub mod warm;

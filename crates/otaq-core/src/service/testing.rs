@@ -51,6 +51,7 @@ pub struct TestService {
     pub pause: crate::agents::pause::Pause,
     pub needs_you: NeedsYouQueue,
     pub cleanup: Cleanup,
+    pub uninstall: crate::uninstall::Uninstall,
     pub usage: Usage,
     pub plan_limit: crate::usage::limit::PlanLimit,
     pub runs: crate::terminals::run::Runs,
@@ -636,6 +637,7 @@ impl TestService {
         let needs_you = service.needs_you();
         let pause = service.pause();
         let cleanup = service.cleanup();
+        let uninstall = service.uninstall();
         let usage = service.usage();
         let plan_limit = service.plan_limit();
         let runs = service.runs();
@@ -677,6 +679,7 @@ impl TestService {
             pause,
             needs_you,
             cleanup,
+            uninstall,
             usage,
             plan_limit,
             runs,

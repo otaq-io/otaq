@@ -1119,6 +1119,13 @@ pub(super) async fn handle(
         Request::CleanupScan => {
             boxed(move || async move { shared.cleanup.scan().await.map(Reply::CleanupScan) })
         }
+        Request::UninstallScan => boxed(move || async move {
+            shared
+                .uninstall
+                .scan()
+                .await
+                .map(|s| Reply::UninstallScan(Box::new(s)))
+        }),
         Request::CleanupDelete(p) => boxed(move || async move {
             shared
                 .cleanup
@@ -1513,7 +1520,7 @@ pub(super) async fn handle(
         | Request::ServiceStatus
         | Request::StartupReport
         | Request::ServiceStop
-        | Request::Subscribe
+        | Request::Subscribe(_)
         | Request::ToolsCheck
         | Request::OnboardingState
         | Request::DismissPermissionWarning

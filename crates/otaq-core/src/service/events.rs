@@ -19,6 +19,8 @@ pub struct EventBus {
     sender: broadcast::Sender<Event>,
     /// Listeners inside the service (the scheduler), which aren't connections.
     internal: Arc<AtomicUsize>,
+    /// Connections subscribed as the desktop app (Q565): the app is open while one is.
+    apps: Arc<AtomicUsize>,
 }
 
 impl EventBus {
@@ -26,6 +28,7 @@ impl EventBus {
         Self {
             sender: broadcast::channel(capacity).0,
             internal: Arc::new(AtomicUsize::new(0)),
+            apps: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -41,6 +44,18 @@ impl EventBus {
             .saturating_sub(self.internal.load(Ordering::SeqCst))
     }
 
+    /// Connections subscribed as the desktop app ([`Self::app_subscribed`]): the CLI's (`otaq attach`, say) never
+    /// count.
+    pub fn app_count(&self) -> usize {
+        self.apps.load(Ordering::SeqCst)
+    }
+
+    /// A connection subscribed as the desktop app; it counts until the guard is dropped.
+    pub fn app_subscribed(&self) -> AppSubscription {
+        self.apps.fetch_add(1, Ordering::SeqCst);
+        AppSubscription(self.apps.clone())
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.sender.subscribe()
     }
@@ -52,6 +67,15 @@ impl EventBus {
             receiver: self.sender.subscribe(),
             internal: self.internal.clone(),
         }
+    }
+}
+
+/// The desktop app's subscription ([`EventBus::app_subscribed`]).
+pub struct AppSubscription(Arc<AtomicUsize>);
+
+impl Drop for AppSubscription {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

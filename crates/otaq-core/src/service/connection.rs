@@ -64,6 +64,8 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
     let mut forwarder = None;
     // While this client receives events, a notification click goes to it rather than starting the app.
     let mut subscribed = None;
+    // While this client is the desktop app's, the app is open (Q565).
+    let mut app = None;
     // Live output of the sessions this client attached to.
     let mut attached: HashMap<String, JoinHandle<()>> = HashMap::new();
     // The sessions this client's terminal answers the program's questions in (d0117 point 4): as its latest
@@ -99,8 +101,13 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
             }
         };
         // Subscribe before the reply goes out, so no event published after the reply is missed.
-        let events = (matches!(then, Then::Subscribe) && forwarder.is_none())
+        let events = (matches!(then, Then::Subscribe { .. }) && forwarder.is_none())
             .then(|| shared.events.subscribe());
+        if let Then::Subscribe { app: true } = then
+            && app.is_none()
+        {
+            app = Some(shared.events.app_subscribed());
+        }
         if out.send(reply).await.is_err() {
             break;
         }
@@ -146,10 +153,11 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
                     task.abort();
                 }
             }
-            Then::Continue | Then::Subscribe => {}
+            Then::Continue | Then::Subscribe { .. } => {}
         }
     }
     drop(subscribed);
+    drop(app);
     drop(answering);
     // A client that went away isn't looking at any terminal (ATT-03) or window (d0090) any more.
     shared.sessions.client_gone(client);
@@ -165,7 +173,10 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
 
 pub(super) enum Then {
     Continue,
-    Subscribe,
+    /// `app`: the desktop app's subscription.
+    Subscribe {
+        app: bool,
+    },
     Stop,
     /// Forward this session's live output to the client.
     Attach {
@@ -371,7 +382,7 @@ async fn respond(
             Then::Continue,
         ),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
-        Request::Subscribe => (Reply::Ok, Then::Subscribe),
+        Request::Subscribe(p) => (Reply::Ok, Then::Subscribe { app: p.app }),
         Request::ToolsCheck => {
             // The onboarding Tools step checks the agent tools again (d0086): one must be connected (SET-02).
             if let Err(e) = shared.connected.recheck(None).await {

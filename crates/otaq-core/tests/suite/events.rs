@@ -47,9 +47,12 @@ impl Subscriber {
     async fn connect(data: &DataDir) -> Self {
         let stream = ipc::connect(&data.socket_path()).await.unwrap();
         let (read, mut write) = ipc::split(stream);
-        write_message(&mut write, &Message::request(1, Request::Subscribe))
-            .await
-            .unwrap();
+        write_message(
+            &mut write,
+            &Message::request(1, Request::Subscribe(Default::default())),
+        )
+        .await
+        .unwrap();
         let mut sub = Self {
             reader: FrameReader::new(BufReader::new(read)),
             _write: write,

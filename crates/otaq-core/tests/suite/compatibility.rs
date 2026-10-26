@@ -159,7 +159,7 @@ async fn another_protocol_is_incompatible_and_only_status_and_restart_work() {
 
     // Refused client-side, without asking the service.
     assert!(matches!(
-        client.request(Request::Subscribe).await,
+        client.request(Request::Subscribe(Default::default())).await,
         Err(ClientError::Incompatible)
     ));
     assert!(matches!(
@@ -175,7 +175,12 @@ async fn another_protocol_is_incompatible_and_only_status_and_restart_work() {
     let after = client.restart(&launcher).await.unwrap();
     assert_eq!(after.compatibility, Compatibility::Same);
     stand_in.await.unwrap();
-    assert!(client.request(Request::Subscribe).await.is_ok());
+    assert!(
+        client
+            .request(Request::Subscribe(Default::default()))
+            .await
+            .is_ok()
+    );
 
     drop(client);
     let new = launcher.started.lock().unwrap().pop().unwrap();
