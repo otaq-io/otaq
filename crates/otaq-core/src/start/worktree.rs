@@ -153,6 +153,9 @@ pub(crate) async fn add_worktree(
     path: &Path,
     branch: &str,
 ) -> Result<(), StartError> {
+    if crate::uninstall::creation_refused(path) {
+        return Err(StartError::Other(crate::uninstall::uninstalling_refusal()));
+    }
     let registered = registered_worktrees(git, repo).await?;
     let is_registered = registered.iter().any(|p| same_path(p, path));
     if is_registered && path.is_dir() {

@@ -480,6 +480,13 @@ pub enum Request {
     /// the folder trust kept. Changes nothing; the user's only. Answered with [`Reply::UninstallScan`].
     #[serde(rename = "uninstall.scan")]
     UninstallScan,
+    /// Removes the worktrees (only with `worktrees`, the user's y to the worktrees' question), the merge worktrees
+    /// and Otaq's marked skill copies, after stopping every session; branches and the data folder stay (the CLI
+    /// deletes the folder once the service has exited). Without `worktrees` while there is a worktree or a ✎ merge
+    /// worktree, refused with `needs_confirmation` before anything changes. The user's only. Answered with
+    /// [`Reply::UninstallOutcome`].
+    #[serde(rename = "uninstall.remove")]
+    UninstallRemove(UninstallRemoveParams),
 
     // Warm builds (WRM-05…WRM-07, d0082).
     /// Every warm build in `<app-data>/warm/`, and whether the data folder's disk can clone. Answered with
@@ -1349,6 +1356,13 @@ pub struct NeedsYouAnswerParams {
     pub clear: bool,
 }
 
+/// `{"worktrees": true}` once the user answered y to the worktrees' question (UNI-03).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UninstallRemoveParams {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worktrees: bool,
+}
+
 /// `{}`, or `{"app": true}` from the desktop app.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubscribeParams {
@@ -1962,6 +1976,7 @@ impl Request {
             Self::CleanupScan => "cleanup.scan",
             Self::CleanupDelete(_) => "cleanup.delete",
             Self::UninstallScan => "uninstall.scan",
+            Self::UninstallRemove(_) => "uninstall.remove",
             Self::WarmList => "warm.list",
             Self::WarmClear(_) => "warm.clear",
             Self::DiffFiles(_) => "diff.files",
@@ -2254,6 +2269,7 @@ pub enum Reply {
     CleanupScan(Vec<crate::recovery::cleanup::CleanupItem>),
     CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
     UninstallScan(Box<crate::uninstall::UninstallScan>),
+    UninstallOutcome(Box<crate::uninstall::UninstallOutcome>),
     WarmList(Box<crate::warm::store::WarmList>),
     WarmClear(crate::warm::store::ClearOutcome),
     Run(Box<crate::terminals::run::RunInfo>),

@@ -71,14 +71,10 @@ impl ProjectAgents {
             .map(|p| PathBuf::from(p.repo_path))
             .collect();
         let removed = tokio::task::spawn_blocking(move || {
-            let mut removed = 0;
-            for folder in folders {
-                for name in copy::marked_copies(&folder) {
-                    copy::remove_copy(&folder, &name);
-                    removed += 1;
-                }
-            }
-            removed
+            folders
+                .iter()
+                .map(|folder| copy::remove_marked_copies(folder).len())
+                .sum::<usize>()
         })
         .await
         .unwrap_or_default();

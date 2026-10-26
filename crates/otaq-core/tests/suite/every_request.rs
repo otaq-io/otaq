@@ -154,6 +154,8 @@ fn wire_methods() -> Vec<(String, bool)> {
 fn ends_the_service(request: &Request) -> bool {
     match request {
         Request::ServiceStop => true,
+        // Stops every session and lets none start again.
+        Request::UninstallRemove(_) => true,
         Request::Ping
         | Request::ServiceStatus
         | Request::StartupReport
@@ -413,7 +415,7 @@ async fn every_request_is_answered_over_the_socket() {
     for (request, (method, _)) in requests.iter().zip(&methods) {
         assert_eq!(request.method(), method);
     }
-    requests.sort_by_key(ends_the_service);
+    requests.sort_by_key(|r| (ends_the_service(r), matches!(r, Request::ServiceStop)));
 
     for request in requests {
         let method = request.method();

@@ -715,6 +715,7 @@ impl Service {
             sessions.clone(),
             cleanup.clone(),
             events.clone(),
+            ticket_env.clone(),
         );
         // "Merging · running the merge check" shows and goes at once (d0120).
         board.merge_checks().set_events(events.clone());

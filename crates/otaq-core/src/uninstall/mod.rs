@@ -1,18 +1,24 @@
 //! `otaq uninstall` (d0134, SDD §17.3): what Otaq left on this computer. [`Uninstall::scan`] (UNI-02) only reads: it
 //! lists every worktree under the data folder with its ticket and ✎, the merge worktrees, the projects, the sizes,
 //! what is running, whether the app is open, the `otaq/` branches and the folder trust that stay. The CLI asks its
-//! questions from it; nothing here deletes anything.
+//! questions from it.
+//!
+//! [`Uninstall::remove`] (UNI-05, all but the data folder) runs only once the user answered both questions: it stops
+//! every session and lets none start again, then, from a scan taken after that, runs each ticket's resource Remove
+//! (Q564) and `git worktree remove --force` on each worktree (when they were confirmed) and on each merge worktree,
+//! and removes Otaq's marked skill copies from the projects' checkouts. Never a branch, never the user's files.
 //!
 //! Which ticket owns a worktree is the Cleanup scan's rule ([`Cleanup::worktree_owners`], REC-04), never a second one.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::Tool;
-use crate::board::{Board, BoardError};
+use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::TicketKey;
 use crate::git::Git;
@@ -21,6 +27,28 @@ use crate::recovery::cleanup::{Cleanup, WorktreeOwner, folder_size, normalized};
 use crate::service::EventBus;
 use crate::session::{SessionKind, Sessions};
 use crate::store::projects::Project;
+use crate::ticket_env::TicketEnv;
+
+/// The data folders whose service is removing its worktrees (d0134): no worktree or merge worktree is made in them
+/// any more, until the service restarts. Per data folder, not per process: tests run several services in one.
+static CLOSED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Whether making a worktree at `path` is refused: it is inside a data folder being uninstalled.
+pub(crate) fn creation_refused(path: &Path) -> bool {
+    CLOSED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|root| path.starts_with(root))
+}
+
+/// Why a start or a worktree is refused while the uninstall runs.
+pub(crate) fn uninstalling_refusal() -> String {
+    format!("{} is being uninstalled", naming::PRODUCT_NAME)
+}
+
+/// "worktrees not confirmed": the CLI asks about them first (UNI-03).
+pub const NOT_CONFIRMED: &str = "worktrees not confirmed";
 
 /// How long the scan waits for the service's startup trust pass, so the summary names the trust it recorded.
 const TRUST_PASS_WAIT: Duration = Duration::from_secs(10);
@@ -139,6 +167,62 @@ pub struct KeptTrust {
     pub projects: Vec<String>,
 }
 
+/// What [`Uninstall::remove`] did, step by step.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UninstallOutcome {
+    pub removed: Vec<UninstallStep>,
+    /// Steps that failed, with git's (or the command's) message. A failure never stops the others.
+    pub failed: Vec<UninstallStep>,
+    /// Left as they are, with why: a repository that is gone, a folder git doesn't know (both go with the data
+    /// folder), worktrees that weren't confirmed.
+    pub skipped: Vec<UninstallStep>,
+}
+
+/// One thing the removal did, or didn't.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UninstallStep {
+    pub kind: StepKind,
+    /// The folder; for resources, the ticket's resource name.
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticket: Option<TicketKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// Why it failed or was skipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    /// A folder under `wt/`.
+    Worktree,
+    /// `scratch/<repo>`.
+    MergeWorktree,
+    /// A ticket's resource Remove (d0087, Q564).
+    Resources,
+    /// A marked skill copy in a project's checkout (d0098).
+    SkillCopy,
+}
+
+impl UninstallStep {
+    fn new(kind: StepKind, path: impl Into<String>) -> Self {
+        Self {
+            kind,
+            path: path.into(),
+            ticket: None,
+            project: None,
+            message: None,
+        }
+    }
+
+    fn because(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+}
+
 /// The uninstall's service side. Cheap to clone.
 #[derive(Clone)]
 pub struct Uninstall {
@@ -147,6 +231,7 @@ pub struct Uninstall {
     sessions: Sessions,
     cleanup: Cleanup,
     events: EventBus,
+    ticket_env: TicketEnv,
 }
 
 impl Uninstall {
@@ -156,6 +241,7 @@ impl Uninstall {
         sessions: Sessions,
         cleanup: Cleanup,
         events: EventBus,
+        ticket_env: TicketEnv,
     ) -> Self {
         Self {
             board,
@@ -163,6 +249,143 @@ impl Uninstall {
             sessions,
             cleanup,
             events,
+            ticket_env,
+        }
+    }
+
+    /// Removes what the data folder's delete can't tidy, once the user confirmed (UNI-05). `worktrees` says the
+    /// user answered y to the worktrees' question: without it, refused ("worktrees not confirmed") before anything
+    /// changes when there is any worktree under `wt/` or a ✎ merge worktree.
+    ///
+    /// Then every session stops (agents interrupted, Noyan conversations ended, as the service's stop does) and
+    /// none, nor any worktree, can start again until the service restarts; the removal works from a scan taken
+    /// after that. Per ticket, its resource Remove runs before its worktree goes (Q564). A worktree whose
+    /// repository is gone, or that git doesn't know, is left for the data folder's delete and reported.
+    pub async fn remove(&self, worktrees: bool) -> Result<UninstallOutcome, BoardError> {
+        let first = self.scan().await?;
+        if !worktrees && needs_confirmation(&first) {
+            return Err(BoardError::refused(
+                Refusal::NeedsConfirmation,
+                NOT_CONFIRMED.to_owned(),
+            ));
+        }
+        self.sessions.close();
+        CLOSED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(self.data.root().to_owned());
+        self.sessions.shutdown().await;
+        tracing::info!(
+            worktrees,
+            "uninstall: sessions stopped; removing the worktrees"
+        );
+
+        let scan = self.scan().await?;
+        let git = self.board.git()?;
+        let mut outcome = UninstallOutcome::default();
+
+        // Each ticket's resources, once, before its worktree goes (their Remove may run in it).
+        if worktrees {
+            let mut done: HashSet<&TicketKey> = HashSet::new();
+            for key in scan.worktrees.iter().filter_map(|w| w.ticket.as_ref()) {
+                if done.insert(key) {
+                    self.remove_resources(key, &mut outcome).await;
+                }
+            }
+        }
+        for wt in &scan.worktrees {
+            let step = UninstallStep {
+                ticket: wt.ticket.clone(),
+                project: wt.project.clone(),
+                ..UninstallStep::new(StepKind::Worktree, &wt.path)
+            };
+            if !worktrees {
+                outcome.skipped.push(step.because(NOT_CONFIRMED));
+                continue;
+            }
+            remove_with_git(
+                git,
+                step,
+                wt.repo_path.as_deref(),
+                wt.registered,
+                &mut outcome,
+            )
+            .await;
+        }
+        for merge in &scan.merge_worktrees {
+            let step = UninstallStep {
+                project: merge.project.clone(),
+                ..UninstallStep::new(StepKind::MergeWorktree, &merge.path)
+            };
+            if merge.dirty && !worktrees {
+                outcome.skipped.push(step.because(NOT_CONFIRMED));
+                continue;
+            }
+            remove_with_git(
+                git,
+                step,
+                merge.repo_path.as_deref(),
+                merge.registered,
+                &mut outcome,
+            )
+            .await;
+        }
+
+        // Otaq's marked skill copies in each checkout (d0098), as the service's start removes them.
+        for project in scan.projects.iter().filter(|p| p.repo_exists) {
+            let root = PathBuf::from(&project.repo_path);
+            let names = tokio::task::spawn_blocking({
+                let root = root.clone();
+                move || crate::skills::copy::remove_marked_copies(&root)
+            })
+            .await
+            .unwrap_or_default();
+            for name in names {
+                outcome.removed.push(UninstallStep {
+                    project: Some(project.key.clone()),
+                    ..UninstallStep::new(
+                        StepKind::SkillCopy,
+                        root.join(&name).display().to_string(),
+                    )
+                });
+            }
+        }
+        tracing::info!(
+            removed = outcome.removed.len(),
+            failed = outcome.failed.len(),
+            skipped = outcome.skipped.len(),
+            "uninstall: removal done"
+        );
+        Ok(outcome)
+    }
+
+    /// The ticket's resource Remove, as Close runs it (Q564): only for a recorded resource that isn't removed yet.
+    async fn remove_resources(&self, key: &TicketKey, outcome: &mut UninstallOutcome) {
+        let Ok(ticket) = self.board.ticket(&key.to_string()).await else {
+            return;
+        };
+        let Ok(Some(row)) = self.board.store().ticket(&ticket.id).await else {
+            return;
+        };
+        let Some(name) = row.resource_name else {
+            return;
+        };
+        if row
+            .resource_state
+            .parse::<crate::domain::ResourceState>()
+            .ok()
+            == Some(crate::domain::ResourceState::Removed)
+        {
+            return;
+        }
+        let step = UninstallStep {
+            ticket: Some(key.clone()),
+            project: Some(key.project.to_string()),
+            ..UninstallStep::new(StepKind::Resources, name)
+        };
+        match self.ticket_env.remove_resources(&ticket.id).await {
+            Ok(()) => outcome.removed.push(step),
+            Err(problem) => outcome.failed.push(step.because(problem)),
         }
     }
 
@@ -338,6 +561,47 @@ impl Uninstall {
                 })
             })
             .collect()
+    }
+}
+
+/// Whether the user must confirm first (UNI-03): any worktree under `wt/`, or a ✎ merge worktree.
+fn needs_confirmation(scan: &UninstallScan) -> bool {
+    !scan.worktrees.is_empty() || scan.merge_worktrees.iter().any(|m| m.dirty)
+}
+
+/// `git worktree remove --force` in the worktree's repository; a repository that is gone, or one that doesn't list
+/// the folder, leaves it for the data folder's delete.
+async fn remove_with_git(
+    git: &Git,
+    step: UninstallStep,
+    repo: Option<&str>,
+    registered: bool,
+    outcome: &mut UninstallOutcome,
+) {
+    let Some(repo) = repo.filter(|r| Path::new(r).is_dir()) else {
+        outcome
+            .skipped
+            .push(step.because("its repository is gone; it goes with the data folder"));
+        return;
+    };
+    if !registered {
+        outcome
+            .skipped
+            .push(step.because("git doesn't know it as a worktree; it goes with the data folder"));
+        return;
+    }
+    match git
+        .run(
+            Path::new(repo),
+            &["worktree", "remove", "--force", &step.path],
+        )
+        .await
+    {
+        Ok(_) => outcome.removed.push(step),
+        Err(e) => {
+            let message = e.to_string();
+            outcome.failed.push(step.because(message));
+        }
     }
 }
 

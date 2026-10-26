@@ -362,6 +362,12 @@ impl Git {
 
     /// Creates the scratch worktree (detached at `at`) or reuses it.
     async fn ensure_scratch(&self, repo: &Path, scratch: &Path, at: &str) -> Result<(), GitError> {
+        if crate::uninstall::creation_refused(scratch) {
+            return Err(GitError::Spawn {
+                args: "worktree add".into(),
+                error: std::io::Error::other(crate::uninstall::uninstalling_refusal()),
+            });
+        }
         let list = self.run(repo, &["worktree", "list", "--porcelain"]).await?;
         let registered = list
             .lines()
