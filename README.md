@@ -34,6 +34,7 @@ Linux, and is licensed under FSL-1.1-MIT, which becomes MIT two years after each
 - [A tour of the app](#a-tour-of-the-app)
 - [Getting started](#getting-started)
 - [The `otaq` command](#the-otaq-command)
+- [Uninstall Otaq](#uninstall-otaq)
 - [Architecture](#architecture)
 - [Development](#development)
 - [License](#license)
@@ -299,6 +300,7 @@ otaq delete SHOP-41 --reason "folded into SHOP-40"   # a never-started ticket yo
 otaq dep tree SHOP-18
 otaq attach SHOP-18          # this ticket's live agent session, in your terminal
 otaq daemon status           # the background service
+otaq uninstall               # remove what Otaq left on this computer (asks first; see below)
 ```
 
 The agent in charge of a ticket runs its helpers with `otaq helper`:
@@ -323,6 +325,72 @@ with a Plan, or several tickets). Otaq gives the same skills to every tool, in t
 Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode), and so on). You can replace the commit,
 push, open-PR and validate skills with your own, globally or per project, and the setting applies to every tool. The
 hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are unaffected.
+
+## Uninstall Otaq
+
+Quit the Otaq app, then run in a terminal:
+
+```sh
+otaq uninstall
+```
+
+(With the app open it stops at "Quit Otaq first: the app would start the service again".) It says what it is about
+to do and asks before changing anything. Both questions come first; nothing is deleted until you have answered yes
+to each, and only `y` or `yes` counts: Enter means no.
+
+1. **Worktrees, if any are left.** Every worktree Otaq still has (a ticket in progress, a helper's, a Done or Closed
+   ticket's kept one, one no ticket owns, or a merge worktree a crash left with changes) is listed, with ✎ on those
+   with uncommitted changes:
+
+   ```
+       SHOP-12 · shop-web · /Users/me/.otaq/wt/shop-web/SHOP-12
+     ✎ SHOP-14 · shop-web · /Users/me/.otaq/wt/shop-web/SHOP-14
+     ✎ SHOP-14.1 (helper) · shop-web · /Users/me/.otaq/wt/shop-web/SHOP-14.1
+   Delete these 3 worktrees? Uncommitted changes in the 2 marked ✎ are lost. Their branches are kept. [y/N]
+   ```
+
+   **N** stops with "Nothing changed. Move them on or clear them first (Done, Close, the Cleanup view)". **y**
+   removes each one with `git worktree remove`, so your repositories' records stay correct.
+2. **The data folder** (`~/.otaq`, or the folder `OTAQ_HOME` names), with its size, and what is still running:
+
+   ```
+   Delete ~/.otaq (6.4 GB: 3 projects, 41 tickets, warm builds 5.9 GB)? 2 agents and 1 conversation with Noyan end. [y/N]
+   ```
+
+Then it stops the background service (agents still working are interrupted), removes the worktrees, removes
+Otaq's skill copies from your projects (`.claude/skills/otaq-*`, `.agents/skills/otaq-*`), deletes the data folder,
+and prints what it removed and what it kept, for example:
+
+```
+Kept on purpose:
+  Claude Code, Codex: SHOP and PAY stay trusted
+  shop-web: 23 otaq/ branches kept · git branch --list 'otaq/*'
+Drag Otaq.app to the Trash
+```
+
+Anything it skipped or couldn't remove is listed with its path (and the exit code is non-zero). The last step is
+yours: **drag Otaq.app to the Trash**. If you built from source, delete the clone and take its `target/release` off
+your `PATH`.
+
+**Kept on purpose:**
+
+- **Your `otaq/` branches**, merged or not, so committed work is never lost. List them with
+  `git branch --list 'otaq/*'` and delete the ones you don't need with `git branch -d`.
+- **Folder trust in your agent tools.** Adding a project marked its folder as trusted in Claude Code, Codex and
+  Copilot. Otaq doesn't know whether you had trusted the folder yourself before, so it leaves the mark alone; it only
+  means the tool won't ask again before working there. To remove one by hand, close the tool, keep a copy of the
+  file, and remove only that folder's entry:
+  - Claude Code: `hasTrustDialogAccepted` under the folder's entry in `projects`, in `~/.claude.json`
+  - Codex: `trust_level = "trusted"` in the folder's `[projects."<folder>"]` table, in `~/.codex/config.toml`
+  - Copilot: the folder's line in the `trustedFolders` list, in `~/.copilot/config.json`
+
+**Coming back later?** `otaq uninstall --keep-data` keeps the database and the comment reports, so reinstalling
+brings your projects and tickets back; warm builds, logs and worktrees still go. Its data-folder question reads as
+below (with the same "… end." sentence when agents are running):
+
+```
+Delete everything in ~/.otaq but the database and comment reports (5.9 GB)? [y/N]
+```
 
 ## Architecture
 
