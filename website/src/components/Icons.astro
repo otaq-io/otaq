@@ -1,21 +1,13 @@
 ---
-// The page's icons (Lucide shapes), as the canvas's `m-*` symbols; drawn with Icon.astro.
+// The page's icons (Lucide shapes), as the canvas's sprite (Landing3.dc.html) with `m-` ids, plus the hourglass its
+// How it works script names; drawn with Icon.astro. The nav's sun and moon live in ThemeToggle.astro.
 ---
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="m-download" viewBox="0 0 24 24">
-    <path d="M12 15V3"></path>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-    <path d="m7 10 5 5 5-5"></path>
-  </symbol>
   <symbol id="m-git-branch" viewBox="0 0 24 24">
     <path d="M15 6a9 9 0 0 0-9 9V3"></path>
     <circle cx="18" cy="6" r="3"></circle>
     <circle cx="6" cy="18" r="3"></circle>
-  </symbol>
-  <symbol id="m-copy" viewBox="0 0 24 24">
-    <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
-    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
   </symbol>
   <symbol id="m-check" viewBox="0 0 24 24">
     <path d="M20 6 9 17l-5-5"></path>
@@ -24,39 +16,11 @@
     <path d="M5 12h14"></path>
     <path d="m12 5 7 7-7 7"></path>
   </symbol>
-  <symbol id="m-folder-git-2" viewBox="0 0 24 24">
-    <path d="M18 19a5 5 0 0 1-5-5v8"></path>
-    <path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5"></path>
-    <circle cx="13" cy="12" r="2"></circle>
-    <circle cx="20" cy="19" r="2"></circle>
+  <symbol id="m-chevron-right" viewBox="0 0 24 24">
+    <path d="m9 18 6-6-6-6"></path>
   </symbol>
-  <symbol id="m-workflow" viewBox="0 0 24 24">
-    <rect width="8" height="8" x="3" y="3" rx="2"></rect>
-    <path d="M7 11v4a2 2 0 0 0 2 2h4"></path>
-    <rect width="8" height="8" x="13" y="13" rx="2"></rect>
-  </symbol>
-  <symbol id="m-layers" viewBox="0 0 24 24">
-    <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"></path>
-    <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"></path>
-    <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"></path>
-  </symbol>
-  <symbol id="m-inbox" viewBox="0 0 24 24">
-    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
-    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
-  </symbol>
-  <symbol id="m-shield-check" viewBox="0 0 24 24">
-    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path>
-    <path d="m9 12 2 2 4-4"></path>
-  </symbol>
-  <symbol id="m-terminal" viewBox="0 0 24 24">
-    <path d="M12 19h8"></path>
-    <path d="m4 17 6-6-6-6"></path>
-  </symbol>
-  <symbol id="m-server" viewBox="0 0 24 24">
-    <rect width="20" height="8" x="2" y="2" rx="2" ry="2"></rect>
-    <rect width="20" height="8" x="2" y="14" rx="2" ry="2"></rect>
-    <line x1="6" x2="6.01" y1="6" y2="6"></line>
-    <line x1="6" x2="6.01" y1="18" y2="18"></line>
+  <symbol id="m-chevron-down" viewBox="0 0 24 24">
+    <path d="m6 9 6 6 6-6"></path>
   </symbol>
   <symbol id="m-bot" viewBox="0 0 24 24">
     <path d="M12 8V4H8"></path>
@@ -71,36 +35,15 @@
     <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
     <path d="M12 17h.01"></path>
   </symbol>
-  <symbol id="m-mouse" viewBox="0 0 24 24">
-    <path d="M14 4.1 12 6"></path>
-    <path d="m5.1 8-2.9-.8"></path>
-    <path d="m6 12-1.9 2"></path>
-    <path d="M7.2 2.2 8 5.1"></path>
-    <path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z"></path>
+  <symbol id="m-hand" viewBox="0 0 24 24">
+    <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"></path>
+    <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"></path>
+    <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"></path>
+    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
   </symbol>
-  <symbol id="m-monitor" viewBox="0 0 24 24">
-    <rect width="20" height="14" x="2" y="3" rx="2"></rect>
-    <line x1="8" x2="16" y1="21" y2="21"></line>
-    <line x1="12" x2="12" y1="17" y2="21"></line>
-  </symbol>
-  <symbol id="m-activity" viewBox="0 0 24 24">
-    <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>
-  </symbol>
-  <symbol id="m-hourglass" viewBox="0 0 24 24">
-    <path d="M5 22h14"></path>
-    <path d="M5 2h14"></path>
-    <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path>
-    <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path>
-  </symbol>
-  <symbol id="m-circle-dashed" viewBox="0 0 24 24">
-    <path d="M10.1 2.182a10 10 0 0 1 3.8 0"></path>
-    <path d="M13.9 21.818a10 10 0 0 1-3.8 0"></path>
-    <path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"></path>
-    <path d="M2.182 13.9a10 10 0 0 1 0-3.8"></path>
-    <path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"></path>
-    <path d="M21.818 10.1a10 10 0 0 1 0 3.8"></path>
-    <path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"></path>
-    <path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"></path>
+  <symbol id="m-shield-check" viewBox="0 0 24 24">
+    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path>
+    <path d="m9 12 2 2 4-4"></path>
   </symbol>
   <symbol id="m-eye" viewBox="0 0 24 24">
     <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
@@ -110,6 +53,12 @@
     <circle cx="18" cy="18" r="3"></circle>
     <circle cx="6" cy="6" r="3"></circle>
     <path d="M6 21V9a9 9 0 0 0 9 9"></path>
+  </symbol>
+  <symbol id="m-git-pr" viewBox="0 0 24 24">
+    <circle cx="18" cy="18" r="3"></circle>
+    <circle cx="6" cy="6" r="3"></circle>
+    <path d="M13 6h3a2 2 0 0 1 2 2v7"></path>
+    <line x1="6" x2="6" y1="9" y2="21"></line>
   </symbol>
   <symbol id="m-loader" viewBox="0 0 24 24">
     <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
@@ -121,19 +70,119 @@
     <rect x="14" y="3" width="5" height="18" rx="1"></rect>
     <rect x="5" y="3" width="5" height="18" rx="1"></rect>
   </symbol>
-  <symbol id="m-user" viewBox="0 0 24 24">
-    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-    <circle cx="12" cy="7" r="4"></circle>
-  </symbol>
   <symbol id="m-lightbulb" viewBox="0 0 24 24">
     <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path>
     <path d="M9 18h6"></path>
     <path d="M10 22h4"></path>
   </symbol>
-  <symbol id="m-hand" viewBox="0 0 24 24">
-    <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"></path>
-    <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"></path>
-    <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"></path>
-    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+  <symbol id="m-activity" viewBox="0 0 24 24">
+    <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>
+  </symbol>
+  <symbol id="m-folder-git" viewBox="0 0 24 24">
+    <path d="M18 19a5 5 0 0 1-5-5v8"></path>
+    <path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5"></path>
+    <circle cx="13" cy="12" r="2"></circle>
+    <circle cx="20" cy="19" r="2"></circle>
+  </symbol>
+  <symbol id="m-terminal" viewBox="0 0 24 24">
+    <path d="M12 19h8"></path>
+    <path d="m4 17 6-6-6-6"></path>
+  </symbol>
+  <symbol id="m-server" viewBox="0 0 24 24">
+    <rect width="20" height="8" x="2" y="2" rx="2" ry="2"></rect>
+    <rect width="20" height="8" x="2" y="14" rx="2" ry="2"></rect>
+    <line x1="6" x2="6.01" y1="6" y2="6"></line>
+    <line x1="6" x2="6.01" y1="18" y2="18"></line>
+  </symbol>
+  <symbol id="m-lock" viewBox="0 0 24 24">
+    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+  </symbol>
+  <symbol id="m-monitor" viewBox="0 0 24 24">
+    <rect width="20" height="14" x="2" y="3" rx="2"></rect>
+    <line x1="8" x2="16" y1="21" y2="21"></line>
+    <line x1="12" x2="12" y1="17" y2="21"></line>
+  </symbol>
+  <symbol id="m-mouse" viewBox="0 0 24 24">
+    <path d="M14 4.1 12 6"></path>
+    <path d="m5.1 8-2.9-.8"></path>
+    <path d="m6 12-1.9 2"></path>
+    <path d="M7.2 2.2 8 5.1"></path>
+    <path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z"></path>
+  </symbol>
+  <symbol id="m-bell" viewBox="0 0 24 24">
+    <path d="M10.268 21a2 2 0 0 0 3.464 0"></path>
+    <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path>
+  </symbol>
+  <symbol id="m-grip" viewBox="0 0 24 24">
+    <circle cx="9" cy="12" r="1"></circle>
+    <circle cx="9" cy="5" r="1"></circle>
+    <circle cx="9" cy="19" r="1"></circle>
+    <circle cx="15" cy="12" r="1"></circle>
+    <circle cx="15" cy="5" r="1"></circle>
+    <circle cx="15" cy="19" r="1"></circle>
+  </symbol>
+  <symbol id="m-undo" viewBox="0 0 24 24">
+    <path d="M9 14 4 9l5-5"></path>
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"></path>
+  </symbol>
+  <symbol id="m-file" viewBox="0 0 24 24">
+    <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path>
+    <path d="M14 2v5a1 1 0 0 0 1 1h5"></path>
+  </symbol>
+  <symbol id="m-keyboard" viewBox="0 0 24 24">
+    <path d="M10 8h.01"></path>
+    <path d="M12 12h.01"></path>
+    <path d="M14 8h.01"></path>
+    <path d="M16 12h.01"></path>
+    <path d="M18 8h.01"></path>
+    <path d="M6 8h.01"></path>
+    <path d="M7 16h10"></path>
+    <path d="M8 12h.01"></path>
+    <rect width="20" height="16" x="2" y="4" rx="2"></rect>
+  </symbol>
+  <symbol id="m-palette" viewBox="0 0 24 24">
+    <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"></path>
+  </symbol>
+  <symbol id="m-zap" viewBox="0 0 24 24">
+    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path>
+  </symbol>
+  <symbol id="m-plug" viewBox="0 0 24 24">
+    <path d="M12 22v-5"></path>
+    <path d="M15 8V2"></path>
+    <path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"></path>
+    <path d="M9 8V2"></path>
+  </symbol>
+  <symbol id="m-x" viewBox="0 0 24 24">
+    <path d="M18 6 6 18"></path>
+    <path d="m6 6 12 12"></path>
+  </symbol>
+  <symbol id="m-list" viewBox="0 0 24 24">
+    <path d="M3 5h.01"></path>
+    <path d="M3 12h.01"></path>
+    <path d="M3 19h.01"></path>
+    <path d="M8 5h13"></path>
+    <path d="M8 12h13"></path>
+    <path d="M8 19h13"></path>
+  </symbol>
+  <symbol id="m-columns" viewBox="0 0 24 24">
+    <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+    <path d="M9 3v18"></path>
+    <path d="M15 3v18"></path>
+  </symbol>
+  <symbol id="m-search" viewBox="0 0 24 24">
+    <path d="m21 21-4.34-4.34"></path>
+    <circle cx="11" cy="11" r="8"></circle>
+  </symbol>
+  <symbol id="m-info" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10"></circle>
+    <path d="M12 16v-4"></path>
+    <path d="M12 8h.01"></path>
+  </symbol>
+  <symbol id="m-hourglass" viewBox="0 0 24 24">
+    <path d="M5 22h14"></path>
+    <path d="M5 2h14"></path>
+    <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"></path>
+    <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"></path>
   </symbol>
 </svg>

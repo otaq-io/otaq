@@ -1,0 +1,120 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<section class="sec" id="big">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">Big work</div>
+      <h2 class="h2">Big features: plan first, then build in pieces.</h2>
+      <p class="sub">
+        Two things Otaq does for a feature that’s too big for one sitting. Both are stages in a flow, so they
+        show up on the board like everything else.
+      </p>
+    </div>
+    <div class="big rv">
+      <div class="half">
+        <h3>Plan it first</h3>
+        <p>
+          With the <b>Spec first</b> preset, planning is stages. An agent asks you one question at a time and
+          commits each decision to your project’s docs. Another works out how. A third writes the plan as
+          numbered pieces. You check all three at <b>Spec review</b>, then Dev starts. Small tickets skip the
+          planning stages.
+        </p>
+        <div class="shot">
+          <div class="bar">
+            <span class="pill p-w">
+              <Icon icon="activity" />
+              Product spec
+            </span>
+            <b>SHOP-40</b>Wishlist
+            <span style="margin-left:auto">
+              <span class="av av-CC">CC</span> Spec writer
+            </span>
+          </div>
+          <div class="bd qa">
+            <div class="q">
+              <span class="who">Spec writer · question 3 of 5</span>Should a signed-out visitor be able to add
+              to a wishlist, or do we ask them to sign in first?
+              <div class="o" style="margin-top:8px">
+                <span class="pick">Ask them to sign in</span>
+                <span>Keep a local wishlist, merge on sign-in</span>
+                <span>Other…</span>
+              </div>
+            </div>
+            <div class="a">Ask them to sign in. Keep it simple for v1.</div>
+            <div class="dec">
+              <Icon icon="lightbulb" class="s13" />
+              <span>
+                <b>Decision 3, committed to docs/decisions:</b> wishlist needs a signed-in user.
+              </span>
+            </div>
+            <div class="plan" style="margin-top:6px">
+              <div class="ph">Plan · 4 pieces · written by Milestone plan</div>
+              <div class="pr">
+                <span class="n">1</span>Wishlist API<span class="s"></span>
+              </div>
+              <div class="pr">
+                <span class="n">2</span>Wishlist button<span class="s">waits for 1</span>
+              </div>
+              <div class="pr">
+                <span class="n">3</span>Wishlist page<span class="s">waits for 1</span>
+              </div>
+              <div class="pr">
+                <span class="n">4</span>Share link<span class="s">waits for 2, 3</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="half">
+        <h3>Build it in pieces</h3>
+        <p>
+          A big ticket stays <b>one card</b>. Its build agent, the one in charge, starts a helper agent per
+          piece, each in its own worktree, and merges their work. The helpers show as rows inside the card. A
+          helper’s question goes to the agent in charge first; only what it can’t settle reaches you. The
+          checks judge the whole ticket, and it takes one slot of your agent limit.
+        </p>
+        <div class="shot">
+          <div class="bar">
+            <span class="pill p-w">
+              <Icon icon="loader" class="spin" />
+              Dev
+            </span>
+            <span style="color: var(--text-muted)">One card, four worktrees</span>
+          </div>
+          <div class="bd">
+            <div class="bigcard attn">
+              <div class="k">
+                SHOP-40 · Wishlist<span class="av av-CC">CC</span>
+              </div>
+              <div class="ti">Wishlist</div>
+              <div class="st">40.2 asks: keep the heart filled after sign-out?</div>
+              <div class="plan">
+                <div class="ph">Pieces · 4</div>
+                <div class="pr">
+                  <span class="n">40.1</span>Wishlist API<span class="s ok">merged</span>
+                </div>
+                <div class="pr">
+                  <span class="n">40.2</span>Wishlist button<span class="s a">asks you</span>
+                </div>
+                <div class="pr">
+                  <span class="n">40.3</span>Wishlist page<span class="s r">being reviewed</span>
+                </div>
+                <div class="pr">
+                  <span class="n">40.4</span>Share link<span class="s">waits for 40.2, 40.3</span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-muted)">
+                <span class="av av-CC">CC</span>Rust developer · in charge
+                <span class="btn btn-p btn-sm ans" style="margin-left:auto;height:24px;font-size:12px">
+                  Answer
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

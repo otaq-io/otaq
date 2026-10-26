@@ -1,0 +1,222 @@
+---
+import Icon from "./Icon.astro";
+
+// The example agents, as drawn.
+const agents = [
+  {
+    av: "CC",
+    name: "Rust developer",
+    tool: "Claude Code · opus",
+    ins: "“Follow our error-handling rules. Run cargo clippy before you submit.”",
+    skills: ["/work-ticket", "/tdd"],
+    pill: ["p-w", "activity", "Working"],
+    on: "SHOP-33",
+  },
+  {
+    av: "CC",
+    name: "Spec writer",
+    tool: "Claude Code · opus",
+    ins: "“Ask one question at a time until the spec is clear. Record every decision. Never write code.”",
+    skills: ["/product-spec"],
+    pill: ["p-a", "message-q", "Asks you"],
+    on: "SHOP-40 · Product spec",
+  },
+  {
+    av: "CC",
+    name: "Security reviewer",
+    tool: "Claude Code · opus · effort high",
+    ins: "“Read-only. Flag anything that touches auth, SQL or secrets.”",
+    skills: ["/security-review"],
+    pill: ["p-i", "shield-check", "Checking"],
+    on: "SHOP-19 · round 1 of 3",
+  },
+  {
+    av: "CX",
+    name: "Validator",
+    tool: "Codex · gpt-sol",
+    ins: "“Run the tests and lint. Compare the change with the ticket.”",
+    skills: ["/validate"],
+    pill: ["p-i", "shield-check", "Checking"],
+    on: "SHOP-30",
+  },
+  {
+    av: "CC",
+    name: "Docs updater",
+    tool: "Claude Code · haiku",
+    ins: "“Docs, comments and config only. Never change behaviour.”",
+    skills: ["/work-ticket", "/docs-style"],
+    pill: ["p-d", "check", "Idle"],
+    on: "",
+  },
+  {
+    av: "OC",
+    name: "Shipper",
+    tool: "OpenCode · default model",
+    ins: "“Write the PR description from the ticket and the diff.”",
+    skills: ["/open-pr"],
+    pill: ["p-ok", "git-pr", "PR open"],
+    on: "SHOP-26",
+  },
+] as const;
+const tools = [
+  {
+    av: "CC",
+    name: "Claude Code",
+    running: "3 running",
+    left: "5h window · 18% left · resets 3:45 pm · week 62% left",
+    paused: true,
+    bar: { width: 18, color: "var(--st-paused)" },
+    today: "today 412k tokens",
+    fallback: true,
+  },
+  {
+    av: "CX",
+    name: "Codex",
+    running: "1 running",
+    left: "5h window · 71% left",
+    bar: { width: 71, color: "var(--st-approved)" },
+    today: "today 96k tokens",
+  },
+  {
+    av: "CP",
+    name: "GitHub Copilot",
+    running: "1 running",
+    left: "month · 80% left · resets Nov 1",
+    bar: { width: 80, color: "var(--st-approved)" },
+    today: "today 31k tokens",
+  },
+  {
+    av: "OC",
+    name: "OpenCode",
+    running: "0 running",
+    left: "Limits not reported · tokens only",
+    today: "today 6k tokens",
+  },
+];
+---
+
+<section class="sec" id="agents">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">Pick the agent for every stage</div>
+      <h2 class="h2">An agent is a name, a tool, a model, instructions and skills.</h2>
+      <p class="sub">
+        Make as many as you like and put one on each stage. Mix vendors: one company’s model can write,
+        another’s can check. Names below are examples. Models are each tool’s “always the newest” choices, so
+        they never go out of date.
+      </p>
+    </div>
+    <div class="ag-grid">
+      {agents.map((a) => (
+        <div class="agc rv">
+          <div class="top">
+            <span class={`av lg av-${a.av}`}>{a.av}</span>
+            <div>
+              <div class="nm">{a.name}</div>
+              <div class="tm">{a.tool}</div>
+            </div>
+          </div>
+          <div class="ins">{a.ins}</div>
+          <div class="sk">
+            {a.skills.map((s) => (
+              <span>{s}</span>
+            ))}
+          </div>
+          <div class="st">
+            <span class={`pill ${a.pill[0]}`}>
+              <Icon icon={a.pill[1]} />
+              {a.pill[2]}
+            </span>
+            {a.on}
+          </div>
+        </div>
+      ))}
+    </div>
+    <div class="stagepick rv">
+      <div class="sp-card">
+        <div class="h">
+          <span class="k" style="background: var(--st-working)"></span>Dev · a stage with options
+        </div>
+        <div class="opt on">
+          <span class="av av-CC">CC</span>Rust developer · opus<span class="tm">default</span>
+        </div>
+        <div class="opt">
+          <span class="av av-CC">CC</span>Frontend developer · opus<span class="tm">app/ and components</span>
+        </div>
+        <div class="opt">
+          <span class="av av-CC">CC</span>Docs updater · haiku<span class="tag">cheaper</span>
+          <span class="tm">docs and config</span>
+        </div>
+        <div class="h" style="margin-top:8px">
+          <span class="k" style="background: var(--st-investigate)"></span>Validate · a stage with options
+        </div>
+        <div class="opt on">
+          <span class="av av-CX">CX</span>Validator · gpt-sol<span class="tm">default</span>
+        </div>
+        <div class="opt">
+          <span class="av av-CC">CC</span>Strict validator · opus · effort high
+          <span class="tm">prisma/ and payments</span>
+        </div>
+        <p>
+          Noyan picks one per ticket from your notes (“docs-only change”, “touches payments”). Your choice
+          always wins, and a stage with one agent just uses it.
+        </p>
+      </div>
+      <div class="sp-card act">
+        <div class="h">
+          <Icon icon="activity" class="s13" />
+          See what’s left on every plan.
+          <span class="kbd" style="margin-left:auto">
+            ⇧⌘U
+          </span>
+        </div>
+        {tools.map((t) => (
+          <div class="arow">
+            <span class={`av md av-${t.av}`}>{t.av}</span>
+            <div class="ainfo">
+              <div class="an">
+                <b>{t.name}</b>
+                <span class="cnt">{t.running}</span>
+              </div>
+              <div class:list={["al", { pa: t.paused }]}>{t.left}</div>
+              {t.bar && (
+                <div class="abar2">
+                  <i style={`width:${String(t.bar.width)}%;background:${t.bar.color}`} />
+                </div>
+              )}
+              <div class="at">{t.today}</div>
+            </div>
+            {t.fallback && <span class="btn btn-s btn-sm">Use fallback now</span>}
+          </div>
+        ))}
+        <p>
+          Each tool’s limit windows with reset times, and today’s tokens. When one tool runs out, only its
+          agents wait;
+          <b>Use fallback now</b> moves them to another. Otaq shows no dollar estimates.
+        </p>
+      </div>
+    </div>
+    <div class="also rv">
+      <span>
+        <Icon icon="list" />
+        Board and List views
+      </span>
+      <span>
+        <Icon icon="file" />
+        Project Files view
+      </span>
+      <span>
+        <Icon icon="keyboard" />
+        Keyboard shortcuts
+      </span>
+      <span>
+        <Icon icon="palette" />
+        15 themes
+      </span>
+      <span>
+        <Icon icon="terminal" />
+        <span class="mono">otaq</span> CLI
+      </span>
+    </div>
+  </div>
+</section>

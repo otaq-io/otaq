@@ -1,0 +1,93 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<section class="sec" id="needs">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">Know which one needs you</div>
+      <h2 class="h2">Stop watching terminals.</h2>
+      <p class="sub">
+        Anything waiting on you is turquoise, and nothing else is. One strip above the board lists it for the
+        open project. Other projects show a badge on the rail, and ⌘J moves on to them.
+      </p>
+    </div>
+    <div class="ny">
+      <div class="nyc rv">
+        <div class="vis">
+          <div style="width:100%">
+            <div
+              class="strip"
+              style="border:1px solid var(--border);border-radius:8px;background:var(--st-attn-bg)"
+            >
+              <span class="t">Needs you · 3</span>
+              <span class="ch on">
+                <span class="k">SHOP-22</span>allow a command
+              </span>
+              <span class="ch on">
+                <span class="k">SHOP-12</span>a question
+              </span>
+              <span class="ch on">
+                <span class="k">SHOP-32</span>decide
+              </span>
+              <span class="nx">
+                Next <span class="kbd">⌘J</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="tx">
+          <h3>The Needs you strip</h3>
+          <p>
+            One chip per thing waiting on you: a permission prompt, a question, your check, a check that
+            failed three times. An open question stays until it’s answered, even when you answer in the
+            terminal.
+          </p>
+        </div>
+      </div>
+      <div class="nyc rv">
+        <div class="vis">
+          <div class="notif">
+            <span class="dotp" style="margin-top:4px"></span>
+            <div>
+              <div class="ti">SHOP-12 asks you</div>
+              <div class="bd">Follow the system setting for dark mode? · shop-web</div>
+            </div>
+          </div>
+        </div>
+        <div class="tx">
+          <h3>A notification, when it matters</h3>
+          <p>
+            Permission prompts, questions and stopped agents send a macOS notification. None while that
+            ticket’s terminal has focus. Working normally is quiet.
+          </p>
+        </div>
+      </div>
+      <div class="nyc rv">
+        <div class="vis">
+          <div class="pausem">
+            <div class="h">
+              <Icon icon="pause" />
+              Pause
+            </div>
+            <div class="i on">
+              This project
+              <span class="kbd" style="margin-left:auto">
+                ⇧⌘.
+              </span>
+            </div>
+            <div class="i">All projects</div>
+            <div class="n">Stops spending at once. Survives restarts. Never lifts on its own.</div>
+          </div>
+        </div>
+        <div class="tx">
+          <h3>Pause, and it stays paused</h3>
+          <p>
+            One button holds every agent in a project, or all of them. Nothing is lost, and nothing resumes
+            until you say so.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

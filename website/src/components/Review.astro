@@ -1,0 +1,108 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<section class="sec" id="review">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">Review what was already checked</div>
+      <h2 class="h2">By the time it reaches you, it passed your checks.</h2>
+      <p class="sub">
+        The diff, the agent’s summary, every check’s report, the decisions it made, and a list of what the
+        agents couldn’t verify themselves. Run it from the review. Then merge, or open a PR.
+      </p>
+    </div>
+    <div class="rv-shot rv">
+      <div class="rv-l">
+        <div class="rv-h">
+          <span class="key">SHOP-18</span>
+          <span class="ti">Checkout API</span>
+          <span class="pill p-r">
+            <Icon icon="eye" />
+            Your check
+          </span>
+        </div>
+        <div class="rv-tabs">
+          <span class="on">Overview</span>
+          <span>Files · 9</span>
+          <span>Session</span>
+          <span>Activity</span>
+        </div>
+        <div class="rv-b">
+          <span class="slab">Checks</span>
+          <div class="rep">
+            <Icon icon="shield-check" class="s13" style="color: var(--st-approved)" />
+            <div>
+              <b>Security · passed · round 1</b>
+              <span>No raw SQL, secrets or auth changes. Report attached.</span>
+            </div>
+          </div>
+          <div class="rep">
+            <Icon icon="shield-check" class="s13" style="color: var(--st-approved)" />
+            <div>
+              <b>Validate · passed · round 2</b>
+              <span>Round 1 found a missing 409 for out-of-stock items. Fixed in Dev, then passed.</span>
+            </div>
+          </div>
+          <span class="slab">Decisions</span>
+          <div class="rep">
+            <Icon icon="lightbulb" class="s13" style="color: var(--st-investigate)" />
+            <div>
+              <b>Totals are recomputed on the server</b>
+              <span>
+                The client total is ignored. The other option, trusting the cart and only checking it, lets a
+                stale cart through.
+              </span>
+            </div>
+          </div>
+          <span class="slab">Manual checks for you</span>
+          <div class="chk">
+            <i></i>Pay with a card that gets declined, on the real gateway.
+          </div>
+          <div class="chk">
+            <i></i>Check the order email renders in Outlook.
+          </div>
+          <span class="slab">Files</span>
+          <div class="diffc">
+            <div class="h">app/api/checkout/route.ts</div>
+            <div class="d">- const total = body.total;</div>
+            <div class="a">+ const total = priceCart(cart, prices);</div>
+            <div class="a">+ if (!inStock) return conflict(item);</div>
+          </div>
+        </div>
+      </div>
+      <div class="rv-r">
+        <div class="acts">
+          <span class="btn btn-s btn-sm">
+            <Icon icon="play" class="s13" />
+            Run
+          </span>
+          <span class="btn btn-s btn-sm">
+            <Icon icon="undo" class="s13" />
+            Send back · to Dev
+          </span>
+          <span class="btn btn-p btn-sm">
+            <Icon icon="check" class="s13" />
+            Approve
+          </span>
+        </div>
+        <div class="menu">
+          <div class="i on">
+            <Icon icon="git-merge" class="s13" />
+            Local merge<span>squash into main</span>
+          </div>
+          <div class="i">
+            <Icon icon="git-pr" class="s13" />
+            Open PR<span>gh · GitHub</span>
+          </div>
+        </div>
+        <p>
+          On Local merge, if main moved since the checks ran, the <b>merge check</b> runs your command,{" "}
+          <span class="mono">pnpm test</span>, on the combined result first. If it fails, the work goes back
+          to the agent. A conflict found during Review goes back the same way, with no click needed.
+        </p>
+        <p>Send back goes to the stage the flow names. To send a ticket anywhere earlier, drag its card.</p>
+      </div>
+    </div>
+  </div>
+</section>

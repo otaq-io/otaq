@@ -1,138 +1,77 @@
 ---
-import CopyButton from "./CopyButton.astro";
-import { DOWNLOAD_URL, OS, OS_KEYS } from "./os";
-
-// Built with the macOS tab open; os-pick.ts opens the visitor's OS, and the tabs switch the card.
-const os = OS.mac;
-const mono = "font-size:13px";
-// The `otaq` command box keeps its line breaks (white-space: pre), so its lines are written here, not in the markup.
-const term = [
-  '<span class="c"># open the app</span>',
-  '<span class="g">$</span> otaq',
-  '<span class="c"># many tickets from one Markdown plan</span>',
-  '<span class="g">$</span> otaq create -f plan.md',
-  '<span class="c"># jump into a live agent session from any terminal</span>',
-  '<span class="g">$</span> otaq attach SHOP-18',
-].join("\n");
+import Icon from "./Icon.astro";
 ---
 
 <section class="sec" id="install">
   <div class="wrap">
     <div class="rv">
-      <div class="label">Install</div>
-      <h2 class="h2">Up and running in a minute.</h2>
-      <p class="sub">
-        One line installs Otaq into your own folders. No admin rights, and nothing added to your repositories.
-      </p>
+      <div class="label">Local first</div>
+      <h2 class="h2">Your code stays on your machine.</h2>
     </div>
-    <div class="inst rv">
-      <div class="card" data-install>
-        <div class="tabs" role="tablist" aria-label="Operating system">
-          {OS_KEYS.map((k) => (
-            <button
-              class:list={["tab", { on: k === "mac" }]}
-              type="button"
-              role="tab"
-              aria-selected={k === "mac" ? "true" : "false"}
-              data-os-tab={k}
-            >
-              {OS[k].label}
-            </button>
-          ))}
-        </div>
-        <div class="card-b">
-          <p class="muted" data-os-intro>
-            {os.intro}
-          </p>
-          <div class="cmdrow">
-            <code data-cmd data-os-command>
-              {os.command}
-            </code>
-            <CopyButton />
-          </div>
-          <div class="kv">
-            <div>
-              <span class="k">Installs to</span>
-              <span class="mono" style={mono} data-os-path>
-                {os.path}
-              </span>
-            </div>
-            <div>
-              <span class="k">Then run</span>
-              <span class="mono" style={mono}>
-                otaq
-              </span>
-            </div>
-            <div>
-              <span class="k">Manual download</span>
-              <span>
-                <a href={DOWNLOAD_URL} data-os-archive>
-                  {os.archive}
-                </a>
-              </span>
-            </div>
-          </div>
-          <p class="small" data-os-foot>
-            {os.foot}
-          </p>
-        </div>
+    <div class="priv rv">
+      <div>
+        <h3>Your tools, your sign-ins</h3>
+        <p>
+          Otaq runs the real <span class="mono">claude</span>, <span class="mono">codex</span>,{" "}
+          <span class="mono">copilot</span> and <span class="mono">opencode</span> programs with your own
+          subscriptions and permission modes. Never your passwords or keys.
+        </p>
       </div>
-      <div class="card">
-        <div class="card-b">
-          <b style="font-size:15px">What you need</b>
-          <div class="kv">
-            <div>
-              <span class="k">An agent tool</span>
-              <span>Claude Code, Codex CLI, GitHub Copilot CLI or OpenCode, installed and signed in</span>
-            </div>
-            <div>
-              <span class="k">git</span>
-              <span>Any recent version</span>
-            </div>
-            <div>
-              <span class="k">Optional</span>
-              <span>
-                <span class="mono" style={mono}>
-                  gh
-                </span>{" "}
-                or{" "}
-                <span class="mono" style={mono}>
-                  az
-                </span>{" "}
-                for pull requests
-              </span>
-            </div>
-          </div>
-          <b style="font-size:15px;margin-top:6px">Your first ten minutes</b>
-          <ol class="ol">
-            <li>
-              <span>
-                <b>Add a project.</b> Any folder that’s a git repository.
-              </span>
-            </li>
-            <li>
-              <span>
-                <b>Tell the Project agent what you need.</b> It proposes tickets; you say go.
-              </span>
-            </li>
-            <li>
-              <span>
-                <b>Drag them to Dev.</b> Then answer when asked, and approve.
-              </span>
-            </li>
-          </ol>
-        </div>
+      <div>
+        <h3>No account, no server</h3>
+        <p>
+          Tickets live in <span class="mono">~/.otaq</span>. Worktrees sit outside your repository, one per
+          ticket. Pushes happen only at a Delivery stage you set.
+        </p>
+      </div>
+      <div>
+        <h3>Otaq itself sends nothing</h3>
+        <p>
+          Unless you opt in to anonymous usage data: which features are used, the Otaq version and your OS.
+          Never code, ticket text or file names. There is no update check.
+        </p>
       </div>
     </div>
-    <div style="margin-top:24px" class="card rv">
-      <div class="card-b">
-        <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:baseline">
-          <b style="font-size:15px">
-            The <span class="mono">otaq</span> command
-          </b>
-          <span class="small">What agents use to read tickets, ask you and submit. It’s yours too.</span>
+    <div class="status rv">
+      <div>
+        <h3>
+          <span class="pill p-pa">
+            <Icon icon="info" />
+            v0.1
+          </span>
+          Honest status
+        </h3>
+        <p>
+          Otaq is used daily by its author and is early. There are no prebuilt releases yet: build it from
+          source. macOS is the most tested platform; Windows and Linux build and run but have seen less use.
+          Expect rough edges, and please open issues.
+        </p>
+      </div>
+      <div>
+        <h3>Build from source</h3>
+        <p>Rust 1.99+ and Node 24, plus at least one agent tool installed and signed in.</p>
+        <div class="term">
+          <div>
+            <span class="c"># the desktop app (the web page is built into the binary)</span>
+          </div>
+          <div>
+            <span class="g">$</span> git clone https://github.com/otaq-io/otaq.git &amp;&amp; cd otaq
+          </div>
+          <div>
+            <span class="g">$</span> cd crates/otaq-desktop &amp;&amp; npm ci &amp;&amp; npm run tauri build
+          </div>
+          <div>
+            <span class="c">
+              # the otaq command: opens the app, runs the service, and is what agents call
+            </span>
+          </div>
+          <div>
+            <span class="g">$</span> cargo build --release -p otaq-cli
+          </div>
+          <div>
+            <span class="g">$</span> otaq
+          </div>
         </div>
-        <div class="term" set:html={term} />
       </div>
     </div>
   </div>

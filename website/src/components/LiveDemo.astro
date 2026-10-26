@@ -1,46 +1,37 @@
 ---
-import Demo from "../demo/Demo";
 import Icon from "./Icon.astro";
+
+// The live demo's section, as drawn: the headings, the things to try, and the frame the demo (piece 4) fills.
+const tries = [
+  { icon: "hand", text: "Press Next on the strip" },
+  { icon: "columns", text: "Change flow…" },
+  { icon: "bot", text: "Ask Noyan" },
+  { icon: "eye", text: "Approve SHOP-18" },
+  { icon: "pause", text: "Pause" },
+];
 ---
 
-<section class="demo-sec" id="demo">
+<section class="sec" id="demo">
   <div class="wrap">
     <div class="demo-head rv">
       <div>
         <div class="label">Live demo</div>
-        <h2 class="h2">Try the board right here.</h2>
+        <h2 class="h2">Try it right here.</h2>
         <p class="sub">
-          Two sample projects with agents at work. Click around: nothing really runs, and nothing leaves this
-          page.
+          shop-web, with a flow of its own. Click around: nothing really runs, and nothing leaves this page.
         </p>
       </div>
-      <div class="tries" aria-label="Things to try">
-        <span class="try">
-          <Icon icon="bot" />
-          Answer the Project agent
-        </span>
-        <span class="try">
-          <Icon icon="mouse" />
-          Drag NOTE-6 to Dev
-        </span>
-        <span class="try">
-          <Icon icon="message-q" />
-          Answer NOTE-8
-        </span>
-        <span class="try">
-          <Icon icon="inbox" />
-          Open Needs you
-        </span>
-        <span class="try">
-          <Icon icon="eye" />
-          Approve NOTE-4
-        </span>
+      <div class="tries" role="group" aria-label="Things to try">
+        {tries.map((t) => (
+          <span class="try">
+            <Icon icon={t.icon} />
+            {t.text}
+          </span>
+        ))}
       </div>
     </div>
     <div class="demo-frame" data-demo-frame>
-      <div class="demo-clip" data-demo-clip>
-        <Demo client:idle />
-      </div>
+      <div class="demo-clip" data-demo-clip></div>
     </div>
     <div class="viewonly" data-demo-note hidden>
       <Icon icon="monitor" />

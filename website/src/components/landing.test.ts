@@ -2,50 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { demoFrame } from "./demoScale";
 import { BEAT_COUNT, beatView, jump, tick, toggle } from "./flow";
-import { OS, pickOs } from "./os";
+import { FAQS } from "./faq";
+import { KIND_COLOR, PRESETS, isLong } from "./presets";
 import { STORAGE_KEY, nextTheme, readPick, savePick, shownTheme } from "./theme";
-
-describe("pickOs", () => {
-  it.each([
-    [
-      "macOS",
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
-      "MacIntel",
-      "mac",
-    ],
-    [
-      "Windows",
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      "Win32",
-      "win",
-    ],
-    [
-      "Linux",
-      "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
-      "Linux x86_64",
-      "linux",
-    ],
-    [
-      "Android → macOS",
-      "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
-      "Linux armv8l",
-      "mac",
-    ],
-    ["empty → macOS", "", "", "mac"],
-  ])("%s", (_, ua, platform, os) => {
-    expect(pickOs(ua, platform)).toBe(os);
-  });
-
-  it("Windows gets the PowerShell command, the others the shell one", () => {
-    expect(OS.win.command).toBe(
-      "irm https://github.com/otaq-io/otaq/releases/latest/download/install.ps1 | iex",
-    );
-    expect(OS.mac.command).toBe(
-      "curl -fsSL https://github.com/otaq-io/otaq/releases/latest/download/install.sh | sh",
-    );
-    expect(OS.linux.command).toBe(OS.mac.command);
-  });
-});
 
 describe("How it works player", () => {
   it("has 8 beats and the timer wraps from 8 to 1", () => {
@@ -156,5 +115,47 @@ describe("theme", () => {
         throw new Error("QuotaExceededError");
       }, "light"),
     ).toBe(false);
+  });
+});
+
+describe("presets", () => {
+  it("has the five drawn presets, Your own first", () => {
+    expect(PRESETS.map((p) => p.name)).toEqual([
+      "Your own",
+      "Otaq default",
+      "Solo autopilot",
+      "Team PR",
+      "Spec first",
+    ]);
+    expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
+  });
+
+  it("gives each preset its drawn stages", () => {
+    expect(PRESETS.map((p) => p.stages.length)).toEqual([4, 6, 5, 5, 9]);
+    expect(PRESETS.map(isLong)).toEqual([false, false, false, false, true]);
+    expect(PRESETS[0]?.stages.filter((s) => s.add)).toHaveLength(2);
+  });
+
+  it("draws each stage in its kind's colour", () => {
+    const kinds = (id: string): string[] => PRESETS.find((p) => p.id === id)?.stages.map((s) => s.kind) ?? [];
+    expect(kinds("default")).toEqual(["wait", "work", "check", "you", "deliver", "wait"]);
+    expect(kinds("spec")).toEqual(["work", "work", "work", "you", "work", "check", "you", "deliver", "wait"]);
+    expect(KIND_COLOR.check).toBe("var(--st-investigate)");
+  });
+
+  it("sends every failed check back to a stage of the same preset", () => {
+    for (const p of PRESETS) {
+      const names = p.stages.map((s) => s.name);
+      for (const s of p.stages) if (s.fail) expect(names).toContain(s.fail);
+    }
+  });
+});
+
+describe("faq", () => {
+  it("has the seven drawn questions, tmux first", () => {
+    expect(FAQS).toHaveLength(7);
+    expect(FAQS[0]?.q).toBe("Why not tmux, a few worktrees and a script?");
+    expect(FAQS.at(-1)?.q).toBe("What leaves my machine?");
+    for (const f of FAQS) expect(f.a.length).toBeGreaterThan(0);
   });
 });
