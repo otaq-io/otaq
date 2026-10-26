@@ -384,6 +384,10 @@ describe("a running agent", () => {
     expect(box.querySelector(".fake-terminal")?.getAttribute("aria-label")).toBe(
       "Tickets waiting on NOTE-5 · Claude Code",
     );
+    // The panel's column (`.agent-panel` in agent_panel.css) holds the terminal's well, which fills the height.
+    expect(
+      box.querySelector("section.agent-panel > .agent-panel-well > .agent-panel-terminal"),
+    ).not.toBeNull();
   });
 
   it("asks before ending mid-turn, and lists Recently ended", () => {
