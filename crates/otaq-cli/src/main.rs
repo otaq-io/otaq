@@ -23,6 +23,7 @@ mod service;
 mod skill_commands;
 mod statusline;
 mod target;
+mod uninstall;
 mod write;
 
 use std::process::ExitCode;
@@ -43,6 +44,9 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
+        Some(Command::Uninstall { keep_data }) => {
+            return uninstall::run(keep_data, &cli.global, &out);
+        }
         Some(Command::Attach { key, stage, agent }) => attach::run(key, stage, agent, &cli.global),
         Some(Command::Prime {
             key: None,

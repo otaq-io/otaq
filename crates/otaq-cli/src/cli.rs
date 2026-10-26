@@ -112,6 +112,12 @@ pub enum Command {
     /// Start, stop or check the background service
     #[command(subcommand)]
     Daemon(DaemonCommand),
+    /// Remove what Otaq left on this computer; asks first
+    Uninstall {
+        /// Keep the database and the comment reports, for coming back later
+        #[arg(long)]
+        keep_data: bool,
+    },
     /// Open a ticket's live agent session in this terminal (detach with Ctrl+])
     Attach {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET

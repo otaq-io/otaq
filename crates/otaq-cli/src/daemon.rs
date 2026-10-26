@@ -49,9 +49,15 @@ fn query_status(data: &DataDir) -> Result<Option<ServiceStatus>, ErrorBody> {
 }
 
 fn start(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
+    let (status, already) = ensure_started(data)?;
+    print_started(out, &status, already);
+    Ok(())
+}
+
+/// Starts the service in the background unless it runs: its status, and whether it already ran.
+pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), ErrorBody> {
     if let Some(status) = query_status(data)? {
-        print_started(out, &status, true);
-        return Ok(());
+        return Ok((status, true));
     }
     let exe =
         std::env::current_exe().map_err(|e| internal(format!("can't find this program: {e}")))?;
@@ -76,14 +82,12 @@ fn start(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
         if let Some(status) = query_status(data)? {
             // Another `start` may have won the race; either way one service runs.
             let ours = status.pid == child.id();
-            print_started(out, &status, !ours);
-            return Ok(());
+            return Ok((status, !ours));
         }
         let exited = child.try_wait().ok().flatten();
         if exited.is_some() || Instant::now() > deadline {
             if let Some(status) = query_status(data)? {
-                print_started(out, &status, true);
-                return Ok(());
+                return Ok((status, true));
             }
             return Err(internal(format!(
                 "the background service didn't start; see the logs in {}",
