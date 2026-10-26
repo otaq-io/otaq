@@ -84,8 +84,8 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/cart-tests.log"
 - **Send each check's output to a file in `$OTAQ_RESOURCE_DIR`**, never in the worktree: a new file there is a change
   to the agent's work.
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
-- **Name it** in your verdict; never attach command output, such as a log. **Attach only a document you wrote**,
-  such as an investigation write-up, with `--report-file` (at most 20 MB).
+- **Name it** in your verdict; never attach command output, such as a run, a diff or a log. **Attach only a
+  document you wrote**, such as an investigation write-up, with `--report-file` (at most 20 MB).
 - **Reading an earlier report:** under a comment with a report, `prime --validate` shows a line such as "Report: 48 KB,
   2,310 lines · `otaq report SHOP-29 4`". Open it only when you need it, and search it:
   `grep -n "expected" "$(otaq report SHOP-29 4 --path)"`.
