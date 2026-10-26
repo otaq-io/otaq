@@ -1,736 +1,775 @@
-// What the demo shows, worked out from its state (the canvas's `pres` and `renderVals`): plain functions, so React only
-// draws their result. `Moment` is what React keeps on its own: the card under the mouse and the one being dragged.
+// What the demo shows, worked out from its state (the canvas's `renderVals` in Demo3.dc.html): plain functions, so
+// React only draws their result and calls the store's methods.
 
 import {
-  AGENT_NAMES,
-  AGENTS,
-  type AgentName,
+  type CheckResult,
   type Column,
   type DiffFile,
-  genericDiff,
+  FLOWS,
+  type Flow,
+  type FlowId,
   type HistoryEntry,
+  KIND,
+  KIND_COLOR,
+  KIND_LONG,
+  L,
   type Line,
-  NOTE4_DIFF,
-  type Option,
+  MODELS,
+  type NoyanMsg,
+  type Piece,
+  PRESET_IDS,
+  type Priority,
   project,
   type Project,
-  type ProjectAgent,
   PROJECTS,
   type ProjectKey,
+  type StageId,
+  type StageKind,
   type Ticket,
+  type TicketStatus,
+  TOOL_NAMES,
   type ToolId,
 } from "./data";
-import { type DemoState, type PanelTab, type Role, type SettingsPage, unmetIn } from "./state";
+import type { Comment, DemoState, PaneTab, SessionPart } from "./state";
 
-export interface Moment {
-  hoverKey: string | null;
-  dragKey: string | null;
-  dropCol: Column | null;
+/** The demo board's width: click-placed menus are clamped inside it. */
+export const DEMO_WIDTH = 1280;
+
+/** A project's flow in `s`. */
+export function flowOf(s: DemoState, p: ProjectKey): Flow {
+  return FLOWS[s.flows[p]];
 }
 
-export const NO_MOMENT: Moment = { hoverKey: null, dragKey: null, dropCol: null };
+/** The name of the column `t` is in: one of its flow's stages, Backlog or Done. */
+export function stageName(s: DemoState, t: Ticket): string {
+  const st = flowOf(s, t.p).stages.find((x) => x.id === t.col);
+  if (st) return st.name;
+  return t.col === "backlog" ? "Backlog" : "Done";
+}
 
-export interface Pill {
-  cls: string;
+const asking = (t: Ticket) => t.st === "attn" || t.st === "helpers" || t.st === "failed";
+const running = (t: Ticket) =>
+  t.st === "working" ||
+  t.st === "working2" ||
+  t.st === "checking" ||
+  t.st === "checking2" ||
+  t.st === "helpers";
+
+// --- Needs you -----------------------------------------------------------------------------------------------------
+
+export interface NeedItem {
+  k: string;
+  p: ProjectKey;
+  why: string;
+}
+
+/** What needs you in project `p`, in the strip's order: questions and decisions first, then your checks. */
+export function needsOf(tickets: readonly Ticket[], p: ProjectKey): NeedItem[] {
+  const items: NeedItem[] = [];
+  for (const t of tickets) if (t.p === p && t.ask && asking(t)) items.push({ k: t.k, p, why: t.ask.short });
+  for (const t of tickets) if (t.p === p && t.st === "review") items.push({ k: t.k, p, why: "your check" });
+  return items;
+}
+
+// --- status --------------------------------------------------------------------------------------------------------
+
+/** A ticket's status line on its card and the pill in its sheet: the drawn class, icon and words (`stMap`). */
+export interface Status {
+  cls: "" | "w" | "pa" | "a" | "i" | "r" | "ok";
   icon: string;
   label: string;
-  spin: boolean;
 }
 
-export interface Meta {
-  i: string;
-  t: string;
-  cls: string;
-}
+const askLine: Record<string, string> = {
+  "SHOP-22": "allow rm -rf .next?",
+  "SHOP-12": "follow the system setting?",
+};
 
-const P = (cls: string, icon: string, label: string, spin = false): Pill => ({ cls, icon, label, spin });
-
-/** A ticket's pill, metas and card class (`pres` in the canvas). */
-export function present(
-  tickets: readonly Ticket[],
-  t: Ticket,
-): { pill: Pill | null; metas: Meta[]; cls: string } {
-  let pill: Pill | null = null;
-  let cls = "";
-  const metas: Meta[] = [];
-  const un = unmetIn(tickets, t);
-  switch (t.st) {
+export function status(t: Ticket): Status {
+  const st: TicketStatus = t.st;
+  switch (st) {
     case "queued":
-      if (t.col === "backlog") metas.push({ i: "circle-play", t: "Ready to start", cls: "" });
-      else if (un.length)
-        metas.push({ i: "hourglass", t: "waits for " + un.join(", ") + " to merge", cls: "" });
-      else metas.push({ i: "hourglass", t: "starts when an agent is free", cls: "" });
-      if (t.col === "backlog" && un.length)
-        metas.push({ i: "hourglass", t: "waits for " + un.join(", "), cls: "" });
-      break;
-    case "starting":
-      pill = P("pl-w", "loader", t.stage === "setup" ? "Running setup" : "Creating worktree", true);
-      metas.push({ i: "git-branch", t: "otaq/" + t.k, cls: "m" });
-      break;
-    case "working":
-      pill = P("pl-w", "activity", "Working");
-      metas.push({
-        i: "activity",
-        t: (t.age ?? "active just now") + (t.tokens ? " · " + t.tokens : ""),
+      return {
         cls: "",
-      });
-      break;
-    case "attn": {
-      const perm = t.ask?.kind === "perm";
-      pill = P("pl-a", perm ? "hand" : "message-q", perm ? "Needs you" : "Asks you");
-      metas.push({ i: "chevron-right", t: t.ask?.short ?? "", cls: "aq" });
-      cls = "attn";
-      break;
-    }
-    case "error":
-      pill = P("pl-e", "circle-alert", "Interrupted");
-      metas.push({ i: "refresh", t: "Resume from the panel", cls: "" });
-      cls = "err";
-      break;
-    case "validating":
-      pill = P("pl-w", "shield-check", "Validating · round " + String(t.round));
-      metas.push({ i: "activity", t: t.tokens, cls: "m" });
-      break;
+        icon: "activity",
+        label:
+          t.col === "backlog"
+            ? t.prio === 1
+              ? "P1 · not started"
+              : "not started"
+            : t.waits.length
+              ? "waits for " + t.waits.join(", ") + " to merge"
+              : "starts in priority order",
+      };
+    case "working":
+      return { cls: "w", icon: "loader", label: "Working" };
+    case "working2":
+      return { cls: "pa", icon: "undo", label: "Working · back from Security · round 2" };
+    case "attn":
+      return {
+        cls: "a",
+        icon: "message-q",
+        label:
+          (t.ask?.kind === "perm" ? "Needs you: " : "Asks you: ") + (askLine[t.k] ?? "prorate to the day?"),
+      };
+    case "helpers":
+      return { cls: "a", icon: "message-q", label: "40.2 asks: keep the heart filled after sign-out?" };
+    case "checking":
+      return { cls: "i", icon: "shield-check", label: "Checking · round 1 of 3" };
+    case "checking2":
+      return { cls: "i", icon: "shield-check", label: "Checking · round 2 · back from Dev" };
+    case "failed":
+      return { cls: "a", icon: "circle-alert", label: "Failed 3 times: decide" };
     case "review":
-      pill = P("pl-r", "shield-check", "Validated · round " + String(t.round));
-      if (t.decisions)
-        metas.push({
-          i: "lightbulb",
-          t: String(t.decisions) + (t.decisions > 1 ? " decisions" : " decision"),
-          cls: "inv",
-        });
-      if (t.adds) metas.push({ i: "file-diff", t: "+" + String(t.adds) + " −" + String(t.dels), cls: "m" });
-      break;
+      return {
+        cls: "r",
+        icon: "eye",
+        label:
+          "Your check · passed " + ((t.checks ?? []).length === 2 ? "Security and Validate" : "Validate"),
+      };
     case "merging":
-      pill = P("pl-ok", "loader", "Merging…", true);
-      break;
+      return { cls: "ok", icon: "loader", label: "Merge check · pnpm test…" };
+    case "pr":
+      return {
+        cls: "ok",
+        icon: "git-pr",
+        label: (t.k === "SHOP-26" ? "PR #481" : "PR #492") + " open · mark merged when it lands",
+      };
     case "done":
-      pill = P("pl-d", "git-merge", "Merged");
-      break;
+      return { cls: "", icon: "git-merge", label: "Merged" };
   }
-  if (t.by) metas.push({ i: "bot", t: "created by Project agent “" + t.by + "”", cls: "inv" });
-  return { pill, metas, cls };
 }
+
+/** The sheet's pill class for a status class. */
+export const PILL_CLASS: Record<Status["cls"], string> = {
+  a: "pl-a",
+  w: "pl-w",
+  pa: "pl-pa",
+  i: "pl-i",
+  r: "pl-r",
+  ok: "pl-ok",
+  "": "pl-q",
+};
+
+// --- the board -----------------------------------------------------------------------------------------------------
 
 export interface CardView {
   k: string;
   title: string;
   tool: ToolId;
-  agentLabel: string;
-  prio: number;
-  showPrio: boolean;
-  prioIcon: string;
-  epicPos: string | null;
-  pill: Pill | null;
-  metas: Meta[];
-  conflict: boolean;
-  isReview: boolean;
+  agent: string;
+  ago: string;
+  prio: Priority;
+  /** P1 and P2 show their priority. */
+  hasPrio: boolean;
+  status: Status;
+  /** `attn`, `sel` and `drag`, as drawn. */
   cls: string;
-  movable: boolean;
-}
-
-export interface SectionView {
-  title: string | null;
-  icon: string;
-  color: string;
-  cards: CardView[];
-  emptyText: string;
+  /** Only Backlog and Ready cards can be dragged. */
+  drag: boolean;
+  pieces: readonly Piece[];
+  /** Up to three pieces not merged yet, for the card. */
+  piecesShort: readonly Piece[];
+  pieceSum: string;
+  /** The card's button: Review, Decide, Answer or Reply; null when there's nothing to do. */
+  act: string | null;
 }
 
 export interface ColumnView {
   id: Column;
   title: string;
-  icon: string;
+  kind: string;
   color: string;
   sub: string;
-  count: number;
+  cards: CardView[];
+  emptyText: string;
+  /** While dragging: `drop` on the column under the card, `nodrop` on the ones it can't go to. */
   cls: string;
-  coach: boolean;
-  sections: SectionView[];
 }
 
-export interface EpicView {
+export interface ProjectTab {
+  key: ProjectKey;
   name: string;
-  lead: string;
-  progress: string;
-  stops: { k: string; label: string; icon: string; color: string }[];
+  on: boolean;
+  /** How many questions and decisions wait in it; your checks aren't counted. */
+  badge: number;
 }
 
-export interface InboxItem {
-  pk: ProjectKey;
-  k: string;
-  title: string;
-  reason: string;
-  age: string;
-  /** What a click opens: a ticket (on a tab), or a Project agent. */
-  go: { ticket: string; tab: PanelTab } | { agent: string };
-}
-
-export interface InboxGroup {
-  title: string;
-  color: string;
-  items: InboxItem[];
-}
-
-export interface AgentView {
-  id: string;
+export interface ActivityTool {
+  id: ToolId;
   name: string;
+  running: string;
+  limit: string;
+  cls: string;
+  /** The limit bar's width in percent, or null when the tool reports no limit. */
+  pct: number | null;
+  barColor: string;
   tokens: string;
-  pillCls: string;
-  pillLabel: string;
-  lines: readonly Line[];
-  isNew: boolean;
-  created: readonly string[];
-  askQ: string | null;
-  opts: readonly Option[];
-}
-
-export interface PanelView {
-  k: string;
-  title: string;
-  prio: number;
-  prioIcon: string;
-  prioWord: string;
-  pill: Pill;
-  epicPos: string | null;
-  tokens: string;
-  tool: ToolId;
-  agentLabel: string;
-  canApprove: boolean;
-  canStart: boolean;
-  isAsking: boolean;
-  isRunning: boolean;
-  isDone: boolean;
-  round: number;
-  noSession: boolean;
-  lines: readonly Line[];
-  ask: { title: string; icon: string; opts: readonly Option[] } | null;
-  adds: number;
-  dels: number;
-  files: readonly DiffFile[];
-  decision: string | null;
-  desc: string;
-  acc: readonly string[];
-  depsText: string;
-  hist: readonly HistoryEntry[];
+  hasFallback: boolean;
 }
 
 export interface BoardView {
   proj: Project;
+  flowLabel: string;
   runningLabel: string;
-  running: number;
-  needs: number;
-  projects: { key: ProjectKey; name: string; on: boolean; badge: number }[];
-  paneAttn: boolean;
-  agentTabs: { id: string; name: string; on: boolean; attn: boolean; working: boolean }[];
-  agent: AgentView;
-  sugg: readonly [string, string];
-  epic: EpicView | null;
+  hintText: string;
+  projects: ProjectTab[];
+  needs: NeedItem[];
   columns: ColumnView[];
   doneCount: number;
-  panel: PanelView | null;
-  inbox: InboxGroup[];
+  actTools: ActivityTool[];
+  pause: { label: string; icon: string; cls: string; scope: string; menuTitle: string };
 }
 
-const COL_WORD: Record<Column, string> = {
-  backlog: "Backlog",
-  ready: "Ready for Dev",
-  dev: "Dev",
-  review: "Ready for Review",
-  done: "Done",
-};
-
-const PRIO_WORD = ["", "Urgent", "High", "Normal", "Low"];
-
-const REASON_AGE: Record<string, string> = {
-  "NOTE-8": "2m",
-  "SHOP-22": "4m",
-  "SHOP-25": "18m",
-  "NOTE-4": "12m",
-  "NOTE-5": "31m",
-  "SHOP-18": "1h",
-};
-
-const STOP_STYLE: Record<Column, readonly [string, string]> = {
-  done: ["circle-check", "var(--done)"],
-  dev: ["activity", "var(--work)"],
-  ready: ["hourglass", "var(--q)"],
-  backlog: ["circle-dashed", "var(--q)"],
-  review: ["eye", "var(--rev)"],
-};
-
-const AGENT_PILL: Record<ProjectAgent["st"], readonly [string, string]> = {
-  attn: ["pl-a", "Asks you"],
-  working: ["pl-w", "Working"],
-  idle: ["pl-q", "Idle"],
-  new: ["pl-q", "New"],
-};
-
-const order = (a: Ticket, b: Ticket): number => {
-  const w = (t: Ticket) => (t.st === "attn" || t.st === "error" ? 0 : 1);
-  return w(a) - w(b) || a.prio - b.prio;
-};
-
-const prioIcon = (prio: number) => (prio <= 2 ? "chevron-up" : "chevron-down");
-
-/** The diff a ticket shows: none until it has changes. */
-export function diffOf(t: Ticket): readonly DiffFile[] {
-  if (!t.adds) return [];
-  return t.diffKey ? NOTE4_DIFF : genericDiff(t.title);
+function card(s: DemoState, t: Ticket): CardView {
+  const pieces = t.pieces ?? [];
+  return {
+    k: t.k,
+    title: t.title,
+    tool: t.tool,
+    agent: t.agent,
+    ago: t.ago,
+    prio: t.prio,
+    hasPrio: t.prio <= 2,
+    status: status(t),
+    cls: [asking(t) ? "attn" : "", s.openKey === t.k ? "sel" : "", s.dragKey === t.k ? "drag" : ""]
+      .filter(Boolean)
+      .join(" "),
+    drag: t.col === "backlog" || t.col === "ready",
+    pieces,
+    piecesShort: pieces.filter((pc) => pc.s !== "merged").slice(0, 3),
+    pieceSum: String(pieces.filter((pc) => pc.s === "merged").length) + " merged",
+    act:
+      t.st === "review"
+        ? "Review"
+        : t.st === "failed"
+          ? "Decide"
+          : t.ask
+            ? t.ask.kind === "perm"
+              ? "Answer"
+              : "Reply"
+            : null,
+  };
 }
 
-/** The whole screen from the state (`renderVals` in the canvas). */
-export function boardView(s: DemoState, m: Moment = NO_MOMENT): BoardView {
-  const proj = project(s.project);
-  const all = s.tickets;
-  const mine = all.filter((t) => t.p === s.project);
+/** The open project's tickets that match the search. */
+function shown(s: DemoState): Ticket[] {
   const q = s.search.trim().toLowerCase();
-  const visible = q ? mine.filter((t) => (t.k + " " + t.title).toLowerCase().includes(q)) : mine;
+  const mine = s.tickets.filter((t) => t.p === s.project);
+  return q ? mine.filter((t) => (t.k + " " + t.title).toLowerCase().includes(q)) : mine;
+}
 
-  // the dependency highlight while a card is hovered
-  const rel = new Set<string>();
-  const h = m.hoverKey ? all.find((t) => t.k === m.hoverKey) : undefined;
-  if (h) {
-    rel.add(h.k);
-    for (const w of h.waits) rel.add(w);
-    for (const t of mine) if (t.waits.includes(h.k)) rel.add(t.k);
-  }
-  const hasRel = rel.size > 1;
-
-  const card = (t: Ticket): CardView => {
-    const pr = present(all, t);
-    const cls = [
-      pr.cls,
-      t.fresh ? "fresh" : "",
-      s.openKey === t.k ? "sel" : "",
-      t.col === "done" ? "donec" : "",
-    ];
-    cls.push(m.dragKey === t.k ? "drag" : "");
-    if (hasRel) cls.push(rel.has(t.k) ? "rel" : "dim");
-    const ag = AGENTS[t.agent];
-    return {
-      k: t.k,
-      title: t.title,
-      tool: ag.tool,
-      agentLabel: t.agent + " · " + ag.toolName,
-      prio: t.prio,
-      showPrio: t.prio !== 3 && t.col !== "done",
-      prioIcon: prioIcon(t.prio),
-      epicPos: t.epic ? t.epic + " · " + (t.epicPos ?? "") : null,
-      pill: pr.pill,
-      metas: pr.metas,
-      conflict: !!t.conflict && t.st === "review",
-      isReview: t.st === "review",
-      cls: cls.filter(Boolean).join(" "),
-      movable: t.col === "backlog" || t.col === "ready",
-    };
-  };
-  const inCol = (c: Column) =>
-    visible
-      .filter((t) => t.col === c)
-      .sort(order)
-      .map(card);
-  const reviewCards = visible
-    .filter((t) => t.col === "review" && t.st !== "merging")
-    .sort(order)
-    .map(card);
-  const approvedCards = visible.filter((t) => t.col === "review" && t.st === "merging").map(card);
-  const note6 = all.find((t) => t.k === "NOTE-6");
-
-  type ColDef = Omit<ColumnView, "count" | "cls" | "coach" | "sections"> & {
-    sections: (Omit<SectionView, "title" | "icon" | "color"> & Partial<SectionView>)[];
-  };
-  const colDef: ColDef[] = [
+/** The board's columns: Backlog, the project's flow, then Done once it's unfolded. */
+export function columnsOf(s: DemoState): ColumnView[] {
+  const mine = shown(s);
+  const defs: { id: Column; name: string; kind: StageKind; sub: string }[] = [
     {
       id: "backlog",
-      title: "Backlog",
-      icon: "circle-dashed",
-      color: "var(--q)",
-      sub: "Tickets the Project agent planned, and yours",
-      sections: [{ cards: inCol("backlog"), emptyText: "No tickets" }],
+      name: "Backlog",
+      kind: "wait",
+      sub: "Noyan’s tickets and yours · drag to Ready, or Start",
     },
-    {
-      id: "ready",
-      title: "Ready for Dev",
-      icon: "hourglass",
-      color: "var(--q)",
-      sub: "Starts when ready, in priority order",
-      sections: [{ cards: inCol("ready"), emptyText: "Drop a ticket here to start it when it’s ready" }],
-    },
-    {
-      id: "dev",
-      title: "Dev",
-      icon: "activity",
-      color: "var(--work)",
-      sub: "One agent per ticket, each in its own worktree",
-      sections: [{ cards: inCol("dev"), emptyText: "Drop a ticket here to start its agent now" }],
-    },
-    {
-      id: "review",
-      title: "Review",
-      icon: "eye",
-      color: "var(--rev)",
-      sub: "Passed validation, waiting for you",
-      sections: [
-        {
-          title: "Ready for Review",
-          icon: "eye",
-          color: "var(--rev)",
-          cards: reviewCards,
-          emptyText: "Nothing to review",
-        },
-        {
-          title: "Approved",
-          icon: "check",
-          color: "var(--ok)",
-          cards: approvedCards,
-          emptyText: "Approve a ticket from its panel: Local merge or Open PR",
-        },
-      ],
-    },
+    ...flowOf(s, s.project).stages.map((st) => ({
+      id: st.id,
+      name: st.name,
+      kind: st.kind,
+      sub: st.kind === "wait" ? "Starts in priority order" : st.who,
+    })),
   ];
-  if (s.doneOpen)
-    colDef.push({
-      id: "done",
-      title: "Done",
-      icon: "circle-check",
-      color: "var(--done)",
-      sub: "Merged",
-      sections: [{ cards: inCol("done"), emptyText: "Nothing merged yet" }],
-    });
-  const columns: ColumnView[] = colDef.map((c) => {
-    const droppable = c.id === "backlog" || c.id === "ready" || c.id === "dev";
+  if (s.doneOpen) defs.push({ id: "done", name: "Done", kind: "delivery", sub: "Merged" });
+  const weight = (t: Ticket) => (asking(t) ? 0 : 1);
+  return defs.map((c) => {
+    const droppable = c.id === "backlog" || c.id === "ready";
     return {
-      ...c,
-      count: c.sections.reduce((n, x) => n + x.cards.length, 0),
-      cls: m.dragKey ? (m.dropCol === c.id ? "drop" : droppable ? "" : "nodrop") : "",
-      coach: c.id === "backlog" && s.coach && s.project === "NOTE" && note6?.col === "backlog",
-      sections: c.sections.map((x) => ({
-        title: x.title ?? null,
-        icon: x.icon ?? "circle",
-        color: x.color ?? "",
-        cards: x.cards,
-        emptyText: x.emptyText,
-      })),
+      id: c.id,
+      title: c.name,
+      kind: KIND[c.kind],
+      color: KIND_COLOR[c.kind],
+      sub: c.sub,
+      cards: mine
+        .filter((t) => t.col === c.id)
+        .sort((a, b) => weight(a) - weight(b) || a.prio - b.prio)
+        .map((t) => card(s, t)),
+      emptyText:
+        c.kind === "wait"
+          ? "Drop a ticket here to start it when it’s ready"
+          : c.kind === "you"
+            ? "Nothing to check"
+            : "Nothing here",
+      cls: s.dragKey ? (s.dropCol === c.id ? "drop" : droppable ? "" : "nodrop") : "",
     };
   });
-
-  // the epic strip
-  const kids = mine.filter((t) => t.epic === "Notebooks").sort((a, b) => (a.k < b.k ? -1 : 1));
-  const epic: EpicView | null =
-    s.project === "NOTE" && kids.some((k) => k.col !== "done")
-      ? {
-          name: "Notebooks",
-          lead: "Notebooks lead · idle",
-          progress: String(kids.filter((t) => t.col === "done").length) + " of " + String(kids.length),
-          stops: kids.map((t) => {
-            const st = t.st === "attn" ? (["message-q", "var(--attn)"] as const) : STOP_STYLE[t.col];
-            return { k: t.k, label: t.k.replace("NOTE-", ""), icon: st[0], color: st[1] };
-          }),
-        }
-      : null;
-
-  // the inbox
-  const age = (k: string) => REASON_AGE[k] ?? "now";
-  const g1: InboxItem[] = all
-    .filter((t) => t.st === "attn")
-    .map((t) => ({
-      pk: t.p,
-      k: t.k,
-      title: t.title,
-      reason: t.ask?.short ?? "",
-      age: age(t.k),
-      go: { ticket: t.k, tab: "terminal" },
-    }));
-  for (const a of s.agents)
-    if (a.st === "attn")
-      g1.push({
-        pk: a.p,
-        k: "Agent",
-        title: "“" + a.name + "”",
-        reason: "Project agent asks: " + (a.ask?.q ?? ""),
-        age: "1m",
-        go: { agent: a.id },
-      });
-  const g2: InboxItem[] = all
-    .filter((t) => t.st === "error")
-    .map((t) => ({
-      pk: t.p,
-      k: t.k,
-      title: t.title,
-      reason: "Session interrupted · Resume continues the same conversation",
-      age: age(t.k),
-      go: { ticket: t.k, tab: "terminal" },
-    }));
-  const g3: InboxItem[] = all
-    .filter((t) => t.st === "review")
-    .map((t) => ({
-      pk: t.p,
-      k: t.k,
-      title: t.title,
-      reason:
-        "Ready for review · +" +
-        String(t.adds) +
-        " −" +
-        String(t.dels) +
-        (t.decisions ? " · " + String(t.decisions) + " decision" + (t.decisions > 1 ? "s" : "") : ""),
-      age: age(t.k),
-      go: { ticket: t.k, tab: "diff" },
-    }));
-  const inbox: InboxGroup[] = [];
-  if (g1.length) inbox.push({ title: "Needs you", color: "var(--attn)", items: g1 });
-  if (g2.length) inbox.push({ title: "Interrupted", color: "var(--err)", items: g2 });
-  if (g3.length) inbox.push({ title: "Ready for review", color: "var(--rev)", items: g3 });
-  const needs = g1.length + g2.length;
-  const running = all.filter(
-    (t) => t.st === "working" || t.st === "validating" || t.st === "starting",
-  ).length;
-
-  // the Project agent pane
-  const pAgents = s.agents.filter((a) => a.p === s.project);
-  const ag = pAgents.find((a) => a.id === s.agentSel[s.project]) ?? pAgents[0];
-  if (!ag) throw new Error("no Project agent");
-  const agPill = AGENT_PILL[ag.st];
-  const agent: AgentView = {
-    id: ag.id,
-    name: ag.name,
-    tokens: ag.tokens,
-    pillCls: agPill[0],
-    pillLabel: agPill[1],
-    lines: ag.lines,
-    isNew: ag.st === "new" && ag.lines.length === 0,
-    created: ag.created,
-    askQ: ag.ask && ag.st === "attn" ? ag.ask.q : null,
-    opts: ag.ask?.opts ?? [],
-  };
-  const sugg =
-    s.project === "NOTE"
-      ? ([
-          "Why is notes ls slow with 10,000 notes? Make tickets for what you find.",
-          "Plan a “tags” feature as an epic.",
-        ] as const)
-      : (["Find pages that load images eagerly and make tickets.", "/import-github label:ready"] as const);
-
-  return {
-    proj,
-    running,
-    runningLabel: String(running) + " running",
-    needs,
-    projects: PROJECTS.map((p) => ({
-      key: p.key,
-      name: p.name,
-      on: p.key === s.project,
-      badge:
-        all.filter((t) => t.p === p.key && (t.st === "attn" || t.st === "error")).length +
-        s.agents.filter((a) => a.p === p.key && a.st === "attn").length,
-    })),
-    paneAttn: pAgents.some((a) => a.st === "attn"),
-    agentTabs: pAgents.map((a) => ({
-      id: a.id,
-      name: a.name,
-      on: a.id === ag.id,
-      attn: a.st === "attn",
-      working: a.st === "working",
-    })),
-    agent,
-    sugg,
-    epic,
-    columns,
-    doneCount: mine.filter((x) => x.col === "done").length,
-    panel: panelView(s),
-    inbox,
-  };
 }
 
-function panelView(s: DemoState): PanelView | null {
-  const ot = s.openKey ? s.tickets.find((t) => t.k === s.openKey) : undefined;
-  if (!ot) return null;
-  const pr = present(s.tickets, ot);
-  const files = diffOf(ot);
-  const pill =
-    pr.pill ??
-    (ot.col === "backlog" ? P("pl-q", "circle-dashed", "Backlog") : P("pl-q", "hourglass", "Ready for Dev"));
-  const un = unmetIn(s.tickets, ot);
-  const ag = AGENTS[ot.agent];
-  const asking = ot.st === "attn" || ot.st === "error";
-  return {
-    k: ot.k,
-    title: ot.title,
-    prio: ot.prio,
-    prioIcon: prioIcon(ot.prio),
-    prioWord: PRIO_WORD[ot.prio] ?? "",
-    pill,
-    epicPos: ot.epic ? ot.epic + " · " + (ot.epicPos ?? "") : null,
-    tokens: ot.tokens,
-    tool: ag.tool,
-    agentLabel: ot.agent + " · " + ag.toolName + " · " + ag.model,
-    canApprove: ot.st === "review",
-    canStart: ot.col === "backlog" || ot.col === "ready",
-    isAsking: asking,
-    isRunning: ot.st === "working" || ot.st === "validating" || ot.st === "starting",
-    isDone: ot.st === "done",
-    round: ot.round,
-    noSession: ot.log.length === 0,
-    lines: ot.log,
-    ask:
-      ot.ask && asking
-        ? {
-            title: ot.ask.title,
-            icon: ot.ask.kind === "perm" ? "hand" : ot.ask.kind === "err" ? "circle-alert" : "message-q",
-            opts: ot.ask.opts,
-          }
-        : null,
-    adds: ot.adds ?? 0,
-    dels: ot.dels ?? 0,
-    files,
-    decision: ot.decision ?? null,
-    desc: ot.desc ?? "Imported ticket.",
-    acc: ot.acc,
-    depsText: ot.waits.length
-      ? ot.waits.join(", ") + (un.length ? " · waiting for " + un.join(", ") + " to merge" : " · all merged")
-      : "Nothing. It can start any time.",
-    hist: ot.hist.length
-      ? ot.hist
-      : [
-          { at: "yesterday", t: "Created by you" },
-          { at: "today", t: "Moved to " + COL_WORD[ot.col] },
-        ],
-  };
-}
-
-// --- static parts of the panel and Settings ------------------------------------------------------------------------
-
-export const PANEL_TABS: readonly (readonly [PanelTab, string, string])[] = [
-  ["terminal", "Terminal", "square-terminal"],
-  ["diff", "Diff", "file-diff"],
-  ["run", "Run", "play"],
-  ["shell", "Shell", "terminal"],
-  ["ticket", "Ticket", "file-text"],
-  ["history", "History", "history"],
-];
-
-/** The Run and Shell tabs: a note that they work in the app. */
-export function otherTab(s: DemoState): { icon: string; title: string; text: string } {
-  if (s.ptab === "run")
-    return {
-      icon: "play",
-      title: "Run",
-      text:
-        "Starts “" +
-        s.projFields[s.project].run +
-        "” for this ticket on its own $PORT, so several dev servers run side by side. Try it in the app.",
-    };
-  if (s.ptab === "shell")
-    return {
-      icon: "terminal",
-      title: "Shell",
-      text: "A plain terminal in this ticket’s worktree. Try it in the app.",
-    };
-  return { icon: "info", title: "", text: "" };
-}
-
-export const SETTINGS_GLOBAL: readonly (readonly [SettingsPage, string, string])[] = [
-  ["tools", "Agent tools", "plug"],
-  ["agents", "Agents", "bot"],
-  ["notifications", "Notifications", "bell"],
-  ["appearance", "Appearance", "palette"],
-  ["keyboard", "Keyboard shortcuts", "keyboard"],
-  ["data", "Data", "database"],
-  ["about", "About", "info"],
-];
-
-export function settingsTitle(s: DemoState): string {
-  if (s.spage === "proj-NOTE" || s.spage === "proj-SHOP")
-    return project(s.spage === "proj-NOTE" ? "NOTE" : "SHOP").name;
-  return SETTINGS_GLOBAL.find((x) => x[0] === s.spage)?.[1] ?? "";
-}
-
-/** The project a project page of Settings shows (the current project on the other pages). */
-export function settingsProject(s: DemoState): ProjectKey {
-  if (s.spage === "proj-NOTE") return "NOTE";
-  if (s.spage === "proj-SHOP") return "SHOP";
-  return s.project;
-}
-
-export interface ToolRow {
-  id: ToolId;
-  name: string;
-  detail: string;
-  status: string;
-  pillCls: string;
-  pillIcon: string;
-  action: string;
-  tip: string;
-}
-
-export function toolRows(s: DemoState): ToolRow[] {
-  const ok = s.openCodeInstalled;
+function activityTools(s: DemoState): ActivityTool[] {
+  const byTool: Record<ToolId, number> = { CC: 0, CX: 0, CP: 0, OC: 0 };
+  for (const t of s.tickets) if (running(t)) byTool[t.tool] += 1;
+  if (s.tickets.some((t) => t.st === "checking")) byTool.CX += 1;
+  const run = (id: ToolId) => String(byTool[id]) + " running";
   return [
     {
       id: "CC",
       name: "Claude Code",
-      detail: "Signed in · hooks installed · 2 project folders trusted",
-      status: "Connected",
-      pillCls: "pl-ok",
-      pillIcon: "check",
-      action: "Details",
-      tip: "Claude Code uses its own sign-in and permission mode. Otaq never changes them.",
+      running: run("CC"),
+      limit: s.fellBack
+        ? "5h: 18% left · resets 3:45 pm · waiting agents moved to Codex"
+        : "5h: 18% left · resets 3:45 pm · week: 60% left",
+      cls: "pa",
+      pct: 18,
+      barColor: "var(--pau)",
+      tokens: "today 412k tokens",
+      hasFallback: !s.fellBack,
     },
     {
       id: "CX",
-      name: "Codex CLI",
-      detail: "Signed in with ChatGPT · otaq.rules in ~/.codex",
-      status: "Connected",
-      pillCls: "pl-ok",
-      pillIcon: "check",
-      action: "Details",
-      tip: "Otaq pre-approves only its own otaq commands, and removes otaq.rules when you disconnect.",
+      name: "Codex",
+      running: run("CX"),
+      limit: "week: 71% left · credits: 120",
+      cls: "",
+      pct: 71,
+      barColor: "var(--ok)",
+      tokens: "today 96k tokens",
+      hasFallback: false,
     },
     {
       id: "CP",
-      name: "GitHub Copilot CLI",
-      detail: "Signed in · month: 80% left · resets Nov 1",
-      status: "Connected",
-      pillCls: "pl-ok",
-      pillIcon: "check",
-      action: "Details",
-      tip: "Copilot can run models from several companies, so your validator can come from a different one.",
+      name: "Copilot",
+      running: run("CP"),
+      limit: "month: 80% left · resets Nov 1",
+      cls: "",
+      pct: 80,
+      barColor: "var(--ok)",
+      tokens: "today 31k tokens",
+      hasFallback: false,
     },
     {
       id: "OC",
       name: "OpenCode",
-      detail: ok ? "Found · signed in" : "Not found on this computer. Install it, then press Check again.",
-      status: ok ? "Connected" : "Not installed",
-      pillCls: ok ? "pl-ok" : "pl-q",
-      pillIcon: ok ? "check" : "circle-dashed",
-      action: ok ? "Details" : "How to install",
-      tip: "In the app this opens OpenCode’s install guide.",
+      running: run("OC"),
+      limit: "Limits not reported · tokens only",
+      cls: "",
+      pct: null,
+      barColor: "",
+      tokens: "today 6k tokens",
+      hasFallback: false,
     },
   ];
 }
 
-export const THEMES = [
-  { id: "dark", name: "Otaq Dark", bg: "#0e0f11", col: "#121316", card: "#23262c", ac: "#6e78f7" },
-  { id: "light", name: "Otaq Light", bg: "#f6f6f4", col: "#eeeeeb", card: "#ffffff", ac: "#4c57d6" },
-] as const;
+export function boardView(s: DemoState): BoardView {
+  const proj = project(s.project);
+  const flow = flowOf(s, s.project);
+  return {
+    proj,
+    flowLabel: flow.name.replace("’s flow", "") + " · " + String(flow.stages.length) + " stages",
+    runningLabel: String(s.tickets.filter(running).length) + " working",
+    hintText:
+      s.view === "board"
+        ? "Drag a Backlog card to Ready to start it · click a card to open it"
+        : "Grouped by stage, in flow order",
+    projects: PROJECTS.map((p) => ({
+      key: p.key,
+      name: p.name,
+      on: p.key === s.project,
+      badge: needsOf(s.tickets, p.key).filter((n) => n.why !== "your check").length,
+    })),
+    needs: needsOf(s.tickets, s.project),
+    columns: columnsOf(s),
+    doneCount: shown(s).filter((x) => x.col === "done").length,
+    actTools: activityTools(s),
+    pause: {
+      label: s.paused ? "Resume" : "Pause",
+      icon: s.paused ? "play" : "pause",
+      cls: s.paused ? "pau" : "out",
+      scope: s.paused === "all" ? "all projects" : proj.name,
+      menuTitle: s.paused ? "Resume" : "Pause",
+    },
+  };
+}
 
-export const ROLES: readonly (readonly [Role, string, string])[] = [
-  ["dev", "Writes code", "For tickets that don’t pick an agent"],
-  ["val", "Validates", "Checks every submitted change"],
-  ["lead", "Leads epics", "Plans an epic’s children with you"],
-  ["proj", "Project agent", "Runs in the pane left of the board"],
+/** Where a column's stage menu opens, from its button's box in the demo's own coordinates (already divided by the
+ * frame's scale): under the button, 180 px to its left, kept inside the board. */
+export function stageMenuAt(btn: { bottom: number; left: number }): { top: number; left: number } {
+  return { top: btn.bottom + 4, left: Math.max(70, Math.min(btn.left - 180, DEMO_WIDTH - 240)) };
+}
+
+// --- the ticket sheet ----------------------------------------------------------------------------------------------
+
+/** The sheet's tabs: id, label, icon and key. */
+export const PANE_TABS: readonly (readonly [PaneTab, string, string, string])[] = [
+  ["overview", "Overview", "file-text", "1"],
+  ["session", "Session", "terminal", "2"],
+  ["files", "Files", "file-diff", "3"],
+  ["activity", "Activity", "history", "4"],
 ];
 
-export const KEYS: readonly { t: string; k: string }[] = [
-  { t: "Search", k: "⌘K" },
-  { t: "Focus the Project agent pane", k: "⌘L" },
-  { t: "Hide or show the pane", k: "⌘\\" },
-  { t: "New Project agent", k: "⇧⌘A" },
-  { t: "Board", k: "⇧⌘B" },
-  { t: "Terminals", k: "⇧⌘T" },
-  { t: "Activity", k: "⇧⌘U" },
-  { t: "Expand the ticket panel", k: "⇧⌘E" },
-  { t: "Project 1–9", k: "⌘1–9" },
-];
+export interface StepView {
+  name: string;
+  state: "done" | "current" | "to";
+  /** The current step glows while the ticket waits for you. */
+  attn: boolean;
+}
 
-export const NAMED_AGENTS: readonly AgentName[] = AGENT_NAMES;
+export interface CheckView {
+  name: string;
+  tool: ToolId;
+  verdict: string;
+  model: string;
+  color: string;
+  s: string;
+}
+
+export interface ManualView {
+  t: string;
+  on: boolean;
+  src: string;
+}
+
+export interface Attachment {
+  name: string;
+  size: string;
+  tool: ToolId;
+  who: string;
+  stage: string;
+  line: string;
+}
+
+export interface PartView {
+  id: SessionPart;
+  label: string;
+  on: boolean;
+  dot: string | null;
+}
+
+export interface TicketView {
+  k: string;
+  title: string;
+  prio: Priority;
+  pill: { cls: string; icon: string; label: string; spin: boolean };
+  stageName: string;
+  tool: ToolId;
+  agent: string;
+  model: string;
+  stateLabel: string;
+  stateValue: string;
+  canApprove: boolean;
+  canDecide: boolean;
+  canStart: boolean;
+  isRunning: boolean;
+  isPR: boolean;
+  ask: { title: string; icon: string; opts: { n: number; label: string; rec: string; act: string }[] } | null;
+  /** The number of the Other… option, after the ask's own. */
+  otherN: number;
+  desc: string;
+  acc: readonly string[];
+  pieces: readonly Piece[];
+  helperCount: number;
+  before: { head: string; sum: string; checks: CheckView[] } | null;
+  decision: { t: string; s: string } | null;
+  manual: ManualView[];
+  blockedBy: string;
+  blocks: string;
+  startNote: string;
+  comments: Comment[];
+  atts: Attachment[];
+  steps: StepView[];
+  parts: PartView[];
+  log: readonly Line[];
+  checkLog: readonly Line[];
+  adds: number;
+  dels: number;
+  files: readonly DiffFile[];
+  hist: readonly HistoryEntry[];
+  port: number;
+  rbarNote: string;
+  /** The tabs' live dot (Session) and count (Files). */
+  liveSession: boolean;
+  fileCount: number;
+}
+
+const isSecurity = (ck: CheckResult) => ck.t.startsWith("Security");
+
+/** The open ticket's sheet, or null when none is open. */
+export function ticketView(s: DemoState): TicketView | null {
+  const ot = s.openKey ? s.tickets.find((t) => t.k === s.openKey) : undefined;
+  if (!ot) return null;
+  const st = status(ot);
+  const flow = flowOf(s, ot.p);
+  const curAttn = asking(ot);
+  const runningT = running(ot);
+  const checks = ot.checks ?? [];
+  const pieces = ot.pieces ?? [];
+  const beforeHead = checks.length === 2 ? "Security and Validate" : "Validate";
+
+  const stepsAll: { name: string; id: Column }[] = [
+    { name: "Backlog", id: "backlog" },
+    ...flow.stages.map((x) => ({ name: x.name, id: x.id })),
+    { name: "Done", id: "done" },
+  ];
+  const cur = stepsAll.findIndex((x) => x.id === ot.col);
+
+  const unmet = ot.waits.filter((w) => {
+    const x = s.tickets.find((y) => y.k === w);
+    return x !== undefined && x.col !== "done";
+  });
+  const blocks = s.tickets.filter((x) => x.waits.includes(ot.k)).map((x) => x.k);
+
+  const comments: Comment[] = [...(s.comments[ot.k] ?? [])];
+  if (ot.by === "Noyan" || ot.k === "SHOP-29")
+    comments.unshift({
+      tool: "CC",
+      who: "Noyan",
+      at: "yesterday",
+      stage: "Backlog",
+      t: "Filed from your note. The coupon code must never reach SQL unescaped; see lib/db.ts for the query helper.",
+    });
+  if (ot.st === "review")
+    comments.unshift({
+      tool: ot.tool,
+      who: ot.agent,
+      at: ot.ago || "now",
+      stage: "Dev → " + (flow.stages.find((x) => x.kind === "check")?.name ?? "Review"),
+      t: "Submitted. Summary in the attached report. One decision recorded.",
+    });
+
+  const atts: Attachment[] = [];
+  if (ot.adds)
+    atts.push({
+      name: "Summary.md",
+      size: "2 KB",
+      tool: ot.tool,
+      who: ot.agent,
+      stage: "Dev",
+      line: "What changed, and the one decision I made.",
+    });
+  for (const ck of checks) {
+    const head = ck.t.split(" · ")[0] ?? ck.t;
+    atts.push({
+      name: head + " report.md",
+      size: "4 KB",
+      tool: isSecurity(ck) ? "CC" : "CX",
+      who: isSecurity(ck) ? "Security reviewer" : "Validator",
+      stage: head,
+      line: ck.s,
+    });
+  }
+  if (ot.st === "failed")
+    atts.push({
+      name: "Security report · round 3.md",
+      size: "3 KB",
+      tool: "CC",
+      who: "Security reviewer",
+      stage: "Security",
+      line: "Unescaped SQL in lib/address.ts, line 41.",
+    });
+
+  const checking = ot.st === "checking" || ot.st === "checking2";
+  const partDefs: { id: SessionPart; label: string; dot: string | null }[] = [
+    {
+      id: "agent",
+      label: ot.agent,
+      dot: runningT && !checking ? "var(--ok)" : curAttn && ot.st !== "failed" ? "var(--attn)" : null,
+    },
+  ];
+  if (checks.length || checking || ot.st === "failed")
+    partDefs.push({
+      id: "check",
+      label: ot.st === "failed" || checking ? "Security reviewer" : "Validator",
+      dot: checking ? "var(--ok)" : ot.st === "failed" ? "var(--attn)" : null,
+    });
+  partDefs.push({ id: "run", label: "Run", dot: null }, { id: "shell", label: "Shell", dot: null });
+
+  const tokensSuffix = ot.tokens ? " · " + ot.tokens + " tokens" : "";
+  const askIcon = ot.ask?.kind === "perm" ? "hand" : ot.ask?.kind === "decide" ? "circle-alert" : "message-q";
+
+  return {
+    k: ot.k,
+    title: ot.title,
+    prio: ot.prio,
+    pill: { cls: PILL_CLASS[st.cls], icon: st.icon, label: st.label, spin: st.icon === "loader" },
+    stageName: stageName(s, ot),
+    tool: ot.tool,
+    agent: ot.agent,
+    model: TOOL_NAMES[ot.tool] + " · " + (MODELS[ot.agent] ?? "default model"),
+    stateLabel: runningT
+      ? "Working"
+      : ot.st === "attn"
+        ? "Waiting"
+        : ot.st === "review"
+          ? "Your check"
+          : ot.st === "done"
+            ? "Merged"
+            : ot.st === "pr"
+              ? "PR"
+              : "Status",
+    stateValue: runningT
+      ? (ot.ago || "now") + tokensSuffix
+      : ot.st === "attn"
+        ? "since " + (ot.ago || "now") + tokensSuffix
+        : ot.tokens
+          ? ot.tokens + " tokens"
+          : "—",
+    canApprove: ot.st === "review",
+    canDecide: ot.st === "failed",
+    canStart: ot.col === "backlog" || ot.col === "ready",
+    isRunning: runningT && ot.st !== "helpers",
+    isPR: ot.st === "pr",
+    ask:
+      ot.ask && curAttn
+        ? {
+            title: ot.ask.title,
+            icon: askIcon,
+            opts: ot.ask.opts.map((o, i) => ({ n: i + 1, label: o.label, rec: o.rec, act: o.act })),
+          }
+        : null,
+    otherN: (ot.ask ? ot.ask.opts.length : 0) + 1,
+    desc: ot.desc ?? "",
+    acc: ot.acc,
+    pieces,
+    helperCount: pieces.filter((p) => p.s !== "merged").length,
+    before:
+      checks.length && ot.st === "review"
+        ? {
+            head: beforeHead,
+            sum:
+              String(checks.length) +
+              (checks.length === 1 ? " check agent · passed" : " check agents · both passed"),
+            checks: checks.map((ck) => ({
+              name: isSecurity(ck) ? "Security reviewer" : "Validator",
+              tool: isSecurity(ck) ? "CC" : "CX",
+              verdict: ck.t.includes("failed") ? "failed" : ck.t.split(" · ").slice(1).join(" · "),
+              model: isSecurity(ck) ? "Claude Code · opus · effort high" : "Codex · gpt-sol",
+              color: ck.color,
+              s: ck.s,
+            })),
+          }
+        : null,
+    decision: ot.decision ? { t: ot.decisionT ?? "", s: ot.decision } : null,
+    manual: (ot.manual ?? []).map((t, i) => ({
+      t,
+      on: !!s.manualDone[ot.k + ":" + String(i)],
+      src: i === 0 ? "Validator" : "Security reviewer",
+    })),
+    blockedBy: ot.waits.length
+      ? ot.waits.join(", ") + (unmet.length ? " · waits for " + unmet.join(", ") + " to merge" : " · merged")
+      : "Nothing",
+    blocks: blocks.length ? blocks.join(", ") : "Nothing",
+    startNote: unmet.length
+      ? "waits for " + unmet.join(", ") + " to merge, then starts on its own"
+      : "or drag the card to Ready for Dev",
+    comments,
+    atts,
+    steps: stepsAll.map((x, i) => {
+      const state = i < cur ? "done" : i === cur ? "current" : "to";
+      return { name: x.name, state, attn: state === "current" && curAttn };
+    }),
+    parts: partDefs.map((p) => ({ ...p, on: s.part === p.id })),
+    log: ot.log,
+    checkLog:
+      ot.st === "failed"
+        ? [
+            L("d", "Security reviewer · Claude Code · round 3 of 3"),
+            L("tool", "/security-review"),
+            L("e", "Failed: lib/address.ts:41 concatenates the query parameter into SQL."),
+          ]
+        : ot.st === "checking2"
+          ? [
+              L("d", "Security reviewer · Claude Code · round 2 of 3"),
+              L("tool", "/security-review"),
+              L("a", "Round 1 found unescaped SQL. Reading the fix in lib/coupon.ts."),
+            ]
+          : [
+              L("d", "Validator · Codex · round 1"),
+              L("tool", "/validate"),
+              L("ok", "✓ tests pass · lint clean · change matches the ticket"),
+            ],
+    adds: ot.adds ?? 0,
+    dels: ot.dels ?? 0,
+    files: ot.files ?? [],
+    hist: ot.hist.length
+      ? ot.hist
+      : [
+          { at: "yesterday", t: "Filed by " + (ot.by ?? "you") },
+          { at: "today", t: "In " + stageName(s, ot) },
+        ],
+    port: 4000 + (parseInt(ot.k.replace(/\D/g, ""), 10) || 0),
+    rbarNote: "Passed " + beforeHead + ". Approve merges it the way Ship says; Send back goes to Dev.",
+    liveSession: runningT,
+    fileCount: (ot.files ?? []).length,
+  };
+}
+
+// --- the flow editor -----------------------------------------------------------------------------------------------
+
+export interface PresetView {
+  id: FlowId;
+  name: string;
+  desc: string;
+  on: boolean;
+}
+
+export interface DraftStage {
+  id: StageId;
+  name: string;
+  kind: string;
+  kindLong: string;
+  who: string;
+  skill: string;
+  fail: string;
+  color: string;
+  /** The drawn pop-in's stagger. */
+  delay: string;
+  sel: boolean;
+}
+
+export interface FlowEditorView {
+  presets: PresetView[];
+  draftName: string;
+  draftCount: number;
+  /** " · in use", or which preset the draft starts from. */
+  draftInUse: string;
+  stages: DraftStage[];
+  msgs: readonly NoyanMsg[];
+  applyNote: string;
+}
+
+export function flowEditorView(s: DemoState): FlowEditorView {
+  const inUseId = s.flows[s.project];
+  const draftId = s.flowDraftId ?? inUseId;
+  const draft = FLOWS[draftId];
+  const inUse = draftId === inUseId;
+  const inFlight = s.tickets.filter(
+    (x) => x.p === s.project && x.col !== "backlog" && x.col !== "done" && x.col !== "ready",
+  ).length;
+  return {
+    presets: PRESET_IDS.filter((id) => id !== "shop" || s.project === "SHOP").map((id) => ({
+      id,
+      name: FLOWS[id].name,
+      desc: id === inUseId ? "In use · the board’s columns" : FLOWS[id].desc,
+      on: draftId === id,
+    })),
+    draftName: draft.name,
+    draftCount: draft.stages.length,
+    draftInUse: inUse ? " · in use" : " · starting from " + draft.name,
+    stages: draft.stages.map((st, i) => ({
+      id: st.id,
+      name: st.name,
+      kind: KIND[st.kind],
+      kindLong: KIND_LONG[st.kind],
+      who: st.who,
+      skill: st.skill,
+      fail: st.fail,
+      color: KIND_COLOR[st.kind],
+      delay: String(i * 50) + "ms",
+      sel: s.flowSel === st.id,
+    })),
+    msgs: s.flowMsgs,
+    applyNote: inUse
+      ? "No changes."
+      : inFlight
+        ? "Swapping flows waits until the board is quiet: " +
+          String(inFlight) +
+          " tickets are mid-flow. Tickets in Backlog and Ready follow the new flow at once."
+        : "Applies at once.",
+  };
+}
