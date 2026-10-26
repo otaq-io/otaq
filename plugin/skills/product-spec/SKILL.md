@@ -51,20 +51,20 @@ never saw this conversation understands what was decided and why.
    own commit skill); when it names none, commit with `git add -A` and `git commit -m "SHOP-40: …"`. Nothing may stay
    uncommitted: `otaq stage next` is refused while files are uncommitted. **Never push.**
 8. **End your stage** with a short comment on stdin, then end your turn. It names **each file and decision you
-   wrote**, then what you agreed, in a line or two (at most 2,000 characters). It is posted as your comment on the
-   ticket; Tech spec, Milestone plan and the user at Spec review read it:
+   wrote**, then what you agreed, in a line or two (at most 2,000 characters). Tech spec, Milestone
+   plan and the user at Spec review read it:
 
    ```sh
-   otaq stage next --stdin \
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/market-comparison.md" \
      --manual-check "Open a shared wishlist link in a private window" <<'COMMENT'
    Product spec: decisions/0140 (the share link), DESIGN.md; agreed: per-account storage, no email in the shared view.
+   Attached: how three shops share wishlists.
    COMMENT
    ```
 
    When you agreed on something no agent will be able to check (it needs a real browser, a device, or a service the
    agents can't reach), list it with `--manual-check "<what to check>"`, one line per check, repeated for each. The
-   user sees them as "Manual checks for you" at review. Attach long output with
-   `--report-file "$OTAQ_RESOURCE_DIR/notes.txt"` (see "Long output").
+   user sees them as "Manual checks for you" at review.
 
    **Nothing to build?** Only when the user agrees the ticket isn't needed (for example "already fixed in SHOP-31")
    and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Closed · nothing
@@ -104,13 +104,12 @@ BODY
 
 ## Long output
 
-When you run code to understand it, long output (a test run, a long log) goes to a file in `$OTAQ_RESOURCE_DIR`,
-Otaq's folder for this ticket outside the repository, never in the worktree: for example
-`npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1`, then `grep -n FAIL "$OTAQ_RESOURCE_DIR/test-run.txt"` or
-`tail -n 40 …`. Search it; **never print it in full or retype it.** When the next stage needs it, attach it to your
-comment with `--report-file "$OTAQ_RESOURCE_DIR/test-run.txt"`. A comment with a report shows a line in `prime` such
-as "Report: 48 KB, 2,310 lines · `otaq report SHOP-40 2`": search it with
-`grep -n "share" "$(otaq report SHOP-40 2 --path)"` instead of printing it.
+Long output (a test run, a long log) goes to a file in `$OTAQ_RESOURCE_DIR`, Otaq's folder for this ticket outside
+the repository, never in the worktree: `npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1`, then
+`grep -n FAIL "$OTAQ_RESOURCE_DIR/test-run.txt"`. Search it; **never print it in full or retype it.** Name it in your
+comment; never attach command output, such as a run, a diff or a log. **Attach only a document you wrote**, in
+`$OTAQ_RESOURCE_DIR`, with `--report-file`: a write-up the user or a later stage will read (a market comparison, an
+investigation, a comparison of options). It goes into the repo only when the project's notes say research lives there.
 
 ## Asking
 
@@ -149,5 +148,5 @@ QUESTION
 - Ask before you decide anything that changes what gets built; don't guess an answer the user hasn't given.
 - **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
-  goes in a report.
+  goes to a file.
 - Always finish with `otaq stage next --stdin` (or `otaq stage done --stdin` when there is nothing to build).

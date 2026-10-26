@@ -538,22 +538,16 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     assert!(work.contains("until the ticket is done, as its description describes"));
 }
 
-/// Pending (M48): the skills that still attach command output, so the T-0559 checks below skip them. Each ticket
-/// takes its skills off this list; when it is empty, remove it.
-const STILL_ATTACH_OUTPUT: [&str; 3] = [
-    "product-spec",   // T-0561
-    "tech-spec",      // T-0561
-    "milestone-plan", // T-0561
-];
-
 /// T-0445 (CMT-09, CMT-08; d0109): the shipped skills keep the hand-over short and long output out of comments. Each
 /// says to send long command output to a file in `$OTAQ_RESOURCE_DIR`, never the worktree, to search it and never
 /// print it in full or retype it, and how to read a report (`report <KEY> <N> --path`). The skills that end a stage
 /// keep `prime` first and say Otaq refuses the stage end without it. T-0559 (CMT-09; d0136): no skill attaches a run,
 /// a log or a diff with `--report-file`; the stage-ending skills say command output is never attached and only a
 /// document you wrote is; the Developer's skills end with one "`<command>` at `<commit>`: … log: …" line per check,
-/// run after the last commit. No skill pipes anything into an `otaq` command: stdin carries only the short text, from
-/// a heredoc.
+/// run after the last commit. T-0561 (CMT-09; d0136): the planning skills show one document they wrote, a `.md` in
+/// `$OTAQ_RESOURCE_DIR` attached with `--report-file`, and attach nothing else; they say what a document is and that
+/// it goes into the repo only when the project's notes say so. No skill pipes anything into an `otaq` command: stdin
+/// carries only the short text, from a heredoc.
 #[test]
 fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     let cmd = naming::COMMAND_NAME;
@@ -598,20 +592,15 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
             text.to_lowercase().contains("never in the worktree"),
             "{name}: never the worktree"
         );
-        if !STILL_ATTACH_OUTPUT.contains(&name) {
-            for needle in [
-                "never attach command output",
-                "Attach only a document you wrote",
-            ] {
-                assert!(text.contains(needle), "{name} must say {needle:?}");
-            }
+        for needle in [
+            "never attach command output",
+            "Attach only a document you wrote",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
         }
     }
     // No skill attaches a run, a log or a diff.
     for name in skill_names() {
-        if STILL_ATTACH_OUTPUT.contains(&name.as_str()) {
-            continue;
-        }
         let (_, body) = skill(&name);
         let body = joined(&body);
         for (at, flag) in body.match_indices("--report-file ") {
@@ -653,6 +642,38 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
                     && l.ends_with("; log: `$OTAQ_RESOURCE_DIR/test-run.txt`")),
             "{name}: the \"<command> at <commit>: … log: …\" line in\n{comment}"
         );
+    }
+    // The planning skills attach one document they wrote, never output, and say what a document is.
+    for (name, document) in [
+        ("product-spec", "market-comparison.md"),
+        ("tech-spec", "options.md"),
+        ("milestone-plan", "notes.md"),
+    ] {
+        let (_, body) = skill(name);
+        let lines = joined(&body);
+        let attached: Vec<_> = lines
+            .match_indices("--report-file ")
+            .map(|(at, flag)| {
+                lines[at + flag.len()..]
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .trim_end_matches(['`', ':'])
+            })
+            .collect();
+        assert_eq!(
+            attached,
+            [format!("\"$OTAQ_RESOURCE_DIR/{document}\"")],
+            "{name}: one document attached"
+        );
+        let text = flat(&body);
+        for needle in [
+            "a write-up the user or a later stage will read (",
+            "never attach command output, such as a run, a diff or a log",
+            "It goes into the repo only when the project's notes say research lives there.",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
     }
     // T-0560 (CMT-09, VAL-03; d0136, d0063): the validator starts from the agent's comment, may rely on a passing
     // run at HEAD, lists when to run a check itself, and its verdicts attach nothing and say what was relied on and
