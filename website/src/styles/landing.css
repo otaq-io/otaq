@@ -8,7 +8,10 @@
  * - .lp clips sideways overflow with `overflow-x: clip` instead of `hidden`, which would make .lp a scroll container
  *   and stop the nav from sticking;
  * - the FAQ is <details name="faq"> (one open at a time, without a script), so .fq styles a <summary>;
- * - on phones the nav drops its GitHub button, so the bar fits in 360 px.
+ * - on phones the nav drops its GitHub button, so the bar fits in 360 px;
+ * - rules on class names the live demo also uses (.btn, .pill, .strip, .menu, a, button …) end in
+ *   `:not(:where(.oq *))`, so they stop at the demo's root (demo.css styles it on its own, from Demo3.dc.html). The
+ *   `:where` adds no specificity, so the page itself is styled exactly as before.
  */
 
 html {
@@ -20,10 +23,10 @@ html {
     scroll-behavior: auto;
   }
 }
-.lp a {
+.lp a:not(:where(.oq *)) {
   color: inherit;
 }
-.lp a:hover {
+.lp a:hover:not(:where(.oq *)) {
   color: inherit;
 }
 .lp {
@@ -59,11 +62,11 @@ html {
 .lp * {
   box-sizing: border-box;
 }
-.lp button {
+.lp button:not(:where(.oq *)) {
   font: inherit;
   color: inherit;
 }
-.lp .mono {
+.lp .mono:not(:where(.oq *)) {
   font-family: var(--font-mono);
 }
 .lp .wrap {
@@ -72,7 +75,7 @@ html {
   padding: 0 32px;
   position: relative;
 }
-.lp .ic {
+.lp .ic:not(:where(.oq *)) {
   width: 16px;
   height: 16px;
   fill: none;
@@ -82,7 +85,7 @@ html {
   stroke-linejoin: round;
   flex: none;
 }
-.lp .ic.s12 {
+.lp .ic.s12:not(:where(.oq *)) {
   width: 12px;
   height: 12px;
 }
@@ -94,13 +97,13 @@ html {
   width: 20px;
   height: 20px;
 }
-.lp .mk {
+.lp .mk:not(:where(.oq *)) {
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.lp .mk .o {
+.lp .mk .o:not(:where(.oq *)) {
   stroke-width: 8;
 }
 .lp .mk .c {
@@ -110,12 +113,12 @@ html {
   fill: var(--flag);
   stroke: none;
 }
-.lp button:focus-visible,
-.lp a:focus-visible {
+.lp button:focus-visible:not(:where(.oq *)),
+.lp a:focus-visible:not(:where(.oq *)) {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-.lp .spin {
+.lp .spin:not(:where(.oq *)) {
   animation: spin 1s linear infinite;
 }
 @keyframes spin {
@@ -188,7 +191,7 @@ html {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.lp .btn {
+.lp .btn:not(:where(.oq *)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -207,32 +210,32 @@ html {
     transform 0.12s;
   white-space: nowrap;
 }
-.lp .btn-p {
+.lp .btn-p:not(:where(.oq *)) {
   background: var(--accent);
   color: var(--text-on-accent);
 }
-.lp .btn-p:hover {
+.lp .btn-p:hover:not(:where(.oq *)) {
   background: var(--accent-hover);
   color: var(--text-on-accent);
 }
-.lp .btn-s {
+.lp .btn-s:not(:where(.oq *)) {
   background: var(--bg-raised);
   color: var(--text-primary);
   border-color: var(--border-strong);
 }
-.lp .btn-s:hover {
+.lp .btn-s:hover:not(:where(.oq *)) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.lp .btn-g {
+.lp .btn-g:not(:where(.oq *)) {
   background: none;
   color: var(--text-secondary);
 }
-.lp .btn-g:hover {
+.lp .btn-g:hover:not(:where(.oq *)) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.lp .btn-sm {
+.lp .btn-sm:not(:where(.oq *)) {
   height: 32px;
   padding: 0 12px;
   font-size: 13px;
@@ -242,10 +245,10 @@ html {
   padding: 0 20px;
   font-size: 15px;
 }
-.lp .btn:active {
+.lp .btn:active:not(:where(.oq *)) {
   transform: translateY(1px);
 }
-.lp .ibtn {
+.lp .ibtn:not(:where(.oq *)) {
   width: 32px;
   height: 32px;
   display: inline-flex;
@@ -257,7 +260,7 @@ html {
   cursor: pointer;
   color: var(--text-secondary);
 }
-.lp .ibtn:hover {
+.lp .ibtn:hover:not(:where(.oq *)) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -290,7 +293,7 @@ html {
 .lp .sec.tight {
   padding-top: 88px;
 }
-.lp .pill {
+.lp .pill:not(:where(.oq *)) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -301,7 +304,7 @@ html {
   white-space: nowrap;
   align-self: flex-start;
 }
-.lp .pill .ic {
+.lp .pill .ic:not(:where(.oq *)) {
   width: 12px;
   height: 12px;
 }
@@ -341,7 +344,7 @@ html {
   color: var(--text-muted);
   background: var(--st-queued-bg);
 }
-.lp .av {
+.lp .av:not(:where(.oq *)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -356,32 +359,32 @@ html {
   height: 24px;
   font-size: 10px;
 }
-.lp .av.lg {
+.lp .av.lg:not(:where(.oq *)) {
   width: 36px;
   height: 36px;
   font-size: 13px;
 }
-.lp .av-CC {
+.lp .av-CC:not(:where(.oq *)) {
   background: var(--tool-cc);
   color: var(--tool-cc-fg);
 }
-.lp .av-CX {
+.lp .av-CX:not(:where(.oq *)) {
   background: var(--tool-cx);
   color: var(--tool-cx-fg);
 }
-.lp .av-CP {
+.lp .av-CP:not(:where(.oq *)) {
   background: var(--tool-cp);
   color: var(--tool-cp-fg);
 }
-.lp .av-OC {
+.lp .av-OC:not(:where(.oq *)) {
   background: var(--tool-oc);
   color: var(--tool-oc-fg);
 }
-.lp .av-U {
+.lp .av-U:not(:where(.oq *)) {
   background: var(--st-review-bg);
   color: var(--st-review);
 }
-.lp .kbd {
+.lp .kbd:not(:where(.oq *)) {
   font: 11px/1 var(--font-mono);
   color: var(--text-secondary);
   background: var(--bg-column);
@@ -455,7 +458,7 @@ html {
   flex-wrap: wrap;
   margin-top: 34px;
 }
-.lp .strip {
+.lp .strip:not(:where(.oq *)) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -464,12 +467,12 @@ html {
   background: var(--bg-panel);
   font-size: 12px;
 }
-.lp .strip .t {
+.lp .strip .t:not(:where(.oq *)) {
   color: var(--st-attn);
   font-weight: 600;
   white-space: nowrap;
 }
-.lp .strip .ch {
+.lp .strip .ch:not(:where(.oq *)) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -482,11 +485,11 @@ html {
   font-size: 12px;
   white-space: nowrap;
 }
-.lp .strip .ch .k {
+.lp .strip .ch .k:not(:where(.oq *)) {
   font: 11px var(--font-mono);
   color: var(--text-muted);
 }
-.lp .strip .nx {
+.lp .strip .nx:not(:where(.oq *)) {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
@@ -1215,7 +1218,7 @@ html {
   height: 8px;
   border-radius: 50%;
 }
-.lp .opt {
+.lp .opt:not(:where(.oq *)) {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1230,7 +1233,7 @@ html {
   font: 11px var(--font-mono);
   color: var(--text-muted);
 }
-.lp .opt.on {
+.lp .opt.on:not(:where(.oq *)) {
   border-color: var(--accent);
 }
 .lp .opt .tag {
@@ -1254,31 +1257,31 @@ html {
 .lp .sp-card.act p {
   margin-top: 12px;
 }
-.lp .arow {
+.lp .arow:not(:where(.oq *)) {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 9px 0;
   border-top: 1px solid var(--border);
 }
-.lp .ainfo {
+.lp .ainfo:not(:where(.oq *)) {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.lp .an {
+.lp .an:not(:where(.oq *)) {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
 }
-.lp .al {
+.lp .al:not(:where(.oq *)) {
   font-size: 12px;
   color: var(--text-secondary);
 }
-.lp .al.pa {
+.lp .al.pa:not(:where(.oq *)) {
   color: var(--st-paused);
 }
 .lp .abar2 {
@@ -1293,7 +1296,7 @@ html {
   height: 100%;
   border-radius: 2px;
 }
-.lp .at {
+.lp .at:not(:where(.oq *)) {
   font: 11px var(--font-mono);
   color: var(--text-muted);
 }
@@ -1709,13 +1712,13 @@ html {
   flex-direction: column;
   gap: 12px;
 }
-.lp .slab {
+.lp .slab:not(:where(.oq *)) {
   font: 500 10.5px/1 var(--font-mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.lp .rep {
+.lp .rep:not(:where(.oq *)) {
   display: flex;
   gap: 10px;
   padding: 9px 11px;
@@ -1724,24 +1727,24 @@ html {
   font-size: 12.5px;
   background: var(--bg-app);
 }
-.lp .rep .ic {
+.lp .rep .ic:not(:where(.oq *)) {
   margin-top: 2px;
 }
-.lp .rep b {
+.lp .rep b:not(:where(.oq *)) {
   font-weight: 600;
   display: block;
 }
-.lp .rep span {
+.lp .rep span:not(:where(.oq *)) {
   color: var(--text-secondary);
 }
-.lp .chk {
+.lp .chk:not(:where(.oq *)) {
   display: flex;
   align-items: center;
   gap: 9px;
   font-size: 12.5px;
   color: var(--text-secondary);
 }
-.lp .chk i {
+.lp .chk i:not(:where(.oq *)) {
   width: 14px;
   height: 14px;
   border: 1px solid var(--border-strong);
@@ -1783,7 +1786,7 @@ html {
   gap: 8px;
   flex-wrap: wrap;
 }
-.lp .menu {
+.lp .menu:not(:where(.oq *)) {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-raised);
@@ -1792,16 +1795,16 @@ html {
   font-size: 13px;
   width: 240px;
 }
-.lp .menu .i {
+.lp .menu .i:not(:where(.oq *)) {
   padding: 9px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.lp .menu .i.on {
+.lp .menu .i.on:not(:where(.oq *)) {
   background: var(--accent-soft);
 }
-.lp .menu .i span {
+.lp .menu .i span:not(:where(.oq *)) {
   font-size: 11.5px;
   color: var(--text-muted);
   margin-left: auto;
@@ -2136,10 +2139,10 @@ html {
   margin: 0 auto 6px;
   max-width: 720px;
 }
-.lp .strip .ch.on {
+.lp .strip .ch.on:not(:where(.oq *)) {
   border-color: var(--st-attn);
 }
-.lp .big {
+.lp .big:not(:where(.oq *)) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
@@ -2174,12 +2177,12 @@ html {
   box-shadow: none;
 }
 @media (max-width: 1100px) {
-  .lp .big {
+  .lp .big:not(:where(.oq *)) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 760px) {
-  .lp .strip .nx {
+  .lp .strip .nx:not(:where(.oq *)) {
     display: none;
   }
 }

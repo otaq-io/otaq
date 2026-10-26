@@ -2,14 +2,14 @@
 import "../styles/fonts.css";
 import "../styles/tokens.css";
 
-// Every page's <head>: the title as drawn on the canvas (Main.dc.html), a description short enough for a search
+// Every page's <head>: the title in the v3 hero's words (Landing3.dc.html), a description short enough for a search
 // result (~155 characters), the canonical address, the link-preview card, and the app icon as favicon.
-const title = "Otaq — Run your coding agents from one board";
+const title = "Otaq — Coding agents that follow your process";
 const description =
-  "Otaq is a free, source-available board for coding agents like Claude Code and Codex. Agents plan tickets, write the code, and check it. You approve every merge.";
+  "A desktop app that runs Claude Code, Codex, GitHub Copilot and OpenCode through stages you design. Runs on your machine, with your own subscriptions.";
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const image = new URL("/og.png", Astro.site).href;
-const imageAlt = "Otaq: Your agents write the tickets. And then the code.";
+const imageAlt = "Otaq: Coding agents that follow your process.";
 ---
 
 <!doctype html>
