@@ -27,8 +27,8 @@ never saw this conversation understands what was decided, what else was consider
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 7).
 3. **Read what Product spec committed.** `prime`'s first line names the branch it merges into (for example `main`):
-   `git log --oneline main..HEAD` lists the commits, `git diff main...HEAD` shows them (a long diff goes to a file in
-   `$OTAQ_RESOURCE_DIR`; search it). Read every decision and doc it wrote in full: they are what you build on.
+   `git log --oneline main..HEAD` lists the commits, `git diff main...HEAD` shows them. Read every decision and
+   doc it wrote in full: they are what you build on.
 4. **Find where the architecture decisions and docs live.** The project's notes say it, for example "Decisions are in
    decisions/; the architecture is in SDD.md". With no note, use the place the ticket's description records ("Where
    the docs live") or the one Product spec wrote to; when neither says where the architecture goes, ask the user once
@@ -47,13 +47,13 @@ never saw this conversation understands what was decided, what else was consider
    sketch, a config sample), but don't build the feature: Dev does that. Nothing may stay uncommitted:
    `otaq stage next` is refused while files are uncommitted. **Never push.**
 7. **End your stage** with a short comment on stdin, then end your turn. It names **each file and decision you
-   wrote**, then the main choices, in a line or two (at most 2,000 characters). It is posted as your comment on the
-   ticket; Milestone plan and the user at Spec review read it:
+   wrote**, then the main choices, in a line or two (at most 2,000 characters). Milestone plan and
+   the user at Spec review read it:
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/query-plan.txt" <<'COMMENT'
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/options.md" <<'COMMENT'
    Tech spec: decisions/0141 (share tokens), SDD.md §7; a random token per list in the wishlists table, no new
-   service; the query plan for the shared view is attached.
+   service. Attached: the approaches I weighed. Query plan: `$OTAQ_RESOURCE_DIR/query-plan.txt`
    COMMENT
    ```
 
@@ -80,13 +80,12 @@ When Spec review sends the card back to you directly ("Spec review sent SHOP-40 
 
 ## Long output
 
-When you run code to understand it, long output (a test run, a long diff, a log) goes to a file in
-`$OTAQ_RESOURCE_DIR`, Otaq's folder for this ticket outside the repository, never in the worktree: for example
-`git diff main...HEAD > "$OTAQ_RESOURCE_DIR/spec-diff.txt"`, then `grep -n "^+++" "$OTAQ_RESOURCE_DIR/spec-diff.txt"`
-or `tail -n 40 …`. Search it; **never print it in full or retype it.** When the next stage needs it, attach it to
-your comment with `--report-file "$OTAQ_RESOURCE_DIR/spec-diff.txt"`. A comment with a report shows a line in
-`prime` such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-40 2`": search it with
-`grep -n "token" "$(otaq report SHOP-40 2 --path)"` instead of printing it.
+Long output (a test run, a long diff, a log) goes to a file in `$OTAQ_RESOURCE_DIR`, Otaq's folder for this ticket
+outside the repository, never in the worktree: `git diff main...HEAD > "$OTAQ_RESOURCE_DIR/spec-diff.txt"`, then
+`grep -n "^+++" "$OTAQ_RESOURCE_DIR/spec-diff.txt"`. Search it; **never print it in full or retype it.** Name it in
+your comment; never attach command output, such as a run, a diff or a log. **Attach only a document you wrote**, in
+`$OTAQ_RESOURCE_DIR`, with `--report-file`: a write-up the user or a later stage will read (a market comparison, an
+investigation, a comparison of options). It goes into the repo only when the project's notes say research lives there.
 
 ## Asking
 
@@ -125,5 +124,5 @@ QUESTION
   user, with the options you see.
 - **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
-  goes in a report.
+  goes to a file.
 - Always finish with `otaq stage next --stdin`.

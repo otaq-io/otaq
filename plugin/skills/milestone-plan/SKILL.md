@@ -28,8 +28,8 @@ ticket's agent starts a helper for each piece and merges their work.
    a day") and they apply to every step below. They add to these steps; they never remove getting the context (step 1)
    or ending your stage (step 7).
 3. **Read both specs.** `prime`'s first line names the branch it merges into (for example `main`):
-   `git log --oneline main..HEAD` lists the planning commits, `git diff main...HEAD` shows them (a long diff goes to a
-   file in `$OTAQ_RESOURCE_DIR`; search it). Read every decision and doc they wrote, and the code the work touches.
+   `git log --oneline main..HEAD` lists the planning commits, `git diff main...HEAD` shows them. Read every decision and
+   doc they wrote, and the code the work touches.
 4. **Decide the pieces.** A piece is a part one agent can build, test and hand back on its own, in about a day.
    - **One piece when the work is one**: a small deliverable gets a Plan with a single piece.
    - **Order them by what each needs**: a piece waits for the pieces whose code it builds on ("the button waits for the
@@ -55,8 +55,7 @@ ticket's agent starts a helper for each piece and merges their work.
    COMMENT
    ```
 
-   Add `--manual-check "<what to check>"` for anything no agent will be able to check, one per check, and attach long
-   output with `--report-file "$OTAQ_RESOURCE_DIR/spec-diff.txt"` (see "Long output").
+   Add `--manual-check "<what to check>"` for anything no agent will be able to check, one per check.
 
 ## Writing the Plan
 
@@ -116,10 +115,11 @@ comment. Run `otaq prime`." Either way:
 ## Long output
 
 Long output (a long diff, a test run) goes to a file in `$OTAQ_RESOURCE_DIR`, Otaq's folder for this ticket outside
-the repository, never in the worktree: for example `git diff main...HEAD > "$OTAQ_RESOURCE_DIR/spec-diff.txt"`, then
-`grep -n "^+++" "$OTAQ_RESOURCE_DIR/spec-diff.txt"` or `tail -n 40 …`. Search it; **never print it in full or retype
-it.** A comment with a report shows a line in `prime` such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-40 2`":
-search it with `grep -n "token" "$(otaq report SHOP-40 2 --path)"` instead of printing it.
+the repository, never in the worktree: `git diff main...HEAD > "$OTAQ_RESOURCE_DIR/spec-diff.txt"`, then
+`grep -n "^+++" "$OTAQ_RESOURCE_DIR/spec-diff.txt"`. Search it; **never print it in full or retype it.** Name it in
+your comment; never attach command output, such as a run, a diff or a log. **Attach only a document you wrote**, with
+`--report-file "$OTAQ_RESOURCE_DIR/notes.md"`: a write-up the user or a later stage will read (an investigation, a
+comparison of options). It goes into the repo only when the project's notes say research lives there.
 
 ## Asking
 
@@ -145,6 +145,6 @@ Agent instructions take precedence over this guidance.
 - **File nothing**: you never create tickets. Several tickets are Noyan's, at the user's request.
 - Plan the work; don't build it. The build stage's agent and its helpers write the code from the Plan.
 - **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
-- **Long text always goes through stdin** (`--stdin`) or a file, never quoted arguments. Long command output goes in
-  a report.
+- **Long text always goes through stdin** (`--stdin`) or a file, never quoted arguments. Long command output goes to
+  a file.
 - Always finish with `otaq stage next --stdin`.
