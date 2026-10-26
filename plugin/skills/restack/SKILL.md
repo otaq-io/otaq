@@ -63,8 +63,8 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 ```
 
 Search it with `grep` or `tail`; **never print it in full or retype it**; name it in your comment; never attach
-command output, such as a log. **Attach only a document you wrote**, such as design notes, with `--report-file`. To
-read a report an earlier comment points to ("Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`"), search its file:
+command output, such as a run, a diff or a log. **Attach only a document you wrote**, such as an investigation
+write-up, with `--report-file`. To read a report an earlier comment points to ("Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`"), search its file:
 `grep -n "conflict" "$(otaq report SHOP-19 4 --path)"`.
 
 ## When you need the user

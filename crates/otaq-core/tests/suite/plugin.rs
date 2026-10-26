@@ -525,7 +525,7 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
             "arrives in this session as a message",
             "If validation failed",
             &format!("run `{cmd} prime`, read the checker's comment"),
-            "search its report when you need the details",
+            "search the log it names when you need the details",
             &format!("fix them, commit everything and run `{cmd} stage next` again"),
         ] {
             assert!(
@@ -592,9 +592,10 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
             text.to_lowercase().contains("never in the worktree"),
             "{name}: never the worktree"
         );
+        // T-0562 (d0136): one voice, the same words in every stage-ending skill.
         for needle in [
-            "never attach command output",
-            "Attach only a document you wrote",
+            "never attach command output, such as a run, a diff or a log",
+            "**Attach only a document you wrote**",
         ] {
             assert!(text.contains(needle), "{name} must say {needle:?}");
         }
@@ -867,7 +868,7 @@ fn work_ticket_runs_helpers_as_the_agent_in_charge() {
         "**The Plan changed**".to_owned(),
         "once every piece is merged".to_owned(),
         format!("{cmd} stage next"),
-        format!("{cmd} helper start 5 --title \"Fixing the Validate report\""),
+        format!("{cmd} helper start 5 --title \"Fixing the Validate failure\""),
         "## As a helper".to_owned(),
         "**Build only your piece**".to_owned(),
         "otaq-commit".to_owned(),

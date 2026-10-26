@@ -63,7 +63,7 @@ before.
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message says only that ("Validate failed round 1. Run `otaq prime`."): run
-   `otaq prime`, read the checker's comment under "Comments" and search its report when you need the details, then
+   `otaq prime`, read the checker's comment under "Comments" and search the log it names when you need the details, then
    fix them, commit everything and run `otaq stage next` again. When it passes, the ticket moves on (to Ready for
    Review on the default board) and the user reviews the diff again.
 
@@ -79,8 +79,8 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 
 - **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
-- **Name it** in your comment; never attach command output, such as a log. **Attach only a document you wrote**,
-  such as design notes, with `--report-file` (at most 20 MB).
+- **Name it** in your comment; never attach command output, such as a run, a diff or a log. **Attach only a
+  document you wrote**, such as an investigation write-up, with `--report-file` (at most 20 MB).
 - **Reading a report:** under a comment with a report, `prime` shows a line such as "Report: 48 KB, 2,310 lines ·
   `otaq report SHOP-27 4`". Open it only when you need it, and search it:
   `grep -n "expected" "$(otaq report SHOP-27 4 --path)"`.

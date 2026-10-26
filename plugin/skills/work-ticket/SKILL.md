@@ -62,8 +62,8 @@ it: skip the steps below and follow "As a helper" at the end.
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message says only that ("Validate failed round 2. Run `otaq prime`."): run
-   `otaq prime`, read the checker's comment under "Comments" and search its report when you need the details (see
-   "Reading a report"), then fix them, commit everything and run `otaq stage next` again. When it passes, the ticket
+   `otaq prime`, read the checker's comment under "Comments" and search the log it names when you need the details (see
+   "Long output"), then fix them, commit everything and run `otaq stage next` again. When it passes, the ticket
    moves on (to Ready for Review on the default board) and the user reviews the diff.
 
    **Nothing to deliver?** Only when the ticket needs no change at all (for example it was already fixed in SHOP-31)
@@ -152,8 +152,8 @@ When the ticket comes back (a failed check, a Send back), the fix is yours as th
 yourself, or start a helper for it with the next free piece number, for example piece 5 when the Plan has 4:
 
 ```sh
-otaq helper start 5 --title "Fixing the Validate report" --stdin <<'NOTE'
-Validate failed: src/cart.ts:42 ignores the discount. Run `otaq prime` for the checker's comment and report.
+otaq helper start 5 --title "Fixing the Validate failure" --stdin <<'NOTE'
+Validate failed: src/cart.ts:42 ignores the discount. Run `otaq prime` for the checker's comment.
 NOTE
 ```
 
@@ -169,8 +169,8 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 
 - **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
-- **Name it** in your comment; never attach command output, such as a log. **Attach only a document you wrote**,
-  such as design notes, with `--report-file` (at most 20 MB).
+- **Name it** in your comment; never attach command output, such as a run, a diff or a log. **Attach only a
+  document you wrote**, such as an investigation write-up, with `--report-file` (at most 20 MB).
 
 ### Reading a report
 
