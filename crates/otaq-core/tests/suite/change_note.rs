@@ -109,19 +109,24 @@ async fn queued_for_user_edits_on_working_tickets_and_delivered_when_idle() {
             .unwrap()
             .is_empty()
     );
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let out =
-                String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback)
-                    .into_owned();
-            if out.contains("It now depends on SHOP-3.") {
-                break;
-            }
+    let scrollback = || {
+        String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback).into_owned()
+    };
+    let typed = tokio::time::timeout(Duration::from_secs(10), async {
+        while !scrollback().contains("It now depends on SHOP-3.") {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
-    .await
-    .expect("the notes were typed");
+    .await;
+    if typed.is_err() {
+        // What the terminal got, for a failure that shows only on one system (the Linux CI).
+        let out = scrollback();
+        let tail: String = out
+            .chars()
+            .skip(out.chars().count().saturating_sub(3000))
+            .collect();
+        panic!("the notes were never typed; the session shows: {tail:?}");
+    }
     drop(client);
     w.stop().await;
 }
