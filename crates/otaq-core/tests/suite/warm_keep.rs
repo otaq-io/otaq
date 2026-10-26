@@ -295,9 +295,20 @@ async fn a_file_committed_after_the_last_build_is_newer_than_the_output_in_the_n
 #[tokio::test]
 async fn skill_copies_are_neither_kept_nor_seeded() {
     use otaq_core::skills::copy::{Marker, write_copy};
-    for available in BOTH {
+    // With a skill of the project's own committed beside the copies, git lists each copy's files one by one (the
+    // copy's own `.gitignore`), not `.claude/` as one folder: they stay all the same.
+    for (available, tracked) in BOTH.into_iter().flat_map(|a| [(a, false), (a, true)]) {
         let w = world(available).await;
         let project = shop_web(&w).await;
+        if tracked {
+            std::fs::create_dir_all(Path::new(&project.repo_path).join(".claude/skills/grill-me"))
+                .unwrap();
+            commit(
+                Path::new(&project.repo_path),
+                ".claude/skills/grill-me/SKILL.md",
+                "mine\n",
+            );
+        }
         let source = otaq_core::skills::testing::skill_folder(w.data.root(), "my-commit");
         let copies = |wt: &Path| {
             write_copy(wt, "otaq-my-commit", &source, Marker::Worktree).unwrap();

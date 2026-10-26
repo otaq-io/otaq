@@ -257,7 +257,7 @@ fn around_env_files(
     let mut out = Vec::new();
     let mut todo: Vec<PathBuf> = paths.to_vec();
     while let Some(path) = todo.pop() {
-        if env_files.contains(&path) {
+        if env_files.iter().any(|e| path.starts_with(e)) {
             continue;
         }
         if env_files.iter().any(|e| e.starts_with(&path)) {
@@ -276,8 +276,10 @@ fn ignored_paths(listed: &str, env_files: &[PathBuf]) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for entry in listed.split('\0').filter(|e| !e.is_empty()) {
         let path = normal(Path::new(entry));
+        // A file inside a left-out folder is listed on its own when the folder has its own `.gitignore` (each skill
+        // copy does): it stays too.
         if path.as_os_str().is_empty()
-            || env_files.contains(&path)
+            || env_files.iter().any(|e| path.starts_with(e))
             || paths.iter().any(|p| path.starts_with(p))
         {
             continue;
@@ -343,6 +345,22 @@ mod tests {
             sorted.sort();
             sorted
         });
+    }
+
+    #[test]
+    fn the_files_of_a_left_out_folder_stay_too() {
+        // Each skill copy has its own `.gitignore`, so git lists its files one by one, not the folder.
+        let listed = ".claude/skills/a-copy/.gitignore\0.claude/skills/a-copy/SKILL.md\0target/\0";
+        let skip = [PathBuf::from(".claude/skills/a-copy")];
+        assert_eq!(ignored_paths(listed, &skip), [PathBuf::from("target")]);
+        let paths = [
+            PathBuf::from(".claude/skills/a-copy/SKILL.md"),
+            PathBuf::from("target"),
+        ];
+        assert_eq!(
+            around_env_files(&paths, &skip, |_| Vec::new()),
+            [PathBuf::from("target")]
+        );
     }
 
     #[test]

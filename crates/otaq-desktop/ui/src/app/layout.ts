@@ -9,6 +9,7 @@ import type { LayoutAgentPanelWidthParams } from "../generated/LayoutAgentPanelW
 import type { LayoutView } from "../generated/LayoutView";
 import type { SizeClass } from "../generated/SizeClass";
 import type { SizeClassBound } from "../generated/SizeClassBound";
+import { type PageEvents, pageEvents, watchView } from "../service";
 import { request } from "../tauri";
 import { createStore, type Store, useStore } from "./store";
 
@@ -46,20 +47,20 @@ export const mainWidth = createStore<number>(0);
  */
 export const tabCounts = createStore<Partial<Record<"board", string>>>({});
 
-let loading = false;
-
-/** Asks for `layout.view` once: its sizes are fixed for the life of the app. */
-export function loadLayout(): void {
-  if (loading || layoutView.get() !== undefined) return;
-  loading = true;
-  request("layout.view").then(
-    (view) => {
-      layoutView.set(view as LayoutView);
+/**
+ * Asks for `layout.view`, and again on each resync: asked before the link to the service is up (at launch, or with a
+ * service to restart), it fails, and the resync after the connect loads it, or the agent panel never opens. Returns
+ * the stop.
+ */
+export function loadLayout(events: PageEvents = pageEvents): () => void {
+  return watchView(
+    () => request("layout.view") as Promise<LayoutView>,
+    [],
+    (state) => {
+      if (state.view) layoutView.set(state.view);
+      else if (state.error) console.error("the layout couldn't load", state.error);
     },
-    (error: unknown) => {
-      loading = false;
-      console.error("the layout couldn't load", error);
-    },
+    events,
   );
 }
 

@@ -701,7 +701,7 @@ pub(crate) fn plan(
     let mut todo = candidates;
     todo.reverse();
     while let Some(rel) = todo.pop() {
-        if leave_out.contains(&rel) {
+        if leave_out.iter().any(|l| rel.starts_with(l)) {
             continue;
         }
         let Ok(source) = fs::symlink_metadata(seed.join(&rel)) else {
