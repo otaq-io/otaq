@@ -22,7 +22,8 @@
 //! typed its ticket shows "waiting for the agent to pick it up" until the agent's tool reports activity, and
 //! [`Deliveries::send_again`] types it once more (d0118, [`super::hand_offs`]).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -116,6 +117,9 @@ pub struct Deliveries {
     adapters: Adapters,
     /// The hand-offs typed and not picked up yet (the board's, [`Self::with_hand_offs`]).
     hand_offs: HandOffs,
+    /// One sender at a time per session: a caller that waited for another finds the queue empty, so two at once (a
+    /// hook's delivery and a queued one's) never type a message twice.
+    senders: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl Deliveries {
@@ -133,6 +137,7 @@ impl Deliveries {
             idle,
             adapters,
             hand_offs: HandOffs::default(),
+            senders: Arc::default(),
         }
     }
 
@@ -393,6 +398,14 @@ impl Deliveries {
     }
 
     async fn send_pending(&self, session: &str) -> Result<usize, SessionError> {
+        let sender = self
+            .senders
+            .lock()
+            .expect("delivery senders")
+            .entry(session.to_owned())
+            .or_default()
+            .clone();
+        let _sending = sender.lock().await;
         let pending = self.pending(session).await?;
         for delivery in &pending {
             // A hand-off is marked before its Enter, as a click's ([`Self::hand_off`]).

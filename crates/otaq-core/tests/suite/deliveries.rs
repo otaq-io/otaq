@@ -160,6 +160,37 @@ async fn held_while_busy_then_delivered_in_order_when_idle() {
     s.sessions.shutdown().await;
 }
 
+/// Two callers at once (a hook's delivery and a queued one's) type each waiting message once: the second finds the
+/// queue empty. `cat` echoes a typed line and then prints it, so a message typed once shows up twice.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_deliveries_at_once_type_each_message_once() {
+    let s = setup().await;
+    for text in ["first message", "second message"] {
+        s.deliveries
+            .queue_delivery(&s.session, DeliveryKind::AgentMessage, text)
+            .await
+            .unwrap();
+    }
+    s.idle.0.store(true, Ordering::SeqCst);
+    let (a, b) = tokio::join!(
+        s.deliveries.deliver_if_ready(&s.session),
+        s.deliveries.deliver_if_ready(&s.session)
+    );
+    assert_eq!(
+        a.unwrap() + b.unwrap(),
+        2,
+        "each message sent by one caller"
+    );
+    s.output_with("second message\r\n").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let out = s.output();
+    for text in ["first message", "second message"] {
+        assert_eq!(out.matches(text).count(), 2, "{text:?} typed once: {out:?}");
+    }
+    assert_eq!(s.waiting().await, 0);
+    s.sessions.shutdown().await;
+}
+
 #[tokio::test]
 async fn held_while_the_line_has_unsent_text() {
     let s = setup().await;
