@@ -1,95 +1,122 @@
 // The demo's state and every change to it, apart from drawing (WEB-07; the app's rule in SDD §5.5): a small store
-// ported from the canvas's Demo.dc.html script. React subscribes and draws; the timed steps go through a scheduler, so
-// tests can drive them with fake timers and `dispose()` clears every one. Nothing is stored and nothing leaves the page.
+// ported from the canvas's Demo3.dc.html script. React subscribes and draws; the timed steps go through a scheduler,
+// so tests can drive them with fake timers and `dispose()` clears every one. Nothing is stored and nothing leaves the
+// page.
 
 import {
-  AGENTS,
-  type AgentName,
   type Answer,
   type Column,
-  initialAgents,
+  FLOW_REPLY,
+  FLOWS,
+  type FlowId,
   initialTickets,
   L,
   type Line,
+  NOYAN0,
+  NOYAN_NOT_YET,
+  NOYAN_REPLY,
+  type NoyanMsg,
+  noyanTickets,
   project,
-  type ProjectAgent,
+  PROJECTS,
   type ProjectKey,
-  T,
+  type StageId,
   type Ticket,
+  type Tip,
+  TIPS,
+  type ToolId,
 } from "./data";
+import { flowOf, needsOf, stageName } from "./view";
 
-export type PanelTab = "terminal" | "diff" | "run" | "shell" | "ticket" | "history";
-export type SettingsPage =
-  | "tools"
-  | "agents"
-  | "notifications"
-  | "appearance"
-  | "keyboard"
-  | "data"
-  | "about"
-  | "proj-NOTE"
-  | "proj-SHOP";
-export type Role = "dev" | "val" | "lead" | "proj";
-export type ProjectField = "setup" | "run" | "instr";
-export type Theme = "dark" | "light";
+export type PaneTab = "overview" | "session" | "files" | "activity";
+export type SessionPart = "agent" | "check" | "run" | "shell";
+export type Menu = "proj" | "pause" | "activity" | "approve";
+export type PauseScope = "this" | "all";
+
+export interface Comment {
+  tool: ToolId | "U";
+  who: string;
+  at: string;
+  stage: string;
+  t: string;
+}
+
+/** A column's stage menu, placed in the demo's own 1280 px coordinates. */
+export interface StageMenu {
+  id: Column;
+  name: string;
+  top: number;
+  left: number;
+}
 
 export interface DemoState {
   project: ProjectKey;
   tickets: readonly Ticket[];
-  agents: readonly ProjectAgent[];
-  agentSel: Readonly<Record<ProjectKey, string>>;
+  flows: Readonly<Record<ProjectKey, FlowId>>;
+  view: "board" | "list";
   openKey: string | null;
-  ptab: PanelTab;
-  inboxOpen: boolean;
-  settingsOpen: boolean;
-  spage: SettingsPage;
-  paneHidden: boolean;
+  ptab: PaneTab;
+  part: SessionPart;
+  cdraft: string;
+  tellNow: boolean;
+  comments: Readonly<Record<string, readonly Comment[]>>;
   doneOpen: boolean;
-  toast: string | null;
-  coach: boolean;
+  noyanOpen: boolean;
+  noyanMsgs: readonly NoyanMsg[];
+  nyDraft: string;
+  askDraft: string;
+  tdraft: string;
   search: string;
-  notif: boolean;
-  fontSize: number;
-  rechecking: boolean;
-  /** The theme card picked in Settings → Appearance. The site draws the demo dark whatever it is (WEB-03). */
-  theme: Theme;
-  roles: Readonly<Record<Role, AgentName>>;
-  projFields: Readonly<Record<ProjectKey, Readonly<Record<ProjectField, string>>>>;
-  openCodeInstalled: boolean;
-  nextId: Readonly<Record<ProjectKey, number>>;
-  /** Counts the agents added with New agent, for their ids. */
-  newAgents: number;
+  toast: string | null;
+  paused: PauseScope | null;
+  menu: Menu | null;
+  stageMenu: StageMenu | null;
+  flowOpen: boolean;
+  flowDraft: string;
+  flowSel: StageId | null;
+  flowDraftId: FlowId | null;
+  flowMsgs: readonly NoyanMsg[];
+  /** Ticked manual checks, by `<key>:<index>`. */
+  manualDone: Readonly<Record<string, boolean>>;
+  dragKey: string | null;
+  dropCol: Column | null;
+  nextId: number;
+  fellBack: boolean;
 }
 
 export function initialState(): DemoState {
-  const [note, shop] = [project("NOTE"), project("SHOP")];
   return {
-    project: "NOTE",
+    project: "SHOP",
     tickets: initialTickets(),
-    agents: initialAgents(),
-    agentSel: { NOTE: "a1", SHOP: "a3" },
+    flows: { SHOP: project("SHOP").flow, BILL: project("BILL").flow },
+    view: "board",
     openKey: null,
-    ptab: "terminal",
-    inboxOpen: false,
-    settingsOpen: false,
-    spage: "tools",
-    paneHidden: false,
+    ptab: "overview",
+    part: "agent",
+    cdraft: "",
+    tellNow: false,
+    comments: {},
     doneOpen: false,
-    toast: null,
-    coach: true,
+    noyanOpen: false,
+    noyanMsgs: NOYAN0,
+    nyDraft: "",
+    askDraft: "",
+    tdraft: "",
     search: "",
-    notif: true,
-    fontSize: 13,
-    rechecking: false,
-    theme: "dark",
-    roles: { dev: "Theo", val: "Vera", lead: "Mira", proj: "Mira" },
-    projFields: {
-      NOTE: { setup: note.setup, run: note.run, instr: note.instr },
-      SHOP: { setup: shop.setup, run: shop.run, instr: shop.instr },
-    },
-    openCodeInstalled: false,
-    nextId: { NOTE: 14, SHOP: 35 },
-    newAgents: 0,
+    toast: null,
+    paused: null,
+    menu: null,
+    stageMenu: null,
+    flowOpen: false,
+    flowDraft: "",
+    flowSel: null,
+    flowDraftId: null,
+    flowMsgs: [],
+    manualDone: {},
+    dragKey: null,
+    dropCol: null,
+    nextId: 45,
+    fellBack: false,
   };
 }
 
@@ -108,13 +135,22 @@ const browserScheduler: Scheduler = {
 
 /** How long the toast stays (`say` in the canvas). */
 export const TOAST_MS = 3600;
+/** How long a local merge's merge check runs. */
+export const MERGE_MS = 1800;
+/** How long after a merge the tickets waiting for it start. */
+export const WAIT_START_MS = 800;
+/** How long SHOP-22 builds after you allow its command, before it's submitted. */
+export const BUILD_MS = 3000;
+/** How long Noyan takes to reply in its panel. */
+export const NOYAN_MS = 900;
+/** How long Noyan takes to reply in the flow editor. */
+export const FLOW_REPLY_MS = 800;
 
 export class DemoStore {
   private state: DemoState = initialState();
   private readonly listeners = new Set<() => void>();
   private readonly timers = new Set<unknown>();
   private toastTimer: unknown = null;
-  private started = false;
 
   constructor(private readonly scheduler: Scheduler = browserScheduler) {}
 
@@ -135,30 +171,11 @@ export class DemoStore {
     for (const l of this.listeners) l();
   }
 
-  /** The canvas's `componentDidMount`: NOTE-10 passes validation, NOTE-13.2 and SHOP-19 finish on their own. */
-  start(): void {
-    if (this.started) return;
-    this.started = true;
-    this.later(9000, () => {
-      const t = this.find("NOTE-10");
-      if (t?.st !== "validating") return;
-      this.addLog("NOTE-10", [L("ok", "✓ Validator · round 1 passed: 2 of 2 acceptance checks met")]);
-      this.upd("NOTE-10", () => ({ st: "review", col: "review", adds: 37, dels: 5 }));
-    });
-    this.later(16000, () => {
-      this.runToReview("NOTE-13.2");
-    });
-    this.later(24000, () => {
-      this.runToReview("SHOP-19");
-    });
-  }
-
-  /** Clears every timer (the island unmounts). `start()` may run again after it. */
+  /** Clears every timer (the island unmounts). */
   dispose(): void {
     for (const h of this.timers) this.scheduler.clearTimeout(h);
     this.timers.clear();
     this.toastTimer = null;
-    this.started = false;
   }
 
   /** How many timers are waiting; for tests. */
@@ -175,19 +192,21 @@ export class DemoStore {
     return h;
   }
 
-  private cancel(h: unknown): void {
-    if (h === null) return;
-    this.scheduler.clearTimeout(h);
-    this.timers.delete(h);
-  }
-
   say(text: string): void {
-    this.cancel(this.toastTimer);
+    if (this.toastTimer !== null) {
+      this.scheduler.clearTimeout(this.toastTimer);
+      this.timers.delete(this.toastTimer);
+    }
     this.set({ toast: text });
     this.toastTimer = this.later(TOAST_MS, () => {
       this.toastTimer = null;
       this.set({ toast: null });
     });
+  }
+
+  /** A button the demo doesn't build says what it does in the app. */
+  tip(name: Tip): void {
+    this.say(TIPS[name]);
   }
 
   find(k: string): Ticket | undefined {
@@ -202,487 +221,491 @@ export class DemoStore {
     this.upd(k, (t) => ({ log: t.log.concat(lines) }));
   }
 
-  private updAgent(id: string, fn: (a: ProjectAgent) => Partial<ProjectAgent>): void {
-    this.set((s) => ({ agents: s.agents.map((a) => (a.id === id ? { ...a, ...fn(a) } : a)) }));
+  /** The first agent stage of `t`'s flow: where Start and a merged blocker send it. */
+  private firstAgent(t: Ticket) {
+    const first = flowOf(this.state, t.p).stages.find((st) => st.kind === "agent");
+    if (!first) throw new Error("no agent stage in " + t.p + "’s flow");
+    return first;
   }
 
-  /** The tickets `t` waits for that haven't merged yet. */
-  unmet(t: Ticket): string[] {
-    return unmetIn(this.state.tickets, t);
-  }
-
-  // --- a ticket's lifecycle ------------------------------------------------------------------------------------
-
-  /** After a ticket starts or resumes: tests, submit, validation, then Ready for Review. */
-  private runToReview(k: string, fast = false): void {
-    this.later(fast ? 3500 : 6500, () => {
-      if (this.find(k)?.st !== "working") return;
-      this.addLog(k, [
-        L("tool", "Bash npm test"),
-        L("ok", "✓ all tests pass"),
-        L("tool", "otaq submit"),
-        L("a", "Submitted " + k + " for review."),
-        L("sp", ""),
-        L("d", "Validator · Vera · Copilot · gemini-2.5-pro · round 1"),
-      ]);
-      this.upd(k, () => ({ st: "validating" }));
-      this.later(4000, () => {
-        const t2 = this.find(k);
-        if (t2?.st !== "validating") return;
-        this.addLog(k, [L("ok", "✓ Validator · round 1 passed: every acceptance check met")]);
-        this.upd(k, () => ({
-          st: "review",
-          col: "review",
-          adds: t2.adds ?? 40,
-          dels: t2.dels ?? 4,
-          hist: t2.hist.concat([
-            { at: "just now", t: "Validation round 1 passed · moved to Ready for Review" },
-          ]),
-        }));
-        this.say(k + " is ready for review.");
-      });
-    });
-  }
-
-  private startAgent(k: string): void {
-    const t = this.find(k);
-    if (!t) return;
-    const proj = project(t.p);
-    const ag = AGENTS[t.agent];
-    this.upd(k, () => ({
-      col: "dev",
-      st: "starting",
-      stage: "worktree",
-      tokens: "",
-      log: [L("d", "Creating worktree ~/.otaq/wt/" + proj.name + "/" + k + " from " + proj.branch)],
-    }));
-    this.later(1300, () => {
-      this.upd(k, () => ({ stage: "setup" }));
-      this.addLog(k, [L("d", "Setup: " + this.state.projFields[t.p].setup + " · done in 6s")]);
-    });
-    this.later(2700, () => {
-      this.upd(k, () => ({ st: "working", age: "active just now", tokens: "3k tokens" }));
-      this.addLog(k, [
-        L("d", ag.toolName + " · " + t.agent + " · " + ag.model),
-        L("tool", "otaq show " + k),
-        L("a", "Reading the ticket and the code it touches."),
-        L("tool", "Read src/cli.js"),
-        L("tool", "Edit src/cli.js"),
-      ]);
-      this.runToReview(k);
-    });
-  }
-
-  /** A card dropped on a column, or Move to Dev in the panel. */
-  move(k: string, col: Column): void {
-    const t = this.find(k);
-    if (!t || t.col === col) return;
-    if (col === "review" || col === "done") {
-      this.say("Agents move tickets to Review when they submit. Approve from the ticket’s panel.");
-      return;
-    }
-    if (t.col === "review" || t.col === "done") {
-      this.say("Use Send back in the ticket’s panel to return it to its agent.");
-      return;
-    }
-    if (t.col === "dev") {
-      this.say("Stop the agent from the ticket’s panel first.");
-      return;
-    }
-    if (col === "backlog") {
-      this.upd(k, () => ({ col: "backlog", st: "queued" }));
-      return;
-    }
-    const un = this.unmet(t);
-    if (col === "ready" || un.length) {
-      this.upd(k, () => ({ col: "ready", st: "queued" }));
-      if (un.length)
-        this.say(k + " waits for " + un.join(" and ") + " to merge. It starts on its own after that.");
-      else this.say(k + " starts when an agent is free, in priority order.");
-      return;
-    }
-    this.set({ coach: false });
-    this.startAgent(k);
-    this.say("Starting " + k + " in its own worktree.");
-  }
-
-  /** Approve · Local merge. */
-  approve(k: string): void {
-    this.upd(k, () => ({ col: "review", st: "merging" }));
-    this.later(1500, () => {
-      this.upd(k, (t) => ({
-        col: "done",
-        st: "done",
-        conflict: false,
-        log: t.log.concat([L("ok", "Squash-merged into main")]),
-      }));
-      const waiting = this.state.tickets.filter(
-        (x) => x.col === "ready" && x.waits.includes(k) && this.unmet(x).length === 0,
-      );
-      if (waiting.length) {
-        this.say(
-          k + " is merged. " + waiting.map((w) => w.k).join(", ") + " was waiting for it and starts now.",
-        );
-        for (const w of waiting) {
-          this.later(600, () => {
-            this.startAgent(w.k);
-          });
-        }
-      } else this.say(k + " is merged into main.");
-    });
-  }
-
-  sendBack(k: string): void {
-    this.upd(k, () => ({ col: "dev", st: "working", round: 1, age: "active just now" }));
-    this.addLog(k, [
-      L("u", "❯ (sent back) Please also cover the empty-list case."),
-      L("a", "Adding the empty-list case and a test for it."),
-    ]);
-    this.say(k + " went back to its agent with your comment.");
-    this.runToReview(k, true);
-  }
-
-  // --- answers -------------------------------------------------------------------------------------------------
-
-  answer(act: Answer): void {
-    const resume = (k: string, line: string, lines: Line[]) => {
-      this.upd(k, () => ({ st: "working", ask: null, age: "active just now" }));
-      this.addLog(k, [L("u", "❯ " + line), ...lines]);
-      this.runToReview(k, true);
-    };
-    switch (act) {
-      case "note8":
-        resume("NOTE-8", "Open $EDITOR with the current text", [
-          L("a", "Got it. With no text, notes edit opens $EDITOR on the note, falling back to vi."),
-          L("tool", "Edit src/cli.js  +14 −2"),
-        ]);
-        return;
-      case "note8b":
-        resume("NOTE-8", "Fail with a usage message", [
-          L("a", "Okay. With no text, notes edit prints its usage and exits with 1."),
-          L("tool", "Edit src/cli.js  +5 −1"),
-        ]);
-        return;
-      case "shop22":
-        resume("SHOP-22", "Allow once", [
-          L("tool", "Bash pnpm prisma migrate dev --name order-status"),
-          L("o", "Applied migration 20261019_order_status"),
-        ]);
-        return;
-      case "shop22b":
-        this.upd("SHOP-22", () => ({ st: "working", ask: null }));
-        this.addLog("SHOP-22", [
-          L("u", "❯ Deny"),
-          L(
-            "a",
-            "Understood. I’ll write the migration file without running it, and note that in my summary.",
-          ),
-        ]);
-        this.runToReview("SHOP-22", true);
-        return;
-      case "shop25":
-        resume("SHOP-25", "Resume", [
-          L("d", "Resumed the same conversation"),
-          L("a", "Picking up where I stopped: the return URL is dropped when the state cookie expires."),
-        ]);
-        return;
-      case "imp-open":
-        this.importIssues(false);
-        return;
-      case "imp-closed":
-        this.importIssues(true);
-        return;
-      case "shop-create":
-        this.createCheckoutTickets();
-        return;
-      case "shop-no":
-        this.updAgent("a3", (a) => ({
-          st: "idle",
-          ask: null,
-          lines: a.lines.concat([
-            L("u", "❯ Not yet"),
-            L("a", "Okay. Tell me what to change and I’ll update the list."),
-          ]),
-        }));
-        return;
-    }
-  }
-
-  /** The "Import GitHub issues" Project agent's answer: two new Backlog tickets. */
-  private importIssues(closed: boolean): void {
-    const n = this.state.nextId.NOTE;
-    const k1 = "NOTE-" + String(n);
-    const k2 = "NOTE-" + String(n + 1);
-    this.updAgent("a1", (a) => ({
-      st: "idle",
-      ask: null,
-      created: [k1, k2],
-      lines: a.lines.concat([
-        L("u", closed ? "❯ Include closed ones" : "❯ Only open issues"),
-        ...(closed
-          ? [L("a", "All 3 closed issues are fixed in main, so there’s nothing to import from them.")]
-          : []),
-        L("tool", "otaq create -f import.md"),
-        L("ok", "Created " + k1 + " Show a hint when the notes file is missing · GH-31 · Pip"),
-        L("ok", "Created " + k2 + " Read notes from stdin · GH-34 · Theo"),
-        L("a", "Both are in Backlog. " + k2 + " changes src/cli.js like NOTE-8, so it waits for NOTE-8."),
-      ]),
-    }));
-    this.set((s) => ({
-      nextId: { ...s.nextId, NOTE: n + 2 },
-      tickets: s.tickets.concat([
-        T({
-          k: k1,
-          p: "NOTE",
-          title: "Show a hint when the notes file is missing",
-          col: "backlog",
-          st: "queued",
-          prio: 3,
-          agent: "Pip",
-          fresh: true,
-          by: "Import GitHub issues",
-          desc: "From GH-31. A first run without a notes file prints an error; it should say how to start.",
-          acc: ["Prints “No notes yet. Add one with notes add”"],
-        }),
-        T({
-          k: k2,
-          p: "NOTE",
-          title: "Read notes from stdin",
-          col: "backlog",
-          st: "queued",
-          prio: 3,
-          agent: "Theo",
-          fresh: true,
-          by: "Import GitHub issues",
-          waits: ["NOTE-8"],
-          desc: "From GH-34. echo text | notes add should add a note.",
-          acc: ["Reads stdin when no text is given and stdin isn’t a terminal"],
-        }),
-      ]),
-    }));
-    this.say("The Project agent created " + k1 + " and " + k2 + " in Backlog.");
-  }
-
-  /** The "Checkout slowness" Project agent's Create them: three new Backlog tickets. */
-  private createCheckoutTickets(): void {
-    const n = this.state.nextId.SHOP;
-    const [k0, k1, k2] = [n, n + 1, n + 2].map((x) => "SHOP-" + String(x)) as [string, string, string];
-    this.updAgent("a3", (a) => ({
-      st: "idle",
-      ask: null,
-      created: [k0, k1, k2],
-      lines: a.lines.concat([
-        L("u", "❯ Create them"),
-        L("tool", "otaq create -f checkout-plan.md"),
-        L("ok", "Created " + k0 + " Fetch carrier quotes in parallel"),
-        L("ok", "Created " + k1 + " Cache shipping quotes per cart, 5 min"),
-        L("ok", "Created " + k2 + " Load the reviews widget after paint"),
-        L("a", k1 + " waits for " + k0 + ": both touch lib/shipping.ts."),
-      ]),
-    }));
-    this.set((s) => ({
-      nextId: { ...s.nextId, SHOP: n + 3 },
-      tickets: s.tickets.concat([
-        T({
-          k: k0,
-          p: "SHOP",
-          title: "Fetch carrier quotes in parallel",
-          col: "backlog",
-          st: "queued",
-          prio: 2,
-          fresh: true,
-          by: "Checkout slowness",
-          desc: "The 3 carrier calls run one after another and take 1.9 s together.",
-          acc: ["Quotes are fetched in parallel", "One slow carrier doesn’t block the others past 2 s"],
-        }),
-        T({
-          k: k1,
-          p: "SHOP",
-          title: "Cache shipping quotes per cart, 5 min",
-          col: "backlog",
-          st: "queued",
-          prio: 3,
-          fresh: true,
-          by: "Checkout slowness",
-          waits: [k0],
-          desc: "Repeat visits to checkout ask the carriers again.",
-          acc: ["Same cart, same address: no new carrier calls for 5 minutes"],
-        }),
-        T({
-          k: k2,
-          p: "SHOP",
-          title: "Load the reviews widget after paint",
-          col: "backlog",
-          st: "queued",
-          prio: 4,
-          agent: "Pip",
-          fresh: true,
-          by: "Checkout slowness",
-          desc: "The reviews widget adds 640 ms of hydration on checkout.",
-          acc: ["Loads after first paint"],
-        }),
-      ]),
-    }));
-    this.say("The Project agent created 3 tickets in Backlog.");
-  }
-
-  // --- the Project agent pane ----------------------------------------------------------------------------------
-
-  /** A message to the selected Project agent (the box under the pane, or a suggestion). */
-  sendToAgent(raw: string): void {
-    const text = raw.trim();
-    if (!text) return;
-    const id = this.state.agentSel[this.state.project];
-    const ag = this.state.agents.find((a) => a.id === id);
-    if (!ag) return;
-    const name = ag.st === "new" ? (text.length > 26 ? text.slice(0, 24).trim() + "…" : text) : ag.name;
-    this.updAgent(id, (a) => ({ name, st: "working", lines: a.lines.concat([L("u", "❯ " + text)]) }));
-    this.later(1100, () => {
-      this.updAgent(id, (a) => ({
-        st: "idle",
-        lines: a.lines.concat([
-          L(
-            "d",
-            "(Demo) In Otaq, a real Claude Code session starts here, reads the code and proposes tickets for you to approve.",
-          ),
-        ]),
-      }));
-    });
-  }
-
-  newAgent(): void {
-    this.set((s) => {
-      const id = "n" + String(s.newAgents + 1);
-      return {
-        newAgents: s.newAgents + 1,
-        agents: s.agents.concat([
-          { id, p: s.project, name: "New agent", st: "new", tokens: "0 tokens", created: [], lines: [] },
-        ]),
-        agentSel: { ...s.agentSel, [s.project]: id },
-      };
-    });
-  }
-
-  selectAgent(id: string): void {
-    this.set((s) => ({ agentSel: { ...s.agentSel, [s.project]: id } }));
-  }
-
-  /** An inbox item for a Project agent: its project, the pane open, that agent selected. */
-  showAgent(id: string): void {
-    const a = this.state.agents.find((x) => x.id === id);
-    if (!a) return;
-    this.set((s) => ({
-      project: a.p,
-      paneHidden: false,
-      inboxOpen: false,
-      openKey: null,
-      agentSel: { ...s.agentSel, [a.p]: a.id },
-    }));
-  }
-
-  togglePane(): void {
-    this.set((s) => ({ paneHidden: !s.paneHidden }));
-  }
-
-  // --- the board and the panel ---------------------------------------------------------------------------------
+  // --- the board -----------------------------------------------------------------------------------------------
 
   pickProject(key: ProjectKey): void {
-    this.set({ project: key, openKey: null, search: "" });
+    this.set({ project: key, openKey: null, search: "", menu: null });
   }
 
   setSearch(search: string): void {
     this.set({ search });
   }
 
-  hideCoach(): void {
-    this.set({ coach: false });
+  setView(view: DemoState["view"]): void {
+    this.set({ view });
   }
 
-  showDone(): void {
+  /** Unfolds the Done column (the drawn rail only opens it). */
+  openDone(): void {
     this.set({ doneOpen: true });
   }
 
-  openTicket(k: string, tab: PanelTab = "terminal"): void {
+  /** Opens or closes a header menu; opening one closes the others. */
+  toggleMenu(menu: Menu): void {
+    this.set((s) => ({ menu: s.menu === menu ? null : menu }));
+  }
+
+  /** Closes every menu, the stage menu too (a click outside them). */
+  closeMenus(): void {
+    this.set({ menu: null, stageMenu: null });
+  }
+
+  /** Opens a column's stage menu at `top`/`left` in the demo's 1280 px coordinates (see `stageMenuAt`). */
+  openStageMenu(id: Column, name: string, top: number, left: number): void {
+    this.set({ stageMenu: { id, name, top, left }, menu: null });
+  }
+
+  /** Next (⌘J): the first thing that needs you here, else in the next project that has one. */
+  nextItem(): void {
+    const mine = needsOf(this.state.tickets, this.state.project);
+    if (mine[0]) {
+      this.openTicket(mine[0].k);
+      return;
+    }
+    const other = PROJECTS.map((p) => p.key)
+      .filter((k) => k !== this.state.project)
+      .find((k) => needsOf(this.state.tickets, k).length > 0);
+    const item = other ? needsOf(this.state.tickets, other)[0] : undefined;
+    if (other && item) {
+      this.set({ project: other });
+      this.openTicket(item.k);
+      this.say("Nothing more here. ⌘J moved on to " + project(other).name + ".");
+    } else this.say("Nothing needs you in any project.");
+  }
+
+  // --- dragging ------------------------------------------------------------------------------------------------
+
+  dragStart(k: string): void {
+    this.set({ dragKey: k });
+  }
+
+  dragEnd(): void {
+    this.set({ dragKey: null, dropCol: null });
+  }
+
+  dragOver(col: Column): void {
+    if (!this.state.dragKey || this.state.dropCol === col) return;
+    this.set({ dropCol: col });
+  }
+
+  /** A drop on Ready starts the ticket, on Backlog parks it; the rest of the flow is the agents'. */
+  drop(col: Column): void {
+    const k = this.state.dragKey;
+    this.set({ dragKey: null, dropCol: null });
+    if (!k) return;
+    if (col === "ready") this.start(k);
+    else if (col === "backlog") this.upd(k, () => ({ col: "backlog", st: "queued" }));
+    else
+      this.say(
+        "Agents move tickets through the flow. Drag to Ready to start one; the rest is the flow’s job.",
+      );
+  }
+
+  // --- a ticket ------------------------------------------------------------------------------------------------
+
+  openTicket(k: string, tab?: PaneTab): void {
     const t = this.find(k);
-    this.set((s) => ({ openKey: k, ptab: tab, project: t ? t.p : s.project, inboxOpen: false }));
-    if (t?.fresh) this.upd(k, () => ({ fresh: false }));
+    this.set((s) => ({
+      openKey: k,
+      ptab: tab ?? (t?.st === "review" ? "files" : "overview"),
+      part: "agent",
+      project: t ? t.p : s.project,
+      menu: null,
+    }));
   }
 
-  closePanel(): void {
-    this.set({ openKey: null });
+  closeTicket(): void {
+    this.set({ openKey: null, menu: null });
   }
 
-  setPanelTab(ptab: PanelTab): void {
+  setTab(ptab: PaneTab): void {
     this.set({ ptab });
   }
 
-  /** Typing into the ticket's terminal. */
-  typeToTicket(raw: string): void {
-    const text = raw.trim();
-    const k = this.state.openKey;
-    if (!text || !k || !this.find(k)) return;
-    this.addLog(k, [
-      L("u", "❯ " + text),
-      L("d", "(Demo) In Otaq, this goes straight into the agent’s real session."),
-    ]);
+  setPart(part: SessionPart): void {
+    this.set({ part });
   }
 
-  // --- header, inbox, Settings ---------------------------------------------------------------------------------
-
-  toggleInbox(): void {
-    this.set((s) => ({ inboxOpen: !s.inboxOpen }));
+  /** Open terminal / Open agent session: the Session tab on the agent's own terminal. */
+  showSession(): void {
+    this.set({ ptab: "session", part: "agent" });
   }
 
-  openSettings(): void {
-    this.set({ settingsOpen: true, inboxOpen: false });
+  /** Start: into the flow's first agent stage, unless it waits for a ticket, then to Ready to start on its own. */
+  start(k: string): void {
+    const t = this.find(k);
+    if (!t) return;
+    if (t.waits.length) {
+      this.upd(k, () => ({ col: "ready" }));
+      this.say(k + " waits for " + t.waits.join(", ") + " to merge, then starts on its own.");
+      return;
+    }
+    const first = this.firstAgent(t);
+    this.upd(k, () => ({
+      col: first.id,
+      st: "working",
+      ago: "now",
+      agent: first.who,
+      tokens: "2k",
+      log: [
+        L("d", "Worktree ~/.otaq/wt/" + project(t.p).name + "/" + k + " from main · setup pnpm install"),
+        L("d", first.who + " · " + first.skill),
+        L("a", "Reading the ticket and the code it touches."),
+      ],
+    }));
+    this.say(k + " started in " + first.name + ", in its own worktree.");
   }
 
-  closeSettings(): void {
-    this.set({ settingsOpen: false });
+  /** Picks one of the options a ticket asks you about. */
+  answer(act: Answer): void {
+    const go = (k: string, line: string, more: readonly Line[]) => {
+      this.upd(k, () => ({ st: "working", ask: null, ago: "now" }));
+      this.addLog(k, [L("u", "❯ " + line), ...more]);
+    };
+    switch (act) {
+      case "g1":
+        go("SHOP-12", "Follow the system setting, with a manual override", [
+          L("a", "Recorded as decision 1. Wiring it now."),
+          L("d", "Recorded on the ticket as a decision. Wiring the toggle to the system setting now."),
+        ]);
+        break;
+      case "p22":
+        go("SHOP-22", "Allow once", [
+          L("tool", "Bash rm -rf .next && pnpm build"),
+          L("o", "built in 48s"),
+          L("a", "Clean build passes. Submitting."),
+        ]);
+        this.later(BUILD_MS, () => {
+          this.upd("SHOP-22", () => ({
+            col: "security",
+            st: "checking",
+            agent: "Security reviewer",
+            ago: "now",
+          }));
+          this.say("SHOP-22 submitted. Security reviewer is checking it.");
+        });
+        break;
+      case "d22":
+        go("SHOP-22", "Deny", [L("a", "Understood. I’ll run pnpm build without clearing .next.")]);
+        break;
+      case "h40":
+        this.upd("SHOP-40", (t) => ({
+          st: "working",
+          ask: null,
+          pieces: (t.pieces ?? []).map((p) => (p.n === "40.2" ? { ...p, s: "working", cls: "w" } : p)),
+        }));
+        this.addLog("SHOP-40", [
+          L("u", "❯ Keep the heart filled after sign-out"),
+          L("a", "Passed to 40.2’s helper. It carries on."),
+        ]);
+        break;
+      case "b7":
+        go("BILL-7", "Prorate to the day", [
+          L("a", "Recorded. Writing the proration with a test for mid-month."),
+        ]);
+        break;
+      case "r32":
+        this.upd("SHOP-32", () => ({
+          st: "working2",
+          col: "dev",
+          ask: null,
+          agent: "Rust developer",
+          ago: "now",
+        }));
+        this.addLog("SHOP-32", [
+          L("u", "❯ Give it another round"),
+          L("d", "Back to Dev with the Security report · round 4"),
+        ]);
+        this.say("SHOP-32 went back to Dev with the report.");
+        break;
+      case "m32":
+        this.upd("SHOP-32", () => ({
+          st: "review",
+          col: "review",
+          ask: null,
+          adds: 80,
+          dels: 9,
+          checks: [
+            {
+              t: "Security · failed 3 times · you moved it on",
+              s: "Unescaped SQL in lib/address.ts. Still open.",
+              color: "var(--err)",
+            },
+          ],
+          manual: ["Fix or confirm the SQL finding yourself."],
+        }));
+        this.say("SHOP-32 is in Review with the failed report attached.");
+        break;
+    }
   }
 
-  setSettingsPage(spage: SettingsPage): void {
-    this.set({ spage });
-  }
-
-  /** Check again on Settings → Agent tools: OpenCode is found after 1.3 s. */
-  recheck(): void {
-    this.set({ rechecking: true });
-    this.later(1300, () => {
-      this.set({ rechecking: false, openCodeInstalled: true });
-      this.say("Checked again: OpenCode is installed and signed in now.");
+  /** Approve: a local merge after a 1.8 s merge check, or a PR the team reviews on GitHub. */
+  approve(k: string, how: "local" | "pr"): void {
+    this.set({ menu: null });
+    if (how === "pr") {
+      this.upd(k, (t) => ({
+        col: "ship",
+        st: "pr",
+        ago: "now",
+        log: t.log.concat([L("ok", "Shipper pushed otaq/" + k + " and opened PR #492 with gh")]),
+      }));
+      this.say(k + ": PR #492 is open. Your team reviews it there; mark it merged here when they do.");
+      return;
+    }
+    this.upd(k, () => ({ st: "merging" }));
+    this.say("main moved since the checks ran: the merge check runs pnpm test on the combined result…");
+    this.later(MERGE_MS, () => {
+      this.upd(k, (t) => ({
+        col: "done",
+        st: "done",
+        log: t.log.concat([L("ok", "Merge check passed · squash-merged into main")]),
+      }));
+      this.say(k + " is merged into main.");
+      this.startWaiting(k);
     });
   }
 
-  setRole(role: Role, agent: AgentName): void {
-    this.set((s) => ({ roles: { ...s.roles, [role]: agent } }));
+  /** The tickets in Ready that waited for `k` start 0.8 s after it merges. */
+  private startWaiting(k: string): void {
+    const waiting = this.state.tickets.filter((x) => x.col === "ready" && x.waits.includes(k));
+    for (const w of waiting) {
+      this.later(WAIT_START_MS, () => {
+        const first = this.firstAgent(w);
+        this.upd(w.k, () => ({
+          col: first.id,
+          st: "working",
+          waits: [],
+          ago: "now",
+          agent: first.who,
+          log: [L("d", "Worktree created from main · setup pnpm install · " + first.who)],
+        }));
+        this.say(w.k + " was waiting for " + k + ". It starts now.");
+      });
+    }
   }
 
-  toggleNotif(): void {
-    this.set((s) => ({ notif: !s.notif }));
+  /** Mark merged: the PR landed on GitHub. */
+  markMerged(k: string): void {
+    this.upd(k, (t) => ({ col: "done", st: "done", log: t.log.concat([L("ok", "Marked merged by you")]) }));
+    this.say(k + " is Done.");
+    this.startWaiting(k);
   }
 
-  pickTheme(theme: Theme): void {
-    this.set({ theme });
+  sendBack(k: string): void {
+    this.upd(k, () => ({ col: "dev", st: "working2", ago: "now", agent: "Rust developer" }));
+    this.addLog(k, [
+      L("u", "❯ (sent back to Dev) Please also handle an empty cart."),
+      L("a", "Adding the empty-cart case and a test."),
+    ]);
+    this.say(k + " went back to Dev with your comment.");
   }
 
-  fontDown(): void {
-    this.set((s) => ({ fontSize: Math.max(10, s.fontSize - 1) }));
+  toggleManual(k: string, i: number): void {
+    const id = k + ":" + String(i);
+    this.set((s) => ({ manualDone: { ...s.manualDone, [id]: !s.manualDone[id] } }));
   }
 
-  fontUp(): void {
-    this.set((s) => ({ fontSize: Math.min(20, s.fontSize + 1) }));
+  setCDraft(cdraft: string): void {
+    this.set({ cdraft });
   }
 
-  setProjectField(key: ProjectKey, field: ProjectField, value: string): void {
-    this.set((s) => ({ projFields: { ...s.projFields, [key]: { ...s.projFields[key], [field]: value } } }));
+  toggleTell(): void {
+    this.set((s) => ({ tellNow: !s.tellNow }));
   }
-}
 
-/** The tickets `t` waits for that haven't merged yet, among `tickets`. */
-export function unmetIn(tickets: readonly Ticket[], t: Ticket): string[] {
-  return t.waits.filter((w) => {
-    const x = tickets.find((y) => y.k === w);
-    return x !== undefined && x.col !== "done";
-  });
+  /** Adds the comment box's text to the open ticket; with "Also tell the agent now", into its session too. */
+  addComment(): void {
+    const s = this.state;
+    const txt = s.cdraft.trim();
+    const t = s.openKey ? this.find(s.openKey) : undefined;
+    if (!txt || !t) return;
+    const c: Comment = { tool: "U", who: "You", at: "now", stage: stageName(s, t), t: txt };
+    this.set((st) => ({
+      comments: { ...st.comments, [t.k]: (st.comments[t.k] ?? []).concat([c]) },
+      cdraft: "",
+    }));
+    if (s.tellNow) this.addLog(t.k, [L("u", "❯ (comment) " + txt)]);
+    this.say(
+      s.tellNow
+        ? "Comment added and sent to the running agent."
+        : "Comment added. The next stage’s agent reads it.",
+    );
+  }
+
+  setTDraft(tdraft: string): void {
+    this.set({ tdraft });
+  }
+
+  /** Types the terminal prompt's text into the open ticket's session. */
+  sendToAgent(): void {
+    const txt = this.state.tdraft.trim();
+    const k = this.state.openKey;
+    if (!txt || !k) return;
+    this.addLog(k, [
+      L("u", "❯ " + txt),
+      L("d", "(Demo) In Otaq this goes straight into the agent’s own session."),
+    ]);
+    this.set({ tdraft: "" });
+  }
+
+  // --- Noyan ---------------------------------------------------------------------------------------------------
+
+  toggleNoyan(): void {
+    this.set((s) => ({ noyanOpen: !s.noyanOpen, menu: null }));
+  }
+
+  setNyDraft(nyDraft: string): void {
+    this.set({ nyDraft });
+  }
+
+  setAskDraft(askDraft: string): void {
+    this.set({ askDraft });
+  }
+
+  /** Sends `text` to Noyan (from its panel or the Ask bar); it opens and replies after 0.9 s. */
+  sendNoyan(text: string): void {
+    const t = text.trim();
+    if (!t) return;
+    this.set((s) => ({
+      noyanOpen: true,
+      noyanMsgs: s.noyanMsgs.concat([{ cls: "u", t }]),
+      nyDraft: "",
+      askDraft: "",
+    }));
+    this.later(NOYAN_MS, () => {
+      this.set((s) => ({ noyanMsgs: s.noyanMsgs.concat([{ cls: "", t: NOYAN_REPLY }]) }));
+    });
+  }
+
+  /** Create them: Noyan's three tickets go to Backlog, the second waiting for the first. */
+  createFromNoyan(): void {
+    const n = this.state.nextId;
+    const made = noyanTickets(n);
+    const ks = made.map((t) => t.k);
+    const [first, second] = [String(ks[0]), String(ks[1])];
+    this.set((s) => ({
+      nextId: n + 3,
+      tickets: s.tickets.concat(made),
+      noyanMsgs: s.noyanMsgs
+        .map((m): NoyanMsg => ({ ...m, ask: false }))
+        .concat([
+          {
+            cls: "",
+            t: "Created in Backlog. " + second + " waits for " + first + ": both touch lib/shipping.ts.",
+            links: ks,
+          },
+        ]),
+    }));
+    this.say("Noyan created 3 tickets in Backlog.");
+  }
+
+  /** Not yet: Noyan asks what to change. */
+  declineNoyan(): void {
+    this.set((s) => ({
+      noyanMsgs: s.noyanMsgs
+        .map((m): NoyanMsg => ({ ...m, ask: false }))
+        .concat([{ cls: "", t: NOYAN_NOT_YET }]),
+    }));
+  }
+
+  // --- Pause and Activity --------------------------------------------------------------------------------------
+
+  /** Pause this project or all of them; when paused, either item resumes. */
+  pause(scope: PauseScope): void {
+    this.set((s) => ({ paused: s.paused ? null : scope, menu: null }));
+  }
+
+  resume(): void {
+    this.set({ paused: null });
+  }
+
+  /** Activity's Use fallback now: waiting Claude Code agents move to Codex. */
+  useFallback(): void {
+    this.set({ fellBack: true });
+    this.say(
+      "Waiting Claude Code agents will start on their fallback, Codex. Running conversations never change tools.",
+    );
+  }
+
+  // --- the flow editor (Change flow…) -------------------------------------------------------------------------
+
+  /** Opens the flow editor on the project's flow; from a stage menu, with that stage picked. */
+  openFlow(fromStageMenu = false): void {
+    const sel = fromStageMenu ? this.state.stageMenu?.id : null;
+    this.set({
+      flowOpen: true,
+      menu: null,
+      stageMenu: null,
+      flowDraftId: null,
+      flowSel: sel && sel !== "backlog" && sel !== "done" ? sel : null,
+      flowMsgs: [],
+    });
+  }
+
+  closeFlow(): void {
+    this.set({ flowOpen: false });
+  }
+
+  pickPreset(id: FlowId): void {
+    this.set({ flowDraftId: id, flowSel: null });
+  }
+
+  /** Shows a step's details, or hides them when it's picked again. */
+  pickStage(id: StageId): void {
+    this.set((s) => ({ flowSel: s.flowSel === id ? null : id }));
+  }
+
+  setFlowDraft(flowDraft: string): void {
+    this.set({ flowDraft });
+  }
+
+  /** Asks Noyan about the flow; it replies after 0.8 s. */
+  sendFlowMsg(): void {
+    const t = this.state.flowDraft.trim();
+    if (!t) return;
+    this.set((s) => ({ flowMsgs: s.flowMsgs.concat([{ cls: "u", t }]), flowDraft: "" }));
+    this.later(FLOW_REPLY_MS, () => {
+      this.set((s) => ({ flowMsgs: s.flowMsgs.concat([{ cls: "", t: FLOW_REPLY }]) }));
+    });
+  }
+
+  /** Apply: the picked flow becomes the project's; tickets in a stage it lacks go back to Ready. */
+  applyFlow(): void {
+    const s = this.state;
+    const draftId = s.flowDraftId ?? s.flows[s.project];
+    if (draftId === s.flows[s.project]) {
+      this.set({ flowOpen: false });
+      return;
+    }
+    const stages = FLOWS[draftId].stages;
+    const keep = new Set<Column>(stages.map((x) => x.id));
+    // A ticket in a column the new flow lacks goes to its waiting stage, or to Backlog when it starts with an agent
+    // (Spec first): the drawn script sent it to "ready" whatever the flow, and it vanished from the board.
+    const toReady = stages[0]?.kind === "wait";
+    const to: Column = toReady && stages[0] ? stages[0].id : "backlog";
+    this.set((st) => ({
+      flows: { ...st.flows, [st.project]: draftId },
+      flowOpen: false,
+      flowDraftId: null,
+      tickets: st.tickets.map((x) =>
+        x.p === st.project && !keep.has(x.col) && x.col !== "backlog" && x.col !== "done"
+          ? { ...x, col: to, st: "queued", ask: null, ago: "" }
+          : x,
+      ),
+    }));
+    this.say(
+      "Applied " +
+        FLOWS[draftId].name +
+        ". (Demo) Tickets mid-flow moved to " +
+        (toReady ? "Ready" : "Backlog") +
+        "; in Otaq the change waits until the board is quiet.",
+    );
+  }
 }
