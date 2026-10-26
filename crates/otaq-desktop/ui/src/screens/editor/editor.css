@@ -1,6 +1,6 @@
 /*
  * *08 · Ticket editor*: the form's fields 16 px apart with a 12/600 label and an 11 px muted hint on one line; the
- * modal is 620 px; quick-create is a card with the focus border at the top of the Backlog column; the Ticket tab
+ * modal is 760 px; quick-create is a card with the focus border at the top of the Backlog column; the Ticket tab
  * reads as uppercase mono section names over 13 px text. Colors are the theme's tokens.
  */
 .editor-fields {

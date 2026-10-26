@@ -40,8 +40,8 @@ export interface OverlayParams {
   /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
   command_palette: { terminal: boolean } | undefined;
   /** The ticket editor on a new Backlog ticket (T-0228); `body` starts the description, and the whole form opens
-   * (New ticket from this file, FTB-03). */
-  new_ticket: { body?: string } | undefined;
+   * (New ticket from this file, FTB-03); `full` opens the whole form without a body (the board's New ticket button). */
+  new_ticket: { body?: string; full?: boolean } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
   /** Settings, on a project's page and on a section if given (T-0234); `agent`: Settings → Agents on that agent's

@@ -889,7 +889,7 @@ export function Board() {
           onView={changeView}
           onAllTickets={requestSearchFocus}
           onNewTicket={() => {
-            openOverlay("new_ticket");
+            openOverlay("new_ticket", { full: true });
           }}
         />
       )}
