@@ -6,7 +6,9 @@
 import { setAgentExpanded, setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
 import { type Selection, selectProject, selection } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
+import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelSendParams } from "../../generated/AgentPanelSendParams";
+import type { MenuItem } from "../../generated/MenuItem";
 import type { request } from "../../tauri";
 
 /**
@@ -226,4 +228,39 @@ export async function sendFirstMessage(
   } finally {
     sending.delete(project);
   }
+}
+
+/** The … menu's id for "New conversation" while the header has folded + into it (not one of `agent_panel.rs`'s ids). */
+export const NEW_ITEM = "new";
+
+/**
+ * The … menu as it opens. A narrow panel folds the header's Recently ended and + into it (the container query in
+ * `agent_panel.css`): Rust's menu already ends with Recently ended…, so only + joins it, first, worded as the header's
+ * button and only while a conversation is shown (the empty panel has no +).
+ */
+export function moreMenu(
+  menu: readonly MenuItem[],
+  newButton: AgentPanelButton,
+  folded: boolean,
+  running: boolean,
+): readonly MenuItem[] {
+  if (!folded || !running) return menu;
+  const item: MenuItem = {
+    id: NEW_ITEM,
+    label: newButton.label,
+    icon: newButton.icon,
+    shortcut: newButton.keys,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: false,
+    header: false,
+  };
+  return [item, ...menu.map((row, i) => (i === 0 ? { ...row, separated: true } : row))];
+}
+
+/** Whether the narrow header folded `button` away (`display: none` on its tooltip's anchor leaves it no boxes). */
+export function foldedAway(button: Element | null): boolean {
+  return button !== null && button.getClientRects().length === 0;
 }

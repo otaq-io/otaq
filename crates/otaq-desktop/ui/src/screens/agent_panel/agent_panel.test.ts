@@ -17,6 +17,8 @@ import { CloseAgentDialog, RecentList } from "./parts";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   leaveExpand,
+  moreMenu,
+  NEW_ITEM,
   newProjectAgent,
   agentPanelFocusRequests,
   sendFirstMessage,
@@ -541,5 +543,78 @@ describe("a tool problem's notice (M23)", () => {
     });
     expect(box.querySelector(".agent-panel-notice")?.textContent).toContain("Model unavailable");
     expect(box.querySelector("textarea")).not.toBeNull();
+  });
+});
+
+describe("a narrow panel's header", () => {
+  const MENU: AgentPanelView["menu"] = [
+    {
+      id: "rename",
+      label: "Rename",
+      icon: "pencil",
+      shortcut: null,
+      danger: false,
+      disabled: false,
+      hint: null,
+      separated: false,
+      checked: false,
+      header: false,
+    },
+    {
+      id: "recent",
+      label: "Recently ended…",
+      icon: "history",
+      shortcut: null,
+      danger: false,
+      disabled: false,
+      hint: null,
+      separated: true,
+      checked: false,
+      header: false,
+    },
+  ];
+
+  it("folds + into the … menu, worded as the header's button, only while a conversation is shown", () => {
+    const newButton = RUNNING.header.new;
+    expect(moreMenu(MENU, newButton, false, true)).toBe(MENU);
+    expect(moreMenu(MENU, newButton, true, false)).toBe(MENU);
+    const folded = moreMenu(MENU, newButton, true, true);
+    expect(folded.map((item) => [item.id, item.label, item.shortcut, item.separated])).toEqual([
+      [NEW_ITEM, "New conversation", "⇧⌘L", false],
+      ["rename", "Rename", null, true],
+      ["recent", "Recently ended…", null, true],
+    ]);
+  });
+
+  it("… opens with New conversation when the header folded its buttons, and choosing it shows the empty panel", () => {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    shownAgents.set({ NOTE: "a1" });
+    show({ ...RUNNING, menu: MENU }, false);
+    const more = () => box.querySelector<HTMLButtonElement>('button[aria-label="More"]');
+    const items = () => [...document.querySelectorAll(".menu-item-label")].map((label) => label.textContent);
+    act(() => {
+      more()?.click();
+    });
+    expect(items()).toEqual(["Rename", "Recently ended…"]);
+    act(() => {
+      more()?.click();
+    });
+    // The container query hides Recently ended and +: their buttons have no boxes.
+    const folded = box.querySelectorAll<HTMLButtonElement>("button[data-folds]");
+    expect([...folded].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Recently ended",
+      "New conversation",
+    ]);
+    for (const b of folded) vi.spyOn(b, "getClientRects").mockReturnValue([] as unknown as DOMRectList);
+    act(() => {
+      more()?.click();
+    });
+    expect(items()).toEqual(["New conversation", "Rename", "Recently ended…"]);
+    act(() => {
+      [...document.querySelectorAll<HTMLButtonElement>(".menu-item")]
+        .find((item) => item.textContent.includes("New conversation"))
+        ?.click();
+    });
+    expect(shownAgents.get()).toEqual({ NOTE: null });
   });
 });

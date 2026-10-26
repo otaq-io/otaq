@@ -3,7 +3,8 @@
 // (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent*): the `agent_panel` slot, 420 px
 // (or as dragged, T-0502) between the rail and the main area while open. It shows one conversation, or the empty panel
 // "Ask Noyan" whose first message starts one (d0087). Its header has "Noyan", the switcher (the
-// conversation ▾), the state pill, …, Recently ended, +, Expand (T-0502) and the close icon; then the agent line,
+// conversation ▾), the state pill, …, Recently ended, +, Expand (T-0502) and the close icon (a narrow panel folds
+// Recently ended and + into … and shows the pill's icon only, `agent_panel.css`); then the agent line,
 // Created and changed, its real terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L
 // and Esc (outside the terminal) fold it back into the Ask bar. Everything it says comes from `agent_panel.view`.
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -49,8 +50,11 @@ import {
   inPanel,
   focusFits,
   focusTarget,
+  foldedAway,
   hasChoice,
   leaveExpand,
+  moreMenu,
+  NEW_ITEM,
   newProjectAgent,
   type AgentPanelFocusRequest,
   agentPanelFocusRequests,
@@ -80,15 +84,17 @@ const ignore = () => undefined;
  */
 const focusHandled: { last: AgentPanelFocusRequest | null } = { last: null };
 
-/** A header button with its tooltip (and keys). */
+/** A header button with its tooltip (and keys); one that `folds` goes into the … menu on a narrow panel. */
 function HeaderButton({
   button,
   open,
+  folds,
   onClick,
   ref,
 }: {
   button: AgentPanelButton;
   open?: boolean;
+  folds?: boolean;
   onClick: () => void;
   ref?: React.Ref<HTMLButtonElement>;
 }) {
@@ -101,6 +107,7 @@ function HeaderButton({
         aria-label={button.label}
         aria-expanded={open}
         data-open={open || undefined}
+        data-folds={folds || undefined}
         onClick={onClick}
       >
         <Icon name={button.icon} size={15} />
@@ -496,6 +503,9 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [floating, setFloating] = useState<Floating>(null);
+  // The narrow header folded Recently ended and + into the … menu (read as the menu opens): Recently ended then opens
+  // from the … button.
+  const [folded, setFolded] = useState(false);
   const [dialog, setDialog] = useState<AgentCloseDialog | null>(null);
   // The user's own fold of Created and changed, per agent; else the view's (folded at the 1280 class).
   const [createdOpen, setCreatedOpen] = useState<Readonly<Record<string, boolean>>>({});
@@ -555,6 +565,9 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
       case "recent":
         setFloating("recent");
         break;
+      case NEW_ITEM:
+        newProjectAgent();
+        break;
       // The menu's ids are `agent_panel.rs`'s; another one does nothing here.
       default:
         break;
@@ -585,22 +598,24 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
     );
   } else if (header.switcher) {
     title = (
-      <button
-        ref={nameButton}
-        type="button"
-        className="agent-panel-switch"
-        aria-haspopup="menu"
-        aria-expanded={floating === "switcher"}
-        onClick={() => {
-          setFloating(floating === "switcher" ? null : "switcher");
-        }}
-        onDoubleClick={() => {
-          if (view.agent !== null) setEditing(true);
-        }}
-      >
-        {title}
-        <Icon name="chevron-down" size={13} />
-      </button>
+      <Tooltip text={header.title}>
+        <button
+          ref={nameButton}
+          type="button"
+          className="agent-panel-switch"
+          aria-haspopup="menu"
+          aria-expanded={floating === "switcher"}
+          onClick={() => {
+            setFloating(floating === "switcher" ? null : "switcher");
+          }}
+          onDoubleClick={() => {
+            if (view.agent !== null) setEditing(true);
+          }}
+        >
+          {title}
+          <Icon name="chevron-down" size={13} />
+        </button>
+      </Tooltip>
     );
   }
 
@@ -612,13 +627,19 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
         </span>
         <span className="agent-panel-label">{header.label}</span>
         {title}
-        {header.pill !== null && <StatusPill pill={header.pill} />}
+        {header.pill !== null && (
+          // A narrow panel shows only its icon; the words stay for screen readers and in the tooltip.
+          <Tooltip text={header.pill.label}>
+            <StatusPill pill={header.pill} />
+          </Tooltip>
+        )}
         <span className="agent-panel-spacer" />
         <HeaderButton
           ref={moreButton}
           button={header.more}
           open={floating === "menu"}
           onClick={() => {
+            setFolded(foldedAway(recentButton.current));
             setFloating(floating === "menu" ? null : "menu");
           }}
         />
@@ -626,13 +647,16 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
           ref={recentButton}
           button={header.recent}
           open={floating === "recent"}
+          folds
           onClick={() => {
+            setFolded(false);
             setFloating(floating === "recent" ? null : "recent");
           }}
         />
         {running !== null && (
           <HeaderButton
             button={header.new}
+            folds
             onClick={() => {
               newProjectAgent();
             }}
@@ -703,14 +727,19 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
           anchor={moreButton}
           align="end"
           label={header.more.label}
-          items={view.menu}
+          items={moreMenu(view.menu, header.new, folded, running !== null)}
           width={260}
           onChoose={choose}
           onClose={close}
         />
       )}
       {floating === "recent" && (
-        <Popover label={header.recent.label} anchor={recentButton} align="end" onClose={close}>
+        <Popover
+          label={header.recent.label}
+          anchor={folded ? moreButton : recentButton}
+          align="end"
+          onClose={close}
+        >
           <RecentList recent={view.recent} onResume={resume} />
         </Popover>
       )}

@@ -13,6 +13,8 @@
   background: var(--bg-panel);
   color: var(--text-primary);
   font-family: var(--font-ui);
+  /* The header folds by the panel's own width (320 px to the window's), not the window's. */
+  container: agent-panel / inline-size;
 }
 
 .agent-panel-spacer {
@@ -66,11 +68,17 @@
   color: var(--text-muted);
 }
 
+/* The switcher keeps 76 px of the name (ellipsis; the full name in its tooltip) while the header is tight. */
+.agent-panel-header > .tooltip-anchor:has(> .agent-panel-switch) {
+  min-width: 76px;
+}
+
 .agent-panel-switch {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
   padding: 3px 8px;
   border: none;
   border-radius: 6px;
@@ -103,6 +111,31 @@
 
 .agent-panel-header .status-pill {
   flex: none;
+}
+
+/*
+ * A narrow panel keeps … , Expand and Close: below 480 px (Noyan, 76 px of name, "Waiting for you" and five buttons
+ * need 478) Recently ended and + go into the … menu (`moreMenu`); below 410 px (406 with three) the pill shows only its
+ * icon, its words kept for screen readers and in its tooltip. 318 px at the narrowest pill, so 320 px fits.
+ */
+@container agent-panel (width < 480px) {
+  .agent-panel-header > .tooltip-anchor:has(> [data-folds]) {
+    display: none;
+  }
+}
+
+@container agent-panel (width < 410px) {
+  .agent-panel-header .status-pill {
+    padding: 3px 6px;
+  }
+
+  .agent-panel-header .status-pill > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
 }
 
 .agent-panel-icon-button {
