@@ -1,18 +1,10 @@
 ---
 import Icon from "./Icon.astro";
+import { BEAT_MS, LANES, STEP_LABELS, beatView } from "./flow";
 
 // How it works: SHOP-29 from a note to main, as drawn (Landing3.dc.html's LANES and BEATS). The page loads on the
-// first beat; the player script (piece 5's flow.ts and player.ts) moves it on through the data- attributes.
-const lanes = [
-  { title: "Ready for Dev", color: "var(--st-queued)" },
-  { title: "Dev", color: "var(--st-working)" },
-  { title: "Security", color: "var(--st-investigate)" },
-  { title: "Review", color: "var(--st-review)" },
-  { title: "Done", color: "var(--st-queued)" },
-];
-const steps = ["Filed", "Started", "Asks you", "Failed → fixed", "Review", "Merged"];
-const laneLeft = (i: number): string =>
-  `calc(10px + (100% - 20px - 32px) / 5 * ${String(i)} + 8px * ${String(i)})`;
+// first beat; player.ts moves it on through the data- attributes.
+const v = beatView(0);
 ---
 
 <section class="sec" id="how">
@@ -28,8 +20,8 @@ const laneLeft = (i: number): string =>
       <div class="stage-scroll">
         <div class="stage">
           <div class="lanes">
-            {lanes.map((ln, i) => (
-              <div class:list={["lane", { on: i === 0 }]} data-lane>
+            {LANES.map((ln, i) => (
+              <div class:list={["lane", { on: v.lanesOn[i] }]} data-lane>
                 <div class="lane-h">
                   <span class="k" style={`background: ${ln.color}`} />
                   {ln.title}
@@ -37,31 +29,31 @@ const laneLeft = (i: number): string =>
               </div>
             ))}
           </div>
-          <div class="tk" style={`left: ${laneLeft(0)}`} data-card>
+          <div class:list={["tk", { attn: v.card.attn }]} style={`left: ${v.card.left}`} data-card>
             <div class="top">
               SHOP-29<span style="flex:1"></span>
-              <span class="av av-CC" data-card-av>
-                CC
+              <span class={`av av-${v.card.tool}`} data-card-av>
+                {v.card.tool}
               </span>
             </div>
             <div class="ti">Coupon field at checkout</div>
-            <span class="pill p-q" data-card-pill>
-              <Icon icon="activity" />
-              <span data-text>Ready for Dev</span>
+            <span class={`pill ${v.card.pillClass}`} data-card-pill>
+              <Icon icon={v.card.icon} class={v.card.spin ? "spin" : undefined} />
+              <span data-text>{v.card.label}</span>
             </span>
             <div class="meta" data-card-meta>
-              filed by Noyan · P2
+              {v.card.meta}
             </div>
           </div>
-          <div class="tk ghost" style={`left: ${laneLeft(0)}`} data-ghost>
+          <div class="tk ghost" style={`left: ${v.ghost.left}`} data-ghost>
             <div class="top">
               SHOP-20<span style="flex:1"></span>
               <span class="av av-CC">CC</span>
             </div>
             <div class="ti">Checkout page</div>
-            <span class="pill p-q" data-ghost-pill>
-              <Icon icon="hourglass" />
-              <span data-text>waits for SHOP-29</span>
+            <span class={`pill ${v.ghost.pillClass}`} data-ghost-pill>
+              <Icon icon={v.ghost.icon} class={v.ghost.spin ? "spin" : undefined} />
+              <span data-text>{v.ghost.label}</span>
             </span>
           </div>
         </div>
@@ -69,17 +61,14 @@ const laneLeft = (i: number): string =>
       <div class="flow-f">
         <div class="now">
           <span class="n" data-now-n>
-            1 of 6
+            {v.n}
           </span>
-          <h3 data-now-title>Noyan, your planning agent, files it</h3>
-          <p data-now-text>
-            You said “add a coupon field at checkout”. Noyan read the code and filed SHOP-29 with what it
-            found. It starts in priority order, once an agent is free.
-          </p>
+          <h3 data-now-title>{v.title}</h3>
+          <p data-now-text>{v.text}</p>
         </div>
         <div>
-          <div class="steps" style="--d: 4200ms">
-            {steps.map((label, i) => (
+          <div class="steps" style={`--d: ${String(BEAT_MS)}ms`}>
+            {STEP_LABELS.map((label, i) => (
               <button
                 class:list={["stp", { on: i === 0 }]}
                 type="button"
@@ -126,3 +115,9 @@ const laneLeft = (i: number): string =>
     </div>
   </div>
 </section>
+
+<script>
+  import { startPlayer } from "./player";
+
+  startPlayer();
+</script>

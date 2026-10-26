@@ -241,3 +241,29 @@ const steps = [
     </div>
   </div>
 </section>
+
+<script>
+  // The preset picker: one track shown, the others hidden. A track that is un-hidden plays the drawn pop-in again,
+  // since its stages' `pop` animation restarts when they go from display: none to shown.
+  const picker = document.querySelector<HTMLElement>("[data-presets]");
+  const buttons = [...(picker?.querySelectorAll<HTMLButtonElement>("[data-preset]") ?? [])];
+  const tracks = [...(picker?.querySelectorAll<HTMLElement>("[data-track]") ?? [])];
+
+  function pick(id: string): void {
+    buttons.forEach((b) => {
+      const on = b.dataset["preset"] === id;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    tracks.forEach((t) => {
+      t.hidden = t.dataset["track"] !== id;
+    });
+  }
+
+  buttons.forEach((b) => {
+    b.addEventListener("click", () => {
+      const id = b.dataset["preset"];
+      if (id !== undefined) pick(id);
+    });
+  });
+</script>
