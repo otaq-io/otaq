@@ -143,7 +143,7 @@ const RULES: &str = "## Otaq's rules
 5. Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already fixed elsewhere), end the ticket instead: `otaq stage done --stdin` with the reason on stdin. It is refused once the branch has commits.
 6. When you are stuck or a decision is the user's, ask: `otaq ask human --stdin` with the question on stdin, then end your turn.
 7. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
-8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.
+8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; name the file in your comment. Attach only a document you wrote, with `--report-file`.
 9. `otaq show <KEY>` reads any ticket; `otaq create \"Title\" --stdin` files a follow-up in Backlog.
 ";
 
@@ -650,7 +650,8 @@ async fn prime_prints_the_examples_four_comments() {
         assert!(!text.contains(gone), "{gone:?} in\n{text}");
     }
     assert!(text.contains(
-        "\n8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.\n"
+        "\n8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; name the file in your comment. Attach only a \
+         document you wrote, with `--report-file`.\n"
     ));
     w.stop().await;
 }

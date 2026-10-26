@@ -10,8 +10,8 @@ any file is uncommitted, and the user reviews and merges only what is committed.
 
 1. Run `git status` and look at every changed, deleted and untracked file.
 2. Delete scratch files you made (logs, notes, temporary scripts) instead of committing them. Command output you
-   want to keep (a test run to attach to your comment with `--report-file`) belongs in `$OTAQ_RESOURCE_DIR`, never in
-   the worktree: move it there instead, search it with `grep` or `tail`, and never print it in full or retype it.
+   want to keep belongs in `$OTAQ_RESOURCE_DIR`, never in the worktree, so you can name it in your comment: move it
+   there instead, search it with `grep` or `tail`, and never print it in full or retype it.
    Never commit secrets or env files (`.env`, keys, tokens). If one shows up as untracked, don't commit it and don't
    delete it: ask the user with `otaq ask human --stdin` (it may belong in `.gitignore`).
 3. Stage the rest and commit. Use one commit, or a few if the work splits into clear steps. Each message starts with

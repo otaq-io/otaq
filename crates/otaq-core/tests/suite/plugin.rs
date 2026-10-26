@@ -538,11 +538,23 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     assert!(work.contains("until the ticket is done, as its description describes"));
 }
 
-/// T-0445 (CMT-09, CMT-08; d0109): the shipped skills keep the hand-over short and long output in reports. Each says
-/// to send long command output to a file in `$OTAQ_RESOURCE_DIR`, never the worktree, to search it and never print it in full or retype it, and how to read a report
-/// (`report <KEY> <N> --path`). The skills that end a stage keep `prime` first, say Otaq refuses the stage end without
-/// it, and attach the run with `--report-file`. No skill pipes anything into an `otaq` command: stdin carries only the
-/// short text, from a heredoc.
+/// Pending (M48): the skills that still attach command output, so the T-0559 checks below skip them. Each ticket
+/// takes its skills off this list; when it is empty, remove it.
+const STILL_ATTACH_OUTPUT: [&str; 4] = [
+    "validate",       // T-0560
+    "product-spec",   // T-0561
+    "tech-spec",      // T-0561
+    "milestone-plan", // T-0561
+];
+
+/// T-0445 (CMT-09, CMT-08; d0109): the shipped skills keep the hand-over short and long output out of comments. Each
+/// says to send long command output to a file in `$OTAQ_RESOURCE_DIR`, never the worktree, to search it and never
+/// print it in full or retype it, and how to read a report (`report <KEY> <N> --path`). The skills that end a stage
+/// keep `prime` first and say Otaq refuses the stage end without it. T-0559 (CMT-09; d0136): no skill attaches a run,
+/// a log or a diff with `--report-file`; the stage-ending skills say command output is never attached and only a
+/// document you wrote is; the Developer's skills end with one "`<command>` at `<commit>`: … log: …" line per check,
+/// run after the last commit. No skill pipes anything into an `otaq` command: stdin carries only the short text, from
+/// a heredoc.
 #[test]
 fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     let cmd = naming::COMMAND_NAME;
@@ -587,12 +599,60 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
             text.to_lowercase().contains("never in the worktree"),
             "{name}: never the worktree"
         );
+        if !STILL_ATTACH_OUTPUT.contains(&name) {
+            for needle in [
+                "never attach command output",
+                "Attach only a document you wrote",
+            ] {
+                assert!(text.contains(needle), "{name} must say {needle:?}");
+            }
+        }
+    }
+    // No skill attaches a run, a log or a diff.
+    for name in skill_names() {
+        if STILL_ATTACH_OUTPUT.contains(&name.as_str()) {
+            continue;
+        }
+        let (_, body) = skill(&name);
+        let body = joined(&body);
+        for (at, flag) in body.match_indices("--report-file ") {
+            let file = body[at + flag.len()..]
+                .split_whitespace()
+                .next()
+                .unwrap_or_default();
+            for run in ["test-run", ".log", "-diff"] {
+                assert!(!file.contains(run), "{name} attaches output: {file}");
+            }
+        }
+    }
+    // The Developer's skills say what they ran, at which commit, and where the log is: a check run after the last
+    // commit, one line in the comment, and no `--report-file` on `stage next`.
+    for name in [WORK_TICKET_SKILL, "address-review", "restack"] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        for needle in ["**after your last commit**", "`git rev-parse --short HEAD`"] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
         assert!(
-            text.contains(&format!(
-                "--report-file \"${}/",
-                naming::resource_dir_env_var()
-            )),
-            "{name}: attaches the run with --report-file"
+            text.contains("Report a failing or partial run as it is"),
+            "{name}: a failing run is reported as it is"
+        );
+        let submit = joined(&body);
+        let submit = &submit[submit
+            .find(&format!("{cmd} stage next --stdin"))
+            .expect("stage next")..];
+        let command = &submit[..submit.find("<<'COMMENT'").expect("the comment")];
+        assert!(
+            !command.contains("--report-file"),
+            "{name}: stage next attaches nothing"
+        );
+        let comment = heredoc(&body, &format!("{cmd} stage next --stdin"), "COMMENT");
+        assert!(
+            comment
+                .lines()
+                .any(|l| l.starts_with("`npm test` at a1b2c3d: ")
+                    && l.ends_with("; log: `$OTAQ_RESOURCE_DIR/test-run.txt`")),
+            "{name}: the \"<command> at <commit>: … log: …\" line in\n{comment}"
         );
     }
     let (_, validate) = skill("validate");

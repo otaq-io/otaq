@@ -1,6 +1,6 @@
 ---
 name: work-ticket
-description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement (or, when the Plan has pieces, start a helper per piece, review, test and merge each), commit everything, then end your stage with a short comment through `otaq stage next`, long output attached as a report. With $OTAQ_PIECE set, build one piece as a helper and hand it back with `otaq helper done`.
+description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement (or, when the Plan has pieces, start a helper per piece, review, test and merge each), commit everything, then end your stage with a short comment through `otaq stage next` that says what you ran, at which commit, and where the log is. With $OTAQ_PIECE set, build one piece as a helper and hand it back with `otaq helper done`.
 disable-model-invocation: true
 ---
 
@@ -36,16 +36,20 @@ it: skip the steps below and follow "As a helper" at the end.
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
 6. **End your stage** with a short comment on stdin: what you changed and what the next stage needs to know, in a
-   few lines (at most 2,000 characters). It is posted as your comment on the ticket, and the next stage's agent reads
-   it in `prime`. Attach long output, such as your last test run, as a report (see "Long output" below):
+   few lines (at most 2,000 characters); the next stage's agent reads it in `prime`. Run your last checks **after
+   your last commit** and give one line each: the command, the commit (`git rev-parse --short HEAD`), the result and
+   the log (see "Long output"):
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+   otaq stage next --stdin \
      --manual-check "On a phone, the price table scrolls sideways and the header stays put" <<'COMMENT'
    Added the price table with sorting by price and name. Prices align right; the table scrolls on mobile widths.
-   `npm test` passes (run attached).
+   `npm test` at a1b2c3d: 48 passed; log: `$OTAQ_RESOURCE_DIR/test-run.txt`
    COMMENT
    ```
+
+   Report a failing or partial run as it is ("2 failed, in `cart.test.ts`, which the ticket doesn't touch"), and any
+   change after it.
 
    **List what you couldn't check yourself** with `--manual-check "<what to check>"`, one line per check, repeated
    for each: something that needs a real browser, a device, or a service you can't reach. The user sees them as
@@ -155,29 +159,23 @@ NOTE
 
 ## Long output
 
-Long command output (a test run, a build log, a long diff) goes to a file, never into this session or a comment in
-full:
+Long command output (a test run, a build log, a long diff) goes to a file in `$OTAQ_RESOURCE_DIR`, Otaq's folder for
+this ticket outside the repository, never into this session or a comment in full:
 
 ```sh
 npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1
 grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
-tail -n 40 "$OTAQ_RESOURCE_DIR/test-run.txt"
 ```
 
-- **Send long output to a file in `$OTAQ_RESOURCE_DIR`**, Otaq's folder for this ticket outside the repository.
-  **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
+- **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
-- **Attach it** to the comment that ends your stage with `--report-file` (at most 20 MB); the comment itself says, in
-  a line or two, what it shows.
+- **Name it** in your comment; never attach command output, such as a log. **Attach only a document you wrote**,
+  such as design notes, with `--report-file` (at most 20 MB).
 
 ### Reading a report
 
-Under a comment with a report, `prime` shows one line such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`".
-Open a report only when you need it, and search it instead of printing it:
-
-```sh
-grep -n "expected" "$(otaq report SHOP-19 4 --path)"
-```
+Under a comment with a report, `prime` shows a line such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`".
+Open it only when you need it, and search it: `grep -n "expected" "$(otaq report SHOP-19 4 --path)"`.
 
 ## Check the ticket first
 
@@ -291,7 +289,7 @@ QUESTION
 - **Never push, never open a PR, never merge.** The user does that from the board. The one merge that is yours:
   your helpers' pieces into this ticket's branch, with `otaq helper merge`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
-  Long command output never does: it goes in a report (see "Long output").
+  Long command output never does: it goes to a file (see "Long output").
 - Useful commands: `otaq show <KEY>` (any ticket), `otaq dep tree` (your ticket's chain),
   `otaq create "Title" --stdin` (a follow-up in Backlog).
 - If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run
