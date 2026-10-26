@@ -605,7 +605,7 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
   }
 
   return (
-    <section className="agent_panel" aria-label={header.label} data-agent={view.agent ?? undefined}>
+    <section className="agent-panel" aria-label={header.label} data-agent={view.agent ?? undefined}>
       <div className="agent-panel-header">
         <span className="agent-panel-bot" data-running={running !== null || undefined}>
           <Icon name={header.icon} size={15} />
@@ -785,13 +785,13 @@ function ProjectAgentPanel({ project }: { project: string }) {
       lookedAt(shownAgent);
     };
   }, [open, shownAgent]);
-  if (!view) return <section className="agent_panel" />;
+  if (!view) return <section className="agent-panel" />;
   return <AgentPanelBody view={view} project={project} followFocus />;
 }
 
 /** The `agent_panel` slot: the shown project's agent panel (nothing before a project is added). */
 export function AgentPanel() {
   const { project } = useSelection();
-  if (project === null) return <section className="agent_panel" />;
+  if (project === null) return <section className="agent-panel" />;
   return <ProjectAgentPanel key={project} project={project} />;
 }
