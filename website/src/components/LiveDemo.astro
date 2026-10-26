@@ -54,6 +54,8 @@ const tries = [
     frame.style.width = `${String(f.width)}px`;
     frame.style.height = `${String(f.height)}px`;
     clip.style.transform = `scale(${f.scale.toFixed(4)})`;
+    // The demo divides a click's offset by this to place its menus (decision 0138 §3).
+    clip.dataset.demoScale = f.scale.toFixed(4);
     clip.style.pointerEvents = f.viewOnly ? "none" : "auto";
     note.style.width = `${String(f.width)}px`;
     note.hidden = !f.viewOnly;

@@ -77,10 +77,14 @@ describe("How it works player", () => {
 
 describe("demoFrame", () => {
   it.each([
+    [200, { width: 280, height: 175, viewOnly: true }],
     [360, { width: 328, height: 205, viewOnly: true }],
-    [800, { width: 736, height: 460, viewOnly: true }],
-    [1000, { width: 936, height: 585, viewOnly: false }],
-    [1440, { width: 1280, height: 800, viewOnly: false }],
+    [759, { width: 727, height: 454, viewOnly: true }],
+    [760, { width: 696, height: 435, viewOnly: true }],
+    [899, { width: 835, height: 522, viewOnly: true }],
+    [900, { width: 836, height: 523, viewOnly: false }],
+    [1200, { width: 1136, height: 710, viewOnly: false }],
+    [1440, { width: 1136, height: 710, viewOnly: false }],
   ])("at %i px", (vw, frame) => {
     const f = demoFrame(vw);
     expect(f).toMatchObject(frame);
