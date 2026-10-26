@@ -143,6 +143,7 @@ mod ticket_resources;
 mod ticket_terminal;
 mod tickets;
 mod tools;
+mod uninstall_scan;
 mod usage;
 mod validation;
 mod validation_reports;

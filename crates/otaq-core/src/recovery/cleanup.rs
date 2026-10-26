@@ -89,6 +89,34 @@ pub struct CleanupOutcome {
     pub failed: Vec<(CleanupTarget, String)>,
 }
 
+/// Who a folder under `<data>/wt/<repo>/` belongs to: the one rule for "owned" (REC-04), shared by the Cleanup scan and
+/// `otaq uninstall` (d0134).
+#[derive(Debug, Clone)]
+pub enum WorktreeOwner {
+    /// An unfinished ticket's worktree.
+    Ticket(Ticket),
+    /// A ticket's worktree kept because of uncommitted changes (REC-05).
+    Kept(Ticket),
+    /// A helper's worktree (d0133): in use while its ticket is unfinished and its piece isn't merged.
+    Helper {
+        helper: Box<crate::helpers::Helper>,
+        ticket: Ticket,
+        in_use: bool,
+    },
+    /// No ticket uses it.
+    None,
+}
+
+impl WorktreeOwner {
+    /// The ticket it belongs to, if any.
+    pub fn ticket(&self) -> Option<&Ticket> {
+        match self {
+            Self::Ticket(ticket) | Self::Kept(ticket) | Self::Helper { ticket, .. } => Some(ticket),
+            Self::None => None,
+        }
+    }
+}
+
 impl CleanupItem {
     pub fn target(&self) -> CleanupTarget {
         CleanupTarget {
@@ -139,6 +167,51 @@ impl Cleanup {
         Ok(rows)
     }
 
+    /// Every folder under `<data>/wt/<repo>/`, in path order, with who owns it among `tickets` (all the board's).
+    /// Reads only.
+    pub async fn worktree_owners(
+        &self,
+        tickets: &[Ticket],
+    ) -> Result<Vec<(PathBuf, WorktreeOwner)>, BoardError> {
+        let kept = self.kept_ids().await?;
+        let with_worktree: Vec<(PathBuf, &Ticket)> = tickets
+            .iter()
+            .filter_map(|t| Some((normalized(t.work.as_ref()?.worktree.as_deref()?), t)))
+            .collect();
+        let helpers: Vec<(PathBuf, crate::helpers::Helper, &Ticket)> = self
+            .helper_rows(tickets)
+            .await?
+            .into_iter()
+            .map(|(h, t)| (normalized(&h.worktree), h, t))
+            .collect();
+        let mut owners = Vec::new();
+        for folder in worktree_folders(&self.data.worktrees_dir()) {
+            let path = normalized(&folder.display().to_string());
+            let owner = |which: &dyn Fn(&Ticket) -> bool| {
+                with_worktree
+                    .iter()
+                    .find(|(at, t)| *at == path && which(t))
+                    .map(|(_, t)| (*t).clone())
+            };
+            let owner = if let Some(t) = owner(&|t| !t.place.is_done()) {
+                WorktreeOwner::Ticket(t)
+            } else if let Some(t) = owner(&|t| kept.contains(&t.id)) {
+                WorktreeOwner::Kept(t)
+            } else if let Some((_, helper, ticket)) = helpers.iter().find(|(at, ..)| *at == path) {
+                WorktreeOwner::Helper {
+                    in_use: !ticket.place.is_done()
+                        && helper.status != crate::helpers::HelperStatus::Merged,
+                    helper: Box::new(helper.clone()),
+                    ticket: (*ticket).clone(),
+                }
+            } else {
+                WorktreeOwner::None
+            };
+            owners.push((folder, owner));
+        }
+        Ok(owners)
+    }
+
     /// Every leftover, grouped. Reads only.
     pub async fn scan(&self) -> Result<Vec<CleanupItem>, BoardError> {
         let now = now_ms();
@@ -180,73 +253,51 @@ impl Cleanup {
         }
 
         // Worktree folders no unfinished ticket uses; kept ones of finished tickets are their own group.
-        let in_use: HashSet<PathBuf> = tickets
-            .iter()
-            .filter(|t| !t.place.is_done())
-            .filter_map(|t| t.work.as_ref()?.worktree.as_deref())
-            .map(normalized)
-            .collect();
-        let kept: HashSet<PathBuf> = self
-            .kept_tickets(&tickets)
-            .await?
-            .iter()
-            .filter_map(|(t, _)| t.work.as_ref()?.worktree.as_deref())
-            .map(normalized)
-            .collect();
-        let helpers = self.helper_rows(&tickets).await?;
-        for folder in worktree_folders(&self.data.worktrees_dir()) {
-            let path = normalized(&folder.display().to_string());
-            if in_use.contains(&path) || kept.contains(&path) {
-                continue;
-            }
-            // A helper's worktree: in use while it works on an unfinished ticket; left behind, listed under it.
-            if let Some((helper, ticket)) = helpers
-                .iter()
-                .find(|(h, _)| normalized(&h.worktree) == path)
-            {
-                let why = if ticket.place.is_done() {
-                    format!("{} is {}", ticket.key, ticket.status.label())
-                } else if helper.status == crate::helpers::HelperStatus::Merged {
-                    format!("{} was merged", helper.label())
-                } else {
-                    continue;
-                };
-                items.push(CleanupItem {
-                    group: CleanupGroup::Worktrees,
-                    id: folder.display().to_string(),
-                    label: format!("{} \u{b7} {} {}", ticket.key, helper.label(), helper.title),
-                    project: Some(ticket.key.project.to_string()),
-                    ticket: Some(ticket.key.clone()),
-                    path: Some(folder.display().to_string()),
-                    size_bytes: Some(folder_size(&folder)),
-                    age_ms: modified_age(&folder, now),
-                    why,
-                    uncommitted: Vec::new(),
-                });
-                continue;
-            }
-            let repo = folder
-                .parent()
-                .and_then(Path::file_name)
-                .map(|n| n.to_string_lossy().into_owned());
+        for (folder, owner) in self.worktree_owners(&tickets).await? {
+            let (label, project, ticket, why) = match owner {
+                WorktreeOwner::Ticket(_)
+                | WorktreeOwner::Kept(_)
+                | WorktreeOwner::Helper { in_use: true, .. } => continue,
+                // A helper's worktree left behind (its ticket finished, or its piece merged): listed under it.
+                WorktreeOwner::Helper { helper, ticket, .. } => (
+                    format!("{} \u{b7} {} {}", ticket.key, helper.label(), helper.title),
+                    Some(ticket.key.project.to_string()),
+                    Some(ticket.key.clone()),
+                    if ticket.place.is_done() {
+                        format!("{} is {}", ticket.key, ticket.status.label())
+                    } else {
+                        format!("{} was merged", helper.label())
+                    },
+                ),
+                WorktreeOwner::None => (
+                    folder
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    folder
+                        .parent()
+                        .and_then(Path::file_name)
+                        .map(|n| n.to_string_lossy().into_owned()),
+                    None,
+                    "no ticket uses this worktree".into(),
+                ),
+            };
             items.push(CleanupItem {
                 group: CleanupGroup::Worktrees,
                 id: folder.display().to_string(),
-                label: folder
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                project: repo,
-                ticket: None,
+                label,
+                project,
+                ticket,
                 path: Some(folder.display().to_string()),
                 size_bytes: Some(folder_size(&folder)),
                 age_ms: modified_age(&folder, now),
-                why: "no ticket uses this worktree".into(),
+                why,
                 uncommitted: Vec::new(),
             });
         }
 
         // Branches named by Otaq that no ticket names.
+        let helpers = self.helper_rows(&tickets).await?;
         let git = self.board.git()?;
         let prefix = naming::branch_prefix();
         for project in &projects {
@@ -580,17 +631,23 @@ impl Cleanup {
         })
     }
 
+    /// The ids of the tickets whose worktree was kept (REC-05).
+    async fn kept_ids(&self) -> Result<HashSet<String>, BoardError> {
+        Ok(
+            sqlx::query_scalar::<_, String>("SELECT id FROM tickets WHERE worktree_kept = TRUE")
+                .fetch_all(self.board.store().pool())
+                .await?
+                .into_iter()
+                .collect(),
+        )
+    }
+
     /// Done / Closed tickets whose worktree was kept, with their uncommitted files.
     async fn kept_tickets(
         &self,
         tickets: &[Ticket],
     ) -> Result<Vec<(Ticket, Vec<String>)>, BoardError> {
-        let ids: HashSet<String> =
-            sqlx::query_scalar::<_, String>("SELECT id FROM tickets WHERE worktree_kept = TRUE")
-                .fetch_all(self.board.store().pool())
-                .await?
-                .into_iter()
-                .collect();
+        let ids = self.kept_ids().await?;
         let mut kept = Vec::new();
         for ticket in tickets.iter().filter(|t| ids.contains(&t.id)) {
             let uncommitted = match ticket.work.as_ref().and_then(|w| w.worktree.as_deref()) {
@@ -627,13 +684,13 @@ fn worktree_folders(root: &Path) -> Vec<PathBuf> {
 }
 
 /// A path compared without symlinks (macOS's `/var` is `/private/var`).
-fn normalized(path: &str) -> PathBuf {
+pub(crate) fn normalized(path: &str) -> PathBuf {
     let path = PathBuf::from(path);
     crate::paths::canonical(&path).unwrap_or(path)
 }
 
 /// The size of everything in a folder (symlinks not followed).
-fn folder_size(folder: &Path) -> u64 {
+pub(crate) fn folder_size(folder: &Path) -> u64 {
     let mut total = 0;
     let mut stack = vec![folder.to_owned()];
     while let Some(dir) = stack.pop() {

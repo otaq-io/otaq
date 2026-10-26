@@ -46,6 +46,8 @@ pub struct ClientConfig {
     /// The actor requests ask to be recorded as (`--actor`, CLI-04). The service decides: an agent caller always
     /// acts as itself.
     pub actor: Option<String>,
+    /// This client is the desktop app: its event subscription tells the service the app is open (Q565).
+    pub app: bool,
 }
 
 impl ClientConfig {
@@ -58,6 +60,7 @@ impl ClientConfig {
             backoff_max: Duration::from_secs(2),
             start_timeout: Duration::from_secs(10),
             actor: None,
+            app: false,
         }
     }
 }
@@ -218,7 +221,7 @@ impl Client {
     pub async fn subscribe(&self) -> Result<broadcast::Receiver<Event>, ClientError> {
         let receiver = self.inner.events.subscribe();
         if !self.inner.subscribed.swap(true, Ordering::SeqCst) {
-            match self.request(Request::Subscribe).await {
+            match self.request(subscribe_request(&self.inner.config)).await {
                 Ok(_) | Err(ClientError::Disconnected) | Err(ClientError::Incompatible) => {}
                 Err(e) => return Err(e),
             }
@@ -273,6 +276,11 @@ impl Client {
     }
 }
 
+/// The event subscription, as the app's when this client is the app.
+fn subscribe_request(config: &ClientConfig) -> Request {
+    Request::Subscribe(protocol::SubscribeParams { app: config.app })
+}
+
 /// Opens a connection, reads the service's status, and subscribes to events if asked (and possible).
 async fn establish(
     config: &ClientConfig,
@@ -286,7 +294,7 @@ async fn establish(
     };
     let compatibility = Compatibility::of(&status, &config.build_id);
     if subscribe && compatibility != Compatibility::Incompatible {
-        connection.request(Request::Subscribe).await?;
+        connection.request(subscribe_request(config)).await?;
     }
     Ok((
         connection,
@@ -339,7 +347,7 @@ async fn supervise(inner: std::sync::Weak<Inner>) {
                     *client.connection.lock().expect("connection") = Some(connection.clone());
                     // `subscribe()` may have been called while this connection was being set up.
                     if compatible && !subscribe && client.subscribed.load(Ordering::SeqCst) {
-                        let _ = connection.request(Request::Subscribe).await;
+                        let _ = connection.request(subscribe_request(&client.config)).await;
                     }
                     client.state.send_replace(ConnectionState::Connected(info));
                     break;

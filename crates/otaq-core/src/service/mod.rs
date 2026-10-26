@@ -200,6 +200,8 @@ struct Shared {
     /// What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14).
     notifications: crate::attention::os_permission::OsPermission,
     cleanup: Cleanup,
+    /// `otaq uninstall`'s scan (d0134).
+    uninstall: crate::uninstall::Uninstall,
     usage: Usage,
     plan_limit: PlanLimit,
     runs: Runs,
@@ -707,6 +709,13 @@ impl Service {
             ports.clone(),
             ticket_env.clone(),
         );
+        let uninstall = crate::uninstall::Uninstall::new(
+            board.clone(),
+            config.data.clone(),
+            sessions.clone(),
+            cleanup.clone(),
+            events.clone(),
+        );
         // "Merging · running the merge check" shows and goes at once (d0120).
         board.merge_checks().set_events(events.clone());
         // The agents in charge's helpers (d0133): their own worktrees, ports and sessions.
@@ -1075,6 +1084,7 @@ impl Service {
             plan_limit,
             usage,
             cleanup,
+            uninstall,
             needs_you,
             notifications,
             recovery,
@@ -1147,6 +1157,11 @@ impl Service {
     /// Leftover scan and delete (REC-04).
     pub fn cleanup(&self) -> Cleanup {
         self.shared.cleanup.clone()
+    }
+
+    /// `otaq uninstall`'s scan (d0134).
+    pub fn uninstall(&self) -> crate::uninstall::Uninstall {
+        self.shared.uninstall.clone()
     }
 
     /// The token usage reader.

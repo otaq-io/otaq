@@ -157,7 +157,7 @@ fn ends_the_service(request: &Request) -> bool {
         Request::Ping
         | Request::ServiceStatus
         | Request::StartupReport
-        | Request::Subscribe
+        | Request::Subscribe(_)
         | Request::ToolsCheck
         | Request::OnboardingState
         | Request::OnboardingSources(_)
@@ -205,6 +205,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::NeedsYouCounts
         | Request::CleanupScan
         | Request::CleanupDelete(_)
+        | Request::UninstallScan
         | Request::WarmList
         | Request::WarmClear(_)
         | Request::DiffFiles(_)

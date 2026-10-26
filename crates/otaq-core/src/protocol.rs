@@ -153,9 +153,10 @@ pub enum Request {
     /// Asks the service to shut down; answered with [`Reply::Ok`] before it stops.
     #[serde(rename = "service.stop")]
     ServiceStop,
-    /// Starts the event stream on this connection; answered with [`Reply::Ok`], then [`Event`]s follow.
+    /// Starts the event stream on this connection; answered with [`Reply::Ok`], then [`Event`]s follow. The desktop
+    /// app subscribes with `app`: while it is subscribed, the app is open (`uninstall.scan`'s `app_open`, Q565).
     #[serde(rename = "events.subscribe")]
-    Subscribe,
+    Subscribe(SubscribeParams),
     /// The first-run tools checklist and permission-mode check; answered with [`Reply::ToolsCheck`].
     #[serde(rename = "tools.check")]
     ToolsCheck,
@@ -472,6 +473,13 @@ pub enum Request {
     /// `needs_confirmation`. Answered with [`Reply::CleanupOutcome`]. Nothing deletes leftovers otherwise.
     #[serde(rename = "cleanup.delete")]
     CleanupDelete(CleanupDeleteParams),
+
+    // Uninstall (UNI-02, d0134).
+    /// What `otaq uninstall` would remove and ask about: every worktree under the data folder with its ticket and ✎,
+    /// the merge worktrees, the projects, sizes, what is running, whether the app is open, the `otaq/` branches and
+    /// the folder trust kept. Changes nothing; the user's only. Answered with [`Reply::UninstallScan`].
+    #[serde(rename = "uninstall.scan")]
+    UninstallScan,
 
     // Warm builds (WRM-05…WRM-07, d0082).
     /// Every warm build in `<app-data>/warm/`, and whether the data folder's disk can clone. Answered with
@@ -1341,6 +1349,13 @@ pub struct NeedsYouAnswerParams {
     pub clear: bool,
 }
 
+/// `{}`, or `{"app": true}` from the desktop app.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubscribeParams {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub app: bool,
+}
+
 /// `{"items": [{"group": "branches", "id": "SHOP:otaq/SHOP-9"}], "confirm": true}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CleanupDeleteParams {
@@ -1897,7 +1912,7 @@ impl Request {
             Self::ServiceStatus => "service.status",
             Self::ServiceStop => "service.stop",
             Self::StartupReport => "service.startup_report",
-            Self::Subscribe => "events.subscribe",
+            Self::Subscribe(_) => "events.subscribe",
             Self::ToolsCheck => "tools.check",
             Self::ToolTerminalOpen(_) => "tools.terminal",
             Self::OnboardingState => "onboarding.state",
@@ -1946,6 +1961,7 @@ impl Request {
             Self::NeedsYouCounts => "needs_you.counts",
             Self::CleanupScan => "cleanup.scan",
             Self::CleanupDelete(_) => "cleanup.delete",
+            Self::UninstallScan => "uninstall.scan",
             Self::WarmList => "warm.list",
             Self::WarmClear(_) => "warm.clear",
             Self::DiffFiles(_) => "diff.files",
@@ -2237,6 +2253,7 @@ pub enum Reply {
     NeedsYouCounts(crate::attention::needs_you::NeedsYouCounts),
     CleanupScan(Vec<crate::recovery::cleanup::CleanupItem>),
     CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
+    UninstallScan(Box<crate::uninstall::UninstallScan>),
     WarmList(Box<crate::warm::store::WarmList>),
     WarmClear(crate::warm::store::ClearOutcome),
     Run(Box<crate::terminals::run::RunInfo>),
@@ -2709,7 +2726,7 @@ mod tests {
             Message::request(1, Request::Ping),
             Message::request(2, Request::ServiceStatus),
             Message::request(3, Request::ServiceStop),
-            Message::request(6, Request::Subscribe),
+            Message::request(6, Request::Subscribe(SubscribeParams::default())),
             Message::request(7, Request::ToolsCheck),
             Message::request(8, Request::OnboardingState),
             Message::request(9, Request::DismissPermissionWarning),
