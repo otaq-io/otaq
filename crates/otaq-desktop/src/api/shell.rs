@@ -141,11 +141,13 @@ struct ActivityData {
     scheduler: Option<SchedulerStatus>,
     activity: Option<Activity>,
     runs: Vec<RunInfo>,
+    /// The waiting column's name: "Ready for Dev" while every project's flow starts at Dev, else "Ready".
+    waiting: &'static str,
 }
 
 impl ActivityData {
     async fn fetch(app: &App) -> Result<Self, RequestError> {
-        let (settings, scheduler, activity, runs) = tokio::join!(
+        let (settings, scheduler, activity, runs, waiting) = tokio::join!(
             settings(app),
             optional(app, Request::SchedulerStatus, |r| match r {
                 Reply::SchedulerStatus(s) => Some(s),
@@ -159,12 +161,14 @@ impl ActivityData {
                 Reply::Runs(runs) => Some(runs),
                 _ => None,
             }),
+            waiting_name(app),
         );
         Ok(Self {
             limits: settings?.agent_limits,
             scheduler,
             activity,
             runs: runs.unwrap_or_default(),
+            waiting,
         })
     }
 
@@ -181,8 +185,24 @@ impl ActivityData {
             scheduler: self.scheduler.as_ref(),
             runs: &self.runs,
             now,
+            waiting: self.waiting,
         }
     }
+}
+
+/// The waiting column's name across the projects (d0093, Q515): "Ready" once one project's flow doesn't start at
+/// Dev, else "Ready for Dev".
+async fn waiting_name(app: &App) -> &'static str {
+    use otaq_core::flow::model::{READY, READY_FOR_DEV};
+    let Ok(list) = projects(app).await else {
+        return READY_FOR_DEV;
+    };
+    for project in list {
+        if super::board::flow(app, &project.key).await.waiting_name() == READY {
+            return READY;
+        }
+    }
+    READY_FOR_DEV
 }
 
 pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {

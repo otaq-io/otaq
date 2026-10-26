@@ -1077,6 +1077,16 @@ export function FilesTabBody({
             <span className="files-source-sub">{view.source.subtitle}</span>
           </div>
         </div>
+        {view.source.stages.length > 0 && (
+          // At a check of planning: what each stage committed (`s30-02`).
+          <div className="files-stages">
+            {view.source.stages.map((stage) => (
+              <span key={stage} className="files-stage">
+                {stage}
+              </span>
+            ))}
+          </div>
+        )}
         {view.source.legend.length > 0 && (
           // The key to the tree's tags.
           <div className="files-legend">

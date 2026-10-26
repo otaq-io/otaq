@@ -400,7 +400,7 @@ fn planned_move(facts: &PlanFacts<'_>, ticket: &Ticket, stage: &Stage) -> Planne
         },
         MoveChoice {
             to: DropTarget::ReadyForDev.into(),
-            name: Status::Queued.label().to_owned(),
+            name: new.waiting_name().to_owned(),
             way: Way::ReadyForDev,
             hint: None,
         },
@@ -702,7 +702,7 @@ impl Board {
                     marks: Vec::new(),
                     check_head: None,
                     hand_over: None,
-                    event: event(Status::Queued.label(), None, true, &[]),
+                    event: event(new.waiting_name(), None, true, &[]),
                 }));
             }
             DropOn::Stage { stage } => stage,

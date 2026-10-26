@@ -82,6 +82,7 @@ pub mod palette;
 pub mod pause;
 pub mod pieces;
 pub mod plan;
+pub mod planning;
 pub mod pr_dialog;
 pub mod pr_page;
 pub mod priority;

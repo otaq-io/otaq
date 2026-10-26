@@ -35,6 +35,7 @@ pub mod settings;
 pub mod snapshot;
 pub mod stack;
 pub mod stage_choices;
+pub mod stage_files;
 pub mod stage_runs;
 pub mod ticket_comments;
 pub mod tickets;

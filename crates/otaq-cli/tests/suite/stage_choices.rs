@@ -600,5 +600,17 @@ async fn planning_skips_on_spec_first() {
         .unwrap()
         .clone();
     assert_eq!(review["choice"], "required");
+
+    // Waiting in the waiting column: Spec first names it "Ready" (d0093, Q515). A parent that hasn't merged keeps it
+    // from starting.
+    ok(&cb(&w, &["-P", "SHOP", "create", "Saved carts"]));
+    let waiting = w
+        .board
+        .add_dependency("SHOP-2", "SHOP-1", &Actor::User("me".into()))
+        .await
+        .unwrap();
+    w.force_status(&waiting, Status::Queued).await;
+    let shown = ok(&cb(&w, &["show", "SHOP-2"]));
+    assert!(shown.contains("Status:      Ready\n"), "{shown}");
     w.stop().await;
 }

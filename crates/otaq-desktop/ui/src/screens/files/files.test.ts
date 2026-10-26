@@ -38,7 +38,7 @@ import {
   visibleRows,
   writesNew,
 } from "./logic";
-import { ReviewBarBody } from "./ReviewBar";
+import { barParams, ReviewBarBody } from "./ReviewBar";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
@@ -83,7 +83,13 @@ const M = (counts: string, uncommitted = false) => ({
 /** SHOP-22's worktree (`s25-07`): e2e/ and src/ on top, three unchanged files. */
 const SHOP_22: FilesTabView = {
   key: "SHOP-22",
-  source: { kind: "worktree", title: "SHOP-22’s worktree", subtitle: "otaq/SHOP-22 · from main", legend: [] },
+  source: {
+    kind: "worktree",
+    title: "SHOP-22’s worktree",
+    subtitle: "otaq/SHOP-22 · from main",
+    legend: [],
+    stages: [],
+  },
   search: { placeholder: "Search files by name", keys: "⌥⌘P" },
   filters: ["All files", "Changed · 3"],
   changed: 3,
@@ -202,6 +208,7 @@ describe("the Files tab", () => {
           { label: "1 merged", writing: false },
           { label: "2 being written", writing: true },
         ],
+        stages: [],
       },
       rows: [
         row("src/components/WishlistButton.tsx", {
@@ -468,6 +475,36 @@ describe("the Files tab", () => {
       }),
     );
     expect(empty).toContain("SHOP-31 hasn’t started: nothing has changed yet.");
+  });
+});
+
+describe("Spec review's Files (s30-02)", () => {
+  it("names what each planning stage committed under the branch", () => {
+    const out = body({
+      ...SHOP_22,
+      key: "SHOP-40",
+      source: {
+        kind: "worktree",
+        title: "SHOP-40’s worktree",
+        subtitle: "otaq/SHOP-40 · what planning committed",
+        legend: [],
+        stages: ["Product spec · 2", "Tech spec · 2", "Milestone plan · 1"],
+      },
+    });
+    expect(out).toContain("otaq/SHOP-40 · what planning committed");
+    expect(out.match(/class="files-stage"/g)).toHaveLength(3);
+    expect(out.indexOf("Product spec · 2")).toBeLessThan(out.indexOf("Milestone plan · 1"));
+    // None outside a check of planning.
+    expect(body(SHOP_22)).not.toContain("files-stages");
+  });
+
+  it("asks the bar's words for the tab it sits under", () => {
+    expect(barParams("SHOP-40", false, "overview")).toEqual({
+      key: "SHOP-40",
+      writing: false,
+      tab: "overview",
+    });
+    expect(barParams("SHOP-40", true, undefined)).toEqual({ key: "SHOP-40", writing: true });
   });
 });
 

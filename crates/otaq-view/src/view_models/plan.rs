@@ -189,6 +189,17 @@ fn original_writer(events: &[HistoryEvent]) -> Option<PlanBy> {
     writer
 }
 
+/// The name of the stage whose agent wrote the Plan, even when the user saved over it since ("Milestone plan"): What
+/// planning did names the Plan on that stage's row.
+pub fn stage_writer(ticket: &Ticket, events: &[HistoryEvent]) -> Option<String> {
+    match (ticket.plan_by.as_ref()?, original_writer(events).as_ref()) {
+        (PlanBy::Stage(stage), _) | (PlanBy::User(_), Some(PlanBy::Stage(stage))) => {
+            Some(stage.clone())
+        }
+        _ => None,
+    }
+}
+
 /// "2:40 pm" today, "Oct 12, 2:40 pm" another day.
 fn at_label(at: i64, now: i64) -> String {
     let (Some(t), Some(today)) = (
@@ -786,5 +797,37 @@ mod tests {
             added,
             ["   A read-only link to the wishlist that works signed out, no prices out of stock."]
         );
+    }
+
+    /// The stage that wrote the Plan, for What planning did: Milestone plan, still after you saved over it; none for a
+    /// plan Noyan or you wrote.
+    #[test]
+    fn the_stage_that_wrote_the_plan() {
+        let t = ticket(
+            "SHOP-40",
+            WISHLIST,
+            Some(milestone()),
+            1,
+            in_stage("spec-review"),
+        );
+        assert_eq!(stage_writer(&t, &[]).as_deref(), Some("Milestone plan"));
+        let edited = ticket("SHOP-40", WISHLIST, Some(you()), 3, in_stage("spec-review"));
+        let events = [
+            write(&milestone(), 1, "", WISHLIST),
+            write(&you(), 3, WISHLIST, WISHLIST),
+        ];
+        assert_eq!(
+            stage_writer(&edited, &events).as_deref(),
+            Some("Milestone plan")
+        );
+        assert_eq!(stage_writer(&edited, &[]), None);
+        let noyan = ticket(
+            "SHOP-40",
+            WISHLIST,
+            Some(PlanBy::Noyan("p1".into())),
+            1,
+            in_stage("dev"),
+        );
+        assert_eq!(stage_writer(&noyan, &[]), None);
     }
 }

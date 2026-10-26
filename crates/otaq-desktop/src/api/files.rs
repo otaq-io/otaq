@@ -7,6 +7,9 @@
 
 use otaq_core::board::comments::NewComment;
 use otaq_core::board::files::FilesFrom;
+use otaq_core::board::stage_files::StageFiles;
+use otaq_core::board::stage_runs::StageRun;
+use otaq_core::flow::{Flow, Stage};
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::domain::{Actor, Status};
 use otaq_core::protocol::{
@@ -16,6 +19,7 @@ use otaq_core::protocol::{
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::diff_page::{self as page, DiffSide};
 use otaq_view::view_models::files_tab as vm;
+use otaq_view::view_models::planning;
 use otaq_view::view_models::validation_report::{self, Review};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -77,6 +81,43 @@ async fn back_to(app: &App, ticket: &Ticket) -> (String, bool) {
     (to, !otaq_view::view_models::flow_columns::keeps_default_look(&flow))
 }
 
+/// The human check that reviews planning `ticket` waits in (d0129, `s30-02`), with its project's flow.
+pub(super) async fn planning_check(app: &App, ticket: &Ticket) -> Option<(Flow, Stage)> {
+    if !vm::waits_for_you(ticket) {
+        return None;
+    }
+    let flow = super::board::flow(app, ticket.key.project.as_str()).await;
+    let check = planning::planning_check(ticket, &flow)?.clone();
+    Some((flow, check))
+}
+
+/// What a check of planning reviews: the flow, the check, the ticket's stage runs and what each committed.
+pub(super) struct Planning {
+    pub flow: Flow,
+    pub check: Stage,
+    pub runs: Vec<StageRun>,
+    pub files: StageFiles,
+}
+
+/// [`Planning`] when `ticket` waits in a check of planning; unread runs or commits read as none.
+pub(super) async fn planning_facts(app: &App, ticket: &Ticket) -> Option<Planning> {
+    let (flow, check) = planning_check(app, ticket).await?;
+    let key = ticket.key.to_string();
+    let (agents, files) = tokio::join!(
+        super::editor::agent_facts(app, super::editor::of_ticket(&key)),
+        app.service.send(Request::FilesStages(KeyParams { key: key.clone() })),
+    );
+    Some(Planning {
+        flow,
+        check,
+        runs: agents.map(|a| a.runs).unwrap_or_default(),
+        files: match files {
+            Ok(Reply::StageFiles(files)) => *files,
+            _ => StageFiles::default(),
+        },
+    })
+}
+
 /// The open ticket.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FilesParams")]
@@ -105,13 +146,18 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let ticket = ticket?;
     Ok(match top {
         Ok(Reply::FilesTree(tree)) => {
-            let view = vm::tab_view(
+            let mut view = vm::tab_view(
                 &ticket,
                 &tree.source,
                 &tree.entries,
                 tree.changed,
                 keys.label(KeyAction::GoToFile),
             );
+            // A check of planning: what each stage committed on the branch (`s30-02`).
+            if let Some(p) = planning_facts(app, &ticket).await {
+                let stages = planning::source_stages(&p.flow, &p.check, &p.runs, &p.files);
+                view.source = vm::with_planning(view.source, &tree.source.branch, stages);
+            }
             Load {
                 view: Some(view),
                 problem: None,
@@ -213,9 +259,29 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
     match app.service.send(request).await {
         Ok(Reply::FileContent(content)) => {
             let memory = app.review.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            tokio::task::spawn_blocking(move || vm::file_page(&content, &memory))
+            // A file planning committed: which stage, and that it isn't on the base yet (`s30-02`).
+            let tag = match ticket(app, &params.key).await {
+                Ok(t) => match planning_facts(app, &t).await {
+                    Some(p) => planning::file_tag(
+                        &t,
+                        &p.flow,
+                        &p.check,
+                        &p.runs,
+                        &p.files,
+                        &params.path,
+                        &content.source.base_branch,
+                    ),
+                    None => None,
+                },
+                Err(_) => None,
+            };
+            let mut page = tokio::task::spawn_blocking(move || vm::file_page(&content, &memory))
                 .await
-                .map_err(|e| RequestError::plain(e.to_string()))
+                .map_err(|e| RequestError::plain(e.to_string()))?;
+            if let Some(tag) = tag {
+                page.subtitle = tag;
+            }
+            Ok(page)
         }
         Ok(other) => Err(unexpected("files.read", &other)),
         // Deleted: not on disk, but its diff shows what it was.
@@ -355,6 +421,10 @@ pub struct BarParams {
     pub key: String,
     #[serde(default)]
     pub writing: bool,
+    /// The sheet tab the bar sits under (`overview`, `files`, …): where its words point at a check of planning.
+    #[serde(default)]
+    #[ts(optional)]
+    pub tab: Option<String>,
 }
 
 /// The review bar (SHT-06), or `null` when the ticket doesn't wait in your check.
@@ -387,6 +457,21 @@ pub async fn bar(app: &App, params: BarParams) -> Result<Option<vm::ReviewBar>, 
         keys.label(KeyAction::Approve),
         custom,
     );
+    // A check of planning (d0129, `s30-02`): "Your check · Spec review · the decisions on Files and the plan here".
+    if let Some(bar) = &bar
+        && let Some((_, check)) = planning_check(app, &ticket).await
+    {
+        let tab = match params.tab.as_deref() {
+            Some("overview") => planning::BarTab::Overview,
+            Some("files") => planning::BarTab::Files,
+            _ => planning::BarTab::Other,
+        };
+        return Ok(Some(vm::planning_bar(
+            bar.clone(),
+            planning::bar_title(&check),
+            planning::bar_line(&ticket, tab),
+        )));
+    }
     // A ticket that split its work (d0133, `s30-04`): "· the whole ticket · 9 files, +312 −1 · Validate passed".
     let split = super::board::helpers(app, ticket.key.project.as_str())
         .await

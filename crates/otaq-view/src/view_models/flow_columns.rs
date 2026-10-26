@@ -116,7 +116,8 @@ impl<'f> Columns<'f> {
         };
         let mut columns = vec![
             fixed(BACKLOG, ColumnKind::Backlog, "Backlog"),
-            fixed(READY_FOR_DEV, ColumnKind::ReadyForDev, "Ready for Dev"),
+            // "Ready" when the first Agent stage isn't Dev (d0093, Q515).
+            fixed(READY_FOR_DEV, ColumnKind::ReadyForDev, flow.waiting_name()),
         ];
         for (index, stage) in flow.stages.iter().enumerate() {
             let part = Part {
@@ -502,7 +503,7 @@ mod tests {
             titles,
             [
                 "Backlog",
-                "Ready for Dev",
+                "Ready",
                 "Product spec",
                 "Dev",
                 "Security",

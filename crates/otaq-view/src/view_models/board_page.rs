@@ -2871,7 +2871,7 @@ flow:
             open,
             [
                 "Backlog",
-                "Ready for Dev",
+                "Ready",
                 "Product spec",
                 "Dev",
                 "Security",
@@ -2883,7 +2883,7 @@ flow:
         assert_eq!(page.done.as_ref().unwrap().text, "Done 4 \u{2192}");
         assert_eq!(
             page.columns[1].hint.as_deref(),
-            Some("Starts in priority order")
+            Some("Before the first stage")
         );
         assert_eq!(page.toolbar.views.options[0].label, "Board");
         assert!(page.toolbar.views.options[0].selected);
@@ -3013,7 +3013,7 @@ flow:
             .filter(|c| !c.collapsed)
             .map(|c| c.title.as_str())
             .collect();
-        assert_eq!(open, ["Backlog", "Ready for Dev"]);
+        assert_eq!(open, ["Backlog", "Ready"]);
         assert_eq!(folded.more_stages.at_start, None, "the rails fit");
         assert!(folded.toolbar.switch.as_ref().unwrap().selected);
         let product_spec = folded.columns[2].rail.as_ref().unwrap();

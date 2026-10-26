@@ -6,6 +6,11 @@
 
 use serde::Deserialize;
 
+/// The waiting column's names ([`Flow::waiting_name`]) and the stage name that keeps the default one.
+pub const READY_FOR_DEV: &str = "Ready for Dev";
+pub const READY: &str = "Ready";
+const DEV_NAME: &str = "Dev";
+
 /// A flow file: the agents it defines and its stages, in the YAML's order.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowFile {
@@ -281,6 +286,15 @@ impl Flow {
     /// The first Agent stage, which Ready for Dev waits before.
     pub fn first_agent_stage(&self) -> Option<&Stage> {
         self.stages.iter().find(|s| s.is_agent_stage())
+    }
+
+    /// The waiting column's name (d0093, d0066, Q515): "Ready for Dev" while the first Agent stage is named Dev (the
+    /// default flow), else "Ready".
+    pub fn waiting_name(&self) -> &'static str {
+        match self.first_agent_stage() {
+            Some(stage) if stage.name != DEV_NAME => READY,
+            _ => READY_FOR_DEV,
+        }
     }
 
     /// The stage whose column the stage at `index` shows in: itself when `column: own`, else the nearest earlier

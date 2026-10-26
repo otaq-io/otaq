@@ -508,6 +508,9 @@ pub enum Request {
     /// Every changed file against the base, uncommitted ones included; answered with [`Reply::FilesChanges`].
     #[serde(rename = "files.changes")]
     FilesChanges(KeyParams),
+    /// What each Agent stage run committed on the ticket's branch (d0129); answered with [`Reply::StageFiles`].
+    #[serde(rename = "files.stages")]
+    FilesStages(KeyParams),
     // The project Files view (FIL-02…FIL-04, FIL-07, FIL-08, FIL-10; T-0476): the project's base branch from git with
     // every ticket's changes on top, keyed by project.
     /// One folder of the base with each file's owners; answered with [`Reply::ProjectTree`].
@@ -1952,6 +1955,7 @@ impl Request {
             Self::FilesRead(_) => "files.read",
             Self::FilesDiff(_) => "files.diff",
             Self::FilesChanges(_) => "files.changes",
+            Self::FilesStages(_) => "files.stages",
             Self::FilesProjectTree(_) => "files.project_tree",
             Self::FilesProjectSearch(_) => "files.project_search",
             Self::FilesProjectRead(_) => "files.project_read",
@@ -2203,6 +2207,7 @@ pub enum Reply {
     FilesSearch(Box<crate::board::files::FilesSearch>),
     FileContent(Box<crate::board::files::FileContent>),
     FilesChanges(Box<crate::board::files::FilesChanges>),
+    StageFiles(Box<crate::board::stage_files::StageFiles>),
     ProjectTree(Box<crate::board::project_files::ProjectTree>),
     ProjectSearch(Box<crate::board::project_files::ProjectSearch>),
     ProjectFile(Box<crate::board::project_files::ProjectFile>),

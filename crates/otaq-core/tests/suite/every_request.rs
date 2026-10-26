@@ -214,6 +214,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FilesRead(_)
         | Request::FilesDiff(_)
         | Request::FilesChanges(_)
+        | Request::FilesStages(_)
         | Request::FilesProjectTree(_)
         | Request::FilesProjectSearch(_)
         | Request::FilesProjectRead(_)

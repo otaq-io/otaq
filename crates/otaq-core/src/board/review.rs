@@ -219,7 +219,12 @@ impl Board {
         let (kind, payload) = if into_human_check {
             (
                 EventKind::ReviewSubmitted,
-                json!({ "summary": summary.trim(), "head": head }),
+                // The stage it leaves and its head: what that stage's run committed ends there (`files.stages`).
+                json!({
+                    "summary": summary.trim(),
+                    "head": head,
+                    "stage_id": ticket.place.stage().unwrap_or_default(),
+                }),
             )
         } else {
             (

@@ -288,6 +288,9 @@ pub struct OverviewView {
     pub before_you: Option<crate::view_models::validation_report::BeforeYou>,
     /// The PLAN section under the description (d0133, `s30-01`); set by the service's facts ([`with_plan`]).
     pub plan: Option<crate::view_models::plan::PlanSection>,
+    /// WHAT PLANNING DID under the Plan, at a human check that reviews planning (d0129, `s30-02`); set by the service's
+    /// facts ([`with_planning`]).
+    pub planning: Option<crate::view_models::planning::Did>,
     /// "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
     pub manual_checks: Option<ChecklistView>,
     /// "Attachments · 3"; "Attachments" with none.
@@ -336,6 +339,15 @@ pub fn with_plan(
     view
 }
 
+/// What planning did, at a check of planning ([`crate::view_models::planning::did`]).
+pub fn with_planning(
+    mut view: OverviewView,
+    did: crate::view_models::planning::Did,
+) -> OverviewView {
+    view.planning = Some(did);
+    view
+}
+
 pub fn view(
     key: &str,
     status: Status,
@@ -357,6 +369,7 @@ pub fn view(
         usage_limit: usage_limit(status),
         before_you: None,
         plan: None,
+        planning: None,
         manual_checks: checks.and_then(|c| manual_checks::checklist_with(status, c, avatars)),
         attachments_heading: match attachments.len() {
             0 => ATTACHMENTS.to_owned(),

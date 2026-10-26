@@ -2093,7 +2093,8 @@ mod tests {
             ]
         );
         assert_eq!(views[0].sheet.details[0].avatar.as_ref().map(|a| a.letters.as_str()), Some("CX"));
-        assert_eq!(&line(&views[1])[..3], ["Assignee You", "Model \u{2014}", "Working waiting for you \u{b7} 12 min"]);
+        // Your check: "In charge · You" and no model (`s30-02`).
+        assert_eq!(&line(&views[1])[..2], ["In charge You", "Working waiting for you \u{b7} 12 min"]);
         let crumbs: Vec<&str> = views[2].sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(crumbs, ["shop-web", "SHOP-24"]);
         assert!(matches!(

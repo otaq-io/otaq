@@ -31,4 +31,8 @@ checks: Array<CardGalleryCell>,
 /**
  * *30 → The card in Dev*: a build stage's piece rows (d0133, T-0541).
  */
-pieces: Array<CardGalleryCell>, };
+pieces: Array<CardGalleryCell>, 
+/**
+ * *30 → Planning on the board*: one card per ticket while it plans (d0129, T-0548).
+ */
+planning: Array<CardGalleryCell>, };

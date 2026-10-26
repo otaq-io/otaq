@@ -930,6 +930,12 @@ function Cards() {
       <Section title="30 · The card in Dev · at 1280 (M45, T-0541)">
         <CardGrid cells={view.pieces} width={view.width_1280} onPick={setPicked} />
       </Section>
+      <Section title="30 · Planning on the board · one card per ticket (M46, T-0548)">
+        <CardGrid cells={view.planning} width={view.width} onPick={setPicked} />
+      </Section>
+      <Section title="30 · Planning on the board · at 1280 (M46, T-0548)">
+        <CardGrid cells={view.planning} width={view.width_1280} onPick={setPicked} />
+      </Section>
     </>
   );
 }

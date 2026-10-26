@@ -1922,6 +1922,7 @@ pub mod example {
                 title: format!("{k}\u{2019}s worktree"),
                 subtitle: format!("{} \u{b7} from main", otaq_core::naming::branch(k)),
                 legend: Vec::new(),
+                stages: Vec::new(),
             },
             search: SearchBox {
                 placeholder: tab::SEARCH_PLACEHOLDER,
