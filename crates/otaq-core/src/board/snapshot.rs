@@ -31,6 +31,10 @@ pub struct ProjectInfo {
     /// `None` while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused_since: Option<i64>,
+    /// How it was paused (d0112 2026-10-27): Resume all projects leaves a project paused on its own paused. `None`
+    /// while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_by: Option<crate::agents::pause::PauseKind>,
 }
 
 /// One group of cards, in board order (SDD §7.5): the statuses of one of [`StatusSet::BOARD`].
@@ -139,6 +143,7 @@ impl Board {
             needs_you: u32::try_from(needs_you).unwrap_or(u32::MAX),
             flow_setup_since: project.flow_setup_since,
             paused_since: project.paused_since,
+            paused_by: project.paused_by,
         })
     }
 }

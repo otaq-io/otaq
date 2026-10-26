@@ -1576,6 +1576,7 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
                     needs_you: 0,
                     flow_setup_since: None,
                     paused_since: None,
+                    paused_by: None,
                 };
                 let settings = ProjectSettings {
                     warm_builds: on,
@@ -2124,6 +2125,7 @@ mod tests {
             needs_you: 0,
             flow_setup_since: None,
             paused_since: None,
+            paused_by: None,
         }
     }
 

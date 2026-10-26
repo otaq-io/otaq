@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::agents::pause::{PauseCounts, PauseScope};
+use otaq_core::agents::pause::{PauseCounts, PauseKind, PauseScope};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::caller::Caller;
@@ -432,8 +432,10 @@ async fn all_projects_pauses_and_resumes_each_and_a_project_added_later_runs() {
         if let Event::PauseChanged {
             project,
             paused_since,
+            paused_by,
         } = listener.receiver.recv().await.unwrap()
         {
+            assert_eq!(paused_by, Some(PauseKind::All));
             changed.push((project, paused_since.is_some()));
         }
     }
@@ -456,6 +458,140 @@ async fn all_projects_pauses_and_resumes_each_and_a_project_added_later_runs() {
     assert!(resumed.projects.iter().all(|p| p.paused_since.is_none()));
     for key in ["SHOP", "BILL", "POCK"] {
         assert!(!w.pause.is_paused(key).await.unwrap(), "{key}");
+    }
+    w.stop().await;
+}
+
+/// How each project is paused now, by key: `None` while it runs.
+async fn kinds(w: &TestService) -> Vec<(String, Option<PauseKind>)> {
+    let mut all = Vec::new();
+    for key in ["BILL", "SHOP", "WEB"] {
+        let project = w.board.project(key).await.unwrap();
+        assert_eq!(
+            project.paused_since.is_some(),
+            project.paused_by.is_some(),
+            "{key}"
+        );
+        all.push((key.to_owned(), project.paused_by));
+    }
+    all
+}
+
+fn web() -> PauseScope {
+    PauseScope::Project {
+        project: "WEB".into(),
+    }
+}
+
+/// d0112 2026-10-27 (gap review of 0139, G1; T-0564): web-app paused on its own, then Pause all, then Resume all:
+/// the others resume, web-app stays paused (its kind and its time kept, across a service restart) until its own
+/// Resume. Pause all, then Resume web-app alone, then Resume all: everything resumes.
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_all_leaves_a_project_paused_on_its_own_paused() {
+    use otaq_core::agents::pause::{all_pause_exists, pause_kind};
+    let w = TestService::start_with(launch).await;
+    w.add_project("shop-web").await;
+    w.add_project("billing-api").await;
+    w.add_project("web-app").await;
+    let none = |k: &str| (k.to_owned(), None);
+    let own = |k: &str| (k.to_owned(), Some(PauseKind::Own));
+    let all = |k: &str| (k.to_owned(), Some(PauseKind::All));
+
+    w.pause.pause(&web()).await.unwrap();
+    assert_eq!(kinds(&w).await, [none("BILL"), none("SHOP"), own("WEB")]);
+    assert!(!all_pause_exists(w.board.store()).await.unwrap());
+    let since = w.board.project("WEB").await.unwrap().paused_since;
+
+    let paused = w.pause.pause(&PauseScope::All).await.unwrap();
+    assert_eq!(kinds(&w).await, [all("BILL"), all("SHOP"), own("WEB")]);
+    assert_eq!(w.board.project("WEB").await.unwrap().paused_since, since);
+    assert!(paused.all_pause_exists());
+    assert_eq!(
+        paused
+            .paused_on_their_own()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["web-app"]
+    );
+    assert!(all_pause_exists(w.board.store()).await.unwrap());
+
+    // A restart of the service keeps each kind.
+    let w = w.restart_with(launch).await;
+    assert_eq!(kinds(&w).await, [all("BILL"), all("SHOP"), own("WEB")]);
+    assert_eq!(w.board.project("WEB").await.unwrap().paused_since, since);
+    assert_eq!(
+        pause_kind(w.board.store(), "WEB").await.unwrap(),
+        Some(PauseKind::Own)
+    );
+    let status = w.pause.paused().await.unwrap();
+    assert_eq!(
+        status
+            .iter()
+            .map(|p| (p.project.as_str(), p.paused_by))
+            .collect::<Vec<_>>(),
+        [
+            ("BILL", Some(PauseKind::All)),
+            ("SHOP", Some(PauseKind::All)),
+            ("WEB", Some(PauseKind::Own))
+        ]
+    );
+
+    let resumed = w.pause.resume(&PauseScope::All, &me()).await.unwrap();
+    assert_eq!(kinds(&w).await, [none("BILL"), none("SHOP"), own("WEB")]);
+    assert!(!resumed.all_pause_exists());
+    assert!(!all_pause_exists(w.board.store()).await.unwrap());
+    assert!(w.pause.is_paused("WEB").await.unwrap());
+    // Its own Resume lifts it.
+    w.pause.resume(&web(), &me()).await.unwrap();
+    assert_eq!(kinds(&w).await, [none("BILL"), none("SHOP"), none("WEB")]);
+    assert_eq!(pause_kind(w.board.store(), "WEB").await.unwrap(), None);
+
+    // Pause all, then Resume web-app alone, then Resume all: everything resumes.
+    w.pause.pause(&PauseScope::All).await.unwrap();
+    assert_eq!(kinds(&w).await, [all("BILL"), all("SHOP"), all("WEB")]);
+    w.pause.resume(&web(), &me()).await.unwrap();
+    assert_eq!(kinds(&w).await, [all("BILL"), all("SHOP"), none("WEB")]);
+    w.pause.resume(&PauseScope::All, &me()).await.unwrap();
+    assert_eq!(kinds(&w).await, [none("BILL"), none("SHOP"), none("WEB")]);
+
+    // Resume of one project lifts an All projects pause too.
+    w.pause.pause(&PauseScope::All).await.unwrap();
+    w.pause.resume(&shop(), &me()).await.unwrap();
+    assert_eq!(kinds(&w).await, [all("BILL"), none("SHOP"), all("WEB")]);
+    w.stop().await;
+}
+
+/// d0112 2026-10-27: an agent in a project paused on its own stays stopped through Resume all; one in a project the
+/// All pause stopped comes back.
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_all_brings_back_only_what_the_all_pause_stopped() {
+    let w = TestService::start_with(launch).await;
+    w.add_project("shop-web").await;
+    w.add_project("web-app").await;
+    w.create("SHOP", "Checkout").await;
+    w.create("WEB", "Landing").await;
+    start_agent(&w, "SHOP-1").await;
+    start_agent(&w, "WEB-1").await;
+
+    w.pause.pause(&web()).await.unwrap();
+    until_status(&w, "WEB-1", Status::Interrupted).await;
+    w.pause.pause(&PauseScope::All).await.unwrap();
+    until_status(&w, "SHOP-1", Status::Interrupted).await;
+
+    w.pause.resume(&PauseScope::All, &me()).await.unwrap();
+    until_status(&w, "SHOP-1", Status::Working).await;
+    assert_eq!(w.status("WEB-1").await, Status::Interrupted);
+    assert!(w.pause.is_paused("WEB").await.unwrap());
+    w.pause.resume(&web(), &me()).await.unwrap();
+    until_status(&w, "WEB-1", Status::Working).await;
+
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
     }
     w.stop().await;
 }

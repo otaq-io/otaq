@@ -168,11 +168,35 @@ mod tests {
         .unwrap();
         let all = counts(&h.app).await.unwrap();
         assert!(all.projects.iter().all(|p| p.paused_since.is_some()));
+        // shop-web was paused on its own: Resume's All projects row says it stays paused (d0112 2026-10-27).
+        let v = table(&h.app, "pause.view", json!({ "project": bill }))
+            .await
+            .unwrap();
+        assert_eq!(
+            v["menu"]["rows"][1]["detail"],
+            "0 paused in 0 projects \u{b7} shop-web stays paused"
+        );
 
         table(
             &h.app,
             "pause.run",
             json!({ "scope": "all", "resume": true }),
+        )
+        .await
+        .unwrap();
+        // Resume all lifts only what the All projects pause set; shop-web's own Resume lifts it.
+        let all = counts(&h.app).await.unwrap();
+        let paused: Vec<&str> = all
+            .projects
+            .iter()
+            .filter(|p| p.paused_since.is_some())
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(paused, ["shop-web"]);
+        table(
+            &h.app,
+            "pause.run",
+            json!({ "scope": "project", "project": shop, "resume": true }),
         )
         .await
         .unwrap();
