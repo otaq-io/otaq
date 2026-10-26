@@ -1270,7 +1270,8 @@ pub fn render(ctx: &PrimeContext) -> String {
          arguments."
             .to_owned(),
         format!(
-            "Long output goes to a file in `${}`; attach it with `--report-file`.",
+            "Long output goes to a file in `${}`; name the file in your comment. Attach only a document you wrote, \
+             with `--report-file`.",
             naming::resource_dir_env_var()
         ),
         format!(

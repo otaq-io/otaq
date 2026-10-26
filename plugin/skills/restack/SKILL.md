@@ -30,17 +30,20 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
    a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill; when it names none, `git add -A` and `git commit`) if anything is left uncommitted after the rebase,
-   then run the checks the Agent instructions ask for, their output into a file (see "Long output"). Nothing may
-   stay uncommitted.
-6. **End your stage again** with a short comment on stdin: how you resolved the conflicts, in a line or two. Attach
-   the checks' output as a report:
+   then run the checks the Agent instructions ask for **after your last commit**, their output into a file (see
+   "Long output"). Nothing may stay uncommitted.
+6. **End your stage again** with a short comment on stdin: how you resolved the conflicts, in a line or two, and one
+   line per check: the command, the commit (`git rev-parse --short HEAD`), the result and the log:
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+   otaq stage next --stdin \
      --manual-check "Open the price list in a real browser: prices round as before, with the currency column" <<'COMMENT'
    Rebased onto main. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
+   `npm test` at a1b2c3d: 48 passed; log: `$OTAQ_RESOURCE_DIR/test-run.txt`
    COMMENT
    ```
+
+   Report a failing or partial run as it is ("2 failed, in `cart.test.ts`, which the rebase doesn't touch").
 
    If resolving a conflict changed something you couldn't check yourself (it needs a real browser, a device, or a
    service you can't reach), list it with `--manual-check "<what to check>"`, one line per check, repeated for each;
@@ -59,8 +62,9 @@ npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1
 grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 ```
 
-Search it with `grep` or `tail`; **never print it in full or retype it**; attach it with `--report-file`. To read a
-report an earlier comment points to ("Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`"), search its file:
+Search it with `grep` or `tail`; **never print it in full or retype it**; name it in your comment; never attach
+command output, such as a log. **Attach only a document you wrote**, such as design notes, with `--report-file`. To
+read a report an earlier comment points to ("Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`"), search its file:
 `grep -n "conflict" "$(otaq report SHOP-19 4 --path)"`.
 
 ## When you need the user
@@ -80,4 +84,4 @@ take precedence over this guidance.
 
 - **Never push, never open a PR, never merge, never stash.** The user does the merge from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
-  goes in a report.
+  goes to a file.

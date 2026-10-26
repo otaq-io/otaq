@@ -40,16 +40,21 @@ before.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
-6. **End your stage again** with a short comment on stdin: what you changed for each comment, a line each. Attach
-   long output, such as your last test run, as a report (see "Long output" below):
+6. **End your stage again** with a short comment on stdin: what you changed for each comment, a line each. Run your
+   last checks **after your last commit** and give one line each: the command, the commit
+   (`git rev-parse --short HEAD`), the result and the log (see "Long output"):
 
    ```sh
-   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" \
+   otaq stage next --stdin \
      --manual-check "In a real browser, change the page size in Settings and reload the results" <<'COMMENT'
    lib/search.ts: the page size now comes from settings; restored the removed bounds check.
-   app/page.tsx: shows the total number of results. `npm test` passes (run attached).
+   app/page.tsx: shows the total number of results.
+   `npm test` at a1b2c3d: 52 passed; log: `$OTAQ_RESOURCE_DIR/test-run.txt`
    COMMENT
    ```
+
+   Report a failing or partial run as it is ("2 failed, in `cart.test.ts`, which the review doesn't touch"), and any
+   change after it.
 
    **List what you couldn't check yourself** with `--manual-check "<what to check>"`, one line per check, repeated
    for each: something that needs a real browser, a device, or a service you can't reach. The user sees them as
@@ -64,19 +69,18 @@ before.
 
 ## Long output
 
-Long command output (a test run, a build log, a long diff) goes to a file, never into this session or a comment in
-full:
+Long command output (a test run, a build log, a long diff) goes to a file in `$OTAQ_RESOURCE_DIR`, Otaq's folder for
+this ticket outside the repository, never into this session or a comment in full:
 
 ```sh
 npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1
 grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
-tail -n 40 "$OTAQ_RESOURCE_DIR/test-run.txt"
 ```
 
-- **Send long output to a file in `$OTAQ_RESOURCE_DIR`**, Otaq's folder for this ticket outside the repository.
-  **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
+- **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
-- **Attach it** to the comment that ends your stage with `--report-file` (at most 20 MB).
+- **Name it** in your comment; never attach command output, such as a log. **Attach only a document you wrote**,
+  such as design notes, with `--report-file` (at most 20 MB).
 - **Reading a report:** under a comment with a report, `prime` shows a line such as "Report: 48 KB, 2,310 lines ·
   `otaq report SHOP-27 4`". Open it only when you need it, and search it:
   `grep -n "expected" "$(otaq report SHOP-27 4 --path)"`.
@@ -131,6 +135,6 @@ QUESTION
 
 - **Never push, never open a PR, never merge.** The user does that from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
-  Long command output never does: it goes in a report (see "Long output").
+  Long command output never does: it goes to a file (see "Long output").
 - If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run
   since Otaq sent the ticket back), fix it and run it again.
