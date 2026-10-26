@@ -3,4 +3,5 @@
 //! `cargo nextest run -p otaq-desktop -E 'test(/^<file>::/)'`.
 
 mod notify_check;
+mod one_copy;
 mod one_door;

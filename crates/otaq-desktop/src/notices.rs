@@ -212,8 +212,11 @@ struct State {
     summary: Option<Situation>,
     /// A start or restart the user asked for is running.
     busy: bool,
-    /// What a notification click asked this app to open when it started, until the page takes it.
+    /// What a notification click asked this app to open when it started, or a second start handed over before the
+    /// page listened, until the page takes it.
     open_at_start: Option<OpenTarget>,
+    /// The page has asked for [`Self::open_at_start`], so it follows `open_from_notification` events from now on.
+    page_follows: bool,
     published: Option<NoticesView>,
     /// The project on screen, which the flow change banner is about (the page tells, `notices.project`).
     project: Option<String>,
@@ -267,6 +270,7 @@ impl Notices {
                 summary: None,
                 busy: false,
                 open_at_start,
+                page_follows: false,
                 published: None,
                 project: None,
                 flows: BTreeMap::new(),
@@ -544,7 +548,32 @@ impl Notices {
     }
 
     pub fn take_open_at_start(&self) -> Option<OpenTarget> {
-        self.lock().open_at_start.take()
+        let mut state = self.lock();
+        state.page_follows = true;
+        state.open_at_start.take()
+    }
+
+    /// A new page is loading (the window was opened again): it takes what to open with `notices.open_at_start`.
+    pub fn page_reloading(&self) {
+        self.lock().page_follows = false;
+    }
+
+    /// A second start of the app handed over its `OTAQ_OPEN` value (d0139 "Only one copy of Otaq runs"): opened the
+    /// way a notification click is. A page that follows gets the `open_from_notification` event; one still loading
+    /// takes it as its start target. A value that names nothing opens nothing.
+    pub fn hand_over(&self, open: &str) {
+        let Some(target) = Target::parse_open_value(open) else {
+            return;
+        };
+        {
+            let mut state = self.lock();
+            if !state.page_follows {
+                state.open_at_start = Some(target.into());
+                return;
+            }
+        }
+        self.events
+            .publish(&PageEvent::service(&Event::OpenFromNotification { target }));
     }
 
     fn tick(&self) {
@@ -1539,6 +1568,46 @@ mod tests {
         );
         assert!(n.take_open_at_start().is_some());
         assert_eq!(n.take_open_at_start(), None, "only once");
+    }
+
+    /// T-0565 (d0139): a second start's `OTAQ_OPEN` value reaches the page the way a notification click does: as the
+    /// start target while the page is still loading, as an `open_from_notification` event once it follows.
+    #[test]
+    fn a_second_start_hands_its_target_over() {
+        let hub = Arc::new(EventHub::default());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let record = seen.clone();
+        hub.subscribe(Box::new(move |event| {
+            record.lock().unwrap().push(event);
+            true
+        }));
+        let n = Notices::new(hub, OPENED, OpenTarget::parse("WEB-7"));
+
+        // The page hasn't asked yet: the latest hand-over is its start target, nothing is sent.
+        n.hand_over("SHOP-18");
+        n.hand_over("SHOP-22");
+        n.hand_over("not a key");
+        assert!(seen.lock().unwrap().is_empty());
+        assert_eq!(n.take_open_at_start(), OpenTarget::parse("SHOP-22"));
+
+        // The page follows: the event a notification click sends.
+        n.hand_over("agent:SHOP:pa7");
+        n.hand_over("not a key");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                serde_json::json!({"kind": "service", "name": "open_from_notification",
+                "event": {"kind": "open_from_notification",
+                          "target": {"kind": "project_agent", "project": "SHOP", "agent": "pa7"}}})
+            ]
+        );
+        assert_eq!(n.take_open_at_start(), None);
+
+        // The window opened again: its new page takes the next one at its start.
+        n.page_reloading();
+        n.hand_over("needs_you");
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert_eq!(n.take_open_at_start(), Some(OpenTarget::NeedsYou));
     }
 
     #[test]
