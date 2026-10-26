@@ -1,0 +1,64 @@
+---
+import { FAQS } from "./faq";
+import Icon from "./Icon.astro";
+import { ISSUES_URL, REPO_URL } from "./links";
+import Mark from "./Mark.astro";
+
+// Fair questions, the final call to action and the footer, as drawn. Each question is a <details name="faq">: one open
+// at a time, the first open, with no script.
+---
+
+<section class="sec tight" id="faq">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">Questions</div>
+      <h2 class="h2">Fair questions.</h2>
+    </div>
+    <div class="faq rv">
+      {FAQS.map((f, i) => (
+        <details class="fq" name="faq" open={i === 0}>
+          <summary>
+            {f.q}
+            <Icon icon="chevron-down" />
+          </summary>
+          <div class="a">
+            <p>{f.a}</p>
+          </div>
+        </details>
+      ))}
+    </div>
+    <div class="final rv">
+      <Mark size={56} />
+      <h2>
+        Hand off the tickets.
+        <br />
+        Keep the decisions.
+      </h2>
+      <p class="sub" style="margin:0 auto">
+        Your flow. Your agents. Your call.
+      </p>
+      <div class="cta">
+        <a class="btn btn-p btn-lg" href="#install">
+          Build from source
+        </a>
+        <a class="btn btn-s btn-lg" href={REPO_URL}>
+          <Icon icon="git-branch" />
+          View on GitHub
+        </a>
+      </div>
+    </div>
+    <footer class="foot">
+      <span>© 2026 The Otaq Authors · FSL-1.1-MIT</span>
+      <nav aria-label="Footer">
+        <a href={REPO_URL}>GitHub</a>
+        <a href={ISSUES_URL}>Issues</a>
+        <a href="#install">Build</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <span style="flex-basis:100%">
+        Claude Code, Codex, GitHub Copilot and OpenCode are trademarks of their owners. Otaq is an independent
+        project and isn’t affiliated with them.
+      </span>
+    </footer>
+  </div>
+</section>

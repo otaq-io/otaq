@@ -1,0 +1,243 @@
+---
+import Icon from "./Icon.astro";
+import { KIND_COLOR, PRESETS, isLong } from "./presets";
+
+// Design your flow, as drawn. Every preset's track is in the HTML, "Your own" shown and the rest hidden, so the page
+// reads right without a script; the preset picker script (piece 5) flips them through data-preset / data-track.
+const first = PRESETS[0]?.id;
+const kinds = [
+  {
+    color: "var(--st-working)",
+    title: "An agent works",
+    text: "Runs a skill you pick, in the ticket’s own worktree. Asks you when the ticket doesn’t say.",
+  },
+  {
+    color: "var(--st-investigate)",
+    title: "A check",
+    text: "An agent, or you, passes or fails the work. Several check agents can run side by side.",
+  },
+  {
+    color: "var(--st-approved)",
+    title: "Delivery",
+    text: "Merge on your machine, on your click or on its own once the checks pass, or open a pull request.",
+  },
+];
+const why = [
+  {
+    color: "var(--st-working)",
+    stage: "Dev",
+    text: ["Your sessions run ", "pnpm test", " before every commit, in 112 of 130 sessions."],
+  },
+  {
+    color: "var(--st-investigate)",
+    stage: "Security",
+    text: ["From 41 ", "/security-review", " runs in shop-web."],
+  },
+  {
+    color: "var(--st-investigate)",
+    stage: "Validate",
+    text: ["You ask for a second look before merging in most sessions that touch ", "prisma/", "."],
+  },
+  { color: "var(--st-review)", stage: "Review · you", text: ["Every merge in the last 60 days was yours."] },
+  {
+    color: "var(--st-approved)",
+    stage: "Ship · PR",
+    text: ["Your remote is GitHub and ", "gh", " is signed in."],
+  },
+];
+const steps = [
+  { color: "var(--st-queued)", name: "Ready for Dev", kind: "waits" },
+  { color: "var(--st-working)", name: "Dev", kind: "agent · Rust developer" },
+  { color: "var(--st-investigate)", name: "Security", kind: "check · Security reviewer", cls: "sel" },
+  {
+    color: "var(--st-investigate)",
+    name: "Validate",
+    kind: "check · Validator · moved by Noyan",
+    cls: "tint",
+  },
+  { color: "var(--st-review)", name: "Review", kind: "you check" },
+  { color: "var(--st-approved)", name: "Ship", kind: "delivery · PR · Shipper" },
+  { color: "var(--st-queued)", name: "Done", kind: "merged" },
+];
+---
+
+<section class="sec" id="flow">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">Design your flow</div>
+      <h2 class="h2">Build the flow your tickets walk.</h2>
+      <p class="sub">
+        You decide the stages, in your order, and what each one is: an agent working, a check, or a delivery.
+        If a check fails, the work goes back to the stage you choose.{" "}
+        <b>Start from a preset, or have one made from how you already work.</b> Flip them to see the columns
+        change.
+      </p>
+    </div>
+    <div class="fd rv" data-presets>
+      <div class="fd-top">
+        <span class="lbl">Start from</span>
+        {PRESETS.map((p) => (
+          <button
+            class:list={["pre", { on: p.id === first }]}
+            type="button"
+            aria-pressed={p.id === first ? "true" : "false"}
+            data-preset={p.id}
+          >
+            <b>{p.name}</b>
+            <span>{p.desc}</span>
+          </button>
+        ))}
+        <span class="cnt" style="margin-left:auto">
+          Presets use your default model.
+        </span>
+      </div>
+      <div class="fd-stage">
+        {PRESETS.map((p) => (
+          <div class:list={["track", { long: isLong(p) }]} data-track={p.id} hidden={p.id !== first}>
+            {p.stages.map((s, i) => (
+              <div
+                class:list={["stg", { you: s.kind === "you", add: s.add }]}
+                style={`animation-delay: ${String(i * 60)}ms`}
+              >
+                <div class="box">
+                  <div class="nm">
+                    <span class="k" style={`background: ${KIND_COLOR[s.kind]}`} />
+                    {s.name}
+                  </div>
+                  {s.who && <div class="who">{s.who}</div>}
+                  {s.fail && (
+                    <div class="fail">
+                      fails return to <b>{s.fail}</b>
+                    </div>
+                  )}
+                  {s.note && <div class="fail">{s.note}</div>}
+                </div>
+                {i < p.stages.length - 1 && <Icon icon="chevron-right" class="arrow" />}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div class="fd-kinds-h">Every stage you add is one of three kinds</div>
+      <div class="fd-f">
+        {kinds.map((k) => (
+          <div class="kind">
+            <div class="h">
+              <span class="k" style={`background:${k.color}`} />
+              {k.title}
+            </div>
+            <p>{k.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div class="why rv">
+      <div>
+        <h3 style="margin:0 0 8px;font-size:24px;letter-spacing:-.5px;font-weight:600">
+          Or have one made from how you already work.
+        </h3>
+        <p class="sub" style="font-size:15.5px">
+          Ask Claude Code, Codex, Copilot or OpenCode to read its own history and your repo. It proposes a
+          flow, and every stage says why it’s there. Keep what you like, then Apply.
+        </p>
+      </div>
+      <div class="why-card">
+        <div class="why-h">
+          <span class="av md av-CC">CC</span>
+          <b>Made for shop-web</b>
+          <span style="color: var(--text-muted)">· proposed by Claude Code</span>
+        </div>
+        {why.map((r) => (
+          <div class="why-r">
+            <span class="s">
+              <span class="k" style={`background:${r.color}`} />
+              {r.stage}
+            </span>
+            <span class="w">{r.text.map((t, i) => (i % 2 === 1 ? <span class="mono">{t}</span> : t))}</span>
+          </div>
+        ))}
+        <div class="why-f">
+          <Icon icon="info" class="s13" />
+          Nothing runs, and no tokens are spent, until you ask.
+        </div>
+      </div>
+    </div>
+
+    <div class="ed rv" role="group" aria-label="The flow editor">
+      <div class="l">
+        <span class="lbl">Start from</span>
+        <span class="it on">
+          <Icon icon="columns" class="s12" />
+          shop-web’s flow
+        </span>
+        <span class="it">Otaq default</span>
+        <span class="it">Solo autopilot</span>
+        <span class="it">Team PR</span>
+        <span class="it">Spec first</span>
+        <span class="lbl" style="margin-top:10px">
+          Made for shop-web
+        </span>
+        <span class="it">
+          <span class="av av-CC">CC</span>Ask Claude Code
+        </span>
+        <span class="it">
+          <span class="av av-OC">OC</span>Ask OpenCode
+        </span>
+        <span class="it" style="color: var(--text-muted)">
+          Import a flow…
+        </span>
+      </div>
+      <div class="m">
+        <div class="hd">
+          shop-web’s flow <span class="n">7 steps · in use</span>
+        </div>
+        {steps.map((s) => (
+          <Fragment>
+            <div class:list={["step", s.cls]}>
+              <Icon icon="grip" class="s12 grip" />
+              <span class="k" style={`background:${s.color}`} />
+              {s.name}
+              <span class="kd">{s.kind}</span>
+            </div>
+            {s.cls === "sel" && (
+              <div class="det">
+                <b>Kind</b>
+                <span>Check · an agent</span>
+                <b>Agent</b>
+                <span>Security reviewer · Claude Code</span>
+                <b>Skill</b>
+                <span class="mono">/security-review</span>
+                <b>Fails go to</b>
+                <span>Dev</span>
+              </div>
+            )}
+          </Fragment>
+        ))}
+      </div>
+      <div class="r">
+        <span class="lbl">Noyan · your planning agent</span>
+        <div class="msg u">Put Security before Validate.</div>
+        <div class="msg">
+          Done: Security now runs right after Dev, and Validate after it. A fail at either goes back to Dev.
+          Undo?
+        </div>
+        <div class="in">
+          <Icon icon="bot" class="s12" />
+          Ask about the flow…
+          <span class="kbd" style="margin-left:auto">
+            ⌘L
+          </span>
+        </div>
+      </div>
+      <div class="apply">
+        <span>
+          Reordering waits until no ticket is between Dev and Validate (3 are). Nothing changes on the board
+          until you apply.
+        </span>
+        <span class="btn btn-g btn-sm">Cancel</span>
+        <span class="btn btn-p btn-sm">Apply</span>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,17 +1,21 @@
 ---
 import "../styles/landing.css";
-import Crew from "../components/Crew.astro";
+import Agents from "../components/Agents.astro";
+import BigWork from "../components/BigWork.astro";
+import Faq from "../components/Faq.astro";
+import Flow from "../components/Flow.astro";
 import Hero from "../components/Hero.astro";
 import HowItWorks from "../components/HowItWorks.astro";
 import Icons from "../components/Icons.astro";
 import Install from "../components/Install.astro";
 import LiveDemo from "../components/LiveDemo.astro";
-import LocalFirst from "../components/LocalFirst.astro";
+import NeedsYou from "../components/NeedsYou.astro";
 import Nav from "../components/Nav.astro";
-import WhatYouDo from "../components/WhatYouDo.astro";
+import Review from "../components/Review.astro";
 import Base from "../layouts/Base.astro";
 
-// The landing page, as drawn on the canvas (Main.dc.html), section by section (WEB-04).
+// The landing page, as drawn on the canvas (Landing3.dc.html, "v3 · shorter, benefits first"), section by section
+// (WEB-04).
 ---
 
 <Base>
@@ -20,20 +24,15 @@ import Base from "../layouts/Base.astro";
     <Nav />
     <main id="top">
       <Hero />
-      <LiveDemo />
       <HowItWorks />
-      <WhatYouDo />
-      <Crew />
+      <Flow />
+      <NeedsYou />
+      <Review />
+      <LiveDemo />
+      <BigWork />
+      <Agents />
       <Install />
-      <LocalFirst />
+      <Faq />
     </main>
   </div>
 </Base>
-
-<script>
-  import { startCopyButtons } from "../components/copy";
-  import { startOsPick } from "../components/osPick";
-
-  startOsPick();
-  startCopyButtons();
-</script>

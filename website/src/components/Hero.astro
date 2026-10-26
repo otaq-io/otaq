@@ -1,67 +1,75 @@
 ---
-import BoardBg from "./BoardBg.astro";
-import CopyButton from "./CopyButton.astro";
 import Icon from "./Icon.astro";
-import { DOWNLOAD_URL, OS } from "./os";
 
-// The page is built for macOS; os-pick.ts switches the Download label, the note and the command to the visitor's OS.
-const os = OS.mac;
-const small = "width:18px;height:18px;font-size:8px";
+// The dim board moving behind the headline: six lanes and seven travelling cards, as drawn. Its words come from
+// `data-label` through CSS (landing.css), not as text: they are decoration, deliberately dim, and as text they would
+// fail the contrast check (WEB-06). Under reduced motion the cards are hidden and nothing floats.
+const lanes = ["Backlog", "Dev", "Security", "Review", "Ship", "Done"];
+const cards = [
+  { top: 150, delay: -4, key: "SHOP-14" },
+  { top: 230, delay: -12, key: "SHOP-29", bar: 60, kind: "back" },
+  { top: 310, delay: -30, key: "SHOP-22", bar: 70, kind: "n" },
+  { top: 400, delay: -20, key: "SHOP-35", bar: 55 },
+  { top: 480, delay: -44, key: "SHOP-12", kind: "n" },
+  { top: 560, delay: -36, key: "SHOP-19", bar: 65 },
+  { top: 190, delay: -50, key: "SHOP-31", bar: 50 },
+];
 ---
 
 <section class="hero">
-  <BoardBg
-    lanes
-    cards={[
-      { top: 150, delay: -2, key: "NOTE-14" },
-      { top: 230, delay: -9, key: "SHOP-22", bar: 60, needsYou: true },
-      { top: 310, delay: -15, key: "NOTE-9", bar: 70 },
-      { top: 400, delay: -5, key: "SHOP-35", bar: 55 },
-      { top: 480, delay: -20, key: "NOTE-8", needsYou: true },
-      { top: 560, delay: -12, key: "SHOP-19", bar: 65 },
-      { top: 640, delay: -24, key: "NOTE-12", bar: 75 },
-      { top: 190, delay: -18, key: "SHOP-31", bar: 50 },
-      { top: 600, delay: -7, key: "NOTE-15", bar: 85 },
-    ]}
-  />
+  <div class="bgb" aria-hidden="true">
+    <div class="lanes">
+      {lanes.map((t) => (
+        <div class="lane">
+          <span data-label={t} />
+        </div>
+      ))}
+    </div>
+    <div class="trk">
+      {cards.map((c) => (
+        <div class:list={["bc", c.kind]} style={`top:${String(c.top)}px;animation-delay:${String(c.delay)}s`}>
+          <div class="bci">
+            <i data-label={c.key} />
+            <b style={c.bar === undefined ? undefined : `width:${String(c.bar)}%`} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
 
-  <div class="fl attn" style="left:3%;top:120px;--r:-2deg" aria-hidden="true">
+  <div class="fl attn" style="left:3%;top:130px;--r:-2deg" aria-hidden="true">
     <span class="pulse"></span>
     <div class="top">
       SHOP-22<span style="flex:1"></span>
-      <span class="av av-cc" style={small}>
-        CC
-      </span>
+      <span class="av av-CC">CC</span>
     </div>
-    <div class="ti">Migrate orders to the new status enum</div>
+    <div class="ti">Fix flaky login redirect</div>
     <span class="pill p-a">
       <Icon icon="hand" />
       Needs you
     </span>
     <div class="top" style="color: var(--st-attn)">
-      Allow pnpm prisma migrate dev?
+      allow rm -rf .next?
     </div>
   </div>
-  <div class="fl f2" style="right:3%;top:150px;--r:2deg" aria-hidden="true">
+  <div class="fl f2" style="right:3%;top:160px;--r:2deg" aria-hidden="true">
     <div class="top">
-      NOTE-4<span style="flex:1"></span>
-      <span class="av av-cc" style={small}>
-        CC
-      </span>
+      SHOP-29<span style="flex:1"></span>
+      <span class="av av-CC">CC</span>
     </div>
-    <div class="ti">Colorize output when stdout is a terminal</div>
-    <span class="pill p-r">
-      <Icon icon="shield-check" />
-      Validated · round 1
+    <div class="ti">Coupon field</div>
+    <span class="pill p-pa">
+      <Icon icon="undo" />
+      Security failed · back to Dev
     </span>
-    <div class="top">+86 −12 · 1 decision</div>
+    <div class="top">round 2 · unescaped SQL</div>
   </div>
   <div class="fl f3" style="left:5%;top:430px;--r:1.5deg" aria-hidden="true">
     <div class="top">
       <Icon icon="bot" class="s12" style="color: var(--st-investigate)" />
-      Project agent
+      Noyan, your planning agent
     </div>
-    <div class="ti">Created NOTE-14 and NOTE-15 from 2 GitHub issues</div>
+    <div class="ti">Filed 3 tickets from “why is checkout slow?”</div>
     <span class="pill p-i">
       <Icon icon="check" />
       In Backlog
@@ -69,68 +77,59 @@ const small = "width:18px;height:18px;font-size:8px";
   </div>
   <div class="fl f4" style="right:5%;top:440px;--r:-1.5deg" aria-hidden="true">
     <div class="top">
-      NOTE-13.2<span style="flex:1"></span>
-      <span class="av av-cx" style={small}>
-        CX
-      </span>
+      SHOP-40<span style="flex:1"></span>
+      <span class="av av-CC">CC</span>
     </div>
-    <div class="ti">notes add -n &lt;notebook&gt;</div>
+    <div class="ti">Wishlist</div>
     <span class="pill p-w">
-      <Icon icon="loader" class="spin" />
-      Working
+      <Icon icon="loader" class="spin" />3 helpers · 1 asks you
     </span>
-    <div class="top">active 4s ago · 38k tokens</div>
+    <div class="top">40.1 merged · 40.2 asks · 40.3 working</div>
   </div>
 
   <div class="wrap hero-in">
-    <span class="eyebrow">
-      <b>v0.1</b>Free and source-available · macOS, Windows and Linux
-    </span>
+    <p class="pain">
+      Three agents means three terminals to watch, three “done”s to trust, and three diffs you didn’t read.
+    </p>
     <h1 class="hl">
-      Your agents write the tickets. <em>And then the code.</em>
-      <span class="blink" aria-hidden="true"></span>
+      Coding agents that follow <em>your</em> process.
     </h1>
     <p class="lede">
-      Tell the Project agent what you need, or have it import your issues with your own skill. It plans the
-      tickets, coding agents work them in their own git worktrees, and a second agent checks every change.{" "}
-      <b>You answer questions and approve diffs.</b> Nothing merges until you say so.
+      A desktop app that runs Claude Code, Codex, GitHub Copilot and OpenCode through stages you design.
     </p>
     <div class="cta">
-      <a class="btn btn-p btn-lg" href={DOWNLOAD_URL}>
-        <Icon icon="download" />
-        <span data-os-download>{os.download}</span>
+      <a class="btn btn-p btn-lg" href="#install">
+        Build from source
+        <Icon icon="arrow-right" />
       </a>
       <a class="btn btn-s btn-lg" href="#demo">
         Try the live demo
-        <Icon icon="arrow-right" />
       </a>
-    </div>
-    <p class="os-note" data-os-note>
-      {os.note}
-    </p>
-    <div class="oneliner">
-      <code>
-        <i>$ </i>
-        <span data-cmd data-os-command>
-          {os.command}
-        </span>
-      </code>
-      <CopyButton />
-    </div>
-    <div class="works">
-      <span>Works with</span>
-      <span class="tool">
-        <span class="av av-cc">CC</span>Claude Code
-      </span>
-      <span class="tool">
-        <span class="av av-cx">CX</span>Codex
-      </span>
-      <span class="tool">
-        <span class="av av-cp">CP</span>GitHub Copilot
-      </span>
-      <span class="tool">
-        <span class="av av-oc">OC</span>OpenCode
-      </span>
     </div>
   </div>
 </section>
+
+<div class="wrap">
+  <div class="trust rv">
+    <span>
+      <Icon icon="monitor" />
+      Runs on your machine
+    </span>
+    <span>
+      <Icon icon="plug" />
+      Your own subscriptions
+    </span>
+    <span>
+      <Icon icon="lock" />
+      Merges only the way your flow says
+    </span>
+    <span>
+      <Icon icon="server" />
+      No account, no server
+    </span>
+    <span>
+      <Icon icon="git-branch" />
+      Source available · FSL-1.1-MIT
+    </span>
+  </div>
+</div>
