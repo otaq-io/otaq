@@ -225,6 +225,16 @@ pub fn remove_copy(root: &Path, name: &str) {
     prune(root);
 }
 
+/// Removes every marked copy in `root` (a project's checkout): what the service-start tidy and `otaq uninstall`
+/// (d0134) remove. Folders without the marker are never touched. Returns the names removed.
+pub fn remove_marked_copies(root: &Path) -> Vec<String> {
+    let names = marked_copies(root);
+    for name in &names {
+        remove_copy(root, name);
+    }
+    names
+}
+
 /// The names of the marked copies in `root`, under either root, sorted and once each.
 pub fn marked_copies(root: &Path) -> Vec<String> {
     let mut names: Vec<String> = SKILL_ROOTS

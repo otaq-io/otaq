@@ -1126,6 +1126,13 @@ pub(super) async fn handle(
                 .await
                 .map(|s| Reply::UninstallScan(Box::new(s)))
         }),
+        Request::UninstallRemove(p) => boxed(move || async move {
+            shared
+                .uninstall
+                .remove(p.worktrees)
+                .await
+                .map(|o| Reply::UninstallOutcome(Box::new(o)))
+        }),
         Request::CleanupDelete(p) => boxed(move || async move {
             shared
                 .cleanup

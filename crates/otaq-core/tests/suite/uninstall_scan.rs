@@ -363,29 +363,40 @@ async fn app_open_is_the_apps_subscription_only() {
     .expect("the app's subscription ends with its connection");
 }
 
-/// The scan is the user's: an agent asking for it is refused.
+/// The scan and the removal are the user's: an agent asking for either is refused, and nothing stops.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_is_refused() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let t = w.create("SHOP", "Agent at work").await;
     let agent = w.agent_shell(&t).await;
-    let request = json!({"protocol_version": 1, "id": 1, "request": {"method": "uninstall.scan"}});
-    let ran = agent
-        .send_raw(&w.data.socket_path(), &request.to_string())
-        .await;
-    let answer: Value = serde_json::from_str(ran.stdout.lines().next().unwrap_or_default())
-        .unwrap_or_else(|e| panic!("{e}: {ran:?}"));
-    assert_eq!(answer["error"]["kind"], "refused", "{answer}");
-    assert_eq!(
-        answer["error"]["data"]["refusal"], "not_allowed",
-        "{answer}"
-    );
-    assert!(
-        answer["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("can't run the uninstall"),
-        "{answer}"
-    );
+    for (method, params) in [
+        ("uninstall.scan", Value::Null),
+        ("uninstall.remove", json!({"worktrees": true})),
+    ] {
+        let mut request = json!({"protocol_version": 1, "id": 1, "request": {"method": method}});
+        if !params.is_null() {
+            request["request"]["params"] = params;
+        }
+        let ran = agent
+            .send_raw(&w.data.socket_path(), &request.to_string())
+            .await;
+        let answer: Value = serde_json::from_str(ran.stdout.lines().next().unwrap_or_default())
+            .unwrap_or_else(|e| panic!("{e}: {ran:?}"));
+        assert_eq!(answer["error"]["kind"], "refused", "{answer}");
+        assert_eq!(
+            answer["error"]["data"]["refusal"], "not_allowed",
+            "{answer}"
+        );
+        assert!(
+            answer["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("can't run the uninstall"),
+            "{answer}"
+        );
+    }
+    // Nothing was stopped.
+    assert!(w.sessions.info(&agent.session).unwrap().is_running());
+    assert!(!w.sessions.is_closed());
 }

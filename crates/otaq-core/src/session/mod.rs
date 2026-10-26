@@ -602,6 +602,8 @@ struct Inner {
     ticket_env: OnceLock<env::TicketEnvProvider>,
     /// The theme in use (d0117 point 4), set once at service start; without it sessions are told the default.
     theme: OnceLock<ThemeProvider>,
+    /// Set by `otaq uninstall`'s removal (d0134): no session starts any more, until the service restarts.
+    closed: std::sync::atomic::AtomicBool,
 }
 
 /// The theme in use, read when asked: set once at service start ([`Sessions::set_theme_provider`]).
@@ -670,6 +672,7 @@ impl Sessions {
                 project_env: OnceLock::new(),
                 ticket_env: OnceLock::new(),
                 theme: OnceLock::new(),
+                closed: std::sync::atomic::AtomicBool::new(false),
             }),
         }
     }
@@ -738,6 +741,9 @@ impl Sessions {
         id: Option<String>,
         spec: SpawnSpec,
     ) -> Result<SessionInfo, SessionError> {
+        if self.is_closed() {
+            return Err(SessionError::Spawn(crate::uninstall::uninstalling_refusal()));
+        }
         if spec.kind == SessionKind::Agent
             && let Some(ticket) = &spec.ticket
             && let Some(running) = self.running_of(&ticket.id, SessionKind::Agent)
@@ -1502,6 +1508,19 @@ impl Sessions {
             let _ = ended.wait_for(|e| *e).await;
         }
         Ok(())
+    }
+
+    /// Refuses every new session from now on, until the service restarts: `otaq uninstall` (d0134) stops the
+    /// sessions, then removes the worktrees, and nothing may start in between.
+    pub fn close(&self) {
+        self.inner
+            .closed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// [`Self::close`] was called.
+    pub fn is_closed(&self) -> bool {
+        self.inner.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Stops every running session as the service stops, and records why.

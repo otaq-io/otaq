@@ -419,7 +419,7 @@ async fn action_for(
         R::NeedsYouAnswer(_) => Action::UserOnly("answer agents"),
         R::UsageMarkLimit(_) => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
-        R::UninstallScan => Action::UserOnly("run the uninstall"),
+        R::UninstallScan | R::UninstallRemove(_) => Action::UserOnly("run the uninstall"),
         R::WarmClear(_) => Action::UserOnly("clear warm builds"),
         R::RunStart(_) | R::RunStop(_) => Action::UserOnly("start or stop Run"),
         R::RunSuggest(_) | R::RunSuggestCancel(_) => {
