@@ -5,7 +5,9 @@
 //! one output channel per terminal ([`crate::terminal`], answered with the attach's number), and the window: opening
 //! it with its own title bar, the caption buttons, keeping its place ([`crate::window`]), the system folder picker and
 //! folders dropped on the window (Add project). The WebView2 key switch ([`webview_keys_off`]) and macOS's text
-//! substitutions ([`text_substitutions_off`]) are set up here too.
+//! substitutions ([`text_substitutions_off`]) are set up here too, and bringing the window back
+//! ([`show_main_window`]) for a second start of the app ([`crate::one_copy`]), a reopen on macOS and a notification
+//! click.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -147,10 +149,7 @@ fn window(window: tauri::WebviewWindow, action: crate::window::Action) -> Result
         Action::ToggleMaximize if window.is_maximized().unwrap_or(false) => window.unmaximize(),
         Action::ToggleMaximize => window.maximize(),
         Action::Close => window.close(),
-        Action::Focus => window
-            .unminimize()
-            .and_then(|()| window.show())
-            .and_then(|()| window.set_focus()),
+        Action::Focus => bring_forward(&window),
     }
     .map_err(|e| e.to_string())
 }
@@ -162,7 +161,7 @@ struct Placement {
 }
 
 /// Opens the main window with its own title bar, where it was last time (d0074, UI-01).
-fn open_window(app: &tauri::App, placement: &Placement) -> tauri::Result<()> {
+fn open_window(app: &tauri::AppHandle, placement: &Placement) -> tauri::Result<()> {
     use crate::window::{MIN_SIZE, Rect};
     let saved = placement.file.as_deref().and_then(crate::window::load);
     let screens: Vec<Rect> = app
@@ -269,16 +268,94 @@ fn save_placement(placement: &Placement) {
     }
 }
 
+/// Shows the main window and puts it in front with the keyboard: a second start of the app (d0139 "Only one copy of
+/// Otaq runs"), a reopen from the Dock, Finder or Spotlight, a notification click. Hidden or minimized, it comes back
+/// where it was; closed (macOS keeps the app running without a window), it opens again, and its new page takes what to
+/// open from `notices.open_at_start`. Call on the main thread.
+fn show_main_window(handle: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::Manager;
+    if let Some(window) = handle.get_webview_window(MAIN_WINDOW) {
+        return bring_forward(&window);
+    }
+    handle.state::<Arc<App>>().notices.page_reloading();
+    open_window(handle, &handle.state::<Arc<Placement>>())?;
+    webview_keys_off(handle)?;
+    match handle.get_webview_window(MAIN_WINDOW) {
+        Some(window) => bring_forward(&window),
+        None => Ok(()),
+    }
+}
+
+/// Unminimizes, shows and focuses `window`; on macOS the app is unhidden too (⌘H), so the window isn't left behind
+/// a hidden app.
+fn bring_forward(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    tauri::Manager::app_handle(window).show()?;
+    window.unminimize()?;
+    window.show()?;
+    window.set_focus()
+}
+
+/// [`show_main_window`] from any thread, then `then` with the app, on the main thread.
+fn bring_back(handle: &tauri::AppHandle, then: impl FnOnce(&App, bool) + Send + 'static) {
+    let on_main = handle.clone();
+    let sent = handle.run_on_main_thread(move || {
+        use tauri::Manager;
+        let reopened = on_main.get_webview_window(MAIN_WINDOW).is_none();
+        if let Err(e) = show_main_window(&on_main) {
+            eprintln!("couldn't bring the window back: {e}");
+        }
+        then(&on_main.state::<Arc<App>>(), reopened);
+    });
+    if let Err(e) = sent {
+        eprintln!("couldn't bring the window back: {e}");
+    }
+}
+
+/// A second start's hand-over ([`crate::one_copy`]): the window comes back and opens the start's `OTAQ_OPEN` target
+/// the way a notification click does.
+fn second_start(handle: &tauri::AppHandle, open: Option<String>) {
+    bring_back(handle, move |app, _| {
+        if let Some(open) = open {
+            app.notices.hand_over(&open);
+        }
+    });
+}
+
+/// A notification click (`open_from_notification`, from the service) brings the window back from Rust, so it works
+/// while the window is hidden or closed and its page can't. A page that runs opens the target itself; a window opened
+/// anew takes it as its start target.
+fn follow_notification_clicks(handle: &tauri::AppHandle, app: &App) {
+    let handle = handle.clone();
+    app.events.subscribe(Box::new(move |event| {
+        if event["kind"] == "service" && event["name"] == "open_from_notification" {
+            let open = serde_json::from_value::<otaq_core::attention::notify::Target>(
+                event["event"]["target"].clone(),
+            )
+            .ok()
+            .map(|target| target.to_open_value());
+            bring_back(&handle, move |app, reopened| {
+                if let (true, Some(open)) = (reopened, open) {
+                    app.notices.hand_over(&open);
+                }
+            });
+        }
+        true
+    }));
+}
+
 // --- Running ----------------------------------------------------------------------------------------------------
 
 /// Opens the window and runs until the app quits. Tauri's async calls run on the app's own `runtime`; the window's
-/// place is kept in `placement` (none: not kept).
+/// place is kept in `placement` (none: not kept). `first_copy`, when this is the one copy of the app for its data
+/// folder, takes later starts' hand-overs and brings the window back for each.
 pub fn run(
     app: Arc<App>,
     runtime: tokio::runtime::Handle,
     placement: Option<PathBuf>,
+    first_copy: Option<crate::one_copy::FirstCopy>,
 ) -> Result<(), String> {
-    tauri::async_runtime::set(runtime);
+    tauri::async_runtime::set(runtime.clone());
     // Before the webview exists, so WebKit reads them when it first checks text.
     #[cfg(target_os = "macos")]
     text_substitutions_off(&objc2_foundation::NSUserDefaults::standardUserDefaults());
@@ -286,13 +363,15 @@ pub fn run(
         file: placement,
         last: Mutex::new(None),
     });
-    let (on_setup, on_window, on_exit) = (placement.clone(), placement.clone(), placement);
+    let (on_window, on_exit) = (placement.clone(), placement.clone());
     let dropped_on = app.clone();
     let focus_of = app.clone();
     let exiting = app.clone();
+    let clicks_of = app.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(app)
+        .manage(placement)
         .invoke_handler(tauri::generate_handler![
             request,
             subscribe_events,
@@ -305,8 +384,15 @@ pub fn run(
             save_report_file
         ])
         .setup(move |tauri_app| {
-            open_window(tauri_app, &on_setup)?;
-            webview_keys_off(tauri_app)?;
+            use tauri::Manager;
+            let handle = tauri_app.handle();
+            open_window(handle, &handle.state::<Arc<Placement>>())?;
+            webview_keys_off(handle)?;
+            follow_notification_clicks(handle, &clicks_of);
+            if let Some(first_copy) = first_copy {
+                let handle = handle.clone();
+                first_copy.serve(&runtime, move |open| second_start(&handle, open));
+            }
             Ok(())
         })
         .on_window_event(move |window, event| match event {
@@ -330,10 +416,23 @@ pub fn run(
         })
         .build(tauri::generate_context!())
         .map_err(|e| format!("the window couldn't open: {e}"))?
-        .run(move |_, event| {
-            if let tauri::RunEvent::Exit = event {
-                save_placement(&on_exit);
-                exiting.usage.flush_before_exit();
+        .run(move |handle, event| {
+            #[cfg(not(target_os = "macos"))]
+            let _ = handle;
+            match event {
+                tauri::RunEvent::Exit => {
+                    save_placement(&on_exit);
+                    exiting.usage.flush_before_exit();
+                }
+                // Finder, Spotlight, the Dock or `open -a` on the running app: no second process starts, macOS asks
+                // this one to reopen.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    if let Err(e) = show_main_window(handle) {
+                        eprintln!("couldn't bring the window back: {e}");
+                    }
+                }
+                _ => {}
             }
         });
     Ok(())
@@ -345,7 +444,7 @@ pub fn run(
 /// pass it), so it goes through `webview2-com`; a Tauri upgrade means checking it again. WKWebView and WebKitGTK act on
 /// none of these keys themselves; the zoom keys are off in the window builder ([`open_window`]) and the page swallows
 /// the rest (`ui/src/app/keys.ts`).
-fn webview_keys_off(tauri_app: &tauri::App) -> Result<(), tauri::Error> {
+fn webview_keys_off(tauri_app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     #[cfg(windows)]
     {
         use tauri::Manager;

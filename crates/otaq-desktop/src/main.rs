@@ -13,6 +13,7 @@ mod fonts;
 mod generated;
 mod notices;
 mod notify_check;
+mod one_copy;
 mod service;
 #[cfg(test)]
 mod stylesheet;
@@ -87,9 +88,25 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let data = DataDir::from_env().map_err(|e| e.to_string());
+    // Only one copy runs per data folder (d0139): a second start hands its open target to it and goes, before any
+    // window, Dock icon or service link exists.
+    let first_copy = match &data {
+        Ok(data) => {
+            let open = std::env::var(otaq_core::attention::notify::open_env_var()).ok();
+            match runtime.block_on(one_copy::claim(&one_copy::Paths::of(data), open.as_deref())) {
+                Ok(one_copy::Claim::First(first)) => Some(first),
+                Ok(one_copy::Claim::HandedOver) => std::process::exit(0),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(_) => None,
+    };
     let events = Arc::new(EventHub::default());
     // The `otaq` command next to this program starts the service when none runs (d0055).
-    let data = DataDir::from_env().map_err(|e| e.to_string());
     let placement = data.as_ref().ok().map(window::placement_file);
     let settings = data.and_then(|data| {
         let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
@@ -126,7 +143,7 @@ fn main() {
         let app = app.clone();
         runtime.spawn(async move { api::follow_window_focus(&app).await });
     }
-    if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
+    if let Err(e) = door::run(app, runtime.handle().clone(), placement, first_copy) {
         eprintln!("{e}");
         std::process::exit(1);
     }

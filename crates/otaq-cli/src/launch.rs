@@ -3,6 +3,10 @@
 //! Path resolution: the app binary (`naming::app_binary_name()`, `otaq-app`) is looked up **in the same
 //! folder as the running `otaq` binary**. `cargo build` puts both in `target/<profile>/`, and an installed
 //! build keeps them side by side. The app is started detached, so the command returns at once.
+//!
+//! With the app already running for the same data folder, the started copy hands over to it and exits at once, and
+//! the running app's window comes forward (d0139 "Only one copy of Otaq runs", `otaq-desktop`'s `one_copy`): nothing
+//! here checks for it first.
 
 use std::io;
 use std::path::{Path, PathBuf};

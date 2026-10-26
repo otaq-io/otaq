@@ -192,6 +192,18 @@ impl DataDir {
         self.root.join("service.lock")
     }
 
+    /// The desktop app's lock file: locked while a copy of the app runs for this data folder, holding its PID (d0139
+    /// "Only one copy of Otaq runs").
+    pub fn app_lock_path(&self) -> PathBuf {
+        self.root.join("app.lock")
+    }
+
+    /// Where the running app listens for a second start's hand-over (a Unix domain socket on macOS and Linux; on
+    /// Windows it only names the pipe, as [`Self::socket_path`] does).
+    pub fn app_socket_path(&self) -> PathBuf {
+        self.root.join("app.sock")
+    }
+
     /// Creates `path` and any missing parents. New folders are readable only by the current user.
     pub fn ensure_dir(path: &Path) -> io::Result<()> {
         let mut builder = std::fs::DirBuilder::new();
@@ -279,6 +291,8 @@ mod tests {
         assert_eq!(data.logs_dir(), root.join("logs"));
         assert_eq!(data.socket_path(), root.join(format!("{name}.sock")));
         assert_eq!(data.service_lock_path(), root.join("service.lock"));
+        assert_eq!(data.app_lock_path(), root.join("app.lock"));
+        assert_eq!(data.app_socket_path(), root.join("app.sock"));
     }
 
     #[test]
