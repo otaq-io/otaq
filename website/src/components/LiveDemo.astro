@@ -1,4 +1,5 @@
 ---
+import Demo from "../demo/Demo";
 import Icon from "./Icon.astro";
 
 // The live demo's section, as drawn: the headings, the things to try, and the frame the demo (piece 4) fills.
@@ -31,7 +32,9 @@ const tries = [
       </div>
     </div>
     <div class="demo-frame" data-demo-frame>
-      <div class="demo-clip" data-demo-clip></div>
+      <div class="demo-clip" data-demo-clip>
+        <Demo client:idle />
+      </div>
     </div>
     <div class="viewonly" data-demo-note hidden>
       <Icon icon="monitor" />
