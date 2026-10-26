@@ -327,6 +327,7 @@ mod tests {
             needs_you: needs,
             flow_setup_since: None,
             paused_since: None,
+            paused_by: None,
         }
     }
 

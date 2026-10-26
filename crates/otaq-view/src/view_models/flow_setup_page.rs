@@ -174,6 +174,7 @@ mod tests {
             needs_you: 0,
             flow_setup_since: flow_setup.then_some(NOW),
             paused_since: None,
+            paused_by: None,
         }
     }
 

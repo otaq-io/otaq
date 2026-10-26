@@ -11,8 +11,13 @@
 //! (PAU-07, Q417); the reboot summary leaves paused projects out ([`crate::view_models::after_restart::outside_pause`]).
 //!
 //! The counts are the service's (`agents.pause_counts`): `working` is what Pause stops, `paused` what Resume resumes.
+//!
+//! **Resume all projects lifts only what an All projects pause set** (d0112 2026-10-27; *31 · item 7*): a project
+//! paused on its own stays paused, so the Resume menu's All projects row counts only the others and names it ("7 paused
+//! in 2 projects · web-app stays paused", with the line why), and without an All projects pause there is no All
+//! projects row to resume.
 
-use otaq_core::agents::pause::{PauseCounts, ProjectPause};
+use otaq_core::agents::pause::{PauseCounts, PauseKind, ProjectPause};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -131,6 +136,30 @@ fn paused(p: &ProjectPause) -> bool {
     p.paused_since.is_some()
 }
 
+/// Paused on its own: Resume all projects leaves it paused.
+fn on_its_own(p: &ProjectPause) -> bool {
+    paused(p) && p.paused_by == Some(PauseKind::Own)
+}
+
+/// Paused by an All projects pause: Resume all projects lifts it.
+fn by_all(p: &ProjectPause) -> bool {
+    paused(p) && !on_its_own(p)
+}
+
+/// Page 31 item 7's line under Resume's All projects: "web-app was paused on its own: Resume all leaves it paused,
+/// with its own banner and Resume." `stay` names the projects paused on their own.
+fn stays_line(stay: &[&str]) -> String {
+    match stay {
+        [one] => format!(
+            "{one} was paused on its own: Resume all leaves it paused, with its own banner and Resume."
+        ),
+        more => format!(
+            "{} were paused on their own: Resume all leaves them paused, each with its own banner and Resume.",
+            and_list(more)
+        ),
+    }
+}
+
 /// The open project's counts, if it is one of `counts`.
 fn find<'a>(counts: &'a PauseCounts, shown: Option<&str>) -> Option<&'a ProjectPause> {
     let shown = shown?;
@@ -143,8 +172,12 @@ pub fn view(shown: Option<&str>, counts: &PauseCounts, keys: &KeyLabels) -> View
     let project = find(counts, shown);
     let resumes = match project {
         Some(p) => paused(p),
-        // No project open: Resume only once every project is paused.
-        None => !counts.projects.is_empty() && counts.projects.iter().all(paused),
+        // No project open: Resume only once every project is paused and an All projects pause has something to lift.
+        None => {
+            !counts.projects.is_empty()
+                && counts.projects.iter().all(paused)
+                && counts.projects.iter().any(by_all)
+        }
     };
     let key = keys.label(KeyAction::Pause);
     View {
@@ -181,9 +214,16 @@ fn menu(
             keys: key,
         });
     }
-    // Resume all resumes the paused projects; Pause all stops what works anywhere.
+    // Resume all resumes what an All projects pause stopped (a project paused on its own stays paused, d0112
+    // 2026-10-27); Pause all stops what works anywhere.
+    let stay: Vec<&str> = counts
+        .projects
+        .iter()
+        .filter(|p| on_its_own(p))
+        .map(|p| p.name.as_str())
+        .collect();
     let (n, places) = if resumes {
-        let of: Vec<&ProjectPause> = counts.projects.iter().filter(|p| paused(p)).collect();
+        let of: Vec<&ProjectPause> = counts.projects.iter().filter(|p| by_all(p)).collect();
         (
             of.iter().map(|p| p.paused).sum::<u32>(),
             of.iter().filter(|p| p.paused > 0).count(),
@@ -194,14 +234,24 @@ fn menu(
             counts.projects.iter().filter(|p| p.working > 0).count(),
         )
     };
-    rows.push(ScopeRow {
-        scope: Scope::All,
-        icon: IconName::Layers,
-        label: ALL_PROJECTS,
-        detail: format!("{n} {} {}", word(resumes), in_projects(places)),
-        keys: None,
-    });
-    let note = if resumes {
+    // Without an All projects pause, Resume all would lift nothing: no row (as the icon's menu, d0139 audit AS q1).
+    if !resumes || counts.projects.iter().any(by_all) {
+        let mut detail = format!("{n} {} {}", word(resumes), in_projects(places));
+        if resumes && !stay.is_empty() {
+            let verb = if stay.len() == 1 { "stays" } else { "stay" };
+            detail.push_str(&format!(" \u{b7} {} {verb} paused", and_list(&stay)));
+        }
+        rows.push(ScopeRow {
+            scope: Scope::All,
+            icon: IconName::Layers,
+            label: ALL_PROJECTS,
+            detail,
+            keys: None,
+        });
+    }
+    let note = if resumes && !stay.is_empty() && counts.projects.iter().any(by_all) {
+        Some(stays_line(&stay))
+    } else if resumes {
         let others: Vec<&str> = counts
             .projects
             .iter()
@@ -296,7 +346,8 @@ pub fn activity(shown: Option<&str>, counts: &PauseCounts) -> Option<AgentsChip>
 }
 
 /// The palette's Pause and Resume rows (PAU-08): "Pause this project" or "Resume this project" for the open one,
-/// "Pause all projects" while any project runs, "Resume all projects" while any is paused. Each runs at once.
+/// "Pause all projects" while any project runs, "Resume all projects" while an All projects pause holds any (one
+/// paused on its own stays paused, d0112 2026-10-27). Each runs at once.
 pub fn palette(
     shown: Option<&str>,
     projects: &[otaq_core::board::snapshot::ProjectInfo],
@@ -311,7 +362,10 @@ pub fn palette(
     if projects.iter().any(|p| p.paused_since.is_none()) {
         rows.push((Scope::All, false, "Pause all projects"));
     }
-    if projects.iter().any(|p| p.paused_since.is_some()) {
+    if projects
+        .iter()
+        .any(|p| p.paused_since.is_some() && p.paused_by != Some(PauseKind::Own))
+    {
         rows.push((Scope::All, true, "Resume all projects"));
     }
     rows
@@ -370,6 +424,7 @@ pub fn example(paused: &[&str]) -> PauseCounts {
             project: key.to_owned(),
             name: name.to_owned(),
             paused_since: is_paused.then_some(1),
+            paused_by: is_paused.then_some(PauseKind::All),
             working: if is_paused { 0 } else { working },
             paused: if is_paused { working } else { 0 },
         }
@@ -382,6 +437,17 @@ pub fn example(paused: &[&str]) -> PauseCounts {
             project("SHOP", "shop-web", 5),
         ],
     }
+}
+
+/// Page 31 item 7: billing-api paused on its own, then Pause all: Resume all leaves billing-api paused.
+pub fn example_paused_on_its_own() -> PauseCounts {
+    let mut counts = example(&["SHOP", "BILL"]);
+    for p in &mut counts.projects {
+        if p.project == "BILL" {
+            p.paused_by = Some(PauseKind::Own);
+        }
+    }
+    counts
 }
 
 pub fn gallery(keys: &KeyLabels) -> Gallery {
@@ -401,6 +467,10 @@ pub fn gallery(keys: &KeyLabels) -> Gallery {
             state("Pause · shop-web working", &[]),
             state("Resume · every project paused", &["SHOP", "BILL"]),
             state("Resume · shop-web paused", &["SHOP"]),
+            GalleryState {
+                name: "Resume · billing-api paused on its own",
+                view: view(Some("SHOP"), &example_paused_on_its_own(), keys),
+            },
         ],
         banners: banner(&["SHOP"], 0)
             .chain(banner(&["SHOP", "BILL"], 0))
@@ -428,6 +498,7 @@ mod tests {
                     project: (*key).to_owned(),
                     name: (*name).to_owned(),
                     paused_since: *since,
+                    paused_by: since.map(|_| PauseKind::All),
                     working: *working,
                     paused: *paused,
                 })
@@ -648,6 +719,7 @@ mod tests {
             needs_you: 0,
             flow_setup_since: None,
             paused_since: paused.then_some(1),
+            paused_by: paused.then_some(PauseKind::All),
         };
         let titles = |shown, projects: &[ProjectInfo]| -> Vec<&'static str> {
             palette(shown, projects)
@@ -674,6 +746,116 @@ mod tests {
             (Scope::Project, true, "Resume this project")
         );
         assert_eq!(titles(None, &[info("SHOP", true)]), ["Resume all projects"]);
+
+        // d0112 2026-10-27: a project paused on its own is resumed on its own; Resume all only lifts an All pause.
+        let own = |key: &str| ProjectInfo {
+            paused_by: Some(PauseKind::Own),
+            ..info(key, true)
+        };
+        assert_eq!(
+            titles(Some("SHOP"), &[info("BILL", false), own("SHOP")]),
+            ["Resume this project", "Pause all projects"]
+        );
+        assert_eq!(
+            titles(Some("SHOP"), &[info("BILL", true), own("SHOP")]),
+            ["Resume this project", "Resume all projects"]
+        );
+    }
+
+    /// Paused on its own (`own`) or by All projects (`all`), as the service says.
+    fn paused_by(mut counts: PauseCounts, own: &[&str]) -> PauseCounts {
+        for p in &mut counts.projects {
+            if own.contains(&p.project.as_str()) {
+                p.paused_by = Some(PauseKind::Own);
+            }
+        }
+        counts
+    }
+
+    /// Page 31 item 7 (d0112 2026-10-27): web-app paused on its own, then Pause all: Resume's All projects counts what
+    /// it lifts and names web-app, which stays paused, with the line why.
+    #[test]
+    fn resume_all_names_a_project_paused_on_its_own() {
+        let all = paused_by(
+            counts(&[
+                ("BILL", "billing-api", Some(10), 0, 2),
+                ("SHOP", "shop-web", Some(10), 0, 5),
+                ("WEB", "web-app", Some(5), 0, 3),
+            ]),
+            &["WEB"],
+        );
+        let v = view(Some("SHOP"), &all, &keys());
+        assert_eq!(
+            rows(&v.menu)[1],
+            (
+                Scope::All,
+                "All projects",
+                "7 paused in 2 projects \u{b7} web-app stays paused",
+                None
+            )
+        );
+        assert_eq!(
+            v.menu.note.as_deref(),
+            Some(
+                "web-app was paused on its own: Resume all leaves it paused, with its own banner and Resume."
+            )
+        );
+        // On web-app itself the same row; This project resumes it.
+        let v = view(Some("WEB"), &all, &keys());
+        assert_eq!(rows(&v.menu)[0].2, "web-app \u{b7} 3 paused");
+        assert_eq!(
+            rows(&v.menu)[1].2,
+            "7 paused in 2 projects \u{b7} web-app stays paused"
+        );
+
+        // Two on their own.
+        let two = paused_by(all.clone(), &["WEB", "BILL"]);
+        let v = view(Some("SHOP"), &two, &keys());
+        assert_eq!(
+            rows(&v.menu)[1].2,
+            "5 paused in 1 project \u{b7} billing-api and web-app stay paused"
+        );
+        assert_eq!(
+            v.menu.note.as_deref(),
+            Some(
+                "billing-api and web-app were paused on their own: Resume all leaves them paused, each with its own \
+                 banner and Resume."
+            )
+        );
+    }
+
+    /// d0139 audit AS q1, in the window too: with only projects paused on their own, Resume all would lift nothing, so
+    /// the menu has This project only.
+    #[test]
+    fn without_an_all_projects_pause_resume_has_this_project_only() {
+        let alone = paused_by(
+            counts(&[
+                ("SHOP", "shop-web", None, 5, 0),
+                ("WEB", "web-app", Some(5), 0, 3),
+            ]),
+            &["WEB"],
+        );
+        let v = view(Some("WEB"), &alone, &keys());
+        assert!(v.button.resumes);
+        assert_eq!(
+            rows(&v.menu),
+            [(
+                Scope::Project,
+                "This project",
+                "web-app \u{b7} 3 paused",
+                Some("\u{21e7}\u{2318}.")
+            )]
+        );
+        assert_eq!(v.menu.note, None);
+        // Every project on its own, none open: nothing for Resume all, so the button is Pause.
+        let both = paused_by(
+            counts(&[
+                ("SHOP", "shop-web", Some(5), 0, 5),
+                ("WEB", "web-app", Some(5), 0, 3),
+            ]),
+            &["SHOP", "WEB"],
+        );
+        assert!(!view(None, &both, &keys()).button.resumes);
     }
 
     /// `s24-07`: the strip of a paused project leaves out what the pause stopped; a question it stopped stays, and
@@ -692,6 +874,7 @@ mod tests {
             needs_you: 0,
             flow_setup_since: None,
             paused_since: paused.then_some(1),
+            paused_by: None,
         };
         let mut asked = ticket(
             "SHOP-12",
@@ -735,7 +918,11 @@ mod tests {
     fn the_gallery_draws_pause_and_resume() {
         let g = gallery(&keys());
         let labels: Vec<&str> = g.states.iter().map(|s| s.view.button.label).collect();
-        assert_eq!(labels, ["Pause", "Resume", "Resume"]);
+        assert_eq!(labels, ["Pause", "Resume", "Resume", "Resume"]);
+        assert_eq!(
+            g.states[3].view.menu.rows[1].detail,
+            "5 paused in 1 project \u{b7} billing-api stays paused"
+        );
         let titles: Vec<&str> = g.banners.iter().map(|b| b.title.as_str()).collect();
         assert_eq!(
             titles,

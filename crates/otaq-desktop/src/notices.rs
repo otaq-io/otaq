@@ -1210,6 +1210,7 @@ mod tests {
             project: key.into(),
             name: name.into(),
             paused_since: since,
+            paused_by: since.map(|_| otaq_core::agents::pause::PauseKind::All),
             working,
             paused,
         };

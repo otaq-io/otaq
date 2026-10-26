@@ -19,6 +19,8 @@ pub struct Project {
     /// Since when the project is paused (PAU-01, d0112), `None` while it runs. Read and written by
     /// [`crate::agents::pause`].
     pub paused_since: Option<i64>,
+    /// How it was paused (d0112 2026-10-27), `None` while it runs.
+    pub paused_by: Option<crate::agents::pause::PauseKind>,
 }
 
 #[derive(Debug, Clone)]

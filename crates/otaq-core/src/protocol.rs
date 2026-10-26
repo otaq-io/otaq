@@ -2400,6 +2400,9 @@ pub enum Event {
         project: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         paused_since: Option<i64>,
+        /// How it was paused (d0112 2026-10-27); `None` on a resume.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        paused_by: Option<crate::agents::pause::PauseKind>,
     },
     /// A project's flow: a proposal opened or closed, a change waits, a new flow applied, a waiting change cancelled
     /// (FLW-03…FLW-06). Refetch `flow.proposal`, `flow.waiting` or the board.
@@ -2798,6 +2801,7 @@ mod tests {
             Message::event(Event::PauseChanged {
                 project: "SHOP".into(),
                 paused_since: Some(1),
+                paused_by: Some(crate::agents::pause::PauseKind::All),
             }),
             Message::event(Event::TrustChanged),
             Message::request(13, Request::NotificationsState),
