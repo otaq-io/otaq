@@ -465,3 +465,97 @@ handle (decision 0140); its doc comment lists which changes are compatible. The 
 snapshot with `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 incompatible change keeps the same number. `scripts/release/protocol-version.sh` prints the number, for the release's
 `latest.json`.
+
+## Making a release (decision 0140)
+
+A release is a **draft** GitHub Release made by `.github/workflows/release.yml` when a tag `vX.Y.Z` is pushed. Nobody
+gets it until the maintainer checks the draft and clicks **Publish**: installed copies only see published releases
+(their updater reads `releases/latest/download/latest.json`).
+
+1. **Bump the version** on `main` (through a pull request, decision 0116): `version` in `Cargo.toml`'s
+   `[workspace.package]` and `version` in `crates/otaq-desktop/tauri.conf.json`, the same number. If the messages
+   between the app and the service changed incompatibly, `PROTOCOL_VERSION` was already bumped with that change
+   ("The protocol number" above).
+2. **Tag the merged commit and push the tag**: `git tag v0.2.0 <commit> && git push origin v0.2.0`.
+3. **The workflow** (Actions → Release) then:
+   - checks the versions and the key (`scripts/release/check-release.sh v0.2.0`): the tag must be `v` + the version in
+     both files, and the updater's public key must be the real one. While it's the placeholder the run stops with
+     "the updater's public key … is still the placeholder, so no release is made";
+   - runs the same checks as `checks.yml` (it calls that workflow);
+   - builds on five runners with `OTAQ_RELEASE=1` and the updater key from the repository's secrets: `macos-latest`
+     (a universal `.dmg` and the updater's `.app.tar.gz`), `windows-latest` and `windows-11-arm` (the per-user setup
+     `.exe` for x64 and arm64), `ubuntu-22.04` and `ubuntu-22.04-arm` (the `.AppImage` and `.deb`, built on the older
+     glibc so they run on newer systems). Windows and Linux build with `tauri-apps/tauri-action`; macOS bundles the
+     app, signs it again under the bundle's ID and makes the `.dmg` and the archive from it
+     (`scripts/release/macos-finish.sh`);
+   - checks each build on its own runner (`scripts/release/smoke.sh`): `otaq --version` names the version, the plugin
+     folder is in its place, and the background service starts on a throwaway data folder, makes its runtime copy with
+     the plugin folder and stops;
+   - writes `latest.json` with every platform's file, signature and `"protocol_version"`, and `SHA256SUMS`
+     (`scripts/release/latest-json.mjs`), and makes the draft release with every file and generated notes.
+4. **Check the draft** against the hand checklist below, on the setup files from the draft itself.
+5. **Publish** it on GitHub (edit the draft, Publish release). From then on installed copies find it at their next
+   daily check. To withdraw a bad draft, delete it and its tag; once published, fix forward with a new version.
+6. **The first release only:** when publishing v0.1.0, drop "until then, build it from source (below)" from
+   `README.md`'s Status line.
+
+**A dry run** builds and smoke-checks everything and uploads nothing to a release (the files go between jobs as
+workflow artifacts kept for one day, and `latest.json` shows in the run's summary). It signs with a throwaway key made
+in the job, never the repository's secrets, so it also runs before the real key exists (its app keeps the
+placeholder key: it's for checking the builds, never for installing as an update). Start one by pushing a commit
+to the branch `release-dry-run` (`git push origin <commit>:refs/heads/release-dry-run`), or, once `release.yml` is on
+`main`, with Actions → Release → Run workflow on any branch (`gh workflow run release.yml --ref <branch>`; GitHub only
+offers Run workflow for workflows on the default branch).
+
+The scripts run on the Mac too: `scripts/release/check-release.sh --dry-run`, `node scripts/release/latest-json.mjs
+<folder> v0.2.0 otaq-io/otaq`, and `scripts/release/smoke.sh app <Otaq.app> 0.2.0` on a local bundle
+(`crates/otaq-cli/tests/suite/release_scripts.rs` runs all three on made-up files and a fake `Otaq.app`).
+
+### The updater key
+
+Updates are signed with Otaq's updater key (a minisign key pair, decision 0140). The app carries the **public** key
+(`PUBKEY` in `crates/otaq-desktop/src/updates.rs`, the same in `tauri.conf.json`) and refuses any update not signed
+with the private one. The repository ships a marked placeholder until the maintainer makes the pair; the release workflow
+refuses to run on it.
+
+Making the pair (once, the maintainer, on their own Mac; nobody else ever sees the private key):
+
+1. `cd crates/otaq-desktop && npm run tauri signer generate -- -w ~/.tauri/otaq.key`, with a strong password. It writes
+   the private key to `~/.tauri/otaq.key` and the public key to `~/.tauri/otaq.key.pub`.
+2. Repository → Settings → Secrets and variables → Actions: `TAURI_SIGNING_PRIVATE_KEY` = the content of
+   `otaq.key`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = the password.
+3. **Back up the key and the password separately**, both outside GitHub: for example the key file in one password
+   manager entry or an encrypted drive, the password in another place. GitHub secrets can't be read back, so without
+   the backup a lost key can't be recovered.
+4. Put the content of `otaq.key.pub` in both places that hold the public key, replacing the placeholder: `PUBKEY` in
+   `crates/otaq-desktop/src/updates.rs` (what the app checks updates against) and `plugins.updater.pubkey` in
+   `crates/otaq-desktop/tauri.conf.json` (a test keeps the two equal, and the release workflow refuses them apart).
+   Commit it through a pull request like any change.
+
+**Rotating the key** (a new pair, for example if the old one may have leaked): make the new pair as above, then release
+a version **signed with the old key that carries the new public key**. Installed copies accept that update (the old
+key signed it) and from then on accept only the new key. Then replace the two secrets with the new key and password.
+Keep the old key until that release is published.
+
+**If the private key is lost**, no installed copy can be updated any more: they only accept the lost key's
+signatures. Release with a new pair, and everyone reinstalls by hand from the new setup files (say so in the release
+notes and on the website).
+
+### The hand checklist before Publish
+
+On each platform, with the setup files from the draft (Windows and Linux in the VMs, as set up in the VM sections above),
+and a data folder that is not your own (`OTAQ_HOME` pointing at a fresh folder, or a fresh user account):
+
+- **macOS (`.dmg`)**: open the `.dmg`, drag Otaq to Applications, open it from Applications (System Settings →
+  Privacy & Security → **Open Anyway** the first time, decision 0021). Opened from the disk image instead, it shows
+  **Move Otaq to Applications** first. About shows the version and the Updates rows.
+- **Windows (setup `.exe`, x64 and arm64)**: run it (SmartScreen: **More info → Run anyway**); it installs for the
+  current user without asking for admin rights; Otaq opens from the Start menu.
+- **Linux (`.AppImage` and `.deb`, x64 and arm64)**: `chmod +x` the AppImage and run it; `sudo apt install ./Otaq_….deb`
+  and open Otaq from the applications menu. The `.deb` install says when a newer version is out but never downloads it.
+- **On every platform**: onboarding adds a project; a ticket dragged to Dev starts its agent, which works and moves it
+  on; `otaq --version` in a new terminal (after About's **Add to my shell's PATH**) names the version.
+- **One update from the previous release** (from the second release on): install the previous version, start an agent,
+  then let it find the draft's update. A published release is needed for that, so test it with a draft on a fork, or
+  right after Publish on one machine before announcing it: "Otaq X is ready", **Restart now**, the window reopens on
+  the new version and the agent kept working (or, for an incompatible update, "needs agents restarted").

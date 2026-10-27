@@ -1246,16 +1246,16 @@ mod updater_config_tests {
     use crate::updates;
 
     /// The updater plugin's configuration: the one endpoint, no `{{…}}` variables or query (nothing about the user in
-    /// the request), and the marked placeholder key the release workflow refuses (T-0583).
+    /// the request), and the same key as the app's (the marked placeholder until the maintainer puts the real public
+    /// key in both places; the release workflow refuses the placeholder, T-0583).
     #[test]
-    fn the_shipped_config_asks_one_fixed_address_with_the_placeholder_key() {
+    fn the_shipped_config_asks_one_fixed_address_with_the_apps_key() {
         let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let updater = &conf["plugins"]["updater"];
         let url = otaq_core::naming::LATEST_JSON_URL;
         assert_eq!(updater["endpoints"], json!([url]));
         assert!(!url.contains('{') && !url.contains('?'));
         assert_eq!(updater["pubkey"], updates::PUBKEY);
-        assert!(updates::PUBKEY.starts_with("PLACEHOLDER"));
         // Only these two keys: no headers, no insecure transport, no downgrades.
         assert_eq!(updater.as_object().unwrap().len(), 2);
         // Tests are never release builds.

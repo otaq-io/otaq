@@ -1,0 +1,264 @@
+# Builds Otaq's setup files and makes a **draft** GitHub Release of them (UPD-10, decision 0140). The maintainer checks
+# the draft against the hand checklist in scripts/README.md ("Making a release") and publishes it; installed copies
+# only ever see published releases.
+#
+# - A pushed tag `vX.Y.Z` makes the release: the version check and the updater key check, the same checks as
+#   checks.yml, the builds with their smoke checks, then one job that writes latest.json (with `protocol_version`) and
+#   SHA256SUMS and creates the draft with every file and generated notes.
+# - A dry run builds and smoke-checks everything and uploads nothing to a release: a push to the branch
+#   `release-dry-run`, or Run workflow on a branch once this file is on the default branch. It signs with a throwaway
+#   key made in the job (never the repository's secrets) and passes the files between jobs as workflow artifacts kept
+#   for one day.
+#
+# Every action is pinned by commit SHA, the tag it was in a comment.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [release-dry-run]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # A release build: it checks for updates (d0140). Every other build says "Built from source".
+  OTAQ_RELEASE: "1"
+
+jobs:
+  prepare:
+    name: Version and updater key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: crates/otaq-desktop/.nvmrc
+      - name: Check the versions and the updater key
+        id: check
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="$(scripts/release/check-release.sh "$GITHUB_REF_NAME")"
+            echo "release=true" >>"$GITHUB_OUTPUT"
+          else
+            version="$(scripts/release/check-release.sh --dry-run)"
+            echo "release=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Dry run of $version: builds and smoke checks only, nothing is uploaded to a release."
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+  checks:
+    name: Checks
+    needs: prepare
+    uses: ./.github/workflows/checks.yml
+    # checks.yml's approve job asks for this; it only runs on pull requests, so here it is always skipped.
+    permissions:
+      contents: read
+      pull-requests: write
+
+  build:
+    name: Build – ${{ matrix.name }}
+    needs: [prepare, checks]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (universal)
+            runner: macos-latest
+            platform: macos
+          - name: Windows x64
+            runner: windows-latest
+            platform: windows
+            bundles: nsis
+          - name: Windows arm64
+            runner: windows-11-arm
+            platform: windows
+            bundles: nsis
+          # 22.04 for its older glibc: the AppImage and the .deb run on newer systems, not on older ones.
+          - name: Linux x64
+            runner: ubuntu-22.04
+            platform: linux
+            bundles: appimage,deb
+          - name: Linux arm64
+            runner: ubuntu-22.04-arm
+            platform: linux
+            bundles: appimage,deb
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config file \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            libssl-dev libdbus-1-dev
+      # The Windows arm64 image may come without rustup.
+      - name: Install rustup
+        if: matrix.runner == 'windows-11-arm'
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl -sSfL -o "$RUNNER_TEMP/rustup-init.exe" https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe
+            "$RUNNER_TEMP/rustup-init.exe" -y --default-toolchain none --profile minimal
+            echo "$USERPROFILE/.cargo/bin" >>"$GITHUB_PATH"
+          fi
+      - name: Install Rust 1.99.0
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup default 1.99.0
+          if [[ "${{ matrix.platform }}" == macos ]]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: crates/otaq-desktop/.nvmrc
+          cache: npm
+          cache-dependency-path: crates/otaq-desktop/package-lock.json
+      - name: Install the page's packages
+        run: npm --prefix crates/otaq-desktop ci --no-audit --no-fund
+
+      # The updater key: the repository's secrets for a release; for a dry run a throwaway pair made here (the dry run's
+      # app keeps the placeholder key, so it could never install what it signs; nothing is uploaded anyway).
+      - name: Choose the updater key
+        env:
+          SECRET_KEY: ${{ needs.prepare.outputs.release == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          SECRET_PASSWORD: ${{ needs.prepare.outputs.release == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: |
+          if [[ "${{ needs.prepare.outputs.release }}" == true ]]; then
+            if [[ -z "$SECRET_KEY" ]]; then
+              echo "::error::The repository secret TAURI_SIGNING_PRIVATE_KEY is missing (scripts/README.md, \"The updater key\")."
+              exit 1
+            fi
+            key="$SECRET_KEY"
+            password="$SECRET_PASSWORD"
+          else
+            npm --prefix crates/otaq-desktop exec -- tauri signer generate --ci -p dry-run -w "$RUNNER_TEMP/dry-run.key"
+            key="$(cat "$RUNNER_TEMP/dry-run.key")"
+            password=dry-run
+          fi
+          echo "::add-mask::$password"
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY<<KEY_END"
+            echo "$key"
+            echo "KEY_END"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password"
+          } >>"$GITHUB_ENV"
+
+      # Windows and Linux: Tauri's own action builds the setup files and their signatures (no release from it: the
+      # release job uploads everything at once).
+      - name: Build the setup files
+        id: tauri
+        if: matrix.platform != 'macos'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        with:
+          projectPath: crates/otaq-desktop
+          tauriScript: npm run tauri
+          args: --config tauri.bundle.conf.json --bundles ${{ matrix.bundles }}
+          uploadUpdaterJson: false
+      - name: Collect the setup files
+        if: matrix.platform != 'macos'
+        env:
+          PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          mkdir -p dist
+          node -e 'for (const p of JSON.parse(process.env.PATHS)) console.log(p)' | while IFS= read -r path; do
+            case "$path" in
+              *.exe | *.exe.sig | *.AppImage | *.AppImage.sig | *.deb) cp "$path" dist/ ;;
+            esac
+          done
+          ls -l dist
+
+      # macOS: the app first, then signed again under the bundle's ID, then the .dmg and the updater's archive made
+      # from that app (scripts/release/macos-finish.sh).
+      - name: Build Otaq.app (universal)
+        if: matrix.platform == 'macos'
+        run: >-
+          npm --prefix crates/otaq-desktop run bundle --
+          --target universal-apple-darwin --bundles app
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Sign it again, make the .dmg and the updater archive
+        if: matrix.platform == 'macos'
+        run: scripts/release/macos-finish.sh target/universal-apple-darwin/release/bundle/macos/Otaq.app "$VERSION" dist
+
+      - name: Smoke check
+        run: |
+          case "${{ matrix.platform }}" in
+            macos)
+              scripts/release/smoke.sh app target/universal-apple-darwin/release/bundle/macos/Otaq.app "$VERSION"
+              ;;
+            windows)
+              scripts/release/smoke.sh nsis dist/*-setup.exe "$VERSION"
+              ;;
+            linux)
+              scripts/release/smoke.sh deb dist/*.deb "$VERSION"
+              scripts/release/smoke.sh appimage dist/*.AppImage "$VERSION"
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: setup-files-${{ matrix.runner }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: ${{ needs.prepare.outputs.release == 'true' && 7 || 1 }}
+
+  release:
+    name: Draft release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: crates/otaq-desktop/.nvmrc
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: setup-files-*
+          path: dist
+          merge-multiple: true
+      - name: latest.json and SHA256SUMS
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          [[ "${{ needs.prepare.outputs.release }}" == true ]] || tag="v$VERSION"
+          node scripts/release/latest-json.mjs dist "$tag" "$GITHUB_REPOSITORY"
+          {
+            echo "### latest.json"
+            echo '```json'
+            cat dist/latest.json
+            echo '```'
+            echo "### Files"
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: Create the draft release
+        if: needs.prepare.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --draft --verify-tag --generate-notes \
+            --title "Otaq $VERSION"
+          echo "Draft release made: check it against scripts/README.md's hand checklist, then Publish." >>"$GITHUB_STEP_SUMMARY"
