@@ -155,15 +155,32 @@ pub const PROJECT_AGENT_SKILL: &str = "noyan";
 /// ordinary command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchContext {
-    /// The folder of the `otaq` command, put first on the agent's PATH.
+    /// The folder of the `otaq` command, put first on the agent's PATH: the build's runtime copy (UPD-02,
+    /// [`crate::runtime`]) once the service has made it.
     pub bin_dir: PathBuf,
     /// Otaq's plugin folder: its shipped skills (`skills/`, AGM-07) and each tool's hooks plugin (`claude/`,
-    /// `codex/`, `copilot/`, `opencode/`).
+    /// `codex/`, `copilot/`, `opencode/`); the runtime copy's, like [`Self::bin_dir`]. Codex alone is given a fixed
+    /// copy of its plugin ([`crate::data_dir::DataDir::codex_plugin_dir`]).
     pub plugin_dir: PathBuf,
     /// The PATH the agent extends (the service's).
     pub path: OsString,
     /// The Claude Code adapter's part: its program and the user's Claude Code folder.
     pub claude: claude::ClaudeLaunch,
+}
+
+/// Otaq's plugin folder for the `otaq` in `bin_dir` (installed beside it, or the repository's in a dev build), the
+/// source of a runtime copy (UPD-02).
+pub fn plugin_dir_next_to(bin_dir: &Path) -> Option<PathBuf> {
+    claude::find_plugin_dir(bin_dir)
+}
+
+/// Copies the tools' plugins that live in a fixed folder over it, at every service start (UPD-02): Codex's
+/// (gap review R4), whose marketplace is registered machine-wide with a folder path. A failure is logged; Codex's
+/// setup then says its plugin wasn't found.
+pub fn refresh_fixed_plugins(data: &crate::data_dir::DataDir, plugin_dir: &Path) {
+    if let Err(e) = codex::setup::refresh_plugin(data, plugin_dir) {
+        tracing::warn!(error = %e, "can't refresh Codex's plugin folder");
+    }
 }
 
 impl LaunchContext {

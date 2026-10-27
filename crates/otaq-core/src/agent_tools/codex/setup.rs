@@ -10,8 +10,10 @@
 //!   root `skills/` directory", so the plugin is a folder without one, and the skills reach Codex as project skills
 //!   copied into the session's folder): `plugin/codex/.codex-plugin/plugin.json`, offered by the local marketplace
 //!   `plugin/codex/.agents/plugins/marketplace.json`, installed by Codex itself: `codex plugin marketplace add
-//!   <plugin folder>/codex`, then `codex plugin add otaq@otaq-local` (which also refreshes Codex's cached copy). A
-//!   marketplace added from another folder (Otaq moved, or an install from before M32 that offered the skills too) is
+//!   <data folder>/runtime/codex-plugin`, then `codex plugin add otaq@otaq-local` (which also refreshes Codex's cached
+//!   copy). The marketplace is machine-wide, so it points at that one fixed folder, which every service start copies
+//!   `plugin/codex` over (d0140, gap review R4, [`refresh_plugin`]): a new build changes nothing
+//!   in Codex's config. A marketplace added from another folder (another data folder, or an older install) is
 //!   removed first;
 //! - **hook trust**, before the first launch: any untrusted hook stops Codex at startup ("Hooks need review"). A
 //!   short-lived `codex app-server` lists the hooks (`hooks/list`: each one's `key`, `currentHash`,
@@ -209,18 +211,35 @@ fn write_rules(home: &Path) -> Result<(), String> {
     }
 }
 
-/// Otaq's Codex plugin folder in `launch`'s plugin folder: `<plugin>/codex`.
-fn plugin_folder(launch: &crate::agent_tools::LaunchContext) -> PathBuf {
-    launch.plugin_dir.join(PLUGIN_FOLDER)
+/// Copies Otaq's Codex plugin (`<plugin>/codex`) over the data folder's fixed `runtime/codex-plugin` (gap review
+/// R4), as every service start does: Codex's marketplace keeps pointing at the same folder for every build. `None`
+/// when `plugin_dir` has no Codex plugin.
+pub(crate) fn refresh_plugin(
+    data: &crate::data_dir::DataDir,
+    plugin_dir: &Path,
+) -> std::io::Result<Option<PathBuf>> {
+    let source = plugin_dir.join(PLUGIN_FOLDER);
+    if !source.is_dir() {
+        return Ok(None);
+    }
+    let dest = data.codex_plugin_dir();
+    crate::runtime::replace_dir(&source, &dest)?;
+    Ok(Some(dest))
 }
 
-/// Otaq's Codex plugin folder, with its manifest and local marketplace.
-fn plugin_dir(context: &CodexContext) -> Result<PathBuf, String> {
+/// The folder Codex's marketplace points at: the data folder's fixed `runtime/codex-plugin` (gap review R4), when
+/// Otaq's folders are known.
+fn plugin_folder(context: &CodexContext) -> Option<PathBuf> {
     context
         .tool
         .launch
         .as_ref()
-        .map(plugin_folder)
+        .map(|_| context.tool.data.codex_plugin_dir())
+}
+
+/// Otaq's Codex plugin folder, with its manifest and local marketplace.
+fn plugin_dir(context: &CodexContext) -> Result<PathBuf, String> {
+    plugin_folder(context)
         .filter(|dir| {
             dir.join(".codex-plugin").join("plugin.json").is_file()
                 && dir
@@ -410,9 +429,9 @@ pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
     };
     let moved = match (
         config_toml::marketplace_source(&doc, &marketplace()),
-        context.tool.launch.as_ref(),
+        plugin_folder(context),
     ) {
-        (Some(source), Some(launch)) => !same_folder(Path::new(&source), &plugin_folder(launch)),
+        (Some(source), Some(folder)) => !same_folder(Path::new(&source), &folder),
         (source, _) => source.is_none(),
     };
     if moved || !config_toml::plugin_installed(&doc, &plugin_id()) {
@@ -601,6 +620,13 @@ mod tests {
             self.dir.path().join("log")
         }
 
+        /// The fixed folder Codex's marketplace points at.
+        fn codex_folder(&self) -> PathBuf {
+            crate::agent_tools::test_support::context(&self.bin(), None)
+                .data
+                .codex_plugin_dir()
+        }
+
         fn config(&self) -> String {
             fs::read_to_string(config_toml::path(&self.home())).unwrap()
         }
@@ -609,8 +635,11 @@ mod tests {
             fs::write(config_toml::path(&self.home()), text).unwrap();
         }
 
+        /// A service's context with Otaq's plugin folder `plugin_dir`, whose Codex plugin the service start copied
+        /// into the data folder's fixed folder.
         fn context(&self, plugin_dir: &Path) -> CodexContext {
             let mut tool = crate::agent_tools::test_support::context(&self.bin(), None);
+            refresh_plugin(&tool.data, plugin_dir).unwrap();
             tool.launch = Some(LaunchContext {
                 bin_dir: self.bin(),
                 plugin_dir: plugin_dir.to_path_buf(),
@@ -904,7 +933,7 @@ mod tests {
         assert_eq!(
             commands,
             [
-                format!("plugin marketplace add {}", plugin.join("codex").display()).as_str(),
+                format!("plugin marketplace add {}", home.codex_folder().display()).as_str(),
                 &format!("plugin add {}", plugin_id()),
                 "app-server",
             ]
@@ -954,6 +983,64 @@ mod tests {
                 .unwrap(),
             before
         );
+    }
+
+    /// A new build (its plugin in another runtime folder) refreshes the fixed folder: Codex's config doesn't change,
+    /// launches aren't refused and no setup runs again (gap review R4).
+    #[tokio::test]
+    async fn a_new_builds_plugin_keeps_codexs_marketplace() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let context = home.context(&repo_plugin());
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        home.apply_batch_write();
+        assert_eq!(launch_refusal(&context), None);
+        let config = home.config();
+        assert!(
+            config.contains(&format!("source = \"{}\"", home.codex_folder().display())),
+            "{config}"
+        );
+
+        let next = tempfile::tempdir().unwrap();
+        refresh_plugin(&context.tool.data, &next_build_plugin(next.path())).unwrap();
+        let mut moved = context.clone();
+        moved.tool.launch.as_mut().unwrap().plugin_dir = next.path().join("plugin");
+        assert_eq!(launch_refusal(&moved), None);
+        assert!(!setup_needed(&moved));
+        assert_eq!(home.config(), config);
+        assert!(
+            home.codex_folder()
+                .join(".codex-plugin")
+                .join("next-build")
+                .is_file()
+        );
+    }
+
+    /// The repository's plugin copied under `root`, as another build's runtime folder holds it, with a file only
+    /// that build has.
+    fn next_build_plugin(root: &Path) -> PathBuf {
+        fn copy(from: &Path, to: &Path) {
+            fs::create_dir_all(to).unwrap();
+            for entry in fs::read_dir(from).unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_dir() {
+                    copy(&entry.path(), &to.join(entry.file_name()));
+                } else {
+                    fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+                }
+            }
+        }
+        let plugin = root.join("plugin");
+        copy(&repo_plugin(), &plugin);
+        fs::write(
+            plugin
+                .join("codex")
+                .join(".codex-plugin")
+                .join("next-build"),
+            "",
+        )
+        .unwrap();
+        plugin
     }
 
     /// Otaq's plugin folder moved (another install): the old marketplace is removed before the new one is added,
@@ -1018,7 +1105,7 @@ mod tests {
         let report = set_up_tool(&context).await;
         let reason = format!(
             "`codex plugin marketplace add {}` failed: marketplace is broken",
-            repo_plugin().join("codex").display()
+            home.codex_folder().display()
         );
         assert_eq!(
             report.failed,

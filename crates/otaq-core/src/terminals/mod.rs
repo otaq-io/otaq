@@ -19,7 +19,8 @@ use crate::naming;
 /// What the user's terminals start with on this machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalEnv {
-    /// The folder of the `otaq` command, put first on PATH so the terminals can call it (CLI-03).
+    /// The folder of the `otaq` command, put first on PATH so the terminals can call it (CLI-03): the build's runtime
+    /// copy (UPD-02, [`crate::runtime`]) once the service has made it.
     pub bin_dir: Option<PathBuf>,
     /// The PATH the terminals extend (the service's).
     pub path: OsString,

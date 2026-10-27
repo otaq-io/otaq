@@ -1,5 +1,7 @@
 //! `otaq daemon start | stop | status` (SVC-01). The service itself lives in `otaq_core::service`;
-//! `start` launches this same binary as `daemon run` in the background, detached from the terminal.
+//! `start` launches this same binary as `daemon run` in the background, detached from the terminal: on Windows and
+//! Linux its runtime copy (UPD-02, d0140, [`otaq_core::runtime`]), made first, so the installed program is never
+//! locked; on macOS the program in `Otaq.app` (d0090).
 //! Nothing here installs a launch agent or login item: the service runs only when started (d0055).
 
 use std::path::{Path, PathBuf};
@@ -62,7 +64,16 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
     }
     let exe =
         std::env::current_exe().map_err(|e| internal(format!("can't find this program: {e}")))?;
-    let mut command = Command::new(service_program(&exe));
+    let installed = service_program(&exe);
+    let copy = otaq_core::runtime::service_runs_from_copy_here()
+        .then(|| runtime_copy(data, &installed))
+        .flatten();
+    let mut command = Command::new(copy.as_deref().unwrap_or(&installed));
+    if copy.is_some()
+        && let Some(dir) = installed.parent()
+    {
+        command.env(otaq_core::runtime::installed_dir_var(), dir);
+    }
     command
         .args(["daemon", "run"])
         .stdin(Stdio::null())
@@ -74,8 +85,16 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let mut child = spawn_detached(&mut command)
-        .map_err(|e| internal(format!("can't start the background service: {e}")))?;
+    let mut child = match spawn_detached(&mut command) {
+        Ok(child) => child,
+        Err(e) => {
+            // A start racing this one may have won and cleaned this build's runtime folder away.
+            if let Some(status) = query_status(data)? {
+                return Ok((status, true));
+            }
+            return Err(internal(format!("can't start the background service: {e}")));
+        }
+    };
 
     let deadline = Instant::now() + WAIT;
     loop {
@@ -119,6 +138,17 @@ pub(crate) fn newer_database_error(newer: &NewerDatabase) -> ErrorBody {
         message: newer.message(),
         data: Some(versions::error_data(newer)),
     }
+}
+
+/// This build's runtime copy of `installed` (`otaq` and the plugin folder found next to it), made unless it is
+/// there: the program the service runs as on Windows and Linux. `None` when it can't be made (no plugin folder, a
+/// full disk): the service then runs from the installed program, as before.
+fn runtime_copy(data: &DataDir, installed: &Path) -> Option<PathBuf> {
+    let bin = installed.parent()?;
+    let plugin = otaq_core::agent_tools::plugin_dir_next_to(bin)?;
+    otaq_core::runtime::ensure(data, otaq_core::protocol::build_id(), bin, &plugin)
+        .ok()
+        .map(|folder| folder.program())
 }
 
 /// The program the service runs as: `exe` with links resolved, so a start through `~/.local/bin/otaq` runs
@@ -247,8 +277,19 @@ fn use_full_path() {
     unsafe { std::env::set_var("PATH", path) };
 }
 
+/// The installed app's folder `daemon start` passed to a service it started from the runtime copy, taken out of the
+/// environment so agents and terminals don't inherit it.
+fn take_installed_dir() -> Option<PathBuf> {
+    let var = otaq_core::runtime::installed_dir_var();
+    let dir = std::env::var_os(&var).filter(|v| !v.is_empty())?;
+    // SAFETY: called in `foreground` beside `use_full_path`, before any thread starts.
+    unsafe { std::env::remove_var(&var) };
+    Some(PathBuf::from(dir))
+}
+
 fn foreground(data: DataDir) -> Result<(), ErrorBody> {
     use_full_path();
+    let installed = take_installed_dir();
     let _log = logging::init(&data).map_err(|e| internal(format!("can't open the log: {e}")))?;
     tracing::info!(
         command = naming::COMMAND_NAME,
@@ -258,8 +299,11 @@ fn foreground(data: DataDir) -> Result<(), ErrorBody> {
         .enable_all()
         .build()
         .map_err(|e| internal(e.to_string()))?;
-    let serve =
-        move || runtime.block_on(service::run_until_signal(ServiceConfig::for_daemon(data)));
+    let serve = move || {
+        runtime.block_on(service::run_until_signal(ServiceConfig::for_daemon(
+            data, installed,
+        )))
+    };
     // Inside Otaq.app the service is the notification center's delegate (d0090): macOS may deliver a click through
     // the main queue, so the main thread runs its run loop and the service runs beside it.
     #[cfg(target_os = "macos")]

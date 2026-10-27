@@ -188,6 +188,18 @@ impl DataDir {
         self.root.join("bin")
     }
 
+    /// The folder of the runtime copies (UPD-02, d0140): `runtime/<build>/`, one per build, holding the `otaq` command
+    /// and the plugin folder agents and terminals use (see [`crate::runtime`]), and Codex's fixed plugin folder.
+    pub fn runtime_dir(&self) -> PathBuf {
+        self.root.join("runtime")
+    }
+
+    /// Otaq's Codex plugin as Codex's machine-wide marketplace knows it (d0140, gap review R4):
+    /// `runtime/codex-plugin`, the same folder for every build, refreshed when a service starts.
+    pub fn codex_plugin_dir(&self) -> PathBuf {
+        self.runtime_dir().join("codex-plugin")
+    }
+
     /// The service socket (a Unix domain socket on macOS and Linux).
     pub fn socket_path(&self) -> PathBuf {
         self.root.join(format!("{}.sock", naming::COMMAND_NAME))
@@ -299,6 +311,11 @@ mod tests {
         assert_eq!(data.service_lock_path(), root.join("service.lock"));
         assert_eq!(data.app_lock_path(), root.join("app.lock"));
         assert_eq!(data.app_socket_path(), root.join("app.sock"));
+        assert_eq!(data.runtime_dir(), root.join("runtime"));
+        assert_eq!(
+            data.codex_plugin_dir(),
+            root.join("runtime").join("codex-plugin")
+        );
     }
 
     #[test]

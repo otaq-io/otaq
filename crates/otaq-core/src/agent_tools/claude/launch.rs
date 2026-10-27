@@ -54,9 +54,11 @@ impl ClaudeLaunch {
 /// The folder of Otaq's Claude Code plugin (its hooks) inside Otaq's plugin folder.
 const PLUGIN_FOLDER: &str = "claude";
 
-/// The plugin folder: `<bin>/plugin`, `<bin>/../share/otaq/plugin`, `<bin>/../Resources/plugin` (`Otaq.app`,
-/// d0072), or the repository's `plugin/` (dev builds run from `target/`). A folder counts when it has
-/// `claude/.claude-plugin/plugin.json`. The repository comes last, so an installed build never uses it.
+/// The plugin folder: `<bin>/plugin` (a runtime copy, UPD-02), `<bin>/../share/otaq/plugin`,
+/// `<bin>/../Resources/plugin` (`Otaq.app`, d0072), `<bin>/../lib/Otaq/plugin` (where Tauri puts a Linux `.deb`'s and
+/// AppImage's resources, d0140 gap review C2), or the repository's `plugin/` (dev builds run from `target/`). A
+/// folder counts when it has `claude/.claude-plugin/plugin.json`. The repository comes last, so an installed build
+/// never uses it.
 pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
     let repo_plugin = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -73,6 +75,9 @@ pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
         bin_dir
             .parent()
             .map(|contents| contents.join("Resources").join("plugin")),
+        bin_dir
+            .parent()
+            .map(|prefix| prefix.join("lib").join(naming::PRODUCT_NAME).join("plugin")),
         repo_plugin,
     ]
     .into_iter()
@@ -562,6 +567,20 @@ mod tests {
         std::fs::create_dir_all(&manifest).unwrap();
         std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
         assert_eq!(find_plugin_dir(&macos), Some(plugin));
+    }
+
+    /// A Linux `.deb` or AppImage: `/usr/bin/otaq` with Tauri's resources in `/usr/lib/Otaq/plugin`.
+    #[test]
+    fn the_plugin_is_found_in_the_linux_resource_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let usr = dir.path().join("usr");
+        let bin = usr.join("bin");
+        let plugin = usr.join("lib").join(naming::PRODUCT_NAME).join("plugin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let manifest = plugin.join(PLUGIN_FOLDER).join(".claude-plugin");
+        std::fs::create_dir_all(&manifest).unwrap();
+        std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
+        assert_eq!(find_plugin_dir(&bin), Some(plugin));
     }
 
     #[test]
