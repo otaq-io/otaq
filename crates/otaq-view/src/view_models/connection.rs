@@ -5,6 +5,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::view_models::newer_database::NewerDatabaseState;
 
 /// The app's view of the link, including the phases before a client exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +22,9 @@ pub enum LinkState {
     Stopped,
     /// The service couldn't be reached or started.
     Failed(String),
+    /// The service won't start: a newer build changed the database (UPD-08). The window shows why instead of the
+    /// board, with the restore.
+    NewerDatabase(NewerDatabaseState),
 }
 
 impl From<ConnectionState> for LinkState {
@@ -48,10 +52,12 @@ pub fn terminal_note(state: &LinkState) -> Option<TerminalNote> {
             text: "Reconnecting\u{2026} agents keep running",
             icon: IconName::RefreshCw,
         }),
-        LinkState::Stopped | LinkState::Failed(_) => Some(TerminalNote {
-            text: "Service stopped",
-            icon: IconName::CircleStop,
-        }),
+        LinkState::Stopped | LinkState::Failed(_) | LinkState::NewerDatabase(_) => {
+            Some(TerminalNote {
+                text: "Service stopped",
+                icon: IconName::CircleStop,
+            })
+        }
         LinkState::Connecting | LinkState::Connected(_) => None,
     }
 }
@@ -60,7 +66,10 @@ pub fn terminal_note(state: &LinkState) -> Option<TerminalNote> {
 pub fn service_down(state: &LinkState) -> bool {
     matches!(
         state,
-        LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_)
+        LinkState::Reconnecting { .. }
+            | LinkState::Stopped
+            | LinkState::Failed(_)
+            | LinkState::NewerDatabase(_)
     )
 }
 
@@ -123,6 +132,12 @@ impl ConnectionViewModel {
             LinkState::Failed(reason) => Self {
                 label: "Not connected".into(),
                 detail: Some(reason.clone()),
+                tone: Tone::Error,
+                input_enabled: false,
+            },
+            LinkState::NewerDatabase(state) => Self {
+                label: "Service not started".into(),
+                detail: Some(state.reason.message()),
                 tone: Tone::Error,
                 input_enabled: false,
             },

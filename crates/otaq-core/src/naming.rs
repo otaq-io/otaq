@@ -11,6 +11,14 @@ pub const PRODUCT_NAME: &str = "Otaq";
 /// The command-line binary.
 pub const COMMAND_NAME: &str = "otaq";
 
+/// The releases on GitHub (d0140): each version's page holds its setup files.
+pub const RELEASES_URL: &str = "https://github.com/otaq-io/otaq/releases";
+
+/// A version's release page: `https://github.com/otaq-io/otaq/releases/tag/v0.2.0`.
+pub fn release_page(version: &str) -> String {
+    format!("{RELEASES_URL}/tag/v{version}")
+}
+
 /// The plugin namespace: the name of Otaq's hooks plugin for each tool (`otaq@otaq-local` in Codex).
 pub const PLUGIN_NAMESPACE: &str = "otaq";
 

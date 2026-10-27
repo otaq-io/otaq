@@ -682,6 +682,8 @@ impl State {
             LinkState::Failed(reason) => vec![Situation::ServiceCouldNotStart {
                 reason: reason.clone(),
             }],
+            // The window shows why instead of the board (UPD-08): no banner over it.
+            LinkState::NewerDatabase(_) => Vec::new(),
         };
         for kind in [
             SituationKind::ServiceStopped,
@@ -698,7 +700,10 @@ impl State {
         }
         let disconnected = matches!(
             link,
-            LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_)
+            LinkState::Reconnecting { .. }
+                | LinkState::Stopped
+                | LinkState::Failed(_)
+                | LinkState::NewerDatabase(_)
         );
         // After a reboot, crash or restart: the summary of what was interrupted; after a normal reopen a quiet
         // "Reconnected" (REC-06).
