@@ -295,6 +295,25 @@ pub(super) async fn handle(
             shared.notifications.dismiss_blocked().await?;
             Ok(Reply::Ok)
         }),
+        // The window hid: the first-hide note, once per data folder (TRY-02, d0139), counting the agents at work.
+        Request::AppFirstHide => boxed(move || async move {
+            let agents = shared
+                .sessions
+                .in_memory()
+                .iter()
+                .filter(|s| s.is_running() && s.kind.runs_agent_tool())
+                .count();
+            let note = crate::attention::notify::first_hide(
+                std::env::consts::OS,
+                u32::try_from(agents).unwrap_or(u32::MAX),
+            );
+            let (opener, target) = (shared.opener.clone(), note.target.clone());
+            shared
+                .notifications
+                .first_hide(note, Box::new(move || opener.open(target)))
+                .await
+                .map(Reply::FirstHide)
+        }),
         // Pause and Resume (PAU-01, PAU-02, PAU-06, PAU-08; d0112).
         Request::AgentsPause(scope) => boxed(move || async move {
             let counts = shared.pause.pause(&scope).await?;

@@ -109,6 +109,7 @@ pub mod shell;
 pub mod shortcut_list;
 pub mod stage_choices;
 pub mod status;
+pub mod status_icon;
 pub mod switcher;
 pub mod terminal_font;
 pub mod terminal_strip;

@@ -39,6 +39,7 @@ use crate::board::settings::{GlobalSettings, NotificationKinds};
 use crate::data_dir::DataDir;
 use crate::domain::{Status, TicketKey, validation};
 use crate::naming;
+use crate::naming::PRODUCT_NAME;
 
 /// More new items than this in one project at once are grouped into one notification.
 pub const GROUP_AFTER: usize = 3;
@@ -543,6 +544,43 @@ pub fn tool_unavailable(tool: Tool, waiting: u32, on_fallback: u32) -> OsNotific
         target: Target::Board { project: None },
         thread: None,
         sound: true,
+    }
+}
+
+/// The first-hide note (TRY-02, d0139; page 31 item 8): the window has gone and Otaq keeps running in the menu bar /
+/// tray. `os` is `std::env::consts::OS`; `agents` the agent sessions working now. Windows gets the pin hint; macOS
+/// and Linux name the tent icon. A click opens Otaq on the board.
+pub fn first_hide(os: &str, agents: u32) -> OsNotification {
+    let (title, body) = if os == "windows" {
+        (
+            format!("{PRODUCT_NAME} is still running"),
+            format!(
+                "Its icon is in the notification area. Windows may put new icons under ^ next to the clock: drag \
+                 {PRODUCT_NAME}\u{2019}s icon onto the taskbar to keep it in view."
+            ),
+        )
+    } else {
+        let place = if os == "macos" { "menu bar" } else { "tray" };
+        let working = match agents {
+            0 => String::new(),
+            1 => "1 agent keeps working. ".to_owned(),
+            n => format!("{n} agents keep working. "),
+        };
+        (
+            format!("{PRODUCT_NAME} is still running in the {place}"),
+            format!(
+                "{working}Click the tent icon to open {PRODUCT_NAME}, or to stop agents and quit."
+            ),
+        )
+    };
+    OsNotification {
+        title,
+        subtitle: String::new(),
+        body,
+        kind: None,
+        target: Target::Board { project: None },
+        thread: None,
+        sound: false,
     }
 }
 
@@ -1694,5 +1732,37 @@ mod tests {
         } else {
             assert_eq!(command.get_program(), in_bundle.as_os_str());
         }
+    }
+
+    /// T-0566 (TRY-02, page 31 item 8): the first-hide note's words per platform and agent count.
+    #[test]
+    fn the_first_hide_note() {
+        let name = PRODUCT_NAME;
+        let click = format!("Click the tent icon to open {name}, or to stop agents and quit.");
+        let mac = first_hide("macos", 2);
+        assert_eq!(
+            mac.title,
+            format!("{name} is still running in the menu bar")
+        );
+        assert_eq!(mac.body, format!("2 agents keep working. {click}"));
+        assert_eq!(mac.target, Target::Board { project: None });
+        assert_eq!(
+            first_hide("macos", 1).body,
+            format!("1 agent keeps working. {click}")
+        );
+        assert_eq!(first_hide("macos", 0).body, click);
+        assert_eq!(
+            first_hide("linux", 0).title,
+            format!("{name} is still running in the tray")
+        );
+        let windows = first_hide("windows", 3);
+        assert_eq!(windows.title, format!("{name} is still running"));
+        assert!(
+            windows
+                .body
+                .starts_with("Its icon is in the notification area."),
+            "{}",
+            windows.body
+        );
     }
 }

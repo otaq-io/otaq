@@ -501,6 +501,7 @@ async fn action_for(
         | R::SessionSendAgain(_)
         | R::SessionFocus(_) => Action::UserOnly("type into sessions"),
         R::AppFocus(_) => Action::UserOnly("report the app's window focus"),
+        R::AppFirstHide => Action::UserOnly("report the app's window hiding"),
     })
 }
 

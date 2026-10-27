@@ -7,9 +7,11 @@
 //! folders dropped on the window (Add project). The WebView2 key switch ([`webview_keys_off`]) and macOS's text
 //! substitutions ([`text_substitutions_off`]) are set up here too, and bringing the window back
 //! ([`show_main_window`]) for a second start of the app ([`crate::one_copy`]), a reopen on macOS and a notification
-//! click.
+//! click. The status icon in the menu bar / tray and its native menu ([`create_status_icon`], d0139) live here, as
+//! do closing the window, which hides it ([`hide_main_window`]), and Otaq's own macOS app menu ([`app_menu`]).
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -288,12 +290,176 @@ fn show_main_window(handle: &tauri::AppHandle) -> tauri::Result<()> {
 
 /// Unminimizes, shows and focuses `window`; on macOS the app is unhidden too (⌘H), so the window isn't left behind
 /// a hidden app.
+/// macOS: back in the Dock and ⌘-Tab first (d0139). A first-hide note kept for the window shows now.
 fn bring_forward(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use tauri::Manager;
     #[cfg(target_os = "macos")]
-    tauri::Manager::app_handle(window).show()?;
+    {
+        let handle = window.app_handle();
+        handle.set_activation_policy(tauri::ActivationPolicy::Regular)?;
+        handle.show()?;
+    }
     window.unminimize()?;
     window.show()?;
-    window.set_focus()
+    window.set_focus()?;
+    window.state::<Arc<App>>().notices.window_shown();
+    Ok(())
+}
+
+/// Closing the main window hides it while the status icon is up (d0139): the process, its service link and the
+/// icon stay. macOS: out of the Dock and ⌘-Tab until it shows again. The service hears of the first hide, for the
+/// first-hide note (TRY-02).
+fn hide_main_window(window: &tauri::Window) {
+    use tauri::Manager;
+    if let Err(e) = window.hide() {
+        eprintln!("couldn't hide the window: {e}");
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    if let Err(e) = window
+        .app_handle()
+        .set_activation_policy(tauri::ActivationPolicy::Accessory)
+    {
+        eprintln!(
+            "couldn't take {} out of the Dock: {e}",
+            otaq_core::naming::PRODUCT_NAME
+        );
+    }
+    let app = window.state::<Arc<App>>().inner().clone();
+    tauri::async_runtime::spawn(async move { crate::api::window_hidden(&app).await });
+}
+
+// --- The status icon (T-0566) -----------------------------------------------------------------------------------
+
+/// The status icon's id.
+const STATUS_ICON: &str = "status";
+
+/// Whether the status icon is up. Without it (Linux with no tray: T-0570) closing the window quits, as before.
+#[derive(Default)]
+struct StatusIconUp(AtomicBool);
+
+/// Puts the icon in the menu bar / tray with its menu (plain until the service says otherwise). The image is the app
+/// icon until page 31's art lands (T-0568).
+fn create_status_icon(handle: &tauri::AppHandle) -> tauri::Result<()> {
+    use otaq_view::view_models::status_icon::{IconAction, IconLook, StatusIconView};
+    let view = StatusIconView::of(IconLook::Plain);
+    tauri::tray::TrayIconBuilder::with_id(STATUS_ICON)
+        .icon(tauri::image::Image::from_bytes(include_bytes!(
+            "../icons/32x32.png"
+        ))?)
+        .tooltip(&view.name)
+        .menu(&status_menu(handle, &view)?)
+        .show_menu_on_left_click(true)
+        .on_menu_event(
+            |handle, event| match IconAction::from_id(event.id().as_ref()) {
+                Some(IconAction::OpenOtaq) => {
+                    if let Err(e) = show_main_window(handle) {
+                        eprintln!("couldn't bring the window back: {e}");
+                    }
+                }
+                Some(IconAction::Quit) => handle.exit(0),
+                None => {}
+            },
+        )
+        .build(handle)?;
+    Ok(())
+}
+
+/// The icon's native menu for `view`.
+fn status_menu(
+    handle: &tauri::AppHandle,
+    view: &otaq_view::view_models::status_icon::StatusIconView,
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use otaq_view::view_models::status_icon::MenuRow;
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    let menu = Menu::new(handle)?;
+    for row in &view.menu {
+        match row {
+            MenuRow::Line(text) => {
+                menu.append(&MenuItem::new(handle, text, false, None::<&str>)?)?
+            }
+            MenuRow::Action { action, label } => menu.append(&MenuItem::with_id(
+                handle,
+                action.id(),
+                label,
+                true,
+                None::<&str>,
+            )?)?,
+            MenuRow::Separator => menu.append(&PredefinedMenuItem::separator(handle)?)?,
+        }
+    }
+    Ok(menu)
+}
+
+/// Shows `view` on the icon: its menu and its name. Call on the main thread.
+fn show_status_icon(
+    handle: &tauri::AppHandle,
+    view: &otaq_view::view_models::status_icon::StatusIconView,
+) -> tauri::Result<()> {
+    let Some(icon) = handle.tray_by_id(STATUS_ICON) else {
+        return Ok(());
+    };
+    icon.set_menu(Some(status_menu(handle, view)?))?;
+    icon.set_tooltip(Some(&view.name))
+}
+
+/// Keeps the icon following the link ([`crate::status_icon::follow`]) for as long as the app runs.
+fn follow_status_icon(handle: &tauri::AppHandle, app: Arc<App>, runtime: &tokio::runtime::Handle) {
+    let handle = handle.clone();
+    runtime.spawn(async move {
+        crate::status_icon::follow(&app, |view| {
+            let (on_main, view) = (handle.clone(), view.clone());
+            let _ = handle.run_on_main_thread(move || {
+                if let Err(e) = show_status_icon(&on_main, &view) {
+                    eprintln!("couldn't update the status icon: {e}");
+                }
+            });
+        })
+        .await;
+    });
+}
+
+// --- Otaq's own macOS app menu (T-0566) --------------------------------------------------------------------------
+
+/// The app menu ([`crate::app_menu::macos`]) as native items: macOS's own items, and Otaq's Quit (⌘Q).
+#[cfg(target_os = "macos")]
+fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use crate::app_menu::{Item, QUIT_ACCELERATOR, QUIT_ID};
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem as P, Submenu};
+    let menu = Menu::new(handle)?;
+    for (title, items) in crate::app_menu::macos() {
+        let submenu = Submenu::new(handle, title, true)?;
+        for item in items {
+            let h = handle;
+            match item {
+                Item::Quit => submenu.append(&MenuItem::with_id(
+                    h,
+                    QUIT_ID,
+                    format!("Quit {}", otaq_core::naming::PRODUCT_NAME),
+                    true,
+                    Some(QUIT_ACCELERATOR),
+                )?)?,
+                Item::About => submenu.append(&P::about(h, None, None)?)?,
+                Item::Services => submenu.append(&P::services(h, None)?)?,
+                Item::Hide => submenu.append(&P::hide(h, None)?)?,
+                Item::HideOthers => submenu.append(&P::hide_others(h, None)?)?,
+                Item::ShowAll => submenu.append(&P::show_all(h, None)?)?,
+                Item::Undo => submenu.append(&P::undo(h, None)?)?,
+                Item::Redo => submenu.append(&P::redo(h, None)?)?,
+                Item::Cut => submenu.append(&P::cut(h, None)?)?,
+                Item::Copy => submenu.append(&P::copy(h, None)?)?,
+                Item::Paste => submenu.append(&P::paste(h, None)?)?,
+                Item::SelectAll => submenu.append(&P::select_all(h, None)?)?,
+                Item::Minimize => submenu.append(&P::minimize(h, None)?)?,
+                Item::Zoom => submenu.append(&P::maximize(h, None)?)?,
+                Item::Fullscreen => submenu.append(&P::fullscreen(h, None)?)?,
+                Item::CloseWindow => submenu.append(&P::close_window(h, None)?)?,
+                Item::Separator => submenu.append(&P::separator(h)?)?,
+            }
+        }
+        menu.append(&submenu)?;
+    }
+    Ok(menu)
 }
 
 /// [`show_main_window`] from any thread, then `then` with the app, on the main thread.
@@ -368,10 +534,19 @@ pub fn run(
     let focus_of = app.clone();
     let exiting = app.clone();
     let clicks_of = app.clone();
-    tauri::Builder::default()
+    let icon_of = app.clone();
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu).on_menu_event(|handle, event| {
+        if event.id() == crate::app_menu::QUIT_ID {
+            handle.exit(0);
+        }
+    });
+    builder
         .plugin(tauri_plugin_dialog::init())
         .manage(app)
         .manage(placement)
+        .manage(StatusIconUp::default())
         .invoke_handler(tauri::generate_handler![
             request,
             subscribe_events,
@@ -389,6 +564,17 @@ pub fn run(
             open_window(handle, &handle.state::<Arc<Placement>>())?;
             webview_keys_off(handle)?;
             follow_notification_clicks(handle, &clicks_of);
+            // Linux without a tray library or host: logged, and closing the window quits as before (T-0570).
+            match create_status_icon(handle) {
+                Ok(()) => {
+                    handle
+                        .state::<StatusIconUp>()
+                        .0
+                        .store(true, Ordering::SeqCst);
+                    follow_status_icon(handle, icon_of, &runtime);
+                }
+                Err(e) => eprintln!("couldn't show the status icon: {e}"),
+            }
             if let Some(first_copy) = first_copy {
                 let handle = handle.clone();
                 first_copy.serve(&runtime, move |open| second_start(&handle, open));
@@ -399,7 +585,17 @@ pub fn run(
             tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                 note_placement(window, &on_window)
             }
-            tauri::WindowEvent::CloseRequested { .. } => save_placement(&on_window),
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                use tauri::Manager;
+                save_placement(&on_window);
+                // The close button, ⌘W, Alt+F4 and the page's own close button all come here: they hide.
+                if window.label() == MAIN_WINDOW
+                    && window.state::<StatusIconUp>().0.load(Ordering::SeqCst)
+                {
+                    api.prevent_close();
+                    hide_main_window(window);
+                }
+            }
             // The window in front with the keyboard, or not (d0090: no OS notification while the user looks).
             tauri::WindowEvent::Focused(focused) => {
                 let (app, focused) = (focus_of.clone(), *focused);

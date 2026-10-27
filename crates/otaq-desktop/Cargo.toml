@@ -23,7 +23,9 @@ path = "src/main.rs"
 tauri-build = { version = "2.7.2", features = [] }
 
 [dependencies]
-tauri = { version = "2.12.3", features = [] }
+# `tray-icon`: the status icon in the menu bar / tray (d0139, `src/door.rs`); `image-png`: its image. Tauri's own
+# features (MIT / Apache-2.0).
+tauri = { version = "2.12.3", features = ["tray-icon", "image-png"] }
 serde_json = "1.0.151"
 # The service's types (T-0211 on) and the view models the screens show.
 otaq-core = { path = "../otaq-core" }
