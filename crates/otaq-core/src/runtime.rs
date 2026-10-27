@@ -14,6 +14,8 @@
 //!   `otaq.exe` is never locked and an AppImage's mount doesn't matter. On macOS the service keeps running from
 //!   `Otaq.app` (notifications post only from the bundle, d0090) and makes the copy itself at start. Either way agents
 //!   and terminals get the copy: PATH's first entry, every tool's plugin folder, Claude Code's status line.
+//!   Started through `<data folder>/bin/otaq` (the user's terminal, with the app closed), the copy is made from
+//!   `bin/`, which holds the plugin folder beside its copy of `otaq` ([`crate::shell_path::refresh_bin`]).
 //! - **Cleanup** at service start ([`clean`]), after the service lock is taken: every other runtime folder is deleted,
 //!   except a folder whose `service.pid` names a process that still runs (the service using it) and a temporary
 //!   folder whose writer still runs. Only services of this data folder use its runtime folders, and the lock lets one
