@@ -70,6 +70,8 @@ pub struct Board {
     hand_offs: HandOffs,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
     project_files: project_files::ProjectFilesCache,
+    /// Each ticket's changes for its Files tab and its sheet's count (one read serves the requests that arrive together).
+    ticket_changes_cache: files::TicketChangesCache,
     /// The agent tools' folder trust, recorded when a project is added (PRJ-06); the service sets the registry.
     trust: Trust,
     /// Runs an automatic Delivery when a move put a ticket into one (FLW-15); the service sets it.
@@ -96,6 +98,7 @@ impl Board {
             merge_checks: merge_check::MergeChecks::default(),
             hand_offs: HandOffs::default(),
             project_files: Default::default(),
+            ticket_changes_cache: Default::default(),
             trust: Trust::default(),
             delivery: merge::DeliveryLink::default(),
             data,

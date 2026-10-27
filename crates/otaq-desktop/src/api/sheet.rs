@@ -894,28 +894,50 @@ fn setup_log_path(key: &str) -> Option<std::path::PathBuf> {
 
 /// The Files tab's count (Q421): kept from the last time it was taken unless the sheet just opened on the ticket or its
 /// status moved on since (its agent's turn ended); only then does it ask git (`files.changes`). Never before the ticket
-/// started.
-async fn files_count(app: &App, ticket: &Ticket, opened: bool) -> Option<u32> {
-    let counts = || app.files_counts.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(kept) = counts().kept(ticket, opened) {
+/// started. The sheet doesn't wait for git (a big worktree takes seconds): it shows the last count while the next is
+/// taken in the background, and loads again (`files_counted`) once a different one is in.
+fn files_count(app: &App, ticket: &Ticket, opened: bool) -> Option<u32> {
+    let counts = app.files_counts.clone();
+    let lock = || counts.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(kept) = lock().kept(ticket, opened) {
         return kept;
     }
-    let count = if sheet::counts_files(ticket) {
-        match app
-            .service
-            .send(Request::FilesChanges(KeyParams {
-                key: ticket.key.to_string(),
-            }))
-            .await
-        {
-            Ok(Reply::FilesChanges(changes)) => sheet::files_count(&changes),
-            _ => None,
+    if !sheet::counts_files(ticket) {
+        lock().keep(ticket, None);
+        return None;
+    }
+    let shown = lock().last(ticket);
+    if !lock().start(ticket) {
+        return shown;
+    }
+    let clients = app.service.clients();
+    let events = app.events.clone();
+    let ticket = ticket.clone();
+    tokio::spawn(async move {
+        let client = clients.borrow().clone();
+        let key = ticket.key.to_string();
+        let count = match client {
+            Some(client) => match client
+                .request(Request::FilesChanges(KeyParams { key: key.clone() }))
+                .await
+            {
+                Ok(Reply::FilesChanges(changes)) => sheet::files_count(&changes),
+                _ => None,
+            },
+            None => None,
+        };
+        counts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keep(&ticket, count);
+        if count != shown {
+            events.publish(&crate::events::PageEvent::Service {
+                name: "files_counted".to_owned(),
+                event: serde_json::json!({ "kind": "files_counted", "key": key }),
+            });
         }
-    } else {
-        None
-    };
-    counts().keep(ticket, count);
-    count
+    });
+    shown
 }
 
 pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
@@ -991,7 +1013,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
         .then(|| super::review::send_back_stage(&ticket, &flow, agents.as_ref()))
         .flatten();
     let project_name = project_name(app, ticket.key.project.as_str()).await;
-    let files_count = files_count(app, &ticket, params.opened).await;
+    let files_count = files_count(app, &ticket, params.opened);
     let helpers: Vec<otaq_core::helpers::Helper> = if ticket.started_at.is_some() {
         super::board::helpers(app, ticket.key.project.as_str())
             .await

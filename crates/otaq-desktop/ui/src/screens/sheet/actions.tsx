@@ -32,6 +32,8 @@ export const SHEET_EVENTS = [
   "project_agent_changed",
   // The user's keys in its tooltips (KEY-08).
   "settings_changed",
+  // The Files count, taken in the background (Q421).
+  "files_counted",
 ] as const;
 
 const ignore = () => undefined;

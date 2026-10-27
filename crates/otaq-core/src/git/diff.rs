@@ -192,8 +192,10 @@ impl Git {
         status_args.extend(&rev_args);
         args.push("--numstat");
         args.extend(&rev_args);
-        let statuses = parse_name_status(&self.run(repo, &status_args).await?);
-        let counts = parse_numstat(&self.run(repo, &args).await?);
+        // Both passes side by side: each walks the worktree, a slow walk in a big one.
+        let (statuses, counts) = tokio::join!(self.run(repo, &status_args), self.run(repo, &args));
+        let statuses = parse_name_status(&statuses?);
+        let counts = parse_numstat(&counts?);
         let mut files = Vec::with_capacity(statuses.len());
         for (status, path, old_path, similarity) in statuses {
             let count = counts.get(&path).copied();
@@ -319,6 +321,20 @@ impl Git {
     /// The paths whose files on disk differ from the worktree's `HEAD`: edits not committed yet, staged or not
     /// (`git diff --name-only HEAD`), plus untracked files. Sorted, without duplicates.
     pub async fn uncommitted_paths(&self, worktree: &Path) -> Result<Vec<String>, GitError> {
+        let (tracked, untracked) = tokio::join!(
+            self.uncommitted_tracked(worktree),
+            self.untracked_files(worktree)
+        );
+        let mut paths = tracked?;
+        paths.extend(untracked?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+
+    /// The tracked files whose content on disk differs from the worktree's `HEAD`, staged or not (`git diff
+    /// --name-only HEAD`); untracked files aren't among them.
+    pub async fn uncommitted_tracked(&self, worktree: &Path) -> Result<Vec<String>, GitError> {
         let tracked = self
             .run(
                 worktree,
@@ -333,11 +349,7 @@ impl Git {
                 ],
             )
             .await?;
-        let mut paths = nul_list(&tracked);
-        paths.extend(self.untracked_files(worktree).await?);
-        paths.sort();
-        paths.dedup();
-        Ok(paths)
+        Ok(nul_list(&tracked))
     }
 
     /// The first [`MAX_READ_BYTES`] of `path` at `rev`, and the blob's whole size; `None` if it isn't there.
