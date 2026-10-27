@@ -22,8 +22,13 @@ impl Home {
     }
 
     fn run(&self, args: &[&str]) -> Output {
+        self.run_with(&[], args)
+    }
+
+    fn run_with(&self, env: &[(String, &str)], args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_otaq"))
             .args(args)
+            .envs(env.iter().map(|(k, v)| (k, v)))
             .env(DataDir::env_var(), self.tmp.path())
             // The real service locates Claude Code's config file: never the user's (PRJ-06).
             .env("CLAUDE_CONFIG_DIR", self.tmp.path())
@@ -35,7 +40,11 @@ impl Home {
     }
 
     fn json(&self, args: &[&str]) -> Value {
-        let out = self.run(args);
+        self.json_with(&[], args)
+    }
+
+    fn json_with(&self, env: &[(String, &str)], args: &[&str]) -> Value {
+        let out = self.run_with(env, args);
         assert!(out.status.success(), "{args:?}: {out:?}");
         serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{e}: {out:?}"))
     }
@@ -133,4 +142,66 @@ fn silent_prints_only_the_pid() {
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.trim().parse::<u32>().is_ok(), "{text:?}");
+}
+
+/// The program a running process runs: `/proc/<pid>/exe` on Linux, `ps` elsewhere.
+#[cfg(unix)]
+fn program_of(pid: u64) -> std::path::PathBuf {
+    if cfg!(target_os = "linux") {
+        return std::fs::read_link(format!("/proc/{pid}/exe")).unwrap();
+    }
+    let out = Command::new("ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim())
+}
+
+/// Windows and Linux (T-0574, UPD-02; the debug seam makes any platform one): `daemon start` copies `otaq` and the
+/// plugin into `runtime/<build>/` first, and the service runs from the copy, so the installed program is never in use.
+/// macOS keeps the service in place (`0`, d0090).
+#[cfg(unix)]
+#[test]
+fn the_service_runs_from_the_runtime_copy_where_the_platform_says() {
+    let seam = otaq_core::runtime::service_from_copy_var();
+    let home = Home::new();
+    let data = home.data();
+    let started = home.json_with(&[(seam.clone(), "1")], &["daemon", "start", "--json"]);
+    let pid = started["pid"].as_u64().unwrap();
+    let program = std::fs::canonicalize(program_of(pid)).unwrap();
+    let runtime = std::fs::canonicalize(data.runtime_dir()).unwrap();
+    assert!(program.starts_with(&runtime), "{program:?}");
+    let folder = program.parent().unwrap();
+    assert!(
+        folder
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(otaq_core::protocol::build_id())
+    );
+    assert!(
+        folder
+            .join("plugin/claude/.claude-plugin/plugin.json")
+            .is_file()
+    );
+    assert_eq!(
+        std::fs::read_to_string(folder.join("service.pid")).unwrap(),
+        pid.to_string()
+    );
+    // Codex's fixed folder sits beside it.
+    assert!(data.codex_plugin_dir().join(".codex-plugin").is_dir());
+    home.json(&["daemon", "stop", "--json"]);
+    wait_for_exit(pid);
+
+    // Started the macOS way: the installed program runs, and agents still get the copy it made.
+    let started = home.json_with(&[(seam, "0")], &["daemon", "start", "--json"]);
+    let pid = started["pid"].as_u64().unwrap();
+    assert_eq!(
+        std::fs::canonicalize(program_of(pid)).unwrap(),
+        std::fs::canonicalize(env!("CARGO_BIN_EXE_otaq")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(folder.join("service.pid")).unwrap(),
+        pid.to_string()
+    );
 }

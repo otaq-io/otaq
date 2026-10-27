@@ -31,6 +31,7 @@ pub mod project_agents;
 pub mod protocol;
 pub mod recovery;
 pub mod review;
+pub mod runtime;
 pub mod scheduler;
 pub mod service;
 pub mod session;

@@ -38,7 +38,8 @@ impl CommandLauncher {
         self
     }
 
-    /// The `otaq` command installed next to the running program (as `cargo build` and installs lay it out).
+    /// The `otaq` command installed next to the running program (as `cargo build` and installs lay it out). Its
+    /// `daemon start` makes the runtime copy first on Windows and Linux and starts the service from it (UPD-02).
     pub fn next_to_current_exe() -> io::Result<Self> {
         let exe = std::env::current_exe()?;
         let dir = exe

@@ -121,6 +121,11 @@ pub struct ServiceConfig {
     /// stand-in agents run as them, and a failed launch rechecks nothing; the daemon turns it on. Limits and model
     /// lists are checked either way.
     pub check_tool_states: bool,
+    /// Whether agents and terminals get this build's runtime copy of `otaq` and the plugin (UPD-02, d0140,
+    /// [`crate::runtime`]), made at start if it isn't there, with the other builds' folders cleaned. Off by default
+    /// (and in tests, unless a test turns it on), so [`Self::launch`] and [`Self::terminals`] are used as they are;
+    /// the daemon turns it on.
+    pub runtime_copy: bool,
 }
 
 impl ServiceConfig {
@@ -148,12 +153,15 @@ impl ServiceConfig {
             read_model_lists: false,
             tool_home: None,
             check_tool_states: false,
+            runtime_copy: false,
         }
     }
 
     /// The configuration of `otaq daemon run`: launches the real agent tools with the plugin found next to
-    /// the binary (or the repository's in a dev build).
-    pub fn for_daemon(data: DataDir) -> Self {
+    /// the binary (or the repository's in a dev build), through this build's runtime copy. `installed` is the
+    /// installed app's folder when the service runs from the runtime copy (Windows and Linux), where a notification's
+    /// click finds the app; else the app is looked for next to the binary.
+    pub fn for_daemon(data: DataDir, installed: Option<std::path::PathBuf>) -> Self {
         let launch = crate::agent_tools::LaunchContext::from_process();
         if launch.is_none() {
             tracing::warn!("the Claude Code plugin folder wasn't found; agents can't start");
@@ -163,15 +171,16 @@ impl ServiceConfig {
         Self {
             launch,
             notifier: crate::attention::notify::platform_notifier(),
-            app: std::env::current_exe()
-                .ok()
-                .and_then(|exe| Some(exe.parent()?.join(crate::naming::app_binary_name())))
+            app: installed
+                .or_else(|| Some(std::env::current_exe().ok()?.parent()?.to_path_buf()))
+                .map(|dir| dir.join(crate::naming::app_binary_name()))
                 .filter(|app| app.is_file()),
             claude,
             tools: CheckEnv::from_process(),
             read_model_lists: true,
             tool_home: std::env::home_dir(),
             check_tool_states: true,
+            runtime_copy: true,
             ..Self::new(data)
         }
     }
@@ -482,6 +491,43 @@ impl Shared {
     }
 }
 
+/// Points agents and terminals at this build's runtime copy (UPD-02, d0140) when [`ServiceConfig::runtime_copy`]
+/// is on: their PATH's first entry, the plugin folder every tool gets and Claude Code's status line. The fixed
+/// plugin folder (Codex's) is refreshed whenever the service has a plugin folder (gap review R4), so its marketplace path
+/// never changes. Without a copy (it couldn't be made, logged) the installed folders are used.
+async fn use_runtime_copy(mut config: ServiceConfig) -> ServiceConfig {
+    let Some(launch) = config.launch.clone() else {
+        return config;
+    };
+    let (data, build, copy) = (
+        config.data.clone(),
+        config.build_id.clone(),
+        config.runtime_copy,
+    );
+    let prepared = tokio::task::spawn_blocking(move || {
+        let folder = copy
+            .then(|| crate::runtime::prepare(&data, &build, &launch.bin_dir, &launch.plugin_dir))
+            .flatten();
+        let plugin = folder
+            .as_ref()
+            .map_or(launch.plugin_dir, crate::runtime::RuntimeFolder::plugin_dir);
+        crate::agent_tools::refresh_fixed_plugins(&data, &plugin);
+        folder
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some(folder) = prepared {
+        tracing::info!(folder = %folder.dir.display(), "agents and terminals use the runtime copy");
+        if let Some(launch) = config.launch.as_mut() {
+            launch.plugin_dir = folder.plugin_dir();
+            launch.bin_dir = folder.dir.clone();
+        }
+        config.terminals.bin_dir = Some(folder.dir);
+    }
+    config
+}
+
 /// Sets the default model for new agents to the first connected tool's when none is set (AGM-02), in the
 /// background, when onboarding adds a project (every check of the tools does the same, [`ConnectedTools`]).
 fn spawn_default_model(connected: &ConnectedTools, store: &Store) {
@@ -507,14 +553,16 @@ impl Stopper {
 impl Service {
     /// Takes the lock, replaces a stale socket, opens the store and starts listening.
     pub async fn bind(config: ServiceConfig) -> Result<Self, ServiceError> {
-        let data = &config.data;
-        DataDir::ensure_dir(data.root()).map_err(ServiceError::Io)?;
+        DataDir::ensure_dir(config.data.root()).map_err(ServiceError::Io)?;
         // The socket's folder: user-only even if it existed with looser permissions.
-        access::restrict(data.root(), 0o700).map_err(ServiceError::Io)?;
-        let lock = ServiceLock::acquire(&data.service_lock_path()).map_err(|e| match e {
+        access::restrict(config.data.root(), 0o700).map_err(ServiceError::Io)?;
+        let lock = ServiceLock::acquire(&config.data.service_lock_path()).map_err(|e| match e {
             LockError::Held { pid } => ServiceError::AlreadyRunning { pid },
             LockError::Io(e) => ServiceError::Io(e),
         })?;
+        // After the lock: no other service of this data folder runs while the runtime folders are cleaned.
+        let config = use_runtime_copy(config).await;
+        let data = &config.data;
 
         let socket = data.socket_path();
 

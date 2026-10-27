@@ -119,6 +119,7 @@ mod reopen;
 mod resume;
 mod resume_carry_on;
 mod run;
+mod runtime_copy;
 mod scheduler;
 mod schema_watch;
 mod send_back;
