@@ -41,7 +41,10 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "installerHooks": "bundle/windows/hooks.nsh"
+        "installerHooks": "bundle/windows/hooks.nsh",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "bundle/windows/header.bmp",
+        "sidebarImage": "bundle/windows/sidebar.bmp"
       }
     },
     "linux": {
