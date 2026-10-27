@@ -49,6 +49,10 @@ pub struct NeedsYouList {
     pub project_agents: Vec<crate::project_agents::AgentNeedsYou>,
     /// Tickets' and Project agents' items together.
     pub counts: NeedsYouCounts,
+    /// The tickets an agent works on now, across all projects (the status icon's Running list, d0139). Not needs-you
+    /// items: they don't count, and a change of them alone sends no `needs_you_changed` (card status changes do).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub running: Vec<crate::board::needs_you::RunningItem>,
 }
 
 /// The needs-you count in total and per project (ATT-10). Every project is listed, with 0 when nothing waits.
@@ -271,7 +275,7 @@ impl NeedsYouQueue {
     /// Every needs-you item with the counts (`needs_you.list`).
     pub async fn list(&self) -> Result<NeedsYouList, BoardError> {
         let board = &self.inner.board;
-        let items = board.needs_you_items(now_ms()).await?;
+        let (items, running) = board.needs_you_and_running(now_ms()).await?;
         let projects: Vec<String> = board.projects().await?.into_iter().map(|p| p.key).collect();
         let agents = self
             .inner
@@ -289,6 +293,7 @@ impl NeedsYouQueue {
             counts,
             items,
             project_agents,
+            running,
         })
     }
 

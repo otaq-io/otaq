@@ -420,9 +420,74 @@ fn lower_first(text: &str) -> String {
         .unwrap_or_default()
 }
 
+/// A ticket an agent works on now (d0139 G4: the agent in charge, its helpers and checks, validators included), for
+/// the status icon's Running list: "SHOP-18 · Dev · working", "WEB-9 · Validate · checking".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunningItem {
+    /// The project's key and name ("shop-web").
+    pub project: String,
+    pub project_name: String,
+    pub id: String,
+    pub key: TicketKey,
+    pub title: String,
+    pub status: Status,
+    /// The name of the stage it is in ("Dev", "Validate"); `None` for a stage the flow doesn't have.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+}
+
+/// Whether an agent works on a ticket in `status`: an Agent stage's agent at work (in the background too, or fixing
+/// a Delivery's conflict) or a check's checker.
+pub fn agent_at_work(status: Status) -> bool {
+    matches!(
+        status,
+        Status::Working
+            | Status::WorkingInBackground
+            | Status::MergeConflictFixing
+            | Status::Checking
+    )
+}
+
+/// The tickets an agent works on now, every project's, in project order and then key order.
+pub fn running_items(projects: &[ProjectTickets<'_>]) -> Vec<RunningItem> {
+    projects
+        .iter()
+        .flat_map(|project| {
+            let mut tickets: Vec<&Ticket> = project
+                .tickets
+                .iter()
+                .filter(|t| agent_at_work(t.status))
+                .collect();
+            tickets.sort_by_key(|t| t.key.number);
+            tickets.into_iter().map(move |t| RunningItem {
+                project: project.key.to_owned(),
+                project_name: project.name.to_owned(),
+                id: t.id.clone(),
+                key: t.key.clone(),
+                title: t.title.clone(),
+                status: t.status,
+                stage: t
+                    .place
+                    .stage()
+                    .and_then(|id| project.flow.stage(id))
+                    .map(|s| s.name.clone()),
+            })
+        })
+        .collect()
+}
+
 impl Board {
     /// The needs-you items of every project, in needs-you order.
     pub async fn needs_you_items(&self, now: i64) -> Result<Vec<NeedsYouItem>, BoardError> {
+        Ok(self.needs_you_and_running(now).await?.0)
+    }
+
+    /// The needs-you items of every project, in needs-you order, and the tickets an agent works on now
+    /// ([`running_items`]), from one read of every project.
+    pub async fn needs_you_and_running(
+        &self,
+        now: i64,
+    ) -> Result<(Vec<NeedsYouItem>, Vec<RunningItem>), BoardError> {
         let projects = self.projects().await?;
         let mut loaded = Vec::with_capacity(projects.len());
         let mut flows = Vec::with_capacity(projects.len());
@@ -492,7 +557,7 @@ impl Board {
             }
         }
         items.sort_by(needs_you_order);
-        Ok(items)
+        Ok((items, running_items(&views)))
     }
 }
 
