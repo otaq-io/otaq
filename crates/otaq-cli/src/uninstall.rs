@@ -50,8 +50,13 @@ fn refused(message: impl Into<String>) -> ErrorBody {
     ErrorBody::new(ErrorKind::Refused, message)
 }
 
-/// Why the command can't run here: `OTAQ_HOME` unset in a development build or under cargo or a test runner.
-fn guard(env: &dyn Fn(&str) -> Option<std::ffi::OsString>, debug_build: bool) -> Option<String> {
+/// Why `otaq <subcommand>` can't run here: `OTAQ_HOME` unset in a development build or under cargo or a test runner.
+/// Also guards `restore-database`, which moves the database.
+pub(crate) fn guard(
+    subcommand: &str,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    debug_build: bool,
+) -> Option<String> {
     let set = |name: &str| env(name).is_some_and(|v| !v.is_empty());
     if set(&DataDir::env_var()) {
         return None;
@@ -59,8 +64,8 @@ fn guard(env: &dyn Fn(&str) -> Option<std::ffi::OsString>, debug_build: bool) ->
     let under_cargo = set("CARGO_MANIFEST_DIR") || set("NEXTEST");
     (debug_build || under_cargo).then(|| {
         format!(
-            "{} uninstall needs {} set when run from a development build or a test; set it to the data folder \
-             to remove",
+            "{} {subcommand} needs {} set when run from a development build or a test; set it to the data \
+             folder to use",
             naming::COMMAND_NAME,
             DataDir::env_var()
         )
@@ -68,7 +73,11 @@ fn guard(env: &dyn Fn(&str) -> Option<std::ffi::OsString>, debug_build: bool) ->
 }
 
 fn uninstall(keep_data: bool, global: &GlobalArgs) -> Result<Ended, ErrorBody> {
-    if let Some(why) = guard(&|name| std::env::var_os(name), cfg!(debug_assertions)) {
+    if let Some(why) = guard(
+        "uninstall",
+        &|name| std::env::var_os(name),
+        cfg!(debug_assertions),
+    ) {
         return Err(refused(why));
     }
     // Refusals that need nothing: no service is started for them.
@@ -136,7 +145,7 @@ fn uninstall(keep_data: bool, global: &GlobalArgs) -> Result<Ended, ErrorBody> {
 }
 
 /// Asks a yes/no question on the terminal; only `y` or `yes` (any case) is yes.
-fn ask(question: &str) -> Result<bool, ErrorBody> {
+pub(crate) fn ask(question: &str) -> Result<bool, ErrorBody> {
     print!("{question} [y/N] ");
     std::io::stdout()
         .flush()
@@ -454,16 +463,23 @@ mod tests {
     #[test]
     fn the_guard_needs_the_data_folder_under_cargo_and_in_debug_builds() {
         let home = DataDir::env_var();
-        assert!(guard(&env(&[]), true).is_some());
-        assert!(guard(&env(&[("NEXTEST", "1")]), false).is_some());
-        assert!(guard(&env(&[("CARGO_MANIFEST_DIR", "/x")]), false).is_some());
+        assert!(guard("uninstall", &env(&[]), true).is_some());
+        assert!(guard("uninstall", &env(&[("NEXTEST", "1")]), false).is_some());
+        assert!(guard("uninstall", &env(&[("CARGO_MANIFEST_DIR", "/x")]), false).is_some());
         assert!(
-            guard(&env(&[(&home, "")]), true).is_some(),
+            guard("uninstall", &env(&[(&home, "")]), true).is_some(),
             "empty is unset"
         );
-        assert!(guard(&env(&[(&home, "/tmp/m47"), ("NEXTEST", "1")]), true).is_none());
+        assert!(
+            guard(
+                "uninstall",
+                &env(&[(&home, "/tmp/m47"), ("NEXTEST", "1")]),
+                true
+            )
+            .is_none()
+        );
         // The installed app: a release build, outside cargo.
-        assert!(guard(&env(&[]), false).is_none());
+        assert!(guard("uninstall", &env(&[]), false).is_none());
     }
 
     #[test]

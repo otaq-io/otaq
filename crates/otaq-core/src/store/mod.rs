@@ -6,8 +6,10 @@
 pub mod agents;
 pub mod projects;
 pub mod recents;
+pub mod restore;
 pub mod settings;
 pub mod tickets;
+pub mod versions;
 
 use std::fmt;
 use std::path::Path;
@@ -19,8 +21,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use crate::data_dir::DataDir;
+pub use versions::NewerDatabase;
 
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+pub(crate) static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 /// An open database with every migration applied.
 #[derive(Debug, Clone)]
@@ -36,19 +39,42 @@ impl Store {
     }
 
     /// Opens (or creates) the database at `path` and runs any pending migrations. Opening an up-to-date
-    /// database changes nothing.
+    /// database changes nothing. Before migrations change a database that already has some applied, it is copied
+    /// to `otaq.db.before-<this version>` (UPD-08); a database from a newer build is refused with
+    /// [`StoreError::NewerDatabase`], unchanged.
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
-        let options = SqliteConnectOptions::from_str("sqlite:")?
-            .filename(path)
-            .create_if_missing(true)
-            .foreign_keys(true)
-            .journal_mode(SqliteJournalMode::Wal);
-        let pool = SqlitePoolOptions::new().connect_with(options).await?;
-        MIGRATOR.run(&pool).await?;
+        let pool = Self::connect(path, true).await?;
+        migrate(&pool, path, &MIGRATOR, versions::RUNNING_VERSION).await?;
         let store = Self { pool };
         // The first start: the shipped agents applied, once (AGM-02).
         crate::agents::shipped::apply_on_first_start(&store).await?;
         Ok(store)
+    }
+
+    /// Whether the database at `path` was changed by a newer build, without changing anything. `None` for a
+    /// database this build can open, or none at all.
+    pub async fn newer_database(path: &Path) -> Result<Option<NewerDatabase>, StoreError> {
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let pool = Self::connect(path, false).await?;
+        let layout = versions::Layout::read(&pool, &MIGRATOR).await?;
+        let newer = if layout.is_newer() {
+            Some(versions::newer_reason(&pool, path).await)
+        } else {
+            None
+        };
+        pool.close().await;
+        Ok(newer)
+    }
+
+    async fn connect(path: &Path, create: bool) -> Result<SqlitePool, StoreError> {
+        let options = SqliteConnectOptions::from_str("sqlite:")?
+            .filename(path)
+            .create_if_missing(create)
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal);
+        Ok(SqlitePoolOptions::new().connect_with(options).await?)
     }
 
     pub fn pool(&self) -> &SqlitePool {
@@ -70,6 +96,30 @@ impl Store {
     }
 }
 
+/// Runs `migrator` on the database at `path` as `version`: refused when a newer build changed it; copied first
+/// when migrations are pending on a database that has some applied; the version recorded after.
+async fn migrate(
+    pool: &SqlitePool,
+    path: &Path,
+    migrator: &Migrator,
+    version: &str,
+) -> Result<(), StoreError> {
+    let layout = versions::Layout::read(pool, migrator).await?;
+    if layout.is_newer() {
+        let newer = versions::newer_reason(pool, path).await;
+        pool.close().await;
+        return Err(StoreError::NewerDatabase(newer));
+    }
+    if !layout.has_pending() {
+        return Ok(());
+    }
+    if !layout.is_fresh() {
+        versions::copy_before(pool, path, version).await?;
+    }
+    migrator.run(pool).await?;
+    versions::record_migrated_by(pool, version).await
+}
+
 /// A new id for any row: a UUIDv7 string, so ids sort roughly by creation time.
 pub fn new_id() -> String {
     uuid::Uuid::now_v7().to_string()
@@ -88,6 +138,8 @@ pub enum StoreError {
     Folder(std::io::Error),
     Database(sqlx::Error),
     Migration(MigrateError),
+    /// A newer build changed the database: this one doesn't open it (UPD-08).
+    NewerDatabase(NewerDatabase),
 }
 
 impl fmt::Display for StoreError {
@@ -96,6 +148,7 @@ impl fmt::Display for StoreError {
             Self::Folder(e) => write!(f, "can't create the data folder: {e}"),
             Self::Database(e) => write!(f, "database error: {e}"),
             Self::Migration(e) => write!(f, "database migration failed: {e}"),
+            Self::NewerDatabase(newer) => write!(f, "{newer}"),
         }
     }
 }
@@ -106,6 +159,7 @@ impl std::error::Error for StoreError {
             Self::Folder(e) => Some(e),
             Self::Database(e) => Some(e),
             Self::Migration(e) => Some(e),
+            Self::NewerDatabase(newer) => Some(newer),
         }
     }
 }

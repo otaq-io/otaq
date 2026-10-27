@@ -56,7 +56,8 @@ pub struct FolderDeleted {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-/// The data folder's entries `--keep-data` keeps (UNI-05): the database files and the comment reports.
+/// The data folder's entries `--keep-data` keeps (UNI-05): the database files, the `otaq.db.before-<version>` copy
+/// (d0140) and the comment reports.
 fn kept_entries(data: &DataDir) -> Vec<PathBuf> {
     let db = data.database_path();
     let with_suffix = |suffix: &str| {
@@ -64,12 +65,18 @@ fn kept_entries(data: &DataDir) -> Vec<PathBuf> {
         name.push(suffix);
         PathBuf::from(name)
     };
-    vec![
+    let mut kept = vec![
         db.clone(),
         with_suffix("-wal"),
         with_suffix("-shm"),
         data.reports_dir(),
-    ]
+    ];
+    kept.extend(
+        crate::store::versions::copies(&db)
+            .into_iter()
+            .map(|copy| copy.path),
+    );
+    kept
 }
 
 /// The size of what `--keep-data` keeps.
@@ -84,7 +91,8 @@ pub fn kept_size(data: &DataDir) -> u64 {
         .sum()
 }
 
-/// Deletes the data folder (UNI-05), or with `keep_data` everything in it but the database files and `reports/`.
+/// Deletes the data folder (UNI-05), or with `keep_data` everything in it but the database files, its `before-`
+/// copy and `reports/`.
 /// Run by the CLI once the service has exited: it takes the service's lock itself (waiting up to `wait` for the
 /// stopping service to let go of it) and holds it while it deletes, so no service runs or starts meanwhile.
 /// Refused, with nothing deleted, for a folder that doesn't hold Otaq's database, for the home folder and for a

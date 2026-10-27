@@ -118,6 +118,12 @@ pub enum Command {
         #[arg(long)]
         keep_data: bool,
     },
+    /// Put back the board's copy from before a newer Otaq changed it; asks first
+    RestoreDatabase {
+        /// Don't ask
+        #[arg(long)]
+        yes: bool,
+    },
     /// Open a ticket's live agent session in this terminal (detach with Ctrl+])
     Attach {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
