@@ -505,6 +505,7 @@ async fn action_for(
         R::AppFirstHide | R::AppFirstHidePending | R::AppFirstHideShown => {
             Action::UserOnly("report the app's window hiding")
         }
+        R::UpdatePrefs | R::UpdateSetPrefs(_) => Action::UserOnly("change the update settings"),
     })
 }
 

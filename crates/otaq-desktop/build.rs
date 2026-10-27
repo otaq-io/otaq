@@ -55,9 +55,34 @@ fn main() {
     if std::env::var("OTAQ_RELEASE").is_ok_and(|v| v == "1") {
         println!("cargo:rustc-env=RELEASE_BUILD=1");
     }
+    updates_flags();
     tray_images();
     println!("cargo:rerun-if-changed=build.rs");
     tauri_build::build()
+}
+
+/// Self-updates' test overrides (UPD-04, d0140; `src/updates.rs`, T-0585): a test build may point the check at its own
+/// `latest.json` and key with `OTAQ_UPDATE_ENDPOINT` / `OTAQ_UPDATE_PUBKEY`, passed on as `UPDATES_TEST_ENDPOINT` /
+/// `UPDATES_TEST_PUBKEY`. A release (`OTAQ_RELEASE=1`, read above as `RELEASE_BUILD`) with either set fails here.
+fn updates_flags() {
+    for var in ["OTAQ_UPDATE_ENDPOINT", "OTAQ_UPDATE_PUBKEY"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+    let release = std::env::var("OTAQ_RELEASE").is_ok_and(|v| v == "1");
+    for (from, to) in [
+        ("OTAQ_UPDATE_ENDPOINT", "UPDATES_TEST_ENDPOINT"),
+        ("OTAQ_UPDATE_PUBKEY", "UPDATES_TEST_PUBKEY"),
+    ] {
+        if let Ok(value) = std::env::var(from).map(|v| v.trim().to_owned())
+            && !value.is_empty()
+        {
+            assert!(
+                !release,
+                "{from} is for test builds only; a release build (OTAQ_RELEASE=1) refuses it"
+            );
+            println!("cargo:rustc-env={to}={value}");
+        }
+    }
 }
 
 /// The status icon's images (d0139, page 31; `icons/tray/`, drawn by `scripts/tray-icons.sh`) as a table in

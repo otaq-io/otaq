@@ -4583,6 +4583,19 @@
         }
       }
     },
+    "LastCheck": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "reached": {
+          "ty": "bool",
+          "required": true
+        }
+      }
+    },
     "Level": {
       "kind": "enum",
       "variants": {
@@ -7833,6 +7846,9 @@
         "uninstall_scan": {
           "newtype": "UninstallScan"
         },
+        "update_prefs": {
+          "newtype": "UpdatePrefs"
+        },
         "usage": {
           "newtype": "UsageSummary"
         },
@@ -8537,6 +8553,10 @@
           "newtype": "UninstallRemoveParams"
         },
         "uninstall.scan": {},
+        "updates.prefs": {},
+        "updates.set_prefs": {
+          "newtype": "UpdatePrefsChange"
+        },
         "usage.activity": {},
         "usage.mark_limit": {
           "newtype": "KeyParams"
@@ -11149,6 +11169,40 @@
         },
         "ticket": {
           "ty": "Option<TicketKey>",
+          "omittable": true
+        }
+      }
+    },
+    "UpdatePrefs": {
+      "kind": "struct",
+      "fields": {
+        "auto_check": {
+          "ty": "bool",
+          "required": true
+        },
+        "last_check": {
+          "ty": "Option<LastCheck>",
+          "omittable": true
+        },
+        "skipped": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
+    },
+    "UpdatePrefsChange": {
+      "kind": "struct",
+      "fields": {
+        "auto_check": {
+          "ty": "Option<bool>",
+          "omittable": true
+        },
+        "last_check": {
+          "ty": "Option<LastCheck>",
+          "omittable": true
+        },
+        "skipped": {
+          "ty": "Option<String>",
           "omittable": true
         }
       }

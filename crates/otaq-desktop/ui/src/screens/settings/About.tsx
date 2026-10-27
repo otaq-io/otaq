@@ -1,20 +1,26 @@
 // Settings → About (d0071, d0076; *15 · Settings → Row · About & open-source licenses*, *… · groups & filter*): the
 // Command tent on its app-icon tile, the name and line, the version with Copy version info, Otaq's own license
 // (View license), the Open-source licenses dialog, Theme credits, and the trademark line. Every text comes from
-// `settings.about`, `settings.license` and `settings.licenses` (`about.rs`, `licenses.rs`). Under the version: Use
-// otaq in your own terminal with Add to my shell's PATH (page 32 item 5, `settings.about_path`).
+// `settings.about`, `settings.license` and `settings.licenses` (`about.rs`, `licenses.rs`). Under the version: the
+// update notice, Check for updates automatically and the Updates row (UPD-04, d0140; page 32 items 1–2;
+// `updates.view`, `updates.rs`), then Use otaq in your own terminal with Add to my shell's PATH (page 32 item 5,
+// `settings.about_path`).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { Button, Dialog, IconButton, Kbd, OtaqMark, PLAIN_TEXT } from "../../components";
+import { useStore } from "../../app/store";
+import { Button, Dialog, IconButton, Kbd, OtaqMark, PLAIN_TEXT, Toggle } from "../../components";
 import type { AboutPathRow } from "../../generated/AboutPathRow";
 import type { AboutView } from "../../generated/AboutView";
 import type { LicensesDialog as LicensesView } from "../../generated/LicensesDialog";
 import type { LicensesItem } from "../../generated/LicensesItem";
 import type { OwnLicenseDialog } from "../../generated/OwnLicenseDialog";
+import type { UpdateNotice } from "../../generated/UpdateNotice";
+import type { UpdatesView } from "../../generated/UpdatesView";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { useSettings } from "./context";
 import { fill, filterLicenses, groupCount, groupKey, resultLine, type ShownGroup } from "./licenses";
+import { updatesClick, updatesStore, watchUpdates } from "./updates";
 
 /** How long a Copy button says "Copied". */
 const COPIED_MS = 2000;
@@ -391,6 +397,122 @@ function PathRow() {
   );
 }
 
+function warn(what: string) {
+  return (error: unknown) => {
+    console.warn(`${what} failed:`, error);
+  };
+}
+
+/** The notice at the top of About (page 32 item 2): ready, needs agents restarted, or the `.deb`'s available. */
+export function UpdateNoticeBox({ notice }: { notice: UpdateNotice }) {
+  const tone = notice.kind === "needs_agents_restarted" ? "paused" : "working";
+  return (
+    <div className="about-update-notice" data-tone={tone}>
+      <div className="about-update-title">
+        <span className="about-update-dot" />
+        <strong>{notice.title}</strong>
+      </div>
+      <p>{notice.body}</p>
+      <div className="about-update-actions">
+        <button
+          type="button"
+          className="settings-link about-update-link"
+          onClick={() => {
+            updatesClick({ kind: "open", what: "whats_new" }).catch(warn("What's new"));
+          }}
+        >
+          {notice.whats_new_label}
+        </button>
+        <span className="about-hint-gap" />
+        <Button
+          variant="ghost"
+          label={notice.skip_label}
+          onClick={() => {
+            updatesClick({ kind: "skip" }).catch(warn("Skip this version"));
+          }}
+        />
+        <Button
+          variant={notice.primary ? "primary" : "secondary"}
+          icon={notice.action === "download" ? "download" : "rotate-cw"}
+          label={notice.action_label}
+          disabled={!notice.enabled}
+          onClick={() => {
+            if (notice.action === "download") {
+              updatesClick({ kind: "open", what: "download" }).catch(warn("Download"));
+            }
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Check for updates automatically, and the Updates row with Check for updates and the last result (page 32 item 1). */
+export function UpdateRows({ view }: { view: UpdatesView }) {
+  const { auto, row } = view;
+  const result = row.result;
+  return (
+    <>
+      {auto !== null && (
+        <div className="settings-row settings-row-switch about-row">
+          <div className="settings-row-text">
+            <span className="settings-row-label">{auto.label}</span>
+            <span className="settings-row-description">{auto.description}</span>
+          </div>
+          <div className="settings-row-control">
+            <Toggle
+              on={auto.on}
+              label={auto.label}
+              showLabel={false}
+              onChange={(on) => {
+                updatesClick({ kind: "auto", on }).catch(warn("Check for updates automatically"));
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <div className="settings-row about-row">
+        <div className="settings-row-text">
+          <span className="settings-row-label">{row.label}</span>
+          {row.plain !== null && <span className="settings-row-description">{row.plain}</span>}
+          {result !== null && (
+            <div className="about-update-result" data-tone={result.tone}>
+              <span className="about-update-line">
+                <Icon name={result.icon} size={14} />
+                <span>{result.text}</span>
+              </span>
+              {result.progress !== null && (
+                <span className="about-update-progress">
+                  <span className="about-update-bar">
+                    {result.progress.permille !== null && (
+                      <span style={{ width: `${(result.progress.permille / 10).toFixed(1)}%` }} />
+                    )}
+                  </span>
+                  <span className="about-update-amount">{result.progress.text}</span>
+                </span>
+              )}
+              {result.detail !== null && <span className="about-update-detail">{result.detail}</span>}
+            </div>
+          )}
+        </div>
+        {row.check !== null && (
+          <div className="settings-row-control">
+            <Button
+              variant="secondary"
+              icon="refresh-cw"
+              label={row.check.label}
+              disabled={!row.check.enabled}
+              onClick={() => {
+                updatesClick({ kind: "check" }).catch(warn("Check for updates"));
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 type Open = { kind: "license"; view: OwnLicenseDialog } | { kind: "licenses"; view: LicensesView } | null;
 
 /** The About section, registered as the global page's last section. */
@@ -398,11 +520,13 @@ export function AboutSection() {
   const { act } = useSettings();
   const [view, setView] = useState<AboutView | null>(null);
   const [dialog, setDialog] = useState<Open>(null);
+  const updates = useStore(updatesStore);
   useEffect(() => {
     void request("settings.about").then((v) => {
       setView(v as AboutView);
     });
   }, []);
+  useEffect(() => watchUpdates(updatesStore.set), []);
   if (!view) return null;
 
   const row = (label: string, description: string, control: ReactNode) => (
@@ -438,7 +562,8 @@ export function AboutSection() {
           <CopyButton label={view.copy_label} copied={view.copied_label} text={view.version_info} />
         </div>
       </div>
-      {/* The Updates rows (0140, page 32 items 1–2) go here, above Use otaq in your own terminal. */}
+      {updates?.notice && <UpdateNoticeBox notice={updates.notice} />}
+      {updates && <UpdateRows view={updates} />}
       <PathRow />
       {row(
         view.copyright,

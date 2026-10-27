@@ -809,6 +809,119 @@
   font: 400 12px var(--font-mono);
 }
 
+/* Self-updates (page 32 items 1–2): the notice at the top of About, and the Updates row's result. */
+.about-update-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--st-working-bg);
+}
+
+.about-update-notice[data-tone="paused"] {
+  background: var(--st-paused-bg);
+}
+
+.about-update-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.about-update-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--st-working);
+}
+
+.about-update-notice[data-tone="paused"] .about-update-dot {
+  background: var(--st-paused);
+}
+
+.about-update-notice > p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.about-update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-update-link {
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+.about-update-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 20px;
+}
+
+.about-update-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: -21px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.about-update-result[data-tone="warning"] .about-update-line {
+  color: var(--st-paused);
+}
+
+.about-update-result[data-tone="error"] .about-update-line {
+  color: var(--st-error);
+}
+
+.about-update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-update-bar {
+  display: block;
+  overflow: hidden;
+  width: 320px;
+  max-width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-column);
+}
+
+.about-update-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.about-update-amount {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.about-update-detail {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .about-trademark {
   margin: 0;
   padding-top: 28px;

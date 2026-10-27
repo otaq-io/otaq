@@ -176,6 +176,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AppFirstHide
         | Request::AppFirstHidePending
         | Request::AppFirstHideShown
+        | Request::UpdatePrefs
+        | Request::UpdateSetPrefs(_)
         | Request::ProjectList
         | Request::ProjectProbe(_)
         | Request::ProjectAdd(_)

@@ -102,6 +102,11 @@ impl DataDir {
             .join(key))
     }
 
+    /// Where the app keeps a downloaded update until it's installed (UPD-04, d0140): `updates/<version>/`.
+    pub fn updates_dir(&self) -> PathBuf {
+        self.root.join("updates")
+    }
+
     /// The folder holding every comment's report (CMT-03, d0109), grouped by repository and ticket.
     pub fn reports_dir(&self) -> PathBuf {
         self.root.join("reports")

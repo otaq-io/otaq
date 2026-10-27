@@ -15,6 +15,12 @@
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/otaq-io/otaq/releases/latest/download/latest.json"],
+      "pubkey": "PLACEHOLDER — replaced by the maintainer before the first release (T-0583)"
+    }
+  },
   "bundle": {
     "active": false,
     "icon": [

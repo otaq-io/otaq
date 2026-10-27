@@ -54,6 +54,15 @@ pub const FIRST_HIDE_NOTE_SHOWN: &str = "app.first_hide_note_shown";
 /// Kept until a window has shown it (`app.first_hide_shown`), also across restarts of the app.
 pub const FIRST_HIDE_NOTE_PENDING: &str = "app.first_hide_note_pending";
 
+/// Check for updates automatically (UPD-04, d0140): `false` once switched off; absent means on.
+pub const UPDATES_AUTO_CHECK: &str = "updates.auto_check";
+
+/// The last update check (UPD-04): `{"at": <ms>, "reached": true}`, so a restart of the app doesn't check again early.
+pub const UPDATES_LAST_CHECK: &str = "updates.last_check";
+
+/// The version Skip this version hides (UPD-04): `"0.2.0"`, until a newer one.
+pub const UPDATES_SKIPPED: &str = "updates.skipped";
+
 impl Store {
     /// The stored JSON value of a global setting.
     pub async fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {

@@ -667,6 +667,65 @@ fn follow_status_icon(handle: &tauri::AppHandle, app: Arc<App>, runtime: &tokio:
     });
 }
 
+// --- Self-updates (UPD-04, d0140) ----------------------------------------------------------------------------------
+
+/// Tauri's updater plugin as the updater's [`crate::updates::Source`]: `latest.json` from the configured endpoint
+/// (`tauri.conf.json`, or a test build's own), with no query string and no headers beyond the plugin's own.
+struct UpdaterPlugin(tauri::AppHandle);
+
+impl crate::updates::Source for UpdaterPlugin {
+    fn check(
+        &self,
+    ) -> crate::updates::BoxFuture<'_, Result<Option<crate::updates::Found>, String>> {
+        use tauri_plugin_updater::UpdaterExt;
+        Box::pin(async move {
+            let mut builder = self.0.updater_builder();
+            if let Some(endpoint) = crate::updates::test_endpoint() {
+                let url = endpoint.parse().map_err(|e| format!("{e}"))?;
+                builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
+            }
+            let update = builder
+                .build()
+                .map_err(|e| e.to_string())?
+                .check()
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(update.map(|update| crate::updates::Found {
+                version: update.version.clone(),
+                raw_json: update.raw_json.clone(),
+                fetch: Box::new(UpdaterDownload(update)),
+            }))
+        })
+    }
+}
+
+struct UpdaterDownload(tauri_plugin_updater::Update);
+
+impl crate::updates::Fetch for UpdaterDownload {
+    fn fetch(
+        &self,
+        mut progress: Box<dyn FnMut(u64, Option<u64>) + Send>,
+    ) -> crate::updates::BoxFuture<'_, Result<Vec<u8>, crate::updates::FetchFailed>> {
+        use crate::updates::FetchFailed;
+        use tauri_plugin_updater::Error;
+        Box::pin(async move {
+            let mut done = 0u64;
+            let on_chunk = move |len: usize, total: Option<u64>| {
+                done += len as u64;
+                progress(done, total);
+            };
+            self.0.download(on_chunk, || {}).await.map_err(|e| match e {
+                // The bytes came, and their signature isn't the built-in key's.
+                Error::Minisign(_)
+                | Error::Base64(_)
+                | Error::SignatureUtf8(_)
+                | Error::SignedVersionMismatch { .. } => FetchFailed::SignatureRefused,
+                _ => FetchFailed::Stopped,
+            })
+        })
+    }
+}
+
 // --- Otaq's own macOS app menu (T-0566) --------------------------------------------------------------------------
 
 /// The app menu ([`crate::app_menu::macos`]) as native items: macOS's own items, and Otaq's Quit (⌘Q).
@@ -898,8 +957,13 @@ pub fn run(
             quit_asked(handle);
         }
     });
+    let updater = tauri_plugin_updater::Builder::new()
+        .pubkey(crate::updates::test_pubkey().unwrap_or(crate::updates::PUBKEY))
+        .build();
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(updater)
+        .plugin(tauri_plugin_process::init())
         .manage(app)
         .manage(placement)
         .manage(StatusIconUp::default())
@@ -928,6 +992,7 @@ pub fn run(
                 return Ok(());
             }
             follow_notification_clicks(handle, &clicks_of);
+            crate::api::start_updates(&clicks_of, Arc::new(UpdaterPlugin(handle.clone())), &runtime);
             // Linux without a tray library or host: logged, and closing the window quits as before (T-0570).
             match create_status_icon(handle) {
                 Ok(()) => {
@@ -1171,5 +1236,29 @@ mod tests {
         {
             assert!(same(before, after), "{key} changed in the global domain");
         }
+    }
+}
+
+#[cfg(test)]
+mod updater_config_tests {
+    use serde_json::{Value, json};
+
+    use crate::updates;
+
+    /// The updater plugin's configuration: the one endpoint, no `{{…}}` variables or query (nothing about the user in
+    /// the request), and the marked placeholder key the release workflow refuses (T-0583).
+    #[test]
+    fn the_shipped_config_asks_one_fixed_address_with_the_placeholder_key() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let updater = &conf["plugins"]["updater"];
+        let url = otaq_core::naming::LATEST_JSON_URL;
+        assert_eq!(updater["endpoints"], json!([url]));
+        assert!(!url.contains('{') && !url.contains('?'));
+        assert_eq!(updater["pubkey"], updates::PUBKEY);
+        assert!(updates::PUBKEY.starts_with("PLACEHOLDER"));
+        // Only these two keys: no headers, no insecure transport, no downgrades.
+        assert_eq!(updater.as_object().unwrap().len(), 2);
+        // Tests are never release builds.
+        assert!(!updates::is_release());
     }
 }

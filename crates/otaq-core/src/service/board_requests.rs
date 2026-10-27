@@ -325,6 +325,17 @@ pub(super) async fn handle(
             shared.notifications.first_hide_shown().await?;
             Ok(Reply::Ok)
         }),
+        // The app's update preferences (UPD-04, d0140).
+        Request::UpdatePrefs => boxed(move || async move {
+            Ok(Reply::UpdatePrefs(
+                crate::updates::prefs(shared.board.store()).await?,
+            ))
+        }),
+        Request::UpdateSetPrefs(change) => boxed(move || async move {
+            Ok(Reply::UpdatePrefs(
+                crate::updates::change(shared.board.store(), &change).await?,
+            ))
+        }),
         // Pause and Resume (PAU-01, PAU-02, PAU-06, PAU-08; d0112).
         Request::AgentsPause(scope) => boxed(move || async move {
             let counts = shared.pause.pause(&scope).await?;
