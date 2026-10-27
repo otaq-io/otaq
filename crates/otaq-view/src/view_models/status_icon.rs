@@ -124,7 +124,10 @@ impl IconLink {
     /// The link is now `state`.
     pub fn on_link(&mut self, state: &LinkState, now: Instant) {
         match state {
-            LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_) => {
+            LinkState::Reconnecting { .. }
+            | LinkState::Stopped
+            | LinkState::Failed(_)
+            | LinkState::NewerDatabase(_) => {
                 self.down_since.get_or_insert(now);
             }
             // Connecting is the app's own start: nothing is known yet, so the icon stays plain.

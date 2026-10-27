@@ -658,3 +658,138 @@
   gap: 2px;
   min-width: 0;
 }
+
+/*
+ * *32 → Item 7 · A board from a newer Otaq*: in place of the board, centred: a 56 px round icon (paused tint, or
+ * working while it restores), the 18 px title, the 520 px body, the buttons (Download · Try again · Restore, 10 px
+ * apart), and the small "or in a terminal:" line; while it restores, a 360 px box of the three steps (12/16, 10 px
+ * corners). The confirmation's note sits in a column-coloured box (10/12, 8 px corners).
+ */
+.newer-db {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.newer-db-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 99px;
+}
+
+.newer-db-icon[data-tone="paused"] {
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+}
+
+.newer-db-icon[data-tone="working"] {
+  background: var(--st-working-bg);
+  color: var(--st-working);
+}
+
+.newer-db-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.newer-db-body {
+  width: 520px;
+  max-width: 100%;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.newer-db-failure {
+  width: 520px;
+  max-width: 100%;
+  margin: 0;
+  color: var(--st-error);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.newer-db-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.newer-db-terminal {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.newer-db-terminal code {
+  color: var(--text-secondary);
+  font: var(--text-code);
+  user-select: text;
+}
+
+.newer-db-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 360px;
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  list-style: none;
+  text-align: left;
+}
+
+.newer-db-steps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+}
+
+.newer-db-steps li[data-state="done"] {
+  color: var(--text-primary);
+}
+
+.newer-db-steps li[data-state="done"] > .icon {
+  color: var(--st-approved);
+}
+
+.newer-db-steps li[data-state="current"] {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.newer-db-steps li[data-state="current"] > .icon {
+  color: var(--st-working);
+}
+
+.newer-db-steps li[data-state="waiting"] {
+  color: var(--text-muted);
+}
+
+.newer-db-untouched {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-column);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}

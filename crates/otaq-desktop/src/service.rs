@@ -15,7 +15,12 @@ use otaq_core::client::{Client, ClientConfig, ClientError, Compatibility, Launch
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{ErrorKind, Event, Reply, Request};
 use otaq_core::service::lock::service_alive;
+use otaq_core::store::Store;
+use otaq_core::store::restore::{self, ServiceControl};
 use otaq_view::view_models::connection::LinkState;
+use otaq_view::view_models::newer_database::{
+    self, NewerDatabaseScreen, NewerDatabaseState, RestoreRun,
+};
 use serde::Serialize;
 use tokio::sync::broadcast::error::RecvError;
 use ts_rs::TS;
@@ -47,6 +52,8 @@ pub enum Connection {
     Stopped,
     /// The service couldn't be reached or started; `reason` says why (Q40).
     Failed { reason: String },
+    /// The service won't start on a database a newer build changed (UPD-08): the screen shown instead of the board.
+    NewerDatabase { screen: NewerDatabaseScreen },
 }
 
 /// How the running service relates to this build (d0022, SVC-03): the states of T-0231's banners.
@@ -79,6 +86,9 @@ impl From<&LinkState> for Connection {
             LinkState::Stopped => Self::Stopped,
             LinkState::Failed(reason) => Self::Failed {
                 reason: reason.clone(),
+            },
+            LinkState::NewerDatabase(state) => Self::NewerDatabase {
+                screen: newer_database::screen(state, env!("CARGO_PKG_VERSION")),
             },
         }
     }
@@ -268,6 +278,123 @@ impl ServiceLink {
     }
 }
 
+impl ServiceLink {
+    /// The version that last changed the board, while the service refuses it as newer.
+    pub fn newer_database_version(&self) -> Option<String> {
+        match &self.shared.lock().state {
+            LinkState::NewerDatabase(state) => Some(state.reason.last_opened_by.clone()),
+            _ => None,
+        }
+    }
+
+    /// **Restore the copy from before 0.2.0** (UPD-08, d0140 design audit AT), on the user's click after the
+    /// confirmation, while the service refuses a newer database: the service stopped if one runs, the copy put back
+    /// ([`restore::restore`]), the service started and connected, each step shown on the screen as it starts. A
+    /// failure stays on the screen and says what went wrong and what's left.
+    pub async fn restore_database(&self) -> Result<(), String> {
+        let reason = {
+            let mut link = self.shared.lock();
+            let LinkState::NewerDatabase(state) = &link.state else {
+                return Err("the board doesn't need restoring".into());
+            };
+            if link.restarting {
+                return Err("the background service is already restarting".into());
+            }
+            let reason = state.reason.clone();
+            link.restarting = true;
+            reason
+        };
+        let Ok(settings) = &self.shared.settings else {
+            self.shared.lock().restarting = false;
+            return Err("there is no data folder".into());
+        };
+        let database = settings.data.database_path();
+        restoring(&self.shared, &reason, RestoreRun::Running(None));
+        let restored = {
+            let shared = self.shared.clone();
+            let reason = reason.clone();
+            let handle = tokio::runtime::Handle::current();
+            tokio::task::spawn_blocking(move || {
+                let Ok(settings) = &shared.settings else {
+                    unreachable!("checked above");
+                };
+                let mut control = AppControl { handle, settings };
+                restore::restore(&settings.data.database_path(), &mut control, &mut |step| {
+                    restoring(&shared, &reason, RestoreRun::Running(Some(step.clone())));
+                })
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()))
+        };
+        let outcome = match restored {
+            Ok(_) => {
+                self.shared.set_state(LinkState::Connecting);
+                connect(self.shared.clone()).await
+            }
+            Err(why) => {
+                // The board as it is now: still from a newer build (the screen says why the restore stopped), or not.
+                match Store::newer_database(&database).await {
+                    Ok(Some(reason)) => {
+                        restoring(&self.shared, &reason, RestoreRun::Failed(why.clone()))
+                    }
+                    _ => self.shared.set_state(LinkState::Failed(why.clone())),
+                }
+                Err(why)
+            }
+        };
+        self.shared.lock().restarting = false;
+        outcome
+    }
+}
+
+fn restoring(shared: &Shared, reason: &otaq_core::store::NewerDatabase, restore: RestoreRun) {
+    shared.set_state(LinkState::NewerDatabase(NewerDatabaseState {
+        reason: reason.clone(),
+        restore,
+    }));
+}
+
+/// How long a restore waits for a running service to let go of the database.
+const STOP_WAIT: Duration = Duration::from_secs(10);
+
+/// Stops and starts the service for a restore, from a blocking thread: as `otaq daemon stop` (asked over the socket,
+/// then waiting for its lock to go) and with the link's launcher.
+struct AppControl<'a> {
+    handle: tokio::runtime::Handle,
+    settings: &'a Settings,
+}
+
+impl ServiceControl for AppControl<'_> {
+    fn stop(&mut self) -> Result<(), String> {
+        let asked = self.handle.block_on(otaq_core::client::request_once(
+            &self.settings.client.socket,
+            Request::ServiceStop,
+        ));
+        match asked {
+            Err(ClientError::NotRunning(_)) => return Ok(()),
+            // The service may close the connection before its answer arrives.
+            Ok(_) | Err(ClientError::Closed | ClientError::Io(_)) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+        let lock = self.settings.data.service_lock_path();
+        let deadline = std::time::Instant::now() + STOP_WAIT;
+        while service_alive(&lock) {
+            if std::time::Instant::now() > deadline {
+                return Err("it didn't stop in time".into());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Ok(())
+    }
+
+    fn start(&mut self) -> Result<(), String> {
+        self.handle
+            .block_on(self.settings.launcher.launch())
+            .map_err(|e| e.to_string())
+    }
+}
+
 /// The clicks that can run a Local merge before they answer, Merge check included (d0120): Local merge itself, and
 /// every move that can put a ticket into an automatic Delivery (Pass, a drag or move, Submit for review, the
 /// validation buttons: Move on anyway, Skip this check, Retry merge…, and Apply now). They go on a connection of
@@ -323,7 +450,7 @@ impl Shared {
 /// shows why (Q40) instead of waiting.
 async fn connect(shared: Arc<Shared>) -> Result<(), String> {
     let client = match &shared.settings {
-        Err(reason) => Err(reason.clone()),
+        Err(reason) => Err(Unopened::Failed(reason.clone())),
         Ok(settings) => open(settings).await,
     };
     match client {
@@ -331,25 +458,42 @@ async fn connect(shared: Arc<Shared>) -> Result<(), String> {
             tokio::spawn(follow(Arc::downgrade(&shared), client));
             Ok(())
         }
-        Err(reason) => {
+        Err(Unopened::Newer(reason)) => {
+            let message = reason.message();
+            shared.set_state(LinkState::NewerDatabase(NewerDatabaseState::new(reason)));
+            Err(message)
+        }
+        Err(Unopened::Failed(reason)) => {
             shared.set_state(LinkState::Failed(reason.clone()));
             Err(reason)
         }
     }
 }
 
-async fn open(settings: &Settings) -> Result<Client, String> {
+/// Why the link has no client.
+enum Unopened {
+    /// A newer build changed the database: the service won't start on it (UPD-08).
+    Newer(otaq_core::store::NewerDatabase),
+    Failed(String),
+}
+
+async fn open(settings: &Settings) -> Result<Client, Unopened> {
     if let Some(problem) = socket_path_problem(&settings.client.socket) {
-        return Err(problem);
+        return Err(Unopened::Failed(problem));
     }
     Client::connect_or_start(settings.client.clone(), &*settings.launcher)
         .await
-        .map_err(|e| match e {
-            ClientError::Start(_) | ClientError::NotRunning(_) => format!(
-                "{e}; see the logs in {}",
-                settings.data.logs_dir().display()
-            ),
-            other => other.to_string(),
+        .map_err(|e| {
+            if let Some(newer) = e.newer_database() {
+                return Unopened::Newer(newer.clone());
+            }
+            match e {
+                ClientError::Start(_) | ClientError::NotRunning(_) => Unopened::Failed(format!(
+                    "{e}; see the logs in {}",
+                    settings.data.logs_dir().display()
+                )),
+                other => Unopened::Failed(other.to_string()),
+            }
         })
 }
 
@@ -635,6 +779,10 @@ pub(crate) mod testing {
             Box::pin(async move {
                 match self.bind().await {
                     Ok(()) | Err(ServiceError::AlreadyRunning { .. }) => Ok(()),
+                    // As `otaq daemon start` reports it, so the link gets the typed reason (UPD-08).
+                    Err(ServiceError::Store(otaq_core::store::StoreError::NewerDatabase(
+                        newer,
+                    ))) => Err(io::Error::other(newer)),
                     Err(e) => Err(io::Error::other(e.to_string())),
                 }
             })
@@ -668,6 +816,17 @@ pub(crate) mod testing {
             Self::with_config(None, None, Some(Arc::new(configure)))
         }
 
+        /// A harness whose database a newer build `version` changed (UPD-08): its service won't start.
+        pub async fn on_newer_database(version: &str) -> Self {
+            let tmp = tempfile::tempdir().unwrap();
+            let data = DataDir::new(tmp.path().join("h"));
+            DataDir::ensure_dir(data.root()).unwrap();
+            otaq_core::store::versions::testing_change_as_newer(&data.database_path(), version)
+                .await
+                .unwrap();
+            Self::in_folder(tmp, data, None, None, None)
+        }
+
         fn with_config(
             build_id: Option<&str>,
             claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
@@ -675,6 +834,16 @@ pub(crate) mod testing {
         ) -> Self {
             let tmp = tempfile::tempdir().unwrap();
             let data = DataDir::new(tmp.path().join("h"));
+            Self::in_folder(tmp, data, build_id, claude, configure)
+        }
+
+        fn in_folder(
+            tmp: tempfile::TempDir,
+            data: DataDir,
+            build_id: Option<&str>,
+            claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
+            configure: Option<Configure>,
+        ) -> Self {
             let service = Arc::new(InProcess {
                 data: data.clone(),
                 build_id: build_id.map(str::to_owned),
@@ -885,6 +1054,59 @@ mod tests {
         let status = otaq_core::client::request_once(&socket, Request::ServiceStatus).await;
         assert!(matches!(status, Ok(Reply::ServiceStatus(_))), "{status:?}");
         service.stop_all().await;
+    }
+
+    /// UPD-08: a board a newer build changed shows its screen instead of the board, and Restore puts the copy back,
+    /// starts the service and connects; the steps show as they go.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_newer_board_shows_its_screen_and_restore_brings_the_board_back() {
+        let h = Harness::on_newer_database("9.0.0").await;
+        h.wait_for("the newer-database screen", |c| {
+            matches!(c, Connection::NewerDatabase { .. })
+        })
+        .await;
+        let page = serde_json::to_value(h.app.service.connection()).unwrap();
+        assert_eq!(page["state"], "newer_database");
+        assert_eq!(page["screen"]["kind"], "message");
+        assert_eq!(
+            page["screen"]["restore"],
+            "Restore the copy from before 9.0.0"
+        );
+        assert_eq!(
+            h.app.service.newer_database_version().as_deref(),
+            Some("9.0.0")
+        );
+        // No "couldn't start" banner over the screen.
+        assert!(h.service.started.lock().unwrap().is_empty());
+
+        h.app.service.restore_database().await.unwrap();
+        h.wait_for("connected", connected).await;
+        let screens: Vec<serde_json::Value> = h
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "connection" && e["connection"]["state"] == "newer_database")
+            .map(|e| e["connection"]["screen"].clone())
+            .collect();
+        let restoring: Vec<_> = screens
+            .iter()
+            .filter(|s| s["kind"] == "restoring")
+            .collect();
+        assert!(restoring.len() >= 3, "{screens:?}");
+        assert_eq!(
+            restoring.last().unwrap()["steps"][2]["state"],
+            "current",
+            "{screens:?}"
+        );
+        let data = h.service.data.clone();
+        assert!(std::fs::read_dir(data.root()).unwrap().any(|e| {
+            e.unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".db.replaced-")
+        }));
+        h.service.stop_all().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
