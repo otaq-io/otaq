@@ -17,14 +17,17 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 
 use super::diff::short_sha;
+use super::project_files::is_running;
 use super::tickets::Ticket;
 use super::{Board, BoardError, Refusal};
-use crate::domain::TicketKey;
+use crate::domain::{Status, TicketKey};
 use crate::git::diff::{
     ChangedFile, DIFF_CONTEXT, DiffSpec, FileDiff, FileStatus, MAX_FILE_LINES, MAX_READ_BYTES,
     looks_binary, new_file_diff,
@@ -223,13 +226,20 @@ pub(super) struct Source {
 }
 
 /// Every change of a source, by path, with the pieces' tags.
+#[derive(Debug)]
 pub(super) struct Changes {
     pub(super) entries: Vec<ChangedEntry>,
     by_path: BTreeMap<String, (Option<FileChange>, Vec<PieceTag>)>,
+    /// A worktree's untracked files (listed once here: the walk is slow in a big worktree); empty otherwise.
+    untracked: HashSet<String>,
 }
 
 impl Changes {
-    fn new(mut entries: Vec<ChangedEntry>, mut tags: HashMap<String, Vec<PieceTag>>) -> Self {
+    fn new(
+        mut entries: Vec<ChangedEntry>,
+        mut tags: HashMap<String, Vec<PieceTag>>,
+        untracked: Vec<String>,
+    ) -> Self {
         let mut by_path: BTreeMap<String, (Option<FileChange>, Vec<PieceTag>)> = BTreeMap::new();
         for entry in &mut entries {
             if let Some(tags) = tags.get(&entry.file.path) {
@@ -242,7 +252,11 @@ impl Changes {
         for (path, tags) in tags.drain() {
             by_path.entry(path).or_default().1 = tags;
         }
-        Self { entries, by_path }
+        Self {
+            entries,
+            by_path,
+            untracked: untracked.into_iter().collect(),
+        }
     }
 
     fn change(&self, path: &str) -> (Option<FileChange>, Vec<PieceTag>) {
@@ -255,6 +269,60 @@ impl Changes {
             .iter()
             .filter(|(_, (change, _))| change.is_some())
             .map(|(path, _)| path)
+    }
+}
+
+/// How long a ticket's changes are reused while its agent works: under a second look, so a working agent's
+/// uncommitted edits show soon.
+const WORKING_FRESH: Duration = super::project_files::WORKING_FRESH;
+
+/// How long a ticket's changes are reused while no agent works in it (nothing moves its worktree but the user).
+const IDLE_FRESH: Duration = Duration::from_secs(60);
+
+/// Each ticket's changes as last read, for its Files tab and its sheet's count. Opening the tab asks for the tree,
+/// All changes, the open file and the count at once, and every folder and file opened after it needs the changes
+/// again: one read from git serves them all while the ticket's stamp holds. Cheap to clone; lives in memory.
+#[derive(Debug, Clone, Default)]
+pub struct TicketChangesCache {
+    /// By ticket id. Each ticket's slot is held while its changes are read, so requests that arrive together read
+    /// git once.
+    tickets: Arc<Mutex<HashMap<String, Slot>>>,
+}
+
+/// One ticket's cached changes, held while they are read.
+type Slot = Arc<tokio::sync::Mutex<Option<CachedChanges>>>;
+
+#[derive(Debug)]
+struct CachedChanges {
+    stamp: ChangesStamp,
+    at: Instant,
+    changes: Arc<Changes>,
+}
+
+/// What must stay the same for a ticket's cached changes to stay right.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChangesStamp {
+    status: Status,
+    updated_at: i64,
+    from: FilesFrom,
+    cwd: PathBuf,
+    rev: String,
+    /// Worktrees: the commit the changes count from.
+    since: Option<String>,
+    /// The listed revision's commit.
+    head: String,
+    /// The index's (staging moves it).
+    index_mtime: Option<SystemTime>,
+}
+
+impl TicketChangesCache {
+    fn slot(&self, ticket: &str) -> Slot {
+        self.tickets
+            .lock()
+            .expect("ticket changes")
+            .entry(ticket.to_owned())
+            .or_default()
+            .clone()
     }
 }
 
@@ -274,7 +342,7 @@ impl Board {
         let folder = clean_path(folder, true)?;
         let ticket = self.ticket(key).await?;
         let source = self.files_source(&ticket).await?;
-        let changes = self.files_changes_of(&source).await?;
+        let changes = self.ticket_changes(&ticket, &source).await?;
         let git = self.git()?;
 
         let mut entries = match list_folder(git, &source.cwd, &source.rev, &folder).await {
@@ -287,11 +355,7 @@ impl Board {
         };
         // Files git doesn't list at this revision: untracked or staged ones, deleted ones.
         let mut extra: Vec<&String> = changes.by_path.keys().collect();
-        let untracked = match &source.worktree {
-            Some(wt) if source.info.from == FilesFrom::Worktree => git.untracked_files(wt).await?,
-            _ => Vec::new(),
-        };
-        extra.extend(untracked.iter());
+        extra.extend(changes.untracked.iter());
         for path in extra {
             let Some(rest) = under(path, &folder) else {
                 continue;
@@ -362,7 +426,7 @@ impl Board {
                 total: 0,
             });
         }
-        let changes = self.files_changes_of(&source).await?;
+        let changes = self.ticket_changes(&ticket, &source).await?;
         let git = self.git()?;
         let mut paths: HashSet<String> = HashSet::new();
         match (&source.worktree, source.info.from) {
@@ -371,7 +435,7 @@ impl Board {
                     .run(wt, &["--no-optional-locks", "ls-files", "-z"])
                     .await?;
                 paths.extend(nul_paths(&tracked));
-                paths.extend(git.untracked_files(wt).await?);
+                paths.extend(changes.untracked.iter().cloned());
             }
             _ => {
                 let all = git
@@ -427,7 +491,7 @@ impl Board {
     pub async fn files_changes(&self, key: &str) -> Result<FilesChanges, BoardError> {
         let ticket = self.ticket(key).await?;
         let source = self.files_source(&ticket).await?;
-        let changes = self.files_changes_of(&source).await?;
+        let changes = self.ticket_changes(&ticket, &source).await?;
         let (added, removed) = changes.entries.iter().fold((0u32, 0u32), |(a, r), e| {
             (
                 a.saturating_add(e.file.added),
@@ -436,7 +500,7 @@ impl Board {
         });
         Ok(FilesChanges {
             source: source.info,
-            files: changes.entries,
+            files: changes.entries.clone(),
             added,
             removed,
         })
@@ -465,7 +529,13 @@ impl Board {
         let git = self.git()?;
         Ok(match (source.info.from, &source.worktree, &source.from) {
             (FilesFrom::Worktree, Some(wt), Some(from)) => {
-                self.worktree_file_diff(wt, from, path, context).await?
+                let untracked = self
+                    .ticket_changes(ticket, &source)
+                    .await?
+                    .untracked
+                    .contains(path);
+                self.worktree_file_diff(wt, from, path, context, untracked)
+                    .await?
             }
             (FilesFrom::Branch, _, _) => {
                 let base_sha = source.info.base_sha.as_deref().unwrap_or_default();
@@ -485,7 +555,7 @@ impl Board {
         let missing = || BoardError::NotFound(format!("{path} isn't a file in {}", ticket.key));
         let git = self.git()?;
 
-        let changes = self.files_changes_of(&source).await?;
+        let changes = self.ticket_changes(&ticket, &source).await?;
         let (change, tags) = changes.change(&path);
         let on_disk = match (&source.worktree, source.info.from) {
             (Some(wt), FilesFrom::Worktree) => Some(wt.clone()),
@@ -578,14 +648,48 @@ impl Board {
         })
     }
 
-    /// Every change of `source`.
+    /// Every change of `ticket` read from `source` (its [`Self::files_source`]), from the cache while it holds
+    /// ([`TicketChangesCache`]), else read from git once for every request waiting on it.
+    pub(super) async fn ticket_changes(
+        &self,
+        ticket: &Ticket,
+        source: &Source,
+    ) -> Result<Arc<Changes>, BoardError> {
+        if source.info.from == FilesFrom::Base {
+            return Ok(Arc::new(self.files_changes_of(source).await?));
+        }
+        let slot = self.ticket_changes_cache.slot(&ticket.id);
+        let mut cached = slot.lock().await;
+        let stamp = changes_stamp(self.git()?, ticket, source).await;
+        let fresh = if is_running(ticket.status) {
+            WORKING_FRESH
+        } else {
+            IDLE_FRESH
+        };
+        if let Some(c) = cached
+            .as_ref()
+            .filter(|c| c.stamp == stamp && c.at.elapsed() < fresh)
+        {
+            return Ok(c.changes.clone());
+        }
+        let changes = Arc::new(self.files_changes_of(source).await?);
+        *cached = Some(CachedChanges {
+            stamp,
+            at: Instant::now(),
+            changes: changes.clone(),
+        });
+        Ok(changes)
+    }
+
+    /// Every change of `source`, read from git.
     pub(super) async fn files_changes_of(&self, source: &Source) -> Result<Changes, BoardError> {
         let git = self.git()?;
-        let entries = match (source.info.from, &source.worktree, &source.from) {
+        let (entries, untracked) = match (source.info.from, &source.worktree, &source.from) {
             (FilesFrom::Worktree, Some(wt), Some(from)) => self.worktree_changes(wt, from).await?,
             (FilesFrom::Branch, _, _) => {
                 let base_sha = source.info.base_sha.as_deref().unwrap_or_default();
-                git.changed_files(&source.cwd, &DiffSpec::since(base_sha, &source.rev))
+                let entries = git
+                    .changed_files(&source.cwd, &DiffSpec::since(base_sha, &source.rev))
                     .await?
                     .into_iter()
                     .map(|file| ChangedEntry {
@@ -593,15 +697,16 @@ impl Board {
                         uncommitted: false,
                         tags: Vec::new(),
                     })
-                    .collect()
+                    .collect();
+                (entries, Vec::new())
             }
-            _ => Vec::new(),
+            _ => (Vec::new(), Vec::new()),
         };
         let tags = match source.info.from {
             FilesFrom::Base => HashMap::new(),
             _ => self.piece_tags(&source.info.key).await?,
         };
-        Ok(Changes::new(entries, tags))
+        Ok(Changes::new(entries, tags, untracked))
     }
 
     /// The pieces that changed each path (d0133): a merged helper's recorded files ("40.1"), then a working helper's
@@ -662,25 +767,33 @@ impl Board {
         Ok(tags)
     }
 
-    /// A worktree's changes since `from`: its commits, its uncommitted edits and its untracked files.
+    /// A worktree's changes since `from`: its commits, its uncommitted edits and its untracked files; and the
+    /// untracked files' paths.
     async fn worktree_changes(
         &self,
         worktree: &Path,
         from: &str,
-    ) -> Result<Vec<ChangedEntry>, BoardError> {
+    ) -> Result<(Vec<ChangedEntry>, Vec<String>), BoardError> {
         let git = self.git()?;
-        let mut files = git
-            .changed_files(worktree, &DiffSpec::working_tree(from))
-            .await?;
-        for path in git.untracked_files(worktree).await? {
-            if let Some((bytes, size)) = read_entry(worktree, &path).await {
-                files.push(new_file_diff(&path, &bytes, size).file);
+        // Side by side: each walks the worktree, a slow walk in a big one.
+        let spec = DiffSpec::working_tree(from);
+        let (files, untracked, tracked) = tokio::join!(
+            git.changed_files(worktree, &spec),
+            git.untracked_files(worktree),
+            git.uncommitted_tracked(worktree),
+        );
+        let (mut files, untracked) = (files?, untracked?);
+        for path in &untracked {
+            if let Some((bytes, size)) = read_entry(worktree, path).await {
+                files.push(new_file_diff(path, &bytes, size).file);
             }
         }
         files.sort_by(|a, b| a.path.cmp(&b.path));
-        let uncommitted: HashSet<String> =
-            git.uncommitted_paths(worktree).await?.into_iter().collect();
-        Ok(files
+        let uncommitted: HashSet<String> = tracked?
+            .into_iter()
+            .chain(untracked.iter().cloned())
+            .collect();
+        let entries = files
             .into_iter()
             .map(|file| ChangedEntry {
                 uncommitted: uncommitted.contains(&file.path)
@@ -691,25 +804,22 @@ impl Board {
                 file,
                 tags: Vec::new(),
             })
-            .collect())
+            .collect();
+        Ok((entries, untracked))
     }
 
     /// One file's diff in a worktree since `from`, with `context` lines around each change; `None` when it
-    /// didn't change.
+    /// didn't change. An `untracked` file is new as a whole.
     async fn worktree_file_diff(
         &self,
         worktree: &Path,
         from: &str,
         path: &str,
         context: u32,
+        untracked: bool,
     ) -> Result<Option<FileDiff>, BoardError> {
         let git = self.git()?;
-        if git
-            .untracked_files(worktree)
-            .await?
-            .iter()
-            .any(|p| p == path)
-        {
+        if untracked {
             return Ok(read_entry(worktree, path)
                 .await
                 .map(|(bytes, size)| new_file_diff(path, &bytes, size)));
@@ -808,6 +918,37 @@ async fn read_entry(worktree: &Path, path: &str) -> Option<(Vec<u8>, u64)> {
         .await
         .ok()?;
     Some((bytes, meta.len()))
+}
+
+/// The stamp of `ticket`'s changes read from `source`: its fields, and the listed revision's commit with the index's
+/// time (one `git` call; a failed one reads as empty).
+async fn changes_stamp(git: &Git, ticket: &Ticket, source: &Source) -> ChangesStamp {
+    let out = git
+        .run(
+            &source.cwd,
+            &["rev-parse", &source.rev, "--git-path", "index"],
+        )
+        .await
+        .unwrap_or_default();
+    let mut lines = out.lines();
+    let head = lines.next().unwrap_or_default().to_owned();
+    let index_mtime = match lines.next() {
+        Some(index) => tokio::fs::metadata(source.cwd.join(index))
+            .await
+            .and_then(|m| m.modified())
+            .ok(),
+        None => None,
+    };
+    ChangesStamp {
+        status: ticket.status,
+        updated_at: ticket.updated_at,
+        from: source.info.from,
+        cwd: source.cwd.clone(),
+        rev: source.rev.clone(),
+        since: source.from.clone(),
+        head,
+        index_mtime,
+    }
 }
 
 /// One folder's entries at `rev` (`folder` empty: the top), by path: `git ls-tree` of that folder only, never the

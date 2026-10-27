@@ -1537,7 +1537,7 @@ fn stage_name(ticket: &Ticket, flow: &Flow) -> Option<String> {
 
 /// Whether a ticket in this status has a working agent session: in an Agent stage or an agent check (working,
 /// turquoise, background or checking). Interrupted and Resume failed have none.
-fn is_running(status: Status) -> bool {
+pub(super) fn is_running(status: Status) -> bool {
     status.set().board_group() == StatusSet::AgentStage
         && !matches!(status, Status::Interrupted | Status::ResumeFailed)
 }

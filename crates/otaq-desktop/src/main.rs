@@ -38,7 +38,7 @@ pub struct App {
     /// The Files tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
     review: std::sync::Mutex<otaq_view::view_models::diff::ReviewMemory>,
     /// The sheet's Files counts, taken on open and after a turn ends, not on every refresh (Q421).
-    files_counts: std::sync::Mutex<otaq_view::view_models::sheet::FilesCounts>,
+    files_counts: std::sync::Arc<std::sync::Mutex<otaq_view::view_models::sheet::FilesCounts>>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
     /// The open Open PR / Push to PR dialogs by ticket, kept between requests (T-0227).
