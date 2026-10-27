@@ -1252,7 +1252,8 @@ pub fn render(ctx: &PrimeContext) -> String {
         format!(
             "When your stage's work is done, as the ticket's description describes, end it: `{cmd} stage next \
              --stdin` with a short summary of what you did on stdin; the next stage reads it. It is refused while \
-             files are uncommitted."
+             files are uncommitted. A summary in this chat reaches no one: with no question open, don't stop to report \
+             or to ask whether to go on."
         ),
         MANUAL_CHECK_RULE
             .replace("{cmd}", cmd)

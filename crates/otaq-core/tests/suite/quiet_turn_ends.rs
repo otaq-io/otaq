@@ -29,6 +29,8 @@ const TIMING: QuietTiming = QuietTiming {
 async fn world() -> (TestService, Ticket) {
     let w = TestService::start().await;
     w.signals.set_quiet_timing(TIMING);
+    // These are the tools' turn ends; the stage reminder before Idle (d0042 2026-10-28) has its own tests.
+    w.signals.set_stage_reminders(false);
     w.add_project("shop-web").await;
     let ticket = w.create("SHOP", "Add coupon codes").await;
     w.force_status(&ticket, Status::Working).await;

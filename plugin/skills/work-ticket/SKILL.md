@@ -13,6 +13,12 @@ time.
 **Is `$OTAQ_PIECE` set** (for example `3`)? Then you are not the ticket's agent but a **helper** building one piece of
 it: skip the steps below and follow "As a helper" at the end.
 
+**Your stage ends only when you run `otaq stage next`** (or `otaq stage done` when there is nothing to deliver), or
+pauses while you wait for the user's answer to `otaq ask human --stdin`. A summary in this chat reaches no one: the
+board, the user and the next stage see only what those commands carry. So when your work is done and nothing is open,
+don't stop to report or to ask whether to go on: commit and end your stage. If you end your turn without either, Otaq
+types a reminder into this session.
+
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
@@ -286,6 +292,8 @@ QUESTION
 
 ## Rules
 
+- **Always finish with `otaq stage next --stdin`** (or `otaq stage done --stdin` when there is nothing to deliver), as
+  step 6 says. A summary in this chat isn't a hand-over.
 - **Never push, never open a PR, never merge.** The user does that from the board. The one merge that is yours:
   your helpers' pieces into this ticket's branch, with `otaq helper merge`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.

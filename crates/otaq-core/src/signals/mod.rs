@@ -22,6 +22,7 @@ pub mod background;
 pub mod hooks;
 pub mod model_refused;
 pub mod quiet;
+pub mod reminder;
 pub mod state;
 pub mod watch;
 
@@ -43,6 +44,7 @@ use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, reports_activity, signal};
 pub use model_refused::Refusals;
+pub use reminder::reminder_text;
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
 /// The statuses of a ticket whose agent is at work; only these follow signals. Waiting for limit reset is one:
@@ -83,6 +85,8 @@ struct Inner {
     /// Each session's processes and pending looks, for turn ends the tool doesn't report (ADP-12).
     quiet: Mutex<HashMap<String, quiet::Quiet>>,
     quiet_timing: Mutex<quiet::QuietTiming>,
+    /// One reminder before Idle (d0042 2026-10-28).
+    reminders: reminder::Reminders,
 }
 
 /// One session's current turn.
@@ -109,6 +113,7 @@ impl Signals {
                 watcher: OnceLock::new(),
                 quiet: Mutex::new(HashMap::new()),
                 quiet_timing: Mutex::new(quiet::QuietTiming::default()),
+                reminders: reminder::Reminders::default(),
             }),
         }
     }
@@ -308,6 +313,13 @@ impl Signals {
             return Ok(Signal::Ignored);
         };
         self.track_turn(session, &signal);
+        // A stage still open at the turn's end: one reminder first, Idle only if it is ignored (d0042 2026-10-28).
+        let signal = match signal {
+            Signal::Idle { .. } if self.remind_instead_of_idle(ticket_id, session).await? => {
+                Signal::TurnEnded
+            }
+            signal => signal,
+        };
         if let Signal::Failed { error, message } = &signal {
             tracing::warn!(%error, message = ?message, "agent turn failed");
         }
@@ -519,16 +531,19 @@ impl Signals {
     /// Enter was pressed in the ticket's terminal: the user answered, so the needs-you label clears (ATT-02).
     /// `line` is what was sent from the agent's own terminal (none from a validator's): while the ticket has an open
     /// question and no permission prompt shows on top of it, a line that isn't empty answers it (d0119).
+    /// Any other line of the user's own there starts a chat: its turn gets no stage reminder (d0042 2026-10-28).
     pub async fn enter(&self, ticket_id: &str, line: Option<&str>) -> Result<(), BoardError> {
         if let Some(line) = line
             && self.status_of(ticket_id).await? != Some(Status::NeedsYou)
-            && let Some(question) = self.inner.board.answer_in_terminal(ticket_id, line).await?
         {
-            tracing::info!(
-                ticket = ticket_id,
-                question = question.id,
-                "question answered in the terminal"
-            );
+            match self.inner.board.answer_in_terminal(ticket_id, line).await? {
+                Some(question) => tracing::info!(
+                    ticket = ticket_id,
+                    question = question.id,
+                    "question answered in the terminal"
+                ),
+                None => self.chatting(ticket_id),
+            }
         }
         self.apply(ticket_id, &Input::Enter).await
     }

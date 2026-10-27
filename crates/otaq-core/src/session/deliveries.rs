@@ -50,6 +50,8 @@ stored_enum! {
         Skill = "skill",
         /// The validator's findings, or "Validation was cancelled…", for the agent (d0063).
         Validation = "validation",
+        /// "You ended your turn but your stage is still open…": once, before Idle (d0042 2026-10-28).
+        StageReminder = "stage_reminder",
     }
 }
 
