@@ -239,7 +239,8 @@ yours and open it like any app:
 Otaq isn't code signed (paid OS signing isn't something it does), so the first open asks you to allow it once:
 
 - **macOS:** the first open says Apple can't check Otaq. Open **System Settings → Privacy & Security**, scroll to
-  "Otaq was blocked…" and click **Open Anyway**. Otaq runs only from an Applications folder: opened from the `.dmg`
+  "Otaq was blocked…" and click **Open Anyway**. It asks for an administrator's name and password: on a standard
+  account, an administrator does this once. Otaq runs only from an Applications folder: opened from the `.dmg`
   or from Downloads, its window offers just **Move to Applications**, which moves it (to `/Applications`, or
   `~/Applications` when you can't write there) and opens it from there.
 - **Windows:** SmartScreen says it protected your PC: click **More info → Run anyway**. Otaq goes into
