@@ -1,11 +1,11 @@
-//! The status icon's look and menu as the link to the service changes (d0139, TRY-04; the model is
-//! [`otaq_view::view_models::status_icon`]). [`follow`] hands each new view to the door, which owns the native icon.
+//! The status icon's look and menu as the link to the service and its lists change (d0139, TRY-04; the model is
+//! [`otaq_view::view_models::status_icon`]). The door draws each [`StatusIcon::changes`] on the native icon.
 //!
 //! **The summary, kept current** (T-0567; TRY-04, TRY-05): `StatusIcon` follows the link (with [`IconLink`]'s grace
 //! period) and the service's events, and after each event that can change what the icon shows it asks the service
 //! again once a burst has settled: `needs_you.list` (every project's needs-you items, waiting Noyan conversations and
 //! running tickets in one answer) and `agents.pause_counts` for All projects. No polling: nothing is asked without an
-//! event, a resync or a new connection. The door draws `StatusIcon::changes` from T-0568 on.
+//! event, a resync or a new connection.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -15,48 +15,15 @@ use otaq_core::attention::needs_you::NeedsYouList;
 use otaq_core::client::Client;
 use otaq_core::protocol::{Reply, Request};
 use otaq_view::view_models::connection::LinkState;
-use otaq_view::view_models::status_icon::{IconLink, IconLook, StatusIconView, Summary, summary};
+use otaq_view::view_models::status_icon::{IconLink, IconLook, Summary, summary};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use crate::App;
 use crate::events::EventHub;
 use crate::service::ServiceLink;
 
-/// Calls `show` with the icon's view at once and whenever it changes, until the link ends: on each link state, and
-/// when a link that stays down passes the grace period.
-pub async fn follow(app: &App, show: impl Fn(&StatusIconView)) {
-    let mut states = app.service.states();
-    let mut model = IconLink::default();
-    let mut shown: Option<StatusIconView> = None;
-    loop {
-        let now = Instant::now();
-        model.on_link(&states.borrow_and_update(), now);
-        let view = model.view(now);
-        if shown.as_ref() != Some(&view) {
-            show(&view);
-            shown = Some(view);
-        }
-        let changed = match model.changes_at(now) {
-            Some(at) => {
-                tokio::select! {
-                    changed = states.changed() => changed,
-                    () = tokio::time::sleep_until(at.into()) => Ok(()),
-                }
-            }
-            None => states.changed().await,
-        };
-        if changed.is_err() {
-            return;
-        }
-    }
-}
+pub use summary_feed::StatusIcon;
 
-// The summary's half isn't drawn yet: the door switches from [`follow`] to `StatusIcon::changes` with T-0568.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the door draws the summary from T-0568 on")
-)]
 mod summary_feed {
     use super::*;
 
@@ -134,7 +101,8 @@ mod summary_feed {
             icon
         }
 
-        /// The summary now.
+        /// The summary now (the door follows [`Self::changes`]).
+        #[cfg(test)]
         pub fn summary(&self) -> Summary {
             self.summary.borrow().clone()
         }
@@ -225,62 +193,9 @@ mod summary_feed {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-
-    use otaq_view::view_models::status_icon::IconLook;
-
-    use super::*;
-    use crate::service::testing::{Harness, connected};
-
-    /// T-0566 (TRY-04): the icon is plain while connected and turns not connected once the stopped service stays
-    /// away past the grace period; back to plain when it returns.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_icon_follows_the_link() {
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let looks = Arc::new(Mutex::new(Vec::new()));
-        let seen = looks.clone();
-        let until = |want: IconLook| {
-            let looks = looks.clone();
-            async move {
-                tokio::time::timeout(Duration::from_secs(20), async {
-                    while looks.lock().unwrap().last() != Some(&want) {
-                        tokio::time::sleep(Duration::from_millis(20)).await;
-                    }
-                })
-                .await
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "the icon never looked {want:?}: {:?}",
-                        looks.lock().unwrap()
-                    )
-                });
-            }
-        };
-        let steps = async {
-            until(IconLook::Plain).await;
-            h.service.stop_all().await;
-            until(IconLook::NotConnected).await;
-            h.service.bind().await.unwrap();
-            until(IconLook::Plain).await;
-        };
-        tokio::select! {
-            () = follow(&h.app, move |view| seen.lock().unwrap().push(view.look)) => panic!("the link ended"),
-            () = steps => {}
-        }
-        assert_eq!(
-            *looks.lock().unwrap(),
-            [IconLook::Plain, IconLook::NotConnected, IconLook::Plain],
-            "no flicker"
-        );
-        h.service.stop_all().await;
-    }
-}
-
-#[cfg(test)]
 mod summary_tests {
+    use std::sync::Mutex;
+
     use otaq_core::board::projects::AddProject;
     use otaq_core::git::testing::TempRepos;
     use otaq_view::view_models::status_icon::{IconAction, IconLook};
@@ -316,6 +231,59 @@ mod summary_tests {
         })
         .await;
         assert!(reached.is_ok(), "never: {what} (last {:?})", icon.summary());
+    }
+
+    /// T-0566 (TRY-04): the icon is plain while connected and turns not connected once the stopped service stays
+    /// away past the grace period (its menu: the line, Open Otaq and Quit Otaq); back to plain when it returns, with no
+    /// flicker in between.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_icon_follows_the_link() {
+        let h = Harness::new(None);
+        let icon = StatusIcon::start(&h.app.service, h.app.events.clone());
+        h.wait_for("connected", connected).await;
+        let looks = Arc::new(Mutex::new(Vec::new()));
+        let mut changes = icon.changes();
+        let seen = looks.clone();
+        let record = tokio::spawn(async move {
+            loop {
+                let look = changes.borrow_and_update().look;
+                {
+                    let mut looks = seen.lock().unwrap();
+                    if looks.last() != Some(&look) {
+                        looks.push(look);
+                    }
+                }
+                if changes.changed().await.is_err() {
+                    return;
+                }
+            }
+        });
+        until(&icon, "plain", |s| s.look == IconLook::Plain).await;
+        h.service.stop_all().await;
+        until(&icon, "not connected", |s| s.look == IconLook::NotConnected).await;
+        assert!(
+            icon.summary()
+                .actions
+                .iter()
+                .any(|a| a.action == IconAction::Quit)
+        );
+        h.service.bind().await.unwrap();
+        until(&icon, "plain again", |s| s.look == IconLook::Plain).await;
+        // The recorder sees each change on its own task: wait until it has recorded the last one too.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while looks.lock().unwrap().last() != Some(&IconLook::Plain) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("never recorded plain again: {:?}", looks.lock().unwrap()));
+        record.abort();
+        assert_eq!(
+            *looks.lock().unwrap(),
+            [IconLook::Plain, IconLook::NotConnected, IconLook::Plain],
+            "no flicker"
+        );
+        h.service.stop_all().await;
     }
 
     /// Against the real service: connecting reads the lists; a pause, a ticket that needs you and a resume each
@@ -377,5 +345,41 @@ mod summary_tests {
             "nothing paused on its own"
         );
         h.service.stop_all().await;
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use otaq_view::view_models::status_icon::{LOOKS, Taskbar, badge_image, template_image};
+
+    /// T-0568 (page 31 item 1): every look has its macOS template, and for Windows and Linux an image per taskbar
+    /// (light, dark), size (16, 32 px) and count (1–9, 9+); each a PNG of its size.
+    #[test]
+    fn every_look_and_count_has_its_image() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("icons/tray");
+        let size = |name: &str| {
+            let bytes = std::fs::read(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(&bytes[1..4], b"PNG", "{name}");
+            // The IHDR chunk's width and height.
+            let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
+            let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+            (width, height)
+        };
+        let mut names = std::collections::BTreeSet::new();
+        for look in LOOKS {
+            assert_eq!(size(&template_image(look)), (36, 36), "{look:?}");
+            names.insert(template_image(look));
+            for taskbar in [Taskbar::Light, Taskbar::Dark] {
+                for px in [16, 32] {
+                    for count in 1..=12 {
+                        let name = badge_image(look, count, taskbar, px);
+                        assert_eq!(size(&name), (px, px), "{name}");
+                        names.insert(name);
+                    }
+                }
+            }
+        }
+        // 5 templates; per taskbar and size, 3 looks without a count and 2 with 10 counts each.
+        assert_eq!(names.len(), 5 + 2 * 2 * (3 + 2 * 10));
     }
 }

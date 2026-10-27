@@ -96,6 +96,11 @@ pub enum Target {
     Ticket { key: TicketKey },
     /// The ticket's validator terminal, focused.
     Validator { key: TicketKey },
+    /// The ticket's Files tab, to review it (the status icon's "your check" line, d0139 TRY-06).
+    Review { key: TicketKey },
+    /// The ticket's sheet on the tab it opens on, nothing started or resumed (the status icon's Interrupted and Start
+    /// failed lines, d0139 TRY-06).
+    Sheet { key: TicketKey },
     /// The Project agent in the agent panel, focused.
     ProjectAgent { project: String, agent: String },
     /// Needs you, the strip (grouped notifications and summaries).
@@ -110,16 +115,21 @@ pub enum Target {
 /// The value of [`open_env_var`] that opens Needs you.
 pub const OPEN_NEEDS_YOU: &str = "needs_you";
 const OPEN_VALIDATOR: &str = "validator:";
+const OPEN_REVIEW: &str = "review:";
+const OPEN_SHEET: &str = "sheet:";
 const OPEN_AGENT: &str = "agent:";
 const OPEN_BOARD: &str = "board";
 
 impl Target {
     /// The target as one string, for [`open_env_var`] and a notification's `userInfo`: `SHOP-22` (a ticket, as
-    /// before M25), `validator:SHOP-22`, `agent:SHOP:pa7`, `needs_you`, `board` or `board:SHOP`.
+    /// before M25), `validator:SHOP-22`, `review:SHOP-22`, `sheet:SHOP-22`, `agent:SHOP:pa7`, `needs_you`, `board` or
+    /// `board:SHOP`.
     pub fn to_open_value(&self) -> String {
         match self {
             Self::Ticket { key } => key.to_string(),
             Self::Validator { key } => format!("{OPEN_VALIDATOR}{key}"),
+            Self::Review { key } => format!("{OPEN_REVIEW}{key}"),
+            Self::Sheet { key } => format!("{OPEN_SHEET}{key}"),
             Self::ProjectAgent { project, agent } => format!("{OPEN_AGENT}{project}:{agent}"),
             Self::NeedsYou => OPEN_NEEDS_YOU.to_owned(),
             Self::Board { project: None } => OPEN_BOARD.to_owned(),
@@ -148,6 +158,12 @@ impl Target {
         }
         if let Some(key) = value.strip_prefix(OPEN_VALIDATOR) {
             return key.parse().ok().map(|key| Self::Validator { key });
+        }
+        if let Some(key) = value.strip_prefix(OPEN_REVIEW) {
+            return key.parse().ok().map(|key| Self::Review { key });
+        }
+        if let Some(key) = value.strip_prefix(OPEN_SHEET) {
+            return key.parse().ok().map(|key| Self::Sheet { key });
         }
         if let Some(rest) = value.strip_prefix(OPEN_AGENT) {
             let (project, agent) = rest.split_once(':')?;
@@ -1530,6 +1546,12 @@ mod tests {
                 agent: "pa7".into(),
             },
             Target::NeedsYou,
+            Target::Review {
+                key: "WEB-7".parse().unwrap(),
+            },
+            Target::Sheet {
+                key: "SHOP-30".parse().unwrap(),
+            },
             Target::Board { project: None },
             Target::Board {
                 project: Some("SHOP".into()),
@@ -1544,6 +1566,8 @@ mod tests {
                 "validator:SHOP-33",
                 "agent:SHOP:pa7",
                 "needs_you",
+                "review:WEB-7",
+                "sheet:SHOP-30",
                 "board",
                 "board:SHOP"
             ]
@@ -1558,6 +1582,8 @@ mod tests {
         for bad in [
             "not a key",
             "validator:",
+            "review:",
+            "sheet:nope",
             "agent:SHOP",
             "agent::pa7",
             "board:",

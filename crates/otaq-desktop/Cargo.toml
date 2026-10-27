@@ -56,12 +56,18 @@ fontdb = "0.23.0"
 # setting. The versions Tauri 2.12 itself uses.
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
+# Whether the taskbar is light or dark (`SystemUsesLightTheme`), for the status icon's image (d0139, `src/door.rs`).
+# MIT; the version already in the build (through Tauri's dependencies).
+winreg = "0.56.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The app's own defaults, to switch macOS's smart quotes, dashes, text replacement and autocorrect off for the webview
 # (#41, #52; `src/door.rs`). MIT; the versions Tauri 2.12 itself uses on macOS.
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSString", "NSUserDefaults"] }
+# The status icon's accessible name (page 31 "Icon names", `src/door.rs`): VoiceOver reads the status item's label,
+# which Tauri doesn't set. MIT; the version Tauri 2.12's tray-icon uses.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAccessibilityProtocols", "NSButton", "NSControl", "NSResponder", "NSStatusBarButton", "NSStatusItem", "NSView"] }
 
 [dev-dependencies]
 # The freshness test generates the types into a temporary folder.
