@@ -794,18 +794,22 @@ impl crate::updates::Prepared for PluginPrepared {
             bytes,
             folder,
         } = *self;
-        update
-            .install(bytes)
-            .map_err(|e| crate::updates::InstallFailed {
+        update.install(bytes).map_err(|e| {
+            // Page 32's "belongs to another account" only when the app's folder really isn't this user's to
+            // change; a permission error inside a badly made archive, or anything else, says what went wrong.
+            let refused = match &e {
+                Error::Io(io) => io.kind() == std::io::ErrorKind::PermissionDenied,
+                Error::AuthenticationFailed => true,
+                _ => false,
+            };
+            crate::updates::InstallFailed {
+                permission: refused
+                    && !crate::updates::folder_writable(std::path::Path::new(&folder)),
                 folder,
-                permission: match &e {
-                    Error::Io(io) => io.kind() == std::io::ErrorKind::PermissionDenied,
-                    Error::AuthenticationFailed => true,
-                    _ => false,
-                },
                 offline: false,
                 error: e.to_string(),
-            })
+            }
+        })
     }
 }
 

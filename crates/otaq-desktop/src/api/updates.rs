@@ -118,6 +118,11 @@ fn context(app: &App) -> Context {
         service: service_side(app),
         app_protocol: otaq_core::protocol::PROTOCOL_VERSION,
         installing: snapshot.installing,
+        unreachable_at: snapshot
+            .prefs
+            .last_check
+            .filter(|check| !check.reached)
+            .map(|check| check.at),
     }
 }
 

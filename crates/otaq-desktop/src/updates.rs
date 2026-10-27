@@ -162,6 +162,25 @@ pub trait Prepared: Send {
     fn install(self: Box<Self>) -> Result<(), InstallFailed>;
 }
 
+/// Whether this user may change `folder` and the folder holding it (what replacing an installed app needs): a file
+/// can be made in both. A folder another account owns, or a read-only one, isn't; then "couldn't be put in place"
+/// says so (page 32's line), and any other failure says what went wrong.
+pub fn folder_writable(folder: &Path) -> bool {
+    let probe = |dir: &Path| {
+        let file = dir.join(format!(".update-write-check-{}", std::process::id()));
+        let made = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&file)
+            .is_ok();
+        if made {
+            let _ = std::fs::remove_file(&file);
+        }
+        made
+    };
+    probe(folder) && folder.parent().is_none_or(probe)
+}
+
 /// Reopens the app once the new version is in place, as the only copy (T-0579's hand-over: the new process waits for
 /// this one to exit before it takes the one-copy lock); with `failed`, the same version reopens and shows why.
 pub trait Relaunch: Send + Sync {
@@ -1373,5 +1392,25 @@ mod tests {
         assert!(!signature_matches(&tampered, &signature, &key));
         assert!(!signature_matches(&bytes, &signature, PUBKEY));
         assert!(!signature_matches(&bytes, "not base64", &key));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_folder_isnt_writable() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("Board.app");
+        std::fs::create_dir(&app).unwrap();
+        assert!(folder_writable(&app));
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o555)).unwrap();
+        assert!(!folder_writable(&app));
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        assert!(!folder_writable(&app));
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            std::fs::read_dir(&app).unwrap().next().is_none(),
+            "the probe leaves nothing behind"
+        );
     }
 }
