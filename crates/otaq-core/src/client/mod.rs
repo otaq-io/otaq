@@ -438,3 +438,13 @@ impl fmt::Display for ClientError {
 }
 
 impl std::error::Error for ClientError {}
+
+impl ClientError {
+    /// The service didn't start because a newer build changed the database (UPD-08): the typed reason.
+    pub fn newer_database(&self) -> Option<&crate::store::NewerDatabase> {
+        match self {
+            Self::Start(e) => e.get_ref()?.downcast_ref(),
+            _ => None,
+        }
+    }
+}

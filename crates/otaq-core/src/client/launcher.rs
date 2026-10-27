@@ -7,6 +7,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 
 use crate::naming;
+use crate::protocol::ErrorBody;
+use crate::store::NewerDatabase;
+use crate::store::versions;
 
 /// Starts the service. [`super::Client::connect_or_start`] calls it at most once, when no service answers.
 pub trait Launcher: Send + Sync {
@@ -56,22 +59,61 @@ impl Launcher for CommandLauncher {
             // The app has no console on Windows: without this the command would open a console window.
             #[cfg(windows)]
             command.creation_flags(crate::process::CREATE_NO_WINDOW);
-            let status = command
-                .args(["daemon", "start", "--quiet"])
+            // `--json`: a start that fails prints its error body on stdout, which may carry a typed reason.
+            let output = command
+                .args(["daemon", "start", "--json"])
                 .envs(self.env.iter().map(|(k, v)| (k, v)))
                 .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
-                .status()
+                .output()
                 .await?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err(io::Error::other(format!(
-                    "{} daemon start failed ({status})",
-                    self.program.display()
-                )))
+            if output.status.success() {
+                return Ok(());
             }
+            if let Some(newer) = newer_database(&output.stdout) {
+                return Err(io::Error::other(newer));
+            }
+            Err(io::Error::other(format!(
+                "{} daemon start failed ({})",
+                self.program.display(),
+                output.status
+            )))
         })
+    }
+}
+
+/// The reason in a failed `daemon start --json`'s error body, when its database is from a newer build (UPD-08).
+fn newer_database(stdout: &[u8]) -> Option<NewerDatabase> {
+    #[derive(serde::Deserialize)]
+    struct Failed {
+        error: ErrorBody,
+    }
+    let failed: Failed = serde_json::from_slice(stdout).ok()?;
+    versions::from_error_data(failed.error.data.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::ErrorKind;
+    use crate::store::versions::error_data;
+
+    #[test]
+    fn a_failed_start_carries_the_newer_database() {
+        let newer = NewerDatabase {
+            last_opened_by: "0.2.0".into(),
+            copy: None,
+        };
+        let body = ErrorBody {
+            kind: ErrorKind::Refused,
+            message: newer.message(),
+            data: Some(error_data(&newer)),
+        };
+        let stdout = serde_json::to_vec(&serde_json::json!({ "error": body })).unwrap();
+        assert_eq!(newer_database(&stdout), Some(newer));
+        let other = serde_json::json!({"error": {"kind": "internal", "message": "didn't start"}});
+        assert_eq!(newer_database(&serde_json::to_vec(&other).unwrap()), None);
+        assert_eq!(newer_database(b"not json"), None);
     }
 }

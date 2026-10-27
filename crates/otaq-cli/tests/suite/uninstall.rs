@@ -349,13 +349,16 @@ impl Drop for Daemon<'_> {
     }
 }
 
-/// `--keep-data`: only the database files and the reports stay; a later `otaq daemon start` opens the board.
+/// `--keep-data`: only the database files, the `before-` copy (d0140) and the reports stay; a later `otaq daemon
+/// start` opens the board.
 #[tokio::test(flavor = "multi_thread")]
 async fn keep_data_keeps_the_database_and_reports() {
     let world = World::new(true).await;
     let report = world.w.data.reports_dir().join("shop-web").join("note.txt");
     std::fs::create_dir_all(report.parent().unwrap()).unwrap();
     std::fs::write(&report, "kept\n").unwrap();
+    let copy = world.root().join("otaq.db.before-0.0.9");
+    std::fs::write(&copy, "the copy\n").unwrap();
     let (out, code) = world.run(&["--keep-data"], &["y", "y"]).await;
     assert_eq!(code, 0, "{out}");
     assert!(
@@ -373,12 +376,19 @@ async fn keep_data_keeps_the_database_and_reports() {
     left.sort();
     for name in &left {
         assert!(
-            ["otaq.db", "otaq.db-wal", "otaq.db-shm", "reports"].contains(&name.as_str()),
+            [
+                "otaq.db",
+                "otaq.db-wal",
+                "otaq.db-shm",
+                "otaq.db.before-0.0.9",
+                "reports"
+            ]
+            .contains(&name.as_str()),
             "{name} left: {left:?}"
         );
     }
     assert!(
-        left.contains(&"otaq.db".to_owned()) && report.is_file(),
+        left.contains(&"otaq.db".to_owned()) && report.is_file() && copy.is_file(),
         "{left:?}"
     );
     assert_eq!(world.worktrees().len(), 1);

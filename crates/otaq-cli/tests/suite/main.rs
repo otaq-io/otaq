@@ -33,6 +33,7 @@ mod prime;
 mod project_agent_attention;
 mod project_agents;
 mod read;
+mod restore_database;
 mod skills;
 mod stage_choices;
 mod stage_path;

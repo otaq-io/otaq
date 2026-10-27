@@ -10,6 +10,7 @@ use otaq_core::client::{ClientError, request_once};
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{ErrorBody, ErrorKind, Reply, Request, ServiceStatus};
 use otaq_core::service::{self, ServiceConfig, ServiceError};
+use otaq_core::store::{NewerDatabase, Store, StoreError, versions};
 use otaq_core::{logging, naming};
 use serde_json::json;
 
@@ -89,11 +90,34 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
             if let Some(status) = query_status(data)? {
                 return Ok((status, true));
             }
+            if let Some(newer) = newer_database(data) {
+                return Err(newer_database_error(&newer));
+            }
             return Err(internal(format!(
                 "the background service didn't start; see the logs in {}",
                 data.logs_dir().display()
             )));
         }
+    }
+}
+
+/// Why the service didn't start, when it's a database a newer build changed (UPD-08).
+fn newer_database(data: &DataDir) -> Option<NewerDatabase> {
+    runtime()
+        .block_on(Store::newer_database(&data.database_path()))
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "can't check the database's version");
+            None
+        })
+}
+
+/// The start's error for a database from a newer build: page 32's words, and the typed reason in `data` for the
+/// app (`--json`).
+pub(crate) fn newer_database_error(newer: &NewerDatabase) -> ErrorBody {
+    ErrorBody {
+        kind: ErrorKind::Refused,
+        message: newer.message(),
+        data: Some(versions::error_data(newer)),
     }
 }
 
@@ -116,29 +140,39 @@ fn print_started(out: &Output, status: &ServiceStatus, already: bool) {
 }
 
 fn stop(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
+    match stop_service(data)? {
+        Stopped::NotRunning => out.print(
+            "Background service isn't running",
+            &json!({"stopped": false, "running": false}),
+            None,
+        ),
+        Stopped::Stopped { pid } => out.print(
+            "Background service stopped",
+            &json!({"stopped": true, "running": false, "pid": pid}),
+            pid.map(|p| p.to_string()).as_deref(),
+        ),
+    }
+    Ok(())
+}
+
+pub(crate) enum Stopped {
+    NotRunning,
+    Stopped { pid: Option<u32> },
+}
+
+/// Stops the service if one runs (working agents are interrupted) and waits until it has exited.
+pub(crate) fn stop_service(data: &DataDir) -> Result<Stopped, ErrorBody> {
     let pid = match runtime().block_on(request_once(&data.socket_path(), Request::ServiceStop)) {
         Ok(Reply::Ok) => service::lock::read_pid(&data.service_lock_path()),
         Ok(other) => return Err(unexpected(&other)),
-        Err(ClientError::NotRunning(_)) => {
-            out.print(
-                "Background service isn't running",
-                &json!({"stopped": false, "running": false}),
-                None,
-            );
-            return Ok(());
-        }
+        Err(ClientError::NotRunning(_)) => return Ok(Stopped::NotRunning),
         Err(e) => return Err(client_error(&e)),
     };
     // The service removes its lock file as the very last step.
     if !wait_until_gone(&data.service_lock_path()) {
         return Err(internal("the background service didn't stop in time"));
     }
-    out.print(
-        "Background service stopped",
-        &json!({"stopped": true, "running": false, "pid": pid}),
-        pid.map(|p| p.to_string()).as_deref(),
-    );
-    Ok(())
+    Ok(Stopped::Stopped { pid })
 }
 
 fn wait_until_gone(path: &Path) -> bool {
@@ -241,6 +275,10 @@ fn foreground(data: DataDir) -> Result<(), ErrorBody> {
         Err(ServiceError::AlreadyRunning { pid }) => {
             tracing::info!(?pid, "another service is already running");
             Ok(())
+        }
+        Err(ServiceError::Store(StoreError::NewerDatabase(newer))) => {
+            tracing::warn!(last_opened_by = %newer.last_opened_by, "the database is from a newer build");
+            Err(newer_database_error(&newer))
         }
         Err(e) => {
             tracing::error!(error = %e, "service failed");

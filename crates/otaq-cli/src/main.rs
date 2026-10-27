@@ -18,6 +18,7 @@ mod output;
 mod pr;
 mod prime;
 mod read;
+mod restore;
 mod service;
 #[cfg(test)]
 mod skill_commands;
@@ -47,6 +48,7 @@ fn main() -> ExitCode {
         Some(Command::Uninstall { keep_data }) => {
             return uninstall::run(keep_data, &cli.global, &out);
         }
+        Some(Command::RestoreDatabase { yes }) => restore::run(yes, &cli.global, &out),
         Some(Command::Attach { key, stage, agent }) => attach::run(key, stage, agent, &cli.global),
         Some(Command::Prime {
             key: None,
