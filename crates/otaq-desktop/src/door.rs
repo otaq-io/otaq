@@ -358,7 +358,11 @@ fn create_status_icon(handle: &tauri::AppHandle) -> tauri::Result<()> {
                     }
                 }
                 Some(IconAction::Quit) => handle.exit(0),
-                None => {}
+                // Not in the menu yet: the summary's menu comes with T-0568, Stop agents and quit with T-0569.
+                Some(
+                    IconAction::PauseAll | IconAction::ResumeAll | IconAction::StopAgentsAndQuit,
+                )
+                | None => {}
             },
         )
         .build(handle)?;

@@ -272,3 +272,43 @@ async fn limit_stopped_agents_raise_no_items_while_the_switch_is_on() {
     );
     w.stop().await;
 }
+
+/// d0139 (T-0567): the list carries the tickets an agent works on now, across projects, with their stage, for the
+/// status icon's Running list; they aren't needs-you items and don't count.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_list_carries_the_running_tickets_of_every_project() {
+    let w = TestService::start().await;
+    w.add_project("billing-api").await;
+    w.add_project("web-app").await;
+    let bill1 = w.create("BILL", "VAT rounding fix").await;
+    let bill2 = w.create("BILL", "Invoice template").await;
+    let web1 = w.create("WEB", "Landing").await;
+    let web2 = w.create("WEB", "Pricing").await;
+    let web3 = w.create("WEB", "Footer").await;
+    w.force_status(&bill1, Status::Working).await;
+    w.force_status(&bill2, Status::WaitingForYou).await;
+    w.force_status(&web1, Status::Checking).await;
+    w.force_status(&web2, Status::AsksYou).await;
+    w.force_status(&web3, Status::WorkingInBackground).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    let needs_you = list(&client).await;
+    let running: Vec<(String, String, Option<String>)> = needs_you
+        .running
+        .iter()
+        .map(|r| (r.key.to_string(), r.project_name.clone(), r.stage.clone()))
+        .collect();
+    assert_eq!(
+        running,
+        [
+            ("BILL-1".into(), "billing-api".into(), Some("Dev".into())),
+            ("WEB-1".into(), "web-app".into(), Some("Validate".into())),
+            ("WEB-3".into(), "web-app".into(), Some("Dev".into())),
+        ]
+    );
+    assert_eq!(
+        needs_you.counts.total, 2,
+        "WEB-2 asks, BILL-2 waits for its check"
+    );
+    w.stop().await;
+}

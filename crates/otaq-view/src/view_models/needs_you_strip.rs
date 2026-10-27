@@ -439,7 +439,8 @@ fn chip(item: &Item) -> Option<Chip> {
     }
 }
 
-fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
+/// A ticket item's chip, which the status icon's lines share (d0139); `None` for an interrupted session.
+pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
     let status = item.interrupted_from.unwrap_or(item.status);
     let asks = (
         IconName::MessageCircleQuestionMark,
@@ -510,7 +511,7 @@ fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
     })
 }
 
-fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
+pub(crate) fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
     let reason = match a.status {
         Status::NeedsYou => "allow a command",
         _ => "a question",
@@ -1242,6 +1243,7 @@ mod tests {
             counts: NeedsYouCounts::of(&tickets, &order()),
             items: tickets,
             project_agents: agents,
+            running: Vec::new(),
         }
     }
 }
