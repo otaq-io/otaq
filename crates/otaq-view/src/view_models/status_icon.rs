@@ -1,7 +1,7 @@
 //! The status icon in the menu bar / tray (d0139, TRY-01, TRY-04, TRY-05): its look, its accessible name and its
 //! native menu, from the app's link to the service and the service's lists. T-0566 has the plain and not connected
-//! looks with Open Otaq and a stand-in Quit Otaq ([`StatusIconView`]); T-0567 the [`summary`] across all projects
-//! (the count, the lists, Pause / Resume all); T-0568 draws the summary as page 31 does.
+//! looks with Open Otaq and a stand-in Quit Otaq; T-0567 the [`summary`] across all projects (the count, the lists,
+//! Pause / Resume all); T-0568 draws the summary as page 31 does ([`menu`], [`opens`], the images).
 //!
 //! **Not connected** follows the link with a grace period ([`NOT_CONNECTED_AFTER`]): a link down for less than that
 //! (a service restart, a dropped connection the client retries at once) keeps the icon as it was, so it doesn't
@@ -18,6 +18,7 @@ use otaq_core::naming::PRODUCT_NAME;
 use crate::view_models::connection::LinkState;
 use crate::view_models::needs_you_strip::{self, Item, Target};
 use crate::view_models::session_tab;
+use crate::view_models::sheet::Content;
 
 /// How long the link may be down (reconnecting, stopped, failed) before the icon says not connected. The client
 /// retries from 100 ms, doubling to 2 s, so a service that comes back reconnects well within it.
@@ -79,27 +80,6 @@ impl IconAction {
     }
 }
 
-/// One row of the native menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MenuRow {
-    /// A disabled line that says something ("Otaq lost its connection").
-    Line(String),
-    Action {
-        action: IconAction,
-        label: String,
-    },
-    Separator,
-}
-
-/// Everything the door shows for the icon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StatusIconView {
-    pub look: IconLook,
-    /// The tooltip and accessible name (page 31 "Icon names").
-    pub name: String,
-    pub menu: Vec<MenuRow>,
-}
-
 /// "Open Otaq" (page 31).
 pub fn open_label() -> String {
     format!("Open {PRODUCT_NAME}")
@@ -132,34 +112,6 @@ pub fn icon_name(look: IconLook, count: u32) -> String {
     }
 }
 
-impl StatusIconView {
-    pub fn of(look: IconLook) -> Self {
-        let open = MenuRow::Action {
-            action: IconAction::OpenOtaq,
-            label: open_label(),
-        };
-        let quit = MenuRow::Action {
-            action: IconAction::Quit,
-            label: quit_label(),
-        };
-        let menu = match look {
-            IconLook::NotConnected => vec![
-                MenuRow::Line(lost_connection()),
-                open,
-                MenuRow::Separator,
-                quit,
-            ],
-            // The summary's looks are drawn from [`summary`] (T-0568); until then the plain menu.
-            _ => vec![open, MenuRow::Separator, quit],
-        };
-        Self {
-            look,
-            name: icon_name(look, 0),
-            menu,
-        }
-    }
-}
-
 /// The link part of the icon's state (its [`IconLook::NotConnected`] with the grace period), fed the link's states as
 /// they come.
 #[derive(Debug, Default)]
@@ -187,10 +139,6 @@ impl IconLink {
             }
             _ => IconLook::Plain,
         }
-    }
-
-    pub fn view(&self, now: Instant) -> StatusIconView {
-        StatusIconView::of(self.connection_look(now))
     }
 
     /// When the look changes by itself (the grace period ends), if the link stays as it is.
@@ -318,10 +266,18 @@ pub fn summary(
                 if !lists.first_time(t.key.to_string()) {
                     continue;
                 }
+                let mut target = item.target();
+                // Interrupted and Start failed open the ticket as it opens, nothing resumed (TRY-06).
+                if t.group == NeedsYouGroup::Stopped
+                    && let Target::Ticket { tab, piece, .. } = &mut target
+                {
+                    *tab = Content::Overview;
+                    *piece = None;
+                }
                 let line = Line::Item {
                     text: format!("{} \u{b7} {}", t.key, ticket_reason(t, item.target())),
                     status: Some(t.status),
-                    target: item.target(),
+                    target,
                 };
                 if t.group == NeedsYouGroup::Family {
                     lists.needs_you.push(line);
@@ -481,6 +437,208 @@ fn running_line(r: &RunningItem) -> Line {
     }
 }
 
+// Drawing the summary (T-0568; TRY-04, TRY-06; page 31 `s31-01`, `s31-04`): the native menu's rows, what a line
+// opens, the icon's text and its images.
+// - The menu: the lines (headings and notes disabled, a dot per ticket line in the board's colours), a separator, the
+//   actions, and Stop agents and quit (Quit Otaq while not connected) after its own separator. No submenus, no keys.
+// - Picking a line opens what it names the way a notification click does (`OTAQ_OPEN`'s value in the item's id):
+//   a question or prompt → the ticket's terminal (the check's while it asks), a check → the ticket's Files tab,
+//   Interrupted / Start failed → the ticket as it opens (nothing resumed), Noyan → its conversation.
+// - The images: macOS draws a template per look with the count as the status item's text; Windows and Linux draw
+//   the count into the image (1–9, 9+), one image per taskbar (light or dark) and size (16 and 32 px).
+
+/// The id prefix of a line that opens something: `open:<OTAQ_OPEN value>` ("open:SHOP-22", "open:review:WEB-7").
+pub const OPEN_PREFIX: &str = "open:";
+
+/// The id of "and 31 more · Open Otaq": it opens the window.
+pub const MORE_ID: &str = "more";
+
+/// A ticket line's dot, in the board's colours: turquoise needs you (and a Noyan conversation), red stopped, pink a
+/// check of yours, blue working.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dot {
+    Attention,
+    Stopped,
+    Review,
+    Working,
+}
+
+impl Dot {
+    /// The dot of a line with this ticket status (`None`: a Noyan conversation).
+    pub fn of(status: Option<Status>) -> Self {
+        let Some(status) = status else {
+            return Self::Attention;
+        };
+        match otaq_core::board::needs_you::group_of(status) {
+            Some(NeedsYouGroup::Family) => Self::Attention,
+            Some(NeedsYouGroup::Stopped) => Self::Stopped,
+            Some(NeedsYouGroup::Review) => Self::Review,
+            None => Self::Working,
+        }
+    }
+
+    /// Its colour (`0xRRGGBBAA`) in a light or dark menu: Otaq Light's or Otaq Dark's `st-attn`, `st-error`,
+    /// `st-review` and `st-working`.
+    pub fn rgba(self, dark: bool) -> u32 {
+        let colors = crate::theme::Colors::new(if dark {
+            crate::theme::ThemeId::OtaqDark
+        } else {
+            crate::theme::ThemeId::OtaqLight
+        });
+        match self {
+            Self::Attention => colors.st_attn,
+            Self::Stopped => colors.st_error,
+            Self::Review => colors.st_review,
+            Self::Working => colors.st_working,
+        }
+    }
+}
+
+/// One row of the native menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuRow {
+    /// A disabled line: a heading ("Needs you · 2") or a note ("Otaq lost its connection").
+    Text(String),
+    /// A line that opens something when picked: a ticket or a Noyan conversation ([`OPEN_PREFIX`]), or "and 31 more ·
+    /// Open Otaq" ([`MORE_ID`]).
+    Open {
+        id: String,
+        label: String,
+        dot: Option<Dot>,
+    },
+    Action {
+        action: IconAction,
+        label: String,
+        enabled: bool,
+    },
+    Separator,
+}
+
+/// The native menu of `summary`, in page 31's order.
+pub fn menu(summary: &Summary) -> Vec<MenuRow> {
+    let mut rows: Vec<MenuRow> = summary
+        .lines
+        .iter()
+        .map(|line| match line {
+            Line::Heading(text) | Line::Note(text) => MenuRow::Text(text.clone()),
+            Line::Item {
+                text,
+                status,
+                target,
+            } => match opens(target) {
+                Some(open) => MenuRow::Open {
+                    id: format!("{OPEN_PREFIX}{}", open.to_open_value()),
+                    label: text.clone(),
+                    dot: Some(Dot::of(*status)),
+                },
+                None => MenuRow::Text(text.clone()),
+            },
+            Line::More(text) => MenuRow::Open {
+                id: MORE_ID.to_owned(),
+                label: text.clone(),
+                dot: None,
+            },
+        })
+        .collect();
+    rows.push(MenuRow::Separator);
+    let last = summary.actions.len().saturating_sub(1);
+    for (i, a) in summary.actions.iter().enumerate() {
+        if i == last && i > 0 {
+            rows.push(MenuRow::Separator);
+        }
+        rows.push(MenuRow::Action {
+            action: a.action,
+            label: a.label.clone(),
+            enabled: a.enabled,
+        });
+    }
+    rows
+}
+
+/// What picking a line opens, as a notification's target (the same path, TRY-06): a ticket on Session → its terminal
+/// (the check's on the check's side), on Files → its review, on Overview → the ticket as it opens; a Noyan
+/// conversation → the agent panel. `None` for a key that doesn't read.
+pub fn opens(target: &Target) -> Option<otaq_core::attention::notify::Target> {
+    use otaq_core::attention::notify::Target as Open;
+    Some(match target {
+        Target::Ticket { key, tab, .. } => {
+            let key = key.parse().ok()?;
+            match tab {
+                Content::Files => Open::Review { key },
+                Content::Check => Open::Validator { key },
+                Content::Overview | Content::Activity => Open::Sheet { key },
+                Content::Agent | Content::Run | Content::Shell => Open::Ticket { key },
+            }
+        }
+        Target::Agent { project, agent } => Open::ProjectAgent {
+            project: project.clone(),
+            agent: agent.clone(),
+        },
+    })
+}
+
+/// The status item's text next to the image on macOS: the count while something needs you ("2"), else none (page 31:
+/// "just the number").
+pub fn title(summary: &Summary) -> Option<String> {
+    matches!(
+        summary.look,
+        IconLook::NeedsYou | IconLook::AllPausedNeedsYou
+    )
+    .then(|| summary.count.to_string())
+}
+
+fn look_file(look: IconLook) -> &'static str {
+    match look {
+        IconLook::Plain => "plain",
+        IconLook::NeedsYou => "needs-you",
+        IconLook::AllPaused => "paused",
+        IconLook::AllPausedNeedsYou => "paused-needs-you",
+        IconLook::NotConnected => "not-connected",
+    }
+}
+
+/// Every look, for the image tests.
+pub const LOOKS: [IconLook; 5] = [
+    IconLook::Plain,
+    IconLook::NeedsYou,
+    IconLook::AllPaused,
+    IconLook::AllPausedNeedsYou,
+    IconLook::NotConnected,
+];
+
+/// The macOS template image of `look`, under `icons/tray/`: "macos/needs-you.png".
+pub fn template_image(look: IconLook) -> String {
+    format!("macos/{}.png", look_file(look))
+}
+
+/// The taskbar a Windows / Linux image is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Taskbar {
+    Light,
+    Dark,
+}
+
+/// The Windows / Linux image of `look` with `count` for `taskbar` at `px` (16, or 32 past 16), under `icons/tray/`:
+/// "dark/needs-you-2-16.png", "light/paused-needs-you-9plus-32.png", "dark/plain-16.png". Counts past 9 draw "9+".
+pub fn badge_image(look: IconLook, count: u32, taskbar: Taskbar, px: u32) -> String {
+    let folder = match taskbar {
+        Taskbar::Light => "light",
+        Taskbar::Dark => "dark",
+    };
+    let px = if px > 16 { 32 } else { 16 };
+    let name = look_file(look);
+    match look {
+        IconLook::NeedsYou | IconLook::AllPausedNeedsYou => {
+            let count = match count {
+                0..=9 => count.max(1).to_string(),
+                _ => "9plus".to_owned(),
+            };
+            format!("{folder}/{name}-{count}-{px}.png")
+        }
+        _ => format!("{folder}/{name}-{px}.png"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,33 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn the_menus_and_names() {
-        let plain = StatusIconView::of(IconLook::Plain);
-        assert_eq!(plain.name, PRODUCT_NAME);
-        assert_eq!(
-            plain.menu,
-            [
-                MenuRow::Action {
-                    action: IconAction::OpenOtaq,
-                    label: format!("Open {PRODUCT_NAME}")
-                },
-                MenuRow::Separator,
-                MenuRow::Action {
-                    action: IconAction::Quit,
-                    label: format!("Quit {PRODUCT_NAME}")
-                },
-            ]
-        );
-        let lost = StatusIconView::of(IconLook::NotConnected);
-        assert_eq!(
-            lost.name,
-            format!("{PRODUCT_NAME} · not connected to its background service")
-        );
-        assert_eq!(
-            lost.menu[0],
-            MenuRow::Line(format!("{PRODUCT_NAME} lost its connection"))
-        );
-        assert_eq!(lost.menu[1], plain.menu[0]);
+    fn the_actions_travel_as_ids() {
         for action in IconAction::ALL {
             assert_eq!(IconAction::from_id(action.id()), Some(action));
         }
@@ -580,7 +712,6 @@ mod summary_tests {
 
     use super::*;
     use crate::view_models::needs_you_strip::samples::ticket;
-    use crate::view_models::sheet::Content;
 
     fn running(key: &str, stage: &str, status: Status) -> RunningItem {
         let project = key.split('-').next().unwrap_or_default().to_owned();
@@ -954,5 +1085,135 @@ mod summary_tests {
         // Before the first answer: plain, nothing listed.
         let s = summary(IconLook::Plain, None, None);
         assert_eq!(s.look, IconLook::Plain);
+    }
+
+    fn rows(rows: &[MenuRow]) -> Vec<String> {
+        rows.iter()
+            .map(|r| match r {
+                MenuRow::Text(t) => format!("({t})"),
+                MenuRow::Open { id, label, dot } => format!("{label} [{id}] {dot:?}"),
+                MenuRow::Action { label, enabled, .. } => {
+                    format!("{label}{}", if *enabled { "" } else { " (off)" })
+                }
+                MenuRow::Separator => "---".to_owned(),
+            })
+            .collect()
+    }
+
+    /// T-0568 (TRY-04, TRY-06; page 31): the story's menu in page 31's order, each line opening what TRY-06 says, a
+    /// dot per line, separators before the actions and before Stop agents and quit; the count as the item's text.
+    #[test]
+    fn the_story_draws_page_31s_menu() {
+        let mut story = story();
+        story.items.push(ticket(
+            "SHOP-30",
+            "Search",
+            Status::Interrupted,
+            "session ended",
+        ));
+        story
+            .project_agents
+            .push(noyan("Checkout slowness", Status::AsksYou));
+        let s = summary(IconLook::Plain, Some(&story), Some(&running_projects()));
+        assert_eq!(
+            rows(&menu(&s)),
+            [
+                "(Needs you \u{b7} 2)",
+                "SHOP-22 \u{b7} allow a command [open:SHOP-22] Some(Attention)",
+                "Noyan \u{b7} Checkout slowness asks [open:agent:SHOP:pa1] Some(Attention)",
+                "(Your checks and stopped tickets)",
+                "WEB-7 \u{b7} your check [open:review:WEB-7] Some(Review)",
+                "SHOP-30 \u{b7} Interrupted [open:sheet:SHOP-30] Some(Stopped)",
+                "(Running \u{b7} 2)",
+                "SHOP-18 \u{b7} Dev \u{b7} working [open:SHOP-18] Some(Working)",
+                "WEB-9 \u{b7} Validate \u{b7} checking [open:validator:WEB-9] Some(Working)",
+                "---",
+                &o("Open @"),
+                "Pause all projects",
+                "---",
+                "Stop agents and quit",
+            ]
+        );
+        assert_eq!(title(&s).as_deref(), Some("2"));
+        assert_eq!(
+            title(&summary(IconLook::Plain, None, Some(&running_projects()))),
+            None
+        );
+    }
+
+    /// Not connected (audit AS q2): its line, Open Otaq, Pause all disabled and Quit Otaq on its own.
+    #[test]
+    fn the_not_connected_menu() {
+        let s = summary(
+            IconLook::NotConnected,
+            Some(&story()),
+            Some(&running_projects()),
+        );
+        assert_eq!(
+            rows(&menu(&s)),
+            [
+                o("(@ lost its connection)"),
+                "---".to_owned(),
+                o("Open @"),
+                "Pause all projects (off)".to_owned(),
+                "---".to_owned(),
+                o("Quit @"),
+            ]
+        );
+        assert_eq!(title(&s), None);
+    }
+
+    /// The cap's last line opens the window.
+    #[test]
+    fn and_more_opens_the_window() {
+        let many = list(
+            Vec::new(),
+            Vec::new(),
+            (1..=12)
+                .map(|n| running(&format!("SHOP-{n}"), "Dev", Status::Working))
+                .collect(),
+        );
+        let s = summary(IconLook::Plain, Some(&many), Some(&running_projects()));
+        let rows = menu(&s);
+        assert!(rows.contains(&MenuRow::Open {
+            id: MORE_ID.to_owned(),
+            label: o("and 2 more \u{b7} Open @"),
+            dot: None,
+        }));
+    }
+
+    /// Every look has its images: a macOS template, and per taskbar and size one per count 1–9 and 9+ for the looks
+    /// with a count (the files themselves are checked in otaq-desktop).
+    #[test]
+    fn the_image_names() {
+        assert_eq!(
+            template_image(IconLook::AllPausedNeedsYou),
+            "macos/paused-needs-you.png"
+        );
+        assert_eq!(
+            badge_image(IconLook::NeedsYou, 2, Taskbar::Dark, 16),
+            "dark/needs-you-2-16.png"
+        );
+        assert_eq!(
+            badge_image(IconLook::AllPausedNeedsYou, 12, Taskbar::Light, 32),
+            "light/paused-needs-you-9plus-32.png"
+        );
+        assert_eq!(
+            badge_image(IconLook::NotConnected, 0, Taskbar::Light, 24),
+            "light/not-connected-32.png"
+        );
+        assert_eq!(
+            badge_image(IconLook::AllPaused, 3, Taskbar::Dark, 16),
+            "dark/paused-16.png"
+        );
+    }
+
+    #[test]
+    fn the_dots_are_the_boards_colours() {
+        assert_eq!(Dot::of(None), Dot::Attention);
+        assert_eq!(Dot::of(Some(Status::StartInterrupted)), Dot::Stopped);
+        assert_eq!(Dot::of(Some(Status::Working)), Dot::Working);
+        assert_eq!(Dot::Attention.rgba(false), 0x087A6FFF);
+        assert_eq!(Dot::Attention.rgba(true), 0x2DD4BFFF);
     }
 }

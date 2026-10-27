@@ -49,6 +49,41 @@ fn main() {
             println!("cargo:rustc-env={to}={value}");
         }
     }
+    tray_images();
     println!("cargo:rerun-if-changed=build.rs");
     tauri_build::build()
+}
+
+/// The status icon's images (d0139, page 31; `icons/tray/`, drawn by `scripts/tray-icons.sh`) as a table in
+/// `$OUT_DIR/tray_images.rs`: `(path under icons/tray, bytes)`, only the target's own (`macos/` on macOS, `light/` and
+/// `dark/` elsewhere), read by `src/door.rs`.
+fn tray_images() {
+    let dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("icons/tray");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let macos = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos");
+    let folders: &[&str] = if macos {
+        &["macos"]
+    } else {
+        &["light", "dark"]
+    };
+    let mut rows = String::from("&[\n");
+    for folder in folders {
+        let mut files: Vec<_> = std::fs::read_dir(dir.join(folder))
+            .unwrap_or_else(|e| panic!("icons/tray/{folder}: {e}"))
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|e| e == "png"))
+            .collect();
+        files.sort();
+        for path in files {
+            let name = path.file_name().unwrap().to_string_lossy();
+            rows.push_str(&format!(
+                "    ({:?}, include_bytes!({:?})),\n",
+                format!("{folder}/{name}"),
+                path.display().to_string()
+            ));
+        }
+    }
+    rows.push(']');
+    let out = Path::new(&std::env::var("OUT_DIR").unwrap()).join("tray_images.rs");
+    std::fs::write(out, rows).unwrap();
 }

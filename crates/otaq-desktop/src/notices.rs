@@ -152,6 +152,10 @@ pub enum OpenTarget {
     Ticket { project: String, ticket: String },
     /// The ticket's sheet on Session's check, its validator's terminal focused.
     Validator { project: String, ticket: String },
+    /// The ticket's sheet on its Files tab, to review it (the status icon's "your check" line).
+    Review { project: String, ticket: String },
+    /// The ticket's sheet on the tab it opens on, nothing focused (the status icon's Interrupted and Start failed).
+    Sheet { project: String, ticket: String },
     /// The agent in the Project agent panel, focused.
     ProjectAgent { project: String, agent: String },
     /// A grouped notification or a summary: the item the Needs you strip's Next opens (NYS-03).
@@ -165,6 +169,14 @@ impl From<Target> for OpenTarget {
         match target {
             Target::Ticket { key } => Self::ticket(&key),
             Target::Validator { key } => Self::Validator {
+                project: key.project.to_string(),
+                ticket: key.to_string(),
+            },
+            Target::Review { key } => Self::Review {
+                project: key.project.to_string(),
+                ticket: key.to_string(),
+            },
+            Target::Sheet { key } => Self::Sheet {
                 project: key.project.to_string(),
                 ticket: key.to_string(),
             },

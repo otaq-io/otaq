@@ -33,6 +33,8 @@ and every `npm` command runs from here:
 
 The app icons in `icons/` come from the design's _App Icon 96_ (Command tent, d0076): exported from `crewboard.pen`, put
 on a 1024 px canvas (macOS: an 824 px body; Windows and Linux: a tighter crop) and run through `npm run tauri icon`.
+The status icon's images in `icons/tray/` (d0139, page 31: macOS templates, and Windows / Linux images per look, count,
+taskbar and size) are drawn by `scripts/tray-icons.sh` and committed; `build.rs` builds this platform's into the app.
 
 ## Commands
 

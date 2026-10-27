@@ -338,86 +338,257 @@ const STATUS_ICON: &str = "status";
 #[derive(Default)]
 struct StatusIconUp(AtomicBool);
 
-/// Puts the icon in the menu bar / tray with its menu (plain until the service says otherwise). The image is the app
-/// icon until page 31's art lands (T-0568).
+/// Puts the icon in the menu bar / tray (plain, with the plain menu, until the service's summary arrives). Picking a
+/// line opens it the way a notification click does (TRY-06); the actions are the summary's.
 fn create_status_icon(handle: &tauri::AppHandle) -> tauri::Result<()> {
-    use otaq_view::view_models::status_icon::{IconAction, IconLook, StatusIconView};
-    let view = StatusIconView::of(IconLook::Plain);
-    tauri::tray::TrayIconBuilder::with_id(STATUS_ICON)
-        .icon(tauri::image::Image::from_bytes(include_bytes!(
-            "../icons/32x32.png"
-        ))?)
-        .tooltip(&view.name)
-        .menu(&status_menu(handle, &view)?)
+    use otaq_view::view_models::status_icon::{IconLook, summary};
+    let first = summary(IconLook::Plain, None, None);
+    let builder = tauri::tray::TrayIconBuilder::with_id(STATUS_ICON)
+        .icon(status_image(handle, &first)?)
+        .icon_as_template(cfg!(target_os = "macos"))
+        .tooltip(&first.name)
+        .menu(&status_menu(handle, &first)?)
         .show_menu_on_left_click(true)
-        .on_menu_event(
-            |handle, event| match IconAction::from_id(event.id().as_ref()) {
-                Some(IconAction::OpenOtaq) => {
-                    if let Err(e) = show_main_window(handle) {
-                        eprintln!("couldn't bring the window back: {e}");
-                    }
-                }
-                Some(IconAction::Quit) => handle.exit(0),
-                Some(IconAction::StopAgentsAndQuit) => stop_agents_and_quit(handle),
-                // Not in the menu yet: the summary's menu comes with T-0568.
-                Some(IconAction::PauseAll | IconAction::ResumeAll) | None => {}
-            },
-        )
-        .build(handle)?;
+        .on_menu_event(|handle, event| status_menu_picked(handle, event.id().as_ref()));
+    let _icon = builder.build(handle)?;
+    #[cfg(target_os = "macos")]
+    accessible_name(&_icon, &first.name)?;
     Ok(())
 }
 
-/// The icon's native menu for `view`.
+/// A pick in the icon's menu: a line opens what it names, an action does what it says.
+fn status_menu_picked(handle: &tauri::AppHandle, id: &str) {
+    use otaq_core::agents::pause::PauseScope;
+    use otaq_core::protocol::Request;
+    use otaq_view::view_models::status_icon::{IconAction, MORE_ID, OPEN_PREFIX};
+    if let Some(open) = id.strip_prefix(OPEN_PREFIX) {
+        let open = open.to_owned();
+        bring_back(handle, move |app, _| app.notices.hand_over(&open));
+        return;
+    }
+    let pause = |request: Request| {
+        use tauri::Manager;
+        let app = handle.state::<Arc<App>>().inner().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = app.service.send(request).await {
+                eprintln!("the status icon's pause didn't go through: {e:?}");
+            }
+        });
+    };
+    match IconAction::from_id(id) {
+        Some(IconAction::OpenOtaq) => bring_back(handle, |_, _| {}),
+        // Pause all and Resume all work at once, with no question (PAU-06, All projects).
+        Some(IconAction::PauseAll) => pause(Request::AgentsPause(PauseScope::All)),
+        Some(IconAction::ResumeAll) => pause(Request::AgentsResume(PauseScope::All)),
+        // Stop agents and quit stores the pause, stops every agent and the service, then quits (T-0569).
+        Some(IconAction::StopAgentsAndQuit) => stop_agents_and_quit(handle),
+        // Not connected: Quit Otaq quits the app at once (audit AS q2).
+        Some(IconAction::Quit) => handle.exit(0),
+        None if id == MORE_ID => bring_back(handle, |_, _| {}),
+        None => {}
+    }
+}
+
+/// The icon's native menu for `summary` (page 31): disabled headings and notes, a dot per line, separators before the
+/// actions and before Stop agents and quit.
 fn status_menu(
     handle: &tauri::AppHandle,
-    view: &otaq_view::view_models::status_icon::StatusIconView,
+    summary: &otaq_view::view_models::status_icon::Summary,
 ) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use otaq_view::view_models::status_icon::MenuRow;
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-    let menu = Menu::new(handle)?;
-    for row in &view.menu {
+    use otaq_view::view_models::status_icon::{MenuRow, menu};
+    use tauri::menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem};
+    let dark = dark_appearance(handle);
+    let built = Menu::new(handle)?;
+    for row in menu(summary) {
         match row {
-            MenuRow::Line(text) => {
-                menu.append(&MenuItem::new(handle, text, false, None::<&str>)?)?
+            MenuRow::Text(text) => {
+                built.append(&MenuItem::new(handle, text, false, None::<&str>)?)?
             }
-            MenuRow::Action { action, label } => menu.append(&MenuItem::with_id(
+            MenuRow::Open {
+                id,
+                label,
+                dot: Some(dot),
+            } => built.append(&IconMenuItem::with_id(
+                handle,
+                id,
+                label,
+                true,
+                Some(dot_image(dot.rgba(dark))),
+                None::<&str>,
+            )?)?,
+            MenuRow::Open {
+                id,
+                label,
+                dot: None,
+            } => built.append(&MenuItem::with_id(handle, id, label, true, None::<&str>)?)?,
+            MenuRow::Action {
+                action,
+                label,
+                enabled,
+            } => built.append(&MenuItem::with_id(
                 handle,
                 action.id(),
                 label,
-                true,
+                enabled,
                 None::<&str>,
             )?)?,
-            MenuRow::Separator => menu.append(&PredefinedMenuItem::separator(handle)?)?,
+            MenuRow::Separator => built.append(&PredefinedMenuItem::separator(handle)?)?,
         }
     }
-    Ok(menu)
+    Ok(built)
 }
 
-/// Shows `view` on the icon: its menu and its name. Call on the main thread.
+/// Whether the OS draws dark menus now: the window's theme, which follows the OS's.
+fn dark_appearance(handle: &tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    handle
+        .get_webview_window(MAIN_WINDOW)
+        .and_then(|w| w.theme().ok())
+        .is_some_and(|theme| theme == tauri::Theme::Dark)
+}
+
+/// A line's dot: a filled circle in `rgba` (`0xRRGGBBAA`), 32 px with an 11 px one in its middle, which the menu shows
+/// at its icon size.
+fn dot_image(rgba: u32) -> tauri::image::Image<'static> {
+    const SIZE: u32 = 32;
+    const RADIUS: f32 = 5.5;
+    let [r, g, b, a] = rgba.to_be_bytes();
+    let centre = SIZE as f32 / 2.0;
+    let mut pixels = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let (dx, dy) = (x as f32 + 0.5 - centre, y as f32 + 0.5 - centre);
+            // Anti-aliased edge: full inside, fading over the last pixel.
+            let cover = (RADIUS + 0.5 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+            pixels.extend_from_slice(&[r, g, b, (f32::from(a) * cover).round() as u8]);
+        }
+    }
+    tauri::image::Image::new_owned(pixels, SIZE, SIZE)
+}
+
+/// The tray images (`icons/tray/`, drawn by `scripts/tray-icons.sh`): `(path under icons/tray, bytes)`, this
+/// platform's only (build.rs).
+const TRAY_IMAGES: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/tray_images.rs"));
+
+/// The icon's image for `summary`: on macOS the look's template (the count is the item's text); on Windows and Linux
+/// the look with its count drawn in, for the taskbar's light or dark, at 32 px on a 200 % display (and on Linux).
+fn status_image(
+    handle: &tauri::AppHandle,
+    summary: &otaq_view::view_models::status_icon::Summary,
+) -> tauri::Result<tauri::image::Image<'static>> {
+    use otaq_view::view_models::status_icon::{badge_image, template_image};
+    let name = if cfg!(target_os = "macos") {
+        template_image(summary.look)
+    } else {
+        badge_image(summary.look, summary.count, taskbar(), tray_px(handle))
+    };
+    let bytes = TRAY_IMAGES
+        .iter()
+        .find(|(file, _)| *file == name)
+        .map(|(_, bytes)| *bytes)
+        .ok_or_else(|| std::io::Error::other(format!("no tray image {name}")))?;
+    tauri::image::Image::from_bytes(bytes).map(|image| image.to_owned())
+}
+
+/// The tray's size: 32 px on a display at 150 % or more, and on Linux (its trays draw 22–24 px); 16 px otherwise.
+fn tray_px(handle: &tauri::AppHandle) -> u32 {
+    use tauri::Manager;
+    if cfg!(target_os = "linux") {
+        return 32;
+    }
+    let scale = handle
+        .get_webview_window(MAIN_WINDOW)
+        .and_then(|w| w.scale_factor().ok())
+        .or_else(|| {
+            handle
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .map(|m| m.scale_factor())
+        })
+        .unwrap_or(1.0);
+    if scale >= 1.5 { 32 } else { 16 }
+}
+
+/// The taskbar's light or dark: Windows' "Choose your default Windows mode" (`SystemUsesLightTheme`), dark when it
+/// can't be read; Linux panels are taken as dark (GNOME's, KDE's and most others).
+#[cfg(not(target_os = "macos"))]
+fn taskbar() -> otaq_view::view_models::status_icon::Taskbar {
+    use otaq_view::view_models::status_icon::Taskbar;
+    #[cfg(windows)]
+    {
+        let light = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            .and_then(|key| key.get_value::<u32, _>("SystemUsesLightTheme"))
+            .is_ok_and(|v| v == 1);
+        if light {
+            return Taskbar::Light;
+        }
+    }
+    Taskbar::Dark
+}
+
+#[cfg(target_os = "macos")]
+fn taskbar() -> otaq_view::view_models::status_icon::Taskbar {
+    otaq_view::view_models::status_icon::Taskbar::Dark
+}
+
+/// Shows `summary` on the icon: its image, the count as its text on macOS, its name and its menu. Call on the main
+/// thread. On macOS a menu that is open while it changes stays as it was (the status item shows a copy it tracks
+/// on its own); the next click shows the new one.
 fn show_status_icon(
     handle: &tauri::AppHandle,
-    view: &otaq_view::view_models::status_icon::StatusIconView,
+    summary: &otaq_view::view_models::status_icon::Summary,
 ) -> tauri::Result<()> {
     let Some(icon) = handle.tray_by_id(STATUS_ICON) else {
         return Ok(());
     };
-    icon.set_menu(Some(status_menu(handle, view)?))?;
-    icon.set_tooltip(Some(&view.name))
+    icon.set_icon(Some(status_image(handle, summary)?))?;
+    if cfg!(target_os = "macos") {
+        icon.set_icon_as_template(true)?;
+        icon.set_title(otaq_view::view_models::status_icon::title(summary))?;
+    }
+    icon.set_menu(Some(status_menu(handle, summary)?))?;
+    #[cfg(target_os = "macos")]
+    accessible_name(&icon, &summary.name)?;
+    icon.set_tooltip(Some(&summary.name))
 }
 
-/// Keeps the icon following the link ([`crate::status_icon::follow`]) for as long as the app runs.
+/// The status item's accessible name on macOS ("Otaq · 2 need you"), which VoiceOver reads; the tooltip is only its
+/// hover text.
+#[cfg(target_os = "macos")]
+fn accessible_name(icon: &tauri::tray::TrayIcon, name: &str) -> tauri::Result<()> {
+    let name = name.to_owned();
+    icon.with_inner_tray_icon(move |inner| {
+        use objc2_app_kit::NSAccessibility;
+        let (Some(mtm), Some(item)) = (objc2::MainThreadMarker::new(), inner.ns_status_item())
+        else {
+            return;
+        };
+        if let Some(button) = item.button(mtm) {
+            button.setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(&name)));
+        }
+    })
+}
+
+/// Keeps the icon on the service's summary ([`crate::status_icon::StatusIcon`]) for as long as the app runs.
 fn follow_status_icon(handle: &tauri::AppHandle, app: Arc<App>, runtime: &tokio::runtime::Handle) {
     let handle = handle.clone();
     runtime.spawn(async move {
-        crate::status_icon::follow(&app, |view| {
-            let (on_main, view) = (handle.clone(), view.clone());
+        let icon = crate::status_icon::StatusIcon::start(&app.service, app.events.clone());
+        let mut changes = icon.changes();
+        loop {
+            let summary = changes.borrow_and_update().clone();
+            let on_main = handle.clone();
             let _ = handle.run_on_main_thread(move || {
-                if let Err(e) = show_status_icon(&on_main, &view) {
+                if let Err(e) = show_status_icon(&on_main, &summary) {
                     eprintln!("couldn't update the status icon: {e}");
                 }
             });
-        })
-        .await;
+            if changes.changed().await.is_err() {
+                return;
+            }
+        }
     });
 }
 

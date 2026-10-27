@@ -5,4 +5,4 @@
  * opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the agent panel, the
  * next item that needs you (the Needs you strip's Next, d0114), or the board.
  */
-export type NotificationTarget = { "kind": "ticket", project: string, ticket: string, } | { "kind": "validator", project: string, ticket: string, } | { "kind": "project_agent", project: string, agent: string, } | { "kind": "needs_you" } | { "kind": "board", project: string | null, };
+export type NotificationTarget = { "kind": "ticket", project: string, ticket: string, } | { "kind": "validator", project: string, ticket: string, } | { "kind": "review", project: string, ticket: string, } | { "kind": "sheet", project: string, ticket: string, } | { "kind": "project_agent", project: string, agent: string, } | { "kind": "needs_you" } | { "kind": "board", project: string | null, };

@@ -160,7 +160,8 @@ const OPEN_ROUTES: OpenRoutes = {
 
 /**
  * Opens what a notification names (d0090 "What a click opens"), its project on screen: a ticket on Session with the
- * terminal focused (the check's side for a validator's prompt), a Project agent in the agent panel, the item the
+ * terminal focused (the check's side for a validator's prompt), a ticket on Files or as it opens (the status icon's
+ * lines), a Project agent in the agent panel, the item the
  * Needs you strip's Next opens (a grouped notification or a summary, NYS-03), or the board. An item answered meanwhile opens the same place.
  */
 export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN_ROUTES): void {
@@ -171,6 +172,16 @@ export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN
       // Session, on the check's side for a validator's notification.
       openTicket(target.ticket, target.kind === "validator" ? "check" : "agent", routes.selection);
       requestTerminalFocus(target.ticket, routes.focus);
+      break;
+    // The status icon's lines (d0139, TRY-06): a check opens on Files to review it; Interrupted and Start failed open
+    // the ticket as it opens, nothing resumed.
+    case "review":
+      selectProject(target.project, routes.selection);
+      openTicket(target.ticket, "files", routes.selection);
+      break;
+    case "sheet":
+      selectProject(target.project, routes.selection);
+      openTicket(target.ticket, undefined, routes.selection);
       break;
     case "project_agent":
       showAgentInPanel(target.project, target.agent, routes.agentPanel);
