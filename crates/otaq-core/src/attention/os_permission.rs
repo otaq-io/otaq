@@ -18,14 +18,15 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, watch};
 
 use super::NeedsYouQueue;
-use super::notify::{Notifier, PermissionState};
+use super::notify::{Notifier, OnClick, PermissionState};
 use crate::board::{Board, BoardError};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::SessionKind;
 use crate::store::Store;
 use crate::store::settings::{
-    NOTIFICATIONS_ASK_ANSWERED, NOTIFICATIONS_ASK_PENDING, NOTIFICATIONS_BLOCKED_DISMISSED,
+    FIRST_HIDE_NOTE_SHOWN, NOTIFICATIONS_ASK_ANSWERED, NOTIFICATIONS_ASK_PENDING,
+    NOTIFICATIONS_BLOCKED_DISMISSED,
 };
 
 /// The answer to `notifications.state` and the payload of `notifications_changed`.
@@ -37,6 +38,28 @@ pub struct NotificationsState {
     pub ask_pending: bool,
     /// The "macOS is blocking Otaq's notifications" banner is up.
     pub blocked_banner: bool,
+}
+
+/// The answer to `app.first_hide` (TRY-02, d0139): where the first-hide note went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FirstHide {
+    /// It went out before, for this data folder: nothing now.
+    Shown,
+    /// Posted as an OS notification.
+    Posted,
+    /// Otaq's notifications are off or the OS blocks them: the window shows it the next time it opens.
+    InWindow { title: String, body: String },
+}
+
+/// Whether the first-hide note can go out as an OS notification: Otaq's switch on and the OS not known to drop it
+/// (turned off, or never asked: macOS drops a notification it was never asked about).
+pub fn first_hide_posts(switch_on: bool, permission: PermissionState) -> bool {
+    switch_on
+        && !matches!(
+            permission,
+            PermissionState::TurnedOff | PermissionState::NotAsked
+        )
 }
 
 /// The permission, the ask and the blocked banner. Cheap to clone.
@@ -174,6 +197,31 @@ impl OsPermission {
         Ok(())
     }
 
+    /// `app.first_hide`: the window hid; the first time for this data folder, the note says Otaq keeps running in the
+    /// menu bar / tray (`note`), as an OS notification ([`first_hide_posts`], `on_click` on a click) or, when it can't
+    /// go out, kept for the window.
+    pub async fn first_hide(
+        &self,
+        note: super::notify::OsNotification,
+        on_click: OnClick,
+    ) -> Result<FirstHide, BoardError> {
+        let store = &self.inner.store;
+        if flag(store, FIRST_HIDE_NOTE_SHOWN).await? {
+            return Ok(FirstHide::Shown);
+        }
+        store.set_setting(FIRST_HIDE_NOTE_SHOWN, "true").await?;
+        let switch_on = self.inner.board.global_settings().await?.notifications;
+        if first_hide_posts(switch_on, self.inner.notifier.permission()) {
+            self.inner.notifier.post(&note, on_click);
+            Ok(FirstHide::Posted)
+        } else {
+            Ok(FirstHide::InWindow {
+                title: note.title,
+                body: note.body,
+            })
+        }
+    }
+
     /// `notifications.dismiss_blocked`: the banner stays closed for the permission it was closed for.
     pub async fn dismiss_blocked(&self) -> Result<(), BoardError> {
         let permission = self.inner.notifier.permission();
@@ -231,4 +279,31 @@ enum Next {
 
 async fn flag(store: &Store, key: &str) -> Result<bool, BoardError> {
     Ok(store.setting(key).await?.is_some_and(|v| v == "true"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T-0566 (d0139, audit AS q4): the first-hide note is an OS notification unless Otaq's switch is off or the OS
+    /// would drop it.
+    #[test]
+    fn where_the_first_hide_note_goes() {
+        use PermissionState::*;
+        for (switch_on, permission, posts) in [
+            (true, Allowed, true),
+            (true, OutsideBundle, true),
+            (true, Unknown, true),
+            (true, TurnedOff, false),
+            (true, NotAsked, false),
+            (false, Allowed, false),
+            (false, Unknown, false),
+        ] {
+            assert_eq!(
+                first_hide_posts(switch_on, permission),
+                posts,
+                "{switch_on} {permission:?}"
+            );
+        }
+    }
 }

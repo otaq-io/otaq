@@ -205,6 +205,10 @@ pub enum Request {
     /// Answered with [`Reply::Ok`].
     #[serde(rename = "notifications.dismiss_blocked")]
     NotificationsDismissBlocked,
+    /// The app's window hid (closing hides it, d0139): the first time for this data folder, the first-hide note goes
+    /// out (TRY-02). Answered with [`Reply::FirstHide`].
+    #[serde(rename = "app.first_hide")]
+    AppFirstHide,
 
     // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`]
     // ([`Reply::ProjectAdded`] for `project.add`).
@@ -1939,6 +1943,7 @@ impl Request {
             Self::NotificationsState => "notifications.state",
             Self::NotificationsAskAnswered => "notifications.ask_answered",
             Self::NotificationsDismissBlocked => "notifications.dismiss_blocked",
+            Self::AppFirstHide => "app.first_hide",
             Self::ProjectList => "project.list",
             Self::ProjectProbe(_) => "project.probe",
             Self::ProjectAdd(_) => "project.add",
@@ -2170,6 +2175,7 @@ pub enum Reply {
     OnboardingSources(crate::onboarding::Sources),
     FlowSetup(Box<crate::project_agents::first_flow::FlowSetup>),
     NotificationsState(crate::attention::os_permission::NotificationsState),
+    FirstHide(crate::attention::os_permission::FirstHide),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
     /// The answer to `project.add`: the project, and whether the agent tools' trust was recorded for its folder
@@ -2807,6 +2813,7 @@ mod tests {
             Message::request(13, Request::NotificationsState),
             Message::request(13, Request::NotificationsAskAnswered),
             Message::request(13, Request::NotificationsDismissBlocked),
+            Message::request(13, Request::AppFirstHide),
             Message::event(Event::NotificationsChanged {
                 state: crate::attention::os_permission::NotificationsState {
                     permission: crate::attention::notify::PermissionState::TurnedOff,

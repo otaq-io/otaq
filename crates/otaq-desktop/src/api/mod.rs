@@ -150,7 +150,7 @@ pub use ticket_comments::export_types as export_ticket_comment_types;
 pub use tools::Opened as ToolTerminalOpened;
 #[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
-pub use window::{WindowFocus, follow_window_focus, window_focused};
+pub use window::{WindowFocus, follow_window_focus, window_focused, window_hidden};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
 macro_rules! areas {

@@ -10,7 +10,7 @@ use otaq_core::attention::notify::pace::{FakeClock, QUIET};
 use otaq_core::attention::notify::{
     Notifier, OnClick, OsNotification, PermissionChanged, PermissionState, Target,
 };
-use otaq_core::attention::os_permission::NotificationsState;
+use otaq_core::attention::os_permission::{FirstHide, NotificationsState};
 use otaq_core::board::settings::GlobalSettings;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
@@ -496,4 +496,56 @@ async fn the_blocked_banner_shows_once_per_turn_off() {
     app.request(Request::SettingsSet(settings)).await.unwrap();
     assert!(!notifications_state(&app).await.blocked_banner);
     w.stop().await;
+}
+
+async fn first_hide(client: &Client) -> FirstHide {
+    match client.request(Request::AppFirstHide).await.unwrap() {
+        Reply::FirstHide(answer) => answer,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// T-0566 (TRY-02, d0139): the first time the window hides, the note goes out as an OS notification counting the
+/// agents at work, once per data folder; a click opens the board.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_hide_note_goes_out_once() {
+    let (w, recorder, _clock) = world().await;
+    let (_t, _agent, _session) = working(&w, "Split user full name").await;
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert_eq!(first_hide(&app).await, FirstHide::Posted);
+    {
+        let posted = recorder.0.lock().unwrap();
+        let expected = otaq_core::attention::notify::first_hide(std::env::consts::OS, 1);
+        assert_eq!(*posted, [expected]);
+        assert_eq!(posted[0].target, Target::Board { project: None });
+    }
+    assert_eq!(first_hide(&app).await, FirstHide::Shown);
+    let again = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert_eq!(
+        first_hide(&again).await,
+        FirstHide::Shown,
+        "kept in the data folder"
+    );
+    assert_eq!(recorder.titles().len(), 1);
+    w.stop().await;
+}
+
+/// T-0566 (d0139, audit AS q4): with the OS blocking Otaq's notifications, the note is kept for the window instead,
+/// still once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blocked_first_hide_note_waits_for_the_window() {
+    for permission in [PermissionState::TurnedOff, PermissionState::NotAsked] {
+        let (w, _permissions) = permission_world(permission).await;
+        let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+        let note = otaq_core::attention::notify::first_hide(std::env::consts::OS, 0);
+        assert_eq!(
+            first_hide(&app).await,
+            FirstHide::InWindow {
+                title: note.title,
+                body: note.body
+            }
+        );
+        assert_eq!(first_hide(&app).await, FirstHide::Shown);
+        w.stop().await;
+    }
 }

@@ -217,6 +217,9 @@ struct State {
     open_at_start: Option<OpenTarget>,
     /// The page has asked for [`Self::open_at_start`], so it follows `open_from_notification` events from now on.
     page_follows: bool,
+    /// The first-hide note the OS couldn't show (TRY-02, d0139 audit AS q4): its title and text, shown in the window
+    /// the next time it opens.
+    first_hide_note: Option<(String, String)>,
     published: Option<NoticesView>,
     /// The project on screen, which the flow change banner is about (the page tells, `notices.project`).
     project: Option<String>,
@@ -271,6 +274,7 @@ impl Notices {
                 busy: false,
                 open_at_start,
                 page_follows: false,
+                first_hide_note: None,
                 published: None,
                 project: None,
                 flows: BTreeMap::new(),
@@ -309,6 +313,20 @@ impl Notices {
         let summarized = self.lock().on_link(link, Instant::now());
         self.publish();
         summarized
+    }
+
+    /// The first-hide note couldn't go out as an OS notification (Otaq's notifications off, or the OS blocks them):
+    /// the window shows it when it opens next ([`Self::window_shown`]).
+    pub fn keep_first_hide_note(&self, title: String, text: String) {
+        self.lock().first_hide_note = Some((title, text));
+    }
+
+    /// The window was shown: a kept first-hide note shows now, once, as a toast.
+    pub fn window_shown(&self) {
+        let Some((title, text)) = self.lock().first_hide_note.take() else {
+            return;
+        };
+        self.toast(NewToast::new(ToastLevel::Success, title, Some(text)));
     }
 
     pub fn toast(&self, toast: NewToast) -> u64 {
@@ -1569,6 +1587,25 @@ mod tests {
         );
         assert!(n.take_open_at_start().is_some());
         assert_eq!(n.take_open_at_start(), None, "only once");
+    }
+
+    /// T-0566 (d0139, audit AS q4): a first-hide note kept for the window shows as a toast the next time the window
+    /// opens, once.
+    #[test]
+    fn a_kept_first_hide_note_shows_when_the_window_opens() {
+        let note = otaq_core::attention::notify::first_hide("macos", 0);
+        let n = Notices::new(Arc::new(EventHub::default()), OPENED, None);
+        n.window_shown();
+        assert!(n.view().toasts.is_empty(), "nothing kept");
+        n.keep_first_hide_note(note.title.clone(), note.body.clone());
+        assert!(n.view().toasts.is_empty(), "not while hidden");
+        n.window_shown();
+        let toasts = n.view().toasts;
+        assert_eq!(toasts.len(), 1);
+        assert_eq!(toasts[0].title, note.title);
+        assert_eq!(toasts[0].text.as_deref(), Some(note.body.as_str()));
+        n.window_shown();
+        assert_eq!(n.view().toasts.len(), 1, "once");
     }
 
     /// T-0565 (d0139): a second start's `OTAQ_OPEN` value reaches the page the way a notification click does: as the
