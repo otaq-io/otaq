@@ -408,9 +408,13 @@ npm run bundle -- --target universal-apple-darwin --bundles app --config '{"bund
 app=$CARGO_TARGET_DIR/universal-apple-darwin/release/bundle/macos/Otaq.app   # or target/…
 ../../scripts/macos-sign.sh "$app"                          # otaq under io.otaq.desktop, the bundle sealed again
 ../../scripts/macos-dmg.sh "$app" Otaq_0.1.0_universal.dmg  # the app and an Applications shortcut
-tar -C "$(dirname "$app")" -czf Otaq.app.tar.gz Otaq.app      # the updater's file, from the signed app
-npx tauri signer sign Otaq.app.tar.gz                        # Otaq.app.tar.gz.sig (TAURI_SIGNING_PRIVATE_KEY)
+COPYFILE_DISABLE=1 tar -C "$(dirname "$app")" -czf Otaq.app.tar.gz Otaq.app   # the updater's file, from the signed app
+npx tauri signer sign --app-version 0.1.0 Otaq.app.tar.gz    # Otaq.app.tar.gz.sig (TAURI_SIGNING_PRIVATE_KEY)
 ```
+
+`COPYFILE_DISABLE=1` keeps macOS's `tar` from adding `._Otaq.app` AppleDouble files, which make the update fail
+unpacking (PermissionDenied). The release workflow does these last four steps with `scripts/release/macos-finish.sh
+<Otaq.app> <version> <out folder>`; use it by hand too.
 
 Tauri's own `--bundles dmg` (and `tauri bundle --bundles dmg`) makes the app again and signs it its own way, and
 `createUpdaterArtifacts` packs the app as Tauri signed it, so neither is used on macOS. Windows and Linux use Tauri's

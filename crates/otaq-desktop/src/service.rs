@@ -595,6 +595,23 @@ async fn poll(weak: Weak<Shared>) {
         let Some(shared) = weak.upgrade() else {
             return;
         };
+        // On the newer-database screen, a service started meanwhile (`otaq restore-database` in a terminal put the copy
+        // back and started it) is connected to, and the board comes back. Not while the window's own restore runs.
+        let reconnect = {
+            let link = shared.lock();
+            matches!(&link.state, LinkState::NewerDatabase(state) if !matches!(state.restore, RestoreRun::Running(_)))
+                && !link.restarting
+                && shared
+                    .settings
+                    .as_ref()
+                    .is_ok_and(|s| service_alive(&s.data.service_lock_path()))
+        };
+        if reconnect {
+            shared.lock().restarting = true;
+            let _ = connect(shared.clone()).await;
+            shared.lock().restarting = false;
+            continue;
+        }
         let refresh = {
             let mut link = shared.lock();
             if matches!(
@@ -1075,6 +1092,40 @@ mod tests {
         let status = otaq_core::client::request_once(&socket, Request::ServiceStatus).await;
         assert!(matches!(status, Ok(Reply::ServiceStatus(_))), "{status:?}");
         service.stop_all().await;
+    }
+
+    /// UPD-08, the link starting on a newer database (the app opened on it): the screen takes input (the window isn't
+    /// dimmed), and when the board is restored from a terminal and a service starts, the link leaves the screen by
+    /// itself and connects.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_launch_on_a_newer_board_takes_input_and_leaves_the_screen_once_a_terminal_restores_it()
+     {
+        let h = Harness::on_newer_database("9.0.0").await;
+        h.wait_for("the newer-database screen", |c| {
+            matches!(c, Connection::NewerDatabase { .. })
+        })
+        .await;
+        let notices = h.app.notices.view();
+        assert!(notices.input_enabled, "the screen's buttons take clicks");
+        assert!(notices.banners.is_empty(), "no banner over the screen");
+
+        // As `otaq restore-database --yes` does it from a terminal: the copy back, then a service started.
+        struct Outside;
+        impl otaq_core::store::restore::ServiceControl for Outside {
+            fn stop(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+            fn start(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        let data = h.service.data.clone();
+        otaq_core::store::restore::restore(&data.database_path(), &mut Outside, &mut |_| {})
+            .unwrap();
+        h.service.bind().await.unwrap();
+        h.wait_for("connected", connected).await;
+        assert!(h.app.notices.view().input_enabled);
+        h.service.stop_all().await;
     }
 
     /// UPD-08: a board a newer build changed shows its screen instead of the board, and Restore puts the copy back,
