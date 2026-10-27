@@ -11184,6 +11184,10 @@
           "ty": "Option<LastCheck>",
           "omittable": true
         },
+        "last_version": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "skipped": {
           "ty": "Option<String>",
           "omittable": true
@@ -11199,6 +11203,10 @@
         },
         "last_check": {
           "ty": "Option<LastCheck>",
+          "omittable": true
+        },
+        "last_version": {
+          "ty": "Option<String>",
           "omittable": true
         },
         "skipped": {

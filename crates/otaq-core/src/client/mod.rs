@@ -229,16 +229,10 @@ impl Client {
         Ok(receiver)
     }
 
-    /// Replaces the running service with this build's: asks the old one to stop, waits until it has ended,
-    /// starts the new one with `launcher` and waits until the client is connected to it. Also starts a service
-    /// when none runs. Only ever called on the user's click; the service never restarts itself (d0022). A
-    /// restart ends the old service's sessions like a reboot (d0045); reconcile handles them from T-0111.
-    pub async fn restart(&self, launcher: &dyn Launcher) -> Result<ServiceInfo, ClientError> {
+    /// Stops the service and waits until it has gone (its lock released), the first half of [`Self::restart`]. An
+    /// update the service can't work with stops it this way before the new app starts its own (d0140, 0022).
+    pub async fn stop(&self) -> Result<(), ClientError> {
         let config = &self.inner.config;
-        let old = match &*self.inner.state.borrow() {
-            ConnectionState::Connected(info) => Some(info.status.clone()),
-            ConnectionState::Reconnecting { .. } => None,
-        };
         match self.request(Request::ServiceStop).await {
             Ok(Reply::Ok) | Err(ClientError::Disconnected) => {}
             Ok(other) => return Err(ClientError::Unexpected(Box::new(other))),
@@ -255,6 +249,20 @@ impl Client {
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+        Ok(())
+    }
+
+    /// Replaces the running service with this build's: asks the old one to stop, waits until it has ended,
+    /// starts the new one with `launcher` and waits until the client is connected to it. Also starts a service
+    /// when none runs. Only ever called on the user's click; the service never restarts itself (d0022). A
+    /// restart ends the old service's sessions like a reboot (d0045); reconcile handles them from T-0111.
+    pub async fn restart(&self, launcher: &dyn Launcher) -> Result<ServiceInfo, ClientError> {
+        let config = &self.inner.config;
+        let old = match &*self.inner.state.borrow() {
+            ConnectionState::Connected(info) => Some(info.status.clone()),
+            ConnectionState::Reconnecting { .. } => None,
+        };
+        self.stop().await?;
         launcher.launch().await.map_err(ClientError::Start)?;
         self.inner.retry_now.notify_one();
 

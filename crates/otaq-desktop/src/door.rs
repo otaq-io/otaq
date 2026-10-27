@@ -457,6 +457,18 @@ fn status_menu_picked(handle: &tauri::AppHandle, id: &str) {
         Some(IconAction::ResumeAll) => pause(Request::AgentsResume(PauseScope::All)),
         // Stop agents and quit stores the pause, stops every agent and the service, then quits (T-0569).
         Some(IconAction::StopAgentsAndQuit) => stop_agents_and_quit(handle),
+        // The ready update, without a question (page 32 item 3): only the app, or the service too as its label says.
+        Some(IconAction::RestartToUpdate) => {
+            use tauri::Manager;
+            let app = handle.state::<Arc<App>>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::api::restart_for_update(
+                    &app,
+                    otaq_view::view_models::updates::Trigger::Menu,
+                )
+                .await;
+            });
+        }
         // Not connected: Quit Otaq quits the app at once (audit AS q2).
         Some(IconAction::Quit) => handle.exit(0),
         None if id == MORE_ID => bring_back(handle, |_, _| {}),
@@ -652,15 +664,26 @@ fn follow_status_icon(handle: &tauri::AppHandle, app: Arc<App>, runtime: &tokio:
     runtime.spawn(async move {
         let icon = crate::status_icon::StatusIcon::start(&app.service, app.events.clone());
         let mut changes = icon.changes();
+        // Restart to update follows the updater and the service's agent count (page 32 item 3).
+        let mut updates = app.updates.changes();
+        let mut states = app.service.states();
         loop {
-            let summary = changes.borrow_and_update().clone();
+            let summary = otaq_view::view_models::status_icon::with_restart(
+                changes.borrow_and_update().clone(),
+                crate::api::restart_label(&app),
+            );
             let on_main = handle.clone();
             let _ = handle.run_on_main_thread(move || {
                 if let Err(e) = show_status_icon(&on_main, &summary) {
                     eprintln!("couldn't update the status icon: {e}");
                 }
             });
-            if changes.changed().await.is_err() {
+            let changed = tokio::select! {
+                changed = changes.changed() => changed,
+                changed = updates.changed() => changed,
+                changed = states.changed() => changed,
+            };
+            if changed.is_err() {
                 return;
             }
         }
@@ -697,6 +720,147 @@ impl crate::updates::Source for UpdaterPlugin {
             }))
         })
     }
+}
+
+impl crate::updates::Installer for UpdaterPlugin {
+    fn prepare<'a>(
+        &'a self,
+        dir: &'a std::path::Path,
+        version: &'a str,
+    ) -> crate::updates::BoxFuture<
+        'a,
+        Result<Box<dyn crate::updates::Prepared>, crate::updates::InstallFailed>,
+    > {
+        use crate::updates::{InstallFailed, kept_bytes, pubkey, signature_matches, test_endpoint};
+        use tauri_plugin_updater::UpdaterExt;
+        Box::pin(async move {
+            let folder = installed_folder();
+            let failed = |offline: bool, error: String| InstallFailed {
+                folder: folder.clone(),
+                permission: false,
+                offline,
+                error,
+            };
+            let bytes = std::fs::read(kept_bytes(dir, version))
+                .map_err(|e| failed(false, e.to_string()))?;
+            // The plugin installs only an `Update` it made itself: ask the release again (the same address as the
+            // daily check), then use the kept bytes rather than downloading them twice.
+            let mut builder = self
+                .0
+                .updater_builder()
+                .timeout(std::time::Duration::from_secs(20));
+            if let Some(endpoint) = test_endpoint() {
+                let url = endpoint
+                    .parse()
+                    .map_err(|e| failed(false, format!("{e}")))?;
+                builder = builder
+                    .endpoints(vec![url])
+                    .map_err(|e| failed(false, e.to_string()))?;
+            }
+            let update = builder
+                .build()
+                .map_err(|e| failed(false, e.to_string()))?
+                .check()
+                .await
+                .map_err(|e| failed(true, e.to_string()))?
+                // The release moved on (or back): this one stays ready until the next check.
+                .filter(|u| u.version == version)
+                .ok_or_else(|| failed(true, format!("the release no longer offers {version}")))?;
+            if !signature_matches(&bytes, &update.signature, pubkey()) {
+                return Err(failed(false, "its signature didn't match".into()));
+            }
+            Ok(Box::new(PluginPrepared {
+                update,
+                bytes,
+                folder: folder.clone(),
+            }) as Box<dyn crate::updates::Prepared>)
+        })
+    }
+}
+
+/// The plugin's `Update` with the kept bytes, checked: its install puts the new app in place (the macOS bundle swap,
+/// the Windows setup, the AppImage).
+struct PluginPrepared {
+    update: tauri_plugin_updater::Update,
+    bytes: Vec<u8>,
+    folder: String,
+}
+
+impl crate::updates::Prepared for PluginPrepared {
+    fn install(self: Box<Self>) -> Result<(), crate::updates::InstallFailed> {
+        use tauri_plugin_updater::Error;
+        let PluginPrepared {
+            update,
+            bytes,
+            folder,
+        } = *self;
+        update
+            .install(bytes)
+            .map_err(|e| crate::updates::InstallFailed {
+                folder,
+                permission: match &e {
+                    Error::Io(io) => io.kind() == std::io::ErrorKind::PermissionDenied,
+                    Error::AuthenticationFailed => true,
+                    _ => false,
+                },
+                offline: false,
+                error: e.to_string(),
+            })
+    }
+}
+
+impl crate::updates::Relaunch for UpdaterPlugin {
+    fn relaunch(&self, failed: Option<(String, String)>) {
+        use crate::install_place::{moved_from_var, reopen_command};
+        let failed = failed.map(|(version, why)| {
+            (
+                crate::updates::failed_var(),
+                crate::updates::failed_value(&version, &why),
+            )
+        });
+        let bundle = otaq_core::attention::bundle::current().map(|b| b.root);
+        let mut command = match bundle {
+            // macOS: through LaunchServices, as Move to Applications reopens (T-0579).
+            Some(bundle) if cfg!(target_os = "macos") => {
+                let home = std::env::var_os(otaq_core::data_dir::DataDir::env_var());
+                let mut command = reopen_command(&bundle, home.as_deref());
+                if let Some((name, value)) = &failed {
+                    command.arg("--env").arg(format!("{name}={value}"));
+                }
+                command
+            }
+            _ => {
+                let program = std::env::var_os("APPIMAGE")
+                    .map(PathBuf::from)
+                    .or_else(|| std::env::current_exe().ok())
+                    .unwrap_or_default();
+                let mut command = std::process::Command::new(program);
+                command.env(moved_from_var(), std::process::id().to_string());
+                if let Some((name, value)) = &failed {
+                    command.env(name, value);
+                }
+                command
+            }
+        };
+        if let Err(e) = command.spawn() {
+            eprintln!("couldn't reopen the app after the update: {e}");
+        }
+        self.0.exit(0);
+    }
+}
+
+/// The installed app an update goes over: the bundle on macOS, the AppImage, or the program's folder.
+fn installed_folder() -> String {
+    otaq_core::attention::bundle::current()
+        .map(|b| b.root)
+        .or_else(|| std::env::var_os("APPIMAGE").map(PathBuf::from))
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(PathBuf::from))
+        })
+        .map(|p| p.display().to_string())
+        .unwrap_or_default()
 }
 
 struct UpdaterDownload(tauri_plugin_updater::Update);
@@ -935,6 +1099,7 @@ pub fn run(
     placement: Option<PathBuf>,
     first_copy: Option<crate::one_copy::FirstCopy>,
     move_only: bool,
+    install_first: bool,
 ) -> Result<(), String> {
     tauri::async_runtime::set(runtime.clone());
     // Before the webview exists, so WebKit reads them when it first checks text.
@@ -981,6 +1146,34 @@ pub fn run(
         .setup(move |tauri_app| {
             use tauri::Manager;
             let handle = tauri_app.handle();
+            // A compatible update kept from before goes in place first, with no window and no service link (UPD-05,
+            // d0140): then the new version reopens, or this one with why it couldn't.
+            if install_first {
+                let plugin = Arc::new(UpdaterPlugin(handle.clone()));
+                if let Some(first_copy) = first_copy {
+                    first_copy.serve(&runtime, |_| {});
+                }
+                let app = clicks_of.clone();
+                runtime.spawn(async move {
+                    use crate::updates::{Placed, Relaunch};
+                    let placed = app
+                        .updates
+                        .put_in_place(
+                            otaq_view::view_models::updates::Trigger::NextOpen,
+                            None,
+                            &app.service,
+                            plugin.as_ref(),
+                        )
+                        .await;
+                    plugin.relaunch(match placed {
+                        Placed::Relaunch => None,
+                        Placed::Failed { version, why } => Some((version, why)),
+                        // Offline (it stays ready for Restart now), or nothing to do: reopen without trying again.
+                        Placed::Offline | Placed::Nothing => Some((String::new(), String::new())),
+                    });
+                });
+                return Ok(());
+            }
             open_window(handle, &handle.state::<Arc<Placement>>())?;
             webview_keys_off(handle)?;
             // Only the Move window (T-0579): no service behind it, so no status icon and no notification clicks.
@@ -992,7 +1185,13 @@ pub fn run(
                 return Ok(());
             }
             follow_notification_clicks(handle, &clicks_of);
-            crate::api::start_updates(&clicks_of, Arc::new(UpdaterPlugin(handle.clone())), &runtime);
+            let plugin = Arc::new(UpdaterPlugin(handle.clone()));
+            crate::api::start_updates(
+                &clicks_of,
+                plugin.clone(),
+                (plugin.clone(), plugin),
+                &runtime,
+            );
             // Linux without a tray library or host: logged, and closing the window quits as before (T-0570).
             match create_status_icon(handle) {
                 Ok(()) => {

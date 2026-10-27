@@ -40,7 +40,11 @@ export function watchUpdates(
 
 /** What a click in About's update parts asks; each answers with the view, which goes to the store. */
 export type UpdatesClick =
-  { kind: "check" } | { kind: "auto"; on: boolean } | { kind: "skip" } | { kind: "open"; what: UpdatesOpen };
+  | { kind: "check" }
+  | { kind: "auto"; on: boolean }
+  | { kind: "skip" }
+  | { kind: "restart" }
+  | { kind: "open"; what: UpdatesOpen };
 
 export async function updatesClick(
   click: UpdatesClick,
@@ -56,6 +60,10 @@ export async function updatesClick(
       return;
     case "skip":
       store.set((await ask("updates.skip")) as UpdatesView);
+      return;
+    // Puts the update in place and reopens the app; answers only when that failed (About then says why).
+    case "restart":
+      store.set((await ask("updates.restart")) as UpdatesView);
       return;
     case "open":
       await ask("updates.open", { what: click.what });

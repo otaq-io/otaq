@@ -4,7 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::settings::{UPDATES_AUTO_CHECK, UPDATES_LAST_CHECK, UPDATES_SKIPPED};
+use crate::store::settings::{
+    UPDATES_AUTO_CHECK, UPDATES_LAST_CHECK, UPDATES_LAST_VERSION, UPDATES_SKIPPED,
+};
 use crate::store::{Store, StoreError};
 
 /// What `updates.prefs` answers.
@@ -18,6 +20,9 @@ pub struct UpdatePrefs {
     /// The version Skip this version hides (`"0.2.0"`), until a newer one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    /// The version the app last started as, for the one-time "Updated to Otaq 0.2.0" toast (UPD-05).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_version: Option<String>,
 }
 
 impl Default for UpdatePrefs {
@@ -26,6 +31,7 @@ impl Default for UpdatePrefs {
             auto_check: true,
             last_check: None,
             skipped: None,
+            last_version: None,
         }
     }
 }
@@ -46,6 +52,8 @@ pub struct UpdatePrefsChange {
     pub last_check: Option<LastCheck>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_version: Option<String>,
 }
 
 /// The stored preferences; an unreadable value counts as not set.
@@ -68,6 +76,9 @@ pub async fn prefs(store: &Store) -> Result<UpdatePrefs, StoreError> {
         skipped: read(UPDATES_SKIPPED)
             .await?
             .and_then(|v| v.as_str().map(str::to_owned)),
+        last_version: read(UPDATES_LAST_VERSION)
+            .await?
+            .and_then(|v| v.as_str().map(str::to_owned)),
     })
 }
 
@@ -86,6 +97,11 @@ pub async fn change(store: &Store, change: &UpdatePrefsChange) -> Result<UpdateP
     if let Some(version) = &change.skipped {
         store
             .set_setting(UPDATES_SKIPPED, &json(version.as_str().into()))
+            .await?;
+    }
+    if let Some(version) = &change.last_version {
+        store
+            .set_setting(UPDATES_LAST_VERSION, &json(version.as_str().into()))
             .await?;
     }
     prefs(store).await
@@ -133,6 +149,7 @@ mod tests {
                 auto_check: false,
                 last_check: Some(check),
                 skipped: Some("0.2.0".into()),
+                last_version: None,
             }
         );
     }

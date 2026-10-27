@@ -37,6 +37,8 @@ pub enum ToastLink {
         ticket: String,
         tab: Option<Content>,
     },
+    /// "What’s new" after "Updated to Otaq 0.2.0" (page 32 item 4): opens that version's release page.
+    ReleaseNotes { label: String, version: String },
 }
 
 /// A toast to show, as a screen or the app asks for it. Its wording comes from the view models or the service.

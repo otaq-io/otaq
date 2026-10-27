@@ -1,7 +1,8 @@
 //! The app's self-updates (UPD-04, d0140): once a day (and on Check for updates) it asks the release's `latest.json`
 //! whether there is a newer version, downloads it by itself with its signature checked, and keeps it in
-//! `<data folder>/updates/<version>/` with what `latest.json` said about it, so "ready" survives a quit. Installing it
-//! (Restart now, Restart to update, the next open) is T-0581's.
+//! `<data folder>/updates/<version>/` with what `latest.json` said about it, so "ready" survives a quit. Restart now,
+//! Restart to update and the next open put it in place ([`Updates::put_in_place`], `otaq_view`'s `restart_step`):
+//! only the app for a compatible update, the service too (0022's stop) for one it can't work with.
 //!
 //! Plain Rust: the check and the download come through [`Source`], which the door implements with Tauri's updater
 //! plugin; the preferences (the switch, the last check, the skipped version) through [`Prefs`], kept by the service
@@ -39,6 +40,33 @@ pub const PUBKEY: &str =
 /// source and never checks.
 pub fn is_release() -> bool {
     crate::install_place::release()
+}
+
+/// The key updates are checked against: the built-in one, or a test build's.
+pub fn pubkey() -> &'static str {
+    test_pubkey().unwrap_or(PUBKEY)
+}
+
+/// Whether `bytes` carry `signature` (`latest.json`'s: the base64 of minisign's `.sig`) by `pubkey` (base64, as
+/// `tauri signer generate` prints it), checked as the updater plugin checks a download.
+pub fn signature_matches(bytes: &[u8], signature: &str, pubkey: &str) -> bool {
+    use base64::Engine;
+    let text = |b64: &str| {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .ok()
+            .and_then(|v| String::from_utf8(v).ok())
+    };
+    let (Some(key), Some(sig)) = (text(pubkey), text(signature)) else {
+        return false;
+    };
+    match (
+        minisign_verify::PublicKey::decode(&key),
+        minisign_verify::Signature::decode(&sig),
+    ) {
+        (Ok(key), Ok(sig)) => key.verify(bytes, &sig, true).is_ok(),
+        _ => false,
+    }
 }
 
 /// A test build's own `latest.json` address (T-0585); never set in a release build.
@@ -116,6 +144,130 @@ impl Prefs for ServicePrefs {
     }
 }
 
+/// Puts the kept update in place: Tauri's updater plugin in the door, a fake in tests. In two steps, so nothing is
+/// stopped before the update is known to be installable.
+pub trait Installer: Send + Sync {
+    /// Gets `<dir>/<version>` ready: the plugin's own `Update` for it, asked of the release again (the plugin can't
+    /// make one from the kept files), and the kept bytes checked against the signature that answer carries.
+    fn prepare<'a>(
+        &'a self,
+        dir: &'a Path,
+        version: &'a str,
+    ) -> BoxFuture<'a, Result<Box<dyn Prepared>, InstallFailed>>;
+}
+
+/// An update ready to be put in place.
+pub trait Prepared: Send {
+    /// Installs it; it doesn't reopen the app (on Windows the setup does, and this process ends).
+    fn install(self: Box<Self>) -> Result<(), InstallFailed>;
+}
+
+/// Reopens the app once the new version is in place, as the only copy (T-0579's hand-over: the new process waits for
+/// this one to exit before it takes the one-copy lock); with `failed`, the same version reopens and shows why.
+pub trait Relaunch: Send + Sync {
+    fn relaunch(&self, failed: Option<(String, String)>);
+}
+
+/// Why an update couldn't be put in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallFailed {
+    /// The installed app it was to replace (`/Applications/Otaq.app`).
+    pub folder: String,
+    /// The system refused for rights.
+    pub permission: bool,
+    /// The release couldn't be reached to confirm it: nothing changed, it stays ready.
+    pub offline: bool,
+    pub error: String,
+}
+
+/// Stops the running service for an update it can't work with (the link's 0022 stop).
+pub trait ServiceStop: Send + Sync {
+    fn stop(&self) -> BoxFuture<'_, Result<(), String>>;
+}
+
+impl ServiceStop for crate::service::ServiceLink {
+    fn stop(&self) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(self.stop_for_update())
+    }
+}
+
+/// What [`Updates::put_in_place`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Placed {
+    /// Nothing ready, an incompatible update at the next open, or a restart already running.
+    Nothing,
+    /// The new version is in place: reopen the app.
+    Relaunch,
+    /// The release couldn't be reached to confirm the update: nothing changed, it stays ready.
+    Offline,
+    Failed {
+        version: String,
+        why: String,
+    },
+}
+
+/// The variable a reopened app reads when the last start couldn't put an update in place (`{"version", "why"}`), so it
+/// shows "couldn't be put in place" instead of trying again at once.
+pub fn failed_var() -> String {
+    otaq_core::naming::env_var("UPDATE_FAILED")
+}
+
+/// `failed_var`'s value.
+pub fn failed_value(version: &str, why: &str) -> String {
+    serde_json::json!({ "version": version, "why": why }).to_string()
+}
+
+/// Reads `failed_var`'s value back.
+pub fn read_failed(value: &str) -> Option<(String, String)> {
+    let v: Value = serde_json::from_str(value).ok()?;
+    Some((
+        v["version"].as_str()?.to_owned(),
+        v["why"].as_str()?.to_owned(),
+    ))
+}
+
+/// At the next open, before the window or the service link: whether the kept update goes in place first. Only a
+/// compatible one (or any, with no service running); `service_protocol` is the running service's.
+pub fn install_at_open(env: &Env, service_protocol: Option<u32>) -> Option<Kept> {
+    let dir = env
+        .dir
+        .as_ref()
+        .filter(|_| env.checks && env.installed && !env.by_hand)?;
+    let kept = load_kept(dir, &env.current_version)?;
+    (vm::restart_step(
+        vm::Trigger::NextOpen,
+        Some(kept.protocol_version),
+        service_protocol,
+    ) == vm::Step::AppOnly)
+        .then_some(kept)
+}
+
+impl Updates {
+    /// The kept update chosen at the next open, before the updater runs: ready, for [`Self::put_in_place`].
+    pub fn adopt_kept(&self, kept: Kept) {
+        *self.kept.lock().expect("kept update") = Some(kept.clone());
+        self.set_state(UpdateState::Ready(kept));
+    }
+}
+
+/// At the next open: the kept update to put in place first, asking the running service (if any) for its protocol
+/// number. A service that doesn't answer in time counts as unknown: nothing is installed then.
+pub async fn kept_for_open(env: &Env, data: &otaq_core::data_dir::DataDir) -> Option<Kept> {
+    // Nothing kept, nothing to ask.
+    install_at_open(env, None)?;
+    let status = tokio::time::timeout(
+        Duration::from_secs(3),
+        otaq_core::client::request_once(&data.socket_path(), Request::ServiceStatus),
+    )
+    .await;
+    let protocol = match status {
+        Ok(Ok(Reply::ServiceStatus(status))) => Some(status.protocol_version),
+        Ok(Err(otaq_core::client::ClientError::NotRunning(_))) => None,
+        _ => return None,
+    };
+    install_at_open(env, protocol)
+}
+
 /// What this copy of the app is.
 #[derive(Debug, Clone)]
 pub struct Env {
@@ -151,6 +303,8 @@ impl Env {
 pub struct Snapshot {
     pub state: UpdateState,
     pub prefs: UpdatePrefs,
+    /// Restart now is putting the update in place.
+    pub installing: bool,
 }
 
 /// The updater.
@@ -164,6 +318,10 @@ pub struct Updates {
     /// The kept update, if any (also while a check runs).
     kept: Mutex<Option<Kept>>,
     wake: Notify,
+    /// The last start couldn't put this update in place: `(version, why)`, shown instead of "ready".
+    failed: Mutex<Option<(String, String)>>,
+    /// "Updated to Otaq 0.2.0" waiting to be shown once: `(title, text)`.
+    updated: Mutex<Option<(String, String)>>,
 }
 
 impl Updates {
@@ -188,7 +346,10 @@ impl Updates {
             snapshot: watch::Sender::new(Snapshot {
                 state,
                 prefs: UpdatePrefs::default(),
+                installing: false,
             }),
+            failed: Mutex::new(None),
+            updated: Mutex::new(None),
             checking: tokio::sync::Mutex::new(()),
             kept: Mutex::new(None),
             wake: Notify::new(),
@@ -231,7 +392,24 @@ impl Updates {
             *self.kept.lock().expect("kept update") = Some(kept.clone());
             self.set_state(UpdateState::Ready(kept));
         }
-        let prefs = self.prefs.load().await.unwrap_or_default();
+        let failed = self.failed.lock().expect("failed install").clone();
+        if let Some((version, why)) = failed {
+            self.set_state(UpdateState::NotReplaced { version, why });
+        }
+        let mut prefs = self.prefs.load().await.unwrap_or_default();
+        // Once per version: "Updated to Otaq 0.2.0" after starting on a newer version than last time.
+        let current = &self.env.current_version;
+        if prefs.last_version.as_deref() != Some(current.as_str()) {
+            *self.updated.lock().expect("updated toast") =
+                vm::updated_toast(prefs.last_version.as_deref(), current);
+            let change = UpdatePrefsChange {
+                last_version: Some(current.clone()),
+                ..Default::default()
+            };
+            if let Some(stored) = self.prefs.change(change).await {
+                prefs = stored;
+            }
+        }
         if self.snapshot.borrow().state == UpdateState::NotChecked
             && let Some(last) = prefs.last_check
         {
@@ -267,6 +445,86 @@ impl Updates {
             tokio::select! {
                 () = tokio::time::sleep(wait) => {}
                 () = self.wake.notified() => {}
+            }
+        }
+    }
+
+    /// The update kept on disk, if one is ready.
+    pub fn kept(&self) -> Option<Kept> {
+        self.kept.lock().expect("kept update").clone()
+    }
+
+    /// The last start couldn't put `version` in place (`why`): About says so instead of "ready".
+    pub fn install_failed(&self, version: String, why: String) {
+        *self.failed.lock().expect("failed install") = Some((version, why));
+    }
+
+    /// "Updated to Otaq 0.2.0" once, after starting on a newer version.
+    pub fn take_updated_toast(&self) -> Option<(String, String)> {
+        self.updated.lock().expect("updated toast").take()
+    }
+
+    /// Restart now, Restart to update or the next open: the step `restart_step` decides for the kept update and the
+    /// running service's protocol number, carried out. [`Placed::Relaunch`] when the new app is in place (the caller
+    /// reopens it); on a failure About says why and the running app goes on.
+    pub async fn put_in_place(
+        &self,
+        trigger: vm::Trigger,
+        service_protocol: Option<u32>,
+        service: &dyn ServiceStop,
+        installer: &dyn Installer,
+    ) -> Placed {
+        let Some(dir) = self.env.dir.clone().filter(|_| self.env.checks) else {
+            return Placed::Nothing;
+        };
+        let kept = self.kept();
+        let step = vm::restart_step(
+            trigger,
+            kept.as_ref().map(|k| k.protocol_version),
+            service_protocol,
+        );
+        let Some(kept) = kept.filter(|_| step != vm::Step::Wait) else {
+            return Placed::Nothing;
+        };
+        let started = self
+            .snapshot
+            .send_if_modified(|s| !std::mem::replace(&mut s.installing, true));
+        if !started {
+            return Placed::Nothing;
+        }
+        let done = async {
+            let prepared = installer.prepare(&dir, &kept.version).await?;
+            if step == vm::Step::WithService {
+                service.stop().await.map_err(|error| InstallFailed {
+                    folder: String::new(),
+                    permission: false,
+                    offline: false,
+                    error,
+                })?;
+            }
+            prepared.install()
+        }
+        .await;
+        self.snapshot.send_modify(|s| s.installing = false);
+        match done {
+            Ok(()) => Placed::Relaunch,
+            Err(failed) if failed.offline => Placed::Offline,
+            Err(failed) => {
+                let why = vm::not_replaced_why(
+                    &failed.folder,
+                    failed.permission,
+                    &failed.error,
+                    &self.env.current_version,
+                    std::env::consts::OS,
+                );
+                self.set_state(UpdateState::NotReplaced {
+                    version: kept.version.clone(),
+                    why: why.clone(),
+                });
+                Placed::Failed {
+                    version: kept.version,
+                    why,
+                }
             }
         }
     }
@@ -461,8 +719,7 @@ struct KeptFile {
     raw_json: Value,
 }
 
-/// The kept update's bytes, for the install (T-0581).
-#[cfg_attr(not(test), allow(dead_code))]
+/// The kept update's bytes, for the install.
 pub fn kept_bytes(dir: &Path, version: &str) -> PathBuf {
     dir.join(version).join(KEPT_BYTES)
 }
@@ -574,6 +831,9 @@ mod tests {
             }
             if change.skipped.is_some() {
                 stored.skipped = change.skipped;
+            }
+            if change.last_version.is_some() {
+                stored.last_version = change.last_version;
             }
             let prefs = stored.clone();
             Box::pin(async move { Some(prefs) })
@@ -914,5 +1174,204 @@ mod tests {
         assert_eq!(notes_url("0.2.0", &raw), "https://example.com/n");
         assert_eq!(notes_url("0.2.0", &Value::Null), vm::release_page("0.2.0"));
         assert_eq!(protocol_version(&Value::Null), None);
+    }
+
+    /// Records what the restart did, and fails when told to.
+    #[derive(Default)]
+    struct FakeInstall {
+        log: Arc<Mutex<Vec<String>>>,
+        fail: Option<InstallFailed>,
+    }
+
+    impl FakeInstall {
+        fn log_handle(&self) -> Arc<Mutex<Vec<String>>> {
+            self.log.clone()
+        }
+    }
+
+    impl Installer for FakeInstall {
+        fn prepare<'a>(
+            &'a self,
+            _dir: &'a Path,
+            version: &'a str,
+        ) -> BoxFuture<'a, Result<Box<dyn Prepared>, InstallFailed>> {
+            self.log.lock().unwrap().push(format!("prepare {version}"));
+            let ready = FakePrepared(self.fail.clone(), self.log_handle());
+            Box::pin(async move {
+                if let Some(failed) = ready.0.clone().filter(|f| f.offline) {
+                    return Err(failed);
+                }
+                Ok(Box::new(ready) as Box<dyn Prepared>)
+            })
+        }
+    }
+
+    struct FakePrepared(Option<InstallFailed>, Arc<Mutex<Vec<String>>>);
+
+    impl Prepared for FakePrepared {
+        fn install(self: Box<Self>) -> Result<(), InstallFailed> {
+            self.1.lock().unwrap().push("install".into());
+            self.0.map_or(Ok(()), Err)
+        }
+    }
+
+    impl ServiceStop for FakeInstall {
+        fn stop(&self) -> BoxFuture<'_, Result<(), String>> {
+            self.log.lock().unwrap().push("stop service".into());
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    async fn ready(rig: &Rig, protocol: u32) -> Arc<Updates> {
+        let updates = rig.updates(rig.env());
+        let source = FakeSource::new(Answer::Version("0.2.0", Ok(b"app")));
+        updates.check_now(source.as_ref()).await;
+        // The fake's latest.json says protocol 1; rewrite the kept file for another number.
+        if protocol != 1 {
+            let path = rig.dir.join("0.2.0").join(KEPT_JSON);
+            let mut file: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            file["protocol_version"] = protocol.into();
+            std::fs::write(&path, file.to_string()).unwrap();
+            let again = rig.updates(rig.env());
+            *again.kept.lock().unwrap() = load_kept(&rig.dir, "0.1.0");
+            return again;
+        }
+        updates
+    }
+
+    #[tokio::test]
+    async fn restart_now_puts_it_in_place_as_the_table_says() {
+        use vm::Trigger::*;
+        let rig = Rig::new();
+        // Compatible: only the app, from About, the menu or the next open.
+        for trigger in [About, Menu, NextOpen] {
+            let updates = ready(&rig, 1).await;
+            let fake = FakeInstall::default();
+            assert_eq!(
+                updates.put_in_place(trigger, Some(1), &fake, &fake).await,
+                Placed::Relaunch
+            );
+            assert_eq!(
+                *fake.log.lock().unwrap(),
+                ["prepare 0.2.0", "install"],
+                "{trigger:?}"
+            );
+        }
+        // Incompatible: the service stops first from About and the menu; the next open waits.
+        for trigger in [About, Menu] {
+            let updates = ready(&rig, 2).await;
+            let fake = FakeInstall::default();
+            assert_eq!(
+                updates.put_in_place(trigger, Some(1), &fake, &fake).await,
+                Placed::Relaunch
+            );
+            // The update is confirmed before anything stops.
+            assert_eq!(
+                *fake.log.lock().unwrap(),
+                ["prepare 0.2.0", "stop service", "install"],
+                "{trigger:?}"
+            );
+        }
+        let updates = ready(&rig, 2).await;
+        let fake = FakeInstall::default();
+        assert_eq!(
+            updates.put_in_place(NextOpen, Some(1), &fake, &fake).await,
+            Placed::Nothing
+        );
+        assert!(fake.log.lock().unwrap().is_empty());
+        assert!(install_at_open(&rig.env(), Some(1)).is_none());
+        assert_eq!(install_at_open(&rig.env(), None).unwrap().version, "0.2.0");
+    }
+
+    #[tokio::test]
+    async fn a_failed_install_says_why_and_keeps_the_old_version() {
+        let rig = Rig::new();
+        let updates = ready(&rig, 1).await;
+        let fake = FakeInstall {
+            fail: Some(InstallFailed {
+                folder: "/Applications/Board.app".into(),
+                permission: true,
+                offline: false,
+                error: String::new(),
+            }),
+            ..Default::default()
+        };
+        let placed = updates
+            .put_in_place(vm::Trigger::About, Some(1), &fake, &fake)
+            .await;
+        let Placed::Failed { version, why } = placed else {
+            panic!("{placed:?}")
+        };
+        assert_eq!(version, "0.2.0");
+        assert!(
+            why.starts_with("/Applications/Board.app belongs to another account"),
+            "{why}"
+        );
+        assert!(matches!(
+            updates.snapshot().state,
+            UpdateState::NotReplaced { .. }
+        ));
+        assert!(!updates.snapshot().installing);
+        // The reopened app reads it back and shows it instead of "ready".
+        let value = failed_value(&version, &why);
+        assert_eq!(read_failed(&value), Some((version, why)));
+        assert!(kept_bytes(&rig.dir, "0.2.0").is_file());
+    }
+
+    #[tokio::test]
+    async fn the_updated_toast_shows_once_per_version() {
+        let rig = Rig::new();
+        rig.prefs.stored.lock().unwrap().last_version = Some("0.0.9".into());
+        let first = rig.updates(rig.env());
+        tokio::spawn(first.clone().run(FakeSource::new(Answer::Nothing)));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let (title, _) = first.take_updated_toast().unwrap();
+        assert!(title.ends_with(" 0.1.0"), "{title}");
+        assert_eq!(
+            rig.prefs.stored.lock().unwrap().last_version.as_deref(),
+            Some("0.1.0")
+        );
+        let second = rig.updates(rig.env());
+        tokio::spawn(second.clone().run(FakeSource::new(Answer::Nothing)));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(second.take_updated_toast(), None);
+    }
+
+    #[tokio::test]
+    async fn offline_it_stays_ready_and_stops_nothing() {
+        let rig = Rig::new();
+        let updates = ready(&rig, 2).await;
+        let fake = FakeInstall {
+            fail: Some(InstallFailed {
+                folder: String::new(),
+                permission: false,
+                offline: true,
+                error: "offline".into(),
+            }),
+            ..Default::default()
+        };
+        let placed = updates
+            .put_in_place(vm::Trigger::About, Some(1), &fake, &fake)
+            .await;
+        assert_eq!(placed, Placed::Offline);
+        assert_eq!(*fake.log.lock().unwrap(), ["prepare 0.2.0"]);
+        assert!(matches!(
+            updates.snapshot().state,
+            UpdateState::Ready(_) | UpdateState::NotChecked
+        ));
+    }
+
+    #[test]
+    fn the_kept_bytes_are_checked_against_the_signature() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/updater-test-key");
+        let bytes = std::fs::read(fixture.join("payload.txt")).unwrap();
+        let signature = std::fs::read_to_string(fixture.join("payload.txt.sig")).unwrap();
+        let key = std::fs::read_to_string(fixture.join("test.key.pub")).unwrap();
+        assert!(signature_matches(&bytes, &signature, &key));
+        let mut tampered = bytes.clone();
+        tampered[0] ^= 1;
+        assert!(!signature_matches(&tampered, &signature, &key));
+        assert!(!signature_matches(&bytes, &signature, PUBKEY));
+        assert!(!signature_matches(&bytes, "not base64", &key));
     }
 }

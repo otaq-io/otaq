@@ -92,6 +92,8 @@ pub struct Context {
     pub service: Option<ServiceSide>,
     /// This app's own protocol number, used while the service's isn't known.
     pub app_protocol: u32,
+    /// Restart now is putting the update in place: its button is off.
+    pub installing: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,7 +258,7 @@ pub struct Notice {
     pub action_label: String,
     /// The accent button; the needs-agents-restarted one isn't (the safe choice is to wait).
     pub primary: bool,
-    /// Restart now is wired in T-0581; until then it shows, off.
+    /// Off while Restart now is putting the update in place.
     pub enabled: bool,
 }
 
@@ -477,7 +479,7 @@ fn notice(state: &UpdateState, ctx: &Context) -> Option<Notice> {
         action: NoticeAction::Restart,
         action_label: "Restart now".into(),
         primary: true,
-        enabled: false,
+        enabled: !ctx.installing,
     };
     Some(match state {
         UpdateState::Available { .. } => Notice {
@@ -535,6 +537,114 @@ fn notice(state: &UpdateState, ctx: &Context) -> Option<Notice> {
     })
 }
 
+// ---- Restart now, Restart to update, the next open (T-0581) ----
+
+/// Where a restart onto the kept update comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trigger {
+    /// The notice's Restart now in About.
+    About,
+    /// The status icon's Restart to update.
+    Menu,
+    /// The app opens with an update kept from before.
+    NextOpen,
+}
+
+/// What a restart does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Nothing to put in place (none kept), or an incompatible update at the next open: it waits for Restart now.
+    Wait,
+    /// Put the new app in place and reopen only it; the service and its agents keep running.
+    AppOnly,
+    /// The running service can't work with the new app: stop it as 0022's restart does (Interrupted, Resume all),
+    /// then put the app in place; the new app starts its own service.
+    WithService,
+}
+
+/// The decision table (d0140, gap review R1/G6): a compatible update restarts only the app, from About, the menu or
+/// the next open; an incompatible one restarts the service too, from About or the menu only. With no service running
+/// (`service_protocol` `None`) nothing is stopped.
+pub fn restart_step(
+    trigger: Trigger,
+    kept_protocol: Option<Option<u32>>,
+    service_protocol: Option<u32>,
+) -> Step {
+    let Some(kept_protocol) = kept_protocol else {
+        return Step::Wait;
+    };
+    let Some(service) = service_protocol else {
+        return Step::AppOnly;
+    };
+    match (compatible(kept_protocol, service), trigger) {
+        (true, _) => Step::AppOnly,
+        (false, Trigger::NextOpen) => Step::Wait,
+        (false, Trigger::About | Trigger::Menu) => Step::WithService,
+    }
+}
+
+/// The status icon's Restart to update (page 32 item 3): "Restart to update · Otaq 0.2.0", or "Restart to update ·
+/// stops 3 agents" for one the service can't work with; only while an update is ready and not skipped.
+pub fn restart_item(state: &UpdateState, ctx: &Context) -> Option<String> {
+    let notice = notice(state, ctx)?;
+    match notice.kind {
+        NoticeKind::Ready => Some(format!(
+            "Restart to update · {PRODUCT_NAME} {}",
+            notice.version
+        )),
+        NoticeKind::NeedsAgentsRestarted => {
+            let working = ctx.service.map_or(0, |s| s.agents_working);
+            Some(if working == 0 {
+                format!("Restart to update · {PRODUCT_NAME} {}", notice.version)
+            } else {
+                format!(
+                    "Restart to update · stops {working} agent{}",
+                    if working == 1 { "" } else { "s" }
+                )
+            })
+        }
+        NoticeKind::Available => None,
+    }
+}
+
+/// The one-time toast after an update (page 32 item 4): "Updated to Otaq 0.2.0", when this version is newer than the
+/// one the app last started as. Nothing on the very first start (`last` `None`).
+pub fn updated_toast(last: Option<&str>, current: &str) -> Option<(String, String)> {
+    last.filter(|last| newer(current, last)).map(|_| {
+        (
+            format!("Updated to {PRODUCT_NAME} {current}"),
+            "The window reopened on the new version; your agents kept working.".to_owned(),
+        )
+    })
+}
+
+/// What's new on the toast.
+pub const WHATS_NEW: &str = "What’s new";
+
+/// Why the update couldn't be put in place, under "Otaq 0.2.0 couldn't be put in place" (page 32 item 1). `folder` is
+/// the installed app; `permission` when the system refused for rights; `error` otherwise. macOS's rights line is page
+/// 32's; elsewhere it's a stand-in.
+pub fn not_replaced_why(
+    folder: &str,
+    permission: bool,
+    error: &str,
+    current: &str,
+    os: &str,
+) -> String {
+    let name = PRODUCT_NAME;
+    if permission && os == "macos" {
+        format!(
+            "{folder} belongs to another account on this Mac, so {name} can’t replace it. You’re still on {current}. Sign in as that account and update there, or move {name} to ~/Applications."
+        )
+    } else if permission {
+        format!(
+            "{folder} belongs to another account on this computer, so {name} can’t replace it. You’re still on {current}. Sign in as that account and update there, or move {name} to a folder of yours."
+        )
+    } else {
+        format!("{name} couldn’t replace {folder}: {error}. You’re still on {current}.")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,6 +663,7 @@ mod tests {
                 agents_working: 3,
             }),
             app_protocol: 1,
+            installing: false,
         }
     }
 
@@ -675,7 +786,7 @@ mod tests {
         );
         assert_eq!(
             (n.action_label.as_str(), n.primary, n.enabled),
-            ("Restart now", true, false)
+            ("Restart now", true, true)
         );
         assert_eq!(
             (n.whats_new_label.as_str(), n.skip_label.as_str()),
@@ -766,5 +877,108 @@ mod tests {
         assert!(!newer("0.2.0", "0.2.0"));
         assert!(!newer("0.1.0", "0.2.0"));
         assert!(!newer("0.2.0-beta.1", "0.2.0"));
+    }
+
+    #[test]
+    fn the_restart_decision_table() {
+        use Step::*;
+        use Trigger::*;
+        let compatible = Some(Some(1));
+        let incompatible = Some(Some(2));
+        for trigger in [About, Menu, NextOpen] {
+            assert_eq!(
+                restart_step(trigger, None, Some(1)),
+                Wait,
+                "{trigger:?}: nothing kept"
+            );
+            assert_eq!(
+                restart_step(trigger, compatible, Some(1)),
+                AppOnly,
+                "{trigger:?}"
+            );
+            // No service running: nothing to stop, the new app starts its own.
+            assert_eq!(
+                restart_step(trigger, incompatible, None),
+                AppOnly,
+                "{trigger:?}"
+            );
+        }
+        assert_eq!(restart_step(About, incompatible, Some(1)), WithService);
+        assert_eq!(restart_step(Menu, incompatible, Some(1)), WithService);
+        assert_eq!(restart_step(NextOpen, incompatible, Some(1)), Wait);
+        // latest.json without a protocol number counts as incompatible.
+        assert_eq!(restart_step(Menu, Some(None), Some(1)), WithService);
+        assert_eq!(restart_step(NextOpen, Some(None), Some(1)), Wait);
+    }
+
+    #[test]
+    fn restart_to_update_in_the_menu() {
+        assert_eq!(
+            restart_item(&kept("0.2.0", Some(1)), &ctx()).unwrap(),
+            format!("Restart to update · {PRODUCT_NAME} 0.2.0")
+        );
+        assert_eq!(
+            restart_item(&kept("0.3.0", Some(2)), &ctx()).unwrap(),
+            "Restart to update · stops 3 agents"
+        );
+        let skipped = Context {
+            skipped: Some("0.2.0".into()),
+            ..ctx()
+        };
+        assert_eq!(restart_item(&kept("0.2.0", Some(1)), &skipped), None);
+        assert_eq!(restart_item(&UpdateState::Checking, &ctx()), None);
+        assert_eq!(
+            restart_item(
+                &UpdateState::Available {
+                    version: "0.2.0".into(),
+                    notes_url: release_page("0.2.0"),
+                    checked_at: NOW
+                },
+                &ctx()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_toast_after_an_update_shows_once() {
+        let (title, text) = updated_toast(Some("0.1.0"), "0.2.0").unwrap();
+        assert_eq!(title, format!("Updated to {PRODUCT_NAME} 0.2.0"));
+        assert_eq!(
+            text,
+            "The window reopened on the new version; your agents kept working."
+        );
+        assert_eq!(updated_toast(Some("0.2.0"), "0.2.0"), None);
+        assert_eq!(updated_toast(None, "0.2.0"), None);
+        assert_eq!(updated_toast(Some("0.3.0"), "0.2.0"), None);
+    }
+
+    #[test]
+    fn why_it_couldnt_be_put_in_place() {
+        let v = view(
+            &UpdateState::NotReplaced {
+                version: "0.2.0".into(),
+                why: not_replaced_why("/Applications/Board.app", true, "", "0.1.0", "macos"),
+            },
+            &ctx(),
+        );
+        let r = v.row.result.unwrap();
+        assert_eq!(
+            r.text,
+            format!("{PRODUCT_NAME} 0.2.0 couldn’t be put in place")
+        );
+        assert_eq!(r.tone, Tone::Error);
+        assert_eq!(
+            r.detail.unwrap(),
+            format!(
+                "/Applications/Board.app belongs to another account on this Mac, so {PRODUCT_NAME} can’t replace it. You’re still on 0.1.0. Sign in as that account and update there, or move {PRODUCT_NAME} to ~/Applications."
+            )
+        );
+        assert_eq!(
+            not_replaced_why("/opt/Board", false, "disk full", "0.1.0", "linux"),
+            format!(
+                "{PRODUCT_NAME} couldn’t replace /opt/Board: disk full. You’re still on 0.1.0."
+            )
+        );
     }
 }

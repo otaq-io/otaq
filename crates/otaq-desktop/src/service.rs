@@ -249,6 +249,16 @@ impl ServiceLink {
         Ok(otaq_core::client::request_once(&socket, request).await?)
     }
 
+    /// Stops the service for an update it can't work with (d0140): 0022's restart without the start, so its agents
+    /// show Interrupted and Resume all continues them on the new app's service. Nothing when not connected.
+    pub async fn stop_for_update(&self) -> Result<(), String> {
+        let client = self.shared.lock().client.clone();
+        match client {
+            Some(client) => client.stop().await.map_err(|e| e.to_string()),
+            None => Ok(()),
+        }
+    }
+
     /// Restarts the service with this build, or starts it when none runs or the start at launch failed. Only
     /// called on the user's click (confirmed first when agents would be interrupted, T-0231).
     pub async fn restart(&self) -> Result<(), String> {
@@ -935,6 +945,7 @@ pub(crate) mod testing {
             },
             updates,
             update_source: std::sync::OnceLock::new(),
+            update_installer: std::sync::OnceLock::new(),
         };
         (app, seen)
     }

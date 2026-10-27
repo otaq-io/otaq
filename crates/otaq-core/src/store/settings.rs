@@ -63,6 +63,9 @@ pub const UPDATES_LAST_CHECK: &str = "updates.last_check";
 /// The version Skip this version hides (UPD-04): `"0.2.0"`, until a newer one.
 pub const UPDATES_SKIPPED: &str = "updates.skipped";
 
+/// The version the app last started as (UPD-05): `"0.2.0"`, so "Updated to Otaq 0.2.0" shows once after an update.
+pub const UPDATES_LAST_VERSION: &str = "updates.last_version";
+
 impl Store {
     /// The stored JSON value of a global setting.
     pub async fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {
