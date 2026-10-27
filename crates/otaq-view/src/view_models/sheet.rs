@@ -11,7 +11,7 @@
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
 use otaq_core::agents::{Agent, SessionRole};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use otaq_core::board::files::{FilesChanges, FilesFrom};
 use otaq_core::board::order::sort_column;
@@ -495,10 +495,13 @@ pub fn files_count_label(count: Option<u32>) -> Option<String> {
 /// The Files tab's counts by ticket (Q421), kept between the sheet's refreshes so a plain refresh never asks git
 /// again. A count is taken when the sheet opens on the ticket, and again once its status moved on since the count
 /// was taken: its agent's turn ended (Working → Idle, Needs you, the next stage), which is also when its commits land
-/// (no event says "it committed" on its own). Nothing waits on a timer (d0086).
+/// (no event says "it committed" on its own). Nothing waits on a timer (d0086). The sheet never waits for a count
+/// (reading a big worktree's changes takes seconds): it shows the last one while the next is taken.
 #[derive(Debug, Default)]
 pub struct FilesCounts {
     taken: HashMap<String, (Status, Option<u32>)>,
+    /// The tickets whose count is being taken now.
+    taking: HashSet<String>,
 }
 
 impl FilesCounts {
@@ -514,10 +517,23 @@ impl FilesCounts {
             .map(|(_, count)| *count)
     }
 
+    /// The count last taken for the ticket in any status, to show while the next one is taken.
+    pub fn last(&self, ticket: &Ticket) -> Option<u32> {
+        self.taken
+            .get(&ticket.key.to_string())
+            .and_then(|(_, count)| *count)
+    }
+
+    /// Marks the ticket's count as being taken; false when it already is.
+    pub fn start(&mut self, ticket: &Ticket) -> bool {
+        self.taking.insert(ticket.key.to_string())
+    }
+
     /// Keeps a count just taken for the ticket in its status now.
     pub fn keep(&mut self, ticket: &Ticket, count: Option<u32>) {
-        self.taken
-            .insert(ticket.key.to_string(), (ticket.status, count));
+        let key = ticket.key.to_string();
+        self.taking.remove(&key);
+        self.taken.insert(key, (ticket.status, count));
     }
 }
 
