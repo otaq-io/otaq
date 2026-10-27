@@ -35,6 +35,7 @@ pub mod scheduler;
 pub mod service;
 pub mod session;
 pub mod shell;
+pub mod shell_path;
 pub mod signals;
 pub mod skills;
 pub mod start;

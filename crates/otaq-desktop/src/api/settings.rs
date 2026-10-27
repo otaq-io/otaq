@@ -133,6 +133,24 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "settings.credits" => reply(&page::credits()),
         // Settings → About (d0071): the section, Otaq's own license, the third-party notices.
         "settings.about" => reply(&crate::about::view()),
+        // Use otaq in your own terminal (UPD-07, page 32 item 5): the row, and Add to my shell's PATH.
+        "settings.about_path" | "settings.about_path_add" => {
+            let data = app
+                .service
+                .data()
+                .ok_or_else(|| RequestError::plain("no data folder"))?;
+            let add = method == "settings.about_path_add";
+            let row = tokio::task::spawn_blocking(move || {
+                if add {
+                    crate::shell_path::add(&data)
+                } else {
+                    crate::shell_path::row(&data)
+                }
+            })
+            .await
+            .map_err(|e| RequestError::plain(e.to_string()))?;
+            reply(&row)
+        }
         "settings.license" => reply(&about::license(crate::about::LICENSE)),
         "settings.licenses" => reply(&licenses::view(crate::about::NOTICES, cfg!(target_os = "macos"))),
         "settings.open_source" => {

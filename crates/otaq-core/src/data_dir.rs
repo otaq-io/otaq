@@ -182,6 +182,12 @@ impl DataDir {
         Ok(self.logs_dir().join(format!("resources-{repo}.log")))
     }
 
+    /// The folder holding the `otaq` command for the user's own terminal (d0140, UPD-07): `bin/otaq`, kept by the
+    /// app on every start, and the folder **Add to my shell's PATH** adds. Only `otaq` is in it.
+    pub fn bin_dir(&self) -> PathBuf {
+        self.root.join("bin")
+    }
+
     /// The service socket (a Unix domain socket on macOS and Linux).
     pub fn socket_path(&self) -> PathBuf {
         self.root.join(format!("{}.sock", naming::COMMAND_NAME))

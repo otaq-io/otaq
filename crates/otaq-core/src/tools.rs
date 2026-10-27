@@ -270,7 +270,7 @@ pub fn daemon_path(inherited: &OsStr, shell: Option<&Path>, home: Option<&Path>)
 
 /// The `PATH` an interactive login shell ends up with; `None` when it fails or takes longer than
 /// [`LOGIN_PATH_TIMEOUT`]. `printenv` prints it colon-separated whatever the shell (fish keeps `$PATH` as a list).
-fn login_path(shell: &Path) -> Option<OsString> {
+pub fn login_path(shell: &Path) -> Option<OsString> {
     let mut child = std::process::Command::new(shell)
         .args([
             "-l",

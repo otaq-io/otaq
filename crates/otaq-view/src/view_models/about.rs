@@ -3,12 +3,13 @@
 //! **View license**, the **Open-source licenses** and **Theme credits** rows, and the trademark line. The version,
 //! the commit, the OS and the license text come from the desktop app; this only words them.
 //!
-//! No update controls yet: 0073 puts them here once updates are built.
+//! Under the version row: the Updates rows (0140, page 32 items 1–2), then **Use otaq in your own terminal**
+//! ([`path_row`], page 32 item 5) with **Add to my shell's PATH**.
 
 use serde::Serialize;
 use ts_rs::TS;
 
-use otaq_core::naming::PRODUCT_NAME;
+use otaq_core::naming::{COMMAND_NAME, PRODUCT_NAME};
 
 use crate::view_models::theme_credits;
 
@@ -68,6 +69,182 @@ pub struct LicenseView {
     pub copy_label: String,
     pub copied_label: String,
     pub done_label: String,
+}
+
+/// Where **Add to my shell's PATH** writes (page 32 item 5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathTarget {
+    /// The login shell's files as the row names them: `~/.zshrc`, or `~/.bashrc` and `~/.bash_profile`.
+    Files(Vec<String>),
+    /// The user's own PATH on Windows, for this account only.
+    Windows,
+    /// A login shell the button doesn't write for (tcsh, nushell…): only the folder, to add by hand.
+    OtherShell,
+}
+
+/// The row's state, from the shell side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathState {
+    Offer,
+    Added,
+    AlreadyThere,
+    /// The file (or Windows' PATH) couldn't be written: `line` to paste.
+    Failed {
+        file: Option<String>,
+        read_only: bool,
+        why: String,
+        line: String,
+    },
+}
+
+/// What the row is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathInputs {
+    pub target: PathTarget,
+    pub state: PathState,
+    /// The folder as the row names it: `~/.otaq/bin`.
+    pub folder: String,
+}
+
+/// The row's look: the offer (a description and the button), or a result line with its icon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "AboutPathTone")]
+pub enum PathTone {
+    Offer,
+    Done,
+    Failed,
+}
+
+/// *Use otaq in your own terminal* (page 32 item 5): under the Updates rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AboutPathRow")]
+pub struct PathRow {
+    pub label: String,
+    pub tone: PathTone,
+    /// The offer's description, under the label.
+    pub description: Option<String>,
+    /// **Add to my shell's PATH**, while it is offered.
+    pub button: Option<String>,
+    /// The result line, after its icon: "Added · open a new terminal to use otaq".
+    pub result: Option<String>,
+    /// Under the result line.
+    pub detail: Option<String>,
+    /// The line to paste, with **Copy**.
+    pub paste: Option<String>,
+    pub copy_label: String,
+    pub copied_label: String,
+}
+
+/// "~/.zshrc", "~/.bashrc and ~/.bash_profile".
+fn and_files(files: &[String]) -> String {
+    match files {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The row for `inputs` (page 32 item 5's words).
+pub fn path_row(inputs: &PathInputs) -> PathRow {
+    let cmd = COMMAND_NAME;
+    let folder = &inputs.folder;
+    let mut row = PathRow {
+        label: format!("Use {cmd} in your own terminal"),
+        tone: PathTone::Done,
+        description: None,
+        button: None,
+        result: None,
+        detail: None,
+        paste: None,
+        copy_label: "Copy".into(),
+        copied_label: "Copied".into(),
+    };
+    match (&inputs.state, &inputs.target) {
+        (PathState::Offer, target) => {
+            row.tone = PathTone::Offer;
+            let example = format!("{cmd} attach SHOP-12");
+            row.description = Some(match target {
+                PathTarget::Files(files) => format!(
+                    "To run commands like {example} in your own terminal, {PRODUCT_NAME} can add its folder to {}. Agents don’t need it.",
+                    and_files(files)
+                ),
+                PathTarget::Windows => format!(
+                    "To run commands like {example} in PowerShell or Command Prompt, {PRODUCT_NAME} can add its folder to your PATH, for this account only. Agents don’t need it."
+                ),
+                PathTarget::OtherShell => format!(
+                    "To run commands like {example} in your own terminal, add {folder} to your shell’s PATH. Agents don’t need it."
+                ),
+            });
+            match target {
+                PathTarget::OtherShell => row.paste = Some(folder.clone()),
+                _ => row.button = Some("Add to my shell’s PATH".into()),
+            }
+        }
+        (PathState::Added, target) => {
+            row.result = Some(format!("Added · open a new terminal to use {cmd}"));
+            row.detail = Some(match target {
+                PathTarget::Files(files) => format!(
+                    "One line marked “{}” is at the end of {}. Uninstalling {PRODUCT_NAME} removes it.",
+                    added_by(),
+                    and_files(files)
+                ),
+                _ => format!(
+                    "{folder} is at the end of your PATH, for this account only. Uninstalling {PRODUCT_NAME} removes it."
+                ),
+            });
+        }
+        (PathState::AlreadyThere, _) => {
+            row.result = Some(format!("{cmd} works in your terminal"));
+            row.detail = Some(format!("{folder} is already on your PATH."));
+        }
+        (
+            PathState::Failed {
+                file,
+                read_only,
+                why,
+                line,
+            },
+            _,
+        ) => {
+            row.tone = PathTone::Failed;
+            let reason = if *read_only {
+                "The file is read-only.".to_owned()
+            } else {
+                format!("{}.", capitalized(why))
+            };
+            match file {
+                Some(file) => {
+                    row.result = Some(format!("{PRODUCT_NAME} couldn’t write to {file}"));
+                    row.detail = Some(format!(
+                        "{reason} Paste this line at its end, then open a new terminal:"
+                    ));
+                }
+                None => {
+                    row.result = Some(format!("{PRODUCT_NAME} couldn’t change your PATH"));
+                    row.detail = Some(format!(
+                        "{}. Add this folder to your PATH in Environment Variables, then open a new terminal:",
+                        capitalized(why)
+                    ));
+                }
+            }
+            row.paste = Some(line.clone());
+        }
+    }
+    row
+}
+
+/// The shell line's mark, as the row quotes it: "# added by Otaq".
+fn added_by() -> String {
+    format!("# added by {PRODUCT_NAME}")
+}
+
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 /// `std::env::consts::ARCH` as people call it: `aarch64` → `arm64`, `x86_64` → `x64`.
@@ -191,6 +368,109 @@ mod tests {
         );
         assert_eq!(arch_name("x86_64"), "x64");
         assert_eq!(arch_name("riscv64"), "riscv64");
+    }
+
+    fn inputs(target: PathTarget, state: PathState) -> PathInputs {
+        PathInputs {
+            target,
+            state,
+            folder: "~/.d/bin".into(),
+        }
+    }
+
+    fn zshrc() -> PathTarget {
+        PathTarget::Files(vec!["~/.zshrc".into()])
+    }
+
+    #[test]
+    fn the_path_row_as_page_32_words_it() {
+        let cmd = COMMAND_NAME;
+        let offer = path_row(&inputs(zshrc(), PathState::Offer));
+        assert_eq!(offer.label, format!("Use {cmd} in your own terminal"));
+        assert_eq!(offer.tone, PathTone::Offer);
+        assert_eq!(
+            offer.description.unwrap(),
+            format!(
+                "To run commands like {cmd} attach SHOP-12 in your own terminal, {PRODUCT_NAME} can add its folder to ~/.zshrc. Agents don’t need it."
+            )
+        );
+        assert_eq!(offer.button.as_deref(), Some("Add to my shell’s PATH"));
+
+        let added = path_row(&inputs(zshrc(), PathState::Added));
+        assert_eq!(added.tone, PathTone::Done);
+        assert_eq!(added.button, None);
+        assert_eq!(
+            added.result.unwrap(),
+            format!("Added · open a new terminal to use {cmd}")
+        );
+        assert_eq!(
+            added.detail.unwrap(),
+            format!(
+                "One line marked “# added by {PRODUCT_NAME}” is at the end of ~/.zshrc. Uninstalling {PRODUCT_NAME} removes it."
+            )
+        );
+
+        let line = "export PATH=\"$HOME/.d/bin:$PATH\"".to_owned();
+        let failed = path_row(&inputs(
+            zshrc(),
+            PathState::Failed {
+                file: Some("~/.zshrc".into()),
+                read_only: true,
+                why: "permission denied".into(),
+                line: line.clone(),
+            },
+        ));
+        assert_eq!(failed.tone, PathTone::Failed);
+        assert_eq!(
+            failed.result.unwrap(),
+            format!("{PRODUCT_NAME} couldn’t write to ~/.zshrc")
+        );
+        assert_eq!(
+            failed.detail.unwrap(),
+            "The file is read-only. Paste this line at its end, then open a new terminal:"
+        );
+        assert_eq!(failed.paste, Some(line));
+        assert_eq!(failed.copy_label, "Copy");
+
+        let already = path_row(&inputs(zshrc(), PathState::AlreadyThere));
+        assert_eq!(
+            already.result.unwrap(),
+            format!("{cmd} works in your terminal")
+        );
+        assert_eq!(already.detail.unwrap(), "~/.d/bin is already on your PATH.");
+        assert_eq!(already.button, None);
+    }
+
+    #[test]
+    fn the_path_row_for_bash_windows_and_other_shells() {
+        let bash = PathTarget::Files(vec!["~/.bashrc".into(), "~/.bash_profile".into()]);
+        assert!(
+            path_row(&inputs(bash, PathState::Offer))
+                .description
+                .unwrap()
+                .contains("add its folder to ~/.bashrc and ~/.bash_profile.")
+        );
+        let windows = path_row(&inputs(PathTarget::Windows, PathState::Offer));
+        assert_eq!(
+            windows.description.unwrap(),
+            format!(
+                "To run commands like {COMMAND_NAME} attach SHOP-12 in PowerShell or Command Prompt, {PRODUCT_NAME} can add its folder to your PATH, for this account only. Agents don’t need it."
+            )
+        );
+        assert_eq!(windows.button.as_deref(), Some("Add to my shell’s PATH"));
+        let other = path_row(&inputs(PathTarget::OtherShell, PathState::Offer));
+        assert_eq!(other.button, None);
+        assert_eq!(other.paste.as_deref(), Some("~/.d/bin"));
+        let refused = path_row(&inputs(
+            PathTarget::Windows,
+            PathState::Failed {
+                file: None,
+                read_only: false,
+                why: "access is denied".into(),
+                line: "C:\\d\\bin".into(),
+            },
+        ));
+        assert!(refused.detail.unwrap().starts_with("Access is denied. "));
     }
 
     #[test]

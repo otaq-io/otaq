@@ -1,8 +1,10 @@
 //! `otaq uninstall [--keep-data]` (UNI-01…UNI-06, d0134): removes what Otaq left on this computer. It asks both
 //! questions before anything changes (the worktrees, then the data folder); then the service removes the worktrees,
 //! the merge worktrees and the skill copies and stops; then this command deletes the data folder, once the service
-//! has let go of its lock, and prints what was removed and what was kept on purpose (the `otaq/` branches, the
-//! folder trust). The scan and the removal are service requests: this command never opens the database.
+//! has let go of its lock (with `bin/`, also under `--keep-data`), removes the `# added by Otaq` line from the shell
+//! files (on Windows the folder from the user's PATH, d0140), and prints what was removed and what was kept on
+//! purpose (the `otaq/` branches, the folder trust). The scan and the removal are service requests: this command
+//! never opens the database.
 //!
 //! **The guard:** from a development build, `cargo run` or a test (`cargo test`, nextest), the command refuses to run
 //! unless `OTAQ_HOME` names the data folder, so it can never reach the real `~/.otaq` by default.
@@ -135,13 +137,65 @@ fn uninstall(keep_data: bool, global: &GlobalArgs) -> Result<Ended, ErrorBody> {
     drop(client);
     drop(rt);
     let deleted = otaq_core::uninstall::delete_data_folder(&data, keep_data, SERVICE_EXIT_WAIT);
-    let (text, failed) = summary(&scan, &outcome, &deleted, &folder, keep_data);
+    let path_lines = remove_path_lines(&data, home.as_deref());
+    let (text, failed) = summary(&scan, &outcome, &deleted, &path_lines, &folder, keep_data);
     Ok(if failed {
         Ended::Failed(text)
     } else {
         println!("{text}");
         Ended::Done
     })
+}
+
+/// What the PATH's removal did (UPD-09): where, and the error when it failed.
+struct PathLine {
+    /// "~/.zshrc", or "your PATH" on Windows.
+    place: String,
+    result: Result<(), String>,
+}
+
+/// Removes this data folder's `bin` from the shell files' marked lines, or from the user's PATH on Windows.
+fn remove_path_lines(data: &DataDir, home: Option<&Path>) -> Vec<PathLine> {
+    let bin = data.bin_dir();
+    #[cfg(windows)]
+    {
+        let _ = home;
+        match otaq_core::shell_path::windows_remove(&otaq_core::shell_path::RegistryUserPath, &bin)
+        {
+            Ok(false) => Vec::new(),
+            Ok(true) => vec![PathLine {
+                place: "your PATH".into(),
+                result: Ok(()),
+            }],
+            Err(e) => vec![PathLine {
+                place: "your PATH".into(),
+                result: Err(e.to_string()),
+            }],
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let Some(env) = otaq_core::shell_path::ShellEnv::from_process() else {
+            return Vec::new();
+        };
+        otaq_core::shell_path::remove_from_shells(&env, &bin)
+            .into_iter()
+            .map(|removed| PathLine {
+                place: shown_path(&removed.file, home),
+                result: removed.result.map_err(|e| e.to_string()),
+            })
+            .collect()
+    }
+}
+
+/// The summary's last line: the step left on this platform (d0140).
+fn last_step(os: &str) -> String {
+    let name = naming::PRODUCT_NAME;
+    match os {
+        "macos" => format!("Drag {name}.app to the Trash"),
+        "windows" => format!("Uninstall {name} from Settings → Apps"),
+        _ => "Remove the package or delete the AppImage".to_owned(),
+    }
 }
 
 /// Asks a yes/no question on the terminal; only `y` or `yes` (any case) is yes.
@@ -317,6 +371,7 @@ fn summary(
     scan: &UninstallScan,
     outcome: &UninstallOutcome,
     deleted: &Result<otaq_core::uninstall::FolderDeleted, String>,
+    path_lines: &[PathLine],
     folder: &str,
     keep_data: bool,
 ) -> (String, bool) {
@@ -359,6 +414,17 @@ fn summary(
             )
         } else {
             format!("  {folder} ({} freed)", size_label(freed))
+        });
+    }
+    for line in path_lines.iter().filter(|l| l.result.is_ok()) {
+        lines.push(if cfg!(windows) {
+            format!("  {} from {}", shown_bin(folder), line.place)
+        } else {
+            format!(
+                "  The “# added by {}” line in {}",
+                naming::PRODUCT_NAME,
+                line.place
+            )
         });
     }
 
@@ -438,13 +504,23 @@ fn summary(
         ),
         Err(why) => failures.push(format!("  {}: {why}", scan.data_folder)),
     }
+    for line in path_lines {
+        if let Err(why) = &line.result {
+            failures.push(format!("  {}: {why}", line.place));
+        }
+    }
     let failed = !failures.is_empty();
     if failed {
         lines.push("Failed:".to_owned());
         lines.extend(failures);
     }
-    lines.push(format!("Drag {}.app to the Trash", naming::PRODUCT_NAME));
+    lines.push(last_step(std::env::consts::OS));
     (lines.join("\n"), failed)
+}
+
+/// The data folder's `bin`, as the summary names it: `~/.otaq/bin`.
+fn shown_bin(folder: &str) -> String {
+    format!("{folder}{}bin", std::path::MAIN_SEPARATOR)
 }
 
 #[cfg(test)]
@@ -501,6 +577,20 @@ mod tests {
         );
         assert_eq!(shown_path(Path::new("/tmp/m47"), Some(home)), "/tmp/m47");
         assert_eq!(shown_path(home, Some(home)), "/Users/me");
+    }
+
+    #[test]
+    fn the_last_line_names_each_platforms_step() {
+        let name = naming::PRODUCT_NAME;
+        assert_eq!(last_step("macos"), format!("Drag {name}.app to the Trash"));
+        assert_eq!(
+            last_step("windows"),
+            format!("Uninstall {name} from Settings → Apps")
+        );
+        assert_eq!(
+            last_step("linux"),
+            "Remove the package or delete the AppImage"
+        );
     }
 
     #[test]

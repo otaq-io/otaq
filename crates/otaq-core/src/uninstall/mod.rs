@@ -137,6 +137,17 @@ pub fn delete_data_folder(
         Vec::new()
     };
     let mut failed = Vec::new();
+    if cfg!(windows)
+        && let Ok(exe) = std::env::current_exe()
+        && let Some(moved) = running_command_moved_to(&exe, data, &std::env::temp_dir())
+    {
+        // Windows can't delete a running program but can rename it: `otaq uninstall` typed in a terminal runs from
+        // `bin\otaq.exe` (d0140), so it moves itself out first and `bin\` goes with the rest. The moved file stays in
+        // the temporary folder, for the system's cleanup.
+        if let Err(e) = std::fs::rename(&exe, &moved) {
+            tracing::warn!(error = %e, "uninstall: can't move the running command out of bin");
+        }
+    }
     let entries: Vec<PathBuf> = std::fs::read_dir(root)
         .map(|entries| entries.filter_map(Result::ok).map(|e| e.path()).collect())
         .unwrap_or_default();
@@ -167,6 +178,18 @@ pub fn delete_data_folder(
     Ok(FolderDeleted {
         left_bytes: after,
         failed,
+    })
+}
+
+/// Where the running command moves to before `bin/` is deleted, when it runs from there: `<temp>/otaq-<pid>.exe`.
+fn running_command_moved_to(exe: &Path, data: &DataDir, temp: &Path) -> Option<PathBuf> {
+    exe.starts_with(data.bin_dir()).then(|| {
+        temp.join(format!(
+            "{}-{}{}",
+            naming::COMMAND_NAME,
+            std::process::id(),
+            std::env::consts::EXE_SUFFIX
+        ))
     })
 }
 
@@ -779,4 +802,39 @@ fn subfolders(dir: &Path) -> Vec<PathBuf> {
         .unwrap_or_default();
     folders.sort();
     folders
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_data_still_deletes_bin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::new(tmp.path().join("data"));
+        std::fs::create_dir_all(data.bin_dir()).unwrap();
+        std::fs::write(data.database_path(), "db").unwrap();
+        std::fs::write(
+            data.bin_dir().join(crate::shell_path::command_file_name()),
+            "x",
+        )
+        .unwrap();
+        let deleted = delete_data_folder(&data, true, Duration::ZERO).unwrap();
+        assert!(deleted.failed.is_empty(), "{:?}", deleted.failed);
+        assert!(!data.bin_dir().exists());
+        assert!(data.database_path().is_file());
+    }
+
+    #[test]
+    fn a_command_running_from_bin_moves_to_the_temporary_folder() {
+        let data = DataDir::new("/d");
+        let temp = Path::new("/t");
+        let inside = data.bin_dir().join(crate::shell_path::command_file_name());
+        let moved = running_command_moved_to(&inside, &data, temp).unwrap();
+        assert_eq!(moved.parent(), Some(temp));
+        assert_eq!(
+            running_command_moved_to(Path::new("/app/x"), &data, temp),
+            None
+        );
+    }
 }
