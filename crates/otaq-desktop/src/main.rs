@@ -18,6 +18,7 @@ mod notify_check;
 mod one_copy;
 mod quit;
 mod service;
+mod shell_path;
 mod status_icon;
 #[cfg(test)]
 mod stylesheet;
@@ -110,6 +111,11 @@ fn main() {
         }
         Err(_) => None,
     };
+    // `<data folder>/bin/otaq` points at this copy's `otaq` (d0140: the copy opened last wins).
+    if let Ok(data) = &data {
+        let data = data.clone();
+        runtime.spawn_blocking(move || shell_path::refresh_bin(&data));
+    }
     let events = Arc::new(EventHub::default());
     // The `otaq` command next to this program starts the service when none runs (d0055).
     let placement = data.as_ref().ok().map(window::placement_file);

@@ -164,6 +164,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::comment_limits::CommentLimits::export_all(&cfg)?;
     otaq_view::view_models::about::View::export_all(&cfg)?;
     otaq_view::view_models::about::LicenseView::export_all(&cfg)?;
+    otaq_view::view_models::about::PathRow::export_all(&cfg)?;
     // Also writes its bundled rows, groups and items.
     otaq_view::view_models::licenses::View::export_all(&cfg)?;
     crate::api::SettingsOpen::export_all(&cfg)?;

@@ -1,10 +1,12 @@
 // Settings → About (d0071, d0076; *15 · Settings → Row · About & open-source licenses*, *… · groups & filter*): the
 // Command tent on its app-icon tile, the name and line, the version with Copy version info, Otaq's own license
 // (View license), the Open-source licenses dialog, Theme credits, and the trademark line. Every text comes from
-// `settings.about`, `settings.license` and `settings.licenses` (`about.rs`, `licenses.rs`).
+// `settings.about`, `settings.license` and `settings.licenses` (`about.rs`, `licenses.rs`). Under the version: Use
+// otaq in your own terminal with Add to my shell's PATH (page 32 item 5, `settings.about_path`).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button, Dialog, IconButton, Kbd, OtaqMark, PLAIN_TEXT } from "../../components";
+import type { AboutPathRow } from "../../generated/AboutPathRow";
 import type { AboutView } from "../../generated/AboutView";
 import type { LicensesDialog as LicensesView } from "../../generated/LicensesDialog";
 import type { LicensesItem } from "../../generated/LicensesItem";
@@ -314,6 +316,81 @@ function LicensesDialog({
   );
 }
 
+/**
+ * *Use otaq in your own terminal* (page 32 item 5): the offer with Add to my shell's PATH, or what it did (added,
+ * already on the PATH, or the line to paste when the file can't be written). Nothing is written until the click.
+ */
+function PathRow() {
+  const [row, setRow] = useState<AboutPathRow | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void request("settings.about_path").then((v) => {
+      setRow(v as AboutPathRow);
+    });
+  }, []);
+  if (!row) return null;
+
+  const add = () => {
+    setBusy(true);
+    void request("settings.about_path_add")
+      .then((v) => {
+        setRow(v as AboutPathRow);
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+  };
+
+  if (row.tone === "offer") {
+    return (
+      <div className="settings-row about-row">
+        <div className="settings-row-text">
+          <span className="settings-row-label">{row.label}</span>
+          {row.description !== null && <span className="settings-row-description">{row.description}</span>}
+          {row.paste !== null && (
+            <div className="about-path-paste">
+              <code>{row.paste}</code>
+              <CopyButton label={row.copy_label} copied={row.copied_label} text={row.paste} />
+            </div>
+          )}
+        </div>
+        <div className="settings-row-control">
+          {row.button !== null && (
+            <Button
+              variant="secondary"
+              icon="square-terminal"
+              label={row.button}
+              loading={busy}
+              onClick={add}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+  const failed = row.tone === "failed";
+  return (
+    <div className="settings-row about-row about-path">
+      <div className="settings-row-text">
+        <span className="settings-row-label">{row.label}</span>
+        <div className="about-path-result" data-failed={failed || undefined}>
+          <span className="about-path-line">
+            <Icon name={failed ? "circle-alert" : "check"} size={13} />
+            <span>{row.result}</span>
+          </span>
+          {row.detail !== null && <span className="about-path-detail">{row.detail}</span>}
+        </div>
+        {row.paste !== null && (
+          <div className="about-path-paste">
+            <code>{row.paste}</code>
+            <CopyButton label={row.copy_label} copied={row.copied_label} text={row.paste} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type Open = { kind: "license"; view: OwnLicenseDialog } | { kind: "licenses"; view: LicensesView } | null;
 
 /** The About section, registered as the global page's last section. */
@@ -361,6 +438,8 @@ export function AboutSection() {
           <CopyButton label={view.copy_label} copied={view.copied_label} text={view.version_info} />
         </div>
       </div>
+      {/* The Updates rows (0140, page 32 items 1–2) go here, above Use otaq in your own terminal. */}
+      <PathRow />
       {row(
         view.copyright,
         view.license_description,

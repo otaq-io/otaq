@@ -25,6 +25,7 @@ use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService};
+use otaq_core::shell_path;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use tempfile::TempDir;
 
@@ -128,6 +129,8 @@ impl World {
         vec![
             (DataDir::env_var(), self.root().to_owned()),
             ("HOME".into(), home.to_owned()),
+            ("ZDOTDIR".into(), home.to_owned()),
+            ("SHELL".into(), PathBuf::from("/bin/zsh")),
             ("CLAUDE_CONFIG_DIR".into(), home.join("claude-config")),
             ("CODEX_HOME".into(), home.join("codex")),
             ("COPILOT_HOME".into(), home.join("copilot")),
@@ -158,6 +161,15 @@ impl World {
             .filter_map(|l| l.strip_prefix("worktree "))
             .map(str::to_owned)
             .collect()
+    }
+}
+
+/// The summary's last line on this platform (d0140).
+fn last_step() -> String {
+    match std::env::consts::OS {
+        "macos" => format!("Drag {}.app to the Trash", naming::PRODUCT_NAME),
+        "windows" => format!("Uninstall {} from Settings → Apps", naming::PRODUCT_NAME),
+        _ => "Remove the package or delete the AppImage".to_owned(),
     }
 }
 
@@ -239,10 +251,7 @@ async fn without_worktrees_one_question_and_the_folder_is_gone() {
         "{out}"
     );
     assert!(out.contains("  ~/h ("), "{out}");
-    assert_eq!(
-        out.trim_end().lines().last(),
-        Some("Drag Otaq.app to the Trash")
-    );
+    assert_eq!(out.trim_end().lines().last(), Some(last_step().as_str()));
     assert!(git(&world.repo, &["branch", "--list"]).contains("otaq/OLD-1"));
 }
 
@@ -318,10 +327,7 @@ async fn yes_yes_removes_the_worktrees_and_the_folder() {
         "{out}"
     );
     assert!(!out.contains("Failed:"), "{out}");
-    assert_eq!(
-        out.trim_end().lines().last(),
-        Some("Drag Otaq.app to the Trash")
-    );
+    assert_eq!(out.trim_end().lines().last(), Some(last_step().as_str()));
 }
 
 /// Stops a real service started on `root` when the test ends, even when it fails.
@@ -359,8 +365,27 @@ async fn keep_data_keeps_the_database_and_reports() {
     std::fs::write(&report, "kept\n").unwrap();
     let copy = world.root().join("otaq.db.before-0.0.9");
     std::fs::write(&copy, "the copy\n").unwrap();
+    // The terminal's command and its PATH line (d0140) go even with --keep-data; the rest of .zshrc stays.
+    let bin = world.w.data.bin_dir();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join(shell_path::command_file_name()), "x").unwrap();
+    let zshrc = world.home().join(".zshrc");
+    let line = shell_path::path_line(shell_path::ShellKind::Zsh, &bin, world.home());
+    std::fs::write(&zshrc, format!("export A=1\n{line}\nexport B=2\n")).unwrap();
     let (out, code) = world.run(&["--keep-data"], &["y", "y"]).await;
     assert_eq!(code, 0, "{out}");
+    assert!(!bin.exists());
+    assert_eq!(
+        std::fs::read_to_string(&zshrc).unwrap(),
+        "export A=1\nexport B=2\n"
+    );
+    assert!(
+        out.contains(&format!(
+            "  The “# added by {}” line in ~/.zshrc",
+            naming::PRODUCT_NAME
+        )),
+        "{out}"
+    );
     assert!(
         out.contains("Delete everything in ~/h but the database and comment reports ("),
         "{out}"
