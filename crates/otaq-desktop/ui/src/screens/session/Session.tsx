@@ -68,16 +68,19 @@ export function SessionList({
         }}
       />
       <div className="session-list-group">{list.helpers_label}</div>
-      {list.helpers.map((row) => (
-        <SessionRow
-          key={row.name}
-          row={row}
-          shown={piece === row.name}
-          onOpen={() => {
-            onOpen(row.name);
-          }}
-        />
-      ))}
+      {/* Past three helpers the rows scroll on their own, so the terminal keeps the tab's height (T-0573). */}
+      <div className="session-list-helpers">
+        {list.helpers.map((row) => (
+          <SessionRow
+            key={row.name}
+            row={row}
+            shown={piece === row.name}
+            onOpen={() => {
+              onOpen(row.name);
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
