@@ -95,3 +95,10 @@ windows = { version = "0.62.2", features = [
     "UI_Notifications",
     "Win32_System_WinRT",
 ] }
+
+[dev-dependencies]
+# The protocol snapshot check (UPD-03, d0140) reads the protocol's types from the source. All three are already in the
+# lock through serde's and tokio's derive macros (MIT OR Apache-2.0); `full` parses whole items.
+syn = { version = "2.0.119", features = ["full"] }
+quote = "1.0.47"
+proc-macro2 = "1.0.107"

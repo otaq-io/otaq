@@ -111,6 +111,7 @@ mod project_env;
 mod project_files;
 mod project_terminals;
 mod projects;
+mod protocol_snapshot;
 mod quiet_turn_ends;
 mod read_gate;
 mod reconcile;

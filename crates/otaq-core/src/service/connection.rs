@@ -21,7 +21,7 @@ use crate::attention::ClientId;
 use crate::caller::{self, Caller};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, Event, FrameReader, Message, OnboardingState,
-    PROTOCOL_VERSION, Reply, Request, decode, write_message,
+    PROTOCOL_VERSION, Reply, Request, decode, unknown_method, write_message,
 };
 use crate::session::{Answering, OutputChunk};
 use crate::store::StoreError;
@@ -341,10 +341,25 @@ async fn handle(
                 }
             }
         }
-        Err(e @ DecodeError::Malformed(_)) => (
-            Message::error(None, ErrorBody::new(e.kind(), e.to_string())),
-            Then::Continue,
-        ),
+        Err(e @ DecodeError::Malformed(_)) => {
+            // Still answered by its id, so the caller isn't left waiting: a newer app or CLI sending a request this
+            // service doesn't know gets a clean error (UPD-03).
+            let raw: Option<serde_json::Value> = serde_json::from_slice(frame).ok();
+            let id = raw
+                .as_ref()
+                .and_then(|raw| raw.get("id"))
+                .and_then(serde_json::Value::as_u64);
+            let message = match raw.as_ref().and_then(unknown_method) {
+                Some(method) => format!(
+                    "the background service doesn't know the request `{method}` (it is older than the caller); restart it"
+                ),
+                None => e.to_string(),
+            };
+            (
+                Message::error(id, ErrorBody::new(e.kind(), message)),
+                Then::Continue,
+            )
+        }
     }
 }
 

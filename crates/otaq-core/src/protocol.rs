@@ -59,7 +59,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// Bumped whenever a message changes incompatibly. Adding optional fields or new methods doesn't need a bump.
+/// The protocol's number: bumped by every change an older service can't handle (UPD-03, d0140). The app compares it
+/// with the running service's (`ServiceStatus::protocol_version`) to tell "same protocol" from "needs agents
+/// restarted", and the release writes it into `latest.json` (`scripts/release/protocol-version.sh` reads this line).
+///
+/// **Compatible** (no bump): a new optional field (an `Option`, or `#[serde(default)]`); a new request (an older
+/// service answers it with a `bad_request` error carrying its id, see [`unknown_method`]); a new reply, event or enum
+/// variant; a new value of a string enum; a Rust-only rename that keeps the wire name (`#[serde(rename)]`).
+///
+/// **Incompatible** (bump): removing or renaming a field, variant or value on the wire; changing a field's type; a
+/// new required field; an optional field made required; a changed `tag`, `content`, `untagged`, `flatten` or other
+/// serde attribute; a new field where unknown fields are refused; a changed hand-written `Serialize` /
+/// `Deserialize`.
+///
+/// The check: `tests/suite/protocol_snapshot.rs` compares the messages with `src/protocol.snapshot.json` and tells
+/// which of the two a change is. After any change to the messages, regenerate the snapshot with
+/// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
+/// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// The longest frame accepted, in bytes (newline included).
@@ -2671,6 +2687,18 @@ impl ForeignMessage {
     }
 }
 
+/// The method of a request this build doesn't know (sent by a newer app or CLI), if `raw` is one. The service
+/// answers such a request with a `bad_request` error carrying its id, which is what makes a new request a
+/// compatible change (see [`PROTOCOL_VERSION`]).
+pub fn unknown_method(raw: &Value) -> Option<&str> {
+    let method = raw.get("request")?.get("method")?.as_str()?;
+    match serde_json::from_value::<Request>(serde_json::json!({ "method": method })) {
+        // serde's words for a tag no variant has.
+        Err(e) if e.to_string().starts_with("unknown variant") => Some(method),
+        _ => None,
+    }
+}
+
 /// Serializes a message as one frame: compact JSON followed by `\n`.
 pub fn encode(message: &Message) -> Vec<u8> {
     let mut frame = serde_json::to_vec(message).expect("messages always serialize");
@@ -2900,6 +2928,27 @@ mod tests {
                     .any(|r| r.method() == *m)
             );
         }
+    }
+
+    #[test]
+    fn unknown_methods_are_told_from_unreadable_params() {
+        let raw = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+        assert_eq!(
+            unknown_method(&raw(
+                r#"{"id":1,"request":{"method":"future.thing","params":{}}}"#
+            )),
+            Some("future.thing")
+        );
+        // Known methods, with or without readable params, and messages that aren't requests.
+        assert_eq!(
+            unknown_method(&raw(r#"{"request":{"method":"ticket.move","params":7}}"#)),
+            None
+        );
+        assert_eq!(
+            unknown_method(&raw(r#"{"request":{"method":"ping"}}"#)),
+            None
+        );
+        assert_eq!(unknown_method(&raw(r#"{"reply":"ok"}"#)), None);
     }
 
     #[test]

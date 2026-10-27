@@ -406,3 +406,12 @@ whether it is up to date. It covers the Rust crates (through `cargo-about`) and 
 (`scripts/licenses/npm.mjs`, from `package-lock.json` and the license files of the installed packages, so `npm ci`
 first). It needs `cargo-about` (`cargo install cargo-about --locked --features cli`), so it isn't one of the check
 steps.
+
+## The protocol number
+
+`PROTOCOL_VERSION` (`crates/otaq-core/src/protocol.rs`) is bumped by every change an older background service can't
+handle (decision 0140); its doc comment lists which changes are compatible. The check compares the messages with
+`crates/otaq-core/src/protocol.snapshot.json` and fails with what to do. After changing the messages, regenerate the
+snapshot with `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
+incompatible change keeps the same number. `scripts/release/protocol-version.sh` prints the number, for the release's
+`latest.json`.
