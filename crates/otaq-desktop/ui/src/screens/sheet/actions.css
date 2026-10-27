@@ -32,10 +32,14 @@
   color: var(--st-paused);
 }
 
+/* The buttons wrap onto a second line where they don't fit (T-0572: a ticket with a PR has four, Open PR in browser,
+ * Send back with PR comments, Mark merged and Mark closed, wider than a 1280 px window's Overview). */
 .sheet-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   min-height: 28px;
 }
 
@@ -44,6 +48,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
 }
 
 /* "agent 58k · validation 9k (1 round)" (*Row · validation (0063)*, VAL-14). */

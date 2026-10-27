@@ -523,3 +523,16 @@ describe("the ticket's keys (0097)", () => {
     host.remove();
   });
 });
+
+describe("the action bar's fit (T-0572)", () => {
+  it("wraps its buttons onto a second line instead of running past Overview's column", async () => {
+    // Read as text with Node's fs (the test runner hands CSS imports over empty; the page has no Node types).
+    const fsModule = "node:fs";
+    const fs = (await import(fsModule)) as { readFileSync(path: string, encoding: "utf8"): string };
+    const here = (import.meta as ImportMeta & { dirname: string }).dirname;
+    const css = fs.readFileSync(`${here}/actions.css`, "utf8");
+    const bar = /\n\.sheet-bar \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(bar).toContain("flex-wrap: wrap;");
+    expect(bar).toContain("min-width: 0;");
+  });
+});
