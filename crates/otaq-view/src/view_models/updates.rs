@@ -94,6 +94,9 @@ pub struct Context {
     pub app_protocol: u32,
     /// Restart now is putting the update in place: its button is off.
     pub installing: bool,
+    /// When the last check couldn't reach GitHub, if it couldn't. With an update ready (Restart now offline, or a
+    /// daily check that failed after the download), the Updates row says so and the notice stays.
+    pub unreachable_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,6 +304,21 @@ fn result(
     })
 }
 
+/// "Couldn't reach GitHub · checked at 09:41" with its line under it (page 32 item 1).
+fn unreachable(checked_at: i64) -> Option<UpdateResult> {
+    result(
+        IconName::CircleAlert,
+        Tone::Warning,
+        format!(
+            "Couldn’t reach GitHub · checked at {}",
+            clock::local_hhmm(checked_at)
+        ),
+        Some(format!(
+            "{PRODUCT_NAME} tries again at the next daily check. Check your connection, then Check for updates."
+        )),
+    )
+}
+
 /// The view of `state` at this moment.
 pub fn view(state: &UpdateState, ctx: &Context) -> View {
     let name = PRODUCT_NAME;
@@ -358,17 +376,14 @@ pub fn view(state: &UpdateState, ctx: &Context) -> View {
             ),
             None,
         ),
-        UpdateState::Unreachable { checked_at } => result(
-            IconName::CircleAlert,
-            Tone::Warning,
-            format!(
-                "Couldn’t reach GitHub · checked at {}",
-                clock::local_hhmm(*checked_at)
-            ),
-            Some(format!(
-                "{name} tries again at the next daily check. Check your connection, then Check for updates."
-            )),
-        ),
+        UpdateState::Unreachable { checked_at } => unreachable(*checked_at),
+        UpdateState::Ready(kept)
+            if ctx
+                .unreachable_at
+                .is_some_and(|at| at >= kept.downloaded_at) =>
+        {
+            unreachable(ctx.unreachable_at.unwrap_or_default())
+        }
         UpdateState::DownloadStopped {
             version,
             done,
@@ -664,6 +679,7 @@ mod tests {
             }),
             app_protocol: 1,
             installing: false,
+            unreachable_at: None,
         }
     }
 
@@ -980,5 +996,38 @@ mod tests {
                 "{PRODUCT_NAME} couldn’t replace /opt/Board: disk full. You’re still on 0.1.0."
             )
         );
+    }
+
+    #[test]
+    fn restart_now_offline_says_so_and_stays_ready() {
+        let ready = kept("0.2.0", Some(1));
+        // The confirmation check after Restart now failed, after the download: the row says so, the notice stays.
+        let offline = Context {
+            unreachable_at: Some(NOW),
+            ..ctx()
+        };
+        let v = view(&ready, &offline);
+        let r = v.row.result.unwrap();
+        assert!(
+            r.text.starts_with("Couldn’t reach GitHub · checked at "),
+            "{}",
+            r.text
+        );
+        assert_eq!(r.tone, Tone::Warning);
+        assert_eq!(
+            v.notice.unwrap().title,
+            format!("{PRODUCT_NAME} 0.2.0 is ready")
+        );
+        assert!(v.dot.is_some());
+        // A failed check from before the download doesn't count.
+        let earlier = Context {
+            unreachable_at: Some(NOW - 10 * 60_000),
+            ..ctx()
+        };
+        assert!(text_in(&ready, &earlier).contains("downloaded and checked"));
+    }
+
+    fn text_in(state: &UpdateState, ctx: &Context) -> String {
+        view(state, ctx).row.result.unwrap().text
     }
 }
