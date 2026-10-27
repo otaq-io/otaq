@@ -120,6 +120,11 @@ pub fn app_binary_name() -> String {
 /// The macOS bundle's ID (d0072), under which macOS shows its notifications (d0090).
 pub const BUNDLE_ID: &str = "io.otaq.desktop";
 
+/// What the app's update check asks for (UPD-04): the newest release's `latest.json`. Also the updater's endpoint in
+/// `tauri.conf.json`, which a test keeps the same.
+pub const LATEST_JSON_URL: &str =
+    "https://github.com/otaq-io/otaq/releases/latest/download/latest.json";
+
 /// The macOS bundle's folder name: `Otaq.app` (d0072).
 pub fn bundle_folder_name() -> String {
     format!("{PRODUCT_NAME}.app")

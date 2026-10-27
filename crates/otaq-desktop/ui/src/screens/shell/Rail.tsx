@@ -3,7 +3,8 @@
 // agents working and items needing you, quiet when idle; a project that newly needs you while another is shown rings
 // for 10 s. The 64 px column of tiles at every width. Add project after the tiles; at the bottom the Project agent
 // button (tinted while its panel is open, a dot while a reply waits; ⌘L), then Terminals (the drawer on the last-used
-// terminal, as ⌃`), Cleanup and Settings (as ⌘,) (T-0329, T-0458). A project in Flow setup is marked "Flow setup" under its name (ASK-04,
+// terminal, as ⌃`), Cleanup and Settings (as ⌘,) (T-0329, T-0458); Settings has a dot while an update is ready
+// (UPD-04, page 32 item 2), its tooltip saying which. A project in Flow setup is marked "Flow setup" under its name (ASK-04,
 // T-0436); selecting it opens its Flow setup page. Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
@@ -25,6 +26,7 @@ import { Icon } from "../../theme/Icon";
 import { askBar } from "../ask_bar/logic";
 import { toggleAgentPanel } from "../agent_panel/logic";
 import { cleanupScans } from "../recovery/logic";
+import { updatesStore, watchUpdates } from "../settings/updates";
 import { railMenuChoice } from "./projectMenu";
 
 /** The service events that change the rail's projects or counts. */
@@ -80,12 +82,20 @@ export function railActions(app: Registries): RailActions {
   };
 }
 
-/** A button at the rail's bottom (a plain function, so the rail's elements show its click without rendering). */
-function bottomButton(button: RailButton, icon: IconName, onClick: () => void) {
+/** A button at the rail's bottom (a plain function, so the rail's elements show its click without rendering); `dot`
+ * marks it, with that line under its tooltip. */
+function bottomButton(button: RailButton, icon: IconName, onClick: () => void, dot: string | null = null) {
+  const label = dot === null ? button.label : `${button.label} · ${dot}`;
   return (
-    <Tooltip key={button.label} text={button.label} keys={button.keys ?? undefined}>
-      <button type="button" className="rail-bottom" aria-label={button.label} onClick={onClick}>
+    <Tooltip
+      key={button.label}
+      text={button.label}
+      keys={button.keys ?? undefined}
+      detail={dot === null ? undefined : [dot]}
+    >
+      <button type="button" className="rail-bottom" aria-label={label} onClick={onClick}>
         <Icon name={icon} size={16} />
+        {dot !== null && <span className="rail-update-dot" />}
       </button>
     </Tooltip>
   );
@@ -121,6 +131,8 @@ export interface RailProps {
   /** The project menu open from a right-click on a tile (#11), and its owner's setter. */
   menu?: TileMenu | null;
   onMenu?: (menu: TileMenu | null) => void;
+  /** An update is ready: Settings' dot and its tooltip line ("Otaq 0.2.0 is ready"). */
+  updateDot?: string | null;
 }
 
 /** A right-click on a tile: that project's menu at the pointer (#11). */
@@ -130,7 +142,7 @@ export interface TileMenu {
 }
 
 /** The 64 px rail of tiles. */
-export function RailTiles({ view, broom, actions, agent, menu = null, onMenu }: RailProps) {
+export function RailTiles({ view, broom, actions, agent, menu = null, onMenu, updateDot = null }: RailProps) {
   const setMenu = (next: TileMenu | null) => onMenu?.(next);
   return (
     <nav className="rail" aria-label="Projects">
@@ -190,7 +202,7 @@ export function RailTiles({ view, broom, actions, agent, menu = null, onMenu }: 
       )}
       {bottomButton(view.bottom.terminals, "square-terminal", () => actions?.onTerminals())}
       <Broom broom={broom} />
-      {bottomButton(view.bottom.settings, "settings", () => actions?.onSettings())}
+      {bottomButton(view.bottom.settings, "settings", () => actions?.onSettings(), updateDot)}
       {menu !== null && (
         <AnchoredMenu
           anchor={menu.anchor}
@@ -231,6 +243,8 @@ export function ShellRail() {
   );
   const broom = useServiceView(loadBroom, []).view;
   const agent = useStore(askBar)?.button;
+  const updateDot = useStore(updatesStore)?.dot ?? null;
+  useEffect(() => watchUpdates(updatesStore.set), []);
   const [menu, setMenu] = useState<TileMenu | null>(null);
 
   // The first project when nothing is selected yet, or when the shown one was removed. Only an answer for the
@@ -261,6 +275,7 @@ export function ShellRail() {
       agent={agent}
       menu={menu}
       onMenu={setMenu}
+      updateDot={updateDot}
     />
   );
 }

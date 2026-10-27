@@ -33,6 +33,10 @@ pub enum PageEvent {
     Connection { connection: Connection },
     /// The banner rows or the toasts changed (T-0231).
     Notices { notices: NoticesView },
+    /// Settings → About's update parts and the rail's dot changed (UPD-04).
+    Updates {
+        updates: Box<otaq_view::view_models::updates::View>,
+    },
     /// Files were dropped on the window at `x`, `y` (CSS pixels, from the page's top left; T-0233, T-0388, d0099).
     /// Over a terminal that takes typing it gets `paste` (the paths quoted as Terminal.app does); over one that
     /// doesn't nothing happens; anywhere else Add project opens with the first path.

@@ -905,6 +905,10 @@ pub(crate) mod testing {
             true
         }));
         let link = ServiceLink::start(Ok(settings), events.clone());
+        let updates = crate::updates::Updates::new(
+            crate::updates::Env::of_this_app(link.data().map(|d| d.updates_dir()), true),
+            Arc::new(crate::updates::ServicePrefs::new(link.clients())),
+        );
         let app = App {
             notices: crate::notices::Notices::start(&link, events.clone()),
             service: link,
@@ -929,6 +933,8 @@ pub(crate) mod testing {
                 gate: crate::install_place::Gate::Run,
                 data: None,
             },
+            updates,
+            update_source: std::sync::OnceLock::new(),
         };
         (app, seen)
     }

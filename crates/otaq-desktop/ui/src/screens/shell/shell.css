@@ -605,6 +605,7 @@ button.rail-agent[data-tinted] {
 
 /* Terminals and Settings around Cleanup (*Rail bottom: Terminals & Settings*): no dot. */
 button.rail-bottom {
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
@@ -618,6 +619,18 @@ button.rail-bottom {
 button.rail-bottom:hover {
   background: var(--bg-hover);
   color: var(--text-secondary);
+}
+
+/* An update is ready (page 32 item 2): a dot on Settings, no pop-up. */
+.rail-update-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  outline: 2px solid var(--bg-panel);
+  background: var(--st-working);
 }
 
 button.rail-broom {

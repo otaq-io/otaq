@@ -236,6 +236,14 @@ pub enum Request {
     /// The window showed the kept first-hide note: it never comes back. Answered with [`Reply::Ok`].
     #[serde(rename = "app.first_hide_shown")]
     AppFirstHideShown,
+    /// The app's update preferences (UPD-04, d0140): Check for updates automatically, the last check, the skipped
+    /// version. Answered with [`Reply::UpdatePrefs`].
+    #[serde(rename = "updates.prefs")]
+    UpdatePrefs,
+    /// Stores the fields given (the switch, a check that ran, Skip this version). Answered with
+    /// [`Reply::UpdatePrefs`].
+    #[serde(rename = "updates.set_prefs")]
+    UpdateSetPrefs(crate::updates::UpdatePrefsChange),
 
     // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`]
     // ([`Reply::ProjectAdded`] for `project.add`).
@@ -1974,6 +1982,8 @@ impl Request {
             Self::AppFirstHide => "app.first_hide",
             Self::AppFirstHidePending => "app.first_hide_pending",
             Self::AppFirstHideShown => "app.first_hide_shown",
+            Self::UpdatePrefs => "updates.prefs",
+            Self::UpdateSetPrefs(_) => "updates.set_prefs",
             Self::ProjectList => "project.list",
             Self::ProjectProbe(_) => "project.probe",
             Self::ProjectAdd(_) => "project.add",
@@ -2206,6 +2216,7 @@ pub enum Reply {
     FlowSetup(Box<crate::project_agents::first_flow::FlowSetup>),
     NotificationsState(crate::attention::os_permission::NotificationsState),
     FirstHide(crate::attention::os_permission::FirstHide),
+    UpdatePrefs(crate::updates::UpdatePrefs),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
     /// The answer to `project.add`: the project, and whether the agent tools' trust was recorded for its folder
@@ -2861,6 +2872,14 @@ mod tests {
             Message::request(13, Request::AppFirstHide),
             Message::request(13, Request::AppFirstHidePending),
             Message::request(13, Request::AppFirstHideShown),
+            Message::request(13, Request::UpdatePrefs),
+            Message::request(
+                13,
+                Request::UpdateSetPrefs(crate::updates::UpdatePrefsChange {
+                    skipped: Some("0.2.0".into()),
+                    ..Default::default()
+                }),
+            ),
             Message::event(Event::NotificationsChanged {
                 state: crate::attention::os_permission::NotificationsState {
                     permission: crate::attention::notify::PermissionState::TurnedOff,

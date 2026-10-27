@@ -25,6 +25,7 @@ mod status_icon;
 mod stylesheet;
 mod terminal;
 mod tray_host;
+mod updates;
 mod usage;
 mod window;
 
@@ -71,6 +72,10 @@ pub struct App {
     fonts: fonts::Fonts,
     /// Where the app runs from: outside an Applications folder a macOS release shows only the Move window (T-0579).
     install: install_place::InstallState,
+    /// Self-updates (UPD-04, d0140): the check, the download, the kept update.
+    updates: Arc<updates::Updates>,
+    /// Where the updater checks: Tauri's updater plugin, set by the door once the app is up.
+    update_source: std::sync::OnceLock<Arc<dyn updates::Source>>,
 }
 
 fn main() {
@@ -154,6 +159,10 @@ fn main() {
         let notices = notices::Notices::start(&service, events.clone());
         (service, notices)
     };
+    let updates = updates::Updates::new(
+        updates::Env::of_this_app(service.data().map(|d| d.updates_dir()), gate.runs()),
+        Arc::new(updates::ServicePrefs::new(service.clients())),
+    );
     let app = Arc::new(App {
         events,
         service,
@@ -174,6 +183,8 @@ fn main() {
         usage: usage::Usage::new(runtime.handle().clone()),
         fonts: fonts::Fonts::system(),
         install,
+        updates,
+        update_source: std::sync::OnceLock::new(),
     });
     if gate.runs() {
         runtime.spawn(api::usage_loop(app.clone()));

@@ -123,6 +123,7 @@ pub mod ticket_comments;
 pub mod toasts;
 pub mod tool_avatar;
 pub mod tool_problems;
+pub mod updates;
 pub mod usage;
 pub mod usage_data;
 pub mod validation_report;
