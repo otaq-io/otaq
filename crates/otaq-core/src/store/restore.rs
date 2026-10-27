@@ -117,6 +117,31 @@ fn replaced_path(database: &Path, now_ms: i64) -> PathBuf {
         .expect("a free name")
 }
 
+/// The databases a restore moved aside next to `database` (`otaq.db.replaced-<time>`, with its `-wal` when there is
+/// one): never deleted by Otaq, kept by `uninstall --keep-data` too.
+pub fn replaced(database: &Path) -> Vec<PathBuf> {
+    let (Some(folder), Some(name)) = (
+        database.parent(),
+        database.file_name().and_then(|n| n.to_str()),
+    ) else {
+        return Vec::new();
+    };
+    let prefix = format!("{name}.replaced-");
+    std::fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|e| {
+                    e.file_name()
+                        .to_str()
+                        .is_some_and(|n| n.starts_with(&prefix))
+                })
+                .map(|e| e.path())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn wal_of(database: &Path) -> PathBuf {
     let mut name = database.as_os_str().to_owned();
     name.push("-wal");
@@ -340,6 +365,20 @@ mod tests {
         assert!(problem.contains("see the logs"), "{problem}");
         assert!(left.starts_with("The copy is back as"), "{left}");
         assert_eq!(std::fs::read_to_string(&db).unwrap(), "copy");
+    }
+
+    #[test]
+    fn the_moved_aside_databases_are_listed() {
+        let (tmp, db) = folder();
+        std::fs::write(&db, "current").unwrap();
+        std::fs::write(tmp.path().join("board.db.before-0.2.0"), "copy").unwrap();
+        let mut control = Control::default();
+        let restored = restore(&db, &mut control, &mut |_| {}).unwrap();
+        std::fs::write(wal_of(restored.replaced.as_ref().unwrap()), "wal").unwrap();
+        let mut listed = replaced(&db);
+        listed.sort();
+        let aside = restored.replaced.unwrap();
+        assert_eq!(listed, [aside.clone(), wal_of(&aside)]);
     }
 
     #[test]

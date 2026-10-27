@@ -365,6 +365,14 @@ async fn keep_data_keeps_the_database_and_reports() {
     std::fs::write(&report, "kept\n").unwrap();
     let copy = world.root().join("otaq.db.before-0.0.9");
     std::fs::write(&copy, "the copy\n").unwrap();
+    // A database a restore moved aside, with its -wal (d0140, Q-e).
+    let replaced = world.root().join("otaq.db.replaced-20261024-091200");
+    std::fs::write(&replaced, "moved aside\n").unwrap();
+    std::fs::write(
+        world.root().join("otaq.db.replaced-20261024-091200-wal"),
+        "wal\n",
+    )
+    .unwrap();
     // The terminal's command and its PATH line (d0140) go even with --keep-data; the rest of .zshrc stays.
     let bin = world.w.data.bin_dir();
     std::fs::create_dir_all(&bin).unwrap();
@@ -406,6 +414,8 @@ async fn keep_data_keeps_the_database_and_reports() {
                 "otaq.db-wal",
                 "otaq.db-shm",
                 "otaq.db.before-0.0.9",
+                "otaq.db.replaced-20261024-091200",
+                "otaq.db.replaced-20261024-091200-wal",
                 "reports"
             ]
             .contains(&name.as_str()),
@@ -413,7 +423,10 @@ async fn keep_data_keeps_the_database_and_reports() {
         );
     }
     assert!(
-        left.contains(&"otaq.db".to_owned()) && report.is_file() && copy.is_file(),
+        left.contains(&"otaq.db".to_owned())
+            && report.is_file()
+            && copy.is_file()
+            && replaced.is_file(),
         "{left:?}"
     );
     assert_eq!(world.worktrees().len(), 1);

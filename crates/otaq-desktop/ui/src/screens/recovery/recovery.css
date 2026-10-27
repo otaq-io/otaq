@@ -667,7 +667,9 @@
  */
 .newer-db {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 14px;

@@ -135,11 +135,12 @@ impl ConnectionViewModel {
                 tone: Tone::Error,
                 input_enabled: false,
             },
+            // The window's own screen replaces the board and takes the clicks (Restore, Try again): not dimmed.
             LinkState::NewerDatabase(state) => Self {
                 label: "Service not started".into(),
                 detail: Some(state.reason.message()),
                 tone: Tone::Error,
-                input_enabled: false,
+                input_enabled: true,
             },
         }
     }
@@ -220,6 +221,21 @@ mod tests {
             vm.input_enabled,
             "an older service keeps working until the user restarts"
         );
+    }
+
+    /// UPD-08: the newer-database screen replaces the board and takes the clicks, so the window isn't dimmed.
+    #[test]
+    fn the_newer_database_screen_takes_input() {
+        use crate::view_models::newer_database::NewerDatabaseState;
+        let state =
+            LinkState::NewerDatabase(NewerDatabaseState::new(otaq_core::store::NewerDatabase {
+                last_opened_by: "0.2.0".into(),
+                copy: None,
+            }));
+        let vm = ConnectionViewModel::new(&state);
+        assert!(vm.input_enabled);
+        assert_eq!(vm.label, "Service not started");
+        assert!(service_down(&state), "what the window last heard is stale");
     }
 
     #[test]

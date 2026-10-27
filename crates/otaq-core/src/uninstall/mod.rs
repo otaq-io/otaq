@@ -57,7 +57,7 @@ pub struct FolderDeleted {
 }
 
 /// The data folder's entries `--keep-data` keeps (UNI-05): the database files, the `otaq.db.before-<version>` copy
-/// (d0140) and the comment reports.
+/// (d0140), the databases a restore moved aside (`otaq.db.replaced-<time>` and its `-wal`) and the comment reports.
 fn kept_entries(data: &DataDir) -> Vec<PathBuf> {
     let db = data.database_path();
     let with_suffix = |suffix: &str| {
@@ -76,6 +76,7 @@ fn kept_entries(data: &DataDir) -> Vec<PathBuf> {
             .into_iter()
             .map(|copy| copy.path),
     );
+    kept.extend(crate::store::restore::replaced(&db));
     kept
 }
 
