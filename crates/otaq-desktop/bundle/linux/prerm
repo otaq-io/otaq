@@ -1,0 +1,17 @@
+#!/bin/sh
+# Otaq's .deb prerm (d0140, UPD-09): `apt remove otaq` removes only the program. It stops the background service of
+# the user who ran it (failure ignored) and says how to remove worktrees and data. An upgrade stops nothing: the
+# service and its agents run from the runtime copy in the data folder, not from /usr/bin.
+set -e
+case "$1" in
+    remove|purge)
+        user="${SUDO_USER:-}"
+        if [ -n "$user" ] && [ "$user" != root ]; then
+            su -s /bin/sh "$user" -c '/usr/bin/otaq daemon stop' >/dev/null 2>&1 || true
+        else
+            /usr/bin/otaq daemon stop >/dev/null 2>&1 || true
+        fi
+        echo "Otaq: only the program is removed. Run \`otaq uninstall\` first to remove worktrees and data."
+        ;;
+esac
+exit 0

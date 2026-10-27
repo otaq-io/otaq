@@ -27,6 +27,8 @@ pub struct Build {
     pub os: String,
     /// `arm64` or `x64`, as people call them (see [`arch_name`]).
     pub arch: String,
+    /// A release: built by the release workflow with `OTAQ_RELEASE=1` (d0140). Every other build is built from source.
+    pub release: bool,
 }
 
 /// *Settings · About*.
@@ -39,6 +41,8 @@ pub struct View {
     pub version: String,
     pub commit: String,
     pub version_description: String,
+    /// "Built from source · bed9c10. …" for a build that isn't a release (d0140, page 32 item 1); `None` for a release.
+    pub built_from_source: Option<String>,
     pub copy_label: String,
     pub copied_label: String,
     /// What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64".
@@ -247,6 +251,13 @@ fn capitalized(text: &str) -> String {
     }
 }
 
+/// Page 32 item 1's line for a build that isn't a release: it never checks for updates and no release replaces it.
+pub fn built_from_source(commit: &str) -> String {
+    format!(
+        "Built from source · {commit}. This build never checks for updates; a release never replaces it. Build it again to update."
+    )
+}
+
 /// `std::env::consts::ARCH` as people call it: `aarch64` → `arm64`, `x86_64` → `x64`.
 pub fn arch_name(arch: &str) -> &str {
     match arch {
@@ -277,6 +288,7 @@ pub fn view(build: &Build, license: &str, rust_crates: usize, npm_packages: usiz
         version_description:
             "For bug reports: copies the version, the build commit, your OS and its architecture."
                 .into(),
+        built_from_source: (!build.release).then(|| built_from_source(&build.commit)),
         copy_label: "Copy version info".into(),
         copied_label: "Copied".into(),
         version_info: format!(
@@ -339,6 +351,7 @@ mod tests {
             commit: "bed9c10".into(),
             os: "macOS 26.0".into(),
             arch: arch_name("aarch64").into(),
+            release: true,
         }
     }
 
@@ -358,6 +371,21 @@ mod tests {
         assert!(v.trademark.starts_with(&format!(
             "Claude and Claude Code are trademarks of Anthropic. {PRODUCT_NAME} is"
         )));
+    }
+
+    #[test]
+    fn a_build_from_source_says_so() {
+        assert_eq!(view(&build(), LICENSE, 1, 1).built_from_source, None);
+        let source = Build {
+            release: false,
+            ..build()
+        };
+        assert_eq!(
+            view(&source, LICENSE, 1, 1).built_from_source.as_deref(),
+            Some(
+                "Built from source · bed9c10. This build never checks for updates; a release never replaces it. Build it again to update."
+            )
+        );
     }
 
     #[test]

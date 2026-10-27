@@ -23,6 +23,10 @@
   },
   "bundle": {
     "active": false,
+    "targets": ["app", "dmg", "nsis", "appimage", "deb"],
+    "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Run your coding agents from one board",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -30,6 +34,21 @@
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "bundle/windows/hooks.nsh"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"],
+        "preRemoveScript": "bundle/linux/prerm"
+      }
+    }
   }
 }

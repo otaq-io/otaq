@@ -30,6 +30,7 @@ pub fn build() -> &'static Build {
         commit: env!("BUILD_COMMIT").to_owned(),
         os: os_name(),
         arch: about::arch_name(std::env::consts::ARCH).to_owned(),
+        release: crate::install_place::release(),
     })
 }
 
