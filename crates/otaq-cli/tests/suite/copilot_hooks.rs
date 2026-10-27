@@ -47,6 +47,8 @@ async fn every_copilot_hook() {
         config
     })
     .await;
+    // The tool's hook mapping; the stage reminder before Idle (d0042 2026-10-28) has its own tests.
+    w.signals.set_stage_reminders(false);
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Coupon field").await;
     w.force_status(&shop1, Status::Working).await;

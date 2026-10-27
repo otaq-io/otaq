@@ -34,6 +34,8 @@ async fn event(agent: &AgentShell, name: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn every_opencode_event() {
     let w = TestService::start().await;
+    // The tool's hook mapping; the stage reminder before Idle (d0042 2026-10-28) has its own tests.
+    w.signals.set_stage_reminders(false);
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Order totals rounding").await;
     w.force_status(&shop1, Status::Idle).await;

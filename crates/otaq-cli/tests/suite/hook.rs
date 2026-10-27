@@ -39,6 +39,8 @@ async fn hook(agent: &AgentShell, name: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn every_row_of_the_hook_mapping() {
     let w = TestService::start().await;
+    // The tool's hook mapping; the stage reminder before Idle (d0042 2026-10-28) has its own tests.
+    w.signals.set_stage_reminders(false);
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Split user full name").await;
     w.force_status(&shop1, Status::Working).await;
@@ -179,6 +181,8 @@ fn codex_fixture(name: &str) -> Value {
 #[tokio::test(flavor = "multi_thread")]
 async fn every_codex_hook() {
     let w = TestService::start().await;
+    // The tool's hook mapping; the stage reminder before Idle (d0042 2026-10-28) has its own tests.
+    w.signals.set_stage_reminders(false);
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Add coupon codes").await;
     w.force_status(&shop1, Status::Working).await;
@@ -340,6 +344,8 @@ async fn the_plugin_hook_commands_run_under_sh() {
         .unwrap()
         .to_owned();
     let w = TestService::start().await;
+    // The tool's hook mapping; the stage reminder before Idle (d0042 2026-10-28) has its own tests.
+    w.signals.set_stage_reminders(false);
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Split user full name").await;
     w.force_status(&shop1, Status::Working).await;
