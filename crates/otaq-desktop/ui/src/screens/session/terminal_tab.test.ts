@@ -22,6 +22,7 @@ import {
   stripFor,
   toneColor,
 } from "./terminalLogic";
+import { SessionList } from "./Session";
 import { TerminalTabBody } from "./TerminalTab";
 
 const PHASES: TerminalPhase[] = ["no_session", "attaching", "live", "reconnecting", "ended"];
@@ -320,6 +321,41 @@ describe("a helper's terminal (d0133, `s30-03`)", () => {
     expect(html).toContain("Helper for 40.3 · Claude Code · sonnet · its own worktree, otaq/SHOP-40.3");
     expect(html).toContain("Click to type to 40.3’s helper · SHOP-40");
     expect(html).not.toContain("otaq attach");
+  });
+});
+
+describe("Session's list keeps the terminal's height (T-0573)", () => {
+  const row = (n: number) => ({
+    piece: n,
+    name: `40.${String(n)}`,
+    title: `Piece ${String(n)}`,
+    status: "Working",
+    tone: "working" as const,
+    opens: true,
+  });
+  it("puts every helper in its own scrolled box, bounded, with the list at its own height", async () => {
+    const list = {
+      label: "SESSIONS · 1 IN CHARGE · 6 HELPERS",
+      in_charge_label: "IN CHARGE",
+      helpers_label: "HELPERS",
+      in_charge: { ...row(0), piece: null, name: "Developer" },
+      helpers: [1, 2, 3, 4, 5, 6].map(row),
+    };
+    const html = renderToStaticMarkup(
+      createElement(SessionList, { list, piece: null, onOpen: () => undefined }),
+    );
+    const box = html.slice(html.indexOf('class="session-list-helpers"'));
+    for (const n of [1, 2, 3, 4, 5, 6]) expect(box).toContain(`40.${String(n)}`);
+    expect(box).not.toContain("Developer");
+    // Read as text with Node's fs (the test runner hands CSS imports over empty; the page has no Node types).
+    const fsModule = "node:fs";
+    const fs = (await import(fsModule)) as { readFileSync(path: string, encoding: "utf8"): string };
+    const here = (import.meta as ImportMeta & { dirname: string }).dirname;
+    const css = fs.readFileSync(`${here}/session.css`, "utf8");
+    const rule = (selector: string) => new RegExp(`\\n\\${selector} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    expect(rule(".session-list")).toContain("flex: none;");
+    expect(rule(".session-list-helpers")).toMatch(/max-height: \d+px;/);
+    expect(rule(".session-list-helpers")).toContain("overflow-y: auto;");
   });
 });
 
