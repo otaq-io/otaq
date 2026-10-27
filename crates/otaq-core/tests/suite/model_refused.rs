@@ -635,7 +635,8 @@ async fn a_start_that_isnt_refused_is_untouched() {
         &json!({"last_assistant_message": "Done."}),
     )
     .await;
-    assert_eq!(w.w.status("SHOP-1").await, Status::Idle);
+    // An ordinary turn end: Working with the stage reminder (d0042 2026-10-28), not Start failed or No result.
+    assert_eq!(w.w.status("SHOP-1").await, Status::Working);
     assert!(
         w.w.board
             .store()

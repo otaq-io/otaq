@@ -260,8 +260,18 @@ async fn enter_on_a_line_answers_it_and_a_prompt_shows_on_top() {
         )]
     );
     assert_eq!(strip_line(&w, "SHOP-1").await, None);
-    // Answered, a later Stop is Idle as usual.
+    // Answered, a later Stop without a hand-over gets the stage reminder first (an answer typed in the terminal isn't
+    // a chat, d0042 2026-10-28); the reminder's own turn ending the same way is Idle.
     hook(&w, &me, "UserPromptSubmit", json!({"prompt": "SES"})).await;
+    hook(&w, &me, "Stop", json!({"last_assistant_message": "Done."})).await;
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    hook(
+        &w,
+        &me,
+        "UserPromptSubmit",
+        json!({"prompt": "Otaq: you ended your turn…"}),
+    )
+    .await;
     hook(&w, &me, "Stop", json!({"last_assistant_message": "Done."})).await;
     assert_eq!(w.status("SHOP-1").await, Status::Idle);
     w.stop().await;

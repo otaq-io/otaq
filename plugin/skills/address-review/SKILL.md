@@ -11,6 +11,11 @@ comments, a comment, or both. Otaq's message says which, for example "SHOP-27 wa
 and a comment. Run `otaq prime`, then `otaq review feedback`." You are in the same worktree and on the same branch as
 before.
 
+**Your stage ends only when you run `otaq stage next`**, or pauses while you wait for the user's answer to `otaq ask
+human --stdin`. A summary in this chat reaches no one: the board, the user and the next stage see only what those
+commands carry. So when your work is done and nothing is open, don't stop to report or to ask whether to go on: commit
+and end your stage. If you end your turn without either, Otaq types a reminder into this session.
+
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the

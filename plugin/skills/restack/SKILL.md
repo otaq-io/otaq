@@ -10,6 +10,11 @@ Your ticket's branch (its key is in `$OTAQ_TICKET`, for example `SHOP-19`) **con
 into**: Otaq tried to rebase it for a Local merge, or after reopening the ticket, and git stopped on conflicts.
 Otaq put everything back as it was; resolving the conflicts is your job now.
 
+**Your stage ends only when you run `otaq stage next`**, or pauses while you wait for the user's answer to `otaq ask
+human --stdin`. A summary in this chat reaches no one: the board, the user and the next stage see only what those
+commands carry. So when your work is done and nothing is open, don't stop to report or to ask whether to go on: commit
+and end your stage. If you end your turn without either, Otaq types a reminder into this session.
+
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it, the **comments** too. Its "Resolve first"

@@ -65,16 +65,28 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     let mut events = app.subscribe().await.unwrap();
 
     focus(&app, &shell.session, true).await;
-    // The turn ends with a question in the text: Idle, recorded on the ticket.
+    // The turn ends with a question in the text: first the stage reminder (d0042 2026-10-28), then, as its turn
+    // ends the same way, Idle, recorded on the ticket.
+    let stop = json!({"hook_event_name": "Stop", "stop_hook_active": false,
+                      "last_assistant_message": "I split the name.\n\nShould I also update the tests?\n",
+                      "background_tasks": [], "session_crons": []});
+    let caller = agent(&shop1, &shell);
+    w.signals
+        .hook(&caller, Tool::Claude, "Stop", &stop)
+        .await
+        .unwrap();
+    assert_eq!(w.status("SHOP-1").await, Status::Working, "reminded first");
     w.signals
         .hook(
-            &agent(&shop1, &shell),
+            &caller,
             Tool::Claude,
-            "Stop",
-            &json!({"hook_event_name": "Stop", "stop_hook_active": false,
-                    "last_assistant_message": "I split the name.\n\nShould I also update the tests?\n",
-                    "background_tasks": [], "session_crons": []}),
+            "UserPromptSubmit",
+            &json!({"hook_event_name": "UserPromptSubmit", "prompt": "Otaq: you ended your turn…"}),
         )
+        .await
+        .unwrap();
+    w.signals
+        .hook(&caller, Tool::Claude, "Stop", &stop)
         .await
         .unwrap();
     let t = w.board.ticket("SHOP-1").await.unwrap();

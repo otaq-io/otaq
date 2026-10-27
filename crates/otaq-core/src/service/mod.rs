@@ -736,6 +736,8 @@ impl Service {
         )
         .with_hand_offs(board.hand_offs().clone());
         starter.set_deliveries(deliveries.clone());
+        // The stage reminder before Idle is typed as an automatic delivery (d0042 2026-10-28).
+        signals.set_deliveries(deliveries.clone());
         starter.set_gate(gate.clone());
         signals.set_models(models.clone());
         let seeder = crate::warm::seed::Seeder::new(

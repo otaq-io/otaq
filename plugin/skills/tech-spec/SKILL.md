@@ -15,6 +15,12 @@ review.
 The committed docs carry the reasons to the next stages, not only your comment: write each decision so someone who
 never saw this conversation understands what was decided, what else was considered and why.
 
+**Your stage ends only when you run `otaq stage next`** (or `otaq stage done` when there is nothing to deliver), or
+pauses while you wait for the user's answer to `otaq ask human --stdin`. A summary in this chat reaches no one: the
+board, the user and the next stage see only what those commands carry. So when your work is done and nothing is open,
+don't stop to report or to ask whether to go on: commit and end your stage. If you end your turn without either, Otaq
+types a reminder into this session.
+
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
@@ -40,7 +46,7 @@ never saw this conversation understands what was decided, what else was consider
    load, security). **Ask the user only where a choice changes what gets built** (what the user sees or can do, how
    much work it is, a new service or cost), one question at a time with `otaq ask human --stdin` (see "Asking"), then
    end your turn and go on when the answer arrives. **Decide everything else yourself** and record it with its reason:
-   a choice that only changes how it's built is yours.
+   a choice that only changes how it's built is yours. With nothing to ask, go straight on to step 6.
 6. **Write the architecture decisions and docs** there, then **commit everything** on the ticket's branch with the
    commit skill `prime` names (`otaq-commit`, or your agent's own commit skill); when it names none, commit with
    `git add -A` and `git commit -m "SHOP-40: …"`. You may edit any file the spec needs (an architecture doc, a schema

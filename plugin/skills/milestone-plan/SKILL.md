@@ -14,6 +14,11 @@ ticket's agent starts a helper for each piece and merges their work.
 
 **You file nothing.** The whole deliverable stays this one ticket; its pieces live in its Plan.
 
+**Your stage ends only when you run `otaq stage next`**, or pauses while you wait for the user's answer to `otaq ask
+human --stdin`. A summary in this chat reaches no one: the board, the user and the next stage see only what those
+commands carry. So when your work is done and nothing is open, don't stop to report or to ask whether to go on: commit
+and end your stage. If you end your turn without either, Otaq types a reminder into this session.
+
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket, its description and its Plan (under

@@ -15,6 +15,12 @@ checks all three at Spec review.
 The committed docs carry the reasons to the next stages, not only your comment: write each decision so someone who
 never saw this conversation understands what was decided and why.
 
+**Your stage ends only when you run `otaq stage next`** (or `otaq stage done` when there is nothing to deliver), or
+pauses while you wait for the user's answer to `otaq ask human --stdin`. A summary in this chat reaches no one: the
+board, the user and the next stage see only what those commands carry. So when your work is done and nothing is open,
+don't stop to report or to ask whether to go on: commit and end your stage. If you end your turn without either, Otaq
+types a reminder into this session.
+
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
@@ -42,8 +48,9 @@ never saw this conversation understands what was decided and why.
 5. **Ask one question at a time** with `otaq ask human --stdin` (see "Asking"), most important first, then **end
    your turn**. The ticket shows "Asks you" on the board; the answer arrives in this session as the user's next
    message. Read it, check your list again (an answer can settle or drop the next point), and ask the next question.
-   Say where you are: "Question 2 of about 4". Stop when nothing that changes what gets built is open, or when the user
-   says "enough" or "go".
+   Say where you are: "Question 2 of about 4". Once nothing that changes what gets built is open, or the user says
+   "enough" or "go", go straight on to step 6. **No open points at all?** Then ask nothing and go straight on to step
+   6: there is nothing to wait for.
 6. **Write the product decisions and docs** where step 3 found they live: a new decision for each thing you agreed
    (or a change to an existing one, the way the folder records changes), and the overview docs updated to match. You
    may edit any file the spec needs (an overview, a docs page, a sample), but don't build the feature: Dev does that.

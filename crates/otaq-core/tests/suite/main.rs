@@ -132,6 +132,7 @@ mod stage_choices;
 mod stage_delivery;
 mod stage_end;
 mod stage_kinds;
+mod stage_reminder;
 mod stages;
 mod start;
 mod stock;
