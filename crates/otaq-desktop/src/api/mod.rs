@@ -150,7 +150,7 @@ pub use ticket_comments::export_types as export_ticket_comment_types;
 pub use tools::Opened as ToolTerminalOpened;
 #[cfg(test)]
 pub use updates::export_types as export_updates_types;
-pub use updates::start as start_updates;
+pub use updates::{restart as restart_for_update, restart_label, start as start_updates};
 #[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
 pub use window::{WindowFocus, follow_window_focus, window_focused, window_hidden, window_shown};

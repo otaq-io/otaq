@@ -8,6 +8,6 @@ export type UpdateNotice = { kind: UpdateNoticeKind, version: string, title: str
  */
 primary: boolean, 
 /**
- * Restart now is wired in T-0581; until then it shows, off.
+ * Off while Restart now is putting the update in place.
  */
 enabled: boolean, };

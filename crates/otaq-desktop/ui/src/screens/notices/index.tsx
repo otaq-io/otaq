@@ -122,6 +122,14 @@ function linkOf(toast: ToastView) {
           openTicket(link.ticket, link.tab ?? undefined);
         },
       };
+    // "Updated to Otaq 0.2.0 · What's new" (page 32 item 4): that version's release page.
+    case "release_notes":
+      return {
+        label: link.label,
+        onClick: () => {
+          request("updates.release_notes", { version: link.version }).catch(warnOnFailure(link.label));
+        },
+      };
   }
 }
 

@@ -53,15 +53,19 @@ pub enum IconAction {
     ResumeAll,
     /// Stops every agent and the service, pauses all projects, then quits (T-0569).
     StopAgentsAndQuit,
+    /// Puts the ready update in place and reopens the app (UPD-05, page 32 item 3): only the app for a compatible
+    /// update, the service too for one it can't work with.
+    RestartToUpdate,
 }
 
 impl IconAction {
-    pub const ALL: [IconAction; 5] = [
+    pub const ALL: [IconAction; 6] = [
         IconAction::OpenOtaq,
         IconAction::Quit,
         IconAction::PauseAll,
         IconAction::ResumeAll,
         IconAction::StopAgentsAndQuit,
+        IconAction::RestartToUpdate,
     ];
 
     /// The native menu item's id.
@@ -72,6 +76,7 @@ impl IconAction {
             Self::PauseAll => "pause_all",
             Self::ResumeAll => "resume_all",
             Self::StopAgentsAndQuit => "stop_and_quit",
+            Self::RestartToUpdate => "restart_to_update",
         }
     }
 
@@ -346,6 +351,24 @@ pub fn summary(
         lines,
         actions,
     }
+}
+
+/// Adds Restart to update under Open Otaq while an update is ready and not skipped (page 32 item 3); `label` is
+/// `updates::restart_item`'s. Not in the not-connected menu.
+pub fn with_restart(mut summary: Summary, label: Option<String>) -> Summary {
+    if let Some(label) = label
+        && summary.look != IconLook::NotConnected
+    {
+        let at = summary
+            .actions
+            .iter()
+            .position(|a| a.action == IconAction::OpenOtaq)
+            .map_or(0, |i| i + 1);
+        summary
+            .actions
+            .insert(at, action(IconAction::RestartToUpdate, label, true));
+    }
+    summary
 }
 
 fn action(action: IconAction, label: String, enabled: bool) -> Action {
@@ -1218,5 +1241,24 @@ mod summary_tests {
         assert_eq!(Dot::of(Some(Status::Working)), Dot::Working);
         assert_eq!(Dot::Attention.rgba(false), 0x087A6FFF);
         assert_eq!(Dot::Attention.rgba(true), 0x2DD4BFFF);
+    }
+
+    #[test]
+    fn restart_to_update_sits_under_open() {
+        let plain = summary(IconLook::Plain, None, None);
+        let with = with_restart(plain.clone(), Some("Restart to update · 0.2.0".into()));
+        let actions: Vec<_> = with.actions.iter().map(|a| a.action).collect();
+        assert_eq!(
+            actions[..2],
+            [IconAction::OpenOtaq, IconAction::RestartToUpdate]
+        );
+        assert_eq!(with.actions[1].label, "Restart to update · 0.2.0");
+        assert_eq!(with_restart(plain.clone(), None), plain);
+        let down = summary(IconLook::NotConnected, None, None);
+        assert_eq!(with_restart(down.clone(), Some("x".into())), down);
+        assert_eq!(
+            IconAction::from_id("restart_to_update"),
+            Some(IconAction::RestartToUpdate)
+        );
     }
 }

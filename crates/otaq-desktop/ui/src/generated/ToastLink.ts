@@ -4,4 +4,4 @@ import type { SheetContent } from "./SheetContent";
 /**
  * The link after a toast's text.
  */
-export type ToastLink = { "kind": "copy", label: string, text: string, } | { "kind": "open", label: string, ticket: string, tab: SheetContent | null, };
+export type ToastLink = { "kind": "copy", label: string, text: string, } | { "kind": "open", label: string, ticket: string, tab: SheetContent | null, } | { "kind": "release_notes", label: string, version: string, };

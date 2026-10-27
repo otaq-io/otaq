@@ -439,6 +439,8 @@ export function UpdateNoticeBox({ notice }: { notice: UpdateNotice }) {
           onClick={() => {
             if (notice.action === "download") {
               updatesClick({ kind: "open", what: "download" }).catch(warn("Download"));
+            } else {
+              updatesClick({ kind: "restart" }).catch(warn("Restart now"));
             }
           }}
         />

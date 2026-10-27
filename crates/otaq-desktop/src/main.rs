@@ -76,6 +76,9 @@ pub struct App {
     updates: Arc<updates::Updates>,
     /// Where the updater checks: Tauri's updater plugin, set by the door once the app is up.
     update_source: std::sync::OnceLock<Arc<dyn updates::Source>>,
+    /// Puts a kept update in place and reopens the app: the plugin and the door, set with `update_source`.
+    update_installer:
+        std::sync::OnceLock<(Arc<dyn updates::Installer>, Arc<dyn updates::Relaunch>)>,
 }
 
 fn main() {
@@ -89,6 +92,12 @@ fn main() {
     install_place::wait_for_previous(std::env::var(&moved_from).ok().as_deref());
     // SAFETY: the app has no other thread yet, so nothing reads the environment while it changes.
     unsafe { std::env::remove_var(&moved_from) };
+    // The last start couldn't put a kept update in place: say so in About instead of trying again at once (UPD-05).
+    let install_failed = std::env::var(updates::failed_var())
+        .ok()
+        .and_then(|v| updates::read_failed(&v));
+    // SAFETY: as above, no other thread yet.
+    unsafe { std::env::remove_var(updates::failed_var()) };
     // On macOS a release runs only from an Applications folder (UPD-06): elsewhere no service, no update check and no
     // `bin` link start, and the window shows only Move to Applications.
     let gate = install_place::current();
@@ -143,12 +152,24 @@ fn main() {
         gate: gate.clone(),
         data: data.as_ref().ok().cloned(),
     };
+    let update_env =
+        updates::Env::of_this_app(data.as_ref().ok().map(|d| d.updates_dir()), gate.runs());
+    // A compatible update kept from before goes in place before anything else starts (d0140, gap review G6).
+    let install_first = match &data {
+        Ok(data) if install_failed.is_none() && first_copy.is_some() => {
+            runtime.block_on(updates::kept_for_open(&update_env, data))
+        }
+        _ => None,
+    };
     let settings = data.and_then(|data| {
         if !gate.runs() {
             return Err(format!(
                 "{} runs only from an Applications folder",
                 otaq_core::naming::PRODUCT_NAME
             ));
+        }
+        if install_first.is_some() {
+            return Err("putting an update in place".into());
         }
         let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
         Ok(Settings::new(data, Arc::new(launcher)))
@@ -160,9 +181,15 @@ fn main() {
         (service, notices)
     };
     let updates = updates::Updates::new(
-        updates::Env::of_this_app(service.data().map(|d| d.updates_dir()), gate.runs()),
+        update_env,
         Arc::new(updates::ServicePrefs::new(service.clients())),
     );
+    if let Some(kept) = install_first.clone() {
+        updates.adopt_kept(kept);
+    }
+    if let Some((version, why)) = install_failed.filter(|(version, _)| !version.is_empty()) {
+        updates.install_failed(version, why);
+    }
     let app = Arc::new(App {
         events,
         service,
@@ -185,8 +212,9 @@ fn main() {
         install,
         updates,
         update_source: std::sync::OnceLock::new(),
+        update_installer: std::sync::OnceLock::new(),
     });
-    if gate.runs() {
+    if gate.runs() && install_first.is_none() {
         runtime.spawn(api::usage_loop(app.clone()));
     }
     {
@@ -199,6 +227,7 @@ fn main() {
         placement,
         first_copy,
         !gate.runs(),
+        install_first.is_some(),
     ) {
         eprintln!("{e}");
         std::process::exit(1);

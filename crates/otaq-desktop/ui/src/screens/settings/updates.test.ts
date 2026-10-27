@@ -71,9 +71,11 @@ describe("updates", () => {
     expect(store.get()?.dot).toBe("updates.auto");
     await updatesClick({ kind: "skip" }, store, ask);
     expect(store.get()?.dot).toBe("updates.skip");
+    await updatesClick({ kind: "restart" }, store, ask);
+    expect(store.get()?.dot).toBe("updates.restart");
     await updatesClick({ kind: "open", what: "whats_new" }, store, ask);
     expect(ask).toHaveBeenLastCalledWith("updates.open", { what: "whats_new" });
-    expect(store.get()?.dot).toBe("updates.skip");
+    expect(store.get()?.dot).toBe("updates.restart");
   });
 
   it("draws the notice and the rows as the view says", () => {

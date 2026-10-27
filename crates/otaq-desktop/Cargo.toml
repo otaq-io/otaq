@@ -47,6 +47,10 @@ tauri-plugin-dialog = "2.8.2"
 # own plugins, MIT OR Apache-2.0, pinned. The updater with the OS's own TLS like the rest (no rustls / ring).
 tauri-plugin-updater = { version = "=2.13.3", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
 tauri-plugin-process = "=2.4.0"
+# The kept update's signature checked again before it's put in place (UPD-05, `src/updates.rs`), as the updater
+# plugin checks a download: minisign through the same crate and base64 the plugin uses (MIT; MIT OR Apache-2.0).
+minisign-verify = "=0.3.0"
+base64 = "0.22.1"
 # Anonymous usage data, sent only after the user said yes (d0085, `src/usage.rs`): one HTTPS POST to Aptabase. The
 # reqwest Tauri already uses, with the OS's own TLS (SChannel, Security.framework, OpenSSL on Linux).
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "native-tls"] }
