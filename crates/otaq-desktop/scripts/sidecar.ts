@@ -4,6 +4,12 @@
 // `TAURI_ENV_TARGET_TRIPLE` and a debug build in `TAURI_ENV_DEBUG`. A universal macOS build compiles each half and
 // joins them with `lipo`; tauri-build reads each half while it compiles the app's halves, the bundler the joined one.
 // `OTAQ_RELEASE` passes through to the build unchanged.
+//
+// The command must share the app's compiled `otaq-core`, whose build script stamps the build ID (`<hash>.<seconds>`):
+// compiled twice, the two get different IDs and the app shows "Service update ready" from the first open. So it goes
+// into the app's target folder: `--target` only when the app has one (a universal or another system's build); for
+// this machine's own system Tauri builds without it, and so does this. (A `--target` naming this machine's own system
+// is the one case that still splits them: leave it out.)
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -28,10 +34,17 @@ const exe = triple.includes("windows") ? ".exe" : "";
 mkdirSync(binaries, { recursive: true });
 const built: string[] = [];
 for (const half of halves) {
-  const args = ["build", "-p", "otaq-cli", "--target", half, ...(debug ? [] : ["--release"])];
+  const own = half === host && !universal;
+  const args = [
+    "build",
+    "-p",
+    "otaq-cli",
+    ...(own ? [] : ["--target", half]),
+    ...(debug ? [] : ["--release"]),
+  ];
   console.log(`sidecar: cargo ${args.join(" ")}`);
   execFileSync("cargo", args, { cwd: root, stdio: "inherit" });
-  const program = join(targetDir, half, debug ? "debug" : "release", `otaq${exe}`);
+  const program = join(targetDir, ...(own ? [] : [half]), debug ? "debug" : "release", `otaq${exe}`);
   copyFileSync(program, join(binaries, `otaq-${half}${exe}`));
   built.push(program);
 }

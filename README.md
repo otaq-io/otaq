@@ -244,7 +244,7 @@ Otaq isn't code signed (paid OS signing isn't something it does), so the first o
   or from Downloads, its window offers just **Move to Applications**, which moves it (to `/Applications`, or
   `~/Applications` when you can't write there) and opens it from there.
 - **Windows:** SmartScreen says it protected your PC: click **More info → Run anyway**. Otaq goes into
-  `%LOCALAPPDATA%\Programs\Otaq`, with a Start-menu shortcut.
+  `%LOCALAPPDATA%\Otaq`, with a Start-menu shortcut.
 - **Linux:** the status icon needs the AppIndicator library (the `.deb` installs it; for the AppImage,
   `sudo apt install libayatana-appindicator3-1` on Debian and Ubuntu), and stock GNOME shows tray icons only with the
   AppIndicator extension (`gnome-shell-extension-appindicator`, on by default in Ubuntu's desktop). Without either,
