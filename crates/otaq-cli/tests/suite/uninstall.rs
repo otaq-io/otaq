@@ -434,7 +434,9 @@ async fn refusals_change_nothing() {
     let (out, code) = world.run(&[], &[]).await;
     assert_eq!(code, 1, "{out}");
     assert!(
-        out.contains("error: Quit Otaq first: the app would start the service again"),
+        out.contains(
+            "error: Quit Otaq from its menu bar / tray icon first: the app would start the service again"
+        ),
         "{out}"
     );
     assert_eq!(world.snapshot(), before);

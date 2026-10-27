@@ -87,7 +87,7 @@ fn uninstall(keep_data: bool, global: &GlobalArgs) -> Result<Ended, ErrorBody> {
     };
     if scan.app_open {
         return Err(refused(format!(
-            "Quit {} first: the app would start the service again",
+            "Quit {} from its menu bar / tray icon first: the app would start the service again",
             naming::PRODUCT_NAME
         )));
     }
