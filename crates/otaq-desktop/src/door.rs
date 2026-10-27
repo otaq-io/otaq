@@ -358,11 +358,9 @@ fn create_status_icon(handle: &tauri::AppHandle) -> tauri::Result<()> {
                     }
                 }
                 Some(IconAction::Quit) => handle.exit(0),
-                // Not in the menu yet: the summary's menu comes with T-0568, Stop agents and quit with T-0569.
-                Some(
-                    IconAction::PauseAll | IconAction::ResumeAll | IconAction::StopAgentsAndQuit,
-                )
-                | None => {}
+                Some(IconAction::StopAgentsAndQuit) => stop_agents_and_quit(handle),
+                // Not in the menu yet: the summary's menu comes with T-0568.
+                Some(IconAction::PauseAll | IconAction::ResumeAll) | None => {}
             },
         )
         .build(handle)?;
@@ -466,6 +464,112 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri:
     Ok(menu)
 }
 
+/// **Stop agents and quit** (TRY-07; [`crate::quit::stop_agents`]): no question; the app quits once the service has
+/// stopped every agent and exited. If it didn't, the window comes back with "Otaq didn't quit": Try again · Open
+/// SHOP-18 · Not now. Callable from any thread.
+pub(crate) fn stop_agents_and_quit(handle: &tauri::AppHandle) {
+    use otaq_view::view_models::quit::failed_stop;
+    use tauri::Manager;
+    let app = handle.state::<Arc<App>>().inner().clone();
+    let handle = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let failure = match crate::quit::stop_agents(&app).await {
+            Ok(()) => return handle.exit(0),
+            Err(failure) => failure,
+        };
+        eprintln!("Stop agents and quit didn't quit: {failure:?}");
+        let view = failed_stop(&failure);
+        let mut labels = vec![view.try_again.to_owned()];
+        labels.extend(view.open.as_ref().map(|(label, _)| label.clone()));
+        labels.push(view.not_now.to_owned());
+        let open = view.open.map(|(_, key)| key);
+        let on_main = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            if let Err(e) = show_main_window(&on_main) {
+                eprintln!("couldn't bring the window back: {e}");
+            }
+            let again = on_main.clone();
+            ask_in_window(
+                &on_main,
+                &view.title,
+                &view.text,
+                labels,
+                move |picked| match (picked, open) {
+                    (Some(0), _) => stop_agents_and_quit(&again),
+                    (Some(1), Some(key)) => second_start(&again, Some(key)),
+                    _ => {}
+                },
+            );
+        });
+    });
+}
+
+/// ⌘Q (TRY-03): with agents working, the window asks "2 agents are working": Keep them working and quit (the app
+/// only) · Stop agents and quit · Cancel; with none working, or no service to ask, the app quits at once. The Dock's
+/// Quit and a logout end the app through macOS without asking (Tauri can't hold them), so a logout never waits.
+fn quit_asked(handle: &tauri::AppHandle) {
+    use otaq_view::view_models::quit::quit_question;
+    use tauri::Manager;
+    let app = handle.state::<Arc<App>>().inner().clone();
+    let handle = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let Some(question) = quit_question(crate::quit::agents_working(&app).await) else {
+            return handle.exit(0);
+        };
+        let on_main = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            let labels = vec![
+                question.keep.to_owned(),
+                question.stop.to_owned(),
+                question.cancel.to_owned(),
+            ];
+            let then = on_main.clone();
+            ask_in_window(
+                &on_main,
+                &question.title,
+                &question.text,
+                labels,
+                move |picked| match picked {
+                    Some(0) => then.exit(0),
+                    Some(1) => stop_agents_and_quit(&then),
+                    _ => {}
+                },
+            );
+        });
+    });
+}
+
+/// A native alert on the main window with two or three buttons (`labels`, the last one cancels); `then` gets the
+/// picked button's place, `None` when it was dismissed. Call on the main thread.
+fn ask_in_window(
+    handle: &tauri::AppHandle,
+    title: &str,
+    text: &str,
+    labels: Vec<String>,
+    then: impl FnOnce(Option<usize>) + Send + 'static,
+) {
+    use tauri::Manager;
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogResult};
+    let buttons = match labels.as_slice() {
+        [a, b] => MessageDialogButtons::OkCancelCustom(a.clone(), b.clone()),
+        [a, b, c] => MessageDialogButtons::YesNoCancelCustom(a.clone(), b.clone(), c.clone()),
+        _ => return then(None),
+    };
+    let mut dialog = handle.dialog().message(text).title(title).buttons(buttons);
+    if let Some(window) = handle.get_webview_window(MAIN_WINDOW) {
+        dialog = dialog.parent(&window);
+    }
+    let last = labels.len() - 1;
+    dialog.show_with_result(move |result| {
+        then(match result {
+            MessageDialogResult::Custom(label) => labels.iter().position(|l| *l == label),
+            MessageDialogResult::Yes | MessageDialogResult::Ok => Some(0),
+            MessageDialogResult::No if last == 2 => Some(1),
+            MessageDialogResult::No | MessageDialogResult::Cancel => Some(last),
+        })
+    });
+}
+
 /// [`show_main_window`] from any thread, then `then` with the app, on the main thread.
 fn bring_back(handle: &tauri::AppHandle, then: impl FnOnce(&App, bool) + Send + 'static) {
     let on_main = handle.clone();
@@ -543,7 +647,7 @@ pub fn run(
     #[cfg(target_os = "macos")]
     let builder = builder.menu(app_menu).on_menu_event(|handle, event| {
         if event.id() == crate::app_menu::QUIT_ID {
-            handle.exit(0);
+            quit_asked(handle);
         }
     });
     builder

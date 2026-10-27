@@ -21,6 +21,10 @@
 //!   afresh) and its Paused Project agents, and hands back the conflicts the test merge flagged while
 //!   paused ([`Review::hand_back_held`], d0127); then the starts kept while paused run
 //!   ([`Pause::on_resume`]), and the scheduler wakes.
+//! - **Stop agents and quit** (TRY-07, d0139 R5): [`Pause::hold`] stores an All projects pause first (the request
+//!   answers only then), then [`Pause::stop_agents`] ends every agent session as Pause does and records what it
+//!   stopped ([`StopRecord`], for the next launch's banner, PAU-07); the service stops after. Resume all forgets the
+//!   record.
 //! - **The counts** ([`Pause::counts`]) are what the Pause and Resume menus say ("shop-web · 5 working", "7 working in
 //!   2 projects", the paused counts for Resume).
 //!
@@ -127,6 +131,28 @@ impl PauseCounts {
             projects,
         }
     }
+}
+
+/// What the last Stop agents and quit stopped (settings key [`STOP_AND_QUIT`]): the next launch's pause banner says
+/// "Stop agents and quit stopped 7 agents in 2 projects yesterday at 18:02." Forgotten by Resume all projects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StopRecord {
+    /// When it stopped them (Unix ms).
+    pub at: i64,
+    /// The agents working then (a ticket once, each Project agent once), and in how many projects.
+    pub agents: u32,
+    pub projects: u32,
+}
+
+/// The settings key of the last [`StopRecord`].
+pub const STOP_AND_QUIT: &str = "pause.stop_and_quit";
+
+/// The last Stop agents and quit's record, while Resume all hasn't lifted its pause.
+pub async fn stop_record(store: &Store) -> Result<Option<StopRecord>, StoreError> {
+    Ok(store
+        .setting(STOP_AND_QUIT)
+        .await?
+        .and_then(|json| serde_json::from_str(&json).ok()))
 }
 
 /// The paused projects, by key, with since when.
@@ -266,23 +292,7 @@ impl Pause {
     /// the scope; a project paused already keeps its own), then stops every agent session there at once, then records
     /// what that left (PAU-03). The counts afterwards.
     pub async fn pause(&self, scope: &PauseScope) -> Result<PauseCounts, BoardError> {
-        let keys = self.keys(scope).await?;
-        let now = now_ms();
-        let kind = PauseKind::of(scope);
-        for key in &keys {
-            let set = sqlx::query(
-                "UPDATE projects SET paused_since = ?, paused_by = ? WHERE key = ? AND paused_since IS NULL",
-            )
-            .bind(now)
-            .bind(kind)
-            .bind(key)
-            .execute(self.inner.board.store().pool())
-            .await?;
-            if set.rows_affected() > 0 {
-                tracing::warn!(project = %key, ?kind, "paused");
-                self.changed(key, Some(now), Some(kind));
-            }
-        }
+        let keys = self.hold(scope).await?;
         let running: Vec<SessionInfo> = self
             .inner
             .sessions
@@ -313,6 +323,57 @@ impl Pause {
         self.counts(scope).await
     }
 
+    /// Stores the pause of every project in `scope` ([`PauseKind::of`] the scope; a project paused already keeps its
+    /// kind and its time), and nothing else: from now on nothing starts an agent there on its own (PAU-04). The
+    /// projects' keys.
+    pub async fn hold(&self, scope: &PauseScope) -> Result<Vec<String>, BoardError> {
+        let keys = self.keys(scope).await?;
+        let now = now_ms();
+        let kind = PauseKind::of(scope);
+        for key in &keys {
+            let set = sqlx::query(
+                "UPDATE projects SET paused_since = ?, paused_by = ? WHERE key = ? AND paused_since IS NULL",
+            )
+            .bind(now)
+            .bind(kind)
+            .bind(key)
+            .execute(self.inner.board.store().pool())
+            .await?;
+            if set.rows_affected() > 0 {
+                tracing::warn!(project = %key, ?kind, "paused");
+                self.changed(key, Some(now), Some(kind));
+            }
+        }
+        Ok(keys)
+    }
+
+    /// **Stop agents and quit**'s stop (TRY-07), after [`Self::hold`] stored the All projects pause: ends every agent
+    /// session in every project as Pause does (their tickets wait as Interrupted, Resume continues them) and records
+    /// what it stopped for the next launch's banner. The service stops after (Run, Shell and Project terminals end
+    /// with it).
+    pub async fn stop_agents(&self) -> Result<StopRecord, BoardError> {
+        let before = self.counts(&PauseScope::All).await?;
+        let record = StopRecord {
+            at: now_ms(),
+            agents: before.working,
+            projects: u32::try_from(before.projects.iter().filter(|p| p.working > 0).count())
+                .unwrap_or(u32::MAX),
+        };
+        self.pause(&PauseScope::All).await?;
+        let json = serde_json::to_value(record).unwrap_or_default().to_string();
+        self.inner
+            .board
+            .store()
+            .set_setting(STOP_AND_QUIT, &json)
+            .await?;
+        tracing::warn!(
+            agents = record.agents,
+            projects = record.projects,
+            "agents stopped to quit"
+        );
+        Ok(record)
+    }
+
     /// **Resume** (PAU-06): lifts the flag of every paused project in `scope`, then resumes what the pause stopped,
     /// each on its own conversation, runs the kept starts and wakes the scheduler. Scope All lifts only what an All
     /// projects pause set: a project paused on its own stays paused (d0112 2026-10-27); scope This project lifts the
@@ -333,6 +394,14 @@ impl Pause {
                  WHERE key = ? AND paused_since IS NOT NULL AND paused_by = 'all'"
             }
         };
+        // The banner after a Stop agents and quit is about its pause, which Resume all lifts.
+        if *scope == PauseScope::All {
+            self.inner
+                .board
+                .store()
+                .remove_setting(STOP_AND_QUIT)
+                .await?;
+        }
         let mut lifted = Vec::new();
         for key in self.keys(scope).await? {
             let done = sqlx::query(lift)

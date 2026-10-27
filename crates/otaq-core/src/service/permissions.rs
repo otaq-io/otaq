@@ -389,6 +389,7 @@ async fn action_for(
             project: board.project(&p.project).await?.key,
         },
         R::ServiceStop => Action::UserOnly("stop the background service"),
+        R::ServiceStopAgents => Action::UserOnly("stop every agent and the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.
         R::OnboardingSources(_) | R::OnboardingFlowSetup(_) => {

@@ -472,6 +472,12 @@ impl Shared {
                 tracing::warn!(error = %e, "can't read the paused projects");
                 Vec::new()
             }),
+            stopped_to_quit: crate::agents::pause::stop_record(&self.store)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "can't read the last stop");
+                    None
+                }),
         }
     }
 }

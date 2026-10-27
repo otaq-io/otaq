@@ -17,7 +17,7 @@
 //! in 2 projects · web-app stays paused", with the line why), and without an All projects pause there is no All
 //! projects row to resume.
 
-use otaq_core::agents::pause::{PauseCounts, PauseKind, ProjectPause};
+use otaq_core::agents::pause::{PauseCounts, PauseKind, ProjectPause, StopRecord};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -280,6 +280,42 @@ fn menu(
 
 fn word(resumes: bool) -> &'static str {
     if resumes { "paused" } else { "working" }
+}
+
+/// The paused banner after a Stop agents and quit (TRY-07, page 31 item 6), while every project is still paused:
+/// "All projects are paused." · "Stop agents and quit stopped 7 agents in 2 projects yesterday at 18:02. Resume
+/// continues where each one was; queued tickets wait until then." Else [`banner`]'s.
+pub fn banner_after_stop(
+    shown: Option<&str>,
+    counts: &PauseCounts,
+    service_started_at: i64,
+    stopped: Option<&StopRecord>,
+    now_ms: i64,
+) -> Option<Situation> {
+    let every = !counts.projects.is_empty() && counts.projects.iter().all(paused);
+    match stopped {
+        Some(stop) if every && find(counts, shown).is_some() => Some(Situation::Paused {
+            title: "All projects are paused.".to_owned(),
+            text: format!(
+                "Stop agents and quit stopped {} {} {}. Resume continues where each one was; queued tickets wait \
+                 until then.",
+                agents(stop.agents),
+                in_projects(usize::try_from(stop.projects).unwrap_or(usize::MAX)),
+                stopped_when(stop.at, now_ms)
+            ),
+        }),
+        _ => banner(shown, counts, service_started_at),
+    }
+}
+
+/// When a stop happened: "today at 18:02", "yesterday at 18:02", "on 9 Oct at 18:02".
+fn stopped_when(at_ms: i64, now_ms: i64) -> String {
+    let at = crate::view_models::clock::local_hhmm(at_ms);
+    match crate::view_models::project_agent_page::ended_when(at_ms, now_ms).as_str() {
+        "yesterday" => format!("yesterday at {at}"),
+        day if day == at => format!("today at {at}"),
+        day => format!("on {day} at {at}"),
+    }
 }
 
 /// The paused banner of the open project `shown` (PAU-08; `s24-07`, `s24-08`): amber, first in the stack, no close,
@@ -691,6 +727,65 @@ mod tests {
             texts(banner(Some("BILL"), &all, 200)).0,
             "All projects are still paused."
         );
+    }
+
+    /// TRY-07 (page 31 item 6): after Stop agents and quit, only the pause banner, worded for the stop; once a
+    /// project runs again, the usual banner.
+    #[test]
+    fn after_a_stop_the_banner_says_what_it_stopped() {
+        let all = counts(&[
+            ("BILL", "billing-api", Some(100), 0, 2),
+            ("SHOP", "shop-web", Some(100), 0, 5),
+        ]);
+        let day = 86_400_000;
+        let at = 1_790_000_000_000;
+        let stop = StopRecord {
+            at,
+            agents: 7,
+            projects: 2,
+        };
+        let (title, text) = texts(banner_after_stop(
+            Some("SHOP"),
+            &all,
+            200,
+            Some(&stop),
+            at + day,
+        ));
+        assert_eq!(title, "All projects are paused.");
+        assert_eq!(
+            text,
+            format!(
+                "Stop agents and quit stopped 7 agents in 2 projects yesterday at {}. Resume continues where each \
+                 one was; queued tickets wait until then.",
+                crate::view_models::clock::local_hhmm(at)
+            )
+        );
+        let (_, today) = texts(banner_after_stop(
+            Some("SHOP"),
+            &all,
+            200,
+            Some(&stop),
+            at + 60_000,
+        ));
+        assert!(today.contains(" today at "), "{today}");
+        let (_, long_ago) = texts(banner_after_stop(
+            Some("SHOP"),
+            &all,
+            200,
+            Some(&stop),
+            at + 9 * day,
+        ));
+        assert!(long_ago.contains(" on "), "{long_ago}");
+        // billing-api resumed on its own: the usual banner.
+        let one = counts(&[
+            ("BILL", "billing-api", None, 2, 0),
+            ("SHOP", "shop-web", Some(100), 0, 5),
+        ]);
+        assert_eq!(
+            texts(banner_after_stop(Some("SHOP"), &one, 200, Some(&stop), at)).0,
+            "shop-web is still paused."
+        );
+        assert_eq!(banner_after_stop(None, &all, 200, Some(&stop), at), None);
     }
 
     #[test]

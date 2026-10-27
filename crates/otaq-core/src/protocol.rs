@@ -153,6 +153,10 @@ pub enum Request {
     /// Asks the service to shut down; answered with [`Reply::Ok`] before it stops.
     #[serde(rename = "service.stop")]
     ServiceStop,
+    /// **Stop agents and quit** (TRY-07, d0139): stores an All projects pause, answers [`Reply::Ok`], then ends every
+    /// agent session (as Pause), Run, Shell and Project terminal and stops the service. The user's only.
+    #[serde(rename = "service.stop_agents")]
+    ServiceStopAgents,
     /// Starts the event stream on this connection; answered with [`Reply::Ok`], then [`Event`]s follow. The desktop
     /// app subscribes with `app`: while it is subscribed, the app is open (`uninstall.scan`'s `app_open`, Q565).
     #[serde(rename = "events.subscribe")]
@@ -1929,6 +1933,7 @@ impl Request {
             Self::Ping => "ping",
             Self::ServiceStatus => "service.status",
             Self::ServiceStop => "service.stop",
+            Self::ServiceStopAgents => "service.stop_agents",
             Self::StartupReport => "service.startup_report",
             Self::Subscribe(_) => "events.subscribe",
             Self::ToolsCheck => "tools.check",
@@ -2371,6 +2376,9 @@ pub struct ServiceStatus {
     /// The paused projects with their counts (PAU-01, PAU-07; d0112), by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paused: Vec<crate::agents::pause::ProjectPause>,
+    /// What the last Stop agents and quit stopped, until Resume all lifts its pause (TRY-07, PAU-07's banner).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_to_quit: Option<crate::agents::pause::StopRecord>,
 }
 
 /// Something that happened in the service, pushed to subscribers (SDD §5.4).

@@ -596,6 +596,134 @@ async fn resume_all_brings_back_only_what_the_all_pause_stopped() {
     w.stop().await;
 }
 
+/// TRY-07 (d0139 R5; T-0569): Stop agents and quit stores the All projects pause first and ends nothing with it; from
+/// then on nothing starts on its own (a ticket queued for Dev waits, PAU-04); then every agent ends as Pause ends it
+/// and the stop is recorded for the next launch's banner; Resume all continues them and forgets the record.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_agents_holds_first_then_ends_every_agent() {
+    use otaq_core::agents::pause::stop_record;
+    let w = TestService::start_with(launch).await;
+    w.add_project("shop-web").await;
+    w.add_project("web-app").await;
+    w.create("SHOP", "Checkout").await;
+    w.create("SHOP", "Search").await;
+    w.create("WEB", "Landing").await;
+    start_agent(&w, "SHOP-1").await;
+    start_agent(&w, "WEB-1").await;
+
+    w.pause.hold(&PauseScope::All).await.unwrap();
+    for key in ["SHOP", "WEB"] {
+        assert!(w.pause.is_paused(key).await.unwrap(), "{key}");
+    }
+    assert_eq!(running_of(&w, "SHOP").len(), 1, "the hold ends nothing");
+    // In between, a ticket queued for Dev doesn't start.
+    w.board
+        .move_ticket("SHOP-2", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.scheduler.wake();
+    let _ = w
+        .starter
+        .start("SHOP-2", &me(), otaq_core::session::Start::Auto)
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(sessions(&w, "SHOP-2").await.is_empty(), "nothing started");
+
+    let record = w.pause.stop_agents().await.unwrap();
+    assert_eq!((record.agents, record.projects), (2, 2));
+    assert!(running_of(&w, "SHOP").is_empty() && running_of(&w, "WEB").is_empty());
+    until_status(&w, "SHOP-1", Status::Interrupted).await;
+    until_status(&w, "WEB-1", Status::Interrupted).await;
+    assert_eq!(stop_record(w.board.store()).await.unwrap(), Some(record));
+    assert!(sessions(&w, "SHOP-2").await.is_empty());
+
+    w.pause.resume(&PauseScope::All, &me()).await.unwrap();
+    assert_eq!(stop_record(w.board.store()).await.unwrap(), None);
+    until_status(&w, "SHOP-1", Status::Working).await;
+    until_status(&w, "WEB-1", Status::Working).await;
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
+    w.stop().await;
+}
+
+/// TRY-07 over the socket: `service.stop_agents` answers once the pause is stored; then the agents, a Run and a Shell
+/// end and the service exits. The next start: every project paused (web-app, paused on its own before, keeps its
+/// kind), the stop on the status for the banner, no interrupted-at-start summary; Resume all continues SHOP-1 and
+/// leaves web-app paused.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_agents_over_the_socket_stops_the_service_and_the_pause_holds() {
+    use otaq_core::agents::pause::{PauseKind, pause_kind};
+    let w = TestService::start_with(launch).await;
+    w.add_project("shop-web").await;
+    w.add_project("web-app").await;
+    w.create("SHOP", "Checkout").await;
+    w.create("WEB", "Landing").await;
+    start_agent(&w, "SHOP-1").await;
+    w.pause
+        .pause(&PauseScope::Project {
+            project: "WEB".into(),
+        })
+        .await
+        .unwrap();
+    let shop1 = ticket(&w, "SHOP-1").await;
+    let mut terminals = Vec::new();
+    for kind in [SessionKind::Run, SessionKind::Shell] {
+        terminals.push(w.shell(&shop1, kind).await);
+    }
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    let answer = client.request(Request::ServiceStopAgents).await.unwrap();
+    assert!(matches!(answer, Reply::Ok), "{answer:?}");
+    assert_eq!(
+        pause_kind(w.board.store(), "SHOP").await.unwrap(),
+        Some(PauseKind::All),
+        "stored before the answer"
+    );
+    let socket = w.data.socket_path();
+    until("the service exits", async || !socket.exists()).await;
+
+    let w = w.restart_with(launch).await;
+    for shell in &terminals {
+        let stored = w.sessions.stored(&shell.session).await.unwrap();
+        assert!(!stored.is_running(), "{} ended", shell.session);
+    }
+    assert_eq!(
+        pause_kind(w.board.store(), "SHOP").await.unwrap(),
+        Some(PauseKind::All)
+    );
+    assert_eq!(
+        pause_kind(w.board.store(), "WEB").await.unwrap(),
+        Some(PauseKind::Own)
+    );
+    assert_eq!(w.status("SHOP-1").await, Status::Interrupted);
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let Reply::ServiceStatus(status) = client.request(Request::ServiceStatus).await.unwrap() else {
+        panic!("status")
+    };
+    let stop = status.stopped_to_quit.expect("the stop is on the status");
+    assert_eq!((stop.agents, stop.projects), (1, 1));
+    assert_eq!(status.interrupted_at_start, 0, "no restart summary");
+
+    w.pause.resume(&PauseScope::All, &me()).await.unwrap();
+    until_status(&w, "SHOP-1", Status::Working).await;
+    assert!(w.pause.is_paused("WEB").await.unwrap(), "paused on its own");
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_can_neither_pause_nor_resume() {
     let w = TestService::start().await;

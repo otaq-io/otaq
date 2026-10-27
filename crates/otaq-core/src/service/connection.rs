@@ -16,6 +16,7 @@ use super::{
     session_requests, terminal_requests, until_stopped,
 };
 use crate::agent_tools::setup;
+use crate::agents::pause::PauseScope;
 use crate::attention::ClientId;
 use crate::caller::{self, Caller};
 use crate::protocol::{
@@ -124,6 +125,19 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
                 tracing::info!("stop requested");
                 shared.stop.send_replace(true);
             }
+            // Stop agents and quit: the agents end as Pause ends them, then the service stops (and with it Run,
+            // Shell and Project terminals); the service stops even when stopping an agent failed.
+            Then::StopAgents => {
+                tracing::warn!("stop agents and quit requested");
+                // On its own task: the app may close this connection while it waits for the service to go.
+                let shared = shared.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = shared.pause.stop_agents().await {
+                        tracing::error!(error = %e, "couldn't stop every agent; stopping the service anyway");
+                    }
+                    shared.stop.send_replace(true);
+                });
+            }
             // The output receiver was subscribed with the scrollback in the reply, so nothing is lost or
             // repeated between the two. Attached already (two terminals of one app show the session): the running
             // feed carries on, since replacing it would drop or repeat chunks for the terminal reading it; the new
@@ -178,6 +192,8 @@ pub(super) enum Then {
         app: bool,
     },
     Stop,
+    /// End every agent session, then stop the service (Stop agents and quit; the pause is stored already).
+    StopAgents,
     /// Forward this session's live output to the client.
     Attach {
         session: String,
@@ -382,6 +398,17 @@ async fn respond(
             Then::Continue,
         ),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
+        // The pause is stored before the answer (TRY-07): nothing starts on its own from here on, and the app knows
+        // the hold is safe before the service goes away.
+        Request::ServiceStopAgents => match shared.pause.hold(&PauseScope::All).await {
+            Ok(_) => (Reply::Ok, Then::StopAgents),
+            Err(e) => {
+                return (
+                    Message::error(id, board_requests::error_body(&e)),
+                    Then::Continue,
+                );
+            }
+        },
         Request::Subscribe(p) => (Reply::Ok, Then::Subscribe { app: p.app }),
         Request::ToolsCheck => {
             // The onboarding Tools step checks the agent tools again (d0086): one must be connected (SET-02).

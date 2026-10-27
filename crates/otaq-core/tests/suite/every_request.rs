@@ -154,6 +154,8 @@ fn wire_methods() -> Vec<(String, bool)> {
 fn ends_the_service(request: &Request) -> bool {
     match request {
         Request::ServiceStop => true,
+        // Stores the pause, answers, then stops every agent and the service.
+        Request::ServiceStopAgents => true,
         // Stops every session and lets none start again.
         Request::UninstallRemove(_) => true,
         Request::Ping
@@ -417,6 +419,15 @@ async fn every_request_is_answered_over_the_socket() {
         assert_eq!(request.method(), method);
     }
     requests.sort_by_key(|r| (ends_the_service(r), matches!(r, Request::ServiceStop)));
+    // Stop agents and quit stops the service on its own after answering: it goes just before ServiceStop, which may
+    // then find the service already gone.
+    let stop_agents = requests
+        .iter()
+        .position(|r| matches!(r, Request::ServiceStopAgents))
+        .expect("service.stop_agents is a method");
+    let stop_agents = requests.remove(stop_agents);
+    let last = requests.len() - 1;
+    requests.insert(last, stop_agents);
 
     for request in requests {
         let method = request.method();
@@ -427,6 +438,8 @@ async fn every_request_is_answered_over_the_socket() {
             // Refusals and "not found" are answers; an internal error means the request wasn't handled.
             Ok(_) => {}
             Err(ClientError::Service(e)) if e.kind != ErrorKind::Internal => {}
+            Err(ClientError::Closed | ClientError::Disconnected | ClientError::NotRunning(_))
+                if method == "service.stop" => {}
             Err(e) => panic!("{method}: {e}"),
         }
     }
