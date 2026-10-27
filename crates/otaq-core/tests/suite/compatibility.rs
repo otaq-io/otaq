@@ -214,3 +214,55 @@ fn compatibility_rules() {
         Compatibility::Incompatible
     );
 }
+
+/// A new request is a compatible change (UPD-03) only because an older service answers one it doesn't know with a
+/// clean error carrying the request's id: the caller's wait for that id ends, and the connection keeps working.
+#[tokio::test]
+async fn an_unknown_request_gets_a_clean_error_by_its_id() {
+    let (_tmp, data, _config) = setup("b.2");
+    let running = bind(&data, "b.2").await.unwrap();
+    let stream = otaq_core::ipc::connect(&data.socket_path()).await.unwrap();
+    let (read, mut write) = otaq_core::ipc::split(stream);
+    let mut reader = FrameReader::new(BufReader::new(read));
+    let mut ask = async |frame: Value| -> Value {
+        let mut line = serde_json::to_vec(&frame).unwrap();
+        line.push(b'\n');
+        write.write_all(&line).await.unwrap();
+        let answer = reader.next_frame().await.unwrap().unwrap();
+        serde_json::from_slice(answer).unwrap()
+    };
+
+    let from_the_future = ask(
+        json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 7,
+        "request": {"method": "future.thing", "params": {"x": 1}}}),
+    )
+    .await;
+    assert_eq!(from_the_future["id"], 7, "{from_the_future}");
+    assert_eq!(from_the_future["error"]["kind"], "bad_request");
+    let message = from_the_future["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("doesn't know the request `future.thing`"),
+        "{message}"
+    );
+
+    // A known request with params it can't read is a bad request too, still by its id.
+    let unreadable = ask(
+        json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 8,
+        "request": {"method": "events.subscribe", "params": {"app": "not a bool"}}}),
+    )
+    .await;
+    assert_eq!(unreadable["id"], 8, "{unreadable}");
+    assert_eq!(unreadable["error"]["kind"], "bad_request");
+
+    // The connection keeps working.
+    let pong = ask(
+        json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 9,
+        "request": {"method": "ping"}}),
+    )
+    .await;
+    assert_eq!(pong["id"], 9, "{pong}");
+    assert_eq!(pong["reply"], "pong");
+
+    running.stopper.stop();
+    running.task.await.unwrap();
+}
