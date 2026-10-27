@@ -72,6 +72,7 @@ pub mod menu;
 pub mod messages;
 pub mod modal;
 pub mod model_picker;
+pub mod move_app;
 pub mod needs_you_strip;
 pub mod newer_database;
 pub mod no_tray;

@@ -11,7 +11,7 @@ use otaq_core::shell_path::{self, AddResult, BinKind, BinRefresh, PathStatus, Sh
 use otaq_view::view_models::about::{PathInputs, PathRow, PathState, PathTarget, path_row};
 
 /// Points `bin/otaq` at this app's own `otaq` (the one next to it). Called once per start, by the first copy of the
-/// app. This is the one place that decides whether to: T-0579 makes it run only from an installed app on macOS.
+/// app. Its call in `main` runs it only where the app may start its service ([`crate::install_place::Gate::runs`], T-0579).
 pub fn refresh_bin(data: &DataDir) {
     let own = match CommandLauncher::next_to_current_exe() {
         Ok(launcher) => launcher.program,

@@ -49,6 +49,12 @@ fn main() {
             println!("cargo:rustc-env={to}={value}");
         }
     }
+    // A release (UPD-06, T-0579): the release workflow builds with `OTAQ_RELEASE=1`; a build from source has none. The
+    // app reads it as `RELEASE_BUILD` (`install_place::release`), so the product name stays out of its sources.
+    println!("cargo:rerun-if-env-changed=OTAQ_RELEASE");
+    if std::env::var("OTAQ_RELEASE").is_ok_and(|v| v == "1") {
+        println!("cargo:rustc-env=RELEASE_BUILD=1");
+    }
     tray_images();
     println!("cargo:rerun-if-changed=build.rs");
     tauri_build::build()

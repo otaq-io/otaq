@@ -152,6 +152,10 @@ fn window(window: tauri::WebviewWindow, action: crate::window::Action) -> Result
         Action::ToggleMaximize => window.maximize(),
         Action::Close => window.close(),
         Action::Focus => bring_forward(&window),
+        Action::Quit => {
+            tauri::Manager::app_handle(&window).exit(0);
+            Ok(())
+        }
     }
     .map_err(|e| e.to_string())
 }
@@ -871,6 +875,7 @@ pub fn run(
     runtime: tokio::runtime::Handle,
     placement: Option<PathBuf>,
     first_copy: Option<crate::one_copy::FirstCopy>,
+    move_only: bool,
 ) -> Result<(), String> {
     tauri::async_runtime::set(runtime.clone());
     // Before the webview exists, so WebKit reads them when it first checks text.
@@ -914,6 +919,14 @@ pub fn run(
             let handle = tauri_app.handle();
             open_window(handle, &handle.state::<Arc<Placement>>())?;
             webview_keys_off(handle)?;
+            // Only the Move window (T-0579): no service behind it, so no status icon and no notification clicks.
+            if move_only {
+                if let Some(first_copy) = first_copy {
+                    let handle = handle.clone();
+                    first_copy.serve(&runtime, move |open| second_start(&handle, open));
+                }
+                return Ok(());
+            }
             follow_notification_clicks(handle, &clicks_of);
             // Linux without a tray library or host: logged, and closing the window quits as before (T-0570).
             match create_status_icon(handle) {
@@ -945,8 +958,11 @@ pub fn run(
             }
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 save_placement(&on_window);
-                // The close button, ⌘W, Alt+F4 and the page's own close button all come here.
-                if window.label() == MAIN_WINDOW {
+                // The close button, ⌘W, Alt+F4 and the page's own close button all come here. The Move window has
+                // nothing to keep running: closing it quits.
+                if window.label() == MAIN_WINDOW && move_only {
+                    tauri::Manager::app_handle(window).exit(0);
+                } else if window.label() == MAIN_WINDOW {
                     api.prevent_close();
                     close_main_window(window);
                 }

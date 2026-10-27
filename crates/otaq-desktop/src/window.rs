@@ -61,6 +61,8 @@ pub enum Action {
     Close,
     /// Shows the window (restored if minimized) and gives it the keyboard.
     Focus,
+    /// Quits the app: the Move window's Quit, and after its move (T-0579), when nothing else runs.
+    Quit,
 }
 
 /// A rectangle in logical pixels: a window's place, or a screen's.

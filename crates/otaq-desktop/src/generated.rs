@@ -163,6 +163,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // The comment box's limits from core (T-0442; CMT-02, CMT-03): one place, never copied in the page.
     otaq_view::view_models::comment_limits::CommentLimits::export_all(&cfg)?;
     otaq_view::view_models::about::View::export_all(&cfg)?;
+    otaq_view::view_models::move_app::View::export_all(&cfg)?;
     otaq_view::view_models::about::LicenseView::export_all(&cfg)?;
     otaq_view::view_models::about::PathRow::export_all(&cfg)?;
     // Also writes its bundled rows, groups and items.
