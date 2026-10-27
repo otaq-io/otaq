@@ -505,11 +505,34 @@ async fn first_hide(client: &Client) -> FirstHide {
     }
 }
 
+async fn first_hide_pending(client: &Client) -> FirstHide {
+    match client.request(Request::AppFirstHidePending).await.unwrap() {
+        Reply::FirstHide(answer) => answer,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A recorder that says macOS allows Otaq's notifications.
+struct Allowed(Arc<Recorder>);
+
+impl Notifier for Allowed {
+    fn post(&self, n: &OsNotification, on_click: OnClick) {
+        self.0.post(n, on_click);
+    }
+
+    fn permission(&self) -> PermissionState {
+        PermissionState::Allowed
+    }
+}
+
 /// T-0566 (TRY-02, d0139): the first time the window hides, the note goes out as an OS notification counting the
 /// agents at work, once per data folder; a click opens the board.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_first_hide_note_goes_out_once() {
-    let (w, recorder, _clock) = world().await;
+    let recorder = Arc::new(Recorder::default());
+    let notifier: Arc<dyn Notifier> = Arc::new(Allowed(recorder.clone()));
+    let w = TestService::start_with(move |config| ServiceConfig { notifier, ..config }).await;
+    w.add_project("shop-web").await;
     let (_t, _agent, _session) = working(&w, "Split user full name").await;
     let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     assert_eq!(first_hide(&app).await, FirstHide::Posted);
@@ -526,26 +549,45 @@ async fn the_first_hide_note_goes_out_once() {
         FirstHide::Shown,
         "kept in the data folder"
     );
+    assert_eq!(
+        first_hide_pending(&again).await,
+        FirstHide::Shown,
+        "nothing waits"
+    );
     assert_eq!(recorder.titles().len(), 1);
     w.stop().await;
 }
 
-/// T-0566 (d0139, audit AS q4): with the OS blocking Otaq's notifications, the note is kept for the window instead,
-/// still once.
+/// T-0566 (d0139, audit AS q4), fixed after T-0571: with the OS blocking Otaq's notifications (or, on macOS, its
+/// permission not read yet), the note is kept for the window until a window says it showed it, across new
+/// connections (a restarted app asks `app.first_hide_pending`); then never again.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_blocked_first_hide_note_waits_for_the_window() {
-    for permission in [PermissionState::TurnedOff, PermissionState::NotAsked] {
+async fn a_blocked_first_hide_note_waits_until_a_window_shows_it() {
+    let mut blocked = vec![PermissionState::TurnedOff, PermissionState::NotAsked];
+    if cfg!(target_os = "macos") {
+        blocked.push(PermissionState::Unknown);
+    }
+    for permission in blocked {
         let (w, _permissions) = permission_world(permission).await;
         let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
         let note = otaq_core::attention::notify::first_hide(std::env::consts::OS, 0);
+        let kept = FirstHide::InWindow {
+            title: note.title,
+            body: note.body,
+        };
         assert_eq!(
-            first_hide(&app).await,
-            FirstHide::InWindow {
-                title: note.title,
-                body: note.body
-            }
+            first_hide_pending(&app).await,
+            FirstHide::Shown,
+            "nothing yet"
         );
-        assert_eq!(first_hide(&app).await, FirstHide::Shown);
+        assert_eq!(first_hide(&app).await, kept, "{permission:?}");
+        assert_eq!(first_hide(&app).await, kept, "still waiting");
+        // The app quit before its window showed it: the next one still gets it.
+        let next = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+        assert_eq!(first_hide_pending(&next).await, kept);
+        next.request(Request::AppFirstHideShown).await.unwrap();
+        assert_eq!(first_hide_pending(&next).await, FirstHide::Shown);
+        assert_eq!(first_hide(&next).await, FirstHide::Shown, "never again");
         w.stop().await;
     }
 }

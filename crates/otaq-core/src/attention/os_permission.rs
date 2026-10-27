@@ -25,8 +25,8 @@ use crate::service::EventBus;
 use crate::session::SessionKind;
 use crate::store::Store;
 use crate::store::settings::{
-    FIRST_HIDE_NOTE_SHOWN, NOTIFICATIONS_ASK_ANSWERED, NOTIFICATIONS_ASK_PENDING,
-    NOTIFICATIONS_BLOCKED_DISMISSED,
+    FIRST_HIDE_NOTE_PENDING, FIRST_HIDE_NOTE_SHOWN, NOTIFICATIONS_ASK_ANSWERED,
+    NOTIFICATIONS_ASK_PENDING, NOTIFICATIONS_BLOCKED_DISMISSED,
 };
 
 /// The answer to `notifications.state` and the payload of `notifications_changed`.
@@ -40,26 +40,37 @@ pub struct NotificationsState {
     pub blocked_banner: bool,
 }
 
-/// The answer to `app.first_hide` (TRY-02, d0139): where the first-hide note went.
+/// The answer to `app.first_hide` and `app.first_hide_pending` (TRY-02, d0139): where the first-hide note is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FirstHide {
-    /// It went out before, for this data folder: nothing now.
+    /// It was seen before, for this data folder (or, for `app.first_hide_pending`, none waits): nothing now.
     Shown,
     /// Posted as an OS notification.
     Posted,
-    /// Otaq's notifications are off or the OS blocks them: the window shows it the next time it opens.
+    /// Otaq's notifications are off or the OS would drop it: the window shows it the next time it shows, and then
+    /// says so (`app.first_hide_shown`).
     InWindow { title: String, body: String },
 }
 
 /// Whether the first-hide note can go out as an OS notification: Otaq's switch on and the OS not known to drop it
-/// (turned off, or never asked: macOS drops a notification it was never asked about).
-pub fn first_hide_posts(switch_on: bool, permission: PermissionState) -> bool {
+/// (turned off, or never asked: macOS drops a notification it was never asked about). On macOS an unknown
+/// permission is one not read yet (the bundle's first read can take seconds) and counts as never asked; elsewhere
+/// it can't be read at all, and the note is posted.
+pub fn first_hide_posts(switch_on: bool, permission: PermissionState, os: &str) -> bool {
     switch_on
         && !matches!(
             permission,
             PermissionState::TurnedOff | PermissionState::NotAsked
         )
+        && !(os == "macos" && permission == PermissionState::Unknown)
+}
+
+/// The kept note's stored form.
+#[derive(Serialize, Deserialize)]
+struct PendingNote {
+    title: String,
+    body: String,
 }
 
 /// The permission, the ask and the blocked banner. Cheap to clone.
@@ -197,9 +208,9 @@ impl OsPermission {
         Ok(())
     }
 
-    /// `app.first_hide`: the window hid; the first time for this data folder, the note says Otaq keeps running in the
-    /// menu bar / tray (`note`), as an OS notification ([`first_hide_posts`], `on_click` on a click) or, when it can't
-    /// go out, kept for the window.
+    /// `app.first_hide`: the window hid; until the note was seen for this data folder, it says Otaq keeps running in
+    /// the menu bar / tray (`note`): as an OS notification ([`first_hide_posts`], `on_click` on a click), or, when it
+    /// can't go out, kept for the window ([`FIRST_HIDE_NOTE_PENDING`]) until a window has shown it.
     pub async fn first_hide(
         &self,
         note: super::notify::OsNotification,
@@ -209,17 +220,51 @@ impl OsPermission {
         if flag(store, FIRST_HIDE_NOTE_SHOWN).await? {
             return Ok(FirstHide::Shown);
         }
-        store.set_setting(FIRST_HIDE_NOTE_SHOWN, "true").await?;
-        let switch_on = self.inner.board.global_settings().await?.notifications;
-        if first_hide_posts(switch_on, self.inner.notifier.permission()) {
-            self.inner.notifier.post(&note, on_click);
-            Ok(FirstHide::Posted)
-        } else {
-            Ok(FirstHide::InWindow {
-                title: note.title,
-                body: note.body,
-            })
+        if let pending @ FirstHide::InWindow { .. } = self.first_hide_pending().await? {
+            return Ok(pending);
         }
+        let switch_on = self.inner.board.global_settings().await?.notifications;
+        let permission = self.inner.notifier.permission();
+        if first_hide_posts(switch_on, permission, std::env::consts::OS) {
+            store.set_setting(FIRST_HIDE_NOTE_SHOWN, "true").await?;
+            self.inner.notifier.post(&note, on_click);
+            return Ok(FirstHide::Posted);
+        }
+        let pending = PendingNote {
+            title: note.title,
+            body: note.body,
+        };
+        let value = serde_json::to_string(&pending).expect("a note serializes");
+        store.set_setting(FIRST_HIDE_NOTE_PENDING, &value).await?;
+        Ok(FirstHide::InWindow {
+            title: pending.title,
+            body: pending.body,
+        })
+    }
+
+    /// `app.first_hide_pending`: the note kept for the window, if one waits ([`FirstHide::InWindow`]); else
+    /// [`FirstHide::Shown`].
+    pub async fn first_hide_pending(&self) -> Result<FirstHide, BoardError> {
+        let store = &self.inner.store;
+        if flag(store, FIRST_HIDE_NOTE_SHOWN).await? {
+            return Ok(FirstHide::Shown);
+        }
+        Ok(store
+            .setting(FIRST_HIDE_NOTE_PENDING)
+            .await?
+            .and_then(|v| serde_json::from_str::<PendingNote>(&v).ok())
+            .map_or(FirstHide::Shown, |n| FirstHide::InWindow {
+                title: n.title,
+                body: n.body,
+            }))
+    }
+
+    /// `app.first_hide_shown`: a window showed the kept note; it never comes back.
+    pub async fn first_hide_shown(&self) -> Result<(), BoardError> {
+        let store = &self.inner.store;
+        store.set_setting(FIRST_HIDE_NOTE_SHOWN, "true").await?;
+        store.remove_setting(FIRST_HIDE_NOTE_PENDING).await?;
+        Ok(())
     }
 
     /// `notifications.dismiss_blocked`: the banner stays closed for the permission it was closed for.
@@ -290,19 +335,22 @@ mod tests {
     #[test]
     fn where_the_first_hide_note_goes() {
         use PermissionState::*;
-        for (switch_on, permission, posts) in [
-            (true, Allowed, true),
-            (true, OutsideBundle, true),
-            (true, Unknown, true),
-            (true, TurnedOff, false),
-            (true, NotAsked, false),
-            (false, Allowed, false),
-            (false, Unknown, false),
+        for (switch_on, permission, os, posts) in [
+            (true, Allowed, "macos", true),
+            (true, OutsideBundle, "macos", true),
+            (true, TurnedOff, "macos", false),
+            (true, NotAsked, "macos", false),
+            // The bundle's first read hasn't answered yet (T-0571's lost note).
+            (true, Unknown, "macos", false),
+            (true, Unknown, "windows", true),
+            (true, Unknown, "linux", true),
+            (false, Allowed, "macos", false),
+            (false, Unknown, "windows", false),
         ] {
             assert_eq!(
-                first_hide_posts(switch_on, permission),
+                first_hide_posts(switch_on, permission, os),
                 posts,
-                "{switch_on} {permission:?}"
+                "{switch_on} {permission:?} {os}"
             );
         }
     }

@@ -46,9 +46,13 @@ pub const NOTIFICATIONS_ASK_ANSWERED: &str = "notifications.ask_answered";
 /// (`"turned_off"`). Removed when the permission becomes allowed, so a later turn-off can show it once more.
 pub const NOTIFICATIONS_BLOCKED_DISMISSED: &str = "notifications.blocked_dismissed";
 
-/// The first-hide note (TRY-02, d0139) went out, as an OS notification or kept for the window: `true`. Once per data
-/// folder, never again.
+/// The first-hide note (TRY-02, d0139) was seen: posted as an OS notification, or shown in the window: `true`. Once
+/// per data folder, never again.
 pub const FIRST_HIDE_NOTE_SHOWN: &str = "app.first_hide_note_shown";
+
+/// The first-hide note the OS couldn't show, waiting for the window (d0139 audit AS q4): `{"title": …, "body": …}`.
+/// Kept until a window has shown it (`app.first_hide_shown`), also across restarts of the app.
+pub const FIRST_HIDE_NOTE_PENDING: &str = "app.first_hide_note_pending";
 
 impl Store {
     /// The stored JSON value of a global setting.

@@ -174,6 +174,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::NotificationsAskAnswered
         | Request::NotificationsDismissBlocked
         | Request::AppFirstHide
+        | Request::AppFirstHidePending
+        | Request::AppFirstHideShown
         | Request::ProjectList
         | Request::ProjectProbe(_)
         | Request::ProjectAdd(_)

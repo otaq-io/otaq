@@ -213,6 +213,13 @@ pub enum Request {
     /// out (TRY-02). Answered with [`Reply::FirstHide`].
     #[serde(rename = "app.first_hide")]
     AppFirstHide,
+    /// The first-hide note kept for the window, if one waits (asked when the app connects). Answered with
+    /// [`Reply::FirstHide`].
+    #[serde(rename = "app.first_hide_pending")]
+    AppFirstHidePending,
+    /// The window showed the kept first-hide note: it never comes back. Answered with [`Reply::Ok`].
+    #[serde(rename = "app.first_hide_shown")]
+    AppFirstHideShown,
 
     // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`]
     // ([`Reply::ProjectAdded`] for `project.add`).
@@ -1949,6 +1956,8 @@ impl Request {
             Self::NotificationsAskAnswered => "notifications.ask_answered",
             Self::NotificationsDismissBlocked => "notifications.dismiss_blocked",
             Self::AppFirstHide => "app.first_hide",
+            Self::AppFirstHidePending => "app.first_hide_pending",
+            Self::AppFirstHideShown => "app.first_hide_shown",
             Self::ProjectList => "project.list",
             Self::ProjectProbe(_) => "project.probe",
             Self::ProjectAdd(_) => "project.add",
@@ -2822,6 +2831,8 @@ mod tests {
             Message::request(13, Request::NotificationsAskAnswered),
             Message::request(13, Request::NotificationsDismissBlocked),
             Message::request(13, Request::AppFirstHide),
+            Message::request(13, Request::AppFirstHidePending),
+            Message::request(13, Request::AppFirstHideShown),
             Message::event(Event::NotificationsChanged {
                 state: crate::attention::os_permission::NotificationsState {
                     permission: crate::attention::notify::PermissionState::TurnedOff,
