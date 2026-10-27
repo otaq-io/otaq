@@ -3,7 +3,10 @@
 //! **`<data folder>/bin/otaq`** ([`refresh_bin`]): the app points it at its own `otaq` on every start. On macOS it's a
 //! link into the bundle; on Windows (`otaq.exe`) and Linux a copy, because Windows links need admin rights and an
 //! AppImage's insides move on every start. A copy in use is left and replaced at the next start. The copy of Otaq
-//! opened last wins.
+//! opened last wins. Beside a copy goes the plugin folder (`bin/plugin`, replaced on every start): a service started
+//! through `bin/otaq` (`otaq attach SHOP-12` with the app closed) makes its runtime copy from `bin/`, so it runs from
+//! that copy and its agents get the plugin, even after an AppImage's mount is gone (d0140 gap review C1/G1, T-0574's
+//! question QB). A link (macOS) needs none: it resolves into the bundle.
 //!
 //! **Add to my shell's PATH** ([`add_to_shell`], [`windows_add`]): only on the click. One line, marked
 //! `# added by Otaq`, at the end of the login shell's file: zsh `$ZDOTDIR/.zshrc` (`~/.zshrc` without `ZDOTDIR`);
@@ -48,6 +51,10 @@ impl BinKind {
     }
 }
 
+/// The plugin folder beside a copied `bin/otaq`: `bin/plugin`, the first place
+/// [`crate::agent_tools::plugin_dir_next_to`] looks.
+const BIN_PLUGIN_FOLDER: &str = "plugin";
+
 /// What [`refresh_bin`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinRefresh {
@@ -60,10 +67,22 @@ pub enum BinRefresh {
 }
 
 /// Makes `<data folder>/bin/otaq` point at `own` (the app's own `otaq`), creating `bin/` when missing. The new link
-/// or copy is made under a temporary name and renamed over the old one, so nothing ever runs a half-written file.
-pub fn refresh_bin(data: &DataDir, own: &Path, kind: BinKind) -> io::Result<BinRefresh> {
+/// or copy is made under a temporary name and renamed over the old one, so nothing ever runs a half-written file. A
+/// copy also gets `plugin` (the app's plugin folder) as `bin/plugin`, swapped in whole; the returned state is the
+/// command's.
+pub fn refresh_bin(
+    data: &DataDir,
+    own: &Path,
+    kind: BinKind,
+    plugin: Option<&Path>,
+) -> io::Result<BinRefresh> {
     let bin = data.bin_dir();
     DataDir::ensure_dir(&bin)?;
+    if kind == BinKind::Copy
+        && let Some(plugin) = plugin
+    {
+        crate::runtime::replace_dir(plugin, &bin.join(BIN_PLUGIN_FOLDER))?;
+    }
     let target = bin.join(command_file_name());
     let temp = bin.join(format!(
         ".{}.new-{}",
@@ -960,24 +979,77 @@ mod tests {
         std::fs::write(&own, b"build 1").unwrap();
         let target = data.bin_dir().join(command_file_name());
         assert_eq!(
-            refresh_bin(&data, &own, BinKind::Copy).unwrap(),
+            refresh_bin(&data, &own, BinKind::Copy, None).unwrap(),
             BinRefresh::Updated
         );
         assert_eq!(std::fs::read(&target).unwrap(), b"build 1");
         assert_eq!(
-            refresh_bin(&data, &own, BinKind::Copy).unwrap(),
+            refresh_bin(&data, &own, BinKind::Copy, None).unwrap(),
             BinRefresh::Unchanged
         );
         // Another copy of the app opened last wins.
         let other = tmp.path().join("other");
         std::fs::write(&other, b"build 2").unwrap();
         assert_eq!(
-            refresh_bin(&data, &other, BinKind::Copy).unwrap(),
+            refresh_bin(&data, &other, BinKind::Copy, None).unwrap(),
             BinRefresh::Updated
         );
         assert_eq!(std::fs::read(&target).unwrap(), b"build 2");
         // Only the command in bin/, no temporary file left.
         assert_eq!(std::fs::read_dir(data.bin_dir()).unwrap().count(), 1);
+    }
+
+    /// A copy gets the app's plugin folder beside it (QB), replaced whole by the next start; a link gets none.
+    #[test]
+    fn bin_copy_gets_the_plugin_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::new(tmp.path().join("data"));
+        let own = tmp.path().join("own");
+        std::fs::write(&own, b"build 1").unwrap();
+        let plugin = tmp.path().join("app-plugin");
+        let manifest = plugin.join("claude").join(".claude-plugin");
+        std::fs::create_dir_all(&manifest).unwrap();
+        std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
+        refresh_bin(&data, &own, BinKind::Copy, Some(&plugin)).unwrap();
+        let copied = data.bin_dir().join(BIN_PLUGIN_FOLDER);
+        let copied_manifest = copied.join("claude/.claude-plugin/plugin.json");
+        assert_eq!(std::fs::read_to_string(&copied_manifest).unwrap(), "{}");
+        assert_eq!(
+            crate::agent_tools::plugin_dir_next_to(&data.bin_dir()),
+            Some(copied.clone())
+        );
+
+        // The next build's plugin, with the command unchanged: replaced whole, nothing temporary left.
+        std::fs::write(manifest.join("plugin.json"), "{\"v\":2}").unwrap();
+        std::fs::write(copied.join("stale"), "").unwrap();
+        assert_eq!(
+            refresh_bin(&data, &own, BinKind::Copy, Some(&plugin)).unwrap(),
+            BinRefresh::Unchanged
+        );
+        assert_eq!(
+            std::fs::read_to_string(&copied_manifest).unwrap(),
+            "{\"v\":2}"
+        );
+        assert!(!copied.join("stale").exists());
+        let mut names: Vec<String> = std::fs::read_dir(data.bin_dir())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, [command_file_name(), BIN_PLUGIN_FOLDER.to_owned()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_gets_no_plugin_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::new(tmp.path().join("data"));
+        let own = tmp.path().join("own");
+        std::fs::write(&own, b"x").unwrap();
+        let plugin = tmp.path().join("app-plugin");
+        std::fs::create_dir_all(&plugin).unwrap();
+        refresh_bin(&data, &own, BinKind::Link, Some(&plugin)).unwrap();
+        assert!(!data.bin_dir().join(BIN_PLUGIN_FOLDER).exists());
     }
 
     #[cfg(unix)]
@@ -989,18 +1061,18 @@ mod tests {
         std::fs::write(&own, b"x").unwrap();
         let target = data.bin_dir().join(command_file_name());
         assert_eq!(
-            refresh_bin(&data, &own, BinKind::Link).unwrap(),
+            refresh_bin(&data, &own, BinKind::Link, None).unwrap(),
             BinRefresh::Updated
         );
         assert_eq!(std::fs::read_link(&target).unwrap(), own);
         assert_eq!(
-            refresh_bin(&data, &own, BinKind::Link).unwrap(),
+            refresh_bin(&data, &own, BinKind::Link, None).unwrap(),
             BinRefresh::Unchanged
         );
         // A copy left there (or a broken link) is replaced.
         let other = tmp.path().join("other");
         assert_eq!(
-            refresh_bin(&data, &other, BinKind::Link).unwrap(),
+            refresh_bin(&data, &other, BinKind::Link, None).unwrap(),
             BinRefresh::Updated
         );
         assert_eq!(std::fs::read_link(&target).unwrap(), other);
@@ -1024,7 +1096,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        refresh_bin(&data, &own, BinKind::for_this_os()).unwrap();
+        refresh_bin(&data, &own, BinKind::for_this_os(), None).unwrap();
         let found = || {
             let out = std::process::Command::new(zsh)
                 .args([

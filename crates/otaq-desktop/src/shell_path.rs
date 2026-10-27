@@ -24,8 +24,12 @@ pub fn refresh_bin(data: &DataDir) {
         eprintln!("bin: no command next to the app: {}", own.display());
         return;
     }
+    // Beside a copy (Windows, Linux) goes the plugin folder, so a service started through `bin/otaq` finds it (QB).
+    let plugin = own
+        .parent()
+        .and_then(otaq_core::agent_tools::plugin_dir_next_to);
     // A copy in use (Windows) is replaced at the next start.
-    match shell_path::refresh_bin(data, &own, BinKind::for_this_os()) {
+    match shell_path::refresh_bin(data, &own, BinKind::for_this_os(), plugin.as_deref()) {
         Ok(BinRefresh::Unchanged | BinRefresh::Updated | BinRefresh::InUse) => {}
         Err(e) => eprintln!("bin: can't update {}: {e}", data.bin_dir().display()),
     }

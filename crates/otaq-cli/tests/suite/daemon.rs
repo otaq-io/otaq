@@ -205,3 +205,43 @@ fn the_service_runs_from_the_runtime_copy_where_the_platform_says() {
         pid.to_string()
     );
 }
+
+/// T-0574's question QB: on Windows and Linux (the seam stands in on any platform) a service started through
+/// `<data>/bin/otaq`, the copy the app keeps there with the plugin folder beside it, runs from a runtime copy made
+/// from `bin/`, and that copy has the plugin, so agents can start; `bin/otaq` itself is never the service's program.
+#[cfg(unix)]
+#[test]
+fn a_service_started_from_bin_otaq_runs_from_a_runtime_copy_with_the_plugin() {
+    use otaq_core::shell_path::{BinKind, refresh_bin};
+    let home = Home::new();
+    let data = home.data();
+    let own = std::path::Path::new(env!("CARGO_BIN_EXE_otaq"));
+    let plugin = otaq_core::agent_tools::plugin_dir_next_to(own.parent().unwrap())
+        .expect("the repository's plugin");
+    refresh_bin(&data, own, BinKind::Copy, Some(&plugin)).unwrap();
+    let bin_otaq = data.bin_dir().join(otaq_core::runtime::program_name());
+
+    let out = Command::new(&bin_otaq)
+        .args(["daemon", "start", "--json"])
+        .env(DataDir::env_var(), data.root())
+        .env(otaq_core::runtime::service_from_copy_var(), "1")
+        .env("CLAUDE_CONFIG_DIR", data.root())
+        .env("PATH", data.root().join("no-tools"))
+        .env("HOME", data.root())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let started: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let pid = started["pid"].as_u64().unwrap();
+    let program = std::fs::canonicalize(program_of(pid)).unwrap();
+    let runtime = std::fs::canonicalize(data.runtime_dir()).unwrap();
+    assert!(program.starts_with(&runtime), "{program:?}");
+    assert!(
+        program
+            .parent()
+            .unwrap()
+            .join("plugin/claude/.claude-plugin/plugin.json")
+            .is_file()
+    );
+    assert_ne!(program, std::fs::canonicalize(&bin_otaq).unwrap());
+}
