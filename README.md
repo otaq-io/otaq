@@ -241,6 +241,11 @@ cargo build --release -p otaq-cli   # → target/release/otaq
 Put `target/release` on your `PATH` and run `otaq`. With no arguments it opens the app, starting the background
 service if needed.
 
+On Linux the status icon needs the AppIndicator library (`sudo apt install libayatana-appindicator3-1` on Debian and
+Ubuntu), and stock GNOME shows tray icons only with the AppIndicator extension (`gnome-shell-extension-appindicator`,
+on by default in Ubuntu's desktop). Without either, Otaq still runs, without the icon (see [The status
+icon](#the-status-icon)).
+
 Prebuilt downloads for macOS, Windows and Linux (with a one-line install script) are planned. The builds won't be code
 signed, so the first open will show the usual "unidentified developer" warning (on macOS: right-click → Open, or
 `xattr -dr com.apple.quarantine Otaq.app`; on Windows: More info → Run anyway).
@@ -260,6 +265,21 @@ Agents use your own permission or approval mode for each tool; Otaq never change
 edits, they will stop on permission prompts and show up as "Needs you"; auto-accept modes let them run unattended.
 Otaq pre-approves only its own `otaq` commands (for Codex, through an `otaq.rules` file in `~/.codex`, which Otaq
 removes when you disconnect the tool).
+
+### The status icon
+
+While Otaq runs, its icon sits in the menu bar (macOS) or the notification area / tray (Windows, Linux). It shows when
+an agent needs you or every project is paused, and its menu lists each project's needs-you items, checks and running
+tickets: pick one to open Otaq on it.
+
+- **Closing the window hides it.** Otaq keeps running in the menu bar / tray and agents keep working; the icon's Open
+  Otaq (or running `otaq` again) brings the window back. Only one copy of Otaq runs per data folder.
+- **Stop agents and quit**, in the icon's menu, stops every agent and terminal, stops the background service, pauses
+  all projects so nothing starts on its own, and quits. Next time, Resume continues where each agent was.
+- **⌘Q on macOS** quits only the app; agents keep working in the background service. While agents work it asks first:
+  keep them working and quit, stop agents and quit, or cancel.
+- **Linux without a tray** (stock GNOME without the AppIndicator extension, or without the library): a hidden window
+  couldn't be found again, so closing the window acts as Stop agents and quit, asking first while agents work.
 
 ### Where things live
 
@@ -328,13 +348,14 @@ hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are unaffect
 
 ## Uninstall Otaq
 
-Quit the Otaq app, then run in a terminal:
+Quit the Otaq app (from its menu bar / tray icon: closing the window only hides it), then run in a terminal:
 
 ```sh
 otaq uninstall
 ```
 
-(With the app open it stops at "Quit Otaq first: the app would start the service again".) It says what it is about
+(With the app open it stops at "Quit Otaq from its menu bar / tray icon first: the app would start the service
+again".) It says what it is about
 to do and asks before changing anything. Both questions come first; nothing is deleted until you have answered yes
 to each, and only `y` or `yes` counts: Enter means no.
 

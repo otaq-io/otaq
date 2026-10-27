@@ -22,6 +22,7 @@ mod status_icon;
 #[cfg(test)]
 mod stylesheet;
 mod terminal;
+mod tray_host;
 mod usage;
 mod window;
 

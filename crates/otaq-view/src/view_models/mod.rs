@@ -73,6 +73,7 @@ pub mod messages;
 pub mod modal;
 pub mod model_picker;
 pub mod needs_you_strip;
+pub mod no_tray;
 pub mod view_prefs;
 
 pub mod onboarding;

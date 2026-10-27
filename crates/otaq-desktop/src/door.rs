@@ -334,26 +334,96 @@ fn hide_main_window(window: &tauri::Window) {
 /// The status icon's id.
 const STATUS_ICON: &str = "status";
 
-/// Whether the status icon is up. Without it (Linux with no tray: T-0570) closing the window quits, as before.
+/// Whether the status icon was made. On Linux, closing hides the window only with it and a tray host ([`close_main_window`]).
 #[derive(Default)]
 struct StatusIconUp(AtomicBool);
 
 /// Puts the icon in the menu bar / tray (plain, with the plain menu, until the service's summary arrives). Picking a
 /// line opens it the way a notification click does (TRY-06); the actions are the summary's.
-fn create_status_icon(handle: &tauri::AppHandle) -> tauri::Result<()> {
+///
+/// On Linux, tray-icon loads `libayatana-appindicator3` (or `libappindicator3`) when the first icon is made and
+/// **panics** when neither loads (`libappindicator-sys`); the panic is caught here, so the app starts without the icon
+/// and the no-tray rules apply (TRY-08). The panic comes from Rust code with no C frame above it.
+fn create_status_icon(handle: &tauri::AppHandle) -> Result<(), String> {
     use otaq_view::view_models::status_icon::{IconLook, summary};
     let first = summary(IconLook::Plain, None, None);
     let builder = tauri::tray::TrayIconBuilder::with_id(STATUS_ICON)
-        .icon(status_image(handle, &first)?)
+        .icon(status_image(handle, &first).map_err(|e| e.to_string())?)
         .icon_as_template(cfg!(target_os = "macos"))
         .tooltip(&first.name)
-        .menu(&status_menu(handle, &first)?)
+        .menu(&status_menu(handle, &first).map_err(|e| e.to_string())?)
         .show_menu_on_left_click(true)
         .on_menu_event(|handle, event| status_menu_picked(handle, event.id().as_ref()));
-    let _icon = builder.build(handle)?;
+    let _icon =
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| builder.build(handle))) {
+            Ok(built) => built.map_err(|e| e.to_string())?,
+            Err(_) => return Err("the AppIndicator library couldn't be loaded".into()),
+        };
     #[cfg(target_os = "macos")]
-    accessible_name(&_icon, &first.name)?;
+    accessible_name(&_icon, &first.name).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Closing the main window (the close button, ⌘W, Alt+F4, the page's own close button): with a tray it hides; on
+/// Linux with no tray (checked now, TRY-08) it acts as Stop agents and quit, asking first while agents work
+/// ([`otaq_view::view_models::no_tray::on_close`]).
+fn close_main_window(window: &tauri::Window) {
+    use crate::tray_host::{tray_shows, watcher_present};
+    use otaq_view::view_models::no_tray::{OnClose, on_close};
+    use tauri::Manager;
+    let os = std::env::consts::OS;
+    let icon_up = window.state::<StatusIconUp>().0.load(Ordering::SeqCst);
+    if os != "linux" {
+        hide_main_window(window);
+        return;
+    }
+    let handle = window.app_handle().clone();
+    let app = window.state::<Arc<App>>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let tray = tokio::task::spawn_blocking(move || tray_shows(os, icon_up, watcher_present))
+            .await
+            .unwrap_or(false);
+        let agents = if tray {
+            0
+        } else {
+            crate::quit::agents_working(&app).await.unwrap_or(0)
+        };
+        match on_close(tray, agents) {
+            OnClose::Hide => {
+                let on_main = handle.clone();
+                let _ = handle.run_on_main_thread(move || {
+                    if let Some(window) = on_main.get_webview_window(MAIN_WINDOW) {
+                        hide_main_window(&window.as_ref().window());
+                    }
+                });
+            }
+            OnClose::StopAndQuit => stop_agents_and_quit(&handle),
+            OnClose::Ask(question) => ask_before_stopping(&handle, question),
+        }
+    });
+}
+
+/// The question on close without a tray (page 31 item 9), as the OS's own alert on the window (GTK on Linux): Stop
+/// and quit, or Cancel, which leaves the window open.
+fn ask_before_stopping(
+    handle: &tauri::AppHandle,
+    question: otaq_view::view_models::no_tray::NoTrayQuestion,
+) {
+    let on_main = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        let then = on_main.clone();
+        ask_in_window(
+            &on_main,
+            &question.title,
+            &question.text,
+            vec![question.stop, question.cancel],
+            move |picked| {
+                if picked == Some(0) {
+                    stop_agents_and_quit(&then);
+                }
+            },
+        );
+    });
 }
 
 /// A pick in the icon's menu: a line opens what it names, an action does what it says.
@@ -678,6 +748,7 @@ pub(crate) fn stop_agents_and_quit(handle: &tauri::AppHandle) {
 /// ⌘Q (TRY-03): with agents working, the window asks "2 agents are working": Keep them working and quit (the app
 /// only) · Stop agents and quit · Cancel; with none working, or no service to ask, the app quits at once. The Dock's
 /// Quit and a logout end the app through macOS without asking (Tauri can't hold them), so a logout never waits.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn quit_asked(handle: &tauri::AppHandle) {
     use otaq_view::view_models::quit::quit_question;
     use tauri::Manager;
@@ -854,6 +925,13 @@ pub fn run(
                 }
                 Err(e) => eprintln!("couldn't show the status icon: {e}"),
             }
+            #[cfg(target_os = "linux")]
+            if !crate::tray_host::watcher_present() {
+                eprintln!(
+                    "no tray on this desktop ({} has no owner): closing the window stops agents and quits",
+                    crate::tray_host::WATCHER
+                );
+            }
             if let Some(first_copy) = first_copy {
                 let handle = handle.clone();
                 first_copy.serve(&runtime, move |open| second_start(&handle, open));
@@ -865,14 +943,11 @@ pub fn run(
                 note_placement(window, &on_window)
             }
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                use tauri::Manager;
                 save_placement(&on_window);
-                // The close button, ⌘W, Alt+F4 and the page's own close button all come here: they hide.
-                if window.label() == MAIN_WINDOW
-                    && window.state::<StatusIconUp>().0.load(Ordering::SeqCst)
-                {
+                // The close button, ⌘W, Alt+F4 and the page's own close button all come here.
+                if window.label() == MAIN_WINDOW {
                     api.prevent_close();
-                    hide_main_window(window);
+                    close_main_window(window);
                 }
             }
             // The window in front with the keyboard, or not (d0090: no OS notification while the user looks).
