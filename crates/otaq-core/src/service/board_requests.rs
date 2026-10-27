@@ -314,6 +314,17 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::FirstHide)
         }),
+        Request::AppFirstHidePending => boxed(move || async move {
+            shared
+                .notifications
+                .first_hide_pending()
+                .await
+                .map(Reply::FirstHide)
+        }),
+        Request::AppFirstHideShown => boxed(move || async move {
+            shared.notifications.first_hide_shown().await?;
+            Ok(Reply::Ok)
+        }),
         // Pause and Resume (PAU-01, PAU-02, PAU-06, PAU-08; d0112).
         Request::AgentsPause(scope) => boxed(move || async move {
             let counts = shared.pause.pause(&scope).await?;

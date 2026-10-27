@@ -302,7 +302,8 @@ fn bring_forward(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.unminimize()?;
     window.show()?;
     window.set_focus()?;
-    window.state::<Arc<App>>().notices.window_shown();
+    let app = window.state::<Arc<App>>().inner().clone();
+    tauri::async_runtime::spawn(async move { crate::api::window_shown(&app).await });
     Ok(())
 }
 
