@@ -3,4 +3,4 @@
 /**
  * What a caption button does, or bringing the window forward (a notification click, T-0231).
  */
-export type WindowAction = "minimize" | "toggle_maximize" | "close" | "focus";
+export type WindowAction = "minimize" | "toggle_maximize" | "close" | "focus" | "quit";

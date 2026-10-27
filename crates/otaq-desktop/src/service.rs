@@ -925,6 +925,10 @@ pub(crate) mod testing {
             usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
             // Tests never read the real font folders.
             fonts: crate::fonts::Fonts::in_folders(Vec::new()),
+            install: crate::install_place::InstallState {
+                gate: crate::install_place::Gate::Run,
+                data: None,
+            },
         };
         (app, seen)
     }

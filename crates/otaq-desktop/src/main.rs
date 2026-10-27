@@ -13,6 +13,7 @@ mod events;
 mod fonts;
 #[cfg(test)]
 mod generated;
+mod install_place;
 mod notices;
 mod notify_check;
 mod one_copy;
@@ -68,6 +69,8 @@ pub struct App {
     looked: std::sync::Mutex<otaq_view::view_models::ask_bar::Looked>,
     /// The installed fonts, read once (d0117 point 5).
     fonts: fonts::Fonts,
+    /// Where the app runs from: outside an Applications folder a macOS release shows only the Move window (T-0579).
+    install: install_place::InstallState,
 }
 
 fn main() {
@@ -75,6 +78,15 @@ fn main() {
     if notify_check::requested() {
         std::process::exit(notify_check::run());
     }
+    // A copy opened by Move to Applications waits for the one that moved it to quit, so it takes the one-copy lock
+    // below instead of handing over to the quitting copy (T-0579). The variable isn't passed on to the service.
+    let moved_from = install_place::moved_from_var();
+    install_place::wait_for_previous(std::env::var(&moved_from).ok().as_deref());
+    // SAFETY: the app has no other thread yet, so nothing reads the environment while it changes.
+    unsafe { std::env::remove_var(&moved_from) };
+    // On macOS a release runs only from an Applications folder (UPD-06): elsewhere no service, no update check and no
+    // `bin` link start, and the window shows only Move to Applications.
+    let gate = install_place::current();
     // Before any other thread or the webview exists (Q39).
     let os = std::env::consts::OS;
     if let Some((name, value)) =
@@ -111,15 +123,28 @@ fn main() {
         }
         Err(_) => None,
     };
-    // `<data folder>/bin/otaq` points at this copy's `otaq` (d0140: the copy opened last wins).
-    if let Ok(data) = &data {
+    // `<data folder>/bin/otaq` points at this copy's `otaq` (d0140: the copy opened last wins); never from a copy
+    // outside Applications (UPD-06), whose folder may disappear.
+    if let Ok(data) = &data
+        && gate.runs()
+    {
         let data = data.clone();
         runtime.spawn_blocking(move || shell_path::refresh_bin(&data));
     }
     let events = Arc::new(EventHub::default());
     // The `otaq` command next to this program starts the service when none runs (d0055).
     let placement = data.as_ref().ok().map(window::placement_file);
+    let install = install_place::InstallState {
+        gate: gate.clone(),
+        data: data.as_ref().ok().cloned(),
+    };
     let settings = data.and_then(|data| {
+        if !gate.runs() {
+            return Err(format!(
+                "{} runs only from an Applications folder",
+                otaq_core::naming::PRODUCT_NAME
+            ));
+        }
         let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
         Ok(Settings::new(data, Arc::new(launcher)))
     });
@@ -148,13 +173,22 @@ fn main() {
         )),
         usage: usage::Usage::new(runtime.handle().clone()),
         fonts: fonts::Fonts::system(),
+        install,
     });
-    runtime.spawn(api::usage_loop(app.clone()));
+    if gate.runs() {
+        runtime.spawn(api::usage_loop(app.clone()));
+    }
     {
         let app = app.clone();
         runtime.spawn(async move { api::follow_window_focus(&app).await });
     }
-    if let Err(e) = door::run(app, runtime.handle().clone(), placement, first_copy) {
+    if let Err(e) = door::run(
+        app,
+        runtime.handle().clone(),
+        placement,
+        first_copy,
+        !gate.runs(),
+    ) {
         eprintln!("{e}");
         std::process::exit(1);
     }

@@ -215,6 +215,7 @@ areas! {
     report,
     overview,
     dependencies,
+    move_app,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

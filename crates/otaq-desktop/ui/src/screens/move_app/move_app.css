@@ -1,0 +1,65 @@
+/* Move Otaq to Applications (*32 · item 6*): the whole window, the title bar on top, the body centred. */
+.move-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+.move-app-titlebar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.move-app-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.move-app-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.move-app-error {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--st-error-bg);
+  color: var(--st-error);
+  font-size: 13px;
+}
+
+.move-app-text {
+  width: min(520px, 100%);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.move-app-actions {
+  display: flex;
+  gap: 10px;
+}
