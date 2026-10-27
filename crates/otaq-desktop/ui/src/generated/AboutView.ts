@@ -7,7 +7,11 @@ export type AboutView = { product: string, tagline: string,
 /**
  * "Version 0.1.0 · build", followed by the commit chip.
  */
-version: string, commit: string, version_description: string, copy_label: string, copied_label: string, 
+version: string, commit: string, version_description: string, 
+/**
+ * "Built from source · bed9c10. …" for a build that isn't a release (d0140, page 32 item 1); `None` for a release.
+ */
+built_from_source: string | null, copy_label: string, copied_label: string, 
 /**
  * What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64".
  */

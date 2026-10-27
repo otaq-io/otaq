@@ -360,33 +360,83 @@ A value can use Otaq's own variables as `${OTAQ_…}`, such as `${OTAQ_DB_NAME}`
 where it is set, and by nothing where it isn't (in a git hook, for example). Only that exact form with an `OTAQ_`
 name is replaced; anything else, such as `$HOME` or `${HOME}`, is passed on as written.
 
+## Setup files (decision 0140)
+
+Each release carries a universal `.dmg` (macOS), a per-user setup `.exe` (Windows, NSIS), an `.AppImage` and a `.deb`
+(Linux), all made by Tauri's bundler from `crates/otaq-desktop`:
+
+```sh
+cd crates/otaq-desktop
+npm run bundle -- --target universal-apple-darwin --bundles app,dmg   # macOS (both Rust targets installed)
+npm run bundle -- --bundles nsis                                      # Windows
+npm run bundle -- --bundles appimage,deb                              # Linux
+```
+
+`npm run bundle` is `tauri build --config tauri.bundle.conf.json`. `tauri.conf.json` holds the bundle settings (the
+targets, NSIS per-user install with its hooks, the `.deb`'s dependency on `libayatana-appindicator3-1` and its
+`prerm`, ad-hoc signing on macOS) but leaves bundling off, so `cargo build` and `npm run tauri dev` never need the
+pieces below. `tauri.bundle.conf.json` turns it on and adds:
+
+- **the `otaq` command next to the app** (`externalBin`): `scripts/sidecar.ts`, run before the app is compiled, builds
+  `otaq-cli` for the target and copies it to `binaries/otaq-<target triple>` (both halves and a `lipo` of them for
+  `universal-apple-darwin`). It lands in `Otaq.app/Contents/MacOS`, `/usr/bin` (`.deb`, AppImage) or the install
+  folder (Windows);
+- **the plugin folder** (`resources`): `Contents/Resources/plugin` (macOS), `/usr/lib/Otaq/plugin` (`.deb`,
+  AppImage), `plugin\` next to the program (Windows). `find_plugin_dir` looks in each.
+
+Output: `$CARGO_TARGET_DIR/<target>/release/bundle/<kind>/` (without `--target`, `release/bundle/`).
+
+- **A release** is only a build with `OTAQ_RELEASE=1` in the environment (the release workflow sets it). Every other
+  build, these commands and `install-local.sh` included, is *built from source*: it never checks for updates and
+  About says "Built from source · <commit>".
+- **Updater files:** `createUpdaterArtifacts` makes the `.app.tar.gz`, `.AppImage` and `.exe` signatures, so the
+  build needs `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Locally, sign with a throwaway
+  key (`npx tauri signer generate -w /tmp/k/otaq.key`), or add `--config '{"bundle":{"createUpdaterArtifacts":false}}'`.
+  The real key lives only in the release workflow's secrets.
+- **macOS signing:** Tauri signs ad-hoc (`signingIdentity: "-"`) but signs `otaq` under its file name; notifications
+  need it under the bundle's ID (decision 0090). Tauri's `.dmg` and updater steps work from that app, so on macOS
+  they come after a re-sign instead (below).
+- **Uninstalling from the system** removes only the program: the NSIS uninstall hook
+  (`bundle/windows/hooks.nsh`, skipped on an update) and the `.deb`'s `bundle/linux/prerm` (`remove` only) stop the
+  service, ignoring a failure, and say "Run `otaq uninstall` first to remove worktrees and data".
+
+### macOS order
+
+```sh
+cd crates/otaq-desktop
+npm run bundle -- --target universal-apple-darwin --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'
+app=$CARGO_TARGET_DIR/universal-apple-darwin/release/bundle/macos/Otaq.app   # or target/…
+../../scripts/macos-sign.sh "$app"                          # otaq under io.otaq.desktop, the bundle sealed again
+../../scripts/macos-dmg.sh "$app" Otaq_0.1.0_universal.dmg  # the app and an Applications shortcut
+tar -C "$(dirname "$app")" -czf Otaq.app.tar.gz Otaq.app      # the updater's file, from the signed app
+npx tauri signer sign Otaq.app.tar.gz                        # Otaq.app.tar.gz.sig (TAURI_SIGNING_PRIVATE_KEY)
+```
+
+Tauri's own `--bundles dmg` (and `tauri bundle --bundles dmg`) makes the app again and signs it its own way, and
+`createUpdaterArtifacts` packs the app as Tauri signed it, so neither is used on macOS. Windows and Linux use Tauri's
+steps as they are.
+
 ## Installing your own build (macOS)
 
-`scripts/install-local.sh` builds a release from this checkout and installs it the way users get it (decision 0072),
-so the author runs what users run. No admin rights:
+`scripts/install-local.sh` builds `Otaq.app` with the bundler (`npm run bundle -- --bundles app`, this Mac's
+architecture only) and installs it to `~/Applications/Otaq.app`, so the author runs what users run. No admin rights;
+it's built from source (never `OTAQ_RELEASE`), so it never checks for updates. `scripts/macos-sign.sh` signs `otaq`
+under the bundle ID and seals the bundle again. The `otaq` command for your own terminal is `~/.otaq/bin/otaq`, which
+the app keeps (About's Add to my shell's PATH puts it on the PATH); the script makes no link of its own.
 
-- `~/Applications/Otaq.app`: `Contents/MacOS/otaq-app` (the app, the bundle's main program) and
-  `Contents/MacOS/otaq` (the command and the background service), the agent tools' plugin folders in
-  `Contents/Resources` (`plugin/`: the shipped skills and each tool's hooks plugin), the tent icon, an `Info.plist` with the bundle ID
-  `io.otaq.desktop` and the workspace's version, signed ad-hoc (decision 0021, no paid signing);
-- `~/.local/bin/otaq`, a link to `Otaq.app/Contents/MacOS/otaq`. When `~/.local/bin` isn't on `PATH` the script says
-  so; it never edits shell files.
-
-It needs Node 24 on `PATH` (it runs `npm run tauri build`, which puts the page inside the app, then
-`cargo build --release -p otaq-cli`). Before replacing an installed `Otaq.app` it stops the background service of the
-data folder in use (`OTAQ_HOME`, or `~/.otaq`) with the old bundle's `otaq` and says so; the app starts it again.
-`otaq daemon start` runs the service from the real path of the program, so a start through the link runs it from
-the bundle (macOS ties a process to its bundle by that path, which notifications need, decision 0090).
+Before replacing an installed `Otaq.app` it stops the background service of the data folder in use (`OTAQ_HOME`, or
+`~/.otaq`), only when that service runs from the bundle being replaced (its PID in `service.lock` belongs to a
+program inside it); the app starts it again.
 
 | Option | What it does |
 |---|---|
-| `--dest <folder>` | installs `<folder>/Otaq.app` instead, without the link (tests, trying a build) |
+| `--dest <folder>` | installs `<folder>/Otaq.app` instead (tests, trying a build) |
 | `--bundle-id <id>` | another bundle ID, for a check bundle (`io.otaq.desktop.check`): macOS asks for notification permission only once per ID, so a check doesn't use up the real one. A check bundle must not live in a temporary folder (`/tmp`, `/var/folders`, `$TMPDIR`): LaunchServices marks an app there `in-temp-dir`, and macOS's notification service refuses it |
-| `--from <folder>` | takes `otaq` and `otaq-app` from `<folder>` instead of building |
+| `--from <folder>` | installs `<folder>/Otaq.app` instead of building |
 
-The layout, `Info.plist` and signature are checked by `crates/otaq-cli/tests/suite/install_local.rs` (part of the
-`test` step, macOS only), on a fake build: copies of `/usr/bin/true` passed with `--from`, so no release build runs
-in the checks.
+What the script does to a built bundle (the bundle ID, the signature, which service it stops) is checked by
+`crates/otaq-cli/tests/suite/install_local.rs` (part of the `test` step, macOS only), on a fake `Otaq.app` passed with
+`--from`, so no build runs in the checks.
 
 `otaq notify-check` (hidden from `--help`) checks notifications from the bundle: it prints whether it runs inside
 `Otaq.app` and its bundle ID; inside, it shows macOS's permission state, asks once if macOS hasn't asked yet, posts

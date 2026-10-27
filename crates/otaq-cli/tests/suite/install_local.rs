@@ -1,14 +1,15 @@
-//! `scripts/install-local.sh` (T-0370, d0072) on a fake build: the bundle's layout, its `Info.plist` and its ad-hoc
-//! signature. The fake programs are copies of `/usr/bin/true`, so no release build runs here; the real build is the
-//! hand-run script. `--dest` installs into a temporary folder, and `HOME` and `OTAQ_HOME` point into it too, so
-//! nothing reaches the user's folders or service. macOS only (the script builds `Otaq.app`).
+//! `scripts/install-local.sh` (T-0370, T-0578, d0140) on a fake build: what the script itself does to a built
+//! `Otaq.app` (Tauri's bundler makes the layout): the bundle ID, `otaq` signed under it, the bundle sealed again,
+//! and the old bundle's service stopped only when it runs from that bundle. The fake programs are copies of
+//! `/usr/bin/true` and a tiny C program compiled here, so no Rust build runs here; the real build is the hand-run script. `--dest` installs
+//! into a temporary folder, and `HOME` and `OTAQ_HOME` point into it too, so nothing reaches the user's folders or
+//! service. macOS only (the script builds `Otaq.app`).
 
 #![cfg(target_os = "macos")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use otaq_core::agent_tools::claude::find_plugin_dir;
 use otaq_core::attention::bundle;
 use otaq_core::data_dir::DataDir;
 use otaq_core::naming;
@@ -29,13 +30,66 @@ fn plist_value(plist: &Path, key: &str) -> String {
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
 
-/// Installs from a fake build into `<tmp>/dest` with `bundle_id`; returns the script's stdout.
-fn install(tmp: &Path, bundle_id: &str) -> String {
+/// A built `Otaq.app` as Tauri lays it out, with fake programs: `otaq` is a script that records `daemon stop`.
+fn fake_build(tmp: &Path) -> PathBuf {
     let build = tmp.join("build");
-    std::fs::create_dir_all(&build).unwrap();
-    for program in [naming::COMMAND_NAME.to_owned(), naming::app_binary_name()] {
-        std::fs::copy("/usr/bin/true", build.join(program)).unwrap();
+    let contents = build.join(naming::bundle_folder_name()).join("Contents");
+    let macos = contents.join("MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    std::fs::create_dir_all(contents.join("Resources/plugin")).unwrap();
+    std::fs::copy("/usr/bin/true", macos.join(naming::app_binary_name())).unwrap();
+    // The fake service: a program of its own, never a copy of a system one (macOS kills a copy of an Apple program
+    // run from elsewhere, at some point after it starts: launch constraints).
+    let mut cc = Command::new("cc")
+        .args(["-x", "c", "-o"])
+        .arg(macos.join("sleeper"))
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        cc.stdin
+            .take()
+            .unwrap()
+            .write_all(b"#include <unistd.h>\nint main(void) { for (;;) pause(); }\n")
+            .unwrap();
     }
+    assert!(cc.wait().unwrap().success(), "cc");
+    let otaq = macos.join(naming::COMMAND_NAME);
+    std::fs::write(
+        &otaq,
+        format!(
+            "#!/bin/sh\necho \"$* $OTAQ_HOME\" >> {}\n",
+            tmp.join("stops").display()
+        ),
+    )
+    .unwrap();
+    Command::new("chmod").arg("+x").arg(&otaq).status().unwrap();
+    std::fs::write(
+        contents.join("Info.plist"),
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>{}</string>
+<key>CFBundleIdentifier</key><string>{}</string>
+<key>CFBundleName</key><string>{}</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>
+"#,
+            naming::app_binary_name(),
+            naming::BUNDLE_ID,
+            naming::PRODUCT_NAME
+        ),
+    )
+    .unwrap();
+    build
+}
+
+/// Installs the fake build into `<tmp>/dest` with `bundle_id`; returns the script's stdout.
+fn install(tmp: &Path, bundle_id: &str) -> String {
+    let build = fake_build(tmp);
     let out = Command::new("bash")
         .arg(script())
         .args(["--from".as_ref(), build.as_os_str()])
@@ -50,62 +104,18 @@ fn install(tmp: &Path, bundle_id: &str) -> String {
 }
 
 #[test]
-fn the_bundle_has_the_layout_plist_and_signature() {
+fn the_bundle_gets_its_id_and_signature() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
     let id = format!("{}.check", naming::BUNDLE_ID);
     install(&tmp, &id);
 
     let app = tmp.join("dest").join(naming::bundle_folder_name());
-    let contents = app.join("Contents");
-    let macos = contents.join("MacOS");
-    let resources = contents.join("Resources");
-    let mut programs: Vec<_> = std::fs::read_dir(&macos)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .collect();
-    programs.sort();
+    let macos = app.join("Contents").join("MacOS");
     assert_eq!(
-        programs,
-        [naming::COMMAND_NAME.to_owned(), naming::app_binary_name()]
+        plist_value(&app.join("Contents/Info.plist"), "CFBundleIdentifier"),
+        id
     );
-    assert!(resources.join("icon.icns").is_file());
-    for folder in ["claude", "copilot"] {
-        assert!(
-            resources
-                .join("plugin")
-                .join(folder)
-                .join(".claude-plugin/plugin.json")
-                .is_file(),
-            "{folder}"
-        );
-    }
-    assert!(
-        resources
-            .join("plugin/codex/.codex-plugin/plugin.json")
-            .is_file()
-    );
-    assert!(
-        resources
-            .join("plugin/skills/work-ticket/SKILL.md")
-            .is_file(),
-        "the shipped skills are in the bundle"
-    );
-
-    let plist = contents.join("Info.plist");
-    assert_eq!(plist_value(&plist, "CFBundleIdentifier"), id);
-    assert_eq!(
-        plist_value(&plist, "CFBundleExecutable"),
-        naming::app_binary_name()
-    );
-    assert_eq!(plist_value(&plist, "CFBundleName"), naming::PRODUCT_NAME);
-    assert_eq!(plist_value(&plist, "CFBundleIconFile"), "icon.icns");
-    assert_eq!(
-        plist_value(&plist, "CFBundleShortVersionString"),
-        env!("CARGO_PKG_VERSION")
-    );
-    assert_eq!(plist_value(&plist, "LSMinimumSystemVersion"), "10.13");
-
     let verify = Command::new("codesign")
         .args(["--verify", "--deep", "--strict"])
         .arg(&app)
@@ -120,25 +130,50 @@ fn the_bundle_has_the_layout_plist_and_signature() {
     let details = String::from_utf8_lossy(&details.stderr);
     assert!(details.contains(&format!("Identifier={id}\n")), "{details}");
     assert!(details.contains("Signature=adhoc"), "{details}");
-
-    // The program, the plugin and the service's path as the code finds them from the bundle.
-    let command = macos.join(naming::COMMAND_NAME);
-    assert_eq!(bundle::bundle_of(&command).map(|b| b.id), Some(id));
-    assert_eq!(find_plugin_dir(&macos), Some(resources.join("plugin")));
-    assert!(!tmp.join("home/.local").exists(), "--dest makes no link");
+    assert_eq!(
+        bundle::bundle_of(&macos.join(naming::COMMAND_NAME)).map(|b| b.id),
+        Some(id)
+    );
+    assert!(!tmp.join("home/.local").exists(), "no link in ~/.local/bin");
 }
 
 #[test]
-fn a_second_install_stops_the_old_service_and_replaces_the_bundle() {
+fn only_a_service_running_from_the_old_bundle_is_stopped() {
     let tmp = tempfile::tempdir().unwrap();
-    let first = install(tmp.path(), CHECK_ID);
+    let tmp = tmp.path().canonicalize().unwrap();
+    let first = install(&tmp, CHECK_ID);
     assert!(!first.contains("Stopping"), "{first}");
-    let second = install(tmp.path(), CHECK_ID);
+    // The data folder's lock names a process that isn't the bundle's (a stale PID): nothing is stopped.
+    let data = tmp.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        data.join("service.lock"),
+        format!("{}\n", std::process::id()),
+    )
+    .unwrap();
+    let second = install(&tmp, CHECK_ID);
+    assert!(!second.contains("Stopping"), "{second}");
+    assert!(!tmp.join("stops").exists());
+
+    // A service of this data folder running from the installed bundle: stopped with that data folder.
+    let app = tmp.join("dest").join(naming::bundle_folder_name());
+    let mut service = Command::new(app.join("Contents/MacOS/sleeper"))
+        .spawn()
+        .unwrap();
+    std::fs::write(data.join("service.lock"), format!("{}\n", service.id())).unwrap();
+    let third = install(&tmp, CHECK_ID);
     assert!(
-        second.contains("Stopping the background service"),
-        "{second}"
+        service.try_wait().unwrap().is_none(),
+        "the fake service ran throughout"
     );
-    let left: Vec<_> = std::fs::read_dir(tmp.path().join("dest"))
+    let _ = service.kill();
+    let _ = service.wait();
+    assert!(third.contains("Stopping the background service"), "{third}");
+    assert_eq!(
+        std::fs::read_to_string(tmp.join("stops")).unwrap(),
+        format!("daemon stop {}\n", data.display())
+    );
+    let left: Vec<_> = std::fs::read_dir(tmp.join("dest"))
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect();

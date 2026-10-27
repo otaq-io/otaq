@@ -557,6 +557,9 @@ export function AboutSection() {
             <code className="about-commit">{view.commit}</code>
           </span>
           <span className="settings-row-description">{view.version_description}</span>
+          {view.built_from_source !== null && (
+            <span className="settings-row-description">{view.built_from_source}</span>
+          )}
         </div>
         <div className="settings-row-control">
           <CopyButton label={view.copy_label} copied={view.copied_label} text={view.version_info} />
