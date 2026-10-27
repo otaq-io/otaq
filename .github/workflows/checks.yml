@@ -4,6 +4,8 @@
 #
 # The steps run as parallel jobs, each one group of check.sh: the frontend steps, fmt and clippy, and the tests in two
 # shares (the doc examples with the first). Together they are the same steps as a plain `scripts/check.sh`.
+#
+# release.yml runs this workflow too (`workflow_call`) before it builds a release.
 name: Checks
 
 on:
@@ -11,6 +13,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
