@@ -1546,6 +1546,7 @@ pub(super) async fn handle(
         | Request::ServiceStatus
         | Request::StartupReport
         | Request::ServiceStop
+        | Request::ServiceStopAgents
         | Request::Subscribe(_)
         | Request::ToolsCheck
         | Request::OnboardingState

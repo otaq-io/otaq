@@ -509,6 +509,7 @@ mod tests {
                         unclean_start: false,
                         interrupted_at_start: 0,
                         paused: Vec::new(),
+                        stopped_to_quit: None,
                     }),
                     Request::SessionAttach(_) => {
                         let mut state = state.lock().unwrap();

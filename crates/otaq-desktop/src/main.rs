@@ -16,6 +16,7 @@ mod generated;
 mod notices;
 mod notify_check;
 mod one_copy;
+mod quit;
 mod service;
 mod status_icon;
 #[cfg(test)]

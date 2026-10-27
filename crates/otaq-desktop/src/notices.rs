@@ -704,7 +704,13 @@ impl State {
             return;
         };
         let banner = self.pause.as_ref().and_then(|counts| {
-            pause::banner(self.project.as_deref(), counts, info.status.started_at)
+            pause::banner_after_stop(
+                self.project.as_deref(),
+                counts,
+                info.status.started_at,
+                info.status.stopped_to_quit.as_ref(),
+                now_ms(),
+            )
         });
         match banner {
             Some(situation) => self.banners.raise(situation),
