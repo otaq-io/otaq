@@ -24,8 +24,9 @@ when one needs you, and gives you a normal code review at the end. Nothing is me
 It is built in Rust (the engine and a background service) with a Tauri + React window, runs on macOS, Windows and
 Linux, and is licensed under FSL-1.1-MIT, which becomes MIT two years after each release.
 
-> **Status: early (v0.1).** Otaq is used daily by its author and is now public. There are no prebuilt releases
-> yet; build it from source (below). Expect rough edges, and please open issues.
+> **Status: early (v0.1).** Otaq is used daily by its author and is now public. Setup files come with the first
+> release on [GitHub Releases](https://github.com/otaq-io/otaq/releases); until then, build it from source (below).
+> Expect rough edges, and please open issues.
 
 ## Contents
 
@@ -33,6 +34,7 @@ Linux, and is licensed under FSL-1.1-MIT, which becomes MIT two years after each
 - [How it works](#how-it-works)
 - [A tour of the app](#a-tour-of-the-app)
 - [Getting started](#getting-started)
+- [Install](#install)
 - [The `otaq` command](#the-otaq-command)
 - [Uninstall Otaq](#uninstall-otaq)
 - [Architecture](#architecture)
@@ -219,36 +221,64 @@ One Dark, Daylight (the board above) and Solarized Light.
 | **An agent tool** | at least one of [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex), [GitHub Copilot CLI](https://github.com/github/copilot-cli) or [OpenCode](https://opencode.ai), installed and signed in |
 | **git** | any recent version |
 | **OS** | macOS (most tested), Windows 10/11, or Linux |
-| **To build** | Rust 1.99+ (edition 2024) and Node 24 |
+| **To build** (only from source) | Rust 1.99+ (edition 2024) and Node 24 |
 | **Optional** | `gh` (GitHub) or `az` (Azure DevOps) for pull requests |
+
+### Install
+
+Each release on [GitHub Releases](https://github.com/otaq-io/otaq/releases) has a setup file per system. Download
+yours and open it like any app:
+
+| System | Setup file | Updates |
+|---|---|---|
+| macOS (Apple silicon and Intel) | `Otaq_<version>_universal.dmg`: drag Otaq to Applications | by itself |
+| Windows 10/11 (x64, arm64) | `Otaq_<version>_<arch>-setup.exe`: installs for your account only, no admin rights | by itself |
+| Linux (x64, arm64) | `Otaq_<version>_<arch>.AppImage`: make it executable and run it from anywhere | by itself |
+| Debian, Ubuntu (x64, arm64) | `Otaq_<version>_<arch>.deb`: `sudo apt install ./Otaq_<version>_<arch>.deb` | by hand: download the next `.deb` |
+
+Otaq isn't code signed (paid OS signing isn't something it does), so the first open asks you to allow it once:
+
+- **macOS:** the first open says Apple can't check Otaq. Open **System Settings → Privacy & Security**, scroll to
+  "Otaq was blocked…" and click **Open Anyway**. Otaq runs only from an Applications folder: opened from the `.dmg`
+  or from Downloads, its window offers just **Move to Applications**, which moves it (to `/Applications`, or
+  `~/Applications` when you can't write there) and opens it from there.
+- **Windows:** SmartScreen says it protected your PC: click **More info → Run anyway**. Otaq goes into
+  `%LOCALAPPDATA%\Programs\Otaq`, with a Start-menu shortcut.
+- **Linux:** the status icon needs the AppIndicator library (the `.deb` installs it; for the AppImage,
+  `sudo apt install libayatana-appindicator3-1` on Debian and Ubuntu), and stock GNOME shows tray icons only with the
+  AppIndicator extension (`gnome-shell-extension-appindicator`, on by default in Ubuntu's desktop). Without either,
+  Otaq still runs, without the icon (see [The status icon](#the-status-icon)).
+
+**Updates happen by themselves.** Once a day Otaq asks GitHub for the newest version (one request for a fixed file;
+nothing about you or your projects is sent), downloads it in the background and checks its signature. Then Settings
+gets a dot and Settings → About says **Otaq 0.2.0 is ready · What's new · Restart now · Skip this version**. Nothing
+changes until then: the new version installs when you pick **Restart now** (or **Restart to update** in the status
+icon's menu), or the next time you open Otaq. Either way only the window reopens, on the new version, and says
+"Updated to Otaq 0.2.0"; your agents keep working. The background service moves to the new version later, when you
+pick **Restart now** on its "Service update ready" banner. An update the running service can't work with says so
+first ("needs agents restarted (3 working)", with **Restart now · stops 3 agents**): it restarts the app and the
+service together, as after a reboot (the agents show Interrupted and Resume all continues them), and it never
+installs on its own when you open Otaq. The switch **Check for updates automatically** and the **Check for updates**
+button are in Settings → About. The `.deb` doesn't update itself: About says "Otaq 0.2.0 is available · Download".
+
+**Going back to an older version.** Before a new version changes the database's layout, Otaq keeps a copy of it
+(`~/.otaq/otaq.db.before-0.2.0`). If you reinstall an older version, its window says the board was last opened by a
+newer Otaq and offers **Restore the copy from before 0.2.0**; `otaq restore-database` does the same in a terminal.
+Changes made on the newer version since the copy are lost.
 
 ### Build and run from source
 
 ```sh
-git clone https://github.com/otaq-dev/otaq.git
+git clone https://github.com/otaq-io/otaq.git
 cd otaq
-
-# The desktop app (the web page is built into the binary)
-cd crates/otaq-desktop
-npm ci
-npm run tauri build      # → target/release/otaq-app
-cd ../..
-
-# The otaq command: opens the app, runs the background service, and is what agents call
-cargo build --release -p otaq-cli   # → target/release/otaq
+cd crates/otaq-desktop && npm ci && cd ../..
+scripts/install-local.sh     # macOS: builds Otaq.app and installs ~/Applications/Otaq.app
 ```
 
-Put `target/release` on your `PATH` and run `otaq`. With no arguments it opens the app, starting the background
-service if needed.
-
-On Linux the status icon needs the AppIndicator library (`sudo apt install libayatana-appindicator3-1` on Debian and
-Ubuntu), and stock GNOME shows tray icons only with the AppIndicator extension (`gnome-shell-extension-appindicator`,
-on by default in Ubuntu's desktop). Without either, Otaq still runs, without the icon (see [The status
-icon](#the-status-icon)).
-
-Prebuilt downloads for macOS, Windows and Linux (with a one-line install script) are planned. The builds won't be code
-signed, so the first open will show the usual "unidentified developer" warning (on macOS: right-click → Open, or
-`xattr -dr com.apple.quarantine Otaq.app`; on Windows: More info → Run anyway).
+`scripts/install-local.sh` builds the same `Otaq.app` a release has, with Tauri's bundler. It is **built from
+source**: it never checks for updates, a release never replaces it, and Settings → About says "Built from source ·
+<commit>". Build it again to update. On Windows and Linux, `npm run bundle` in `crates/otaq-desktop` makes the setup
+`.exe` or the `.AppImage` and `.deb` the same way; [`scripts/README.md`](scripts/README.md) says how for each system.
 
 ### Your first project
 
@@ -284,6 +314,9 @@ tickets: pick one to open Otaq on it.
 ### Where things live
 
 - **Data:** `~/.otaq/` (a SQLite database, logs, the service socket). Set `OTAQ_HOME` to use another folder.
+- **The `otaq` command for your terminal:** `~/.otaq/bin/otaq`, kept by the app on every start (see
+  [Your own terminal](#your-own-terminal)). Agents use their own copy in `~/.otaq/runtime/<build>/`, so an update
+  never changes the version an agent's session runs. Downloaded updates wait in `~/.otaq/updates/`.
 - **Worktrees:** `~/.otaq/wt/<repo>/<TICKET>`, outside your repository. Branches are named `otaq/SHOP-12` while
   work is in progress.
 - **Warm builds:** a new worktree starts from a copy-on-write clone of the last finished ticket's build output (APFS,
@@ -305,6 +338,20 @@ Debug builds (`npm run tauri dev`) send nothing at all: the Aptabase App Key is 
 
 `otaq` is both your tool and the agents' tool. Agents use it (taught by Otaq's bundled skills) to read their ticket,
 ask questions and submit; you can use the same commands from any terminal.
+
+### Your own terminal
+
+Agents don't need anything set up. To run `otaq` in your own terminal, open **Settings → About** and click **Add to
+my shell's PATH** under "Use otaq in your own terminal". Nothing is edited until you click. It adds one line to your
+login shell's file, marked `# added by Otaq`:
+
+- zsh: `~/.zshrc` (or `$ZDOTDIR/.zshrc`); bash: `~/.bashrc`, and on macOS also `~/.bash_profile` when that doesn't
+  read `~/.bashrc`; fish: `~/.config/fish/conf.d/otaq.fish`;
+- Windows: `%USERPROFILE%\.otaq\bin` is added to your account's PATH (no PowerShell profile is edited).
+
+The line is `export PATH="$HOME/.otaq/bin:$PATH" # added by Otaq` (fish: `set -gx PATH "$HOME/.otaq/bin" $PATH`).
+Open a new terminal afterwards. If the file can't be written, About shows the line to paste yourself, with Copy.
+`~/.otaq/bin/otaq` always points at the Otaq you opened last.
 
 ```sh
 otaq                         # open the app
@@ -379,8 +426,9 @@ to each, and only `y` or `yes` counts: Enter means no.
    ```
 
 Then it stops the background service (agents still working are interrupted), removes the worktrees, removes
-Otaq's skill copies from your projects (`.claude/skills/otaq-*`, `.agents/skills/otaq-*`), deletes the data folder,
-and prints what it removed and what it kept, for example:
+Otaq's skill copies from your projects (`.claude/skills/otaq-*`, `.agents/skills/otaq-*`), deletes the data folder
+(with `~/.otaq/bin`), removes the `# added by Otaq` line from your shell's file (on Windows, the folder from your
+PATH), and prints what it removed and what it kept, for example:
 
 ```
 Kept on purpose:
@@ -390,8 +438,14 @@ Drag Otaq.app to the Trash
 ```
 
 Anything it skipped or couldn't remove is listed with its path (and the exit code is non-zero). The last step is
-yours: **drag Otaq.app to the Trash**. If you built from source, delete the clone and take its `target/release` off
-your `PATH`.
+yours, and the summary's last line names it:
+
+- **macOS:** drag Otaq.app to the Trash.
+- **Windows:** uninstall Otaq from **Settings → Apps**.
+- **Linux:** remove the package (`sudo apt remove otaq`) or delete the AppImage.
+
+Removing only the program (Settings → Apps, `apt remove otaq`, deleting the AppImage) stops the background service
+and leaves your worktrees and data; the Windows uninstaller and the `.deb` say to run `otaq uninstall` first.
 
 **Kept on purpose:**
 
@@ -405,8 +459,9 @@ your `PATH`.
   - Codex: `trust_level = "trusted"` in the folder's `[projects."<folder>"]` table, in `~/.codex/config.toml`
   - Copilot: the folder's line in the `trustedFolders` list, in `~/.copilot/config.json`
 
-**Coming back later?** `otaq uninstall --keep-data` keeps the database and the comment reports, so reinstalling
-brings your projects and tickets back; warm builds, logs and worktrees still go. Its data-folder question reads as
+**Coming back later?** `otaq uninstall --keep-data` keeps the database (with its `otaq.db.before-<version>` copy)
+and the comment reports, so reinstalling brings your projects and tickets back; warm builds, logs, worktrees,
+`~/.otaq/bin` and the PATH line still go. Its data-folder question reads as
 below (with the same "… end." sentence when agents are running):
 
 ```
