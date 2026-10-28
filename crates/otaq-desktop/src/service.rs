@@ -887,9 +887,11 @@ pub(crate) mod testing {
             }
         }
 
-        /// Waits until the link's state matches.
+        /// Waits until the link's state matches. It returns as soon as it does; the limit only ends a wait that
+        /// hangs. Starting the in-process service took over 10 s on a busy Windows machine (a full parallel run,
+        /// Q601), so the limit is a minute.
         pub async fn wait_for(&self, what: &str, want: impl Fn(&Connection) -> bool) {
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let deadline = Instant::now() + Duration::from_secs(60);
             loop {
                 let now = self.app.service.connection();
                 if want(&now) {
