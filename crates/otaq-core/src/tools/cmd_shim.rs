@@ -76,9 +76,10 @@ impl UnreadableLauncher {
             None => ("The tool", "it"),
         };
         format!(
-            "{name} is started through your own script file ({}), which Otaq can\u{2019}t run safely. Install \
-             {again} the normal way, or start it without the script.",
-            self.file.display()
+            "{name} is started through your own script file ({}), which {product} can\u{2019}t run safely. \
+             Install {again} the normal way, or start it without the script.",
+            self.file.display(),
+            product = crate::naming::PRODUCT_NAME,
         )
     }
 }
@@ -594,15 +595,20 @@ mod tests {
         let e = UnreadableLauncher {
             file: r"C:\tools\codex.cmd".into(),
         };
+        let product = crate::naming::PRODUCT_NAME;
         assert_eq!(
             e.message(Some("Codex")),
-            "Codex is started through your own script file (C:\\tools\\codex.cmd), which Otaq can\u{2019}t run \
-             safely. Install Codex the normal way, or start it without the script."
+            format!(
+                "Codex is started through your own script file (C:\\tools\\codex.cmd), which {product} can\u{2019}t \
+                 run safely. Install Codex the normal way, or start it without the script."
+            )
         );
         assert_eq!(
             e.message(None),
-            "The tool is started through your own script file (C:\\tools\\codex.cmd), which Otaq can\u{2019}t run \
-             safely. Install it the normal way, or start it without the script."
+            format!(
+                "The tool is started through your own script file (C:\\tools\\codex.cmd), which {product} \
+                 can\u{2019}t run safely. Install it the normal way, or start it without the script."
+            )
         );
     }
 
