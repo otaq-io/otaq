@@ -210,3 +210,11 @@ export function codeSpans(text: string): { text: string; code: boolean }[] {
   if (parts.length % 2 === 0) return [{ text, code: false }];
   return parts.flatMap((part, i) => (part === "" ? [] : [{ text: part, code: i % 2 === 1 }]));
 }
+
+/**
+ * The width a dragged edge gives a box `from` px wide after the pointer moved `dx` px rightwards (`ResizeEdge`): a
+ * right edge follows the pointer, a left edge the other way; a centred box grows on both sides, by twice the move.
+ */
+export function resizedWidth(from: number, dx: number, side: "left" | "right", centered: boolean): number {
+  return from + (side === "right" ? dx : -dx) * (centered ? 2 : 1);
+}

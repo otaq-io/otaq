@@ -38,14 +38,14 @@ pub const WIDTH_BESIDE_AGENT: f32 = 920.;
 /// What it keeps clear on each side of it; a narrow window narrows the sheet.
 pub const MARGIN: f32 = 18.;
 
-/// The sheet's width over a main area `main_width` px wide: 1040 px, 920 px beside the agent panel, never wider than
-/// the main area less its margins.
-pub fn width(beside_agent: bool, main_width: f32) -> f32 {
-    let wanted = if beside_agent {
+/// The sheet's width over a main area `main_width` px wide: the width its left edge was dragged to (`dragged`), else
+/// 1040 px, 920 px beside the agent panel; never wider than the main area less its margins.
+pub fn width(beside_agent: bool, main_width: f32, dragged: Option<f32>) -> f32 {
+    let wanted = dragged.unwrap_or(if beside_agent {
         WIDTH_BESIDE_AGENT
     } else {
         WIDTH
-    };
+    });
     wanted.min(main_width - 2. * MARGIN).max(0.)
 }
 
@@ -1174,13 +1174,17 @@ mod tests {
 
     #[test]
     fn widths() {
-        assert_eq!(width(false, 1376.), WIDTH);
-        assert_eq!(width(true, 956.), WIDTH_BESIDE_AGENT);
+        assert_eq!(width(false, 1376., None), WIDTH);
+        assert_eq!(width(true, 956., None), WIDTH_BESIDE_AGENT);
         assert_eq!(
-            width(true, 896.),
+            width(true, 896., None),
             896. - 36.,
             "a narrow main area narrows it"
         );
+        // A dragged width replaces both defaults, inside the same margins.
+        assert_eq!(width(false, 1376., Some(700.)), 700.);
+        assert_eq!(width(true, 956., Some(700.)), 700.);
+        assert_eq!(width(false, 1376., Some(1600.)), 1376. - 36.);
     }
 
     /// Move… lists the drag's targets with their verdicts.
