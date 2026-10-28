@@ -78,6 +78,11 @@ impl OpenCodeContext {
     }
 }
 
+/// What a running OpenCode session sets on the commands it runs (2.0.17), dropped by the service at start
+/// ([`crate::agent_tools::parent_session_vars`]): its terminal marker and the handoff it passes while its own
+/// service is replaced. A new session still saves and resumes with them (checked by hand).
+pub(super) const PARENT_SESSION_VARS: &[&str] = &["OPENCODE_TERMINAL", "OPENCODE_PTY_HANDOFF"];
+
 /// The OpenCode adapter.
 #[derive(Debug, Clone)]
 pub struct OpenCode {

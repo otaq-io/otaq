@@ -79,6 +79,33 @@ pub(super) fn resume_hint(tool_id: &str) -> String {
 /// conversation found with session ID: …"). Checked by hand against the installed CLI (SDD §26).
 const CONVERSATION_NOT_FOUND: &str = "no conversation found";
 
+/// Set on every launch and resume: Claude Code saves the conversation even where it takes itself for a session
+/// started inside another one (an inherited `CLAUDE_CODE_CHILD_SESSION`, which turns saving off: "Transcript
+/// saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker", 2.1.312). A conversation that isn't saved can't
+/// be resumed, and Send back, a stage's next round and Resume all resume. The service also drops the inherited
+/// marker itself ([`crate::agent_tools::parent_session_vars`]); this keeps saving on whatever else turns it off.
+pub(super) const KEEP_TRANSCRIPTS: (&str, &str) = ("CLAUDE_CODE_FORCE_SESSION_PERSISTENCE", "1");
+
+/// What a running Claude Code session sets on the programs it starts (seen in a service started from a Claude Code
+/// terminal, 2.1.312), dropped by the service at start ([`crate::agent_tools::parent_session_vars`]):
+/// `CLAUDE_CODE_CHILD_SESSION` turns transcript saving off; the others name that session, its messaging socket,
+/// its effort and its own program, and `AI_AGENT` names Claude Code as the agent running. Variables the user sets (`CLAUDE_CODE_USE_BEDROCK`, a settings file's `env`)
+/// aren't on the list and stay.
+pub(super) const PARENT_SESSION_VARS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PID",
+    "CLAUDE_EFFORT",
+    "AI_AGENT",
+];
+
 /// The Claude Code adapter.
 #[derive(Debug, Clone)]
 pub struct ClaudeCode {
@@ -274,7 +301,11 @@ impl AgentTool for ClaudeCode {
             program: command.program,
             args: command.args,
             cwd: command.cwd,
-            env: command.env,
+            env: command
+                .env
+                .into_iter()
+                .chain([(KEEP_TRANSCRIPTS.0.to_owned(), KEEP_TRANSCRIPTS.1.to_owned())])
+                .collect(),
             tool_id: ToolIdMode::ChosenUpFront(command.tool_session_id),
         })
     }
@@ -606,7 +637,9 @@ mod tests {
         );
         assert_eq!(plan.program, today.program);
         assert_eq!(plan.cwd, today.cwd);
-        assert_eq!(plan.env, today.env);
+        let mut env = today.env.clone();
+        env.push((KEEP_TRANSCRIPTS.0.to_owned(), KEEP_TRANSCRIPTS.1.to_owned()));
+        assert_eq!(plan.env, env);
         let mut expected = today.args.clone();
         let id_at = expected.len() - 2;
         expected[id_at] = chosen(&plan).to_owned();

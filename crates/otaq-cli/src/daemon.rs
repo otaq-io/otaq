@@ -287,8 +287,19 @@ fn take_installed_dir() -> Option<PathBuf> {
     Some(PathBuf::from(dir))
 }
 
+/// Drops what an agent's session put in the environment of a service started from inside it
+/// ([`otaq_core::agent_tools::parent_session_vars`]), so the agents and terminals the service starts aren't taken
+/// for part of that session: Claude Code would stop saving their conversations and Resume would find nothing.
+fn drop_parent_session_vars() {
+    for var in otaq_core::agent_tools::parent_session_vars() {
+        // SAFETY: called in `foreground` beside `use_full_path`, before any thread starts.
+        unsafe { std::env::remove_var(var) };
+    }
+}
+
 fn foreground(data: DataDir) -> Result<(), ErrorBody> {
     use_full_path();
+    drop_parent_session_vars();
     let installed = take_installed_dir();
     let _log = logging::init(&data).map_err(|e| internal(format!("can't open the log: {e}")))?;
     tracing::info!(

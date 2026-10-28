@@ -82,6 +82,13 @@ impl CodexContext {
     }
 }
 
+/// What a running Codex session sets on the commands it runs (seen in `codex exec`, 0.157.1), dropped by the service
+/// at start ([`crate::agent_tools::parent_session_vars`]): that session's ids and its CI marker. None of them stops
+/// a new session saving or resuming (checked by hand); they would only name a session that isn't the agent's.
+/// Codex's sandbox variables stay: a service started inside Codex's sandbox inherits the sandbox itself.
+pub(super) const PARENT_SESSION_VARS: &[&str] =
+    &["CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_CI"];
+
 /// The Codex adapter.
 #[derive(Debug, Clone)]
 pub struct Codex {

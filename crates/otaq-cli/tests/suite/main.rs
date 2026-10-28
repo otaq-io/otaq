@@ -27,6 +27,7 @@ mod onboarding;
 mod open_pr;
 mod open_questions;
 mod opencode_hook;
+mod parent_session;
 mod plan;
 mod pr;
 mod prime;
