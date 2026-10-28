@@ -8,10 +8,16 @@
 //! folder, each printing its arguments and the copies in the folder it starts in. The plugin folder is a temporary
 //! one holding the repository's shipped skills. Skill folders, repos, `OTAQ_HOME` and the tools' home are temporary:
 //! no test starts a real tool.
+//!
+//! The sessions' tests are Unix only: their stand-in tools are `sh` scripts started by name, which Windows can't run
+//! (Q598). On Windows only the writer's tests run, and the sessions' helpers go unused.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
+#[cfg(unix)]
 use crate::common::stand_in::plugin;
 use otaq_core::service::testing::said;
 use std::collections::BTreeMap;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -49,6 +55,7 @@ fn me() -> Actor {
 
 /// An executable `name` in `bin` running [`SCRIPT`]; OpenCode's also answers the conversation it is asked to make
 /// before the launch (`opencode api --standalone POST /api/session …`).
+#[cfg(unix)]
 fn stand_in(bin: &Path, name: &str) {
     let file = bin.join(name);
     std::fs::write(
@@ -66,6 +73,7 @@ struct World {
 
 /// A service whose four tools are stand-ins and whose plugin folder is [`plugin`]'s, with shop-web (a local origin:
 /// Open PR needs an imported skill, REV-11).
+#[cfg(unix)]
 async fn world() -> World {
     let dir = TempDir::new().unwrap();
     let bin = dir.path().join("bin");
@@ -168,6 +176,7 @@ fn files(path: &Path) -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -187,6 +196,8 @@ fn my_commit(root: &Path) -> PathBuf {
     std::fs::write(folder.join(".gitignore"), "build/\n").unwrap();
     let script = folder.join("scripts/check-staged.sh");
     std::fs::write(&script, "#!/bin/sh\necho CHECK-STAGED-OK\n").unwrap();
+    // Windows files have no mode bits.
+    #[cfg(unix)]
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     folder
 }
@@ -269,6 +280,7 @@ fn the_copies_in_a_linked_worktree() {
             "*\n"
         );
         assert!(is_marked(&folder));
+        #[cfg(unix)]
         assert_eq!(mode(&folder.join("scripts/check-staged.sh")), 0o755);
         assert!(
             std::fs::read_to_string(wt.join(root).join("otaq-work-ticket/SKILL.md"))
@@ -317,6 +329,7 @@ fn the_copies_in_a_linked_worktree() {
 /// `/otaq-work-ticket`, Codex `$otaq-work-ticket`, Copilot `-i /otaq-work-ticket`, OpenCode `--prompt
 /// otaq-work-ticket`. No `--plugin-dir` carries skills (Claude Code's and Copilot's point at their hooks plugins),
 /// OpenCode's config names no skills folder, and git sees nothing.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dev_session_on_each_tool_gets_its_agents_skills() {
     let World { w, _dir } = world().await;
@@ -382,6 +395,7 @@ async fn a_dev_session_on_each_tool_gets_its_agents_skills() {
 
 /// An imported skill keeps its own folder's contents in its copy, by its own name; named `commit`, it is the
 /// agent's commit skill and `prime` names it as each tool does.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_imported_skill_keeps_its_own_files() {
     let World { w, _dir } = world().await;
@@ -420,6 +434,7 @@ async fn an_imported_skill_keeps_its_own_files() {
 
 /// The test flow's Product spec (Q261): the ticket's first session runs Product spec's own skill, `/otaq-product-spec`,
 /// with Spec writer's skills copied (Otaq's shipped `product-spec`).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_product_spec_stage_starts_with_otaq_product_spec() {
     let World { w, _dir } = world().await;
@@ -441,6 +456,7 @@ async fn the_product_spec_stage_starts_with_otaq_product_spec() {
 /// runs `/otaq-validate`. With Validator holding the imported `team-validate` in place of `validate` and the flow's
 /// Validate naming it (`skill: team-validate`, Q296), it runs `/otaq-team-validate` and `otaq-validate` isn't
 /// copied: the agent's skills are. Only ignored paths change, so its verdict counts (VAL-02, d0063).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_validator_runs_its_checks_skill_and_stays_read_only() {
     let World { w, _dir } = world().await;
@@ -496,6 +512,7 @@ async fn the_validator_runs_its_checks_skill_and_stays_read_only() {
 }
 
 /// The copies in a worktree are no uncommitted files: the submit and Local merge go through (REV-07, REV-08).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn submit_and_local_merge_ignore_the_copies() {
     let World { w, _dir } = world().await;
@@ -550,6 +567,7 @@ async fn submit_and_local_merge_ignore_the_copies() {
 /// Open PR typed into a live session that didn't start with the skill (an `sh` Otaq didn't launch): the Delivery
 /// stage's agent's Open PR skill is copied first and named by its file, never as a command (d0118); Push to PR
 /// likewise. The flow shows the imported skill's own name (WSK-08).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn open_pr_and_push_name_the_copy_in_a_session_that_didnt_start_with_it() {
     let World { w, _dir } = world().await;
@@ -582,6 +600,7 @@ async fn open_pr_and_push_name_the_copy_in_a_session_that_didnt_start_with_it() 
 
 /// Open PR with no live session resumes the conversation: the copy is in the worktree at the launch, and the first
 /// prompt names it.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn open_pr_resumes_with_the_copy_in_place() {
     let World { w, _dir } = world().await;
@@ -628,7 +647,7 @@ fn no_old_skill_names_in_the_core() {
             .strip_prefix(&src)
             .unwrap()
             .to_string_lossy()
-            .into_owned();
+            .replace('\\', "/");
         let text = std::fs::read_to_string(&file).unwrap();
         if rel != "skills/copy.rs" {
             assert!(!text.contains("}-custom-"), "{rel} names an M27 copy");

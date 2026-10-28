@@ -556,9 +556,13 @@ async fn a_failed_git_step_says_so_on_the_card() {
     let t = working(&w, "Checkout API", "api.ts").await;
     let hook = repo.join(".git/hooks/pre-commit");
     std::fs::write(&hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n").unwrap();
-    let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-    std::fs::set_permissions(&hook, permissions).unwrap();
+    // Git for Windows runs a hook without an executable bit.
+    #[cfg(unix)]
+    {
+        let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+        std::fs::set_permissions(&hook, permissions).unwrap();
+    }
     let main = git(&repo, &["rev-parse", "main"]);
 
     let after = pass(&w, &t).await;

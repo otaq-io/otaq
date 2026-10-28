@@ -128,13 +128,14 @@ async fn the_user_posts_lists_edits_deletes_and_reads_reports() {
         String::from_utf8_lossy(&refused.stderr).trim(),
         format!(
             "error: Can't read the report {}: it doesn't exist",
-            // The terminal's folder as the process sees it (macOS: under /private).
-            w.home
-                .path()
-                .canonicalize()
-                .unwrap()
-                .join("nope.txt")
-                .display()
+            // The terminal's folder as the process sees it (macOS: under /private; Windows: as it was given).
+            if cfg!(windows) {
+                w.home.path().to_path_buf()
+            } else {
+                w.home.path().canonicalize().unwrap()
+            }
+            .join("nope.txt")
+            .display()
         )
     );
     let refused = cb(&w, &["comment", "SHOP-1"], None);

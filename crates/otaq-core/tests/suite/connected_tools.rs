@@ -40,7 +40,7 @@ impl Tools {
     }
 
     fn remove(&self, name: &str) {
-        std::fs::remove_file(self.bin().join(name)).unwrap();
+        std::fs::remove_file(otaq_core::process::testing::stub_file(&self.bin(), name)).unwrap();
     }
 
     fn claude(&self) {

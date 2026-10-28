@@ -179,7 +179,10 @@ mod tests {
     #[test]
     fn paths_under_home_are_shown_with_a_tilde() {
         let home = Path::new("/Users/me");
-        assert_eq!(shown(&home.join(".zshrc"), home), "~/.zshrc");
+        assert_eq!(
+            shown(&home.join(".zshrc"), home),
+            format!("~{}.zshrc", std::path::MAIN_SEPARATOR)
+        );
         assert_eq!(shown(Path::new("/tmp/x/bin"), home), "/tmp/x/bin");
     }
 

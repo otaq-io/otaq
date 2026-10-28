@@ -351,7 +351,10 @@ mod tests {
             cmd.args,
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin/claude".to_owned(),
+                Path::new("/opt/cb/plugin")
+                    .join("claude")
+                    .display()
+                    .to_string(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
                 "--settings".to_owned(),
@@ -393,7 +396,10 @@ mod tests {
             cmd.args,
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin/claude".to_owned(),
+                Path::new("/opt/cb/plugin")
+                    .join("claude")
+                    .display()
+                    .to_string(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
                 "--settings".to_owned(),
@@ -450,7 +456,10 @@ mod tests {
             cmd.args,
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin/claude".to_owned(),
+                Path::new("/opt/cb/plugin")
+                    .join("claude")
+                    .display()
+                    .to_string(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
                 "--settings".to_owned(),
@@ -686,7 +695,10 @@ mod tests {
         fn args(settings: &Path, rest: &[&str]) -> Vec<String> {
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin/claude".to_owned(),
+                Path::new("/opt/cb/plugin")
+                    .join("claude")
+                    .display()
+                    .to_string(),
                 "--allowedTools".to_owned(),
                 format!("Bash({}:*)", naming::COMMAND_NAME),
                 "--settings".to_owned(),

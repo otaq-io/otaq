@@ -676,6 +676,8 @@ mod tests {
         text.matches(&marker()).count()
     }
 
+    // Unix only: the shell file's line is written on macOS and Linux; Windows adds the folder to the registry's Path.
+    #[cfg(unix)]
     #[test]
     fn the_line_names_the_folder_under_home() {
         let home = Path::new("/Users/me");
@@ -815,6 +817,8 @@ mod tests {
         assert!(!file.exists(), "nothing else in it: deleted");
     }
 
+    // Unix only: the shell file's line is written on macOS and Linux; Windows adds the folder to the registry's Path.
+    #[cfg(unix)]
     #[test]
     fn another_data_folders_line_and_pasted_lines() {
         let h = home("zsh", true);

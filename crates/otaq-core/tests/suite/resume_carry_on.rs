@@ -5,6 +5,9 @@
 //!
 //! Every tool is the stand-in of `tests/fixtures/stand-in` (`crate::common::stand_in`), which prints its arguments
 //! at start. Repos, `OTAQ_HOME` and the tools' home are temporary: no test starts a real tool.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::path::PathBuf;
 use std::time::Duration;

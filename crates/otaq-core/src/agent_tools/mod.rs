@@ -924,7 +924,9 @@ mod test_support {
         }
     }
 
-    /// An executable `name` in `bin` that prints `stdout` and exits 0.
+    /// An executable `name` in `bin` that prints `stdout` and exits 0. Unix only: an `sh` script, which Windows
+    /// can't start by name (Q598).
+    #[cfg(unix)]
     pub fn stand_in(bin: &Path, name: &str, stdout: &str) {
         use std::os::unix::fs::PermissionsExt;
         let file = bin.join(name);

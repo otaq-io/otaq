@@ -133,8 +133,11 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    #[cfg(unix)]
     use crate::agent_tools::AgentTool;
+    #[cfg(unix)]
     use crate::agent_tools::copilot::Copilot;
+    #[cfg(unix)]
     use crate::agent_tools::test_support::{context, stand_in};
 
     fn fixture(name: &str) -> String {
@@ -213,6 +216,8 @@ mod tests {
     }
 
     /// Detect reads the home folder's file once the version runs; Sign in… is `copilot login`.
+    // Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
+    #[cfg(unix)]
     #[tokio::test]
     async fn detect_says_who_is_signed_in_and_how_to_sign_in() {
         let bin = tempfile::tempdir().unwrap();

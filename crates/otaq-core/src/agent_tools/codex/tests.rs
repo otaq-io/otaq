@@ -7,7 +7,9 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::agent_tools::test_support::{context, stand_in};
+use crate::agent_tools::test_support::context;
+#[cfg(unix)]
+use crate::agent_tools::test_support::stand_in;
 
 fn codex(bin: &Path, home: Option<&Path>) -> Codex {
     Codex::new(context(bin, home))
@@ -62,6 +64,8 @@ fn skills_by_their_copys_name() {
 }
 
 /// Detect runs the program on the context's PATH (here a stand-in that prints what `codex --version` prints).
+// Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
+#[cfg(unix)]
 #[tokio::test]
 async fn detect_reads_the_version_from_the_path() {
     let bin = tempfile::tempdir().unwrap();

@@ -1298,6 +1298,8 @@ mod tests {
         h.service.stop_all().await;
     }
 
+    // Unix only: the length limit is a Unix socket's; Windows connects over a named pipe.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn a_socket_path_too_long_shows_the_start_error_at_once() {
         let tmp = tempfile::tempdir().unwrap();

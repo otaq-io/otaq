@@ -4,6 +4,9 @@
 //! failed, a validator's No result), the usage limit, the limit windows and the tokens; a file that can't be read
 //! sets "limits not reported" and the quiet agent's card falls back to Idle. A stand-in `codex` (an `sh` script)
 //! runs as the agent: no test starts codex, and Codex's home is a temporary folder.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;

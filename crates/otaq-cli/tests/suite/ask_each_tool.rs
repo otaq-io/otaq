@@ -7,6 +7,9 @@
 //!
 //! Every tool is a stand-in (`sh` scripts), connected by hand; `OTAQ_HOME`, `HOME`, the Claude Code folder and the
 //! repositories are temporary. No real agent tool, history or `gh` is touched.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
