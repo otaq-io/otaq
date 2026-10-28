@@ -163,12 +163,14 @@
   color: var(--text-muted);
 }
 
+/* A long name scrolls the list sideways instead of being cut; every row is as wide as the widest one. */
 .files-list {
-  display: flex;
+  display: grid;
   flex: 1;
-  flex-direction: column;
+  grid-template-columns: minmax(max-content, 1fr);
+  align-content: start;
   min-height: 0;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .files-row {
@@ -222,9 +224,7 @@
 }
 
 .files-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   white-space: nowrap;
 }
 
@@ -235,15 +235,13 @@
 
 .files-match-text {
   display: flex;
+  flex: none;
   flex-direction: column;
-  min-width: 0;
 }
 
 .files-folder {
-  overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
