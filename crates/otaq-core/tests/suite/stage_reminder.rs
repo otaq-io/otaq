@@ -96,7 +96,8 @@ async fn a_turn_the_user_started_by_typing_gets_no_reminder() {
     w.stop().await;
 }
 
-/// The agent in charge with a piece not merged yet waits for its helper: Idle as before, no reminder.
+/// The agent in charge with a piece handed back but not merged gets no reminder: Idle as before (a helper still at
+/// work makes it Working in background instead, `helpers::the_agent_in_charge_waiting_for_a_helper_isnt_idle`).
 #[tokio::test(flavor = "multi_thread")]
 async fn no_reminder_while_a_helper_isnt_merged() {
     let w = TestService::start().await;
@@ -114,6 +115,12 @@ async fn no_reminder_while_a_helper_isnt_merged() {
     )
     .await
     .unwrap();
+    // Handed back: the agent in charge has it to review, nothing at work.
+    sqlx::query("UPDATE helpers SET status = 'being_reviewed' WHERE ticket_id = ?")
+        .bind(&t.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
     stop(&w, &agent(&t, &shell)).await;
     assert_eq!(w.status("SHOP-1").await, Status::Idle);
     w.stop().await;

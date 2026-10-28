@@ -719,3 +719,52 @@ async fn the_user_reads_the_projects_helpers() {
         "helper.list stays the agent in charge's"
     );
 }
+
+async fn stop_hook(w: &TestService, caller: &Caller) {
+    w.signals
+        .hook(
+            caller,
+            Tool::Claude,
+            "Stop",
+            &serde_json::json!({"hook_event_name": "Stop", "stop_hook_active": false,
+                "last_assistant_message": "I started a helper for the one piece.",
+                "background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+}
+
+/// The agent in charge ends its turn to wait for its helper: Working in background ("background: helper 1.1"), not
+/// Idle. Once the helper stops too, the agent in charge is told; if it then ends its turn with no helper at work, Idle.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_in_charge_waiting_for_a_helper_isnt_idle() {
+    let world = world().await;
+    let w = &world.w;
+    w.signals.set_stage_reminders(false);
+    let (t, _, _agent, caller) = at_work(w, "Sentence case").await;
+    let helper = start(w, &t, &caller, 1, "English values").await;
+
+    stop_hook(w, &caller).await;
+    assert_eq!(w.status("SHOP-1").await, Status::WorkingInBackground);
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        ticket.signal.and_then(|s| s.text).as_deref(),
+        Some("background: helper 1.1")
+    );
+
+    // The helper stops without handing back: the agent in charge hears it, and its next turn ends Idle.
+    stop_hook(w, &helper_caller(&t, &helper)).await;
+    w.signals
+        .hook(
+            &caller,
+            Tool::Claude,
+            "UserPromptSubmit",
+            &serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": "Piece 1's helper stopped"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    stop_hook(w, &caller).await;
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    world.w.stop().await;
+}
