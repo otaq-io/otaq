@@ -158,6 +158,19 @@ impl Signals {
         event: &str,
         payload: &Value,
     ) -> Result<Vec<Signal>, BoardError> {
+        self.hook_from(caller, None, tool, event, payload).await
+    }
+
+    /// [`Self::hook`] sent by the process `reporter` (the `otaq hook` command, the socket's peer): it and the
+    /// processes that started it are the tool's hook, never work its turn left running (ADP-12).
+    pub async fn hook_from(
+        &self,
+        caller: &Caller,
+        reporter: Option<u32>,
+        tool: Tool,
+        event: &str,
+        payload: &Value,
+    ) -> Result<Vec<Signal>, BoardError> {
         tracing::debug!(%tool, event, payload = %payload, agent = ?caller.ticket(), "hook");
         let session = session_of(caller);
         if let Some(session) = session {
@@ -191,7 +204,8 @@ impl Signals {
         if events.is_empty() {
             return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
         }
-        self.apply_events(caller, tool, &events).await
+        self.apply_events_from(caller, reporter, tool, &events)
+            .await
     }
 
     /// Applies `caller`'s events from `tool`'s adapter in order, as a hook's (a hook, or a read of the session's
@@ -202,6 +216,17 @@ impl Signals {
         tool: Tool,
         events: &[ToolEvent],
     ) -> Result<Vec<Signal>, BoardError> {
+        self.apply_events_from(caller, None, tool, events).await
+    }
+
+    /// [`Self::apply_events`] for events a hook sent from the process `reporter` ([`Self::hook_from`]).
+    async fn apply_events_from(
+        &self,
+        caller: &Caller,
+        reporter: Option<u32>,
+        tool: Tool,
+        events: &[ToolEvent],
+    ) -> Result<Vec<Signal>, BoardError> {
         let session = session_of(caller);
         let mut signals = Vec::new();
         for event in events {
@@ -209,7 +234,7 @@ impl Signals {
             let found;
             let event = match session {
                 Some(session) => {
-                    self.quiet_event(tool, session, event);
+                    self.quiet_event(tool, session, event, reporter);
                     match self.left_running(caller, tool, session, event) {
                         Some(with_work) => {
                             found = with_work;

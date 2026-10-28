@@ -94,7 +94,7 @@ fn session_of(caller: &Caller) -> &str {
 }
 
 /// Types `command` into the agent's shell and waits until the shell has run it (it prints `marker`; the typed line's
-/// echo spells it apart).
+/// echo spells it apart) and what it started is settled ([`exec_settled`]).
 async fn run(w: &TestService, caller: &Caller, command: &str, marker: &str) {
     let session = session_of(caller);
     let (head, tail) = marker.split_at(1);
@@ -105,6 +105,38 @@ async fn run(w: &TestService, caller: &Caller, command: &str, marker: &str) {
         )
         .unwrap();
     w.wait_for_output(session, marker).await;
+    exec_settled(w, caller).await;
+}
+
+/// Windows: Git Bash's `&` forks the shell (a new `sh` process) and that `exec`s the command a moment later, which
+/// starts it as a new process and ends the forked one another moment later; until then the command isn't running
+/// yet, or looks like a child of that process. Waits until every process in the agent's tree is at its top and
+/// none is a forked `sh` (no test leaves a shell running), as on macOS and Linux right away.
+async fn exec_settled(w: &TestService, caller: &Caller) {
+    if !cfg!(windows) {
+        return;
+    }
+    let session = session_of(caller);
+    let forked_sh = |p: &otaq_core::process::TreeProcess| {
+        p.program
+            .as_ref()
+            .and_then(|p| p.file_name()?.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("sh.exe") || n.eq_ignore_ascii_case("bash.exe"))
+    };
+    let settled = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let tree = w.sessions.process_tree(session);
+            if tree
+                .iter()
+                .all(|p| tree.iter().all(|q| q.pid != p.parent) && !forked_sh(p))
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(settled.is_ok(), "{:?}", w.sessions.process_tree(session));
 }
 
 async fn event(w: &TestService, caller: &Caller, tool: Tool, event: ToolEvent) {
@@ -146,23 +178,24 @@ async fn until(w: &TestService, what: &str, want: (Status, Option<&str>)) {
 }
 
 /// SHOP-18 on Codex: `sleep … &` and the turn ends → Working in background naming it; it ends → Idle within a
-/// recheck. The tool's helper (here `tail`, running before the turn) and a later one of the same program don't count.
+/// recheck. The test ends each command itself (`kill`), so a slow machine can't end it before a look. The tool's helper (here `tail`, running before the turn) and a later one of the same program don't count.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_quiet_turn_end_shows_what_still_runs_until_it_ends() {
     let (w, ticket) = world().await;
     let agent = sh_on(&w, &ticket, Tool::Codex).await;
     run(&w, &agent, "tail -f /dev/null &", "HELPER").await;
     event(&w, &agent, Tool::Codex, new_turn()).await;
-    run(&w, &agent, "tail -f /dev/null & sleep 1 &", "STARTED").await;
+    run(&w, &agent, "tail -f /dev/null & sleep 30 &", "STARTED").await;
     event(&w, &agent, Tool::Codex, quiet_end()).await;
     assert_eq!(
         card(&w).await,
         (
             Status::WorkingInBackground,
-            Some("background: sleep 1".to_owned())
+            Some("background: sleep 30".to_owned())
         )
     );
-    // Gone after its second: the turn's normal end, with the agent's last line.
+    // Once it ends: the turn's normal end, with the agent's last line.
+    run(&w, &agent, "kill $!", "KILLED").await;
     until(&w, "Idle", (Status::Idle, Some("Started the test run."))).await;
     // The helpers still run and never counted.
     tokio::time::sleep(TIMING.recheck * 3).await;
@@ -176,15 +209,22 @@ async fn a_command_whose_shell_ended_still_counts() {
     let (w, ticket) = world().await;
     let agent = sh_on(&w, &ticket, Tool::OpenCode).await;
     event(&w, &agent, Tool::OpenCode, new_turn()).await;
-    run(&w, &agent, "sh -c 'sleep 1 &'", "STARTED").await;
+    run(
+        &w,
+        &agent,
+        "sh -c 'sleep 30 & echo $! > sleep.pid'",
+        "STARTED",
+    )
+    .await;
     event(&w, &agent, Tool::OpenCode, quiet_end()).await;
     assert_eq!(
         card(&w).await,
         (
             Status::WorkingInBackground,
-            Some("background: sleep 1".to_owned())
+            Some("background: sleep 30".to_owned())
         )
     );
+    run(&w, &agent, "kill $(cat sleep.pid)", "KILLED").await;
     until(&w, "Idle", (Status::Idle, None)).await;
     w.stop().await;
 }
@@ -195,12 +235,25 @@ async fn a_new_turn_cancels_the_recheck() {
     let (w, ticket) = world().await;
     let agent = sh_on(&w, &ticket, Tool::Codex).await;
     event(&w, &agent, Tool::Codex, new_turn()).await;
-    run(&w, &agent, "sleep 1 &", "STARTED").await;
+    run(&w, &agent, "sleep 30 &", "STARTED").await;
     event(&w, &agent, Tool::Codex, quiet_end()).await;
     assert_eq!(card(&w).await.0, Status::WorkingInBackground);
     event(&w, &agent, Tool::Codex, new_turn()).await;
     assert_eq!(card(&w).await.0, Status::Working);
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // A recheck that wasn't dropped would end the turn once the command ends.
+    run(&w, &agent, "kill $!", "KILLED").await;
+    let ended = tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.sessions.process_tree(session_of(&agent)).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        ended.is_ok(),
+        "{:?}",
+        w.sessions.process_tree(session_of(&agent))
+    );
+    tokio::time::sleep(TIMING.recheck * 5).await;
     assert_eq!(card(&w).await, (Status::Working, None), "no late Idle");
     w.stop().await;
 }
@@ -276,10 +329,12 @@ async fn after_a_key_a_running_command_keeps_the_turn() {
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     let agent = sh_on(&w, &ticket, Tool::Copilot).await;
     needs_you(&w, &agent, Tool::Copilot).await;
-    run(&w, &agent, "sleep 1 &", "STARTED").await;
+    run(&w, &agent, "sleep 30 &", "STARTED").await;
     key(&client, &agent, b"y").await;
     tokio::time::sleep(TIMING.answer_wait * 2).await;
     assert_eq!(card(&w).await.0, Status::Working);
+    // Ctrl-U first: the key is still on the shell's line.
+    run(&w, &agent, "\x15kill $!", "KILLED").await;
     until(&w, "Idle once it ended", (Status::Idle, None)).await;
     w.stop().await;
 }
