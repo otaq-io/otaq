@@ -7,8 +7,9 @@
 //!   `- [<name> <version>](<url>)` lines and the text in a ```` ```text ```` fence;
 //! - `## npm packages`: one `### <name> <version>` part per package, a `<license>, from <url>` line and the text.
 //!
-//! The dialog groups both by license, the largest group first, and folds every group. The four things bundled
-//! besides code (fonts, icons, theme palettes, syntax definitions) are [`BUNDLED`], as the frame names them.
+//! The dialog groups both by license, the largest group first, and folds every group. The things bundled besides
+//! the crates and packages (fonts, icons, theme palettes, syntax definitions, and on Windows Microsoft's ConPTY) are
+//! [`BUNDLED`], as the frame names them.
 
 use std::collections::BTreeSet;
 
@@ -28,7 +29,7 @@ pub struct Bundled {
     pub license: &'static str,
 }
 
-pub const BUNDLED: [Bundled; 4] = [
+pub const BUNDLED: [Bundled; 5] = [
     Bundled {
         project: "Geist and Geist Mono fonts",
         source: Some("https://github.com/vercel/geist-font"),
@@ -48,6 +49,12 @@ pub const BUNDLED: [Bundled; 4] = [
         project: "Syntax definitions (Files tab)",
         source: Some("https://github.com/sublimehq/Packages"),
         license: "Sublime HQ Packages license",
+    },
+    // d0117 point 4: Windows sessions run in it.
+    Bundled {
+        project: "Microsoft's ConPTY (Windows)",
+        source: Some("https://github.com/microsoft/terminal"),
+        license: "MIT",
     },
 ];
 
@@ -560,6 +567,7 @@ Apache tauri
         assert_eq!(palettes.source, None);
         assert_eq!(palettes.source_text, "9 projects");
         assert_eq!(v.bundled[0].source_text, "github.com/vercel/geist-font");
+        assert_eq!(v.bundled[4].source_text, "github.com/microsoft/terminal");
         assert_eq!(v.notices, SAMPLE);
     }
 }

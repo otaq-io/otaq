@@ -189,6 +189,26 @@ Set up on 2026-10-11, starting from a fresh install with only Git for Windows ad
 PowerShell's default execution policy blocks unsigned scripts, hence `-ExecutionPolicy Bypass` for this one run
 (the machine's policy stays as it is).
 
+**Microsoft's ConPTY** (decision 0117 point 4, Q601): on Windows sessions run in the ConPTY that Windows Terminal ships,
+`conpty.dll` with its `OpenConsole.exe` (microsoft/terminal, MIT), because Windows' own swallows the colour questions
+(OSC 10/11). They come from the NuGet package `Microsoft.Windows.Console.ConPTY`; `scripts\conpty.ps1` downloads the
+version pinned in it from nuget.org, checks the package's SHA-256, and puts the two files for one architecture
+(`-Arch x64|arm64|x86`, the Rust host's by default) into `target\conpty\<version>\<arch>`, printing that folder; a
+folder there already is used as it is. `check.ps1` runs it first and sets `OTAQ_DEV_CONPTY_DIR` to the folder, which
+a debug build loads the files from when none sit next to the program (the tests); the Windows CI job gets them through
+`check.ps1`. To run tests by hand with them:
+
+```powershell
+$env:OTAQ_DEV_CONPTY_DIR = powershell -ExecutionPolicy Bypass -File scripts\conpty.ps1
+cargo nextest run -p otaq-core theme_kind
+```
+
+Without the variable (or without the files) sessions run in Windows' own ConPTY and the colour tests fail. The service
+log says at start which one it uses ("sessions run in Otaq's ConPTY" with the library's path). To move to another
+version, change the version and the SHA-256 at the top of `conpty.ps1` (the hash of the `.nupkg`:
+`Get-FileHash -Algorithm SHA256`, or `shasum -a 256`) and the version in `scripts/licenses/about.hbs` and
+`THIRD-PARTY-LICENSES.md`. Undo: delete `target\conpty`.
+
 Optional, done in the VM: some tests listen on all network interfaces, and Windows then asks once per test
 program whether to allow it through the firewall (the tests pass either way; the prompts only pile up on the
 screen). An elevated `Set-NetFirewallProfile -All -NotifyOnListen False` turns those prompts off.
@@ -389,7 +409,12 @@ pieces below. `tauri.bundle.conf.json` turns it on and adds:
   `universal-apple-darwin`). It lands in `Otaq.app/Contents/MacOS`, `/usr/bin` (`.deb`, AppImage) or the install
   folder (Windows);
 - **the plugin folder** (`resources`): `Contents/Resources/plugin` (macOS), `/usr/lib/Otaq/plugin` (`.deb`,
-  AppImage), `plugin\` next to the program (Windows). `find_plugin_dir` looks in each.
+  AppImage), `plugin\` next to the program (Windows). `find_plugin_dir` looks in each;
+- **Windows: Microsoft's ConPTY next to `otaq.exe`** (`resources`, `binaries/conpty/`): `sidecar.ts` runs
+  `scripts\conpty.ps1` for the target's architecture (above, "Windows VM") and copies `conpty.dll` and
+  `OpenConsole.exe` into `binaries/conpty/`, which goes into the install folder beside `otaq.exe`; on the other
+  platforms the folder stays empty. The runtime copy and `~/.otaq/bin` copy both files along with `otaq.exe`, and the
+  service loads `conpty.dll` from its own folder. They add about 1.2 MB (x64 1.21 MB, arm64 1.27 MB).
 
 Output: `$CARGO_TARGET_DIR/<target>/release/bundle/<kind>/` (without `--target`, `release/bundle/`).
 
@@ -500,8 +525,8 @@ gets it until the maintainer checks the draft and clicks **Publish**: installed 
      app, signs it again under the bundle's ID and makes the `.dmg` and the archive from it
      (`scripts/release/macos-finish.sh`);
    - checks each build on its own runner (`scripts/release/smoke.sh`): `otaq --version` names the version, the plugin
-     folder is in its place, and the background service starts on a throwaway data folder, makes its runtime copy with
-     the plugin folder and stops;
+     folder is in its place (on Windows also Microsoft's ConPTY), and the background service starts on a throwaway data
+     folder, makes its runtime copy with the plugin folder and stops;
    - writes `latest.json` with every platform's file, signature and `"protocol_version"`, and `SHA256SUMS`
      (`scripts/release/latest-json.mjs`), and makes the draft release with every file and generated notes.
 4. **Check the draft** against the hand checklist below, on the setup files from the draft itself.

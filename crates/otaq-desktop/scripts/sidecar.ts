@@ -10,8 +10,12 @@
 // into the app's target folder: `--target` only when the app has one (a universal or another system's build); for
 // this machine's own system Tauri builds without it, and so does this. (A `--target` naming this machine's own system
 // is the one case that still splits them: leave it out.)
+//
+// Windows: Microsoft's newer ConPTY (`conpty.dll` and `OpenConsole.exe`, d0117 point 4, Q601), fetched by
+// `scripts/conpty.ps1` for the target's architecture, goes into `binaries/conpty/`, which `tauri.bundle.conf.json`
+// puts next to `otaq.exe`; the service loads it from its own folder. On the other platforms the folder stays empty.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const here = import.meta.dirname;
@@ -52,3 +56,28 @@ if (universal) {
   run("lipo", ["-create", "-output", join(binaries, `otaq-${triple}`), ...built]);
 }
 console.log(`sidecar: binaries/otaq-${triple}${exe}`);
+
+const conpty = join(binaries, "conpty");
+rmSync(conpty, { recursive: true, force: true });
+mkdirSync(conpty);
+if (exe !== "") {
+  const arches: Record<string, string | undefined> = { x86_64: "x64", aarch64: "arm64", i686: "x86" };
+  const arch = arches[triple.split("-")[0] ?? ""];
+  if (arch === undefined) throw new Error(`sidecar: no ConPTY for ${triple}`);
+  const script = join(root, "scripts", "conpty.ps1");
+  const folder = run("powershell.exe", [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    script,
+    "-Arch",
+    arch,
+  ])
+    .trim()
+    .split(/\r?\n/)
+    .at(-1);
+  if (folder === undefined || folder === "") throw new Error("sidecar: scripts/conpty.ps1 printed no folder");
+  for (const name of ["conpty.dll", "OpenConsole.exe"]) copyFileSync(join(folder, name), join(conpty, name));
+  console.log(`sidecar: binaries/conpty/ (${arch}, from ${folder})`);
+}

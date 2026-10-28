@@ -562,6 +562,10 @@ impl Service {
         })?;
         // After the lock: no other service of this data folder runs while the runtime folders are cleaned.
         let config = use_runtime_copy(config).await;
+        // Before the first session, so the log says at start which ConPTY sessions run in (d0117 point 4).
+        if cfg!(windows) {
+            crate::session::conpty::preload();
+        }
         let data = &config.data;
 
         let socket = data.socket_path();

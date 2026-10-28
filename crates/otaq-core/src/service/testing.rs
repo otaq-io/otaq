@@ -908,3 +908,125 @@ pub async fn said(
         .await
         .expect("a hand-over within the limit")
 }
+
+/// What [`colour_asker`] reads: the file to write the answer to (`OTAQ_TEST_ASK_FILE`), the file to wait for first
+/// (`…_GATE`), and the marker to print the answer after instead (`…_MARKER`, `seen-<marker>:<hex>.`).
+pub fn ask_file_var() -> String {
+    crate::naming::env_var("TEST_ASK_FILE")
+}
+
+pub fn ask_gate_var() -> String {
+    crate::naming::env_var("TEST_ASK_GATE")
+}
+
+pub fn ask_marker_var() -> String {
+    crate::naming::env_var("TEST_ASK_MARKER")
+}
+
+/// The arguments that start a test binary as [`colour_asker`] alone: its `#[ignore]`d test `name` (Q601).
+pub fn colour_asker_args(name: &str) -> Vec<String> {
+    [
+        "--exact",
+        name,
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1",
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+/// Windows' stand-in for a program asking its terminal for the background (`ESC ] 11 ; ? BEL`) and reading what
+/// comes back within a second, run by a test binary started again ([`colour_asker_args`]) from an `#[ignore]`d test
+/// that calls this. On macOS and Linux the tests use `sh` with `stty` and `dd`; Git's `sh` (MSYS) drops the question
+/// on its way out on Windows, so it can't stand in there (Q601). Nothing happens without [`ask_file_var`] or
+/// [`ask_marker_var`] (an ordinary run of ignored tests).
+#[cfg(windows)]
+pub fn colour_asker() {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use windows_sys::Win32::Storage::FileSystem::ReadFile;
+    use windows_sys::Win32::System::Console::{
+        ENABLE_PROCESSED_OUTPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        GetConsoleMode, GetStdHandle, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleMode,
+    };
+
+    let file = std::env::var_os(ask_file_var()).map(PathBuf::from);
+    let marker = std::env::var(ask_marker_var()).ok();
+    if file.is_none() && marker.is_none() {
+        return;
+    }
+    if let Some(gate) = std::env::var_os(ask_gate_var()).map(PathBuf::from) {
+        while !gate.exists() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    // Raw input with escape sequences as they come (as `stty -icanon -echo` does), VT output; put back after.
+    let (input, output) = unsafe {
+        (
+            GetStdHandle(STD_INPUT_HANDLE),
+            GetStdHandle(STD_OUTPUT_HANDLE),
+        )
+    };
+    let (mut input_mode, mut output_mode) = (0, 0);
+    unsafe {
+        GetConsoleMode(input, &mut input_mode);
+        GetConsoleMode(output, &mut output_mode);
+        SetConsoleMode(
+            output,
+            ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        );
+        SetConsoleMode(input, ENABLE_VIRTUAL_TERMINAL_INPUT);
+    }
+    let mut stdout = std::io::stdout();
+    let _ = stdout
+        .write_all(b"asking\r\n\x1b]11;?\x07")
+        .and_then(|()| stdout.flush());
+    let read = Arc::new(Mutex::new(Vec::new()));
+    let reading = read.clone();
+    let input_handle = input as usize;
+    // Left blocked in its read when the process ends.
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 256];
+        loop {
+            let mut n = 0u32;
+            let ok = unsafe {
+                ReadFile(
+                    input_handle as _,
+                    buf.as_mut_ptr(),
+                    256,
+                    &mut n,
+                    std::ptr::null_mut(),
+                )
+            };
+            if ok == 0 || n == 0 {
+                break;
+            }
+            reading
+                .lock()
+                .expect("read")
+                .extend_from_slice(&buf[..n as usize]);
+        }
+    });
+    std::thread::sleep(Duration::from_secs(1));
+    let answer: String = read
+        .lock()
+        .expect("read")
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    unsafe {
+        SetConsoleMode(input, input_mode);
+        SetConsoleMode(output, output_mode);
+    }
+    if let Some(file) = file {
+        let tmp = file.with_extension("tmp");
+        std::fs::write(&tmp, format!("{answer}\ndone\n")).expect("the answer");
+        std::fs::rename(&tmp, &file).expect("the answer");
+    }
+    if let Some(marker) = marker {
+        let _ = stdout
+            .write_all(format!("seen-{marker}:{answer}.\r\n").as_bytes())
+            .and_then(|()| stdout.flush());
+    }
+}

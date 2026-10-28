@@ -74,7 +74,8 @@ jobs:
 
   # The same machine as .github/actions/setup, which is Linux only (apt-get), set up step by step: Rust 1.99.0,
   # cargo-nextest, Node 24, the Rust cache and a git identity. Git for Windows, whose `sh` and `cat` the tests run, and
-  # the MSVC build tools come with the runner. Tests that only make sense on Unix are `#[cfg(unix)]` (Q598).
+  # the MSVC build tools come with the runner. Tests that only make sense on Unix are `#[cfg(unix)]` (Q598). check.ps1
+  # fetches Microsoft's ConPTY from nuget.org (scripts/conpty.ps1, pinned and hash-checked) for the tests' sessions.
   # Not required until the Windows failures of Q601 are fixed: a red run shows on the pull request without failing
   # the workflow, and the approve job doesn't wait for it.
   windows:
