@@ -78,6 +78,7 @@ objc2-user-notifications = { version = "0.3.2", default-features = false, featur
 # Named pipe security (owner-only ACL, client account), process ancestry and job objects on Windows (PLT-02); the
 # user's own PATH in the registry and the WM_SETTINGCHANGE broadcast (UPD-07).
 windows-sys = { version = "0.61.2", features = [
+    "Wdk_System_Threading",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
@@ -90,6 +91,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Pipes",
     "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 # Windows toasts (OS notifications, ATT-11) through the Windows Runtime.

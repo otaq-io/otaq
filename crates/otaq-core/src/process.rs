@@ -37,7 +37,7 @@ pub struct TreeProcess {
     pub parent: u32,
     /// Its program's file (`/bin/sleep`), when it can be read.
     pub program: Option<std::path::PathBuf>,
-    /// Its command line (`sleep 30`), when it can be read; on Windows only the program's name.
+    /// Its command line (`sleep 30`), when it can be read; on Windows the program's name when only that can.
     pub args: Vec<String>,
 }
 
@@ -56,10 +56,17 @@ struct Row {
 /// own session (a PTY's program does), every other process of that session too: a command a shell put in the
 /// background is handed to `launchd` or `init` once that shell ends, but it stays in the session. Not `root`
 /// itself, and not processes that ended and wait to be reaped. Windows has no sessions to read; there it is the
-/// children's tree only.
+/// children's tree, and whatever [`tree_with`] is told is inside too (the session's job).
 pub fn tree(root: u32) -> Vec<TreeProcess> {
+    tree_with(root, &[])
+}
+
+/// [`tree`], with `members` (and their children) inside too: on Windows, the processes of the session's job
+/// ([`Group::members`]), which hold what Git Bash's `exec` cut off from the parent chain.
+pub fn tree_with(root: u32, members: &[u32]) -> Vec<TreeProcess> {
     let rows = os::table();
     let mut inside: std::collections::HashSet<u32> = std::collections::HashSet::from([root]);
+    inside.extend(members.iter().copied());
     if rows
         .iter()
         .any(|r| r.pid == root && r.session == Some(root))
@@ -70,12 +77,21 @@ pub fn tree(root: u32) -> Vec<TreeProcess> {
                 .map(|r| r.pid),
         );
     }
-    // Children of what is inside, until nothing new joins (the table isn't in any order).
+    // Children of what is inside, until nothing new joins (the table isn't in any order). On Windows a process that
+    // started before its parent only has its parent's reused ID (an unrelated program whose starter ended): no child.
+    let mut reused = std::collections::HashSet::new();
     for _ in 0..MAX_DEPTH {
         let before = inside.len();
         for row in &rows {
-            if inside.contains(&row.parent) {
-                inside.insert(row.pid);
+            if inside.contains(&row.parent)
+                && !inside.contains(&row.pid)
+                && !reused.contains(&row.pid)
+            {
+                if os::started_before(row.pid, row.parent) {
+                    reused.insert(row.pid);
+                } else {
+                    inside.insert(row.pid);
+                }
             }
         }
         if inside.len() == before {
@@ -149,6 +165,11 @@ mod os {
 
     pub fn parent_of(pid: u32) -> Option<u32> {
         Some(bsd_info(pid)?.pbi_ppid)
+    }
+
+    /// A parent ID here is always the running parent's.
+    pub fn started_before(_pid: u32, _parent: u32) -> bool {
+        false
     }
 
     pub fn program_of(pid: u32) -> Option<PathBuf> {
@@ -258,6 +279,11 @@ mod os {
         stat_fields(pid)?.get(1)?.parse().ok()
     }
 
+    /// A parent ID here is always the running parent's.
+    pub fn started_before(_pid: u32, _parent: u32) -> bool {
+        false
+    }
+
     pub fn program_of(pid: u32) -> Option<PathBuf> {
         std::fs::read_link(format!("/proc/{pid}/exe")).ok()
     }
@@ -284,7 +310,8 @@ mod os {
         TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
 
     /// Every process of a ToolHelp snapshot, with its program's name (Windows has no sessions to read here).
@@ -300,16 +327,98 @@ mod os {
             .collect()
     }
 
-    pub fn program_of(_pid: u32) -> Option<std::path::PathBuf> {
-        None
+    /// The program's file (`QueryFullProcessImageNameW`), for a process this user may query.
+    pub fn program_of(pid: u32) -> Option<std::path::PathBuf> {
+        use std::os::windows::ffi::OsStringExt;
+        let process = open(pid)?;
+        let mut buffer = vec![0u16; 32_768];
+        let mut size = u32::try_from(buffer.len()).expect("small");
+        // SAFETY: a valid process handle; the buffer holds `size` characters and the call says how many it wrote.
+        let ok = unsafe {
+            QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size)
+        };
+        // SAFETY: the handle came from OpenProcess.
+        unsafe { CloseHandle(process) };
+        let written = usize::try_from(size).ok().filter(|_| ok != 0)?;
+        Some(std::ffi::OsString::from_wide(buffer.get(..written)?).into())
     }
 
-    /// Only the program's name, from the snapshot.
+    /// Its command line (`NtQueryInformationProcess`'s `ProcessCommandLineInformation`, split as
+    /// `CommandLineToArgvW` splits it); only the program's name, from the snapshot, when it can't be read.
     pub fn command_line(pid: u32) -> Option<Vec<String>> {
-        snapshot()
-            .into_iter()
-            .find(|(p, _, _)| *p == pid)
-            .map(|(_, _, name)| vec![name])
+        read_command_line(pid).or_else(|| {
+            snapshot()
+                .into_iter()
+                .find(|(p, _, _)| *p == pid)
+                .map(|(_, _, name)| vec![name])
+        })
+    }
+
+    fn read_command_line(pid: u32) -> Option<Vec<String>> {
+        use windows_sys::Wdk::System::Threading::{
+            NtQueryInformationProcess, ProcessCommandLineInformation,
+        };
+        use windows_sys::Win32::Foundation::{LocalFree, UNICODE_STRING};
+        use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+        let process = open(pid)?;
+        let mut needed = 0u32;
+        // SAFETY: a valid process handle; a null buffer of length 0 asks only for the size.
+        unsafe {
+            NtQueryInformationProcess(
+                process,
+                ProcessCommandLineInformation,
+                std::ptr::null_mut(),
+                0,
+                &mut needed,
+            )
+        };
+        let header = std::mem::size_of::<UNICODE_STRING>();
+        let bytes = usize::try_from(needed).ok()?.max(header);
+        // u64s: the UNICODE_STRING at its start needs pointer alignment.
+        let mut buffer = vec![0u64; bytes.div_ceil(8)];
+        // SAFETY: as above, with a buffer of `bytes` bytes (or more).
+        let status = unsafe {
+            NtQueryInformationProcess(
+                process,
+                ProcessCommandLineInformation,
+                buffer.as_mut_ptr().cast(),
+                u32::try_from(buffer.len() * 8).ok()?,
+                &mut needed,
+            )
+        };
+        // SAFETY: the handle came from OpenProcess.
+        unsafe { CloseHandle(process) };
+        if status < 0 {
+            return None;
+        }
+        // SAFETY: on success the buffer starts with a UNICODE_STRING whose text follows it inside the buffer.
+        let text = unsafe { &*buffer.as_ptr().cast::<UNICODE_STRING>() };
+        if text.Buffer.is_null() || text.Length == 0 {
+            return None;
+        }
+        // SAFETY: `Length` bytes of UTF-16 at `Buffer`, inside the buffer (checked by the call).
+        let wide = unsafe { std::slice::from_raw_parts(text.Buffer, usize::from(text.Length) / 2) };
+        let mut line = wide.to_vec();
+        line.push(0);
+        let mut count = 0i32;
+        // SAFETY: a NUL-terminated string; the result is freed with LocalFree below.
+        let argv = unsafe { CommandLineToArgvW(line.as_ptr(), &mut count) };
+        if argv.is_null() {
+            return None;
+        }
+        let args = (0..usize::try_from(count).unwrap_or(0))
+            .map(|i| {
+                // SAFETY: `count` NUL-terminated strings.
+                let arg = unsafe { *argv.add(i) };
+                // SAFETY: read up to and including the string's NUL.
+                let len = (0..).take_while(|&n| unsafe { *arg.add(n) } != 0).count();
+                // SAFETY: `len` characters before the NUL.
+                String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(arg, len) })
+            })
+            .collect();
+        // SAFETY: CommandLineToArgvW's result is one LocalAlloc block.
+        unsafe { LocalFree(argv.cast()) };
+        Some(args)
     }
 
     fn snapshot() -> Vec<(u32, u32, String)> {
@@ -337,6 +446,11 @@ mod os {
         // SAFETY: the handle came from CreateToolhelp32Snapshot.
         unsafe { CloseHandle(snapshot) };
         all
+    }
+
+    /// Whether `pid` started before `parent` did (so `parent` only reuses its parent's ID).
+    pub fn started_before(pid: u32, parent: u32) -> bool {
+        matches!((started_at(parent), started_at(pid)), (Some(p), Some(c)) if p > c)
     }
 
     pub fn parent_of(pid: u32) -> Option<u32> {
@@ -523,6 +637,19 @@ impl Group {
         }
     }
 
+    /// Every process in this group's job (Windows), however it was started; empty on macOS and Linux, where
+    /// [`tree`] reads the session instead.
+    pub fn members(&self) -> Vec<u32> {
+        #[cfg(windows)]
+        {
+            self.job.as_ref().map(job::Job::pids).unwrap_or_default()
+        }
+        #[cfg(unix)]
+        {
+            Vec::new()
+        }
+    }
+
     #[cfg(unix)]
     fn signal(&self, signal: rustix::process::Signal) {
         if let Some(pid) = self.leader {
@@ -545,8 +672,10 @@ mod job {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_BASIC_PROCESS_ID_LIST,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicProcessIdList,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+        TerminateJobObject,
     };
     use windows_sys::Win32::System::Threading::{
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
@@ -611,6 +740,43 @@ mod job {
             // SAFETY: the handle came from OpenProcess.
             unsafe { CloseHandle(process) };
             ok != 0 && inside != 0
+        }
+
+        /// The IDs of the processes running in the job.
+        pub fn pids(&self) -> Vec<u32> {
+            let header = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList);
+            let word = std::mem::size_of::<usize>();
+            let mut room = 256usize;
+            loop {
+                let mut buffer = vec![0usize; header.div_ceil(word) + room];
+                let bytes = u32::try_from(buffer.len() * word).unwrap_or(u32::MAX);
+                // SAFETY: a valid job handle and a pointer-aligned buffer of `bytes` bytes; the call writes at most
+                // that.
+                unsafe {
+                    QueryInformationJobObject(
+                        self.0,
+                        JobObjectBasicProcessIdList,
+                        buffer.as_mut_ptr().cast(),
+                        bytes,
+                        std::ptr::null_mut(),
+                    )
+                };
+                // SAFETY: the buffer starts with the list's header (zeroed if the call wrote nothing).
+                let list = unsafe { &*buffer.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>() };
+                let (assigned, listed) = (
+                    list.NumberOfAssignedProcesses as usize,
+                    (list.NumberOfProcessIdsInList as usize).min(room),
+                );
+                if assigned > listed && room < 65_536 {
+                    room = assigned.max(room * 2);
+                    continue;
+                }
+                let ids = &buffer[header.div_ceil(word)..][..listed];
+                return ids
+                    .iter()
+                    .filter_map(|id| u32::try_from(*id).ok())
+                    .collect();
+            }
         }
 
         pub fn terminate(&self) {

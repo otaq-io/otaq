@@ -55,6 +55,8 @@ pub(super) struct Quiet {
     before: Option<HashSet<u32>>,
     /// The programs of the agent's direct children then: a later process of the same program is the tool's own too.
     helper_programs: HashSet<PathBuf>,
+    /// Those direct children's IDs (for [`adopt_execs`]).
+    helper_pids: HashSet<u32>,
     /// Moves with each status event: a pending recheck from before it is dropped.
     turn: u64,
     /// Moves with every hook and status event: a pending answer wait from before it is dropped.
@@ -91,8 +93,16 @@ impl Signals {
 
     /// One of `tool`'s events for `session`, before it is applied: a status event drops the pending looks, and a new
     /// turn records the processes already running (the tool's helpers, Q-M). A session seen for the first time
-    /// records them too, so a first turn the tool didn't announce still has them.
-    pub(super) fn quiet_event(&self, tool: Tool, session: &str, event: &ToolEvent) {
+    /// records them too, so a first turn the tool didn't announce still has them. The hook process that sent the
+    /// event (`reporter`) and the processes that started it (the tool's shell or launcher for its hooks) still run
+    /// while the event is applied: they are recorded too, never the turn's work.
+    pub(super) fn quiet_event(
+        &self,
+        tool: Tool,
+        session: &str,
+        event: &ToolEvent,
+        reporter: Option<u32>,
+    ) {
         if !self.checks_processes(tool) {
             return;
         }
@@ -120,7 +130,8 @@ impl Signals {
         let snapshot = (new_turn || unknown)
             .then(|| self.root_of(session))
             .flatten()
-            .map(|root| (root, crate::process::tree(root)));
+            .map(|root| (root, self.inner.sessions.process_tree(session)));
+        let hook = reporter.map(crate::process::ancestry);
         let mut all = self.inner.quiet.lock().expect("quiet");
         let quiet = all.entry(session.to_owned()).or_default();
         if status {
@@ -130,12 +141,20 @@ impl Signals {
             quiet.prompting = prompting;
         }
         if let Some((root, processes)) = snapshot {
-            quiet.helper_programs = processes
+            let pids: HashSet<u32> = processes.iter().map(|p| p.pid).collect();
+            // The agent's direct children, not the hook that sent this event. On Windows also a process whose
+            // starter ended: Git Bash's `exec` starts the program anew and ends the process that called it.
+            let helpers: Vec<&TreeProcess> = processes
                 .iter()
-                .filter(|p| p.parent == root)
-                .filter_map(|p| p.program.clone())
+                .filter(|p| p.parent == root || (cfg!(windows) && !pids.contains(&p.parent)))
+                .filter(|p| hook.as_ref().is_none_or(|chain| !chain.contains(&p.pid)))
                 .collect();
-            quiet.before = Some(processes.iter().map(|p| p.pid).collect());
+            quiet.helper_programs = helpers.iter().filter_map(|p| p.program.clone()).collect();
+            quiet.helper_pids = helpers.iter().map(|p| p.pid).collect();
+            quiet.before = Some(pids);
+        }
+        if let (Some(chain), Some(before)) = (hook, quiet.before.as_mut()) {
+            before.extend(chain);
         }
     }
 
@@ -360,17 +379,22 @@ impl Signals {
     /// What runs in the session's process tree that wasn't there when its turn started, one task per command the
     /// turn started (a command's own children are part of it).
     fn background_of(&self, session: &str) -> BackgroundWork {
-        let Some(root) = self.root_of(session) else {
+        if self.root_of(session).is_none() {
             return BackgroundWork::default();
-        };
-        let processes = crate::process::tree(root);
+        }
+        let processes = self.inner.sessions.process_tree(session);
         let (before, helpers) = {
-            let all = self.inner.quiet.lock().expect("quiet");
-            match all.get(session) {
-                Some(q) => (
-                    q.before.clone().unwrap_or_default(),
-                    q.helper_programs.clone(),
-                ),
+            let mut all = self.inner.quiet.lock().expect("quiet");
+            match all.get_mut(session) {
+                Some(q) => {
+                    if cfg!(windows) {
+                        adopt_execs(&processes, q);
+                    }
+                    (
+                        q.before.clone().unwrap_or_default(),
+                        q.helper_programs.clone(),
+                    )
+                }
                 None => (HashSet::new(), HashSet::new()),
             }
         };
@@ -388,8 +412,35 @@ impl Signals {
     }
 }
 
-/// The processes the turn started, without their own children: not running before the turn, and not one of the
-/// tool's own programs (a process of a program the agent ran as a direct child before the turn).
+/// Windows: a process that runs a program anew in place of one that ran before the turn (Git Bash's `exec` starts it
+/// as a new process, a child of the old one, and ends the old one) is that process, not the turn's work: it is
+/// recorded as running before the turn, and as one of the tool's helpers (its program too) when the old one was. A
+/// turn that started while a helper was still being started (Git Bash's `&` forks first and execs a moment later)
+/// would otherwise count it once it runs, or (seen under the forked `sh`) not take its program as the tool's.
+/// Recorded in `quiet`, so a later process that reuses the old one's ID changes nothing.
+fn adopt_execs(processes: &[TreeProcess], quiet: &mut Quiet) {
+    let Some(before) = quiet.before.as_mut() else {
+        return;
+    };
+    let running: HashSet<u32> = processes.iter().map(|p| p.pid).collect();
+    // Also one the turn's start saw already, under its forked `sh`: it is the helper, not a child of one.
+    let execs: Vec<&TreeProcess> = processes
+        .iter()
+        .filter(|p| before.contains(&p.parent) && !running.contains(&p.parent))
+        .collect();
+    for p in execs {
+        before.insert(p.pid);
+        if quiet.helper_pids.contains(&p.parent) {
+            quiet.helper_pids.insert(p.pid);
+            quiet.helper_programs.extend(p.program.clone());
+        }
+    }
+}
+
+/// The processes the turn started, without their own children: not running before the turn, not one of the
+/// tool's own programs (a process of a program the agent ran as a direct child before the turn), and not a Windows
+/// console host (`conhost.exe`, which Windows starts for a console program run without a console: it is that
+/// program's, never work of its own).
 fn started_in_turn<'a>(
     processes: &'a [TreeProcess],
     before: &HashSet<u32>,
@@ -398,6 +449,7 @@ fn started_in_turn<'a>(
     let new: HashMap<u32, &TreeProcess> = processes
         .iter()
         .filter(|p| !before.contains(&p.pid))
+        .filter(|p| !console_host(p))
         .filter(|p| {
             p.program
                 .as_ref()
@@ -414,15 +466,27 @@ fn started_in_turn<'a>(
     tops
 }
 
+fn console_host(process: &TreeProcess) -> bool {
+    process
+        .program
+        .as_ref()
+        .and_then(|p| p.to_str()?.rsplit(['/', '\\']).next())
+        .is_some_and(|n| n.eq_ignore_ascii_case("conhost.exe"))
+}
+
 /// The command as a card names it: "sleep 30", "npm test" (a shell's `-c` text rather than the shell), at most
 /// [`COMMAND_CHARS`] characters.
 pub fn command_text(process: &TreeProcess) -> String {
+    // Windows: `C:\…\sleep.exe` is named `sleep`.
     let program = |arg: &str| {
-        arg.rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(arg)
-            .trim_start_matches('-')
-            .to_owned()
+        let name = arg.rsplit(['/', '\\']).next().unwrap_or(arg);
+        let name = match name.len().checked_sub(4) {
+            Some(at) if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".exe") => {
+                &name[..at]
+            }
+            _ => name,
+        };
+        name.trim_start_matches('-').to_owned()
     };
     let text = match process.args.split_first() {
         Some((first, rest)) => {
@@ -513,6 +577,16 @@ mod tests {
             args: vec![],
         };
         assert_eq!(command_text(&nameless), "process 7");
+        // Windows: the program's path and `.exe` aren't named.
+        assert_eq!(
+            command_text(&process(
+                9,
+                1,
+                r"C:\Program Files\Git\usr\bin\sleep.exe",
+                &[r"C:\Program Files\Git\usr\bin\sleep.EXE", "30"]
+            )),
+            "sleep 30"
+        );
     }
 
     /// Q-M: what ran before the turn and the tool's own programs are left out; a command's children are part of it.
@@ -546,5 +620,57 @@ mod tests {
             .collect();
         assert_eq!(started, [20]);
         assert!(started_in_turn(&processes[..3], &before, &helpers).is_empty());
+        // A console host Windows started for the command is the command's, not work of its own.
+        let hosted = [
+            process(20, 1, "/bin/sh", &["/bin/sh", "-c", "npm test"]),
+            process(22, 1, r"C:\Windows\System32\conhost.exe", &["conhost.exe"]),
+        ];
+        let started: Vec<u32> = started_in_turn(&hosted, &before, &helpers)
+            .iter()
+            .map(|p| p.pid)
+            .collect();
+        assert_eq!(started, [20]);
+    }
+
+    /// Windows: a helper the turn's start caught before or during Git Bash's `exec` (its forked `sh`, alone or with
+    /// the program under it) is the program it became, and a later process of that program is the tool's own; a
+    /// process whose starter still runs, or didn't run before the turn, is the turn's.
+    #[test]
+    fn an_exec_of_a_process_from_before_the_turn_is_from_before() {
+        let sh = r"C:\Program Files\Git\usr\bin\sh.exe";
+        let tail = r"C:\Program Files\Git\usr\bin\tail.exe";
+        let sleep = r"C:\Program Files\Git\usr\bin\sleep.exe";
+        let node = r"C:\Program Files\nodejs\node.exe";
+        let mut quiet = Quiet {
+            before: Some(HashSet::from([8, 11, 13, 14])),
+            helper_programs: HashSet::from([PathBuf::from(sh)]),
+            helper_pids: HashSet::from([8, 13]),
+            ..Quiet::default()
+        };
+        let processes = [
+            // The forked `sh` (8, ended) became `tail` (9).
+            process(9, 8, tail, &[tail, "-f", "/dev/null"]),
+            // The turn's start saw both: the forked `sh` (13, ended) and the `node` it became (14).
+            process(14, 13, node, &[node, "server.js"]),
+            // A process from before that still runs, and its new child.
+            process(11, 1, sleep, &[sleep, "300"]),
+            process(12, 11, sleep, &[sleep, "30"]),
+            // The turn's: another `tail`, and `sleep` whose forked `sh` (20) ended.
+            process(21, 1, tail, &[tail, "-f", "/dev/null"]),
+            process(22, 20, sleep, &[sleep, "30"]),
+            process(23, 1, node, &[node, "server.js"]),
+        ];
+        adopt_execs(&processes, &mut quiet);
+        assert_eq!(quiet.before, Some(HashSet::from([8, 9, 11, 13, 14])));
+        assert_eq!(quiet.helper_pids, HashSet::from([8, 9, 13, 14]));
+        let started: Vec<u32> = started_in_turn(
+            &processes,
+            quiet.before.as_ref().unwrap(),
+            &quiet.helper_programs,
+        )
+        .iter()
+        .map(|p| p.pid)
+        .collect();
+        assert_eq!(started, [12, 22]);
     }
 }

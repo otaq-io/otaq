@@ -292,6 +292,7 @@ async fn handle(
                 &who,
                 caller.as_deref(),
                 origin.as_deref(),
+                peer_pid,
                 client,
                 shared,
             )
@@ -320,6 +321,7 @@ async fn handle(
                         &Caller::User,
                         None,
                         None,
+                        peer_pid,
                         client,
                         shared,
                     )
@@ -363,12 +365,14 @@ async fn handle(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn respond(
     id: Option<u64>,
     request: Request,
     who: &Caller,
     requested_actor: Option<&str>,
     origin: Option<&str>,
+    peer_pid: Option<u32>,
     client: ClientId,
     shared: &Shared,
 ) -> (Message, Then) {
@@ -462,7 +466,11 @@ async fn respond(
             }
             (Reply::Ok, Then::Continue)
         }
-        Request::Hook(p) => match shared.signals.hook(who, p.tool, &p.event, &p.payload).await {
+        Request::Hook(p) => match shared
+            .signals
+            .hook_from(who, peer_pid, p.tool, &p.event, &p.payload)
+            .await
+        {
             Ok(signals) => {
                 shared.after_signals(who, p.tool, &signals).await;
                 (Reply::Ok, Then::Continue)

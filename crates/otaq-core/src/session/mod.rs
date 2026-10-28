@@ -1259,6 +1259,19 @@ impl Sessions {
         })
     }
 
+    /// Every process running inside the session's tree ([`crate::process::tree`]); on Windows also what its job holds
+    /// that the parent chain lost (Git Bash's `exec` starts a new process and ends the old). Empty for a session that
+    /// isn't running.
+    pub fn process_tree(&self, id: &str) -> Vec<crate::process::TreeProcess> {
+        let Ok(live) = self.live(id) else {
+            return Vec::new();
+        };
+        let Some(pid) = live.pid else {
+            return Vec::new();
+        };
+        crate::process::tree_with(pid, &live.group.members())
+    }
+
     /// The root processes of every running Project agent session.
     pub fn project_agent_roots(&self) -> Vec<ProjectAgentRoot> {
         self.inner
