@@ -184,7 +184,10 @@ pub(super) async fn read_list_with(
     limit: Duration,
 ) -> Result<ModelList, ModelListError> {
     let serve = serve_command(password);
-    let mut command = tokio::process::Command::new(program);
+    let mut command = tokio::process::Command::from(
+        crate::tools::cmd_shim::command(program, path)
+            .map_err(|e| failed(e.message(Some(super::DISPLAY_NAME))))?,
+    );
     command
         .args(&serve.args)
         .envs(serve.env.iter().map(|(k, v)| (k, v)))

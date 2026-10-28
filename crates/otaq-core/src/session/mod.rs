@@ -472,7 +472,18 @@ pub const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
 /// A non-zero exit, a failure to start or the time running out is [`SessionError::Spawn`] with what the step
 /// printed (its error output first).
 async fn run_prepare(step: &PrepareStep, limit: Duration) -> Result<(), SessionError> {
-    let mut command = tokio::process::Command::new(&step.program);
+    // Its arguments carry the ticket's title: an npm launcher is read, never run (as [`Sessions::spawn`]).
+    let path = step
+        .env
+        .iter()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.into())
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    let mut command: tokio::process::Command =
+        crate::tools::cmd_shim::command(&step.program, &path)
+            .map_err(|e| SessionError::Spawn(e.to_string()))?
+            .into();
     command
         .args(&step.args)
         .current_dir(&step.cwd)
@@ -826,14 +837,22 @@ impl Sessions {
         }
         // On Windows portable-pty looks a bare name up on the session's PATH itself, but takes a file of exactly that
         // name first: npm installs a tool as `codex.cmd` with an `sh` script `codex` beside it, which Windows can't
-        // start. The name is found here as the tool check finds it (an extension from PATHEXT).
-        if cfg!(windows)
-            && !spec.program.contains(['/', '\\'])
-            && let Some(found) = command
+        // start. The name is found here as the tool check finds it (an extension from PATHEXT), and an npm `.cmd`
+        // is read and what it runs started, so the arguments (the first message) never pass through cmd.exe
+        // ([`crate::tools::cmd_shim`]); one Otaq can't read doesn't start.
+        if cfg!(windows) {
+            let path = command
                 .get_env("PATH")
-                .and_then(|path| crate::tools::find_on_path(&spec.program, path))
-        {
-            command.get_argv_mut()[0] = found.into_os_string();
+                .map(ToOwned::to_owned)
+                .unwrap_or_default();
+            let launch = crate::tools::cmd_shim::launch(spec.program.as_ref(), &path)
+                .map_err(|e| SessionError::Spawn(e.message(spec.tool.map(Tool::display_name))))?;
+            if let Some(node_path) = launch.node_path_with(command.get_env("NODE_PATH")) {
+                command.env("NODE_PATH", node_path);
+            }
+            let argv = command.get_argv_mut();
+            argv[0] = launch.program.into_os_string();
+            argv.splice(1..1, launch.leading);
         }
         let info = SessionInfo {
             id: id.unwrap_or_else(new_id),

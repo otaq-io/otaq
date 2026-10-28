@@ -34,7 +34,10 @@ impl AppServer {
     pub(super) async fn start(context: &CodexContext, cwd: &Path) -> Result<Self, String> {
         let program = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path)
             .ok_or_else(|| format!("{COMMAND_NAME} isn't on PATH"))?;
-        let mut command = Command::new(&program);
+        let mut command = Command::from(
+            crate::tools::cmd_shim::command(&program, &context.tool.path)
+                .map_err(|e| e.message(Some(super::DISPLAY_NAME)))?,
+        );
         command
             .arg("app-server")
             .env("PATH", &context.tool.path)

@@ -370,7 +370,10 @@ pub(super) fn trust_edits(list: &Value) -> Result<Vec<Value>, String> {
 async fn run(context: &CodexContext, home: &Path, args: &[&str]) -> Result<(), String> {
     let program = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path)
         .ok_or_else(|| format!("{DISPLAY_NAME} isn't on PATH"))?;
-    let mut command = tokio::process::Command::new(program);
+    let mut command = tokio::process::Command::from(
+        crate::tools::cmd_shim::command(&program, &context.tool.path)
+            .map_err(|e| e.message(Some(DISPLAY_NAME)))?,
+    );
     command
         .args(args)
         .env("PATH", &context.tool.path)
@@ -533,7 +536,8 @@ fn run_blocking(context: &CodexContext, home: &Path, args: &[&str]) -> Result<()
     let program = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path)
         .ok_or_else(|| format!("{DISPLAY_NAME} isn't on PATH"))?;
     let line = args.join(" ");
-    let mut child = std::process::Command::new(program)
+    let mut child = crate::tools::cmd_shim::command(&program, &context.tool.path)
+        .map_err(|e| e.message(Some(DISPLAY_NAME)))?
         .args(args)
         .env("PATH", &context.tool.path)
         .env("CODEX_HOME", home)
