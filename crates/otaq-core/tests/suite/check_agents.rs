@@ -5,6 +5,9 @@
 //! (all passed: Pass; any failed: Fail with every report, counted once); the next round runs both again; a change
 //! cancels the whole round. A stage with one agent (Validate) works as before. Every tool is the stand-in of
 //! `tests/fixtures/stand-in`; repos, `OTAQ_HOME` and the tools' home are temporary.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

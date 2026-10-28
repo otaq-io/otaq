@@ -649,7 +649,7 @@ pub mod testing {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let path = dir.join(name);
+            let path = stub_file(dir, name);
             std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).expect("stub written");
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
                 .expect("stub executable");
@@ -660,13 +660,22 @@ pub mod testing {
             let sh = git_sh().expect("Git for Windows' sh.exe (tests need Git for Windows)");
             std::fs::write(dir.join(format!("{name}.sh")), format!("{script}\n"))
                 .expect("stub written");
-            let path = dir.join(format!("{name}.cmd"));
+            let path = stub_file(dir, name);
             std::fs::write(
                 &path,
                 format!("@\"{}\" \"%~dp0{name}.sh\" %*\r\n", sh.display()),
             )
             .expect("stub written");
             path
+        }
+    }
+
+    /// The file [`stub_command`] starts `name` from: `name` itself on Unix, `name.cmd` on Windows.
+    pub fn stub_file(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+        if cfg!(windows) {
+            dir.join(format!("{name}.cmd"))
+        } else {
+            dir.join(name)
         }
     }
 

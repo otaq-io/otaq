@@ -2,6 +2,8 @@
 
 pub mod freed;
 pub mod resources;
+// Unix only: the stand-in is an `sh` script linked under the tools' names, which Windows can't run (Q598).
+#[cfg(unix)]
 pub mod stand_in;
 
 use std::path::{Path, PathBuf};

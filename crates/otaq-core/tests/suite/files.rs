@@ -199,25 +199,26 @@ async fn read_gives_text_binary_and_huge_files_and_stays_inside() {
     assert_eq!(big.size, huge.len() as u64);
 
     // Never outside the worktree: `..`, an absolute path, a symlink out, a symlinked folder out.
-    let outside = tempfile::tempdir().unwrap();
-    std::fs::write(outside.path().join("secret.txt"), "secret\n").unwrap();
-    std::os::unix::fs::symlink(outside.path().join("secret.txt"), wt.join("link.txt")).unwrap();
-    std::os::unix::fs::symlink(outside.path(), wt.join("away")).unwrap();
-    for path in [
-        "../secret.txt",
-        "src/../../x",
-        "/etc/hosts",
-        "link.txt",
-        "away/secret.txt",
-        ".git",
-    ] {
+    for path in ["../secret.txt", "src/../../x", "/etc/hosts", ".git"] {
         let err = f.board.files_read("SHOP-1", path).await.unwrap_err();
         assert_eq!(err.refusal(), Some(Refusal::BadPath), "{path}");
     }
-    // A link inside reads as its target.
-    std::os::unix::fs::symlink("app.ts", wt.join("alias.ts")).unwrap();
-    let alias = f.board.files_read("SHOP-1", "alias.ts").await.unwrap();
-    assert_eq!(alias.text, "one\ntwo\n");
+    // The links: Unix only, as making one on Windows needs an administrator or Developer Mode.
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "secret\n").unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), wt.join("link.txt")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), wt.join("away")).unwrap();
+        for path in ["link.txt", "away/secret.txt"] {
+            let err = f.board.files_read("SHOP-1", path).await.unwrap_err();
+            assert_eq!(err.refusal(), Some(Refusal::BadPath), "{path}");
+        }
+        // A link inside reads as its target.
+        std::os::unix::fs::symlink("app.ts", wt.join("alias.ts")).unwrap();
+        let alias = f.board.files_read("SHOP-1", "alias.ts").await.unwrap();
+        assert_eq!(alias.text, "one\ntwo\n");
+    }
     let gone = f.board.files_read("SHOP-1", "nope.ts").await.unwrap_err();
     assert!(gone.refusal().is_none());
 }

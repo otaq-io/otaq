@@ -6,6 +6,9 @@
 //! Every tool is the stand-in of `tests/fixtures/stand-in` (`crate::common::stand_in`): it reads its skill folders
 //! only at start and prints `Unknown command` for a skill it didn't load, as the real tools do (the race of finding
 //! 19). Repos, `OTAQ_HOME` and the tools' home are temporary: no test starts a real tool.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

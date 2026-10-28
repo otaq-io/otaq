@@ -669,7 +669,12 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
     let name = otaq_core::naming::COMMAND_NAME;
     for line in [
         "ARG=--plugin-dir".to_owned(),
-        "ARG=/opt/cb/plugin/claude".to_owned(),
+        format!(
+            "ARG={}",
+            std::path::Path::new("/opt/cb/plugin")
+                .join("claude")
+                .display()
+        ),
         "ARG=--allowedTools".to_owned(),
         format!("ARG=Bash({name}:*)"),
         "ARG=--session-id".to_owned(),

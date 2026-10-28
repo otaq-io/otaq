@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::common::Fixture;
-use otaq_core::agents::{Agent, AgentFields, Agents, FixedModels, ImportedSkill, SkillRef, skills};
+#[cfg(unix)]
+use otaq_core::agents::SkillRef;
+use otaq_core::agents::{Agent, AgentFields, Agents, FixedModels, ImportedSkill, skills};
 use otaq_core::board::{BoardError, Refusal};
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::protocol::{Reply, Request};
@@ -36,6 +38,8 @@ fn team_skills(root: &Path) -> PathBuf {
     .unwrap();
     let script = my_commit.join("scripts/check-staged.sh");
     std::fs::write(&script, "#!/bin/sh\necho CHECK-STAGED-OK\n").unwrap();
+    // Windows files have no mode bits.
+    #[cfg(unix)]
     set_mode(&script, 0o755);
 
     std::fs::create_dir_all(team.join("commit-helpers")).unwrap();
@@ -57,11 +61,13 @@ fn team_skills(root: &Path) -> PathBuf {
     team
 }
 
+#[cfg(unix)]
 fn set_mode(path: &Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
 }
 
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
@@ -100,6 +106,8 @@ fn only_import(agent: &Agent) -> &ImportedSkill {
     skill
 }
 
+// Unix only: it makes symbolic links (an administrator's right on Windows) and checks Unix file modes.
+#[cfg(unix)]
 #[tokio::test]
 async fn the_example_skill_is_copied_whole_with_its_modes() {
     let f = Fixture::shop().await;

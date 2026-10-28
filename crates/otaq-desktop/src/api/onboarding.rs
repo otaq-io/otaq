@@ -265,6 +265,10 @@ async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String
 
 #[cfg(test)]
 mod tests {
+    // The Flow step's tests are Unix only: Claude Code's stand-in is an `sh` script found by name, which Windows can't
+    // run (Q598). On Windows their helpers go unused.
+    #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
+
     use std::path::Path;
 
     use otaq_core::git::testing::TempRepos;
@@ -338,6 +342,7 @@ mod tests {
     /// A service whose agents start as a stand-in (`sh` running `cat`; no agent tool runs) and whose tools PATH holds
     /// only a `claude` that prints a version (Claude Code connected), with shop-web in Flow setup. The last part keeps
     /// the temporary folders.
+    #[cfg(unix)]
     async fn flow_world() -> (Harness, TempRepos, tempfile::TempDir) {
         use otaq_core::agent_tools::LaunchContext;
         use otaq_core::agent_tools::claude::ClaudeLaunch;
@@ -477,6 +482,7 @@ mod tests {
     /// this flow · Skip, use the default; Made for's Ask starts the tool's flow agent, which its row shows working;
     /// the plan limit stops it and the tool's Resume continues the same session; Stop ends it into Recently ended and
     /// its row offers Ask again; Skip, use the default settles the flow.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn asking_a_tool_its_limit_stop_and_skip() {
         use otaq_core::usage::limit::{LimitHit, LimitKind};
@@ -595,6 +601,7 @@ mod tests {
 
     /// T-0434 (ASK-06, d0088): its session ends before a proposal (a crash, or `/exit`): the ended row, and the
     /// agent's Resume continues the same conversation.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn ending_without_a_proposal_shows_its_row_and_resume_continues_the_conversation() {
         let (h, _repos, _bin) = flow_world().await;
@@ -617,6 +624,7 @@ mod tests {
     }
 
     /// A tool that isn't connected can't be asked: the refusal comes back, and nothing starts.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn asking_a_tool_that_isnt_connected_is_refused() {
         let (h, _repos, _bin) = flow_world().await;
@@ -634,6 +642,7 @@ mod tests {
 
     /// FED-09: Use this flow on an untouched step keeps Otaq default; a preset picked in the step and used becomes
     /// the project's flow. Either settles Flow setup, so onboarding doesn't reopen.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn use_this_flow_settles_the_flow_step() {
         let (h, _repos, _bin) = flow_world().await;

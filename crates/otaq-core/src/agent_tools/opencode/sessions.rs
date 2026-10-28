@@ -253,6 +253,11 @@ fn cut(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    // The checks' tests are Unix only: the stand-in `opencode` is an `sh` script, which Windows can't run (Q598).
+    // On Windows their helpers go unused.
+    #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
+
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
@@ -358,6 +363,7 @@ mod tests {
 
     /// A stand-in `opencode` on the test PATH that prints `stdout` and exits with `code`, recording its arguments
     /// and folder.
+    #[cfg(unix)]
     fn stand_in(bin: &Path, stdout: &str, code: i32) {
         let file = bin.join("opencode");
         let body = stdout.replace('\'', "'\\''");
@@ -372,6 +378,7 @@ mod tests {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_resume_check_and_the_export_run_opencode_in_the_folder() {
         let bin = tempfile::tempdir().unwrap();
@@ -421,6 +428,7 @@ mod tests {
     }
 
     /// A check that hangs is ended at its time limit.
+    #[cfg(unix)]
     #[test]
     fn a_hanging_check_is_ended() {
         let bin = tempfile::tempdir().unwrap();

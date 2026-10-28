@@ -3,6 +3,9 @@
 //! it, the ticket is parked anyway and its next start is fresh); an agent that dies before its id is a failed start
 //! with Retry start. A stand-in `codex` (an `sh` script in Otaq's bin folder, first on the agent's PATH) prints its
 //! arguments: no test starts codex.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;

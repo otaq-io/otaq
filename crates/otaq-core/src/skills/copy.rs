@@ -295,6 +295,7 @@ fn prune(root: &Path) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
@@ -305,6 +306,8 @@ mod tests {
         fs::write(source.join(SKILL_FILE), text).unwrap();
         let script = source.join("scripts").join("run.sh");
         fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+        // Windows files have no mode bits to keep.
+        #[cfg(unix)]
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(source.join(".gitignore"), "target/\n").unwrap();
         source
@@ -357,11 +360,14 @@ mod tests {
             let md = fs::read_to_string(folder.join(SKILL_FILE)).unwrap();
             assert!(md.starts_with("---\nname: x-commit-compact\ndescription: Commits.\n---"));
             assert!(!md.contains("disable-model-invocation: true"));
-            let mode = fs::metadata(folder.join("scripts/run.sh"))
-                .unwrap()
-                .permissions()
-                .mode();
-            assert_eq!(mode & 0o777, 0o755);
+            #[cfg(unix)]
+            {
+                let mode = fs::metadata(folder.join("scripts/run.sh"))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(mode & 0o777, 0o755);
+            }
         }
         assert_eq!(marked_copies(&root), ["x-commit-compact"]);
         // Written again: replaced in place, still once.
@@ -383,15 +389,18 @@ mod tests {
         let empty = dir.path().join("empty");
         fs::create_dir(&empty).unwrap();
         assert!(write_copy(&root, "x-x", &empty, Marker::Worktree).is_err());
-        // A source whose file can't be read while copying (no permission).
+        // A source whose file can't be read while copying (no permission; Unix only, for its mode bits).
         let source = skill(dir.path(), TEXT);
-        let secret = source.join("secret");
-        fs::write(&secret, "x").unwrap();
-        fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
-        if fs::read(&secret).is_err() {
-            assert!(write_copy(&root, "x-commit-compact", &source, Marker::Worktree).is_err());
+        #[cfg(unix)]
+        {
+            let secret = source.join("secret");
+            fs::write(&secret, "x").unwrap();
+            fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+            if fs::read(&secret).is_err() {
+                assert!(write_copy(&root, "x-commit-compact", &source, Marker::Worktree).is_err());
+            }
+            fs::set_permissions(&secret, fs::Permissions::from_mode(0o644)).unwrap();
         }
-        fs::set_permissions(&secret, fs::Permissions::from_mode(0o644)).unwrap();
         for r in SKILL_ROOTS {
             let entries: Vec<_> = fs::read_dir(root.join(r))
                 .map(|e| e.flatten().map(|e| e.file_name()).collect())

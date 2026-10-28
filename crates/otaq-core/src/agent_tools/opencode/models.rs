@@ -304,6 +304,11 @@ async fn poll(url: &str, password: &str, deadline: Instant) -> Result<ModelList,
 
 #[cfg(test)]
 mod tests {
+    // The server's tests are Unix only: the stand-in `opencode` is an `sh` script, which Windows can't run (Q598).
+    // On Windows their helpers go unused.
+    #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
+
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, Mutex};
 
@@ -459,6 +464,7 @@ mod tests {
 
     /// A stand-in `opencode` that records its arguments, its password and its children's ids, starts a child that
     /// would outlive it, prints the line OpenCode prints and waits.
+    #[cfg(unix)]
     fn stand_in(bin: &Path, port: u16) -> std::path::PathBuf {
         let file = bin.join("opencode");
         let out = bin.join("ran");
@@ -488,6 +494,7 @@ mod tests {
 
     /// An empty answer, then the whole list twice: the list, read with the password Otaq gave the server; then the
     /// server and its child are gone.
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_list_once_the_catalog_has_loaded_then_the_server_is_ended() {
         let seen = Arc::new(Mutex::new(Seen::default()));
@@ -552,6 +559,7 @@ mod tests {
     }
 
     /// A server that never lists a model: an error after the time limit, and the server is ended all the same.
+    #[cfg(unix)]
     #[tokio::test]
     async fn no_models_is_an_error_and_the_server_still_ends() {
         let seen = Arc::new(Mutex::new(Seen::default()));
@@ -587,6 +595,7 @@ mod tests {
     }
 
     /// The wrong password is refused at once (401), not waited on.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_refused_password_is_an_error() {
         let seen = Arc::new(Mutex::new(Seen::default()));

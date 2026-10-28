@@ -799,7 +799,11 @@ async fn a_launch_that_fails_because_of_its_tool_rechecks_it_and_holds() {
     let bill = world.bill(1);
     w.create(&world.bill, "Add coupon codes").await;
     // Codex went away since the last check: the launch can't find it.
-    std::fs::remove_file(world.bin().join("codex")).unwrap();
+    std::fs::remove_file(otaq_core::process::testing::stub_file(
+        &world.bin(),
+        "codex",
+    ))
+    .unwrap();
     queue(w, &bill).await;
     until_status(w, &bill, Status::Held).await;
     let problem = ticket(w, &bill).await.start_problem.unwrap();

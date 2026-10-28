@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(
             config(&plan),
             json!({
-                "plugins": ["/opt/cb/plugin/opencode"],
+                "plugins": [Path::new("/opt/cb/plugin").join("opencode").display().to_string()],
                 "permissions": [{
                     "action": "shell",
                     "resource": format!("{} *", naming::COMMAND_NAME),

@@ -7,7 +7,9 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::agent_tools::test_support::{context, stand_in};
+use crate::agent_tools::test_support::context;
+#[cfg(unix)]
+use crate::agent_tools::test_support::stand_in;
 
 fn copilot(bin: &Path, home: Option<&Path>) -> Copilot {
     Copilot::new(context(bin, home))
@@ -59,6 +61,8 @@ fn skills_by_their_copys_name() {
 
 /// Detect runs the program on the context's PATH (here a stand-in that prints what `copilot --version` prints).
 /// The Homebrew 0.0.404 needs an update (Q-G); 1.0.98 runs.
+// Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
+#[cfg(unix)]
 #[tokio::test]
 async fn detect_reads_the_version_and_an_old_one_needs_an_update() {
     let bin = tempfile::tempdir().unwrap();

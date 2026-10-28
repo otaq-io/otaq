@@ -90,7 +90,8 @@ case "$*" in
     if [ -e "$STATE/failed" ]; then round=2; else round=1; fi
     otaq prime --validate > "$STATE/check-prime-$round.md"
     printf '%s\n' "${{OTAQ_RESOURCE_DIR-unset}}" > "$STATE/resource-dir"
-    pwd -P > "$STATE/check-folder"
+    # Git for Windows' sh prints /c/... for a plain pwd; -W gives the Windows path.
+    {{ pwd -W 2>/dev/null || pwd -P; }} > "$STATE/check-folder"
     if [ "$round" = 1 ]; then
         awk 'BEGIN {{
             for (i = 1; i <= 1620; i++) printf "test export::case_%04d ... ok\n", i
@@ -416,7 +417,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     );
     let resource_dir = std::fs::canonicalize(&resource_dir).unwrap();
     assert_eq!(
-        Path::new(read(state, "check-folder").trim()),
+        std::fs::canonicalize(read(state, "check-folder").trim()).unwrap(),
         worktree,
         "the check runs in the worktree"
     );

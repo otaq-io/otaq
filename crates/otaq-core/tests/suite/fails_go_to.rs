@@ -14,6 +14,9 @@
 //!
 //! Every tool is the stand-in of `tests/fixtures/stand-in` (`crate::common::stand_in`): it prints its arguments at
 //! start, runs a skill it loaded and ignores other text. Repos, `OTAQ_HOME` and the tools' home are temporary.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::path::Path;
 use std::time::Duration;

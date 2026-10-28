@@ -9,6 +9,9 @@
 //! Every tool is a stand-in: `claude` is `sh` printing its arguments, `opencode` an `sh` script in Otaq's bin folder
 //! printing its arguments and launch config; both then echo what is typed. Tools are marked connected by hand (no
 //! detect runs). `OTAQ_HOME`, the repositories and the tools' folders are temporary; no real tool or history is read.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;

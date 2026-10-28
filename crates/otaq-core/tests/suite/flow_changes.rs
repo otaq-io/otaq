@@ -266,10 +266,11 @@ async fn each_refusal_names_its_stage_or_agent() {
         .unwrap();
     assert_eq!(added.imported[0].name, "security-review");
 
-    // Two skills that copy under one name (Q297).
+    // Two skills that copy under one name (Q297). The folder in single quotes: a Windows path's backslashes would be
+    // escapes in double quotes.
     let commit = otaq_core::skills::testing::skill_folder(w.home.path(), "commit");
     let clash = format!(
-        "agents:\n  - name: Developer\n    skills: [work-ticket, commit, \"{}\"]\n    model: default\n{}",
+        "agents:\n  - name: Developer\n    skills: [work-ticket, commit, '{}']\n    model: default\n{}",
         commit.display(),
         &otaq_core::naming::DEFAULT_FLOW_YAML
             [otaq_core::naming::DEFAULT_FLOW_YAML.find("flow:").unwrap()..]

@@ -11,6 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[cfg(unix)]
 use crate::common::stand_in;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
@@ -59,6 +60,7 @@ async fn world() -> World {
 }
 
 /// A service whose tools are the stand-in (it lists the skills it loaded at start).
+#[cfg(unix)]
 async fn stand_in_world() -> World {
     let dir = TempDir::new().unwrap();
     let launch = stand_in::launch(&dir.path().join("bin"), dir.path());
@@ -636,6 +638,8 @@ async fn a_worktree_left_behind_shows_in_cleanup_and_done_removes_it() {
 
 /// Two helpers starting side by side, several times: each worktree gets its own skill copies before its tool starts,
 /// so neither tool ever lists a copy the other's start is replacing (M44's lesson, T-0527).
+// Unix only: it runs the `sh` stand-in agent tool (`common::stand_in`).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn two_helpers_starting_together_each_load_their_skills() {
     let world = stand_in_world().await;

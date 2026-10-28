@@ -3,6 +3,9 @@
 //! flags carry each agent's latest row of the round with its tool; once the round failed and the card is back in Dev,
 //! the round says so with each verdict, and the card's one-verdict line is left out. Validate (one agent) has none.
 //! Every tool is the stand-in of `tests/fixtures/stand-in`; repos, `OTAQ_HOME` and the tools' home are temporary.
+//!
+//! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
+#![cfg(unix)]
 
 use std::path::Path;
 use std::time::Duration;
