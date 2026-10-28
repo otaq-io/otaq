@@ -580,8 +580,14 @@ mod tests {
         crate::terminal::attach(&h.app, &session, true, screen.sink())
             .await
             .unwrap();
+        // The printed line, not the typed one: a line's text after its last \r, as in `numbered` (Microsoft's
+        // ConPTY passes the shell's own `\x1b[?2004l\r` through before it).
         screen
-            .wait_for("the output", |s| s.text().contains("\nbefore-the-drop"))
+            .wait_for("the output", |s| {
+                s.text()
+                    .split("\r\n")
+                    .any(|line| line.rsplit('\r').next() == Some("before-the-drop"))
+            })
             .await;
 
         // The service goes away: the page hears "reconnecting" and keeps what it shows.
