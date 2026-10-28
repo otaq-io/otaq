@@ -3920,6 +3920,9 @@
         "description_source_mode": {
           "ty": "bool"
         },
+        "files_tree_width": {
+          "ty": "Option<u32>"
+        },
         "keyboard": {
           "ty": "KeyboardSettings"
         },
@@ -3931,6 +3934,9 @@
         },
         "notifications": {
           "ty": "bool"
+        },
+        "sheet_width": {
+          "ty": "Option<u32>"
         },
         "terminal_font_family": {
           "ty": "Option<String>"

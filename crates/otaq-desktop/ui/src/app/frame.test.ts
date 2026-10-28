@@ -30,7 +30,12 @@ const VIEW: LayoutView = {
   agent_panel: 420,
   agent_panel_min: 320,
   board_min: 404,
-  agent_panel_edge: "Drag to resize. Double-click for the default width.",
+  sheet: null,
+  sheet_min: 560,
+  files_tree: null,
+  files_tree_min: 200,
+  files_tree_max: 640,
+  edge: "Drag to resize. Double-click for the default width.",
 };
 
 // The frame renders without a DOM: React's server renderer gives its markup (no new test packages).
@@ -160,7 +165,7 @@ describe("the frame", () => {
     const wide = body(open, false, 1440, { ...VIEW, agent_panel: 640 });
     expect(wide).toContain('<div class="frame-agent-body" style="width:640px">');
     expect(wide).toContain(
-      '<div class="frame-agent-edge" aria-hidden="true" title="Drag to resize. Double-click for the default width."></div>',
+      '<div class="resize-edge" data-side="right" aria-hidden="true" title="Drag to resize. Double-click for the default width."></div>',
     );
     // 1280 px leaves the board its 404 px: the panel is at most 812 px.
     expect(body(open, false, 1280, { ...VIEW, agent_panel: 1000 })).toContain('style="width:812px"');
@@ -174,7 +179,7 @@ describe("the frame", () => {
     expect(html).toContain(
       '<div class="frame-agent" data-slot="agent_panel" data-open="true" data-expanded="true" style="width:640px"><div class="frame-agent-body" style="width:1376px">',
     );
-    expect(html).not.toContain("frame-agent-edge");
+    expect(html).not.toContain("resize-edge");
     // Closed, nothing is expanded.
     expect(body({ ...INITIAL_LAYOUT, agentOpen: false, agentExpanded: true })).not.toContain("data-expanded");
   });

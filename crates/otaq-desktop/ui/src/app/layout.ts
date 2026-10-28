@@ -1,12 +1,13 @@
 // The window's layout state (SHB-01, SHL-05, T-0327, T-0458, T-0502): whether the Project agent panel is open or
 // expanded, the dragged ticket sheet widths per window size class, and whether the ticket sheet is expanded. All of it
-// is page state, so each window keeps its own, for the app's life; only the Project agent panel's dragged width is
-// kept in the settings (`layout.agent_panel_width`). The sizes, their bounds and the size classes are Rust's
+// is page state, so each window keeps its own, for the app's life; the dragged widths of the Project agent panel, the
+// ticket sheet and the Files tree are kept in the settings (`layout.agent_panel_width`, `layout.sheet_width`,
+// `layout.files_tree_width`). The sizes, their bounds and the size classes are Rust's
 // (`layout.view`, `sheet.rs`); this file keeps only the moment of interaction: the drags and the switches.
 import { useEffect, useState } from "react";
 
-import type { LayoutAgentPanelWidthParams } from "../generated/LayoutAgentPanelWidthParams";
 import type { LayoutView } from "../generated/LayoutView";
+import type { LayoutWidthParams } from "../generated/LayoutWidthParams";
 import type { SizeClass } from "../generated/SizeClass";
 import type { SizeClassBound } from "../generated/SizeClassBound";
 import { type PageEvents, pageEvents, watchView } from "../service";
@@ -100,12 +101,32 @@ export function agentPanelWidth(view: LayoutView, windowWidth: number, width = v
   return Math.min(Math.max(width, view.agent_panel_min), widest);
 }
 
-/** Keeps the width a drag of the panel's edge ended at (`null`: the double-click, the default); takes Rust's view. */
-export function keepAgentPanelWidth(width: number | null): Promise<void> {
-  const params: LayoutAgentPanelWidthParams = { width };
-  return request("layout.agent_panel_width", params).then((view) => {
+/** Keeps the width a drag of an edge ended at (`null`: the double-click, the default); takes Rust's view. */
+function keepWidth(method: string, width: number | null): Promise<void> {
+  const params: LayoutWidthParams = { width };
+  return request(method, params).then((view) => {
     layoutView.set(view as LayoutView);
   });
+}
+
+/** The Project agent panel's right edge. */
+export function keepAgentPanelWidth(width: number | null): Promise<void> {
+  return keepWidth("layout.agent_panel_width", width);
+}
+
+/** The ticket sheet's edges. */
+export function keepSheetWidth(width: number | null): Promise<void> {
+  return keepWidth("layout.sheet_width", width);
+}
+
+/** The Files tree's right edge (the project Files view and the sheet's Files tab). */
+export function keepFilesTreeWidth(width: number | null): Promise<void> {
+  return keepWidth("layout.files_tree_width", width);
+}
+
+/** A width the Files tree's edge is dragged to, inside Rust's bounds. */
+export function filesTreeWidth(view: LayoutView, width: number): number {
+  return Math.min(Math.max(width, view.files_tree_min), view.files_tree_max);
 }
 
 export function toggleExpanded(): void {

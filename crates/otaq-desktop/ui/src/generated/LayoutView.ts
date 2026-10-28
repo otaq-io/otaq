@@ -14,6 +14,14 @@ agent_panel: number,
  */
 agent_panel_min: number, board_min: number, 
 /**
- * The edge's tooltip and name.
+ * The ticket sheet's dragged width (`None`: its defaults) and its narrowest.
  */
-agent_panel_edge: string, };
+sheet: number | null, sheet_min: number, 
+/**
+ * The Files tree's dragged width (`None`: its default) and its drag's bounds.
+ */
+files_tree: number | null, files_tree_min: number, files_tree_max: number, 
+/**
+ * Every dragged edge's tooltip.
+ */
+edge: string, };

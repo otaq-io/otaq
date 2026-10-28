@@ -51,12 +51,27 @@ export function steppedSheetTab(
 }
 
 /**
- * The sheet's width over a main area `mainWidth` px wide (`sheet::width`): 1040 px, 920 px beside the Project agent,
- * never wider than the main area less its margins.
+ * The sheet's width over a main area `mainWidth` px wide (`sheet::width`): the width its edges were dragged to
+ * (`dragged`), else 1040 px, 920 px beside the Project agent; never wider than the main area less its margins.
  */
-export function sheetWidth(view: SheetFrame, besideAgent: boolean, mainWidth: number): number {
-  const wanted = besideAgent ? view.width_beside_agent : view.width;
+export function sheetWidth(
+  view: SheetFrame,
+  besideAgent: boolean,
+  mainWidth: number,
+  dragged: number | null = null,
+): number {
+  const wanted = dragged ?? (besideAgent ? view.width_beside_agent : view.width);
   return Math.max(Math.min(wanted, mainWidth - 2 * view.margin), 0);
+}
+
+/** A width the sheet's edges are dragged to: at least Rust's narrowest (`layout::SHEET_MIN`), inside the margins. */
+export function draggedSheetWidth(
+  view: SheetFrame,
+  sheetMin: number,
+  mainWidth: number,
+  width: number,
+): number {
+  return sheetWidth(view, false, mainWidth, Math.max(width, sheetMin));
 }
 
 /** A tab's dot, as the Tabs component draws it, else its count ("Tickets 5"). */

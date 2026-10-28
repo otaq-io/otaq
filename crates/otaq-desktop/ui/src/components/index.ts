@@ -42,6 +42,7 @@ export { PLAIN_TEXT, plainTextOff, PROSE_TEXT } from "./plainText";
 export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
 export { Popover, useDismiss, useEscape, type PopoverProps } from "./Popover";
 export { PriorityChip, PriorityLabel } from "./Priority";
+export { ResizeEdge, type ResizeEdgeProps } from "./ResizeEdge";
 export { Select, type SelectProps } from "./Select";
 export {
   StageChoices,

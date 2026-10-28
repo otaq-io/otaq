@@ -268,6 +268,12 @@ pub struct GlobalSettings {
     /// The Project agent panel's width dragged at its edge (T-0502, d0113), in px; `None` is the default width.
     /// `otaq-view`'s `layout.rs` keeps it inside its bounds. Not a row of the Settings page; Otaq has one window.
     pub agent_panel_width: Option<u32>,
+    /// The ticket sheet's width dragged at its left edge, in px; `None` is the default (1040 px, 920 beside the
+    /// Project agent panel). Kept inside its bounds the same way.
+    pub sheet_width: Option<u32>,
+    /// The Files tree's width dragged at its right edge (the project Files view and the sheet's Files tab), in px;
+    /// `None` is the default. Kept inside its bounds the same way.
+    pub files_tree_width: Option<u32>,
 }
 
 /// The terminal font size when none is set.
@@ -324,6 +330,8 @@ impl Default for GlobalSettings {
             usage_data: UsageData::NotAsked,
             keyboard: KeyboardSettings::default(),
             agent_panel_width: None,
+            sheet_width: None,
+            files_tree_width: None,
         }
     }
 }

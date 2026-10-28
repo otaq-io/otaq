@@ -17,11 +17,12 @@ import {
   useState,
 } from "react";
 
+import { filesTreeWidth, keepFilesTreeWidth, layoutView } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
-import { Button, DecisionsList, Kbd, Segmented, PLAIN_TEXT } from "../../components";
+import { Button, DecisionsList, Kbd, ResizeEdge, Segmented, PLAIN_TEXT } from "../../components";
 import type { DecisionItemView } from "../../generated/DecisionItemView";
 import type { DecisionsSection } from "../../generated/DecisionsSection";
 import type { DiffFileView } from "../../generated/DiffFileView";
@@ -119,6 +120,33 @@ export function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number]
     };
   }, []);
   return [ref, width];
+}
+
+/**
+ * The Files tree's column (the sheet's Files tab, the project Files view): the stylesheet's width (300 px, 270 in a
+ * narrow Files view, never over half the tab) until its right edge is dragged; the dragged width is kept in the
+ * settings, one for both places.
+ */
+export function FilesSide({ children }: { children: ReactNode }) {
+  const sizes = useStore(layoutView);
+  // The width during a drag of the edge, until Rust's view has the kept one.
+  const [dragging, setDragging] = useState<number | null>(null);
+  const width = dragging ?? sizes?.files_tree ?? null;
+  return (
+    <aside className="files-side" style={width === null ? undefined : { width }}>
+      {children}
+      {sizes && (
+        <ResizeEdge
+          side="right"
+          clamp={(w) => filesTreeWidth(sizes, w)}
+          onDrag={setDragging}
+          onKeep={keepFilesTreeWidth}
+          title={sizes.edge}
+          name="the Files tree's width"
+        />
+      )}
+    </aside>
+  );
 }
 
 /** A path that may wrap after each "/" (as the frame's long names do), not inside a name. */
@@ -1068,7 +1096,7 @@ export function FilesTabBody({
 
   return (
     <div className="files">
-      <aside className="files-side">
+      <FilesSide>
         {head}
         <div className="files-source">
           <Icon name={view.source.kind === "worktree" ? "folder-git-2" : "git-branch"} size={14} />
@@ -1146,7 +1174,7 @@ export function FilesTabBody({
           />
         )}
         {left}
-      </aside>
+      </FilesSide>
       <div
         className="files-main"
         ref={(el) => {

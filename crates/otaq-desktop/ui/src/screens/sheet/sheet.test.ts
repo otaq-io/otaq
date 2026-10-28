@@ -14,6 +14,7 @@ import {
   contentOf,
   numberedSheetTab,
   sheetViewLoads,
+  draggedSheetWidth,
   sheetWidth,
   shownSheetTab,
   steppedSheetTab,
@@ -73,6 +74,14 @@ describe("the sheet's tabs (SHT-02)", () => {
     expect(sheetWidth(SHEET, false, 1376)).toBe(1040);
     expect(sheetWidth(SHEET, true, 976)).toBe(920);
     expect(sheetWidth(SHEET, true, 896)).toBe(860);
+  });
+
+  it("dragged, its width replaces both defaults, at least 560 px and inside the margins", () => {
+    expect(sheetWidth(SHEET, false, 1376, 700)).toBe(700);
+    expect(sheetWidth(SHEET, true, 976, 700)).toBe(700);
+    expect(sheetWidth(SHEET, false, 1376, 1600)).toBe(1340);
+    expect(draggedSheetWidth(SHEET, 560, 1376, 300)).toBe(560);
+    expect(draggedSheetWidth(SHEET, 560, 1376, 2000)).toBe(1340);
   });
 });
 

@@ -24,6 +24,13 @@
   padding: 0;
 }
 
+/* The sheet's edges (`ResizeEdge`): beside it in the layer, as tall as it is; the page sets where they stand. */
+.frame-sheet > .sheet-edge {
+  top: 40px;
+  bottom: 36px;
+  z-index: 1;
+}
+
 /* Only the board dims (`s25-10`): the rail, the title bar and the Project agent stay as they are. */
 .frame-main:has(> .frame-sheet > .sheet:not([data-full-page])) > .frame-board {
   position: relative;

@@ -27,7 +27,7 @@ import type { FilesViewPickerRow } from "../../generated/FilesViewPickerRow";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { FilesTab, SearchResults, TreeRowButton, openFileIn, useWidth } from "../files/FilesTab";
+import { FilesSide, FilesTab, SearchResults, TreeRowButton, openFileIn, useWidth } from "../files/FilesTab";
 import { steppedRow, toggled, visibleRows } from "../files/logic";
 import { AllChangesView } from "./AllChangesView";
 import { ProjectFilePane, copyPath } from "./FileViewer";
@@ -315,7 +315,7 @@ export function FilesViewBody({
   }
   return (
     <div className="files files-view" data-project={project}>
-      <aside className="files-side">
+      <FilesSide>
         {source}
         <label className="files-search">
           <Icon name="search" size={13} />
@@ -337,7 +337,7 @@ export function FilesViewBody({
           <p className="files-quiet files-view-loading">{page.loading}</p>
         )}
         {left}
-      </aside>
+      </FilesSide>
       {main}
     </div>
   );
@@ -655,10 +655,10 @@ function PickedSource({ project, picked }: { project: string; picked: string }) 
   if (!view) {
     return (
       <div className="files files-view">
-        <aside className="files-side">
+        <FilesSide>
           {back("")}
           <p className="files-quiet files-problem">{loaded?.problem ?? error?.message ?? ""}</p>
-        </aside>
+        </FilesSide>
       </div>
     );
   }

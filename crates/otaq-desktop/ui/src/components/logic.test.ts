@@ -19,6 +19,7 @@ import {
   markStrokes,
   menuKey,
   placeFloating,
+  resizedWidth,
   searchKey,
   stepMenu,
   trapFocus,
@@ -234,5 +235,14 @@ describe("codeSpans", () => {
     ]);
     expect(codeSpans("no code")).toEqual([{ text: "no code", code: false }]);
     expect(codeSpans("one ` tick")).toEqual([{ text: "one ` tick", code: false }]);
+  });
+});
+
+describe("resizedWidth", () => {
+  it("a right edge follows the pointer, a left edge goes the other way, a centred box grows on both sides", () => {
+    expect(resizedWidth(400, 30, "right", false)).toBe(430);
+    expect(resizedWidth(400, 30, "left", false)).toBe(370);
+    expect(resizedWidth(800, -50, "left", true)).toBe(900);
+    expect(resizedWidth(800, -50, "right", true)).toBe(700);
   });
 });

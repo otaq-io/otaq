@@ -5,19 +5,10 @@
 // the project Files view is the toolbar's third view, FIL-01); the ticket sheet opens over its right side (SHL-05) and the Ask bar
 // floats at the bottom centre of what the sheet leaves of the board (#21). The overlay and toast hosts go over everything. Each slot is filled by the screen
 // registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
-import {
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import "./frame.css";
-import { OVERLAY_HOST_ID, playEnterWhenReady, playLeave, usePresence } from "../components";
+import { OVERLAY_HOST_ID, playEnterWhenReady, playLeave, ResizeEdge, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import { DRAG_REGION } from "../tauri";
 import { useTheme } from "../theme/theme";
@@ -140,70 +131,6 @@ function SheetLayer({ open, onWidth }: { open: boolean; onWidth: (width: number)
 }
 
 /**
- * The panel's right edge (T-0502): dragging it sets the panel's width between Rust's bounds, kept when the drag ends;
- * a double-click goes back to the default width. The drag itself stays on the page.
- */
-function AgentEdge({
-  view,
-  width,
-  windowWidth,
-  onDrag,
-}: {
-  view: LayoutView;
-  width: number;
-  windowWidth: number;
-  onDrag: (width: number | null) => void;
-}) {
-  const start = useRef<{ x: number; width: number } | null>(null);
-  const dragged = useRef<number | null>(null);
-  const down = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    start.current = { x: e.clientX, width };
-    dragged.current = null;
-  };
-  const move = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const from = start.current;
-    if (!from) return;
-    dragged.current = agentPanelWidth(view, windowWidth, from.width + e.clientX - from.x);
-    onDrag(dragged.current);
-  };
-  const up = () => {
-    const kept = dragged.current;
-    start.current = null;
-    dragged.current = null;
-    if (kept === null) return;
-    keepAgentPanelWidth(kept).then(
-      () => {
-        onDrag(null);
-      },
-      (error: unknown) => {
-        onDrag(null);
-        console.error("the panel's width couldn't be kept", error);
-      },
-    );
-  };
-  return (
-    <div
-      className="frame-agent-edge"
-      // A pointer's handle, as the flow editor's grips: the panel's width has no key of its own.
-      aria-hidden="true"
-      title={view.agent_panel_edge}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={up}
-      onDoubleClick={() => {
-        keepAgentPanelWidth(null).catch((error: unknown) => {
-          console.error("the panel's width couldn't be reset", error);
-        });
-      }}
-    />
-  );
-}
-
-/**
  * The Project agent panel's column (SHB-01, d0113): the panel between the rail and the main area while it is open,
  * pushing the board, its right edge dragged to resize it; nothing while it is closed. Expanded (T-0502), the column
  * keeps its width, so the board stays where it is, and the panel lies over the board up to the window's right edge. It
@@ -234,7 +161,17 @@ function AgentColumn({
     >
       <div className="frame-agent-body" style={{ width: shown }} hidden={!open}>
         <Slot id="agent_panel" />
-        {!expanded && <AgentEdge view={view} width={width} windowWidth={windowWidth} onDrag={setDragging} />}
+        {!expanded && (
+          <ResizeEdge
+            side="right"
+            width={width}
+            clamp={(w) => agentPanelWidth(view, windowWidth, w)}
+            onDrag={setDragging}
+            onKeep={keepAgentPanelWidth}
+            title={view.edge}
+            name="the panel's width"
+          />
+        )}
       </div>
     </div>
   );

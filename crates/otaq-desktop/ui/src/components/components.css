@@ -1481,3 +1481,28 @@
   flex-direction: column;
   gap: 6px;
 }
+
+/* ---- Resize Edge (T-0502): 8 px to grab over its box's border; the border takes the focus colour while dragged ---- */
+
+.resize-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resize-edge[data-side="right"] {
+  right: -4px;
+}
+
+.resize-edge[data-side="left"] {
+  left: -4px;
+}
+
+.resize-edge:hover,
+.resize-edge:active {
+  background: linear-gradient(to right, transparent 3px, var(--focus) 3px 5px, transparent 5px);
+}
