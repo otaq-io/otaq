@@ -8,7 +8,10 @@
 //! restart (Otaq has one window), and a double-click on the edge goes back to 420. **Expand** in its header lays the
 //! panel over the board at the window's full width after the rail; the board keeps its place under it.
 //!
-//! The ticket sheet's sizes are `sheet.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
+//! The ticket sheet's sizes are `sheet.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too. Its
+//! left edge drags it like the panel's: at least [`SHEET_MIN`], at most the main area less its margins. The Files
+//! tree (the project Files view and the sheet's Files tab) drags at its right edge between [`FILES_TREE_MIN`] and
+//! [`FILES_TREE_MAX`]. Both dragged widths are kept in the global settings too; a double-click forgets them.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -114,13 +117,39 @@ pub fn agent_panel_width(window_width: f32, stored: Option<u32>) -> f32 {
         .clamp(AGENT_PANEL_MIN, agent_panel_widest(window_width))
 }
 
+/// What a drag of an edge ending at `width` px keeps (`None`: the double-click): whole pixels between `min` and
+/// `max`; the `default` width itself keeps nothing.
+fn stored_width(width: Option<f32>, min: f32, max: f32, default: Option<f32>) -> Option<u32> {
+    let width = width.filter(|w| w.is_finite())?;
+    let kept = width.clamp(min, max).round() as u32;
+    (Some(kept) != default.map(|d| d as u32)).then_some(kept)
+}
+
 /// What a drag of the edge ending at `width` px keeps (`None`: the double-click, back to [`AGENT_PANEL`]): whole
 /// pixels, at least [`AGENT_PANEL_MIN`]. The window's own bound is applied when drawn ([`agent_panel_width`]), so a
 /// width dragged in a wide window comes back there.
 pub fn stored_agent_panel_width(width: Option<f32>) -> Option<u32> {
-    let width = width.filter(|w| w.is_finite())?;
-    let kept = width.max(AGENT_PANEL_MIN).round() as u32;
-    (kept != AGENT_PANEL as u32).then_some(kept)
+    stored_width(width, AGENT_PANEL_MIN, f32::MAX, Some(AGENT_PANEL))
+}
+
+/// The narrowest the ticket sheet's left edge drags it. The widest is the main area less its margins
+/// (`sheet::width`), applied when drawn.
+pub const SHEET_MIN: f32 = 560.;
+
+/// What a drag of the sheet's edge keeps: whole pixels, at least [`SHEET_MIN`]; it replaces both default widths
+/// (1040 px, 920 beside the panel), so the double-click is the only way back to them.
+pub fn stored_sheet_width(width: Option<f32>) -> Option<u32> {
+    stored_width(width, SHEET_MIN, f32::MAX, None)
+}
+
+/// The Files tree's default width (`files.css`; 270 px in a narrow project Files view) and its drag's bounds.
+pub const FILES_TREE: f32 = 300.;
+pub const FILES_TREE_MIN: f32 = 200.;
+pub const FILES_TREE_MAX: f32 = 640.;
+
+/// What a drag of the Files tree's edge keeps: whole pixels between [`FILES_TREE_MIN`] and [`FILES_TREE_MAX`].
+pub fn stored_files_tree_width(width: Option<f32>) -> Option<u32> {
+    stored_width(width, FILES_TREE_MIN, FILES_TREE_MAX, Some(FILES_TREE))
 }
 
 /// The panel's width on screen: nothing while closed, its width while open, the window after the rail while
@@ -154,22 +183,46 @@ pub struct View {
     /// The drag's bounds: the panel's narrowest, and what the board keeps ([`agent_panel_widest`]).
     pub agent_panel_min: f32,
     pub board_min: f32,
-    /// The edge's tooltip and name.
-    pub agent_panel_edge: &'static str,
+    /// The ticket sheet's dragged width (`None`: its defaults) and its narrowest.
+    pub sheet: Option<f32>,
+    pub sheet_min: f32,
+    /// The Files tree's dragged width (`None`: its default) and its drag's bounds.
+    pub files_tree: Option<f32>,
+    pub files_tree_min: f32,
+    pub files_tree_max: f32,
+    /// Every dragged edge's tooltip.
+    pub edge: &'static str,
 }
 
-/// The panel edge's tooltip (T-0502; d0113 sets no wording, listed for the designer).
-pub const AGENT_PANEL_EDGE: &str = "Drag to resize. Double-click for the default width.";
+/// A dragged edge's tooltip (T-0502; d0113 sets no wording, listed for the designer).
+pub const EDGE: &str = "Drag to resize. Double-click for the default width.";
 
-/// The layout with the dragged width `stored` (the global settings' `agent_panel_width`).
-pub fn view(stored: Option<u32>) -> View {
+/// The dragged widths kept in the global settings: the panel's, the sheet's and the Files tree's.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct KeptWidths {
+    pub agent_panel: Option<u32>,
+    pub sheet: Option<u32>,
+    pub files_tree: Option<u32>,
+}
+
+/// The layout with the dragged widths `kept`. A width stored by hand outside its bounds is shown inside them.
+pub fn view(kept: KeptWidths) -> View {
     View {
         classes: CLASSES.to_vec(),
         rail: RAIL_WIDTH as f32,
-        agent_panel: stored.map_or(AGENT_PANEL, |w| (w as f32).max(AGENT_PANEL_MIN)),
+        agent_panel: kept
+            .agent_panel
+            .map_or(AGENT_PANEL, |w| (w as f32).max(AGENT_PANEL_MIN)),
         agent_panel_min: AGENT_PANEL_MIN,
         board_min: BOARD_MIN,
-        agent_panel_edge: AGENT_PANEL_EDGE,
+        sheet: kept.sheet.map(|w| (w as f32).max(SHEET_MIN)),
+        sheet_min: SHEET_MIN,
+        files_tree: kept
+            .files_tree
+            .map(|w| (w as f32).clamp(FILES_TREE_MIN, FILES_TREE_MAX)),
+        files_tree_min: FILES_TREE_MIN,
+        files_tree_max: FILES_TREE_MAX,
+        edge: EDGE,
     }
 }
 
@@ -215,7 +268,7 @@ mod tests {
             );
         }
         assert_eq!(main_width(300., None, AgentPanel::Open), 0.);
-        let view = view(None);
+        let view = view(KeptWidths::default());
         assert_eq!((view.rail, view.agent_panel), (64., 420.));
         assert_eq!((view.agent_panel_min, view.board_min), (320., 524.));
         assert_eq!(view.classes.len(), 3);
@@ -259,8 +312,46 @@ mod tests {
         assert_eq!(stored_agent_panel_width(None), None);
         assert_eq!(stored_agent_panel_width(Some(f32::NAN)), None);
         // A width stored by hand under the minimum is shown at the minimum.
-        assert_eq!(view(Some(612)).agent_panel, 612.);
-        assert_eq!(view(Some(10)).agent_panel, 320.);
+        assert_eq!(view(panel(612)).agent_panel, 612.);
+        assert_eq!(view(panel(10)).agent_panel, 320.);
+    }
+
+    fn panel(width: u32) -> KeptWidths {
+        KeptWidths {
+            agent_panel: Some(width),
+            ..KeptWidths::default()
+        }
+    }
+
+    /// The sheet's and the Files tree's edges keep whole pixels inside their bounds; the double-click forgets them.
+    /// The sheet has no single default, so any drag is kept; the tree's default keeps nothing.
+    #[test]
+    fn the_sheet_and_files_tree_widths_stay_between_their_bounds() {
+        assert_eq!(stored_sheet_width(Some(812.6)), Some(813));
+        assert_eq!(stored_sheet_width(Some(300.)), Some(560));
+        assert_eq!(stored_sheet_width(Some(1040.)), Some(1040));
+        assert_eq!(stored_sheet_width(None), None);
+        assert_eq!(stored_files_tree_width(Some(360.4)), Some(360));
+        assert_eq!(stored_files_tree_width(Some(50.)), Some(200));
+        assert_eq!(stored_files_tree_width(Some(2000.)), Some(640));
+        assert_eq!(stored_files_tree_width(Some(300.)), None);
+        assert_eq!(stored_files_tree_width(Some(f32::NAN)), None);
+        let kept = view(KeptWidths {
+            agent_panel: None,
+            sheet: Some(100),
+            files_tree: Some(900),
+        });
+        assert_eq!((kept.sheet, kept.files_tree), (Some(560.), Some(640.)));
+        let default = view(KeptWidths::default());
+        assert_eq!((default.sheet, default.files_tree), (None, None));
+        assert_eq!(
+            (
+                default.sheet_min,
+                default.files_tree_min,
+                default.files_tree_max
+            ),
+            (560., 200., 640.)
+        );
     }
 
     /// T-0502: Expand lays the panel over the board at the window's width after the rail; the board under it keeps

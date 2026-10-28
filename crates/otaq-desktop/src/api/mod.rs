@@ -59,7 +59,7 @@ pub use flow_editor::export_types as export_flow_editor_types;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
-pub use layout::AgentPanelWidthParams as LayoutAgentPanelWidthParams;
+pub use layout::WidthParams as LayoutWidthParams;
 #[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId};
 #[cfg(test)]

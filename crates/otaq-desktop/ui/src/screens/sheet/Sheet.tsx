@@ -18,13 +18,21 @@ import {
   useState,
 } from "react";
 
-import { mainWidth, shellLayout, toggleExpanded } from "../../app/layout";
+import { keepSheetWidth, layoutView, mainWidth, shellLayout, toggleExpanded } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
 import { closeTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { CheckRoundRows } from "../../cards";
-import { AnchoredMenu, IconButton, StatusPill, Tabs, ToolAvatar, Tooltip } from "../../components";
+import {
+  AnchoredMenu,
+  IconButton,
+  ResizeEdge,
+  StatusPill,
+  Tabs,
+  ToolAvatar,
+  Tooltip,
+} from "../../components";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { SheetHint } from "../../generated/SheetHint";
 import type { SheetLoad } from "../../generated/SheetLoad";
@@ -44,6 +52,7 @@ import {
   contentOf,
   numberedSheetTab,
   sheetViewLoads,
+  draggedSheetWidth,
   sheetWidth,
   shownSheetTab,
   steppedSheetTab,
@@ -491,7 +500,10 @@ export function TicketSheet() {
   if (selected !== null && selected !== last) setLast(selected);
   const ticket = selected ?? last;
   const layout = useStore(shellLayout);
+  const sizes = useStore(layoutView);
   const main = useStore(mainWidth);
+  // The width during a drag of its edges, until Rust's view has the kept one.
+  const [dragging, setDragging] = useState<number | null>(null);
   const key = ticket ?? "";
   // A new load on each opening (and on j / k): its first fetch takes the Files count again (Q421).
   const open = selected !== null;
@@ -515,12 +527,29 @@ export function TicketSheet() {
       </section>
     );
   }
+  const width = sheetWidth(view.sheet, besideAgent, main, dragging ?? sizes?.sheet ?? null);
   return (
-    <SheetBody
-      view={view}
-      tab={tab}
-      fullPage={layout.sheetExpanded}
-      width={sheetWidth(view.sheet, besideAgent, main)}
-    />
+    <>
+      <SheetBody view={view} tab={tab} fullPage={layout.sheetExpanded} width={width} />
+      {/* Its two edges, beside it in the frame's layer (the sheet clips what it holds): it is centred, so either one
+          widens it on both sides. Not at full page. */}
+      {!layout.sheetExpanded &&
+        sizes &&
+        (["left", "right"] as const).map((side) => (
+          <ResizeEdge
+            key={side}
+            side={side}
+            centered
+            width={width}
+            clamp={(w) => draggedSheetWidth(view.sheet, sizes.sheet_min, main, w)}
+            onDrag={setDragging}
+            onKeep={keepSheetWidth}
+            title={sizes.edge}
+            name="the sheet's width"
+            className="sheet-edge"
+            style={{ left: `calc(50% ${side === "left" ? "-" : "+"} ${String(width / 2)}px - 4px)` }}
+          />
+        ))}
+    </>
   );
 }

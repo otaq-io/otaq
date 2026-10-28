@@ -97,23 +97,6 @@ body {
   z-index: 9;
 }
 
-/* The panel's right edge (T-0502): 8 px to grab, over the border; the border takes the focus colour while dragged. */
-.frame-agent-edge {
-  position: absolute;
-  top: 0;
-  right: -4px;
-  bottom: 0;
-  z-index: 1;
-  width: 8px;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.frame-agent-edge:hover,
-.frame-agent-edge:active {
-  background: linear-gradient(to right, transparent 3px, var(--focus) 3px 5px, transparent 5px);
-}
-
 .frame-main {
   position: relative;
   grid-area: main;

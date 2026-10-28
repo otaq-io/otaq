@@ -36,12 +36,15 @@
 
 /* The left column. */
 .files-side {
+  position: relative;
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 10px;
   box-sizing: border-box;
   width: 300px;
+  /* A dragged width (`FilesSide`) leaves the file at least half the tab, as in a narrow sheet. */
+  max-width: 50%;
   min-height: 0;
   padding: 12px 10px;
   border-right: 1px solid var(--border);
