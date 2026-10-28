@@ -355,7 +355,10 @@ async fn world() -> World {
     otaq_core::process::testing::stub_command(&bin, "claude", r#"echo "2.1.4 (Claude Code)""#);
     otaq_core::process::testing::stub_command(&bin, "codex", r#"echo "codex-cli 0.157.1""#);
     let root = tools.path().to_path_buf();
-    let agent_path = std::env::join_paths([bin.clone(), "/usr/bin".into(), "/bin".into()]).unwrap();
+    let agent_path = std::env::join_paths(
+        std::iter::once(bin.clone()).chain(otaq_core::process::testing::sh_dirs()),
+    )
+    .unwrap();
     let w = TestService::start_with(move |mut config| {
         config.tools.path = bin.into_os_string();
         config.tools.claude_config_dir = Some(root.join("claude"));

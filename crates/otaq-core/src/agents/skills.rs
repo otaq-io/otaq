@@ -156,8 +156,14 @@ pub async fn remove_unreferenced(board: &Board) -> Result<usize, BoardError> {
         };
         let mut removed = 0;
         for entry in entries.flatten() {
+            // A draft names the copy by its path, written double-quoted when it needs quotes, so with each `\`
+            // doubled (every Windows path).
             let path = entry.path().display().to_string();
-            if drafts.iter().any(|yaml| yaml.contains(&path)) {
+            let quoted = path.replace('\\', "\\\\");
+            if drafts
+                .iter()
+                .any(|yaml| yaml.contains(&path) || yaml.contains(&quoted))
+            {
                 continue;
             }
             if !held.contains(&*entry.file_name().to_string_lossy()) {

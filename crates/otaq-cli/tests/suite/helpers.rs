@@ -67,15 +67,23 @@ async fn at_work(w: &TestService) -> (Ticket, std::path::PathBuf, AgentShell) {
     (t, worktree, agent)
 }
 
-/// The helper's own session as a shell, told where the data folder is.
+/// The helper's own session as a shell, told where the data folder is. Git for Windows' `sh` keeps its PATH in
+/// Unix form (`/c/Users/…:/usr/bin`): a Windows one is turned into that with `cygpath`.
 async fn helper_shell(w: &TestService, session: &str) -> AgentShell {
     let shell = w.shell_in(session);
+    let path = if cfg!(windows) {
+        format!(
+            "\"$(/usr/bin/cygpath -u -p '{}')\"",
+            path_without_build_folders()
+        )
+    } else {
+        format!("'{}'", path_without_build_folders())
+    };
     let ran = shell
         .run(&format!(
-            "export {}='{}' PATH='{}'",
+            "export {}='{}' PATH={path}",
             otaq_core::data_dir::DataDir::env_var(),
             w.data.root().display(),
-            path_without_build_folders()
         ))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");

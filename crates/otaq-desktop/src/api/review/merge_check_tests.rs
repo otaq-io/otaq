@@ -52,12 +52,16 @@ async fn until(what: &str, done: impl Fn() -> bool) {
     .unwrap_or_else(|_| panic!("{what} never happened"));
 }
 
-/// A check that runs until `release` exists, after touching `started`.
+/// A check that runs until `release` exists, after touching `started` (its script beside them on Windows).
 fn held_check(started: &Path, release: &Path) -> String {
-    format!(
-        "touch '{}'; while [ ! -e '{}' ]; do sleep 0.05; done",
-        started.display(),
-        release.display()
+    otaq_core::process::testing::sh_one_line(
+        started.parent().unwrap(),
+        "check",
+        &format!(
+            "touch '{}'; while [ ! -e '{}' ]; do sleep 0.05; done",
+            started.display(),
+            release.display()
+        ),
     )
 }
 

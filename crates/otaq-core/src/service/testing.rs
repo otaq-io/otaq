@@ -514,12 +514,14 @@ impl TestService {
     }
 
     /// Waits until the session's output contains `needle` (30 s at most) and returns the output so far; on a
-    /// timeout the panic shows what it printed.
+    /// timeout the panic shows what it printed. A session not in memory yet has printed nothing: its row is
+    /// written (and reads as running) before its program starts and it joins the sessions in memory.
     pub async fn wait_for_output(&self, session: &str, needle: &str) -> String {
         let sessions = self.sessions.clone();
-        let output = || {
-            let attached = sessions.attach(session).expect("session in memory");
-            String::from_utf8_lossy(&attached.scrollback).into_owned()
+        let output = || match sessions.attach(session) {
+            Ok(attached) => String::from_utf8_lossy(&attached.scrollback).into_owned(),
+            Err(crate::session::SessionError::NotFound(_)) => String::new(),
+            Err(e) => panic!("session {session}: {e}"),
         };
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
@@ -761,10 +763,12 @@ impl AgentShell {
             let n = self.next.load(Ordering::SeqCst);
             let script = self.dir.path().join(format!("request.{n}.ps1"));
             let name = crate::ipc::endpoint_name(socket);
+            // With a byte-order mark: Windows PowerShell reads a script without one in the ANSI code page, which
+            // would turn a request's UTF-8 ("—") into other characters.
             std::fs::write(
                 &script,
                 format!(
-                    "$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '{name}', \
+                    "\u{feff}$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '{name}', \
                      [System.IO.Pipes.PipeDirection]::InOut)\n\
                      $pipe.Connect(5000)\n\
                      $writer = New-Object System.IO.StreamWriter($pipe)\n\

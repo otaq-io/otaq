@@ -70,7 +70,7 @@ fn stand_in(bin: &Path, codex_home: &Path, log: &Path) {
 f='{config}'
 if [ "$1" = plugin ]; then
   case "$2 $3" in
-    "marketplace add") /usr/bin/grep -q '^\[marketplaces.{market}\]' "$f" || printf '\n[marketplaces.{market}]\nsource_type = "local"\nsource = "%s"\n' "$4" >> "$f" ;;
+    "marketplace add") /usr/bin/grep -q '^\[marketplaces.{market}\]' "$f" || printf '\n[marketplaces.{market}]\nsource_type = "local"\nsource = "%s"\n' "$(printf '%s' "$4" | /usr/bin/sed 's/\\/\\\\/g')" >> "$f" ;;
     "add {id}") /usr/bin/grep -q '^\[plugins."{id}"\]' "$f" || printf '\n[plugins."{id}"]\nenabled = true\n' >> "$f" ;;
   esac
   exit 0

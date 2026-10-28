@@ -31,8 +31,13 @@ use otaq_core::session::SessionKind;
 use otaq_core::session::deliveries::Delivery;
 use serde_json::Value;
 
-/// Keeps running, printing its arguments.
-const PRINTS_ITS_ARGS: &str = "printf 'ARGS %s\\n' \"$*\"; exec sleep 60";
+/// Keeps running, printing its arguments. On Windows it reads what is typed into it (`cat`): a Windows console shows
+/// typed text only while a program reads it, where a Unix terminal echoes it whatever runs.
+const PRINTS_ITS_ARGS: &str = if cfg!(windows) {
+    "printf 'ARGS %s\\n' \"$*\"; exec cat"
+} else {
+    "printf 'ARGS %s\\n' \"$*\"; exec sleep 60"
+};
 
 fn me() -> Actor {
     Actor::User("me".into())
