@@ -68,7 +68,7 @@ export function SessionList({
         }}
       />
       <div className="session-list-group">{list.helpers_label}</div>
-      {/* Past three helpers the rows scroll on their own, so the terminal keeps the tab's height (T-0573). */}
+      {/* Past four helpers the rows scroll on their own, so the terminal keeps the tab's height (T-0573). */}
       <div className="session-list-helpers">
         {list.helpers.map((row) => (
           <SessionRow

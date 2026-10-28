@@ -109,13 +109,13 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* The helpers' rows: three and a half rows high at most (a cut row says there are more), the rest scrolled to (T-0573:
- * with six helpers at 1280 × 800 the terminal keeps over 60 % of the tab). */
+/* The helpers' rows: four and a half rows high at most (a cut row says there are more), the rest scrolled to (T-0573;
+ * 20 px rows and 2 px gaps: 4 × 22 + 10). */
 .session-list-helpers {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 76px;
+  max-height: 98px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
