@@ -443,7 +443,7 @@ impl Store {
                     (SELECT SUM(u.input + u.output + COALESCE(u.reasoning, 0)) FROM usage u
                      WHERE u.session_id = s.id) AS tokens,
                     (SELECT v.outcome FROM validations v WHERE v.session_id = s.id
-                     ORDER BY v.started_at DESC LIMIT 1) AS round_outcome
+                     ORDER BY v.started_at DESC, v.rowid DESC LIMIT 1) AS round_outcome
              FROM sessions s
              WHERE s.ticket_id = ? AND s.kind IN ('agent', 'answer', 'delivery', 'validator')
              ORDER BY s.started_at, s.id",

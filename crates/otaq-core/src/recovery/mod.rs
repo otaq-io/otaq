@@ -1026,7 +1026,7 @@ impl Recovery {
             "SELECT id FROM sessions WHERE ticket_id = ? AND kind = 'agent' AND end_reason = ? AND started_at >= ?
              AND NOT EXISTS (SELECT 1 FROM events e WHERE e.ticket_id = sessions.ticket_id AND e.kind = ?
                              AND e.at >= sessions.ended_at)
-             ORDER BY started_at DESC LIMIT 1",
+             ORDER BY started_at DESC, id DESC LIMIT 1",
         )
         .bind(ticket_id)
         .bind(why.end_reason)

@@ -612,7 +612,7 @@ impl Board {
             "SELECT s.agent_id, s.agent_name, s.tool, r.stage_id, r.round
              FROM sessions s
              LEFT JOIN stage_runs r ON r.id = (SELECT id FROM stage_runs WHERE session_id = s.id
-                                               ORDER BY started_at DESC, rowid DESC LIMIT 1)
+                                               ORDER BY rowid DESC LIMIT 1)
              WHERE s.id = ?",
         )
         .bind(session)

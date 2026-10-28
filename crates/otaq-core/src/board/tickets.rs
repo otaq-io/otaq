@@ -920,7 +920,7 @@ impl Board {
              WHERE t.project_id = ? AND m.delivery = 'resumed' AND m.answer IS NULL
                AND EXISTS (SELECT 1 FROM sessions s WHERE s.ticket_id = m.to_ticket_id AND s.kind = 'answer'
                                                      AND s.state = 'running')
-             ORDER BY m.asked_at DESC",
+             ORDER BY m.asked_at DESC, m.id DESC",
         )
         .bind(project_id)
         .fetch_all(pool)

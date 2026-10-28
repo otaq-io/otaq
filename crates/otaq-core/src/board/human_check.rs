@@ -264,7 +264,7 @@ impl Board {
             "SELECT t.id, t.stage_id, r.stage_id, r.round, r.result
              FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
              WHERE t.project_id = ? AND t.state IN ({states})
-             ORDER BY t.id, r.started_at, r.rowid"
+             ORDER BY t.id, r.rowid"
         );
         let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(project_id)

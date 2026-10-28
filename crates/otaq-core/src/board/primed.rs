@@ -49,7 +49,7 @@ impl Board {
         Ok(sqlx::query_as(
             "SELECT id, started_at, handed_over_at, primed_at FROM stage_runs
              WHERE ticket_id = ? AND ended_at IS NULL
-             ORDER BY session_id IS NOT ?, started_at DESC LIMIT 1",
+             ORDER BY session_id IS NOT ?, rowid DESC LIMIT 1",
         )
         .bind(ticket_id)
         .bind(session)
@@ -94,13 +94,12 @@ impl Board {
             "SELECT s.primed_at FROM sessions s
              WHERE s.id = ? AND s.primed_at IS NOT NULL AND s.primed_at >= s.started_at
                AND EXISTS (SELECT 1 FROM stage_runs r WHERE r.id = ? AND r.session_id = s.id)
-               AND NOT EXISTS (SELECT 1 FROM stage_runs r WHERE r.session_id = s.id AND r.id != ?
-                                                              AND r.started_at <= ?)",
+               AND NOT EXISTS (SELECT 1 FROM stage_runs r WHERE r.session_id = s.id
+                                  AND r.rowid < (SELECT rowid FROM stage_runs WHERE id = ?))",
         )
         .bind(session)
         .bind(&run.id)
         .bind(&run.id)
-        .bind(run.started_at)
         .fetch_optional(self.store.pool())
         .await?
         .flatten())

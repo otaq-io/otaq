@@ -190,7 +190,7 @@ impl SessionStage {
     pub async fn of(pool: &sqlx::SqlitePool, session: &str) -> Result<Option<Self>, sqlx::Error> {
         let row: Option<(String, String)> = sqlx::query_as(
             "SELECT stage_id, kind FROM stage_runs WHERE session_id = ?
-             ORDER BY started_at DESC, rowid DESC LIMIT 1",
+             ORDER BY rowid DESC LIMIT 1",
         )
         .bind(session)
         .fetch_optional(pool)

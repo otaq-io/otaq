@@ -108,7 +108,8 @@ async fn at(w: &TestService, title: &str, stage: &str, status: Status) -> Ticket
     w.board.ticket(&t.key.to_string()).await.unwrap()
 }
 
-/// A finished run of `stage` recorded `ago` ms before now.
+/// A finished run of `stage` from before the run the ticket is in now: runs read in the order they were written, so
+/// the open run moves after it.
 async fn ran(w: &TestService, t: &Ticket, stage: &str, result: RunResult, round: Option<u32>) {
     let now = otaq_core::store::now_ms();
     sqlx::query(
@@ -122,6 +123,14 @@ async fn ran(w: &TestService, t: &Ticket, stage: &str, result: RunResult, round:
     .bind(result.as_str())
     .bind(now - 60_000)
     .bind(now - 50_000)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE stage_runs SET rowid = (SELECT MAX(rowid) + 1 FROM stage_runs)
+         WHERE ticket_id = ? AND ended_at IS NULL",
+    )
+    .bind(&t.id)
     .execute(w.board.store().pool())
     .await
     .unwrap();
