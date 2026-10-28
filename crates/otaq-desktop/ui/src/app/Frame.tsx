@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -32,7 +33,8 @@ import {
 } from "./layout";
 import { closeOverlay, useOpenOverlays } from "./overlays";
 import { type OverlayId, type OverlayProps, type SlotId, useRegistries } from "./registry";
-import { useSelection } from "./selection";
+import { createScrimClick } from "./scrim";
+import { closeTicket, useSelection } from "./selection";
 import { useStore } from "./store";
 
 interface SlotProps {
@@ -111,9 +113,27 @@ function SheetLayer({ open, onWidth }: { open: boolean; onWidth: (width: number)
     };
   }, [mounted, onWidth]);
   useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
+  // Around the floating sheet the layer is its backdrop: a click there closes the ticket (`scrim.ts`).
+  const scrim = useMemo(
+    () =>
+      createScrimClick(() => {
+        closeTicket();
+      }),
+    [],
+  );
   if (!mounted) return null;
   return (
-    <div ref={layer} className="frame-sheet" data-slot="sheet">
+    <div
+      ref={layer}
+      className="frame-sheet"
+      data-slot="sheet"
+      onPointerDown={(e) => {
+        scrim.press(e);
+      }}
+      onPointerUp={(e) => {
+        scrim.release(e);
+      }}
+    >
       <Slot id="sheet" placeholder={<Placeholder name="Ticket sheet" />} />
     </div>
   );

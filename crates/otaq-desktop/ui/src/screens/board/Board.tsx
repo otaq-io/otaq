@@ -14,9 +14,8 @@
 // `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
 // moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket sheet is open over the
 // board (SHL-05) the board keeps its width, gets the sheet's width of room after the columns and scrolls the selected
-// card's column into the part the sheet leaves; a click on the open card closes the sheet, and so does a plain click on
-// the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
-// unless that click closes an open menu or popover. "Show on board" in a Project agent panel filters the board to its tickets
+// card's column into the part the sheet leaves; the sheet's backdrop takes every click on the board and closes the
+// sheet (`app/scrim.ts`). "Show on board" in a Project agent panel filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain, with its tooltip, and Dependencies: Always keeps every
 // link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02); a blocked ticket started or dragged past Ready for Dev
@@ -67,7 +66,6 @@ import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
 import { NeedsYouStrip } from "../strip/Strip";
 import { ApproveChoice } from "./ApproveChoice";
-import { createBackgroundClick } from "./background";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
@@ -539,14 +537,6 @@ export function Board() {
     }
     if (done.kind === "drop") void dropCard(done.key, done.target, showApprove);
   }, [controller, showApprove]);
-  // A plain click on the board's background closes the sheet too (OT-3).
-  const background = useMemo(
-    () =>
-      createBackgroundClick(() => {
-        closeTicket();
-      }),
-    [],
-  );
 
   // The pointer is followed on the window while pressed, so a drag keeps going over anything.
   useEffect(() => {
@@ -555,13 +545,11 @@ export function Board() {
       e.preventDefault();
       placeGhost(e.clientX, e.clientY);
     };
-    const up = (e: globalThis.PointerEvent) => {
+    const up = () => {
       release();
-      background.release(e);
     };
     const lost = () => {
       controller.cancel();
-      background.cancel();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -573,7 +561,7 @@ export function Board() {
       window.removeEventListener("pointercancel", lost);
       window.removeEventListener("blur", lost);
     };
-  }, [controller, spans, release, placeGhost, background]);
+  }, [controller, spans, release, placeGhost]);
 
   // Esc while dragging: the card flies back (before the sheet's Close takes the key). Otherwise Esc clears the agent
   // filter (`escapeStep`).
@@ -912,9 +900,6 @@ export function Board() {
         // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
         onPointerLeave={() => {
           setHovered(null);
-        }}
-        onPointerDown={(e) => {
-          background.press(e);
         }}
       >
         {view?.agent_filter && (
