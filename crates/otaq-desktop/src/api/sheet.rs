@@ -910,21 +910,19 @@ fn files_count(app: &App, ticket: &Ticket, opened: bool) -> Option<u32> {
     if !lock().start(ticket) {
         return shown;
     }
-    let clients = app.service.clients();
+    // On a connection of its own: the shared one answers one request at a time, and the Overview's and Activity's
+    // requests, sent as the sheet shows, would wait behind git.
+    let service = app.service.alone();
     let events = app.events.clone();
     let ticket = ticket.clone();
     tokio::spawn(async move {
-        let client = clients.borrow().clone();
         let key = ticket.key.to_string();
-        let count = match client {
-            Some(client) => match client
-                .request(Request::FilesChanges(KeyParams { key: key.clone() }))
-                .await
-            {
-                Ok(Reply::FilesChanges(changes)) => sheet::files_count(&changes),
-                _ => None,
-            },
-            None => None,
+        let count = match service
+            .send(Request::FilesChanges(KeyParams { key: key.clone() }))
+            .await
+        {
+            Ok(Reply::FilesChanges(changes)) => sheet::files_count(&changes),
+            _ => None,
         };
         counts
             .lock()

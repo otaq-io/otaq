@@ -238,15 +238,15 @@ impl ServiceLink {
     /// time, so a request that can take minutes (a Local merge running the project's Merge check, d0120) goes here:
     /// the shared connection stays free for the board and for Stop. Fails at once while there is no connection.
     pub async fn send_alone(&self, request: Request) -> Result<Reply, RequestError> {
-        let client = self.shared.lock().client.clone();
-        let socket = match (&self.shared.settings, client) {
-            (_, Some(client)) if client.compatibility() == Some(Compatibility::Incompatible) => {
-                return Err(RequestError::from(ClientError::Incompatible));
-            }
-            (Ok(settings), Some(_)) => settings.client.socket.clone(),
-            _ => return Err(RequestError::from(ClientError::Disconnected)),
-        };
-        Ok(otaq_core::client::request_once(&socket, request).await?)
+        self.alone().send(request).await
+    }
+
+    /// [`Self::send_alone`] for a task that outlives the request it started from (the sheet's Files count, taken in
+    /// the background so the Overview's requests never wait behind git).
+    pub fn alone(&self) -> Alone {
+        Alone {
+            shared: self.shared.clone(),
+        }
     }
 
     /// Stops the service for an update it can't work with (d0140): 0022's restart without the start, so its agents
@@ -285,6 +285,26 @@ impl ServiceLink {
         };
         self.shared.lock().restarting = false;
         outcome
+    }
+}
+
+/// Sends requests on connections of their own ([`ServiceLink::alone`]).
+pub struct Alone {
+    shared: Arc<Shared>,
+}
+
+impl Alone {
+    /// Sends a request on a connection of its own, opened for it. Fails at once while there is no connection.
+    pub async fn send(&self, request: Request) -> Result<Reply, RequestError> {
+        let client = self.shared.lock().client.clone();
+        let socket = match (&self.shared.settings, client) {
+            (_, Some(client)) if client.compatibility() == Some(Compatibility::Incompatible) => {
+                return Err(RequestError::from(ClientError::Incompatible));
+            }
+            (Ok(settings), Some(_)) => settings.client.socket.clone(),
+            _ => return Err(RequestError::from(ClientError::Disconnected)),
+        };
+        Ok(otaq_core::client::request_once(&socket, request).await?)
     }
 }
 
