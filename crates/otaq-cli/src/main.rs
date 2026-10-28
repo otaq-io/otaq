@@ -15,6 +15,7 @@ mod hook;
 mod launch;
 mod notify_check;
 mod output;
+mod plugins;
 mod pr;
 mod prime;
 mod read;
@@ -123,6 +124,7 @@ fn main() -> ExitCode {
             &out,
         ),
         Some(Command::Delete { key, reason }) => delete::run(key, reason, &cli.global, &out),
+        Some(Command::Plugins(command)) => plugins::run(command, &cli.global, &out),
         Some(Command::Ask {
             target,
             stdin,

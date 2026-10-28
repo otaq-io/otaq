@@ -4,11 +4,11 @@
 // and New ticket. On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
 // and the board asks for its view again.
-import type { KeyboardEvent } from "react";
+import { type KeyboardEvent, useRef, useState } from "react";
 
 import { mainWidth } from "../../app/layout";
 import { useStore } from "../../app/store";
-import { Tooltip } from "../../components";
+import { AnchoredMenu, Tooltip } from "../../components";
 import type { BoardToolbar } from "../../generated/BoardToolbar";
 import type { ToolbarGroup } from "../../generated/ToolbarGroup";
 import type { ToolbarOption } from "../../generated/ToolbarOption";
@@ -20,6 +20,9 @@ export interface ToolbarProps {
   onView: (change: ViewChange) => void;
   onAllTickets: () => void;
   onNewTicket: () => void;
+  /** The tracker plugins turned on for the project: New ticket ▾ → Import ▸ (the otaq-marketplace README). */
+  importFrom?: readonly { plugin: string; label: string }[];
+  onImport?: (plugin: string) => void;
 }
 
 /** ←/→ on a segment: the next one, wrapping, chosen at once (a radio group). */
@@ -119,7 +122,16 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
 /** The toolbar's 16 px sides: it is 760 px or less (`s28-08`) in a main area this wide or less. */
 const NARROW_MAIN = 760 + 2 * 16;
 
-export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarProps) {
+export function Toolbar({
+  toolbar,
+  onView,
+  onAllTickets,
+  onNewTicket,
+  importFrom = [],
+  onImport,
+}: ToolbarProps) {
+  const more = useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = useState(false);
   const choices = toolbar.group_by;
   const main = useStore(mainWidth);
   return (
@@ -169,6 +181,47 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarP
             <span>{toolbar.new_ticket}</span>
           </button>
         </Tooltip>
+      )}
+      {toolbar.new_ticket !== null && importFrom.length > 0 && (
+        <button
+          ref={more}
+          type="button"
+          className="board-new-ticket board-new-ticket-more"
+          aria-label={importFrom.map((i) => i.label).join(", ")}
+          aria-expanded={menu}
+          onClick={() => {
+            setMenu(!menu);
+          }}
+        >
+          <Icon name="chevron-down" size={13} />
+        </button>
+      )}
+      {menu && (
+        <AnchoredMenu
+          anchor={more}
+          align="end"
+          label={importFrom.map((i) => i.label).join(", ")}
+          items={importFrom.map((i) => ({
+            id: i.plugin,
+            label: i.label,
+            icon: "download",
+            shortcut: null,
+            danger: false,
+            disabled: false,
+            hint: null,
+            separated: false,
+            checked: false,
+            header: false,
+          }))}
+          width={240}
+          onChoose={(id) => {
+            setMenu(false);
+            onImport?.(id);
+          }}
+          onClose={() => {
+            setMenu(false);
+          }}
+        />
       )}
     </div>
   );

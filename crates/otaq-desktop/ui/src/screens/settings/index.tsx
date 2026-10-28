@@ -9,6 +9,7 @@ import { AgentsSection } from "./Agents";
 import { AgentToolsSection } from "./AgentTools";
 import { FlowSection } from "./Flow";
 import { KeyboardSection } from "./Keyboard";
+import { PluginsSection, ProjectPluginsSection } from "./Plugins";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import "./settings.css";
@@ -17,6 +18,7 @@ import "./settings.css";
 export const GLOBAL: readonly GlobalSection[] = [
   "agent_tools",
   "agents",
+  "plugins",
   "agent_limits",
   "usage",
   "notifications",
@@ -33,6 +35,7 @@ export const PROJECT: readonly ProjectSection[] = [
   "answers",
   "commands",
   "ticket_resources",
+  "plugins",
   "pr_provider",
   "remove_project",
 ];
@@ -46,12 +49,17 @@ export const settings: Screen = (app) => {
         ? AgentsSection
         : id === "agent_tools"
           ? AgentToolsSection
-          : id === "keyboard_shortcuts"
-            ? KeyboardSection
-            : sectionComponent(id);
+          : id === "plugins"
+            ? PluginsSection
+            : id === "keyboard_shortcuts"
+              ? KeyboardSection
+              : sectionComponent(id);
   for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
   for (const id of PROJECT)
-    app.settings.project.register(id, { Component: id === "flow" ? FlowSection : sectionComponent(id) });
+    app.settings.project.register(id, {
+      Component:
+        id === "flow" ? FlowSection : id === "plugins" ? ProjectPluginsSection : sectionComponent(id),
+    });
   app.shortcuts.on("settings", () => {
     openOverlay("settings");
   });

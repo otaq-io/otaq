@@ -86,6 +86,9 @@ import { EmptyBoard } from "./EmptyBoard";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
 import { Toolbar } from "./Toolbar";
+import { ImportDialog } from "./ImportDialog";
+import { useProjectPlugins, useTrackerBadges } from "./plugins";
+import { TrackerBadges } from "../../cards/trackers";
 import {
   agentOf,
   boardAgent,
@@ -363,6 +366,10 @@ function AgentChip({ label, clear, onClear }: { label: string; clear: string; on
 
 export function Board() {
   const { project, ticket: selected } = useSelection();
+  // The project's tracker plugins: the Import menu and its dialog (the otaq-marketplace README).
+  const plugins = useProjectPlugins(project);
+  const badges = useTrackerBadges(project);
+  const [importing, setImporting] = useState<string | null>(null);
   const filter = filterOf(useStore(boardFilter), project);
   const agent = agentOf(useStore(boardAgent), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
@@ -882,167 +889,191 @@ export function Board() {
   }, [drag]);
 
   return (
-    <div className="board-screen">
-      {view && (
-        <Toolbar
-          toolbar={view.toolbar}
-          onView={changeView}
-          onAllTickets={requestSearchFocus}
-          onNewTicket={() => {
-            openOverlay("new_ticket", { full: true });
-          }}
-        />
-      )}
-      <NeedsYouStrip />
-      {filesShown && project !== null && <FilesView project={project} />}
-      <div
-        className="board"
-        hidden={filesShown}
-        data-view={list === null ? undefined : "list"}
-        ref={(el) => {
-          boardEl.current = el;
-          setElement(el);
-        }}
-        data-dragging={drag !== null || undefined}
-        style={boardStyle}
-        onScroll={(e) => {
-          if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
-          measureMore();
-        }}
-        // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
-        onPointerLeave={() => {
-          setHovered(null);
-        }}
-        onPointerDown={(e) => {
-          background.press(e);
-        }}
-      >
-        {view?.agent_filter && (
-          <AgentChip
-            label={view.agent_filter.label}
-            clear={view.agent_filter.clear}
-            onClear={() => {
-              if (project !== null) clearAgentFilter(project);
-            }}
-          />
-        )}
-        {list !== null ? (
-          <List
-            list={list}
-            selected={selected}
-            lifted={drag?.key ?? null}
-            verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
-            handlers={listHandlers}
-            group={group$}
+    <TrackerBadges.Provider value={badges}>
+      <div className="board-screen">
+        {view && (
+          <Toolbar
+            toolbar={view.toolbar}
             onView={changeView}
+            onAllTickets={requestSearchFocus}
+            onNewTicket={() => {
+              openOverlay("new_ticket", { full: true });
+            }}
+            importFrom={plugins.importFrom}
+            onImport={setImporting}
           />
-        ) : (
-          <div className="board-columns">
-            {view?.columns.map((column) => (
-              <Column
-                key={`${project ?? ""}:${column.id}`}
-                column={column}
-                chipWords={view.scroll_chip}
-                verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
-                dragging={drag !== null}
-                selected={selected}
-                chain={chain}
-                lifted={drag?.key ?? null}
-                handlers={handlers}
-                showEmptyHint={!view.empty}
-                scrollTop={place.columns[column.id] ?? 0}
-                onScroll={onScroll}
-                onView={changeView}
-                onAdd={() => {
-                  openOverlay("new_ticket");
+        )}
+        {project !== null &&
+          importing !== null &&
+          plugins.view !== null &&
+          (() => {
+            const plugin = plugins.view.plugins.find((p) => p.plugin === importing);
+            if (plugin === undefined) return null;
+            return (
+              <ImportDialog
+                project={project}
+                plugin={plugin}
+                texts={plugins.view.texts}
+                onCancel={() => {
+                  setImporting(null);
                 }}
-                foldedSections={foldedSections}
-                doneLine={column.id === lastOpen ? view.done : null}
-                approved={sectionDrag(column, drag)}
-                element={element$}
+                onDone={() => {
+                  setImporting(null);
+                }}
               />
-            ))}
-            {covered > 0 && <div className="board-under-sheet" style={{ width: covered }} />}
-          </div>
-        )}
-        {view?.empty && <EmptyBoard view={view.empty} />}
-        {project === null && <NoProjects />}
-        {list === null && (
-          <ChainLayer
-            chain={chain}
-            links={view?.links ?? []}
-            hovered={hovered}
-            board={element}
-            layout={view}
-          />
-        )}
-        <div className="board-ghost" ref={ghost} hidden={drag === null}>
-          {draggedCard && (
-            <div className="board-ghost-card">
-              <Lifted card={draggedCard} />
+            );
+          })()}
+        <NeedsYouStrip />
+        {filesShown && project !== null && <FilesView project={project} />}
+        <div
+          className="board"
+          hidden={filesShown}
+          data-view={list === null ? undefined : "list"}
+          ref={(el) => {
+            boardEl.current = el;
+            setElement(el);
+          }}
+          data-dragging={drag !== null || undefined}
+          style={boardStyle}
+          onScroll={(e) => {
+            if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
+            measureMore();
+          }}
+          // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
+          onPointerLeave={() => {
+            setHovered(null);
+          }}
+          onPointerDown={(e) => {
+            background.press(e);
+          }}
+        >
+          {view?.agent_filter && (
+            <AgentChip
+              label={view.agent_filter.label}
+              clear={view.agent_filter.clear}
+              onClear={() => {
+                if (project !== null) clearAgentFilter(project);
+              }}
+            />
+          )}
+          {list !== null ? (
+            <List
+              list={list}
+              selected={selected}
+              lifted={drag?.key ?? null}
+              verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
+              handlers={listHandlers}
+              group={group$}
+              onView={changeView}
+            />
+          ) : (
+            <div className="board-columns">
+              {view?.columns.map((column) => (
+                <Column
+                  key={`${project ?? ""}:${column.id}`}
+                  column={column}
+                  chipWords={view.scroll_chip}
+                  verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
+                  dragging={drag !== null}
+                  selected={selected}
+                  chain={chain}
+                  lifted={drag?.key ?? null}
+                  handlers={handlers}
+                  showEmptyHint={!view.empty}
+                  scrollTop={place.columns[column.id] ?? 0}
+                  onScroll={onScroll}
+                  onView={changeView}
+                  onAdd={() => {
+                    openOverlay("new_ticket");
+                  }}
+                  foldedSections={foldedSections}
+                  doneLine={column.id === lastOpen ? view.done : null}
+                  approved={sectionDrag(column, drag)}
+                  element={element$}
+                />
+              ))}
+              {covered > 0 && <div className="board-under-sheet" style={{ width: covered }} />}
             </div>
           )}
-          {draggedRow && <LiftedChild row={draggedRow} />}
-          {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
-            <div className="board-drop-hint">
-              <Icon name={ghostHint.icon} size={11} />
-              <span className="board-drop-hint-text">
-                <span>{ghostHint.hint}</span>
-                {ghostHint.note !== null && <span className="board-drop-hint-note">{ghostHint.note}</span>}
+          {view?.empty && <EmptyBoard view={view.empty} />}
+          {project === null && <NoProjects />}
+          {list === null && (
+            <ChainLayer
+              chain={chain}
+              links={view?.links ?? []}
+              hovered={hovered}
+              board={element}
+              layout={view}
+            />
+          )}
+          <div className="board-ghost" ref={ghost} hidden={drag === null}>
+            {draggedCard && (
+              <div className="board-ghost-card">
+                <Lifted card={draggedCard} />
+              </div>
+            )}
+            {draggedRow && <LiftedChild row={draggedRow} />}
+            {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
+              <div className="board-drop-hint">
+                <Icon name={ghostHint.icon} size={11} />
+                <span className="board-drop-hint-text">
+                  <span>{ghostHint.hint}</span>
+                  {ghostHint.note !== null && <span className="board-drop-hint-note">{ghostHint.note}</span>}
+                </span>
+              </div>
+            )}
+            {overVerdict?.kind === "forbidden" && (
+              <div className="board-not-allowed" role="status">
+                <Icon name="ban" size={18} />
+                <span className="board-not-allowed-title">{overVerdict.title}</span>
+                {overVerdict.detail !== null && (
+                  <span className="board-not-allowed-detail">{overVerdict.detail}</span>
+                )}
+              </div>
+            )}
+            {overVerdict && overVerdict.kind !== "home" && (
+              <span className="board-cursor" data-verdict={overVerdict.kind}>
+                <Icon name={overVerdict.kind === "allowed" ? "plus" : "ban"} size={12} />
               </span>
-            </div>
+            )}
+          </div>
+          {cardMenu && (
+            <CardMenu
+              menu={cardMenu}
+              onError={(error) => {
+                toast(error);
+              }}
+              onClose={() => {
+                setCardMenu(null);
+              }}
+            />
           )}
-          {overVerdict?.kind === "forbidden" && (
-            <div className="board-not-allowed" role="status">
-              <Icon name="ban" size={18} />
-              <span className="board-not-allowed-title">{overVerdict.title}</span>
-              {overVerdict.detail !== null && (
-                <span className="board-not-allowed-detail">{overVerdict.detail}</span>
-              )}
-            </div>
-          )}
-          {overVerdict && overVerdict.kind !== "home" && (
-            <span className="board-cursor" data-verdict={overVerdict.kind}>
-              <Icon name={overVerdict.kind === "allowed" ? "plus" : "ban"} size={12} />
-            </span>
+          {approve && (
+            <ApproveChoice
+              menu={approve.menu}
+              anchor={approve.anchor}
+              onChoose={(choice) => {
+                setApprove(null);
+                openApproveChoice(choice, approve.menu.key);
+              }}
+              onCancel={() => {
+                setApprove(null);
+              }}
+            />
           )}
         </div>
-        {cardMenu && (
-          <CardMenu
-            menu={cardMenu}
-            onError={(error) => {
-              toast(error);
-            }}
-            onClose={() => {
-              setCardMenu(null);
-            }}
-          />
-        )}
-        {approve && (
-          <ApproveChoice
-            menu={approve.menu}
-            anchor={approve.anchor}
-            onChoose={(choice) => {
-              setApprove(null);
-              openApproveChoice(choice, approve.menu.key);
-            }}
-            onCancel={() => {
-              setApprove(null);
-            }}
-          />
+        {more !== null && !filesShown && (
+          <button
+            type="button"
+            className="board-more-stages"
+            style={{ right: covered + 16 }}
+            onClick={scrollToMore}
+          >
+            <span>{more}</span>
+            <Icon name="arrow-right" size={12} />
+          </button>
         )}
       </div>
-      {more !== null && !filesShown && (
-        <button
-          type="button"
-          className="board-more-stages"
-          style={{ right: covered + 16 }}
-          onClick={scrollToMore}
-        >
-          <span>{more}</span>
-          <Icon name="arrow-right" size={12} />
-        </button>
-      )}
-    </div>
+    </TrackerBadges.Provider>
   );
 }

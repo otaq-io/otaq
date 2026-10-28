@@ -23,9 +23,12 @@ const TABLES: &[&str] = &[
     "manual_checks",
     "messages",
     "pending_deliveries",
+    "plugin_marketplaces",
+    "plugins",
     "pr_flows",
     "project_agents",
     "project_flows",
+    "project_plugins",
     "projects",
     "review_comments",
     "reviews",
@@ -35,6 +38,7 @@ const TABLES: &[&str] = &[
     "stage_runs",
     "ticket_comments",
     "ticket_deps",
+    "ticket_links",
     "ticket_stage_choices",
     "tickets",
     "usage",
@@ -716,6 +720,64 @@ async fn one_row_round_trips_through_every_table() {
         .execute(pool)
         .await;
     assert!(again.is_err());
+
+    // A marketplace, a plugin, a project's use of it and an imported ticket's link (the otaq-marketplace README).
+    let market = store
+        .add_plugin_marketplace("https://github.com/acme/tracker-plugins", "acme", false)
+        .await
+        .unwrap();
+    store
+        .put_plugin(&otaq_core::store::plugins::PluginRow {
+            id: "jira".into(),
+            source: "marketplace".into(),
+            marketplace_id: Some(market.id.clone()),
+            local_path: None,
+            version: "1.0.0".into(),
+            manifest_json: "{}".into(),
+            sha256: Some("a".repeat(64)),
+            fingerprint: "f".into(),
+            consented: "c".into(),
+            defaults_json: "{}".into(),
+            installed_at: at,
+            updated_at: at,
+        })
+        .await
+        .unwrap();
+    store
+        .put_project_plugin(&otaq_core::store::plugins::ProjectPluginRow {
+            project_id: project.id.clone(),
+            plugin_id: "jira".into(),
+            enabled: true,
+            values_json: r#"{"site": "acme.atlassian.net"}"#.into(),
+            auto_pull: true,
+            pull_minutes: 15,
+            last_pull_at: None,
+            last_pull_error: None,
+        })
+        .await
+        .unwrap();
+    store
+        .put_ticket_link(&otaq_core::store::plugins::LinkRow {
+            id: new_id(),
+            ticket_id: Some(t18.id.clone()),
+            project_id: project.id.clone(),
+            plugin_id: "jira".into(),
+            tracker: "Jira".into(),
+            issue_id: "PAY-12".into(),
+            issue_key: "PAY-12".into(),
+            url: "https://acme.atlassian.net/browse/PAY-12".into(),
+            parent_key: Some("PAY-3".into()),
+            parent_url: None,
+            snapshot_title: "Checkout button".into(),
+            snapshot_body: String::new(),
+            imported_at: at,
+            fetched_at: at,
+        })
+        .await
+        .unwrap();
+    let link = store.ticket_link(&t18.id).await.unwrap().unwrap();
+    assert_eq!(link.issue_key, "PAY-12");
+    assert_eq!(store.auto_pull_plugins().await.unwrap().len(), 1);
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

@@ -43,6 +43,15 @@ pub(super) async fn check(
     Ok(Some(action))
 }
 
+/// A plugin search or import (the otaq-marketplace README): a Project agent's in its own project, as `action`; never a
+/// ticket's agent.
+fn plugin_use(caller: &Caller, project: &str, action: Action) -> Action {
+    match caller {
+        Caller::ProjectAgent { project: own, .. } if own.as_str() == project => action,
+        _ => Action::UserOnly("import from trackers"),
+    }
+}
+
 /// What an agent's request says about the agent (d0119, d0042, d0027).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentActivity {
@@ -467,6 +476,28 @@ async fn action_for(
         }
         R::TicketUseFallback(_) => Action::UserOnly("use the fallback"),
         R::RecentItems(_) => Action::UserOnly("use the command palette"),
+        // Plugins are the user's (the otaq-marketplace README); the project's Project agent may search and import into the
+        // Backlog, and read the badges.
+        R::PluginsSearch(p) => plugin_use(caller, &p.project, Action::Read),
+        R::PluginsImport(p) => plugin_use(caller, &p.project, Action::CreateTicket),
+        R::PluginsLinks(_) => Action::Read,
+        R::PluginsList
+        | R::PluginsRefreshIndex
+        | R::PluginsMarketplaceAdd(_)
+        | R::PluginsMarketplaceRemove(_)
+        | R::PluginsConsent(_)
+        | R::PluginsInstall(_)
+        | R::PluginsLocal(_)
+        | R::PluginsRemove(_)
+        | R::PluginsDefaultsSet(_)
+        | R::PluginsCheck(_)
+        | R::PluginsTerminal(_)
+        | R::ProjectPluginsGet(_)
+        | R::ProjectPluginsSet(_)
+        | R::PluginsPullNow(_) => Action::UserOnly("manage plugins"),
+        R::TicketTrackerRefresh(_) | R::TicketTrackerResolve(_) => {
+            Action::UserOnly("refresh a ticket from its tracker")
+        }
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)

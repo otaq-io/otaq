@@ -83,6 +83,8 @@ pub enum GlobalSection {
     /// T-0405: the agents, the default model and each tool's fallback, drawn from `settings.agents`
     /// ([`super::agents::section`]).
     Agents,
+    /// Tracker plugins (the otaq-marketplace README): installed, the marketplaces and their offer, drawn from `plugins.view`.
+    Plugins,
     AgentLimits,
     Usage,
     Notifications,
@@ -112,6 +114,8 @@ pub enum ProjectSection {
     Commands,
     /// Create, Remove and Template refresh commands, schema paths (M19-d, M19-e; d0087).
     TicketResources,
+    /// The tracker plugins the project uses (the otaq-marketplace README), drawn from `plugins.project`; no rows here.
+    Plugins,
     PrProvider,
     RemoveProject,
 }
@@ -512,9 +516,10 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 10] = [
+const DRAWN: [GlobalSection; 11] = [
     GlobalSection::AgentTools,
     GlobalSection::Agents,
+    GlobalSection::Plugins,
     GlobalSection::AgentLimits,
     GlobalSection::Usage,
     GlobalSection::Notifications,
@@ -568,6 +573,7 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
     match id {
         GlobalSection::AgentTools => ("Agent tools", IconName::Plug),
         GlobalSection::Agents => ("Agents", IconName::Bot),
+        GlobalSection::Plugins => ("Plugins", IconName::Inbox),
         GlobalSection::AgentLimits => shared(0),
         GlobalSection::Usage => shared(1),
         GlobalSection::Notifications => shared(2),
@@ -926,6 +932,8 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             section(GlobalSection::AgentTools, Some("Agent tools"), Vec::new()),
             // Its own view: the list, the default model and the fallbacks ([`super::agents::section`]).
             section(GlobalSection::Agents, Some("Agents"), Vec::new()),
+            // Its own view: installed plugins and the marketplaces (`plugins.view`).
+            section(GlobalSection::Plugins, Some("Plugins"), Vec::new()),
             agent_limits,
             usage,
             notifications,
@@ -1088,6 +1096,8 @@ pub fn project_page(input: &ProjectInputs) -> Page {
         ],
     );
     let resources = ticket_resources_section(s, p);
+    // Its own view: the project's tracker plugins (`plugins.project`).
+    let plugins = section(ProjectSection::Plugins, Some("Plugins"), Vec::new());
     let provider = section(
         ProjectSection::PrProvider,
         None,
@@ -1122,6 +1132,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             answers,
             commands,
             resources,
+            plugins,
             provider,
             remove,
         ],
@@ -2469,6 +2480,7 @@ mod tests {
                 ProjectSection::Answers,
                 ProjectSection::Commands,
                 ProjectSection::TicketResources,
+                ProjectSection::Plugins,
                 ProjectSection::PrProvider,
                 ProjectSection::RemoveProject,
             ]

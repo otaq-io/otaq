@@ -3,4 +3,4 @@
 /**
  * A section of the global page; its id is the page registry's.
  */
-export type GlobalSectionId = "agent_tools" | "agents" | "agent_limits" | "usage" | "notifications" | "data" | "appearance" | "keyboard_shortcuts" | "tools" | "about";
+export type GlobalSectionId = "agent_tools" | "agents" | "plugins" | "agent_limits" | "usage" | "notifications" | "data" | "appearance" | "keyboard_shortcuts" | "tools" | "about";

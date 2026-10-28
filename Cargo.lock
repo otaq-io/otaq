@@ -2895,6 +2895,7 @@ dependencies = [
  "quote",
  "reqwest",
  "rustix",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",

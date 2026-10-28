@@ -4,6 +4,7 @@
 //! to this module: the connection options (WAL, `foreign_keys`) and `?` placeholders in query text.
 
 pub mod agents;
+pub mod plugins;
 pub mod projects;
 pub mod recents;
 pub mod restore;

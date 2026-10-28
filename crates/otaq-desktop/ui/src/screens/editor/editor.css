@@ -656,3 +656,55 @@
 .new-ticket-report-gallery {
   width: 560px;
 }
+
+/* An imported ticket's tracker issue and Refresh from tracker (the otaq-marketplace README). */
+.tracker-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tracker-open {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.tracker-conflict h4 {
+  margin: 12px 0 6px;
+  text-transform: capitalize;
+}
+
+.tracker-conflict-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.tracker-conflict-side {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: none;
+  padding: 8px;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.tracker-conflict-side[data-picked] {
+  border-color: var(--accent);
+}
+
+.tracker-conflict-side pre {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  max-height: 240px;
+  overflow: auto;
+  margin: 6px 0 0;
+}
+
+.tracker-conflict-label {
+  font-size: 11px;
+  font-weight: 500;
+}

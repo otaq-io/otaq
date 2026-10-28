@@ -227,6 +227,10 @@ pub enum Command {
         #[command(flatten)]
         choices: ChoiceFlags,
     },
+    /// Search a tracker and import its issues as Backlog tickets, through a plugin turned on for the project
+    /// (`plugins search jira "sprint in openSprints()"`, `plugins import jira PAY-12 PAY-13`)
+    #[command(subcommand)]
+    Plugins(PluginsCommand),
     /// Delete a ticket that never started (an agent: only the ones it created, with --reason)
     Delete {
         /// SHOP-43, or 43 in the current project
@@ -533,6 +537,26 @@ pub enum FlowCommand {
         /// The skill is written: Otaq imports the folder as its own copy and puts it in the stage
         #[arg(long)]
         done: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PluginsCommand {
+    /// The plugins turned on for the project
+    List,
+    /// At most 100 open work items (epics and finished issues are left out)
+    Search {
+        /// The plugin: github-issues, jira, azure-devops
+        plugin: String,
+        /// The tracker's own search (JQL, WIQL, a GitHub search); the saved one when left out
+        query: Option<String>,
+    },
+    /// Import issues by id as Backlog tickets, all or nothing; already-imported ones are skipped
+    Import {
+        plugin: String,
+        /// The ids `plugins search` shows: PAY-12, 4021, 12
+        #[arg(required = true)]
+        ids: Vec<String>,
     },
 }
 

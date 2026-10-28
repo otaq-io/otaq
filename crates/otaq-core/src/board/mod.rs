@@ -269,6 +269,12 @@ stored_enum! {
         /// A Files path that isn't one of the ticket's files: absolute, with `..` or `.git`, or a symlink out of
         /// the worktree (FTB-03, d0087).
         BadPath = "bad_path",
+        /// A plugin that can't be installed or used: its manifest, its download, the open-source rules, or a
+        /// consent that no longer matches (the otaq-marketplace README).
+        BadPlugin = "bad_plugin",
+        /// A plugin's command failed: its CLI isn't installed or logged in, or the tracker refused (the message
+        /// says which, with a hint).
+        PluginFailed = "plugin_failed",
     }
 }
 

@@ -18,6 +18,7 @@ mod events;
 mod helper_requests;
 pub mod lock;
 mod permissions;
+mod plugin_requests;
 mod session_requests;
 mod terminal_requests;
 pub mod testing;
@@ -126,7 +127,17 @@ pub struct ServiceConfig {
     /// (and in tests, unless a test turns it on), so [`Self::launch`] and [`Self::terminals`] are used as they are;
     /// the daemon turns it on.
     pub runtime_copy: bool,
+    /// Whether the service runs plugins' background work (the otaq-marketplace README): auto-pull every minute, and the
+    /// daily read of the marketplaces' indexes while a marketplace plugin is installed. Off by default (and in
+    /// tests, which pull with `plugins.pull_now`); the daemon turns it on.
+    pub run_plugins: bool,
+    /// The official plugin marketplace. By default (and in tests) an address nothing answers, so no test reads
+    /// GitHub; the daemon sets the real one, and a test may point it at a local server.
+    pub plugin_marketplace: String,
 }
+
+/// The default [`ServiceConfig::plugin_marketplace`]: a closed local port.
+pub const NO_MARKETPLACE: &str = "http://127.0.0.1:9/marketplace";
 
 impl ServiceConfig {
     pub fn new(data: DataDir) -> Self {
@@ -154,6 +165,8 @@ impl ServiceConfig {
             tool_home: None,
             check_tool_states: false,
             runtime_copy: false,
+            run_plugins: false,
+            plugin_marketplace: NO_MARKETPLACE.to_owned(),
         }
     }
 
@@ -181,6 +194,8 @@ impl ServiceConfig {
             tool_home: std::env::home_dir(),
             check_tool_states: true,
             runtime_copy: true,
+            run_plugins: true,
+            plugin_marketplace: crate::plugins::index::OFFICIAL_URL.to_owned(),
             ..Self::new(data)
         }
     }
@@ -217,6 +232,8 @@ struct Shared {
     suggester: Suggester,
     shells: Shells,
     tool_terminals: ToolTerminals,
+    /// Installed plugins, their settings, imports and auto-pull (the otaq-marketplace README).
+    plugins: crate::plugins::Plugins,
     prs: crate::pr::service::Prs,
     messages: crate::messages::Messages,
     validation: crate::validation::Validation,
@@ -893,6 +910,12 @@ impl Service {
             }));
         }
         // The Shell (RUN-05) closes at Done and Close.
+        let plugins = crate::plugins::Plugins::with_official(
+            store.clone(),
+            config.data.clone(),
+            config.tools.path.clone(),
+            &config.plugin_marketplace,
+        );
         // A checklist row's Install / Log in terminal (git, gh, az).
         let tool_terminals = ToolTerminals::new(
             sessions.clone(),
@@ -1136,6 +1159,7 @@ impl Service {
             prs,
             shells,
             tool_terminals,
+            plugins,
             suggester,
             runs,
             plan_limit,
@@ -1341,6 +1365,10 @@ impl Service {
         let messages = tokio::spawn(shared.messages.clone().run(shared.stop.subscribe()));
         let ticket_env = tokio::spawn(shared.ticket_env.clone().run(shared.stop.subscribe()));
         let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
+        let plugins = shared
+            .config
+            .run_plugins
+            .then(|| tokio::spawn(plugin_loop(shared.clone(), shared.stop.subscribe())));
         let gate = tokio::spawn(shared.gate.clone().run(shared.stop.subscribe()));
         let flow_setup = tokio::spawn(
             shared
@@ -1378,6 +1406,9 @@ impl Service {
         let _ = plan_limit.await;
         let _ = messages.await;
         let _ = ticket_env.await;
+        if let Some(plugins) = plugins {
+            let _ = plugins.await;
+        }
         let _ = models.await;
         let _ = gate.await;
         let _ = flow_setup.await;
@@ -1475,3 +1506,48 @@ impl fmt::Display for ServiceError {
 }
 
 impl std::error::Error for ServiceError {}
+
+/// Plugins' background work (the otaq-marketplace README): every minute the auto-pulls that are due, and once a day the
+/// marketplaces' indexes, only while a marketplace plugin is installed (nothing is read otherwise).
+async fn plugin_loop(shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(60));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = stop.wait_for(|s| *s) => break,
+            _ = tick.tick() => {}
+        }
+        match shared.plugins.pull_due(&shared.board).await {
+            Ok(pulled) => {
+                for (project, tickets) in &pulled {
+                    for ticket in tickets {
+                        shared.events.publish(protocol::Event::TicketChanged {
+                            project: project.clone(),
+                            id: ticket.id.clone(),
+                            key: ticket.key.clone(),
+                        });
+                    }
+                }
+                if !pulled.is_empty() {
+                    shared.events.publish(protocol::Event::PluginsChanged);
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "plugin auto-pull failed"),
+        }
+        if shared
+            .plugins
+            .has_marketplace_plugins()
+            .await
+            .unwrap_or(false)
+        {
+            match shared
+                .plugins
+                .refresh_indexes(crate::plugins::index::DAILY)
+                .await
+            {
+                Ok(()) => {}
+                Err(e) => tracing::warn!(error = %e, "can't read the plugin marketplaces"),
+            }
+        }
+    }
+}
