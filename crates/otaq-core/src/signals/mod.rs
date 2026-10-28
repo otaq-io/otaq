@@ -36,12 +36,14 @@ use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
 use crate::domain::Status;
+use crate::helpers::HelperStatus;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::IdleSignal;
-use crate::session::{ModelRan, SessionError, Sessions};
+use crate::session::{ModelRan, SessionError, SessionKind, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
+use background::{BackgroundTask, BackgroundWork};
 pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, reports_activity, signal};
 pub use model_refused::Refusals;
 pub use reminder::reminder_text;
@@ -313,6 +315,8 @@ impl Signals {
             return Ok(Signal::Ignored);
         };
         self.track_turn(session, &signal);
+        // Helpers still at their pieces: the agent in charge waits for them, Working in background (d0133).
+        let signal = self.with_helpers_at_work(ticket_id, signal).await?;
         // A stage still open at the turn's end: one reminder first, Idle only if it is ignored (d0042 2026-10-28).
         let signal = match signal {
             Signal::Idle { .. } if self.remind_instead_of_idle(ticket_id, session).await? => {
@@ -589,6 +593,52 @@ impl Signals {
     /// The user answered the agent from Needs you (or the card or sheet): the needs-you label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
+    }
+
+    /// The agent in charge of `ticket_id` ended its turn: a helper still at its piece (its session mid-turn) or held for
+    /// its tool's limit is work it waits for, so Idle becomes Working in background ("background: helper 6.1"), and
+    /// those helpers join what the tool left running. A helper that hands back or stops is told to the agent in charge,
+    /// whose next turn follows (d0133 audit 3).
+    async fn with_helpers_at_work(
+        &self,
+        ticket_id: &str,
+        signal: Signal,
+    ) -> Result<Signal, BoardError> {
+        let mut work = match &signal {
+            Signal::Idle { .. } => BackgroundWork::default(),
+            Signal::WorkingInBackground { work } => work.clone(),
+            _ => return Ok(signal),
+        };
+        let running: HashSet<String> = self
+            .inner
+            .sessions
+            .running_all_of(ticket_id, SessionKind::Helper)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        let helpers =
+            crate::helpers::store::of_ticket(self.inner.board.store().pool(), ticket_id).await?;
+        let at_work: Vec<BackgroundTask> = helpers
+            .iter()
+            .filter(|h| match h.status {
+                HelperStatus::Held => true,
+                HelperStatus::Working | HelperStatus::SentBack => h
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| running.contains(s) && !self.is_idle_between_turns(s)),
+                _ => false,
+            })
+            .map(|h| BackgroundTask {
+                kind: "helper".into(),
+                description: Some(format!("helper {}", h.label())),
+                helper_agent: false,
+            })
+            .collect();
+        if at_work.is_empty() {
+            return Ok(signal);
+        }
+        work.tasks.extend(at_work);
+        Ok(Signal::WorkingInBackground { work })
     }
 
     /// A new turn starts afresh; a turn that ended leaves the session idle between turns.
