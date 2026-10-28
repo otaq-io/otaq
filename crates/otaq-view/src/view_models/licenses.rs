@@ -27,6 +27,8 @@ pub struct Bundled {
     /// Its repository; none for the theme palettes, whose sources are in Theme credits.
     pub source: Option<&'static str>,
     pub license: &'static str,
+    /// Shipped only with the Windows app, so listed only there.
+    pub windows_only: bool,
 }
 
 pub const BUNDLED: [Bundled; 5] = [
@@ -34,27 +36,32 @@ pub const BUNDLED: [Bundled; 5] = [
         project: "Geist and Geist Mono fonts",
         source: Some("https://github.com/vercel/geist-font"),
         license: "SIL Open Font License 1.1",
+        windows_only: false,
     },
     Bundled {
         project: "Lucide icons",
         source: Some("https://github.com/lucide-icons/lucide"),
         license: "ISC",
+        windows_only: false,
     },
     Bundled {
         project: "Theme palettes",
         source: None,
         license: "MIT",
+        windows_only: false,
     },
     Bundled {
         project: "Syntax definitions (Files tab)",
         source: Some("https://github.com/sublimehq/Packages"),
         license: "Sublime HQ Packages license",
+        windows_only: false,
     },
     // d0117 point 4: Windows sessions run in it.
     Bundled {
         project: "Microsoft's ConPTY (Windows)",
         source: Some("https://github.com/microsoft/terminal"),
         license: "MIT",
+        windows_only: true,
     },
 ];
 
@@ -339,6 +346,7 @@ pub fn view(md: &str, mac: bool) -> View {
     let parsed = parse(md);
     let bundled = BUNDLED
         .iter()
+        .filter(|b| !b.windows_only || cfg!(windows))
         .map(|b| BundledRow {
             project: b.project.to_owned(),
             source_text: match b.source {
@@ -567,7 +575,12 @@ Apache tauri
         assert_eq!(palettes.source, None);
         assert_eq!(palettes.source_text, "9 projects");
         assert_eq!(v.bundled[0].source_text, "github.com/vercel/geist-font");
-        assert_eq!(v.bundled[4].source_text, "github.com/microsoft/terminal");
+        // Microsoft's ConPTY ships only with the Windows app.
+        if cfg!(windows) {
+            assert_eq!(v.bundled[4].source_text, "github.com/microsoft/terminal");
+        } else {
+            assert_eq!(v.bundled.len(), 4);
+        }
         assert_eq!(v.notices, SAMPLE);
     }
 }
