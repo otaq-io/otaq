@@ -1073,6 +1073,74 @@ pub enum Request {
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
     RecentItems(RecentItemsParams),
+
+    // Plugins (the otaq-marketplace README). The user's, except `plugins.search` and `plugins.import`, which the project's
+    // Project agent may also run; ticket agents never use plugins.
+    /// Installed plugins, marketplaces and what they offer; reads indexes over an hour old first. Answered with
+    /// [`Reply::Plugins`] (as is every install, removal and marketplace change).
+    #[serde(rename = "plugins.list")]
+    PluginsList,
+    /// Reads every marketplace's index now.
+    #[serde(rename = "plugins.refresh_index")]
+    PluginsRefreshIndex,
+    /// `{"url": "https://github.com/acme/otaq-plugins"}`: a Community marketplace.
+    #[serde(rename = "plugins.marketplace_add")]
+    PluginsMarketplaceAdd(crate::plugins::params::MarketplaceAddParams),
+    /// `{"id": "…"}`; the official one can't be removed.
+    #[serde(rename = "plugins.marketplace_remove")]
+    PluginsMarketplaceRemove(crate::plugins::params::PluginIdParams),
+    /// `{"marketplace": "…", "id": "jira"}`: downloads and checks the release, answered with
+    /// [`Reply::PluginConsent`].
+    #[serde(rename = "plugins.consent")]
+    PluginsConsent(crate::plugins::params::ConsentParams),
+    /// `{"marketplace": "…", "id": "jira", "version": "1.2.0", "digest": "…"}`: installs or updates what the
+    /// consent screen showed.
+    #[serde(rename = "plugins.install")]
+    PluginsInstall(crate::plugins::params::InstallParams),
+    /// `{"folder": "/abs/jira"}` for the consent screen ([`Reply::PluginConsent`]), then with its `digest` to add.
+    #[serde(rename = "plugins.local")]
+    PluginsLocal(crate::plugins::params::LocalFolderParams),
+    /// `{"id": "jira"}`: removes it and every project's use of it; imported tickets keep their links.
+    #[serde(rename = "plugins.remove")]
+    PluginsRemove(crate::plugins::params::PluginIdParams),
+    /// `{"id": "jira", "values": {…}}`: the global defaults.
+    #[serde(rename = "plugins.defaults_set")]
+    PluginsDefaultsSet(crate::plugins::params::DefaultsParams),
+    /// `{"id": "jira"}`: each CLI installed and logged in? Answered with [`Reply::PluginChecks`].
+    #[serde(rename = "plugins.check")]
+    PluginsCheck(crate::plugins::params::PluginIdParams),
+    /// **Log in** / **Add extension** in Otaq's terminal, running the plugin's own command line. Answered with
+    /// [`Reply::Session`].
+    #[serde(rename = "plugins.terminal")]
+    PluginsTerminal(crate::plugins::params::PluginTerminalParams),
+    /// `{"project": "SHOP"}`: each installed plugin's use in the project. Answered with [`Reply::ProjectPlugins`].
+    #[serde(rename = "project_plugins.get")]
+    ProjectPluginsGet(ProjectParams),
+    /// Turns a plugin on or off for a project with its values and auto-pull. Answered with
+    /// [`Reply::ProjectPlugins`].
+    #[serde(rename = "project_plugins.set")]
+    ProjectPluginsSet(crate::plugins::params::ProjectPluginSetParams),
+    /// **Pull now**. Answered with [`Reply::PluginImported`].
+    #[serde(rename = "plugins.pull_now")]
+    PluginsPullNow(crate::plugins::params::ProjectPluginParams),
+    /// `{"project": "SHOP", "plugin": "jira", "query": "sprint in openSprints()"}`: at most 100 open work items.
+    /// Answered with [`Reply::PluginSearch`].
+    #[serde(rename = "plugins.search")]
+    PluginsSearch(crate::plugins::params::SearchParams),
+    /// `{"project": "SHOP", "plugin": "jira", "ids": ["PAY-12"]}`: Backlog tickets, all or nothing. Answered with
+    /// [`Reply::PluginImported`].
+    #[serde(rename = "plugins.import")]
+    PluginsImport(crate::plugins::params::ImportParams),
+    /// `{"project": "SHOP"}`: every imported ticket's tracker issue, for the badges. Answered with
+    /// [`Reply::TrackerLinks`].
+    #[serde(rename = "plugins.links")]
+    PluginsLinks(ProjectParams),
+    /// `{"key": "SHOP-12"}`: fetch the issue again. Answered with [`Reply::TrackerRefresh`].
+    #[serde(rename = "ticket.tracker_refresh")]
+    TicketTrackerRefresh(KeyParams),
+    /// `{"key": "SHOP-12", "picks": {"title": "tracker", "body": "mine"}}`: settles a refresh's conflicts.
+    #[serde(rename = "ticket.tracker_resolve")]
+    TicketTrackerResolve(crate::plugins::params::ResolveParams),
 }
 
 /// `onboarding.ask`: the project and the tool to ask (ASK-02).
@@ -2199,6 +2267,25 @@ impl Request {
             Self::LimitsUseFallbackNow(_) => "limits.use_fallback_now",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
             Self::RecentItems(_) => "recent.items",
+            Self::PluginsList => "plugins.list",
+            Self::PluginsRefreshIndex => "plugins.refresh_index",
+            Self::PluginsMarketplaceAdd(_) => "plugins.marketplace_add",
+            Self::PluginsMarketplaceRemove(_) => "plugins.marketplace_remove",
+            Self::PluginsConsent(_) => "plugins.consent",
+            Self::PluginsInstall(_) => "plugins.install",
+            Self::PluginsLocal(_) => "plugins.local",
+            Self::PluginsRemove(_) => "plugins.remove",
+            Self::PluginsDefaultsSet(_) => "plugins.defaults_set",
+            Self::PluginsCheck(_) => "plugins.check",
+            Self::PluginsTerminal(_) => "plugins.terminal",
+            Self::ProjectPluginsGet(_) => "project_plugins.get",
+            Self::ProjectPluginsSet(_) => "project_plugins.set",
+            Self::PluginsPullNow(_) => "plugins.pull_now",
+            Self::PluginsSearch(_) => "plugins.search",
+            Self::PluginsImport(_) => "plugins.import",
+            Self::PluginsLinks(_) => "plugins.links",
+            Self::TicketTrackerRefresh(_) => "ticket.tracker_refresh",
+            Self::TicketTrackerResolve(_) => "ticket.tracker_resolve",
         }
     }
 }
@@ -2346,6 +2433,15 @@ pub enum Reply {
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
     /// The command palette's recent items, newest first (`recent.items`).
     RecentItems(Vec<crate::store::recents::RecentItem>),
+    /// Settings → Plugins (`plugins.list` and every change there).
+    Plugins(Box<crate::plugins::registry::PluginsView>),
+    PluginConsent(Box<crate::plugins::registry::Consent>),
+    PluginChecks(Vec<crate::plugins::checks::RequirementStatus>),
+    ProjectPlugins(Vec<crate::plugins::registry::ProjectPlugin>),
+    PluginSearch(Box<crate::plugins::registry::SearchResult>),
+    PluginImported(Box<crate::plugins::registry::Imported>),
+    TrackerLinks(Vec<crate::plugins::registry::TrackerLink>),
+    TrackerRefresh(Box<crate::plugins::registry::RefreshOutcome>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -2563,6 +2659,9 @@ pub enum Event {
     /// The named agents or the role defaults (app-wide or a project's) changed (AGT-01…AGT-03): refetch
     /// `agents.list` (and the project's settings).
     AgentsChanged,
+    /// Plugins, a marketplace's index or a project's plugin settings changed (the otaq-marketplace README): refetch
+    /// `plugins.list` and `project_plugins.get`.
+    PluginsChanged,
     /// The folder trust notices changed (the one-time note, the projects whose trust couldn't be recorded;
     /// PRJ-08): refetch `onboarding.state`.
     TrustChanged,

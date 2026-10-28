@@ -72,6 +72,7 @@ describe("the Settings screen", () => {
     expect(app.settings.global.ids()).toEqual([
       "agent_tools",
       "agents",
+      "plugins",
       "agent_limits",
       "usage",
       "notifications",
@@ -84,6 +85,7 @@ describe("the Settings screen", () => {
     expect(app.settings.project.ids()).toContain("remove_project");
     expect(app.settings.project.ids().slice(0, 3)).toEqual(["general", "flow", "project_notes"]);
     expect(app.settings.project.ids()).not.toContain("validation");
+    expect(app.settings.project.ids()).toContain("plugins");
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "settings", params: undefined }]);
   });

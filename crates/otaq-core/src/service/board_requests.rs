@@ -1633,7 +1633,26 @@ pub(super) async fn handle(
         | Request::HelperAnswer(_)
         | Request::HelperPassOn(_)
         | Request::HelperDone(_)
-        | Request::HelperPrime(_) => return None,
+        | Request::HelperPrime(_)
+        | Request::PluginsList
+        | Request::PluginsRefreshIndex
+        | Request::PluginsMarketplaceAdd(_)
+        | Request::PluginsMarketplaceRemove(_)
+        | Request::PluginsConsent(_)
+        | Request::PluginsInstall(_)
+        | Request::PluginsLocal(_)
+        | Request::PluginsRemove(_)
+        | Request::PluginsDefaultsSet(_)
+        | Request::PluginsCheck(_)
+        | Request::PluginsTerminal(_)
+        | Request::ProjectPluginsGet(_)
+        | Request::ProjectPluginsSet(_)
+        | Request::PluginsPullNow(_)
+        | Request::PluginsSearch(_)
+        | Request::PluginsImport(_)
+        | Request::PluginsLinks(_)
+        | Request::TicketTrackerRefresh(_)
+        | Request::TicketTrackerResolve(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }
@@ -2094,7 +2113,12 @@ async fn refuse_unprimed(board: &Board, caller: &Caller, key: &str) -> Result<()
 /// #47: a ticket a ticket's agent (or its validator) created tells the app ("DEMO-7 created DEMO-12
 /// → Backlog"), and the creating ticket's History logs it. The user's tickets and a Project agent's tell nothing: its
 /// agent panel lists what it created (d0068, d0091).
-async fn created_by_agent(shared: &Shared, caller: &Caller, tickets: &[Ticket], actor: &Actor) {
+pub(super) async fn created_by_agent(
+    shared: &Shared,
+    caller: &Caller,
+    tickets: &[Ticket],
+    actor: &Actor,
+) {
     let by = match caller {
         Caller::Agent {
             ticket, ticket_id, ..
@@ -2329,7 +2353,7 @@ fn project_of(key: &str) -> String {
 }
 
 /// Runs a mutation of one project's tickets and publishes the changes it made.
-async fn mutate<T>(
+pub(super) async fn mutate<T>(
     shared: &Shared,
     project: &str,
     change: impl Future<Output = Result<T, BoardError>>,

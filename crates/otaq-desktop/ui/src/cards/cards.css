@@ -547,3 +547,15 @@
   flex: none;
   white-space: nowrap;
 }
+
+/* An imported ticket's tracker issue (the otaq-marketplace README): "Jira · PAY-12". */
+.card-tracker {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

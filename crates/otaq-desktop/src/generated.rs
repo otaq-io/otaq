@@ -30,6 +30,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Also writes `ServiceConnection` and `ServiceCompatibility`, which it refers to.
     crate::events::PageEvent::export_all(&cfg)?;
     crate::api::RequestError::export_all(&cfg)?;
+    // Settings → Plugins, a project's Plugins, the Import dialog and Refresh from tracker (the otaq-marketplace README).
+    crate::api::export_plugin_types(&cfg)?;
     otaq_view::icons::IconName::export_all(&cfg)?;
     crate::api::ThemeParams::export_all(&cfg)?;
     crate::api::ActiveTheme::export_all(&cfg)?;

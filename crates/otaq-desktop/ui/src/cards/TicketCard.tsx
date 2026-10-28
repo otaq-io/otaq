@@ -18,6 +18,7 @@ import { Icon } from "../theme/Icon";
 import { CheckRoundRows } from "./CheckRound";
 import { PieceRows } from "./Pieces";
 import { type CardState, edgeColor, paletteInk, RESTING, toneInk } from "./look";
+import { useTrackerBadge } from "./trackers";
 
 export interface TicketCardProps {
   card: TicketCardView;
@@ -236,6 +237,13 @@ function Body({
   );
 }
 
+/** An imported ticket's tracker issue: "Jira · PAY-12". */
+function TrackerBadge({ ticket }: { ticket: string }) {
+  const badge = useTrackerBadge(ticket);
+  if (badge === undefined) return null;
+  return <span className="card-tracker">{badge}</span>;
+}
+
 export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenSheet }: TicketCardProps) {
   const chain = state.chain === "none" ? undefined : state.chain;
   return (
@@ -260,6 +268,7 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenSh
       onClick={onSelect}
     >
       <Body card={card} selected={state.selected} {...(onAction ? { onAction } : {})} />
+      <TrackerBadge ticket={card.key} />
       {(onOpenSheet !== undefined || state.hovered) && (
         <QuickActions card={card} {...(onOpenSheet ? { onOpenSheet } : {})} />
       )}

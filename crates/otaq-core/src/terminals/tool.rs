@@ -31,6 +31,8 @@ pub struct ToolTerminals {
     tools: CheckEnv,
     /// The newest session of each tool and action.
     open: Arc<Mutex<HashMap<(Tool, ToolAction), String>>>,
+    /// The newest session of each plugin command (its plugin and command line).
+    open_commands: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl ToolTerminals {
@@ -41,6 +43,7 @@ impl ToolTerminals {
             env,
             tools,
             open: Arc::default(),
+            open_commands: Arc::default(),
         }
     }
 
@@ -107,6 +110,87 @@ impl ToolTerminals {
             .insert((tool, action), info.id.clone());
         Ok(info)
     }
+}
+
+impl ToolTerminals {
+    /// A plugin's **Log in** or **Add extension** (the otaq-marketplace README): the same kind of terminal, running one of
+    /// the plugin's own command lines, which the user agreed to on its consent screen. The caller found `argv` in
+    /// the installed manifest; nothing comes from the page.
+    pub async fn open_command(
+        &self,
+        plugin: &str,
+        argv: &[String],
+    ) -> Result<SessionInfo, BoardError> {
+        let shown = quoted(argv);
+        let key = format!("{plugin}\0{shown}");
+        let running = self
+            .open_commands
+            .lock()
+            .expect("tool terminals")
+            .get(&key)
+            .cloned();
+        if let Some(id) = running
+            && let Ok(info) = self.sessions.info(&id)
+            && info.is_running()
+        {
+            return Ok(info);
+        }
+        let run = command_line(&shown, &self.env);
+        let mut env = self.env.env(&self.data, None, None);
+        env.extend(run.env);
+        let info = self
+            .sessions
+            .spawn(SpawnSpec {
+                kind: SessionKind::Project,
+                start: Start::User,
+                project_id: String::new(),
+                project_key: String::new(),
+                ticket: None,
+                program: run.program,
+                args: run.args,
+                cwd: std::env::home_dir().unwrap_or_else(|| PathBuf::from(self.data.root())),
+                env,
+                size: START_SIZE,
+                tool: None,
+                tool_session_id: None,
+                model: None,
+                agent: None,
+                effort: None,
+                fallback: None,
+                theme: None,
+            })
+            .await
+            .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        tracing::info!(plugin, session = %info.id, "plugin terminal opened");
+        self.open_commands
+            .lock()
+            .expect("tool terminals")
+            .insert(key, info.id.clone());
+        Ok(info)
+    }
+}
+
+/// A command line as one shell line: each argument quoted where it needs it (PowerShell's quotes on Windows).
+pub fn quoted(argv: &[String]) -> String {
+    let safe = |a: &str| {
+        !a.is_empty()
+            && a.chars().all(|c| {
+                c.is_ascii_alphanumeric()
+                    || matches!(c, '-' | '_' | '.' | '/' | ':' | '=' | '@' | ',')
+            })
+    };
+    argv.iter()
+        .map(|a| {
+            if safe(a) {
+                a.clone()
+            } else if cfg!(windows) {
+                format!("'{}'", a.replace('\'', "''"))
+            } else {
+                format!("'{}'", a.replace('\'', "'\\''"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// How an install or login command runs: `/bin/sh -c` after a `$ <command>` line on macOS and Linux; PowerShell

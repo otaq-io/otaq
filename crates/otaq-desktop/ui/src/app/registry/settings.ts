@@ -19,6 +19,8 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   "agent_tools",
   /** The agents, the default model and the fallbacks, and one agent's page (T-0410). */
   "agents",
+  /** Tracker plugins and the marketplaces (the otaq-marketplace README). */
+  "plugins",
   "agent_limits",
   "usage",
   "notifications",
@@ -44,6 +46,8 @@ export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   "commands",
   /** Create, Remove and Template refresh commands, schema paths (M19-d). */
   "ticket_resources",
+  /** The tracker plugins the project uses (the otaq-marketplace README). */
+  "plugins",
   "pr_provider",
   "remove_project",
 ] as const);

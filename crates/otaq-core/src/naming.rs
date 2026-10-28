@@ -30,6 +30,10 @@ pub const THEME_KEY: &str = "otaq";
 pub const THEME_DARK: &str = "otaq-dark";
 pub const THEME_LIGHT: &str = "otaq-light";
 
+/// The official plugin marketplace (the otaq-marketplace README) and the name Settings → Plugins gives it.
+pub const MARKETPLACE_URL: &str = "https://github.com/otaq-io/otaq-marketplace";
+pub const MARKETPLACE_LABEL: &str = "Otaq marketplace";
+
 /// The prefix of every environment variable Otaq reads or sets.
 pub const ENV_PREFIX: &str = "OTAQ_";
 

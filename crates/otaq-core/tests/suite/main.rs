@@ -146,6 +146,7 @@ mod ticket_resources;
 mod ticket_terminal;
 mod tickets;
 mod tools;
+mod tracker_plugins;
 mod uninstall_remove;
 mod uninstall_scan;
 mod usage;

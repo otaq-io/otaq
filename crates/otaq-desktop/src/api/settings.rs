@@ -776,11 +776,13 @@ mod tests {
         assert_eq!(view["page"]["title"], "General");
         assert_eq!(view["nav"][0]["label"], "Agent tools");
         assert_eq!(view["nav"][1]["label"], "Agents");
+        // Plugins and the marketplace (the otaq-marketplace README).
+        assert_eq!(view["nav"][2]["label"], "Plugins");
         // Agent limits is a row of its own again (T-0410, `s15-58`); the workflow skills moved to the agents.
-        assert_eq!(view["nav"][2]["label"], "Agent limits");
+        assert_eq!(view["nav"][3]["label"], "Agent limits");
         // Validation & Auto-merge is gone (FLW-01).
-        assert_eq!(view["nav"][3]["label"], "Usage");
-        let data = &view["page"]["sections"][5];
+        assert_eq!(view["nav"][4]["label"], "Usage");
+        let data = &view["page"]["sections"][6];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -791,10 +793,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][6]["rows"][4]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][7]["rows"][4]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
         // No fonts in the test's folders: only Geist Mono is listed, and a family not installed is refused.
-        let font = &edited["page"]["sections"][6]["rows"][3];
+        let font = &edited["page"]["sections"][7]["rows"][3];
         assert_eq!(font["field"], "terminal_font_family");
         assert_eq!(font["control"]["kind"], "select");
         assert_eq!(font["control"]["choices"][0]["label"], "Geist Mono (default)");

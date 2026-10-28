@@ -22,6 +22,7 @@ pub mod messages;
 pub mod naming;
 pub mod onboarding;
 pub mod paths;
+pub mod plugins;
 pub mod policy;
 pub mod ports;
 pub mod pr;

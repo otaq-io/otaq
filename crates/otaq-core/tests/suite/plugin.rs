@@ -761,7 +761,7 @@ fn project_agent_investigates_and_files_backlog_tickets() {
     let order = [
         format!("`{cmd} prime --project`"),
         "Follow Noyan’s instructions".to_owned(),
-        "Imports from trackers use the user's own\n   skills**".to_owned(),
+        format!("`{cmd} plugins import <plugin> <id>…`"),
         "the text after\n   this skill's invocation".to_owned(),
         "without waiting for another prompt".to_owned(),
         "Right after you\n   read the first request".to_owned(),

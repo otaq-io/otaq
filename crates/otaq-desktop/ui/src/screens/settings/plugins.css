@@ -1,0 +1,129 @@
+/* Settings → Plugins and a project's Plugins section (the otaq-marketplace README). */
+.plugins {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plugins-intro,
+.plugin-empty,
+.plugin-description,
+.plugin-source,
+.plugin-field-help {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.plugin-list,
+.plugin-marketplaces,
+.plugin-requirements,
+.plugin-commands,
+.plugin-warnings ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugin-row {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plugin-row-head,
+.plugin-marketplaces li,
+.plugin-requirements li,
+.plugin-add,
+.plugin-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plugin-name {
+  font-weight: 600;
+}
+
+.plugin-version,
+.plugin-license {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.plugin-spacer {
+  flex: 1;
+}
+
+.plugin-badge {
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+}
+
+.plugin-badge[data-label="official"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.plugin-badge[data-label="local"] {
+  color: var(--text-muted);
+}
+
+.plugin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plugin-field-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.plugin-requirement-name {
+  min-width: 120px;
+}
+
+.plugin-requirements li[data-ready] .plugin-requirement-state {
+  color: var(--text-muted);
+}
+
+.plugin-requirement-terminal {
+  flex-basis: 100%;
+}
+
+.plugin-consent h4,
+.plugin-defaults h4,
+.plugin-warnings h4 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+}
+
+.plugin-consent p {
+  margin: 4px 0;
+}
+
+.plugin-commands code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.plugin-warnings {
+  color: var(--st-error);
+}

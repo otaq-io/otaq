@@ -29,6 +29,7 @@ import {
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { isSaveKey, refusalFor, SAVE_KEYS, shownPriority } from "./logic";
+import { TrackerRow } from "./TrackerRow";
 
 const ignore = () => undefined;
 
@@ -404,6 +405,7 @@ export function EditorFields({
           />
         </div>
       )}
+      {view.key !== null && <TrackerRow project={view.project} ticket={view.key} />}
       <RefusalBox refusal={refusalFor(refusal, "form")} />
     </div>
   );

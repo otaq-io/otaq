@@ -160,6 +160,23 @@ impl DataDir {
         Ok(self.root.join("skill-writes").join(project).join(stage))
     }
 
+    /// Installed marketplace plugins' files (the otaq-marketplace README): `plugins/<id>`, one folder per plugin. Local
+    /// plugins stay where they are.
+    pub fn plugins_dir(&self) -> PathBuf {
+        self.root.join("plugins")
+    }
+
+    /// One installed plugin's folder: `plugins/<id>`.
+    pub fn plugin_path(&self, id: &str) -> Result<PathBuf, DataDirError> {
+        let id = path_component(id)?;
+        Ok(self.plugins_dir().join(id))
+    }
+
+    /// Downloads waiting for the consent screen, and installs being written: `plugins/.staging`.
+    pub fn plugin_staging_dir(&self) -> PathBuf {
+        self.plugins_dir().join(".staging")
+    }
+
     /// The log folder; files rotate daily (see [`crate::logging`]).
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")

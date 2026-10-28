@@ -21,7 +21,9 @@ fn base_params() -> Value {
         "body": "b", "message": "m", "question": "q", "answer": "a", "proposal": "p", "name": "n",
         "url": "https://example.invalid/pr/1", "settings": {}, "cols": 80, "rows": 24, "data": "",
         "focused": false, "pass": false, "action": "stop",
-        "note": "Not covered by any ticket: x", "query": "q", "ticket": "NOPE-1"
+        "note": "Not covered by any ticket: x", "query": "q", "ticket": "NOPE-1",
+        "marketplace": "nope", "version": "1.0.0", "digest": "d", "folder": "/nonexistent", "requirement": "gh",
+        "plugin": "nope", "ids": ["1"], "enabled": false
     })
 }
 
@@ -392,7 +394,26 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::LimitsResumeTool(_)
         | Request::LimitsUseFallbackNow(_)
         | Request::TicketUseFallback(_)
-        | Request::RecentItems(_) => false,
+        | Request::RecentItems(_)
+        | Request::PluginsList
+        | Request::PluginsRefreshIndex
+        | Request::PluginsMarketplaceAdd(_)
+        | Request::PluginsMarketplaceRemove(_)
+        | Request::PluginsConsent(_)
+        | Request::PluginsInstall(_)
+        | Request::PluginsLocal(_)
+        | Request::PluginsRemove(_)
+        | Request::PluginsDefaultsSet(_)
+        | Request::PluginsCheck(_)
+        | Request::PluginsTerminal(_)
+        | Request::ProjectPluginsGet(_)
+        | Request::ProjectPluginsSet(_)
+        | Request::PluginsPullNow(_)
+        | Request::PluginsSearch(_)
+        | Request::PluginsImport(_)
+        | Request::PluginsLinks(_)
+        | Request::TicketTrackerRefresh(_)
+        | Request::TicketTrackerResolve(_) => false,
     }
 }
 

@@ -75,6 +75,8 @@ pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
 #[cfg(test)]
 pub use pause::export_types as export_pause_types;
 #[cfg(test)]
+pub use plugins::export_types as export_plugin_types;
+#[cfg(test)]
 pub use pr::{
     Answer as PrAnswer, CheckParams as PrCheckParams, ConfirmParams as PrConfirmParams,
     EditParams as PrEditParams, OpenParams as PrOpenParams, Params as PrParams,
@@ -178,6 +180,7 @@ macro_rules! areas {
 
 areas! {
     service,
+    plugins,
     theme,
     window,
     keymap,
