@@ -42,8 +42,8 @@ crate is linked once rather than once per file. To run one file, for example
 
 Both scripts print each step's name and stop at the first failing step with a non-zero exit. GitHub Actions runs
 `scripts/check.sh` on Linux and `scripts\check.ps1` on Windows (`windows-latest`, x64) for every pull request and
-every push to `main` (`.github/workflows/checks.yml`, d0056). The Windows job doesn't block a merge yet, as some
-tests still fail there (Q601). macOS joins later, so until then it's checked locally, as is Windows on ARM64.
+every push to `main` (`.github/workflows/checks.yml`, d0056); a pull request merges only once both pass. macOS
+joins later, so until then it's checked locally, as is Windows on ARM64.
 
 Tests that only make sense on Unix are marked `#[cfg(unix)]`, each with a comment saying why: file modes, symbolic
 links (an administrator's right on Windows), and stand-in agent tools written as `sh` scripts and started by name,

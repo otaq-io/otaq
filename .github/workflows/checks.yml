@@ -1,7 +1,6 @@
 # Runs every step of scripts/check.sh on Linux and of scripts/check.ps1 on Windows for every pull request and every
-# push to main (d0056), then approves the maintainer's own pull requests once the Linux checks pass, so they can merge
-# with `gh pr merge --rebase --auto` (d0107, d0116). The Windows job doesn't block a merge yet: some tests still fail
-# there (Q601). macOS joins later; until then it's checked locally.
+# push to main (d0056), then approves the maintainer's own pull requests once both pass, so they can merge with
+# `gh pr merge --rebase --auto` (d0107, d0116). macOS joins later; until then it's checked locally.
 #
 # On Linux the steps run as parallel jobs, each one group of check.sh: the frontend steps, fmt and clippy, and the
 # tests in two shares (the doc examples with the first). Together they are the same steps as a plain
@@ -76,13 +75,10 @@ jobs:
   # cargo-nextest, Node 24, the Rust cache and a git identity. Git for Windows, whose `sh` and `cat` the tests run, and
   # the MSVC build tools come with the runner. Tests that only make sense on Unix are `#[cfg(unix)]` (Q598). check.ps1
   # fetches Microsoft's ConPTY from nuget.org (scripts/conpty.ps1, pinned and hash-checked) for the tests' sessions.
-  # Not required until the Windows failures of Q601 are fixed: a red run shows on the pull request without failing
-  # the workflow, and the approve job doesn't wait for it.
   windows:
     name: Checks (Windows)
     runs-on: windows-latest
     timeout-minutes: 120
-    continue-on-error: true
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -112,7 +108,7 @@ jobs:
   # token, so it couldn't approve even if this check were wrong.
   approve:
     name: Approve an admin's pull request
-    needs: [frontend, lint, test]
+    needs: [frontend, lint, test, windows]
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -131,4 +127,4 @@ jobs:
             echo "$AUTHOR isn't an admin ($permission): the pull request waits for an admin's review."
             exit 0
           fi
-          gh pr review "$PR_URL" --approve --body "Checks (Linux) passed."
+          gh pr review "$PR_URL" --approve --body "Checks (Linux and Windows) passed."
