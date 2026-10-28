@@ -183,6 +183,23 @@ pub fn refresh_fixed_plugins(data: &crate::data_dir::DataDir, plugin_dir: &Path)
     }
 }
 
+/// The variables a running session of an agent tool puts on every program it starts, which tell a session
+/// started from one of them that it runs inside that session. A service started from inside an agent's session
+/// (a terminal of Claude Code, an install script an agent ran) inherits them and would pass them to every
+/// agent and terminal it starts: Claude Code then stops saving the conversation, so it can't be resumed. The
+/// service drops them from its own environment when it starts. Each tool's list is in its folder.
+pub fn parent_session_vars() -> impl Iterator<Item = &'static str> {
+    [
+        claude::PARENT_SESSION_VARS,
+        codex::PARENT_SESSION_VARS,
+        copilot::PARENT_SESSION_VARS,
+        opencode::PARENT_SESSION_VARS,
+    ]
+    .into_iter()
+    .flatten()
+    .copied()
+}
+
 impl LaunchContext {
     /// The installed app's shipped skills: `<plugin>/skills` (AGM-07).
     pub fn shipped_skills(&self) -> PathBuf {

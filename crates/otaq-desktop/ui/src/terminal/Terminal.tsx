@@ -562,7 +562,9 @@ export function Terminal({
     fitBox.current?.();
   }, [opened, fontSize]);
   // The font (d0117 point 5): every open terminal follows the setting at once and keeps its scrollback. The font is
-  // loaded first so xterm.js measures its cells with it, and the glyph atlas (WebGL) is drawn again with it.
+  // loaded first so xterm.js measures its cells with it. The WebGL glyph atlas is never cleared here: it is shared by
+  // every terminal drawn with the same font, so clearing it scrambles the text of the others (the Noyan terminal, each
+  // time a ticket terminal opened). A new font picks its own atlas anyway.
   const family = settings?.font_family;
   useEffect(() => {
     const term = xterm.current;
@@ -575,7 +577,6 @@ export function Terminal({
       .then(() => {
         if (!live) return;
         term.options.fontFamily = family;
-        term.clearTextureAtlas();
         fitBox.current?.();
       });
     return () => {

@@ -170,7 +170,7 @@ describe("the terminal font", () => {
     expect(term.current.fontFamily).toBe(MESLO);
     expect(loaded.at(-1)).toBe(`13px ${MESLO}`);
     // The replay starts from a reset; the font change adds none and writes nothing again, so the scrollback stays.
-    // The glyph atlas is cleared once the new font is set.
-    expect(term.calls).toEqual([`atlas ${GEIST}`, "reset", "write p10k ", `atlas ${MESLO}`]);
+    // The shared glyph atlas is never cleared: that scrambles the other terminals drawn with it.
+    expect(term.calls).toEqual(["reset", "write p10k "]);
   });
 });

@@ -675,10 +675,14 @@ mod tests {
                 .into_owned()
         }
 
+        /// A plan's environment: `pairs`, then the variable that keeps Claude saving the conversation, which every
+        /// launch and resume ends with ([`crate::agent_tools::claude::KEEP_TRANSCRIPTS`]).
         fn env(pairs: &[(String, &str)]) -> Vec<(String, String)> {
+            let (name, value) = crate::agent_tools::claude::KEEP_TRANSCRIPTS;
             pairs
                 .iter()
                 .map(|(k, v)| (k.clone(), (*v).to_owned()))
+                .chain([(name.to_owned(), value.to_owned())])
                 .collect()
         }
 

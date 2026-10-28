@@ -76,6 +76,20 @@ impl CopilotContext {
     }
 }
 
+/// What a running GitHub Copilot session sets on the commands it runs (1.0.105), dropped by the service at start
+/// ([`crate::agent_tools::parent_session_vars`]): `COPILOT_AGENT_SESSION_ID` scopes MCP sign-ins to that session,
+/// and a detached helper's `COPILOT_DETACHED_*` skip the end-of-session memory step and link a new session to its
+/// parent. A new session still saves and resumes with them (checked by hand). The user's own `COPILOT_HOME` and
+/// `COPILOT_MODEL` stay.
+pub(super) const PARENT_SESSION_VARS: &[&str] = &[
+    "COPILOT_CLI",
+    "COPILOT_AGENT_SESSION_ID",
+    "COPILOT_DETACHED_SESSION",
+    "COPILOT_DETACHED_PARENT_SESSION_ID",
+    "COPILOT_DETACHED_PARENT_ENGAGEMENT_ID",
+    "COPILOT_RUN_APP",
+];
+
 /// The GitHub Copilot adapter.
 #[derive(Debug, Clone)]
 pub struct Copilot {
