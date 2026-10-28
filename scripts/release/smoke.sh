@@ -7,10 +7,12 @@
 #      app       Otaq.app/Contents/MacOS/otaq, Contents/Resources/plugin
 #      deb       unpacked with dpkg-deb: usr/bin/otaq, usr/lib/Otaq/plugin
 #      appimage  unpacked with --appimage-extract: usr/bin/otaq, usr/lib/Otaq/plugin
-#      nsis      installed silently (/S) into a scratch folder: otaq.exe, plugin\
+#      nsis      installed silently (/S) into a scratch folder: otaq.exe, plugin\, and Microsoft's ConPTY
+#                (conpty.dll, OpenConsole.exe, d0117 point 4)
 # 2. `otaq --version` names the version (when one is given).
 # 3. The background service starts on a throwaway data folder and home, answers `daemon status`, has made its runtime
-#    copy with the plugin folder in it (so it found the plugin folder, UPD-02), and stops.
+#    copy with the plugin folder in it (so it found the plugin folder, UPD-02), and stops. On Windows the copy has the
+#    ConPTY too and the service's log says its sessions run in it.
 # Nothing outside a scratch folder is used: OTAQ_HOME, HOME and the tools' config folders point into it.
 
 set -euo pipefail
@@ -47,9 +49,10 @@ case "$kind" in
         plugin="$scratch/squashfs-root/usr/lib/Otaq/plugin"
         ;;
     nsis)
-        # NSIS takes the folder as the last argument, unquoted, in Windows form.
+        # NSIS takes the folder as the last argument, unquoted, in Windows form. Git's bash would turn `/S` into the
+        # path `S:/` (the installer then waits for a click); MSYS2_ARG_CONV_EXCL passes both arguments as they are.
         target="$(cygpath -w "$scratch/installed")"
-        "$bundle" /S "/D=$target"
+        MSYS2_ARG_CONV_EXCL='*' "$bundle" /S "/D=$target"
         bin="$scratch/installed"
         plugin="$scratch/installed/plugin"
         exe=".exe"
@@ -61,6 +64,11 @@ otaq="$bin/otaq$exe"
 step "The command and the plugin folder"
 [[ -x "$otaq" ]] || fail "no otaq command at $otaq"
 [[ -d "$plugin/claude" && -d "$plugin/skills" ]] || fail "no plugin folder (with claude/ and skills/) at $plugin"
+if [[ "$kind" == nsis ]]; then
+    for file in conpty.dll OpenConsole.exe; do
+        [[ -f "$bin/$file" ]] || fail "no $file next to otaq.exe in $bin"
+    done
+fi
 
 step "otaq --version"
 printed="$("$otaq" --version)"
@@ -91,6 +99,15 @@ for copy in "$home"/runtime/*/plugin; do
 done
 [[ -n "$found" ]] || fail "no runtime copy with a plugin folder in $home/runtime (the service didn't find the plugin folder; see $home/logs)"
 echo "$found"
+if [[ "$kind" == nsis ]]; then
+    step "Its sessions run in Microsoft's ConPTY (in the runtime copy, named in the log)"
+    copy="$(dirname "$found")"
+    for file in conpty.dll OpenConsole.exe; do
+        [[ -f "$copy/$file" ]] || fail "no $file in the runtime copy $copy"
+    done
+    grep -h "sessions run in" "$home"/logs/*.log || true
+    grep -q "sessions run in Otaq's ConPTY" "$home"/logs/*.log || fail "the service's log doesn't say it loaded Otaq's ConPTY (see $home/logs)"
+fi
 
 step "It stops"
 run daemon stop

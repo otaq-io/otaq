@@ -162,7 +162,8 @@ jobs:
           } >>"$GITHUB_ENV"
 
       # Windows and Linux: Tauri's own action builds the setup files and their signatures (no release from it: the
-      # release job uploads everything at once).
+      # release job uploads everything at once). On Windows the sidecar step fetches Microsoft's ConPTY for the setup
+      # file (scripts/conpty.ps1).
       - name: Build the setup files
         id: tauri
         if: matrix.platform != 'macos'

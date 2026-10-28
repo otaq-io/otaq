@@ -7,7 +7,8 @@
     "active": true,
     "externalBin": ["binaries/otaq"],
     "resources": {
-      "../../plugin/": "plugin/"
+      "../../plugin/": "plugin/",
+      "binaries/conpty/": "./"
     }
   }
 }

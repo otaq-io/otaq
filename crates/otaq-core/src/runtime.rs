@@ -156,6 +156,7 @@ pub fn ensure(
     remove_all(&tmp)?;
     let copied = fs::create_dir(&tmp)
         .and_then(|()| fs::copy(&program, tmp.join(program_name())).map(drop))
+        .and_then(|()| copy_conpty(bin_dir, &tmp))
         .and_then(|()| copy_dir(plugin_dir, &tmp.join(PLUGIN_FOLDER)))
         .and_then(|()| fs::rename(&tmp, &folder.dir));
     match copied {
@@ -173,6 +174,18 @@ pub fn ensure(
             }
         }
     }
+}
+
+/// Windows: Otaq's ConPTY beside `otaq` ([`crate::session::conpty`]), when the installed program has it; a service
+/// started from the copy runs its sessions in it.
+fn copy_conpty(bin_dir: &Path, dest: &Path) -> io::Result<()> {
+    use crate::session::conpty::{HOST, LIBRARY};
+    for name in [LIBRARY, HOST] {
+        if bin_dir.join(name).is_file() {
+            fs::copy(bin_dir.join(name), dest.join(name))?;
+        }
+    }
+    Ok(())
 }
 
 /// Records that this process's service uses `folder`, so no other service's cleanup deletes it.
@@ -559,6 +572,23 @@ mod tests {
             ensure(&data, "other", &folder.dir, &folder.plugin_dir()).unwrap(),
             folder
         );
+    }
+
+    /// Otaq's ConPTY beside the installed `otaq` (Windows) goes into the copy; without it, the copy has none.
+    #[test]
+    fn the_copy_gets_the_conpty_files_when_installed() {
+        use crate::session::conpty::{HOST, LIBRARY};
+        let installed = Installed::new("v1");
+        let (_first, first) = data();
+        let without = installed.ensure(&first, "abc.1");
+        assert!(!without.dir.join(LIBRARY).exists());
+
+        fs::write(installed.bin().join(LIBRARY), "dll").unwrap();
+        fs::write(installed.bin().join(HOST), "host").unwrap();
+        let (_second, second) = data();
+        let with = installed.ensure(&second, "abc.1");
+        assert_eq!(fs::read_to_string(with.dir.join(LIBRARY)).unwrap(), "dll");
+        assert_eq!(fs::read_to_string(with.dir.join(HOST)).unwrap(), "host");
     }
 
     /// Two local builds of one version (another build ID), or a rebuild of only the command (the same build ID),

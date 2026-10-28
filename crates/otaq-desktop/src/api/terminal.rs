@@ -311,10 +311,11 @@ mod tests {
         request(&h.app, "terminal.input", params).await.unwrap();
     }
 
-    /// The numbers of the complete `n <i>` lines, in order.
+    /// The numbers of the complete `n <i>` lines, in order. A line's text is what follows its last `\r`: on Windows
+    /// the first one comes after the shell's own `ESC [ ? 2004 l` and a `\r`, which Otaq's ConPTY passes through.
     fn numbered(text: &str) -> Vec<u32> {
         text.split("\r\n")
-            .filter_map(|line| line.strip_prefix("n ")?.parse().ok())
+            .filter_map(|line| line.rsplit('\r').next()?.strip_prefix("n ")?.parse().ok())
             .collect()
     }
 
@@ -397,12 +398,35 @@ mod tests {
 
     /// A shell line asking the terminal for its background, reading what comes back within a second and printing
     /// it in hex after `seen-<marker>:` (written in two pieces, so the typed command line doesn't contain it).
+    #[cfg(unix)]
     fn ask_background(marker: &str) -> String {
         format!(
             "stty -icanon -echo min 0 time 10; printf '\\033]11;?\\007'; sleep 1; \
              a=$(dd bs=256 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'); stty sane; \
              echo \"seen\"\"-{marker}:$a.\"\r"
         )
+    }
+
+    /// [`ask_background`] on Windows: this test binary, started again as [`colour_asker`] (Git's `sh` drops the
+    /// question on its way out, Q601).
+    #[cfg(windows)]
+    fn ask_background(marker: &str) -> String {
+        use otaq_core::service::testing::{ask_marker_var, colour_asker_args};
+        let program = std::env::current_exe().expect("the test binary");
+        format!(
+            "{}={marker} '{}' {}\r",
+            ask_marker_var(),
+            program.display(),
+            colour_asker_args("api::terminal::tests::colour_asker").join(" ")
+        )
+    }
+
+    /// The program [`ask_background`] starts on Windows; does nothing when run with the other ignored tests.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "the colour test's stand-in program on Windows"]
+    fn colour_asker() {
+        otaq_core::service::testing::colour_asker();
     }
 
     /// d0117 point 4: a program's colour question gets exactly one answer. A read-only terminal

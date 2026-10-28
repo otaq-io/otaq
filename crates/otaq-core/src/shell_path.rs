@@ -6,7 +6,8 @@
 //! opened last wins. Beside a copy goes the plugin folder (`bin/plugin`, replaced on every start): a service started
 //! through `bin/otaq` (`otaq attach SHOP-12` with the app closed) makes its runtime copy from `bin/`, so it runs from
 //! that copy and its agents get the plugin, even after an AppImage's mount is gone (d0140 gap review C1/G1, T-0574's
-//! question QB). A link (macOS) needs none: it resolves into the bundle.
+//! question QB). On Windows Otaq's ConPTY (`conpty.dll`, `OpenConsole.exe`, [`crate::session::conpty`]) goes there
+//! too, for the same reason. A link (macOS) needs none: it resolves into the bundle.
 //!
 //! **Add to my shell's PATH** ([`add_to_shell`], [`windows_add`]): only on the click. One line, marked
 //! `# added by Otaq`, at the end of the login shell's file: zsh `$ZDOTDIR/.zshrc` (`~/.zshrc` without `ZDOTDIR`);
@@ -68,8 +69,8 @@ pub enum BinRefresh {
 
 /// Makes `<data folder>/bin/otaq` point at `own` (the app's own `otaq`), creating `bin/` when missing. The new link
 /// or copy is made under a temporary name and renamed over the old one, so nothing ever runs a half-written file. A
-/// copy also gets `plugin` (the app's plugin folder) as `bin/plugin`, swapped in whole; the returned state is the
-/// command's.
+/// copy also gets `plugin` (the app's plugin folder) as `bin/plugin`, swapped in whole, and the ConPTY files beside
+/// `own` when it has them; the returned state is the command's.
 pub fn refresh_bin(
     data: &DataDir,
     own: &Path,
@@ -82,6 +83,11 @@ pub fn refresh_bin(
         && let Some(plugin) = plugin
     {
         crate::runtime::replace_dir(plugin, &bin.join(BIN_PLUGIN_FOLDER))?;
+    }
+    if kind == BinKind::Copy
+        && let Some(own_dir) = own.parent()
+    {
+        refresh_conpty(own_dir, &bin)?;
     }
     let target = bin.join(command_file_name());
     let temp = bin.join(format!(
@@ -123,6 +129,28 @@ pub fn refresh_bin(
             }
         }
     }
+}
+
+/// Copies Otaq's ConPTY files from `own_dir` into `bin` when they are there and differ, each under a temporary name
+/// and renamed into place. One in use (a service started from `bin/` loaded it) is left, replaced at the next start.
+fn refresh_conpty(own_dir: &Path, bin: &Path) -> io::Result<()> {
+    use crate::session::conpty::{HOST, LIBRARY};
+    for name in [LIBRARY, HOST] {
+        let (from, to) = (own_dir.join(name), bin.join(name));
+        if !from.is_file() || same_file_contents(&from, &to) {
+            continue;
+        }
+        let temp = bin.join(format!(".{name}.new-{}", std::process::id()));
+        let _ = std::fs::remove_file(&temp);
+        let copied = std::fs::copy(&from, &temp).and_then(|_| std::fs::rename(&temp, &to));
+        if let Err(e) = copied {
+            let _ = std::fs::remove_file(&temp);
+            if !(e.kind() == io::ErrorKind::PermissionDenied && to.exists()) {
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1041,6 +1069,48 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, [command_file_name(), BIN_PLUGIN_FOLDER.to_owned()]);
+    }
+
+    /// A copy gets the ConPTY files that are beside the app's `otaq` (Windows), replaced when they change; without
+    /// them beside it, none.
+    #[test]
+    fn bin_copy_gets_the_conpty_files_beside_it() {
+        use crate::session::conpty::{HOST, LIBRARY};
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::new(tmp.path().join("data"));
+        let app = tmp.path().join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        let own = app.join(command_file_name());
+        std::fs::write(&own, b"build 1").unwrap();
+        refresh_bin(&data, &own, BinKind::Copy, None).unwrap();
+        assert!(!data.bin_dir().join(LIBRARY).exists());
+
+        std::fs::write(app.join(LIBRARY), b"dll 1").unwrap();
+        std::fs::write(app.join(HOST), b"host 1").unwrap();
+        refresh_bin(&data, &own, BinKind::Copy, None).unwrap();
+        assert_eq!(
+            std::fs::read(data.bin_dir().join(LIBRARY)).unwrap(),
+            b"dll 1"
+        );
+        assert_eq!(std::fs::read(data.bin_dir().join(HOST)).unwrap(), b"host 1");
+
+        std::fs::write(app.join(LIBRARY), b"dll 2").unwrap();
+        assert_eq!(
+            refresh_bin(&data, &own, BinKind::Copy, None).unwrap(),
+            BinRefresh::Unchanged
+        );
+        assert_eq!(
+            std::fs::read(data.bin_dir().join(LIBRARY)).unwrap(),
+            b"dll 2"
+        );
+        let mut names: Vec<String> = std::fs::read_dir(data.bin_dir())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        let mut want = vec![command_file_name(), LIBRARY.to_owned(), HOST.to_owned()];
+        want.sort();
+        assert_eq!(names, want);
     }
 
     #[cfg(unix)]

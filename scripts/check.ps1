@@ -1,6 +1,7 @@
 # Otaq local checks on Windows: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier,
 # Vitest, the page build), then fmt, clippy, tests (cargo-nextest, then the doc examples). The same steps as
-# scripts/check.sh, in the same order (decision 0056, SDD section 23.2).
+# scripts/check.sh, in the same order (decision 0056, SDD section 23.2), plus fetching Microsoft's newer ConPTY for
+# the tests' sessions (scripts\conpty.ps1).
 #
 # Run this before every commit made from a Windows machine. Works from any folder inside the repository. Stops at
 # the first failing step and exits non-zero. Needs Node 24 (the version in crates\otaq-desktop\.nvmrc) and npm on
@@ -35,6 +36,17 @@ if (-not (Test-Path (Join-Path $usrBin 'sh.exe'))) {
     exit 1
 }
 $env:PATH = "$env:PATH;$usrBin"
+
+# The tests' sessions run in Microsoft's newer ConPTY, as the installed app's do (d0117 point 4, Q601): fetched once
+# into target\conpty, loaded from OTAQ_DEV_CONPTY_DIR.
+Write-Host '==> conpty: scripts\conpty.ps1'
+try {
+    $env:OTAQ_DEV_CONPTY_DIR = & (Join-Path $PSScriptRoot 'conpty.ps1') | Select-Object -Last 1
+} catch {
+    Write-Host "check.ps1: FAILED at step 'conpty': $_"
+    exit 1
+}
+Write-Host $env:OTAQ_DEV_CONPTY_DIR
 
 function Invoke-Step([string] $Name, [string[]] $Command) {
     Write-Host "==> ${Name}: $($Command -join ' ')"

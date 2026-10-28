@@ -19,13 +19,21 @@ async fn use_theme(w: &TestService, theme: Theme) {
     w.board.set_global_settings(&settings).await.unwrap();
 }
 
-/// Starts `script` with `sh -c` in a session of `kind` for `ticket`, with `env` from the spec.
+/// A program and its arguments.
+type Command = (String, Vec<String>);
+
+/// `script` run with `sh -c`.
+fn sh(script: String) -> Command {
+    ("sh".into(), vec!["-c".into(), script])
+}
+
+/// Starts `command` in a session of `kind` for `ticket`, with `env` from the spec.
 async fn spawn(
     w: &TestService,
     project: &Project,
     kind: SessionKind,
     ticket: Option<SessionTicket>,
-    script: String,
+    (program, args): Command,
     env: Vec<(String, String)>,
 ) -> String {
     w.sessions
@@ -35,8 +43,8 @@ async fn spawn(
             project_id: project.id.clone(),
             project_key: project.key.clone(),
             ticket,
-            program: "sh".into(),
-            args: vec!["-c".into(), script],
+            program,
+            args,
             cwd: PathBuf::from(&project.repo_path),
             env: [("PATH".to_owned(), path_without_build_folders())]
                 .into_iter()
@@ -72,7 +80,8 @@ async fn read_when_done(path: &Path) -> String {
     .unwrap_or_else(|_| panic!("{} was never written", path.display()))
 }
 
-/// The session's `COLORFGBG`, as the program saw it.
+/// The session's `COLORFGBG`, as the program saw it, once the session ended: the next agent session of the ticket
+/// would be refused while it runs (on Windows a session ends half a second after its program, `DRAIN_WAIT`).
 async fn colorfgbg(
     w: &TestService,
     project: &Project,
@@ -85,8 +94,10 @@ async fn colorfgbg(
         file.display()
     );
     let spec_var = vec![("COLORFGBG".to_owned(), "7;1".to_owned())];
-    spawn(w, project, kind, ticket, script, spec_var).await;
-    read_when_done(file).await.trim().to_owned()
+    let id = spawn(w, project, kind, ticket, sh(script), spec_var).await;
+    let seen = read_when_done(file).await.trim().to_owned();
+    w.sessions.wait_ended(&id).await;
+    seen
 }
 
 /// The order rule of `session/env.rs`: a program gets the project's rows, then Otaq's own variables on top, which
@@ -169,17 +180,45 @@ async fn an_agent_session_keeps_the_theme_its_launch_read() {
 }
 
 /// A program asking for the background (`ESC ] 11 ; ? BEL`) and then reading what came back within a second,
-/// written to `file` as hex. It waits for `gate` first, when given.
-fn ask_background(file: &Path, gate: Option<&Path>) -> String {
+/// written to `file` as hex, and the variables it needs. It waits for `gate` first, when given.
+#[cfg(unix)]
+fn ask_background(file: &Path, gate: Option<&Path>) -> (Command, Vec<(String, String)>) {
     let wait = gate.map_or_else(String::new, |gate| {
         format!("while [ ! -e '{}' ]; do sleep 0.02; done; ", gate.display())
     });
-    format!(
+    let script = format!(
         "stty -icanon -echo min 0 time 10; {wait}printf 'asking\\n'; printf '\\033]11;?\\007'; sleep 1; \
          answer=$(dd bs=256 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'); \
          printf '%s\\n' \"$answer\" done > '{0}.tmp'; mv '{0}.tmp' '{0}'",
         file.display()
+    );
+    (sh(script), Vec::new())
+}
+
+/// [`ask_background`] on Windows: this test binary, started again as [`colour_asker`].
+#[cfg(windows)]
+fn ask_background(file: &Path, gate: Option<&Path>) -> (Command, Vec<(String, String)>) {
+    use otaq_core::service::testing::{ask_file_var, ask_gate_var, colour_asker_args};
+    let program = std::env::current_exe().expect("the test binary");
+    let env = [(ask_file_var(), Some(file)), (ask_gate_var(), gate)]
+        .into_iter()
+        .filter_map(|(name, path)| Some((name, path?.display().to_string())))
+        .collect();
+    (
+        (
+            program.display().to_string(),
+            colour_asker_args("theme_kind::colour_asker"),
+        ),
+        env,
     )
+}
+
+/// The program [`ask_background`] starts on Windows (Q601); does nothing when run with the other ignored tests.
+#[cfg(windows)]
+#[test]
+#[ignore = "the colour tests' stand-in program on Windows"]
+fn colour_asker() {
+    otaq_core::service::testing::colour_asker();
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -195,15 +234,8 @@ async fn with_no_terminal_the_service_answers_a_colour_question_once() {
     use_theme(&w, Theme::OtaqLight).await;
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("answer");
-    spawn(
-        &w,
-        &project,
-        SessionKind::Project,
-        None,
-        ask_background(&file, None),
-        vec![],
-    )
-    .await;
+    let (command, env) = ask_background(&file, None);
+    spawn(&w, &project, SessionKind::Project, None, command, env).await;
     assert_eq!(
         read_when_done(&file).await.trim(),
         hex(b"\x1b]11;rgb:fafa/fafa/f8f8\x07"),
@@ -223,15 +255,8 @@ async fn an_attached_terminal_answers_alone_and_a_read_only_one_leaves_it_to_the
     for answers in [true, false] {
         let file = tmp.path().join(format!("answer-{answers}"));
         let gate = tmp.path().join(format!("gate-{answers}"));
-        let id = spawn(
-            &w,
-            &project,
-            SessionKind::Project,
-            None,
-            ask_background(&file, Some(&gate)),
-            vec![],
-        )
-        .await;
+        let (command, env) = ask_background(&file, Some(&gate));
+        let id = spawn(&w, &project, SessionKind::Project, None, command, env).await;
         let (mut attached, held) = w.sessions.attach_answering(&id, answers).unwrap();
         assert_eq!(held.is_some(), answers);
         std::fs::write(&gate, "").unwrap();
@@ -272,15 +297,8 @@ async fn a_detached_terminal_hands_the_answers_back_to_the_service() {
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("answer");
     let gate = tmp.path().join("gate");
-    let id = spawn(
-        &w,
-        &project,
-        SessionKind::Project,
-        None,
-        ask_background(&file, Some(&gate)),
-        vec![],
-    )
-    .await;
+    let (command, env) = ask_background(&file, Some(&gate));
+    let id = spawn(&w, &project, SessionKind::Project, None, command, env).await;
     let (_, held) = w.sessions.attach_answering(&id, true).unwrap();
     drop(held);
     std::fs::write(&gate, "").unwrap();

@@ -16,6 +16,7 @@
 //! or when the service stops; the next service start reconciles their tickets ([`crate::recovery`]).
 
 pub mod colors;
+pub mod conpty;
 pub mod deliveries;
 pub mod env;
 pub mod hand_offs;
@@ -777,6 +778,9 @@ impl Sessions {
             run_prepare(step, PREPARE_TIMEOUT).await?;
         }
 
+        if cfg!(windows) {
+            conpty::preload();
+        }
         let pty = native_pty_system()
             .openpty(spec.size.pty())
             .map_err(|e| SessionError::Spawn(e.to_string()))?;
@@ -1763,9 +1767,11 @@ fn read_output(
     drained: std::sync::mpsc::Sender<()>,
 ) {
     let mut buf = vec![0u8; 16 * 1024];
-    // Windows: ConPTY starts by asking the terminal where the cursor is and holds all output until it hears back.
-    // The service answers that first question itself (top left), so a session runs before any terminal attaches,
-    // and keeps it out of the scrollback, so no attached terminal answers it a second time.
+    // Windows: ConPTY starts by asking the terminal where the cursor is and holds all output until it hears back;
+    // Otaq's newer ConPTY ([`conpty`]) asks "what are you?" (DA1) right after it, in the same write, and holds the
+    // output about three seconds without an answer. The service answers both itself (top left; xterm.js's answer),
+    // so a session runs before any terminal attaches, and keeps them out of the scrollback, so no attached terminal
+    // answers them a second time.
     let mut startup_query = if cfg!(windows) { 4 } else { 0 };
     let mut queries = colors::QueryScanner::default();
     loop {
@@ -1778,8 +1784,13 @@ fn read_output(
                     if let Some(at) = find(&chunk, CURSOR_POSITION_QUERY) {
                         chunk.drain(at..at + CURSOR_POSITION_QUERY.len());
                         startup_query = 0;
+                        let mut answer = b"\x1b[1;1R".to_vec();
+                        if let Some(next) = find(&chunk[at..], ATTRIBUTES_QUERY) {
+                            chunk.drain(at + next..at + next + ATTRIBUTES_QUERY.len());
+                            answer.extend_from_slice(ATTRIBUTES_ANSWER);
+                        }
                         let mut writer = live.writer.lock().expect("session writer");
-                        let _ = writer.write_all(b"\x1b[1;1R").and_then(|()| writer.flush());
+                        let _ = writer.write_all(&answer).and_then(|()| writer.flush());
                     }
                     if chunk.is_empty() {
                         continue;
@@ -1813,6 +1824,10 @@ fn read_output(
 
 /// "Where is the cursor?" (DSR 6), which ConPTY sends when a session starts.
 const CURSOR_POSITION_QUERY: &[u8] = b"\x1b[6n";
+/// "What are you?" (DA1), which Otaq's ConPTY sends right after [`CURSOR_POSITION_QUERY`].
+const ATTRIBUTES_QUERY: &[u8] = b"\x1b[c";
+/// xterm.js's answer to it: a VT100 with advanced video.
+const ATTRIBUTES_ANSWER: &[u8] = b"\x1b[?1;2c";
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
