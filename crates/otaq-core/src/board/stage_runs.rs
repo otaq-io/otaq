@@ -6,6 +6,10 @@
 //! run and opens one of the stage it entered, with that stage's live session; a session, a validation round and its
 //! end fill in the rest. A move that knows how its run ended says so first ([`end_open`]), and the stages a ticket
 //! skipped get a run of their own ([`record`]).
+//!
+//! Runs are in the order they opened, the table's `rowid`, never by their times: the triggers stamp theirs with
+//! SQLite's clock and [`record_kind`] with the service's, and on Windows SQLite's clock trails by up to a timer tick
+//! (about 16 ms), so a skipped stage's run could read as starting after the run the same move opened behind it.
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, Transaction};
@@ -183,7 +187,7 @@ impl Board {
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
     }
 
-    /// Every stage run of the ticket, oldest first.
+    /// Every stage run of the ticket, in the order they opened.
     pub async fn stage_runs(&self, key: &str) -> Result<Vec<StageRun>, BoardError> {
         let id = self.ticket_id(key).await?;
         type Row = (
@@ -203,7 +207,7 @@ impl Board {
                     r.ended_at
              FROM stage_runs r
              LEFT JOIN ticket_comments c ON c.id = r.comment_id AND c.deleted_at IS NULL
-             WHERE r.ticket_id = ? ORDER BY r.started_at, r.rowid",
+             WHERE r.ticket_id = ? ORDER BY r.rowid",
         )
         .bind(&id)
         .fetch_all(self.store.pool())

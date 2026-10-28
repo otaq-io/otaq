@@ -296,7 +296,7 @@ impl Board {
         }
         let left: Option<String> = sqlx::query_scalar(
             "SELECT stage_id FROM stage_runs WHERE ticket_id = ? AND kind = 'agent'
-             ORDER BY started_at DESC, rowid DESC LIMIT 1",
+             ORDER BY rowid DESC LIMIT 1",
         )
         .bind(&ticket.id)
         .fetch_optional(self.store.pool())

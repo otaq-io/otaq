@@ -447,6 +447,47 @@ async fn forward_past_checks_marks_them_and_delivers_on_a_click() {
     w.stop().await;
 }
 
+/// The runs a move writes keep the order they were written in, whatever their times say (Q601): the skipped runs are
+/// stamped by the service's clock and the run it opens in QA by SQLite's, which on Windows trails by up to a timer tick
+/// (about 16 ms). Stamped as Windows can stamp them, the skipped runs read as starting after QA's: the card still says
+/// it skipped Security, and its runs read Dev, Validate, Security, QA.
+#[tokio::test(flavor = "multi_thread")]
+async fn runs_keep_their_order_when_the_clocks_disagree() {
+    let w = world().await;
+    w.board.use_flow_for_tests("SHOP", &every_kind()).await;
+    let t = ran_dev_then(&w, "Split user full name", "dev", Status::Idle).await;
+    drag(&w, "SHOP-1", DropTarget::ReadyForReview, "")
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE stage_runs SET started_at = started_at + 16, ended_at = ended_at + 16
+         WHERE ticket_id = ? AND result = 'skipped'",
+    )
+    .bind(&t.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let runs = w.board.stage_runs("SHOP-1").await.unwrap();
+    let stages: Vec<&str> = runs.iter().map(|r| r.stage.as_str()).collect();
+    assert_eq!(stages, ["dev", "validate", "security", "qa"]);
+    assert_eq!(
+        arrival(&w, "SHOP-1").await.as_deref(),
+        Some("Skipped Security \u{b7} by you")
+    );
+    let listed = w.board.tickets("SHOP").await.unwrap();
+    assert_eq!(
+        listed[0]
+            .flags
+            .arrival
+            .as_ref()
+            .map(|a| a.label())
+            .as_deref(),
+        Some("Skipped Security \u{b7} by you"),
+        "the card on the board"
+    );
+    w.stop().await;
+}
+
 /// The very next stage is Move to next stage: from Dev onto Validate, a checker starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_next_stage_is_move_to_next_stage() {

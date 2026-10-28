@@ -142,20 +142,37 @@ fn powershell_file(file: &Path) -> Vec<String> {
     .collect()
 }
 
-/// Waits for a file to be written and returns its trimmed contents.
-async fn read_when_written(path: &Path) -> String {
-    tokio::time::timeout(Duration::from_secs(10), async {
+/// Waits for the session `session` to write a file and returns its trimmed contents. The wait lasts while the session
+/// runs: on a busy Windows machine one PowerShell can take seconds to start, and the nested test starts two (a fixed
+/// 10 s once ran out under a full parallel run). A session that ends without writing it fails at once, with what it
+/// printed; the minute only guards against a hang.
+async fn read_when_written(path: &Path, sessions: &Sessions, session: &str) -> String {
+    let written = || {
+        std::fs::read_to_string(path)
+            .ok()
+            .filter(|text| text.ends_with('\n'))
+            .map(|text| text.trim().to_owned())
+    };
+    tokio::time::timeout(Duration::from_secs(60), async {
         loop {
-            if let Ok(text) = std::fs::read_to_string(path)
-                && text.ends_with('\n')
-            {
-                return text.trim().to_owned();
+            let ended = sessions
+                .output_of_session(session)
+                .filter(|(info, _, _)| !info.is_running());
+            if let Some(text) = written() {
+                return text;
+            }
+            if let Some((_, output, _)) = ended {
+                panic!(
+                    "{} never written: the session ended first, printing {:?}",
+                    path.display(),
+                    String::from_utf8_lossy(&output)
+                );
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("{} never written", path.display()))
+    .unwrap_or_else(|_| panic!("{} never written within a minute", path.display()))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -191,7 +208,10 @@ async fn nested_shells_inside_an_agent_session_are_that_agent() {
         );
         w.run_powershell(SessionKind::Agent, "outer", &script).await
     };
-    let pid: u32 = read_when_written(&out).await.parse().unwrap();
+    let pid: u32 = read_when_written(&out, &w.sessions, &session)
+        .await
+        .parse()
+        .unwrap();
     match caller::resolve(Some(pid), &w.sessions) {
         Caller::Agent {
             ticket,
@@ -235,7 +255,10 @@ async fn processes_inside_a_validator_session_are_the_validator() {
         w.run_powershell(SessionKind::Validator, "validator", &script)
             .await
     };
-    let pid: u32 = read_when_written(&out).await.parse().unwrap();
+    let pid: u32 = read_when_written(&out, &w.sessions, &session)
+        .await
+        .parse()
+        .unwrap();
     match caller::resolve(Some(pid), &w.sessions) {
         Caller::Validator {
             ticket,
@@ -301,7 +324,10 @@ async fn processes_inside_a_project_agent_session_are_that_project_agent() {
         .await
         .unwrap();
     let session = agent.session.as_ref().expect("a session").id.clone();
-    let pid: u32 = read_when_written(&out).await.parse().unwrap();
+    let pid: u32 = read_when_written(&out, &w.sessions, &session)
+        .await
+        .parse()
+        .unwrap();
     match caller::resolve(Some(pid), &w.sessions) {
         Caller::ProjectAgent {
             project,
@@ -454,7 +480,10 @@ async fn shell_project_and_run_sessions_are_the_user() {
             w.run_powershell(kind, &format!("user-{kind}"), &script)
                 .await
         };
-        let pid: u32 = read_when_written(&out).await.parse().unwrap();
+        let pid: u32 = read_when_written(&out, &w.sessions, &session)
+            .await
+            .parse()
+            .unwrap();
         assert_eq!(
             caller::resolve(Some(pid), &w.sessions),
             Caller::User,
@@ -473,17 +502,17 @@ async fn requests_from_an_agent_session_act_as_the_agent() {
     let out = w.home.path().join("reply");
     let request = r#"{"protocol_version":1,"id":1,"caller":"nevzat","request":{"method":"ticket.update","params":{"key":"SHOP-1","title":"Split the full name"}}}"#;
     #[cfg(unix)]
-    {
+    let session = {
         let script = format!(
             "printf '%s\\n' '{request}' | env -u {var} nc -U -w 2 '{sock}' > '{out}.tmp'; mv '{out}.tmp' '{out}'; echo >> '{out}'",
             var = naming::ticket_env_var(),
             sock = w.socket().display(),
             out = out.display()
         );
-        w.run(SessionKind::Agent, &script).await;
-    }
+        w.run(SessionKind::Agent, &script).await
+    };
     #[cfg(windows)]
-    {
+    let session = {
         let pipe = otaq_core::ipc::pipe_name(&w.socket());
         let script = format!(
             "Remove-Item Env:\\{var} -ErrorAction SilentlyContinue
@@ -501,9 +530,9 @@ Move-Item '{out}.tmp' '{out}'
             out = out.display()
         );
         w.run_powershell(SessionKind::Agent, "request", &script)
-            .await;
-    }
-    let reply = read_when_written(&out).await;
+            .await
+    };
+    let reply = read_when_written(&out, &w.sessions, &session).await;
     assert!(reply.contains("\"reply\""), "{reply}");
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(ticket.title, "Split the full name");

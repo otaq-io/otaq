@@ -215,7 +215,7 @@ pub struct SessionTicket {
 /// the card to an earlier stage opens that stage's run with the later stage's session, until it stops; d0131).
 pub const OWN_STAGE: &str =
     "(SELECT r.stage_id FROM stage_runs r WHERE r.session_id = s.id AND r.kind = 'agent'
-                               ORDER BY r.started_at, r.rowid LIMIT 1)";
+                               ORDER BY r.rowid LIMIT 1)";
 
 /// The Agent stage the session `session` ran ([`OWN_STAGE`]), `None` when it ran none.
 pub async fn own_stage(
