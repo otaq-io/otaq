@@ -198,7 +198,9 @@ pub async fn run(
     cwd: &Path,
 ) -> Result<ModelList, ModelListError> {
     let command = list_command(cwd);
-    let mut child = tokio::process::Command::new(program)
+    let launch = crate::tools::cmd_shim::command(program, path)
+        .map_err(|e| failed(e.message(Some(super::DISPLAY_NAME))))?;
+    let mut child = tokio::process::Command::from(launch)
         .args(&command.args)
         .env("PATH", path)
         .current_dir(cwd)

@@ -1,6 +1,8 @@
 //! Shared fixtures for the board tests: a store in a temporary data folder and temporary git repositories.
 
 pub mod freed;
+#[cfg(windows)]
+pub mod npm_install;
 pub mod resources;
 // Unix only: the stand-in is an `sh` script linked under the tools' names, which Windows can't run (Q598).
 #[cfg(unix)]

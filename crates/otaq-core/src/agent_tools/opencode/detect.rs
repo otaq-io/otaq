@@ -55,7 +55,10 @@ pub(super) async fn signed_in(context: &OpenCodeContext) -> (Option<bool>, Optio
     let Some(program) = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path) else {
         return (None, None);
     };
-    let mut run = tokio::process::Command::new(&program);
+    let Ok(launch) = crate::tools::cmd_shim::command(&program, &context.tool.path) else {
+        return (None, None);
+    };
+    let mut run = tokio::process::Command::from(launch);
     run.args(auth_list_args())
         .env("PATH", &context.tool.path)
         .stdin(std::process::Stdio::null())

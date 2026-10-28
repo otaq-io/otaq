@@ -105,7 +105,22 @@ impl Suggester {
             })
             .map_err(|e| BoardError::refused(Refusal::NotAvailableYet, e.0))?;
         let program = question.program;
-        let mut command = tokio::process::Command::new(&program);
+        // A bare name is found on the question's PATH, and an npm launcher read, not run ([`crate::tools::cmd_shim`]).
+        let path = question
+            .env
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.into())
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default();
+        let mut command: tokio::process::Command = crate::tools::cmd_shim::command(&program, &path)
+            .map_err(|e| {
+                BoardError::refused(
+                    Refusal::NotAvailableYet,
+                    e.message(runs_on.tool.map(Tool::display_name)),
+                )
+            })?
+            .into();
         command
             .args(&question.args)
             .envs(question.env.iter().map(|(k, v)| (k, v)))

@@ -190,3 +190,26 @@ fn path_lookup_needs_an_executable() {
         Some(git)
     );
 }
+
+/// A program started outside a terminal (a model list, Codex's app server, a one-off question) through an npm
+/// launcher on Windows gets its arguments as written (d0088 point 2).
+#[cfg(windows)]
+#[test]
+fn an_npm_tool_started_outside_a_terminal_gets_its_arguments_as_written() {
+    use crate::common::npm_install;
+    let dir = tempfile::tempdir().unwrap();
+    let npm = npm_install::install(dir.path());
+    let path = npm_install::path(&npm);
+    let out = dir.path().join("argv.json");
+    let status = tools::cmd_shim::command("codex", &path)
+        .unwrap()
+        .args([npm_install::MESSAGE, npm_install::MORE])
+        .env("ARGV_OUT", &out)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        npm_install::arguments(&out),
+        vec![npm_install::MESSAGE, npm_install::MORE]
+    );
+}

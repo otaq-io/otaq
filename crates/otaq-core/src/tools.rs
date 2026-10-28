@@ -37,6 +37,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod cmd_shim;
+
 /// How long one tool may take to answer (`az` is slow).
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long the login shell may take to print its `PATH`.

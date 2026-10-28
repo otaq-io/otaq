@@ -18,7 +18,7 @@
 
 use std::collections::VecDeque;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -107,7 +107,7 @@ fn run(
     timeout: Duration,
 ) -> Option<String> {
     let program = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path)?;
-    let mut command = Command::new(program);
+    let mut command = crate::tools::cmd_shim::command(&program, &context.tool.path).ok()?;
     command
         .args(args)
         .env("PATH", &context.tool.path)

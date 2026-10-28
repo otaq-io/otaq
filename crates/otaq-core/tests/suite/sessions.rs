@@ -144,6 +144,68 @@ async fn a_bare_name_runs_the_program_on_the_sessions_path() {
     assert_eq!(ended.end_reason.as_deref(), Some("exit 3"));
 }
 
+/// An npm-installed tool on Windows gets its arguments as written (d0088 point 2): its `.cmd` is read and Node
+/// started with the tool's script, so nothing passes through cmd.exe.
+#[cfg(windows)]
+#[tokio::test]
+async fn an_npm_tool_gets_the_first_message_as_written() {
+    use crate::common::npm_install;
+    let f = Fixture::shop().await;
+    let sessions = manager(&f);
+    let dir = tempfile::tempdir().unwrap();
+    let npm = npm_install::install(dir.path());
+    let out = dir.path().join("argv.json");
+    let mut s = spec(&f, None, "");
+    s.program = "codex".into();
+    s.args = vec![npm_install::MESSAGE.into(), npm_install::MORE.into()];
+    s.env = vec![
+        (
+            "PATH".into(),
+            npm_install::path(&npm).to_string_lossy().into_owned(),
+        ),
+        ("ARGV_OUT".into(), out.display().to_string()),
+    ];
+    s.project_id = project_id(&f).await;
+    let info = sessions.spawn(s).await.unwrap();
+    let ended = tokio::time::timeout(WAIT, sessions.wait_ended(&info.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(ended.end_reason.as_deref(), Some("exit 0"));
+    assert_eq!(
+        npm_install::arguments(&out),
+        vec![npm_install::MESSAGE, npm_install::MORE]
+    );
+}
+
+/// A `.cmd` that isn't an npm launcher doesn't start (never through cmd.exe), and says which file and what to do.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_cmd_otaq_cant_read_does_not_start() {
+    let f = Fixture::shop().await;
+    let sessions = manager(&f);
+    let dir = tempfile::tempdir().unwrap();
+    let tool = dir.path().join("codex.cmd");
+    std::fs::write(&tool, "@echo off\r\necho %*\r\n").unwrap();
+    let mut s = spec(&f, None, "");
+    s.program = "codex".into();
+    s.args = vec!["hello".into()];
+    s.env = vec![("PATH".into(), dir.path().display().to_string())];
+    s.tool = Some(otaq_core::agent_tools::Tool::Codex);
+    s.project_id = project_id(&f).await;
+    let Err(SessionError::Spawn(message)) = sessions.spawn(s).await else {
+        panic!("started");
+    };
+    assert_eq!(
+        message,
+        format!(
+            "Codex is started through your own script file ({}), which Otaq can\u{2019}t run safely. Install \
+             Codex the normal way, or start it without the script.",
+            tool.display()
+        )
+    );
+}
+
 #[tokio::test]
 async fn exit_code_is_the_end_reason() {
     let f = Fixture::shop().await;

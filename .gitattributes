@@ -1,3 +1,6 @@
 # Text files keep LF line endings in every checkout, Windows included: Git for Windows turns on core.autocrlf by
 # default, and Prettier's format check (scripts/check.ps1) fails on CRLF files. Binary files are left alone.
 * text=auto eol=lf
+
+# Saved Windows launchers keep their CRLF line endings, byte for byte.
+crates/otaq-core/tests/fixtures/npm-shims/*.cmd -text
