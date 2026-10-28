@@ -662,7 +662,7 @@ mod tests {
             let file = config_toml::path(&self.home());
             let plugin = format!(
                 r#"case "$2 $3" in
-    "marketplace add") /usr/bin/grep -q '^\[marketplaces.{marketplace}\]' '{f}' || printf '\n[marketplaces.{marketplace}]\nsource_type = "local"\nsource = "%s"\n' "$4" >> '{f}' ;;
+    "marketplace add") /usr/bin/grep -q '^\[marketplaces.{marketplace}\]' '{f}' || printf '\n[marketplaces.{marketplace}]\nsource_type = "local"\nsource = "%s"\n' "$(printf '%s' "$4" | /usr/bin/sed 's/\\/\\\\/g')" >> '{f}' ;;
     "add {id}") /usr/bin/grep -q '^\[plugins."{id}"\]' '{f}' || printf '\n[plugins."{id}"]\nenabled = true\n' >> '{f}' ;;
   esac"#,
                 f = file.display()
@@ -997,7 +997,13 @@ mod tests {
         assert_eq!(launch_refusal(&context), None);
         let config = home.config();
         assert!(
-            config.contains(&format!("source = \"{}\"", home.codex_folder().display())),
+            config.contains(&format!(
+                "source = \"{}\"",
+                home.codex_folder()
+                    .display()
+                    .to_string()
+                    .replace('\\', "\\\\")
+            )),
             "{config}"
         );
 

@@ -310,8 +310,9 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
     assert_eq!(big.report.unwrap().bytes, REPORT_LIMIT_BYTES);
     let files_before = report_files(&w);
     assert_eq!(files_before.len(), 3);
+    // `write`, not `append`: on Windows an append-only handle can't change the file's length (Access is denied).
     std::fs::OpenOptions::new()
-        .append(true)
+        .write(true)
         .open(&at_limit)
         .unwrap()
         .set_len(REPORT_LIMIT_BYTES + 1)
@@ -334,7 +335,7 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
          tests."
     );
     std::fs::OpenOptions::new()
-        .append(true)
+        .write(true)
         .open(&at_limit)
         .unwrap()
         .set_len(212 * 1024 * 1024)

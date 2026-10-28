@@ -115,6 +115,35 @@ async fn output_is_stored_and_exit_is_recorded() {
     assert_eq!(row.3, "agent");
 }
 
+/// A program named without its folder runs what a PATH lookup finds, as the tool check finds it: on Windows npm puts
+/// an `sh` script without an extension beside the `.cmd` that starts the tool (`codex`, `codex.cmd`), and the
+/// `.cmd` runs.
+#[tokio::test]
+async fn a_bare_name_runs_the_program_on_the_sessions_path() {
+    let f = Fixture::shop().await;
+    let sessions = manager(&f);
+    let bin = tempfile::tempdir().unwrap();
+    otaq_core::process::testing::stub_command(bin.path(), "tool", "exit 3");
+    if cfg!(windows) {
+        std::fs::write(
+            bin.path().join("tool"),
+            "#!/bin/sh\nexec node tool.js \"$@\"\n",
+        )
+        .unwrap();
+    }
+    let mut s = spec(&f, None, "");
+    s.program = "tool".into();
+    s.args = vec![];
+    s.env = vec![("PATH".into(), bin.path().display().to_string())];
+    s.project_id = project_id(&f).await;
+    let info = sessions.spawn(s).await.unwrap();
+    let ended = tokio::time::timeout(WAIT, sessions.wait_ended(&info.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(ended.end_reason.as_deref(), Some("exit 3"));
+}
+
 #[tokio::test]
 async fn exit_code_is_the_end_reason() {
     let f = Fixture::shop().await;

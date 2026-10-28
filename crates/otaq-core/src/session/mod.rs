@@ -824,6 +824,17 @@ impl Sessions {
         ) {
             command.env(key, value);
         }
+        // On Windows portable-pty looks a bare name up on the session's PATH itself, but takes a file of exactly that
+        // name first: npm installs a tool as `codex.cmd` with an `sh` script `codex` beside it, which Windows can't
+        // start. The name is found here as the tool check finds it (an extension from PATHEXT).
+        if cfg!(windows)
+            && !spec.program.contains(['/', '\\'])
+            && let Some(found) = command
+                .get_env("PATH")
+                .and_then(|path| crate::tools::find_on_path(&spec.program, path))
+        {
+            command.get_argv_mut()[0] = found.into_os_string();
+        }
         let info = SessionInfo {
             id: id.unwrap_or_else(new_id),
             kind: spec.kind,

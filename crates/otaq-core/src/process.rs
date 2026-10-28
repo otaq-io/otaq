@@ -689,6 +689,36 @@ pub mod testing {
         Some(root.join("bin").join("sh.exe")).filter(|p| p.is_file())
     }
 
+    /// The folders a stand-in agent's PATH needs for `sh` and the Unix tools its scripts use: `/usr/bin` and `/bin`
+    /// on macOS and Linux; on Windows Git for Windows' `bin` (its `sh.exe`, which puts Git's Unix tools on its own
+    /// PATH) and `usr\bin` (those tools).
+    pub fn sh_dirs() -> Vec<std::path::PathBuf> {
+        #[cfg(unix)]
+        {
+            vec!["/usr/bin".into(), "/bin".into()]
+        }
+        #[cfg(windows)]
+        {
+            let sh = git_sh().expect("Git for Windows' sh.exe (tests need Git for Windows)");
+            let bin = sh.parent().expect("Git's bin").to_path_buf();
+            let usr_bin = bin.parent().expect("Git's folder").join("usr").join("bin");
+            vec![bin, usr_bin]
+        }
+    }
+
+    /// A one-line command for a project setting run with the platform's shell (a Merge check): `script` itself on
+    /// macOS and Linux; on Windows, where such a line runs with `cmd`, `sh "<dir>/<name>.sh"` with `script` in that
+    /// file. Stand-ins written in `sh` run the same everywhere.
+    pub fn sh_one_line(dir: &std::path::Path, name: &str, script: &str) -> String {
+        if cfg!(windows) {
+            let file = dir.join(format!("{name}.sh"));
+            std::fs::write(&file, format!("{script}\n")).expect("script written");
+            format!("sh \"{}\"", file.display())
+        } else {
+            script.to_owned()
+        }
+    }
+
     /// A command that runs for about `secs` seconds (`sleep`; `ping` on Windows, which has no plain sleep
     /// that works without a console).
     pub fn sleep_command(secs: u32) -> Command {

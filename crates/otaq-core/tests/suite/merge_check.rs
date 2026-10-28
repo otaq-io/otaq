@@ -11,6 +11,7 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, AutoMergeStop, MergeCheckState, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
+use otaq_core::process::testing::sh_one_line;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
 
@@ -232,11 +233,16 @@ async fn sees_the_variables_and_leaves_nothing_behind(w: TestService) {
     let seen = marks.path().join("seen");
     let mut settings = w.board.project_settings("SHOP").await.unwrap();
     settings.env_vars = vec![EnvVar::new("MY_FLAG", "on")];
-    settings.merge_check = Some(format!(
-        "(cat build/out.txt 2>/dev/null || echo 'no build') > '{seen}' && echo \"$MY_FLAG ${ticket}\" >> '{seen}' && echo made > made.txt",
-        seen = seen.display(),
-        ticket = naming::ticket_env_var(),
-    ));
+    let command = sh_one_line(
+        marks.path(),
+        "check",
+        &format!(
+            "(cat build/out.txt 2>/dev/null || echo 'no build') > '{seen}' && echo \"$MY_FLAG ${ticket}\" >> '{seen}' && echo made > made.txt",
+            seen = seen.display(),
+            ticket = naming::ticket_env_var(),
+        ),
+    );
+    settings.merge_check = Some(command.clone());
     w.board
         .save_project_settings("SHOP", &settings)
         .await
@@ -282,7 +288,7 @@ async fn sees_the_variables_and_leaves_nothing_behind(w: TestService) {
     assert!(
         std::fs::read_to_string(log)
             .unwrap()
-            .starts_with("$ (cat build/out.txt")
+            .starts_with(&format!("$ {command}\n"))
     );
     w.stop().await;
 }
@@ -294,7 +300,12 @@ async fn three_failures_in_a_row_stop_turquoise() {
     let w = TestService::start().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
-    set_check(&w, "echo 'FAIL: 1 of 284'; exit 3").await;
+    let marks = tempfile::tempdir().unwrap();
+    set_check(
+        &w,
+        &sh_one_line(marks.path(), "check", "echo 'FAIL: 1 of 284'; exit 3"),
+    )
+    .await;
     let (t, _) = reviewed(&w, "Card", "card.ts", "card\n").await;
     w.agent_shell(&t).await;
     commit(&repo, "other.ts", "main moved\n");
@@ -346,10 +357,14 @@ async fn a_stopped_check_merges_nothing_and_runs_again_next_time() {
     // Runs until released; the second run passes at once.
     set_check(
         &w,
-        &format!(
-            "if [ -e '{started}' ]; then exit 0; fi; touch '{started}'; while [ ! -e '{release}' ]; do sleep 0.05; done",
-            started = started.display(),
-            release = release.display()
+        &sh_one_line(
+            marks.path(),
+            "check",
+            &format!(
+                "if [ -e '{started}' ]; then exit 0; fi; touch '{started}'; while [ ! -e '{release}' ]; do sleep 0.05; done",
+                started = started.display(),
+                release = release.display()
+            ),
         ),
     )
     .await;
@@ -409,13 +424,18 @@ async fn two_merges_at_once_check_one_after_the_other() {
     let dir = marks.path().display().to_string();
     let ticket = naming::ticket_env_var();
     // Logs its start and end, notes an overlap, lists what it sees; SHOP-1's waits until released.
+    let scripts = tempfile::tempdir().unwrap();
     set_check(
         &w,
-        &format!(
+        &sh_one_line(
+            scripts.path(),
+            "check",
+            &format!(
             "echo \"${ticket} start\" >> '{dir}/log'; if [ -e '{dir}/running' ]; then echo overlap >> '{dir}/log'; fi; \
              touch '{dir}/running'; ls > '{dir}/'\"${ticket}\".ls; \
              if [ \"${ticket}\" = SHOP-1 ]; then while [ ! -e '{dir}/release' ]; do sleep 0.05; done; fi; \
              rm '{dir}/running'; echo \"${ticket} end\" >> '{dir}/log'"
+            ),
         ),
     )
     .await;

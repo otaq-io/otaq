@@ -170,10 +170,11 @@ async fn opening_starts_claude_with_the_role_the_skill_and_the_message_several_a
             (otaq_core::agent_tools::Tool::Claude, None)
         );
         let out = w.wait_for_output(&session.id, "CWD=").await;
-        // The skill and the message are one first prompt: the last argument.
+        // The skill and the message are one first prompt: the last argument. (A Windows console starts its output
+        // with escape sequences, on the ARGS line.)
         let args = out
             .lines()
-            .find(|l| l.starts_with("ARGS "))
+            .find_map(|l| l.find("ARGS ").map(|at| &l[at..]))
             .unwrap_or_default()
             .trim_end();
         assert!(
