@@ -55,7 +55,14 @@ const VIEW: AskBarView = {
   title: "ASK ABOUT",
   suggestions: [TICKET, CONTINUE, NEW],
   reply: null,
-  button: { icon: "bot", label: "Noyan", hint: "Open or close · ⌘L", tinted: false, dot: false },
+  button: {
+    icon: "bot",
+    label: "Noyan",
+    hint: "Open or close · ⌘L",
+    tinted: false,
+    dot: false,
+    dot_label: null,
+  },
 };
 
 let root: Root;

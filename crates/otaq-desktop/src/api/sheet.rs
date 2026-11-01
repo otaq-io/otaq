@@ -29,7 +29,7 @@ use otaq_view::icons::IconName;
 use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
-use otaq_view::view_models::answer_options::AnswerOptions;
+use otaq_view::view_models::answer_options::{Answer, AnswerOptions, question_bar};
 use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
@@ -254,33 +254,6 @@ pub struct SheetFrame {
     pub margin: f32,
 }
 
-/// One answer option (ATT-12): the recommended one is picked when the list opens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SheetAnswerRow")]
-pub struct AnswerRow {
-    pub number: u32,
-    pub label: String,
-    pub recommended: bool,
-    pub picked: bool,
-    pub other: bool,
-    /// The option's own note, its pros and cons (ATT-17), under the label, whole.
-    pub note: Option<String>,
-}
-
-/// The question with its options in the header (*SHOP-21 · Asks you · answer options*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SheetAnswer")]
-pub struct Answer {
-    pub question: String,
-    pub text: String,
-    pub rows: Vec<AnswerRow>,
-    pub recommended_label: &'static str,
-    pub other_placeholder: &'static str,
-    pub hint: &'static str,
-    pub in_terminal: &'static str,
-    pub send: &'static str,
-}
-
 /// Reopen parent / Remove dependency for a child of a closed parent (CLS-04), with the removal's confirmation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetParentChoice")]
@@ -489,31 +462,6 @@ fn answer_of(ticket: &Ticket) -> Option<Answer> {
         return None;
     }
     question_bar(ticket.question.as_ref()?)
-}
-
-fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option<Answer> {
-    let options = AnswerOptions::of(question)?;
-    Some(Answer {
-        question: question.id.clone(),
-        text: question.text.clone(),
-        rows: options
-            .rows()
-            .into_iter()
-            .map(|r| AnswerRow {
-                number: r.number,
-                label: r.label,
-                recommended: r.recommended,
-                picked: r.picked,
-                other: r.other,
-                note: r.note,
-            })
-            .collect(),
-        recommended_label: "Recommended",
-        other_placeholder: "Type your answer",
-        hint: "1\u{2013}4 pick \u{b7} \u{21b5} sends \u{b7} logged in Messages",
-        in_terminal: "Answer in terminal",
-        send: "Send answer",
-    })
 }
 
 fn notice_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<Notice> {

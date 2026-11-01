@@ -169,10 +169,11 @@ describe("the rail", () => {
       hint: "Open or close · ⌘L",
       tinted: false,
       dot: true,
+      dot_label: "New reply",
     };
     const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL, agent }));
     const order = [
-      'aria-label="Noyan"',
+      'aria-label="Noyan, New reply"',
       'class="rail-rule"',
       'aria-label="Terminals"',
       'aria-label="Cleanup"',
@@ -184,8 +185,19 @@ describe("the rail", () => {
     expect(out).toContain('<span class="rail-agent-dot"></span>');
     expect(out).not.toContain("data-tinted");
     const open = renderToStaticMarkup(
-      createElement(RailTiles, { view: RAIL, agent: { ...agent, tinted: true, dot: false } }),
+      createElement(RailTiles, {
+        view: RAIL,
+        agent: { ...agent, tinted: true, dot: false, dot_label: null },
+      }),
     );
+    // OTQ-9: a conversation that asks you says so, not "New reply".
+    const asks = renderToStaticMarkup(
+      createElement(RailTiles, {
+        view: RAIL,
+        agent: { ...agent, hint: "Asks you · Open or close · ⌘L", dot_label: "Asks you" },
+      }),
+    );
+    expect(asks).toContain('aria-label="Noyan, Asks you"');
     expect(open).toContain('aria-pressed="true" data-tinted="true"');
     expect(open).not.toContain("rail-agent-dot");
     // Before the Ask bar loaded: no button yet.

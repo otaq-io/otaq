@@ -108,7 +108,7 @@ export function RailAgentButton({ button }: { button: AskAgentButton }) {
       <button
         type="button"
         className="rail-agent"
-        aria-label={button.label}
+        aria-label={button.dot_label === null ? button.label : `${button.label}, ${button.dot_label}`}
         aria-pressed={button.tinted}
         data-tinted={button.tinted || undefined}
         onClick={() => {

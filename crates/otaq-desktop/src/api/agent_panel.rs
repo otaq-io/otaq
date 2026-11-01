@@ -30,6 +30,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "agent_panel.end" => reply(&end(app, parse(params)?).await?),
         "agent_panel.close_ended" => reply(&close_ended(app, parse(params)?).await?),
         "agent_panel.resume" => reply(&resume(app, parse(params)?).await?),
+        "agent_panel.answer" => reply(&answer(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -343,6 +344,70 @@ pub async fn resume(app: &App, params: ResumeParams) -> Result<String, RequestEr
     }
 }
 
+/// What `agent_panel.answer` takes (OTQ-9): the conversation, its open question, the picked number (Other… is the
+/// last; none for an open question), the typed text, and whether the terminal's typed line is cleared first.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "AgentAnswerParams")]
+pub struct AnswerParams {
+    pub project: String,
+    pub agent: String,
+    pub question: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub pick: Option<u32>,
+    #[serde(default)]
+    pub other: String,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+/// Send answer on a Project agent's question, from the strip's popover or the panel (OTQ-9, d0119): typed into its
+/// session as the options word it (`project_agent.answer`). Unsent text in its terminal: the user is asked first
+/// (d0048), nothing is typed.
+pub async fn answer(app: &App, params: AnswerParams) -> Result<super::sheet::Sent, RequestError> {
+    use otaq_core::protocol::ProjectAgentAnswerParams;
+    use otaq_core::session::deliveries::Delivery;
+    use otaq_view::view_models::{agent_question, answer as answer_vm, answer_options};
+    let list = agents(app, &params.project).await?;
+    let changed = || RequestError::plain("Noyan\u{2019}s question has changed");
+    let agent = list
+        .open
+        .iter()
+        .find(|a| a.id == params.agent)
+        .ok_or_else(changed)?;
+    let question = agent
+        .question
+        .as_ref()
+        .filter(|q| q.id == params.question)
+        .ok_or_else(changed)?;
+    let choice = answer_options::choice_for(question, params.pick, &params.other)
+        .ok_or_else(|| RequestError::plain("Pick an answer or type one"))?;
+    let request = Request::ProjectAgentAnswer(ProjectAgentAnswerParams {
+        id: agent.id.clone(),
+        choice: choice.clone(),
+        clear: params.clear,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::Sent { .. })) => Ok(super::sheet::Sent::Done),
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
+            Ok(super::sheet::Sent::Ask(super::sheet::Unsent::asking(
+                agent_question::unsent_title(&agent.name),
+                format!(
+                    "{} {}.",
+                    otaq_view::view_models::terminal_strip::UnsentPrompt::EXPLANATION,
+                    answer_vm::sending(&choice)
+                ),
+                unclearable_by.as_deref(),
+            )))
+        }
+        Ok(other) => Err(unexpected("project_agent.answer", &other)),
+        Err(e) => {
+            toast_error(app, "The answer to Noyan wasn\u{2019}t sent", &e);
+            Err(e)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -458,6 +523,15 @@ mod tests {
         table(&h.app, "agent_panel.rename", json!({ "id": "x", "name": " " }))
             .await
             .unwrap();
+        // OTQ-9: an answer to a conversation that isn't there (or no longer asks) is refused; nothing is typed.
+        let refused = table(
+            &h.app,
+            "agent_panel.answer",
+            json!({ "project": project, "agent": "gone", "question": "q1", "pick": 1, "other": "" }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refused.message, "Noyan\u{2019}s question has changed");
         h.service.stop_all().await;
     }
 }

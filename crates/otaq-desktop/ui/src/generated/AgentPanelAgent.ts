@@ -2,6 +2,7 @@
 import type { AgentPanelAgentLine } from "./AgentPanelAgentLine";
 import type { AgentPanelCreated } from "./AgentPanelCreated";
 import type { AgentPanelFooter } from "./AgentPanelFooter";
+import type { AgentQuestion } from "./AgentQuestion";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
@@ -19,4 +20,8 @@ ended: boolean, footer: AgentPanelFooter,
 /**
  * Its tool isn't available or is at its limit: the amber (or neutral) notice above the terminal.
  */
-notice: ToolProblemCallout | null, };
+notice: ToolProblemCallout | null, 
+/**
+ * Its open question (`otaq ask human`, d0119), answered above the terminal (OTQ-9).
+ */
+question: AgentQuestion | null, };

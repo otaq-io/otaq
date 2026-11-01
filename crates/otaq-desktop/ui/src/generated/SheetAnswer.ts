@@ -2,6 +2,11 @@
 import type { SheetAnswerRow } from "./SheetAnswerRow";
 
 /**
- * The question with its options in the header (*SHOP-21 · Asks you · answer options*).
+ * The question with its options in the header (*SHOP-21 · Asks you · answer options*); a Project agent's question
+ * too, in the strip's popover and above its terminal, where an open question has no rows (a free-text box).
  */
-export type SheetAnswer = { question: string, text: string, rows: Array<SheetAnswerRow>, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };
+export type SheetAnswer = { question: string, text: string, 
+/**
+ * The options and Other…; empty for an open question.
+ */
+rows: Array<SheetAnswerRow>, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };

@@ -40,6 +40,7 @@ import type { ToolProblemCallout as ToolProblemCalloutView } from "../../generat
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
+import { AgentQuestionBox } from "./AgentQuestion";
 import { Icon } from "../../theme/Icon";
 import { showAgentOnBoard } from "../board/filter";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
@@ -433,7 +434,7 @@ function RunningAgent({
   onShowOnBoard: () => void;
   onRename: () => void;
   onResume: () => void;
-  terminal: React.Ref<TerminalHandle>;
+  terminal: React.RefObject<TerminalHandle | null>;
 }) {
   const { footer } = agent;
   return (
@@ -447,6 +448,17 @@ function RunningAgent({
           onToggle={onToggleCreated}
           onShowOnBoard={onShowOnBoard}
         />
+      )}
+      {agent.question !== null && !agent.ended && (
+        <div className="agent-panel-question">
+          <AgentQuestionBox
+            key={agent.question.answer.question}
+            question={agent.question}
+            onTerminal={() => {
+              terminal.current?.focus();
+            }}
+          />
+        </div>
       )}
       <div className="agent-panel-well">
         <div className="agent-panel-terminal">
