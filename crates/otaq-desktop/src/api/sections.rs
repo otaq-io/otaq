@@ -301,13 +301,13 @@ pub struct HistoryTotal {
     pub tokens: String,
 }
 
-/// The sheet's Activity (SHT-05; History, UI-04): sessions and events, oldest first, under its filters.
+/// The sheet's Activity (SHT-05; History, UI-04): sessions and events, newest first, under its filters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryView")]
 pub struct HistoryView {
     /// All · Comments · Stages · Description.
     pub filters: Vec<FilterView>,
-    /// "oldest first".
+    /// "newest first".
     pub order: &'static str,
     pub rows: Vec<HistoryRowView>,
     pub copy_hint: &'static str,
@@ -319,7 +319,7 @@ pub struct HistoryView {
     pub key: String,
 }
 
-/// Activity from History's rows (newest first): oldest first, with the filters.
+/// Activity from History's rows, newest first as History builds them, with the filters.
 pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
     HistoryView {
         filters: history::Filter::ALL
@@ -330,8 +330,8 @@ pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
                 kind: filter.kind(),
             })
             .collect(),
-        order: history::OLDEST_FIRST,
-        rows: history::oldest_first(rows)
+        order: history::NEWEST_FIRST,
+        rows: rows
             .into_iter()
             .map(Into::into)
             .collect(),
@@ -483,7 +483,7 @@ mod tests {
                 ("Description", Some(history::Kind::Description))
             ]
         );
-        assert_eq!(history.order, "oldest first");
+        assert_eq!(history.order, "newest first");
         assert_eq!(history.copy_hint, "Copy session ID");
     }
 

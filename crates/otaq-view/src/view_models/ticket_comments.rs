@@ -1,10 +1,10 @@
 //! Ticket comments in the Ticket tab (CMT-10, CMT-11; d0109; *05 → Row · Ticket comments and a report* `s05-41` /
 //! `s05-42`, *Row · Writing, editing and deleting* `s05-43` / `s05-44`): the thread under "Description · the plan"
-//! and the box at its end. Not the line comments on a diff ([`super::comments`]).
+//! and the box at its top. Not the line comments on a diff ([`super::comments`]).
 //!
-//! - **The thread:** "Comments · 4" with "Every stage's agent reads them before it starts", oldest first. Each comment
-//!   says who wrote it, in which stage and round, and when ("Validate · round 2 · 3:05 pm"); yours are tinted with the
-//!   accent, an agent's carries its tool's avatar (a plain agent mark while avatars are hidden, SHL-08); "· edited"
+//! - **The thread:** "Comments · 4" with "Every stage's agent reads them before it starts", newest first under the
+//!   box (agents still read them oldest first in `otaq prime`, d0109). Each comment says who wrote it, in which stage
+//!   and round, and when ("Validate · round 2 · 3:05 pm"); yours are tinted with the accent, an agent's carries its tool's avatar (a plain agent mark while avatars are hidden, SHL-08); "· edited"
 //!   once changed; a report is a chip "Report · 48 KB" with Open.
 //! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). A paste over the limit
 //!   becomes a "Pasted text · 48 KB" chip, never text; typing past it shows "2,140 / 2,000" and turns Comment off. The
@@ -222,6 +222,7 @@ pub struct ThreadView {
     pub heading: String,
     pub hint: String,
     pub count: u32,
+    /// Newest first, under the box.
     pub comments: Vec<CommentRow>,
     /// The ⋯ menu, the same on every comment (the user may edit and delete any, CMT-04).
     pub menu: Vec<MenuItem>,
@@ -263,6 +264,7 @@ pub fn thread(facts: &Facts, clock: &dyn Fn(i64) -> String) -> ThreadView {
         comments: facts
             .comments
             .iter()
+            .rev()
             .map(|c| row(c, facts.avatars, clock))
             .collect(),
         menu: menu(),
@@ -519,14 +521,15 @@ mod tests {
         assert_eq!(
             lines,
             [
-                ("Spec writer", "Product spec \u{b7} 2:14 pm", false),
-                ("You", "2:20 pm", true),
-                ("Rust developer", "Dev \u{b7} 2:58 pm", false),
                 ("Validator", "Validate \u{b7} round 2 \u{b7} 3:05 pm", false),
-            ]
+                ("Rust developer", "Dev \u{b7} 2:58 pm", false),
+                ("You", "2:20 pm", true),
+                ("Spec writer", "Product spec \u{b7} 2:14 pm", false),
+            ],
+            "newest first"
         );
         // Yours carry the person mark, agents their tool's avatar.
-        assert_eq!(v.comments[1].mark, Mark::You);
+        assert_eq!(v.comments[2].mark, Mark::You);
         let letters: Vec<String> = v
             .comments
             .iter()
@@ -535,13 +538,13 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(letters, ["CC", "CC", "CX"]);
+        assert_eq!(letters, ["CX", "CC", "CC"]);
         // Only Validate's has a report.
         let reports: Vec<Option<&ReportChip>> =
             v.comments.iter().map(|c| c.report.as_ref()).collect();
-        assert_eq!(reports[..3], [None, None, None]);
+        assert_eq!(reports[1..], [None, None, None]);
         assert_eq!(
-            reports[3],
+            reports[0],
             Some(&ReportChip {
                 label: "Report".into(),
                 size: "\u{b7} 48 KB".into(),
@@ -568,9 +571,9 @@ mod tests {
         let mut comments = shop_34();
         comments[1].at_creation = true;
         let v = view(&comments, None);
-        assert_eq!(v.comments[1].meta, "at creation \u{b7} 2:20 pm");
+        assert_eq!(v.comments[2].meta, "at creation \u{b7} 2:20 pm");
         assert_eq!(
-            v.comments[1].heading,
+            v.comments[2].heading,
             "You \u{b7} at creation \u{b7} 2:20 pm"
         );
     }
@@ -596,9 +599,9 @@ mod tests {
             "Done. Excel not added; left a TODO in export.rs where it would go.".into();
         comments[2].edited_at = Some(at(15, 30));
         let v = view(&comments, Some("Rust developer"));
-        assert_eq!(v.comments[2].edited.as_deref(), Some("\u{b7} edited"));
-        assert_eq!(v.comments[2].body, comments[2].body);
-        assert_eq!(v.comments[1].editing_meta, "2:20 pm \u{b7} editing");
+        assert_eq!(v.comments[1].edited.as_deref(), Some("\u{b7} edited"));
+        assert_eq!(v.comments[1].body, comments[2].body);
+        assert_eq!(v.comments[2].editing_meta, "2:20 pm \u{b7} editing");
         assert_eq!(
             (v.edit.cancel.as_str(), v.edit.save.as_str()),
             ("Cancel", "Save")
@@ -619,10 +622,10 @@ mod tests {
         assert!(v.menu.iter().all(|i| !i.disabled));
         // The dialog shows who and when, the text, the report, and what deleting means.
         assert_eq!(
-            v.comments[3].heading,
+            v.comments[0].heading,
             "Validator \u{b7} Validate \u{b7} round 2 \u{b7} 3:05 pm"
         );
-        assert_eq!(v.comments[1].heading, "You \u{b7} 2:20 pm");
+        assert_eq!(v.comments[2].heading, "You \u{b7} 2:20 pm");
         assert_eq!(
             v.delete,
             DeleteTexts {

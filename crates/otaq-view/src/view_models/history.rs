@@ -10,7 +10,7 @@
 //! before / after or what the comment said, with its report (a deleted comment's still opens). Agents never see
 //! History.
 //!
-//! **Activity** (SHT-05, T-0466; canvas `s25-07`): the sheet's tab shows these rows oldest first ([`oldest_first`]),
+//! **Activity** (SHT-05, T-0466; canvas `s25-07`): the sheet's tab shows these rows newest first ([`NEWEST_FIRST`]),
 //! each tagged with its [`Kind`], under the filters **All · Comments · Stages · Description** ([`Filter`]).
 
 use std::collections::BTreeMap;
@@ -200,14 +200,8 @@ impl Filter {
     }
 }
 
-/// Activity's order note beside the filters.
-pub const OLDEST_FIRST: &str = "oldest first";
-
-/// The rows as Activity lists them: oldest first (History builds them newest first).
-pub fn oldest_first(mut rows: Vec<HistoryRow>) -> Vec<HistoryRow> {
-    rows.reverse();
-    rows
-}
+/// Activity's order note beside the filters: it lists History's rows as they are built, newest first.
+pub const NEWEST_FIRST: &str = "newest first";
 
 /// The rows `filter` shows, in their order.
 pub fn filtered(rows: &[HistoryRow], filter: Filter) -> Vec<&HistoryRow> {
@@ -1513,6 +1507,12 @@ mod tests {
     use otaq_core::session::SessionState;
     use serde_json::json;
 
+    /// The rows in the order they happened, for tests that read a story from its start.
+    fn oldest_first(mut rows: Vec<HistoryRow>) -> Vec<HistoryRow> {
+        rows.reverse();
+        rows
+    }
+
     fn session(id: &str, start: i64, end: Option<i64>, reason: Option<&str>) -> SessionInfo {
         SessionInfo {
             id: id.into(),
@@ -2125,9 +2125,9 @@ mod tests {
         assert!(rows.iter().all(|r| !r.title.contains("Done when")));
     }
 
-    /// Activity (SHT-05, `s25-07`): SHOP-22's story oldest first, under All · Comments · Stages · Description.
+    /// Activity (SHT-05, `s25-07`): SHOP-22's story newest first, under All · Comments · Stages · Description.
     #[test]
-    fn activity_lists_oldest_first_under_its_filters() {
+    fn activity_lists_newest_first_under_its_filters() {
         let before =
             "Users land on /login again right after signing in, about 1 in 20 times on Safari.";
         let after = format!(
@@ -2169,21 +2169,21 @@ mod tests {
             event(EventKind::Pinned, 7 * MIN, json!({})),
         ];
         let sessions = [session("dev", 5 * MIN, None, None)];
-        let rows = oldest_first(rows_in(&events, &sessions, &[], &facts));
+        let rows = rows_in(&events, &sessions, &[], &facts);
         let kinds: Vec<Kind> = rows.iter().map(|r| r.kind).collect();
         assert_eq!(
             kinds,
             [
                 Kind::Other,
+                Kind::Comment,
+                Kind::Stage,
+                Kind::Stage,
+                Kind::Comment,
                 Kind::Description,
-                Kind::Comment,
-                Kind::Stage,
-                Kind::Stage,
-                Kind::Comment,
                 Kind::Other
             ]
         );
-        assert_eq!(rows[0].title, "You created the ticket", "oldest first");
+        assert_eq!(rows[6].title, "You created the ticket", "newest first");
         let titles = |filter| -> Vec<String> {
             filtered(&rows, filter)
                 .iter()
@@ -2193,7 +2193,7 @@ mod tests {
         assert_eq!(titles(Filter::All).len(), rows.len());
         assert_eq!(
             titles(Filter::Comments),
-            ["Spec writer \u{b7} Product spec commented", "You commented"]
+            ["You commented", "Spec writer \u{b7} Product spec commented"]
         );
         assert_eq!(
             titles(Filter::Description),
