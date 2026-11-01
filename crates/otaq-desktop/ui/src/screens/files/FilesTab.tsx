@@ -51,6 +51,7 @@ import {
   NOTHING_OPEN,
   type OpenFile,
   changeRuns,
+  changedRows,
   chunks,
   openFile,
   pathParts,
@@ -1041,14 +1042,16 @@ export function FilesTabBody({
   } else if (filter === "changed") {
     left = (
       <div className="files-list" role="tree" aria-label={view.filters[1]}>
-        {(changes?.tree ?? []).map((row) => (
+        {changedRows(changes?.tree ?? [], state.shut).map((row) => (
           <TreeRowButton
             key={`${row.kind}:${row.path}`}
             row={row}
-            open
+            open={!state.shut.has(row.path)}
             selected={scrollTo === changeId(row)}
             onPress={(r) => {
-              if (r.kind !== "folder") setScrollTo(changeId(r));
+              // A folder closes and opens in the tree only: All changes still lists every file.
+              if (r.kind === "folder") onState((s) => ({ ...s, shut: toggled(s.shut, r.path) }));
+              else setScrollTo(changeId(r));
             }}
           />
         ))}
