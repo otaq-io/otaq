@@ -6,7 +6,7 @@
 // actions are the sheet's (`sheet/actions`); everything it says comes from `sheet.view`; it keeps only the picked
 // answer. At Review, "Manual checks for you" (the Overview's, `aboveBar`) sits above Approve, and a build set aside to
 // save disk says so under the bar (d0125, `BuildAside`; the Run and Shell show the same line).
-import { type ReactNode, useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
@@ -77,6 +77,110 @@ function ActionButton({
   );
 }
 
+/**
+ * The question and its numbered options (ATT-12, ATT-17), each with its note, the recommended one marked, and Other…'s
+ * field: a ticket's question bar and a Project agent's question (OTQ-9) draw it. 1–4 pick, ↵ sends.
+ */
+export function AnswerChoices({
+  answer,
+  pick,
+  other,
+  onPick,
+  onOther,
+  onSend,
+  options,
+}: {
+  answer: SheetAnswer;
+  pick: number | null;
+  other: string;
+  onPick: (pick: number) => void;
+  onOther: (other: string) => void;
+  onSend: () => void;
+  options?: Ref<HTMLDivElement>;
+}) {
+  const noteId = useId();
+  return (
+    <div className="sheet-answer">
+      <div className="sheet-answer-question">
+        <Icon name="message-circle-question-mark" size={14} />
+        <span>{answer.text}</span>
+      </div>
+      <div
+        ref={options}
+        className="sheet-answer-options"
+        role="radiogroup"
+        aria-label={answer.text}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          const n = pickByKey(e.key, answer.rows);
+          if (n !== null && !(e.target instanceof HTMLInputElement)) {
+            e.preventDefault();
+            onPick(n);
+          } else if (e.key === "Enter" && !(e.target instanceof HTMLInputElement)) {
+            e.preventDefault();
+            onSend();
+          }
+        }}
+      >
+        {answer.rows.map((row) => (
+          <button
+            key={row.number}
+            type="button"
+            role="radio"
+            aria-checked={pick === row.number}
+            aria-describedby={row.note === null ? undefined : `${noteId}-${String(row.number)}`}
+            className="sheet-answer-option"
+            data-picked={pick === row.number || undefined}
+            data-other={row.other || undefined}
+            onClick={() => {
+              onPick(row.number);
+            }}
+          >
+            <span className="sheet-answer-radio" />
+            <span className="sheet-answer-label">
+              {row.label}
+              {/* The option's note (ATT-17), whole and wrapped: its description. */}
+              {row.note !== null && (
+                <span id={`${noteId}-${String(row.number)}`} className="sheet-answer-note" aria-hidden>
+                  {row.note}
+                </span>
+              )}
+            </span>
+            {row.recommended && (
+              <span className="sheet-answer-rec">
+                <Icon name="star" size={10} />
+                {answer.recommended_label}
+              </span>
+            )}
+            <span className="sheet-answer-number">{row.number}</span>
+          </button>
+        ))}
+        {picksOther(pick, answer.rows) && (
+          <input
+            {...PLAIN_TEXT}
+            className="field-input sheet-answer-other"
+            value={other}
+            placeholder={answer.other_placeholder}
+            aria-label={answer.other_placeholder}
+            // The field appears because Other… was just picked: typing goes straight into it.
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- it opens on the user's own pick
+            autoFocus
+            onChange={(e) => {
+              onOther(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onSend();
+              }
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** The question bar with its options (ATT-12, ATT-17); the Gallery draws it too. */
 export function AnswerBox({
   view,
@@ -91,7 +195,6 @@ export function AnswerBox({
 }) {
   const [pick, setPick] = useState(() => initialPick(answer.rows));
   const options = useRef<HTMLDivElement>(null);
-  const noteId = useId();
   const [other, setOther] = useState("");
   const [sending, setSending] = useState(false);
   const send = (clear = false): Promise<unknown> => {
@@ -124,84 +227,17 @@ export function AnswerBox({
   }, [fromCard]);
   return (
     <>
-      <div className="sheet-answer">
-        <div className="sheet-answer-question">
-          <Icon name="message-circle-question-mark" size={14} />
-          <span>{answer.text}</span>
-        </div>
-        <div
-          ref={options}
-          className="sheet-answer-options"
-          role="radiogroup"
-          aria-label={answer.text}
-          tabIndex={-1}
-          onKeyDown={(e) => {
-            const n = pickByKey(e.key, answer.rows);
-            if (n !== null && !(e.target instanceof HTMLInputElement)) {
-              e.preventDefault();
-              setPick(n);
-            } else if (e.key === "Enter" && !(e.target instanceof HTMLInputElement)) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        >
-          {answer.rows.map((row) => (
-            <button
-              key={row.number}
-              type="button"
-              role="radio"
-              aria-checked={pick === row.number}
-              aria-describedby={row.note === null ? undefined : `${noteId}-${String(row.number)}`}
-              className="sheet-answer-option"
-              data-picked={pick === row.number || undefined}
-              data-other={row.other || undefined}
-              onClick={() => {
-                setPick(row.number);
-              }}
-            >
-              <span className="sheet-answer-radio" />
-              <span className="sheet-answer-label">
-                {row.label}
-                {/* The option's note (ATT-17), whole and wrapped: its description. */}
-                {row.note !== null && (
-                  <span id={`${noteId}-${String(row.number)}`} className="sheet-answer-note" aria-hidden>
-                    {row.note}
-                  </span>
-                )}
-              </span>
-              {row.recommended && (
-                <span className="sheet-answer-rec">
-                  <Icon name="star" size={10} />
-                  {answer.recommended_label}
-                </span>
-              )}
-              <span className="sheet-answer-number">{row.number}</span>
-            </button>
-          ))}
-          {picksOther(pick, answer.rows) && (
-            <input
-              {...PLAIN_TEXT}
-              className="field-input sheet-answer-other"
-              value={other}
-              placeholder={answer.other_placeholder}
-              aria-label={answer.other_placeholder}
-              // The field appears because Other… was just picked: typing goes straight into it.
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- it opens on the user's own pick
-              autoFocus
-              onChange={(e) => {
-                setOther(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-            />
-          )}
-        </div>
-      </div>
+      <AnswerChoices
+        answer={answer}
+        pick={pick}
+        other={other}
+        onPick={setPick}
+        onOther={setOther}
+        onSend={() => {
+          void send();
+        }}
+        options={options}
+      />
       <div className="sheet-bar">
         <span className="sheet-answer-hint">{answer.hint}</span>
         <Button

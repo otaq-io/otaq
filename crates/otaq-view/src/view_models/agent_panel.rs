@@ -395,6 +395,8 @@ pub struct Running {
     pub footer: Footer,
     /// Its tool isn't available or is at its limit: the amber (or neutral) notice above the terminal.
     pub notice: Option<Callout>,
+    /// Its open question (`otaq ask human`, d0119), answered above the terminal (OTQ-9).
+    pub question: Option<crate::view_models::agent_question::AgentQuestion>,
 }
 
 /// One row of the switcher: a Project agent of the project, with its state.
@@ -580,6 +582,7 @@ pub fn view(f: &Facts) -> AgentPanelView {
         session: a.session.as_ref().map(|s| s.id.clone()),
         ended: a.state != AgentState::Running,
         footer: footer(a, &f.keys),
+        question: crate::view_models::agent_question::of_agent(a),
     });
     AgentPanelView {
         agent: shown.map(|a| a.id.clone()),

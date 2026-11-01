@@ -56,7 +56,8 @@ pub struct Suggestion {
     pub agent: Option<String>,
 }
 
-/// "New reply" on the closed bar, naming the conversation (SHB-03).
+/// "New reply" on the closed bar, naming the conversation (SHB-03); "Asks you" while it waits for the answer to its
+/// question (OTQ-9, d0119).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AskReply")]
 pub struct Reply {
@@ -68,7 +69,8 @@ pub struct Reply {
 }
 
 /// The rail's Project agent button (SHB-02, `s24-05`): the bot icon, tinted while the panel is open, a dot while a
-/// reply waits; "Noyan" with "Open or close · ⌘L" on hover.
+/// reply waits; "Noyan" with "Open or close · ⌘L" on hover ("Asks you · Open or close · ⌘L" while a conversation
+/// asks you, OTQ-9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AskAgentButton")]
 pub struct AgentButton {
@@ -78,6 +80,8 @@ pub struct AgentButton {
     pub hint: String,
     pub tinted: bool,
     pub dot: bool,
+    /// What the dot says, for the hover and screen readers: "Asks you", "New reply"; `None` without a dot.
+    pub dot_label: Option<&'static str>,
 }
 
 /// Everything `ask_bar.view` answers for a project. `AskBarView` on the page.
@@ -179,17 +183,35 @@ fn last_conversation<'a>(
         })
 }
 
-/// The rail button's look.
-pub fn button(open: bool, dot: bool, keys: &KeyLabels) -> AgentButton {
+/// "New reply", or "Asks you" while the conversation waits for the answer to its question.
+pub const NEW_REPLY: &str = "New reply";
+pub const ASKS_YOU: &str = "Asks you";
+
+/// What a waiting conversation's reply says: "Asks you" while its question is open, else "New reply".
+pub fn reply_label(agent: &ProjectAgent) -> &'static str {
+    if agent.state == AgentState::Running && agent.question.is_some() {
+        ASKS_YOU
+    } else {
+        NEW_REPLY
+    }
+}
+
+/// The rail button's look; `dot` is what its dot says ("Asks you", "New reply"), `None` without one.
+pub fn button(open: bool, dot: Option<&'static str>, keys: &KeyLabels) -> AgentButton {
+    let hint = match keys.label(KeyAction::FocusAgentPanel) {
+        Some(keys) => format!("Open or close \u{b7} {keys}"),
+        None => "Open or close".to_owned(),
+    };
     AgentButton {
         icon: IconName::Bot,
         label: "Noyan",
-        hint: match keys.label(KeyAction::FocusAgentPanel) {
-            Some(keys) => format!("Open or close \u{b7} {keys}"),
-            None => "Open or close".to_owned(),
+        hint: match dot {
+            Some(ASKS_YOU) => format!("{ASKS_YOU} \u{b7} {hint}"),
+            _ => hint,
         },
         tinted: open,
-        dot,
+        dot: dot.is_some(),
+        dot_label: dot,
     }
 }
 
@@ -221,15 +243,22 @@ pub fn view(f: &Facts) -> AskBarView {
         agent: None,
     });
     let open_on = f.shown.filter(|_| f.open);
-    // The newest reply: the one whose turn ended last (a wait without a turn's end counts as now).
+    // A question first (it waits for the user), then the newest reply: the one whose turn ended last (a wait
+    // without a turn's end counts as now).
     let reply = f
         .agents
         .iter()
         .filter(|a| reply_waits(a, f.looked, open_on))
-        .max_by_key(|a| (a.turn_ended_at.unwrap_or(i64::MAX), a.created_at))
+        .max_by_key(|a| {
+            (
+                reply_label(a) == ASKS_YOU,
+                a.turn_ended_at.unwrap_or(i64::MAX),
+                a.created_at,
+            )
+        })
         .map(|a| Reply {
             agent: a.id.clone(),
-            label: "New reply",
+            label: reply_label(a),
             name: a.name.clone(),
         });
     AskBarView {
@@ -241,7 +270,7 @@ pub fn view(f: &Facts) -> AskBarView {
         send: "Send",
         title: "ASK ABOUT",
         suggestions,
-        button: button(f.open, reply.is_some(), f.keys),
+        button: button(f.open, reply.as_ref().map(|r| r.label), f.keys),
         reply,
     }
 }
@@ -511,13 +540,55 @@ mod tests {
         assert_eq!(view(&facts(&[b], &looked, &k)).reply, None);
     }
 
+    /// OTQ-9 (d0119): a conversation that asks you says so on the bar and the rail's dot, not "New reply", and comes
+    /// before a newer reply; answered, it is a reply like any other.
+    #[test]
+    fn a_question_says_asks_you_on_the_bar_and_the_dot() {
+        let k = keys::base();
+        let looked = Looked::new(0);
+        let mut asks = agent("a1", "Import issues", 1);
+        asks.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q1".into(),
+            text: "Import closed issues too?".into(),
+            options: Vec::new(),
+            recommended: None,
+            notes: Vec::new(),
+            asked_at: 0,
+        });
+        asks.turn_ended_at = Some(10);
+        let mut newer = agent("a2", "Checkout slowness", 2);
+        newer.turn_ended_at = Some(20);
+        let agents = [asks.clone(), newer];
+        let v = view(&facts(&agents, &looked, &k));
+        assert_eq!(
+            v.reply,
+            Some(Reply {
+                agent: "a1".into(),
+                label: "Asks you",
+                name: "Import issues".into()
+            })
+        );
+        assert!(v.button.dot);
+        assert_eq!(v.button.dot_label, Some("Asks you"));
+        assert_eq!(
+            v.button.hint,
+            "Asks you \u{b7} Open or close \u{b7} \u{2318}L"
+        );
+        // Answered: its turn goes on, and a reply is a "New reply" again.
+        asks.question = None;
+        let v = view(&facts(std::slice::from_ref(&asks), &looked, &k));
+        assert_eq!(v.reply.map(|r| r.label), Some("New reply"));
+        assert_eq!(v.button.dot_label, Some("New reply"));
+        assert_eq!(v.button.hint, "Open or close \u{b7} \u{2318}L");
+    }
+
     /// SHB-02: the rail button is tinted while the panel is open and has a dot while a reply waits; its hover names
     /// the user's key.
     #[test]
     fn the_rail_button_tints_while_open_and_dots_while_a_reply_waits() {
         let k = keys::base();
         for (open, dot) in [(false, false), (true, false), (false, true), (true, true)] {
-            let b = button(open, dot, &k);
+            let b = button(open, dot.then_some(NEW_REPLY), &k);
             assert_eq!((b.tinted, b.dot), (open, dot));
             assert_eq!(
                 (b.icon, b.label, b.hint.as_str()),
@@ -527,14 +598,14 @@ mod tests {
         assert_eq!(
             button(
                 false,
-                false,
+                None,
                 &keys::replaced("focus_agent_panel", None, 0, "⌥L")
             )
             .hint,
             "Open or close \u{b7} ⌥L"
         );
         assert_eq!(
-            button(false, false, &keys::removed("focus_agent_panel", None, 0)).hint,
+            button(false, None, &keys::removed("focus_agent_panel", None, 0)).hint,
             "Open or close"
         );
     }

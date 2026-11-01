@@ -8,6 +8,8 @@
 //! shown under the label in Needs you and the sheet, in the light hover card on the card.
 
 use otaq_core::board::questions::{Choice, HumanQuestion};
+use serde::Serialize;
+use ts_rs::TS;
 
 /// What is picked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +128,99 @@ impl AnswerOptions {
     /// Send is enabled.
     pub fn can_send(&self, other_text: &str) -> bool {
         self.choice(other_text).is_some()
+    }
+}
+
+/// One answer option (ATT-12): the recommended one is picked when the list opens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetAnswerRow")]
+pub struct AnswerRow {
+    pub number: u32,
+    pub label: String,
+    pub recommended: bool,
+    pub picked: bool,
+    pub other: bool,
+    /// The option's own note, its pros and cons (ATT-17), under the label, whole.
+    pub note: Option<String>,
+}
+
+/// The question with its options in the header (*SHOP-21 · Asks you · answer options*); a Project agent's question
+/// too, in the strip's popover and above its terminal, where an open question has no rows (a free-text box).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetAnswer")]
+pub struct Answer {
+    pub question: String,
+    pub text: String,
+    /// The options and Other…; empty for an open question.
+    pub rows: Vec<AnswerRow>,
+    pub recommended_label: &'static str,
+    pub other_placeholder: &'static str,
+    pub hint: &'static str,
+    pub in_terminal: &'static str,
+    pub send: &'static str,
+}
+
+fn rows_of(options: &AnswerOptions) -> Vec<AnswerRow> {
+    options
+        .rows()
+        .into_iter()
+        .map(|r| AnswerRow {
+            number: r.number,
+            label: r.label,
+            recommended: r.recommended,
+            picked: r.picked,
+            other: r.other,
+            note: r.note,
+        })
+        .collect()
+}
+
+/// A ticket's question bar: its options; `None` for a free-text question (answered in the terminal).
+pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
+    let options = AnswerOptions::of(question)?;
+    Some(Answer {
+        question: question.id.clone(),
+        text: question.text.clone(),
+        rows: rows_of(&options),
+        recommended_label: RECOMMENDED,
+        other_placeholder: "Type your answer",
+        hint: "1\u{2013}4 pick \u{b7} \u{21b5} sends \u{b7} logged in Messages",
+        in_terminal: "Answer in terminal",
+        send: "Send answer",
+    })
+}
+
+/// A Project agent's question (d0119, d0068): its options like a ticket's, or no rows and a free-text box for an
+/// open question.
+pub fn agent_question(question: &HumanQuestion) -> Answer {
+    let (rows, hint) = match AnswerOptions::of(question) {
+        Some(options) => (rows_of(&options), "1\u{2013}4 pick \u{b7} \u{21b5} sends"),
+        None => (Vec::new(), "\u{21b5} sends"),
+    };
+    Answer {
+        question: question.id.clone(),
+        text: question.text.clone(),
+        rows,
+        recommended_label: RECOMMENDED,
+        other_placeholder: "Type your answer",
+        hint,
+        in_terminal: "Answer in terminal",
+        send: "Send answer",
+    }
+}
+
+/// What a pick sends for `question`: an option, Other…'s text, or an open question's text; `None` when there is
+/// nothing to send.
+pub fn choice_for(question: &HumanQuestion, pick: Option<u32>, other: &str) -> Option<Choice> {
+    match AnswerOptions::of(question) {
+        Some(mut options) => {
+            options.press(pick?).then_some(())?;
+            options.choice(other)
+        }
+        None => {
+            let text = other.trim();
+            (!text.is_empty()).then(|| Choice::Other(text.to_owned()))
+        }
     }
 }
 

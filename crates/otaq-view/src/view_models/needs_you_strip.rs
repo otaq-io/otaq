@@ -235,6 +235,8 @@ pub struct Chip {
     pub target: Target,
     /// A helper's question the agent in charge passed on (d0133, `s30-02`): the chip opens this first.
     pub asks: Option<AsksPopover>,
+    /// A Project agent's question (OTQ-9, d0119): the chip opens it with its answer options, or a free-text box.
+    pub agent_asks: Option<crate::view_models::agent_question::AgentQuestion>,
 }
 
 /// The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, the agent in
@@ -508,6 +510,7 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         title: format!("{} {} \u{b7} {}", item.key, item.title, item.reason),
         target,
         asks: asks_popover(item),
+        agent_asks: None,
     })
 }
 
@@ -524,6 +527,11 @@ pub(crate) fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
         target,
         asks: None,
+        agent_asks: a
+            .question
+            .as_ref()
+            .filter(|_| a.status == Status::AsksYou)
+            .map(|q| crate::view_models::agent_question::of(&a.project, &a.agent, &a.name, q)),
     }
 }
 
@@ -769,7 +777,17 @@ pub mod samples {
             name: "Checkout slowness".into(),
             status: Status::AsksYou,
             reason: "asks: Add an index on orders.created_at?".into(),
-            question: None,
+            question: Some(HumanQuestion {
+                id: "pq1".into(),
+                text: "Add an index on orders.created_at?".into(),
+                options: vec!["Add the index".into(), "Leave it".into()],
+                recommended: Some(1),
+                notes: vec![
+                    Some("Checkout's slow query drops from 900 ms to 20 ms; one migration.".into()),
+                    Some("Nothing to migrate, but checkout stays slow on big carts.".into()),
+                ],
+                asked_at: 0,
+            }),
             since: 0,
         }
     }
@@ -808,6 +826,28 @@ mod tests {
             .iter()
             .map(|c| format!("{} {}", c.label, c.reason))
             .collect()
+    }
+
+    /// OTQ-9: an open question (no options) is a free-text box; a permission prompt has no popover.
+    #[test]
+    fn a_project_agents_open_question_and_its_permission_prompt() {
+        let target = Target::Agent {
+            project: "SHOP".into(),
+            agent: "pa3".into(),
+        };
+        let mut a = agent();
+        a.question.as_mut().unwrap().options.clear();
+        a.question.as_mut().unwrap().recommended = None;
+        a.question.as_mut().unwrap().notes.clear();
+        let chip = agent_chip(&a, target.clone());
+        let asks = chip.agent_asks.expect("the open question");
+        assert!(asks.answer.rows.is_empty());
+        assert_eq!(asks.answer.other_placeholder, "Type your answer");
+        a.status = Status::NeedsYou;
+        a.question = None;
+        let chip = agent_chip(&a, target);
+        assert_eq!(chip.reason, "allow a command");
+        assert_eq!(chip.agent_asks, None);
     }
 
     /// d0133 (`s30-02`): a helper's wait is its ticket's one chip, in the queue's place (d0016): "SHOP-40 · 40.2 asks"
@@ -987,6 +1027,27 @@ mod tests {
                 agent: "pa3".into()
             }
         );
+        // OTQ-9: its question opens in the chip's popover, answered there like a ticket's.
+        let asks = agent.agent_asks.as_ref().expect("the agent's question");
+        assert_eq!(asks.title, "Noyan \u{b7} Checkout slowness asks");
+        assert_eq!(
+            (asks.project.as_str(), asks.agent.as_str()),
+            ("SHOP", "pa3")
+        );
+        assert_eq!(asks.answer.text, "Add an index on orders.created_at?");
+        assert_eq!(
+            asks.answer
+                .rows
+                .iter()
+                .map(|r| (r.label.as_str(), r.recommended, r.picked, r.note.is_some()))
+                .collect::<Vec<_>>(),
+            [
+                ("Add the index", true, true, true),
+                ("Leave it", false, false, true),
+                ("Other\u{2026} type your own answer", false, false, false),
+            ]
+        );
+        assert_eq!(agent.asks, None);
         assert!(v.groups[1].chips.is_empty());
         assert_eq!(v.groups[1].resume_all, Some("Resume all"));
         assert_eq!(v.groups[2].title, "Checks \u{b7} 1");

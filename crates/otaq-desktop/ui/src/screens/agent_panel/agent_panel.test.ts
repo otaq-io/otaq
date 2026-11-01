@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { INITIAL_LAYOUT, shellLayout } from "../../app/layout";
+import { overlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, selection } from "../../app/selection";
 import type { AgentPanelView } from "../../generated/AgentPanelView";
@@ -119,6 +120,7 @@ const RUNNING: AgentPanelView = {
     },
     session: "s1",
     notice: null,
+    question: null,
     ended: false,
     footer: {
       text: "Typing goes to the agent",
@@ -451,6 +453,118 @@ const click = (label: string) => {
     found.click();
   });
 };
+
+describe("Noyan's question (OTQ-9, d0119)", () => {
+  const QUESTION = {
+    project: "NOTE",
+    agent: "a1",
+    title: "Noyan · Tickets waiting on NOTE-5 asks",
+    answer: {
+      question: "q7",
+      text: "Split NOTE-5 into two tickets?",
+      rows: [
+        {
+          number: 1,
+          label: "Split it",
+          recommended: false,
+          picked: false,
+          other: false,
+          note: "Two smaller reviews.",
+        },
+        {
+          number: 2,
+          label: "Keep one",
+          recommended: true,
+          picked: true,
+          other: false,
+          note: "One branch, one review.",
+        },
+        {
+          number: 3,
+          label: "Other… type your own answer",
+          recommended: false,
+          picked: false,
+          other: true,
+          note: null,
+        },
+      ],
+      recommended_label: "Recommended",
+      other_placeholder: "Type your answer",
+      hint: "1–4 pick · ↵ sends",
+      in_terminal: "Answer in terminal",
+      send: "Send answer",
+    },
+  };
+  const asking = (): AgentPanelView => ({
+    ...RUNNING,
+    running: RUNNING.running && { ...RUNNING.running, question: QUESTION },
+  });
+
+  afterEach(() => {
+    overlays.store.set([]);
+  });
+
+  it("shows above the terminal with its options; Answer in terminal focuses the terminal", () => {
+    show(asking());
+    const question = box.querySelector<HTMLElement>(".agent-panel-question");
+    expect(question?.textContent).toContain("Split NOTE-5 into two tickets?");
+    expect(question?.textContent).toContain("One branch, one review.");
+    expect(question?.querySelector('[aria-checked="true"]')?.textContent).toContain("Keep one");
+    // It sits before the terminal.
+    const terminal = box.querySelector(".fake-terminal");
+    expect(terminal && question?.compareDocumentPosition(terminal)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    terminalFocus.mockReset();
+    click("Answer in terminal");
+    expect(terminalFocus).toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("Send answer sends the pick; unsent text in its terminal asks Keep it and cancel / Clear it and send", async () => {
+    show(asking());
+    ask.mockResolvedValueOnce({
+      outcome: "ask",
+      title: "Noyan · Tickets waiting on NOTE-5 has unsent text in its terminal",
+      body: "Clear it and send clears the typed text, then sends. Keep it and cancel leaves the terminal as it is; nothing is sent. Your answer: option 2.",
+      clear: "Clear it and send",
+      cancel: "Cancel",
+    });
+    await act(async () => {
+      [...box.querySelectorAll("button")].find((b) => b.textContent.includes("Send answer"))?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("agent_panel.answer", {
+      project: "NOTE",
+      agent: "a1",
+      question: "q7",
+      pick: 2,
+      other: "",
+      clear: false,
+    });
+    const [confirm] = overlays.store.get();
+    const params = confirm?.params as { title: string; confirmLabel: string; onConfirm: () => unknown };
+    expect(confirm?.id).toBe("confirm");
+    expect(params.title).toBe("Noyan · Tickets waiting on NOTE-5 has unsent text in its terminal");
+    expect(params.confirmLabel).toBe("Clear it and send");
+    ask.mockResolvedValueOnce({ outcome: "done" });
+    await act(async () => {
+      await params.onConfirm();
+    });
+    expect(ask).toHaveBeenLastCalledWith("agent_panel.answer", {
+      project: "NOTE",
+      agent: "a1",
+      question: "q7",
+      pick: 2,
+      other: "",
+      clear: true,
+    });
+  });
+
+  it("an ended conversation shows no question", () => {
+    const { running } = asking();
+    show({ ...asking(), running: running && { ...running, ended: true } });
+    expect(box.querySelector(".agent-panel-question")).toBeNull();
+  });
+});
 
 describe("a tool problem's notice (M23)", () => {
   afterEach(() => {

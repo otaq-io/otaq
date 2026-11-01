@@ -298,3 +298,10 @@ button.strip-next:focus-visible {
   display: flex;
   gap: 8px;
 }
+
+/* A Project agent's question (OTQ-9): wider, for its options' notes; it scrolls when they are long. */
+.strip-agent-asks {
+  width: 380px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}

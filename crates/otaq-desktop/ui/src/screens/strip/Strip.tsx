@@ -10,6 +10,7 @@ import { openOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Button, Kbd, Tooltip, useFloatingStyle } from "../../components";
+import type { AgentQuestion } from "../../generated/AgentQuestion";
 import type { StripAsks } from "../../generated/StripAsks";
 import type { StripChip } from "../../generated/StripChip";
 import type { StripGroup } from "../../generated/StripGroup";
@@ -19,6 +20,7 @@ import type { StripView } from "../../generated/StripView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { AgentQuestionBox } from "../agent_panel/AgentQuestion";
 import { shownAgents } from "../agent_panel/logic";
 import { lastOpened, next, openOf, openTarget, stripParams } from "./logic";
 
@@ -79,12 +81,51 @@ export function AsksPopover({
   );
 }
 
+/**
+ * A Project agent's question (OTQ-9, d0119): the question with its options or a free-text box, Send answer and
+ * Answer in terminal (which opens the conversation); next to its chip, closed by a press outside or a scroll.
+ */
+export function AgentAsksPopover({
+  question,
+  anchor,
+  onTerminal,
+  onClose,
+}: {
+  question: AgentQuestion;
+  anchor: RefObject<HTMLElement | null>;
+  onTerminal: () => void;
+  onClose: () => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const style = useFloatingStyle(anchor, root, "start", onClose);
+  return (
+    <div
+      ref={root}
+      className="strip-asks strip-agent-asks"
+      role="dialog"
+      aria-label={question.title}
+      style={style}
+    >
+      <AgentQuestionBox
+        titled
+        question={question}
+        onSent={onClose}
+        onTerminal={() => {
+          onClose();
+          onTerminal();
+        }}
+      />
+    </div>
+  );
+}
+
 function Chip({ chip, onOpen }: { chip: StripChip; onOpen: (target: StripTarget) => void }) {
   const [asking, setAsking] = useState(false);
   const close = useCallback(() => {
     setAsking(false);
   }, []);
   const button = useRef<HTMLButtonElement>(null);
+  const pops = chip.asks !== null || chip.agent_asks !== null;
   return (
     <>
       <Tooltip text={chip.title}>
@@ -93,9 +134,9 @@ function Chip({ chip, onOpen }: { chip: StripChip; onOpen: (target: StripTarget)
           type="button"
           className="strip-chip"
           data-tone={chip.tone}
-          aria-expanded={chip.asks !== null ? asking : undefined}
+          aria-expanded={pops ? asking : undefined}
           onClick={() => {
-            if (chip.asks !== null) setAsking((a) => !a);
+            if (pops) setAsking((a) => !a);
             else onOpen(chip.target);
           }}
         >
@@ -106,6 +147,17 @@ function Chip({ chip, onOpen }: { chip: StripChip; onOpen: (target: StripTarget)
       </Tooltip>
       {asking && chip.asks !== null && (
         <AsksPopover asks={chip.asks} anchor={button} onOpen={onOpen} onClose={close} />
+      )}
+      {asking && chip.agent_asks !== null && (
+        <AgentAsksPopover
+          key={chip.agent_asks.answer.question}
+          question={chip.agent_asks}
+          anchor={button}
+          onClose={close}
+          onTerminal={() => {
+            onOpen(chip.target);
+          }}
+        />
       )}
     </>
   );

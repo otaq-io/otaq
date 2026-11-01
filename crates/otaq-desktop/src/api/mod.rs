@@ -10,9 +10,10 @@ use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
 pub use agent_panel::{
-    EndParams as AgentPanelEndParams, Ended as AgentPanelEnded, Params as AgentPanelParams,
-    ProjectOnly as AgentPanelProjectParams, RenameParams as AgentPanelRenameParams,
-    ResumeParams as AgentPanelResumeParams, SendParams as AgentPanelSendParams,
+    AnswerParams as AgentAnswerParams, EndParams as AgentPanelEndParams, Ended as AgentPanelEnded,
+    Params as AgentPanelParams, ProjectOnly as AgentPanelProjectParams,
+    RenameParams as AgentPanelRenameParams, ResumeParams as AgentPanelResumeParams,
+    SendParams as AgentPanelSendParams,
 };
 #[cfg(test)]
 pub use agent_tools::{

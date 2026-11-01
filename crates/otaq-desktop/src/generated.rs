@@ -119,6 +119,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DrawerGallery::export_all(&cfg)?;
     // The Project agent panel (T-0326): its view, and the requests' params and answers.
     otaq_view::view_models::agent_panel::AgentPanelView::export_all(&cfg)?;
+    // A Project agent's question and its answer (OTQ-9); `AgentQuestion` also comes with the panel and the strip.
+    crate::api::AgentAnswerParams::export_all(&cfg)?;
     crate::api::AgentPanelParams::export_all(&cfg)?;
     crate::api::AgentPanelSendParams::export_all(&cfg)?;
     crate::api::AgentPanelRenameParams::export_all(&cfg)?;

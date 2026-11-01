@@ -48,6 +48,7 @@ const VIEW: StripView = {
           title: "SHOP-22 Fix flaky login redirect · permission: allow rm -rf .next",
           target: ticket("SHOP-22"),
           asks: null,
+          agent_asks: null,
         },
         {
           label: "SHOP-44",
@@ -57,6 +58,7 @@ const VIEW: StripView = {
           title: "SHOP-44 Share link · asks",
           target: ticket("SHOP-44"),
           asks: null,
+          agent_asks: null,
         },
         {
           label: "Agent",
@@ -66,6 +68,7 @@ const VIEW: StripView = {
           title: "Noyan · Checkout slowness · asks",
           target: { kind: "agent", project: "SHOP", agent: "pa3" },
           asks: null,
+          agent_asks: null,
         },
       ],
       resume_all: null,
@@ -92,6 +95,73 @@ const VIEW: StripView = {
           title: "SHOP-18 Checkout API · your check",
           target: ticket("SHOP-18", "files"),
           asks: null,
+          agent_asks: null,
+        },
+      ],
+      resume_all: null,
+    },
+  ],
+  empty: null,
+  next: { label: "Next", icon: "arrow-right", keys: "⌘J", elsewhere: false },
+};
+
+/** Noyan asks (OTQ-9): `needs_you_strip.rs`'s agent chip with its question. */
+const AGENT_ASKS: StripView = {
+  groups: [
+    {
+      id: "needs_you",
+      icon: "hand",
+      tone: "attn",
+      title: "Needs you · 1",
+      chips: [
+        {
+          label: "Agent",
+          reason: "a question",
+          icon: "bot",
+          tone: "investigate",
+          title: "Noyan · Checkout slowness · asks: Add an index on orders.created_at?",
+          target: { kind: "agent", project: "SHOP", agent: "pa3" },
+          asks: null,
+          agent_asks: {
+            project: "SHOP",
+            agent: "pa3",
+            title: "Noyan · Checkout slowness asks",
+            answer: {
+              question: "pq1",
+              text: "Add an index on orders.created_at?",
+              rows: [
+                {
+                  number: 1,
+                  label: "Add the index",
+                  recommended: true,
+                  picked: true,
+                  other: false,
+                  note: "Checkout's slow query drops from 900 ms to 20 ms; one migration.",
+                },
+                {
+                  number: 2,
+                  label: "Leave it",
+                  recommended: false,
+                  picked: false,
+                  other: false,
+                  note: "Nothing to migrate, but checkout stays slow on big carts.",
+                },
+                {
+                  number: 3,
+                  label: "Other… type your own answer",
+                  recommended: false,
+                  picked: false,
+                  other: true,
+                  note: null,
+                },
+              ],
+              recommended_label: "Recommended",
+              other_placeholder: "Type your answer",
+              hint: "1–4 pick · ↵ sends",
+              in_terminal: "Answer in terminal",
+              send: "Send answer",
+            },
+          },
         },
       ],
       resume_all: null,
@@ -260,6 +330,7 @@ describe("pressing the strip", () => {
                 open: "Open in the ticket",
                 open_target: open,
               },
+              agent_asks: null,
             },
           ],
           resume_all: null,
@@ -282,6 +353,124 @@ describe("pressing the strip", () => {
         ?.click();
     });
     expect(onOpen).toHaveBeenLastCalledWith(open);
+  });
+
+  it("Noyan's question opens in its chip's popover and is answered there (OTQ-9, d0119)", async () => {
+    const { onOpen } = show(AGENT_ASKS);
+    click("a question");
+    expect(onOpen).not.toHaveBeenCalled();
+    const popover = document.querySelector<HTMLElement>(".strip-agent-asks");
+    expect(popover?.textContent).toContain("Noyan · Checkout slowness asks");
+    expect(popover?.textContent).toContain("Add an index on orders.created_at?");
+    // Its options with their notes, the recommended one picked.
+    expect(popover?.textContent).toContain("Checkout's slow query drops from 900 ms to 20 ms");
+    expect(popover?.textContent).toContain("Recommended");
+    const picked = popover?.querySelector('[role="radio"][aria-checked="true"]');
+    expect(picked?.textContent).toContain("Add the index");
+    // Pick the second; Send answer sends it to Noyan, and the popover closes.
+    act(() => {
+      [...(popover?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])][1]?.click();
+    });
+    ask.mockResolvedValueOnce({ outcome: "done" });
+    await act(async () => {
+      [...document.querySelectorAll("button")].find((b) => b.textContent.includes("Send answer"))?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("agent_panel.answer", {
+      project: "SHOP",
+      agent: "pa3",
+      question: "pq1",
+      pick: 2,
+      other: "",
+      clear: false,
+    });
+    expect(document.querySelector(".strip-agent-asks")).toBeNull();
+    // Answer in terminal opens the conversation.
+    click("a question");
+    act(() => {
+      [...document.querySelectorAll("button")]
+        .find((b) => b.textContent.includes("Answer in terminal"))
+        ?.click();
+    });
+    expect(onOpen).toHaveBeenCalledWith({ kind: "agent", project: "SHOP", agent: "pa3" });
+  });
+
+  it("Noyan's open question has a free-text box; unsent text in its terminal asks first (d0048)", async () => {
+    const open: StripView = {
+      ...AGENT_ASKS,
+      groups: AGENT_ASKS.groups.map((g) => ({
+        ...g,
+        chips: g.chips.map((c) =>
+          c.agent_asks === null
+            ? c
+            : {
+                ...c,
+                agent_asks: {
+                  ...c.agent_asks,
+                  answer: { ...c.agent_asks.answer, rows: [], hint: "↵ sends" },
+                },
+              },
+        ),
+      })),
+    };
+    show(open);
+    click("a question");
+    const send = () =>
+      [...document.querySelectorAll("button")].find((b) => b.textContent.includes("Send answer"));
+    expect(document.querySelector('[role="radio"]')).toBeNull();
+    expect(send()?.disabled).toBe(true);
+    const field = document.querySelector<HTMLInputElement>(".agent-question-text");
+    expect(field?.placeholder).toBe("Type your answer");
+    act(() => {
+      if (field === null) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        field,
+        "Only the cart page",
+      );
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(send()?.disabled).toBe(false);
+    ask.mockResolvedValueOnce({
+      outcome: "ask",
+      title: "Noyan · Checkout slowness has unsent text in its terminal",
+      body: "Clear it and send clears the typed text, then sends. Keep it and cancel leaves the terminal as it is; nothing is sent. Your answer: Only the cart page.",
+      clear: "Clear it and send",
+      cancel: "Cancel",
+    });
+    await act(async () => {
+      send()?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenLastCalledWith("agent_panel.answer", {
+      project: "SHOP",
+      agent: "pa3",
+      question: "pq1",
+      other: "Only the cart page",
+      clear: false,
+    });
+    const [confirm] = overlays.store.get();
+    expect(confirm?.id).toBe("confirm");
+    const params = confirm?.params as {
+      title: string;
+      confirmLabel: string;
+      cancelLabel: string;
+      onConfirm: () => unknown;
+    };
+    expect(params.title).toBe("Noyan · Checkout slowness has unsent text in its terminal");
+    expect([params.confirmLabel, params.cancelLabel]).toEqual(["Clear it and send", "Cancel"]);
+    // Nothing more is sent until Clear it and send.
+    expect(ask).toHaveBeenCalledTimes(1);
+    ask.mockResolvedValueOnce({ outcome: "done" });
+    await act(async () => {
+      await params.onConfirm();
+    });
+    expect(ask).toHaveBeenLastCalledWith("agent_panel.answer", {
+      project: "SHOP",
+      agent: "pa3",
+      question: "pq1",
+      other: "Only the cart page",
+      clear: true,
+    });
   });
 
   it("Resume all opens its confirmation for the strip's project", () => {
