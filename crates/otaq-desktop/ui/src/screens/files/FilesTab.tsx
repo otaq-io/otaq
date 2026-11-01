@@ -52,6 +52,7 @@ import {
   type OpenFile,
   changeRuns,
   changedRows,
+  fileAtTop,
   chunks,
   openFile,
   pathParts,
@@ -75,6 +76,15 @@ const ignore = () => undefined;
 function changeId(row: FilesTreeRow): string {
   return row.child === null ? row.path : `${row.path}\u0000${row.child}`;
 }
+
+/** A click in the Changed tree: the file to scroll All changes to, and a count so a second click on it scrolls again. */
+export interface ScrollRequest {
+  id: string;
+  n: number;
+}
+
+/** How long the pane stays quiet before a clicked scroll counts as ended. */
+const SCROLL_SETTLE_MS = 150;
 
 /** The last ⌥⌘P a search box took. */
 let focusHandled = 0;
@@ -687,8 +697,10 @@ export interface AllChangesProps {
   pane: HTMLElement | null;
   notes?: FilesReviewNotes;
   decisions?: DecisionsSection | null;
-  /** The file to scroll to (picked in the Changed tree). */
-  scrollTo: string | null;
+  /** The file to scroll to (picked in the Changed tree); each click is a new request, the same file too. */
+  scrollTo: ScrollRequest | null;
+  /** The file whose section is at the top of the pane as it scrolls (`null` above the first file). */
+  onInView?: (id: string | null) => void;
   onOpenFile: (file: FilesChangeRow) => void;
   onMode: (sideBySide: boolean) => void;
 }
@@ -703,6 +715,7 @@ export function AllChanges({
   notes,
   decisions,
   scrollTo,
+  onInView,
   onOpenFile,
   onMode,
 }: AllChangesProps) {
@@ -715,9 +728,55 @@ export function AllChanges({
   const onOpenLines = useCallback((id: string) => {
     setOpened((o) => new Set(o).add(id));
   }, []);
+  // The scroll a click asks for: the pane's reports wait until it ends, so the highlight stays on the clicked file
+  // instead of running through the files in between (or moving off it when the last files can't reach the top).
+  const scrolling = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (scrollTo !== null) sections.current.get(scrollTo)?.scrollIntoView({ block: "start" });
+    if (scrollTo === null) return;
+    const el = sections.current.get(scrollTo.id);
+    if (!el) return;
+    if (scrolling.current !== null) clearTimeout(scrolling.current);
+    scrolling.current = setTimeout(() => {
+      scrolling.current = null;
+    }, SCROLL_SETTLE_MS);
+    el.scrollIntoView({ block: "start" });
   }, [scrollTo]);
+  useEffect(() => {
+    if (!pane || !onInView) return;
+    let frame: number | null = null;
+    const report = () => {
+      frame = null;
+      const top = pane.getBoundingClientRect().top;
+      onInView(
+        fileAtTop(
+          [...sections.current].map(([id, el]) => [id, el.getBoundingClientRect().top] as const),
+          top,
+        ),
+      );
+    };
+    const onScroll = () => {
+      if (scrolling.current !== null) {
+        // Still the clicked scroll: wait for it to settle.
+        clearTimeout(scrolling.current);
+        scrolling.current = setTimeout(() => {
+          scrolling.current = null;
+        }, SCROLL_SETTLE_MS);
+        return;
+      }
+      frame ??= requestAnimationFrame(report);
+    };
+    pane.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      pane.removeEventListener("scroll", onScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [pane, onInView]);
+  useEffect(
+    () => () => {
+      if (scrolling.current !== null) clearTimeout(scrolling.current);
+    },
+    [],
+  );
   const sideBySide = showsSideBySide(changes.side_by_side, width, changes.side_by_side_from);
   // A ticket that split its work (d0133): the piece filter and By file · By piece, the page's own state.
   const [piece, setPiece] = useState<string | null>(null);
@@ -1007,7 +1066,9 @@ export function FilesTabBody({
     found: null,
     index: -1,
   });
-  const [scrollTo, setScrollTo] = useState<string | null>(null);
+  const [scrollTo, setScrollTo] = useState<ScrollRequest | null>(null);
+  // The highlighted row under Changed: the clicked file at once, then the file at the top of All changes as it scrolls.
+  const [inView, setInView] = useState<string | null>(null);
   const found = useSearch(ticket, query);
   const search = useRef<HTMLInputElement>(null);
   const [mainRef, width] = useWidth<HTMLDivElement>();
@@ -1047,11 +1108,15 @@ export function FilesTabBody({
             key={`${row.kind}:${row.path}`}
             row={row}
             open={!state.shut.has(row.path)}
-            selected={scrollTo === changeId(row)}
+            selected={row.kind === "file" && inView === changeId(row)}
             onPress={(r) => {
               // A folder closes and opens in the tree only: All changes still lists every file.
               if (r.kind === "folder") onState((s) => ({ ...s, shut: toggled(s.shut, r.path) }));
-              else setScrollTo(changeId(r));
+              else {
+                const id = changeId(r);
+                setInView(id);
+                setScrollTo((s) => ({ id, n: (s?.n ?? 0) + 1 }));
+              }
             }}
           />
         ))}
@@ -1073,6 +1138,7 @@ export function FilesTabBody({
         notes={notes}
         decisions={decisions}
         scrollTo={scrollTo}
+        onInView={setInView}
         onOpenFile={(file) => {
           open({ path: file.path, child: file.child, mode: "file" });
         }}

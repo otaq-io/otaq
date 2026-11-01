@@ -283,3 +283,16 @@ export function composerKey(e: {
   if (e.key === "Escape") return "cancel";
   return null;
 }
+
+/**
+ * The file at the top of All changes' pane (OTQ-8): of the file sections (id and top edge, on screen), the last one
+ * whose top has reached the pane's top. `null` while the header and the review notes still show above the first file.
+ */
+export function fileAtTop(sections: Iterable<readonly [string, number]>, paneTop: number): string | null {
+  let best: { id: string; top: number } | null = null;
+  for (const [id, top] of sections) {
+    // A pixel of slack: scrollIntoView can land a fraction below the pane's edge.
+    if (top <= paneTop + 1 && (best === null || top > best.top)) best = { id, top };
+  }
+  return best?.id ?? null;
+}
