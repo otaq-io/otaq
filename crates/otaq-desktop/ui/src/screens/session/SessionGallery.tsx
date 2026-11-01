@@ -115,17 +115,18 @@ const ACTIVITY: HistoryView = {
     { filter: "stages", label: "Stages", kind: "stage" },
     { filter: "description", label: "Description", kind: "description" },
   ],
-  order: "oldest first",
+  order: "newest first",
   copy_hint: "Copy session ID",
   copied: "Copied",
   empty: "Nothing has happened to this ticket yet.",
   total: null,
   key: "SHOP-22",
   rows: [
-    row("2:02 pm", "You created the ticket", "other", null, { kind: "you" }),
-    row("2:05 pm", "Product spec started · Spec writer", "stage", "Claude Code · sonnet"),
-    row("2:14 pm", "Spec writer · Product spec edited the description · added 2 lines", "description"),
-    row("2:14 pm", "Spec writer · Product spec commented", "comment", "“Repro: 18 of 20 pass on Safari…”"),
+    row("2:23 pm", "Interrupted by restart", "stage", "conversation saved", { kind: "otaq" }),
+    row("2:20 pm", "You commented", "comment", "“Don’t touch the auth middleware’s public API.”", {
+      kind: "you",
+    }),
+    row("2:16 pm", "Moved to Dev", "stage", "Product spec passed", { kind: "you" }),
     row(
       "2:16 pm",
       "Product spec finished · Spec writer",
@@ -134,11 +135,10 @@ const ACTIVITY: HistoryView = {
       { kind: "agent" },
       "· 11 min · 38k tokens",
     ),
-    row("2:16 pm", "Moved to Dev", "stage", "Product spec passed", { kind: "you" }),
-    row("2:20 pm", "You commented", "comment", "“Don’t touch the auth middleware’s public API.”", {
-      kind: "you",
-    }),
-    row("2:23 pm", "Interrupted by restart", "stage", "conversation saved", { kind: "otaq" }),
+    row("2:14 pm", "Spec writer · Product spec commented", "comment", "“Repro: 18 of 20 pass on Safari…”"),
+    row("2:14 pm", "Spec writer · Product spec edited the description · added 2 lines", "description"),
+    row("2:05 pm", "Product spec started · Spec writer", "stage", "Claude Code · sonnet"),
+    row("2:02 pm", "You created the ticket", "other", null, { kind: "you" }),
   ],
 };
 
@@ -158,7 +158,7 @@ export function SessionGallery() {
         </figure>
       ))}
       <figure className="gallery-stack-tight">
-        <figcaption className="gallery-caption">Activity · SHOP-22, oldest first</figcaption>
+        <figcaption className="gallery-caption">Activity · SHOP-22, newest first</figcaption>
         <HistoryBody view={ACTIVITY} />
       </figure>
     </div>
