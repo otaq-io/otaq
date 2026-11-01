@@ -244,7 +244,15 @@ const THREAD: CommentThreadView = {
   heading: "Comments · 2",
   hint: "Every stage’s agent reads them before it starts",
   count: 2,
+  // Newest first, as `ticket_comments.thread` gives them.
   comments: [
+    row(4, {
+      author: "Validator",
+      meta: "Validate · round 2 · 3:05 pm",
+      edited: "· edited",
+      body: "Fail: the 10,000 row limit isn’t enforced; 3 tests fail in export_tests.rs.",
+      report: { label: "Report", size: "· 48 KB", open: "Open" },
+    }),
     row(2, {
       author: "You",
       mine: true,
@@ -252,13 +260,6 @@ const THREAD: CommentThreadView = {
       meta: "2:20 pm",
       heading: "You · 2:20 pm",
       body: "Also keep the column order the same as the table on screen.",
-    }),
-    row(4, {
-      author: "Validator",
-      meta: "Validate · round 2 · 3:05 pm",
-      edited: "· edited",
-      body: "Fail: the 10,000 row limit isn’t enforced; 3 tests fail in export_tests.rs.",
-      report: { label: "Report", size: "· 48 KB", open: "Open" },
     }),
   ],
   menu: [],
@@ -269,7 +270,7 @@ const THREAD: CommentThreadView = {
 };
 
 describe("CommentThread", () => {
-  it("draws what the view says, and Open goes to the report view's door", async () => {
+  it("draws what the view says, the box above the newest comment, and Open goes to the report view's door", async () => {
     ipc.thread = THREAD;
     const opened: ReportTarget[] = [];
     setReportOpener((t) => opened.push(t));
@@ -281,8 +282,12 @@ describe("CommentThread", () => {
     });
     expect(host.querySelector(".comments-head")?.textContent).toContain("COMMENTS · 2");
     const comments = [...host.querySelectorAll(".comment")];
-    expect(comments.map((c) => c.hasAttribute("data-mine"))).toEqual([true, false]);
-    expect(comments[1]?.textContent).toContain("· edited");
+    expect(comments.map((c) => c.hasAttribute("data-mine"))).toEqual([false, true]);
+    expect(comments[0]?.textContent).toContain("· edited");
+    // The box comes first, so the user writes where they read.
+    const box = host.querySelector(".comments > .comment-box");
+    expect(box).not.toBeNull();
+    expect(box?.compareDocumentPosition(comments[0] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(host.querySelector(".comment-chip-size")?.textContent).toBe("· 48 KB");
     await act(async () => {
       host.querySelector<HTMLButtonElement>(".comment-report-open")?.click();

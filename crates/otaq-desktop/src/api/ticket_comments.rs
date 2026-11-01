@@ -300,10 +300,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(view["heading"], "Comments \u{b7} 2");
-        assert_eq!(view["comments"][0]["author"], "You");
-        assert_eq!(view["comments"][0]["mine"], true);
-        assert_eq!(view["comments"][0]["report"]["size"], "\u{b7} 51 KB");
-        assert_eq!(view["comments"][1]["report"], Value::Null);
+        // Newest first: the second comment on top.
+        assert_eq!(view["comments"][0]["n"], 2);
+        assert_eq!(view["comments"][0]["report"], Value::Null);
+        assert_eq!(view["comments"][1]["author"], "You");
+        assert_eq!(view["comments"][1]["mine"], true);
+        assert_eq!(view["comments"][1]["report"]["size"], "\u{b7} 51 KB");
 
         table(
             &h.app,

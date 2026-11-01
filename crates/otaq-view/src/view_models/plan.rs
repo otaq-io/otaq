@@ -768,7 +768,9 @@ mod tests {
             write(&you(), 2_000, WISHLIST, &edited),
             write(&you(), 3_000, &edited, ""),
         ];
-        let rows = history::oldest_first(history::rows(&events, &[], &[]));
+        // History builds its rows newest first; read them from the first write.
+        let mut rows = history::rows(&events, &[], &[]);
+        rows.reverse();
         let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(
             titles,

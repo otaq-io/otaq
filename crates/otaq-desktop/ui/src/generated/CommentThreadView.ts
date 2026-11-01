@@ -12,7 +12,11 @@ export type CommentThreadView = { key: string,
 /**
  * "Comments · 4"; "Comments" with none.
  */
-heading: string, hint: string, count: number, comments: Array<CommentRow>, 
+heading: string, hint: string, count: number, 
+/**
+ * Newest first, under the box.
+ */
+comments: Array<CommentRow>, 
 /**
  * The ⋯ menu, the same on every comment (the user may edit and delete any, CMT-04).
  */

@@ -1,4 +1,4 @@
-// The sheet's Activity (SHT-05, `s25-07`): History's rows oldest first under All · Comments · Stages · Description.
+// The sheet's Activity (SHT-05, `s25-07`): History's rows newest first under All · Comments · Stages · Description.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -24,7 +24,7 @@ describe("Activity", () => {
   it("reads as a timeline: who, the sentence, the cost only where an agent ran, the copyable session ID (Q432)", () => {
     const view: HistoryView = {
       filters: FILTERS,
-      order: "oldest first",
+      order: "newest first",
       copy_hint: "Copy session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
@@ -91,7 +91,7 @@ describe("Activity", () => {
   it(" validation rounds open nothing any more; the total sits under the rows", () => {
     const view: HistoryView = {
       filters: FILTERS,
-      order: "oldest first",
+      order: "newest first",
       copy_hint: "Copy session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
@@ -131,7 +131,7 @@ describe("Activity", () => {
     });
     const view: HistoryView = {
       filters: FILTERS,
-      order: "oldest first",
+      order: "newest first",
       copy_hint: "Copy session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
@@ -177,7 +177,7 @@ describe("Activity", () => {
     expect(opened).toContain(">Open</button>");
   });
 
-  it("filters by kind under All · Comments · Stages · Description, oldest first; description edits open", () => {
+  it("filters by kind under All · Comments · Stages · Description, newest first; description edits open", () => {
     const row = (
       title: string,
       kind: HistoryRowView["kind"],
@@ -194,7 +194,7 @@ describe("Activity", () => {
     });
     const view: HistoryView = {
       filters: FILTERS,
-      order: "oldest first",
+      order: "newest first",
       copy_hint: "Copy session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
@@ -218,7 +218,7 @@ describe("Activity", () => {
     expect(shownRows(view, "stages")).toEqual([3]);
     expect(shownRows(view, "description")).toEqual([1]);
     const all = html(createElement(HistoryBody, { view }));
-    for (const text of ["All", "Comments", "Stages", "Description", "oldest first"])
+    for (const text of ["All", "Comments", "Stages", "Description", "newest first"])
       expect(all).toContain(text);
     expect(all).toContain('aria-checked="true">All');
     // The description edit's before / after shows without a click.

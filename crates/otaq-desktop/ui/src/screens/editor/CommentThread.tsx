@@ -1,7 +1,7 @@
 // The comments in the Ticket tab (CMT-10, CMT-11, d0109; *05 → Row · Ticket comments and a report* `s05-41` /
-// `s05-42`, *Row · Writing, editing and deleting* `s05-43` / `s05-44`): "Comments · 4" under the description, oldest
+// `s05-42`, *Row · Writing, editing and deleting* `s05-43` / `s05-44`): "Comments · 4" under the description, newest
 // first, each with who wrote it, in which stage and when, yours tinted with the accent; a report's chip with Open; the
-// ⋯ menu (Edit in place, Copy text, Delete… with its dialog); the box at the end. Everything it says comes from
+// ⋯ menu (Edit in place, Copy text, Delete… with its dialog); the box above them. Everything it says comes from
 // `ticket_comments.thread` (Rust); it reloads on `ticket_changed`, so a comment an agent posts shows at once. React
 // keeps only the moment: the text being typed, which comment is edited, the open menu and dialog. Overview's
 // Attachments (Add, a drop; RPT-02) hand it a file with `attachReport`: the box takes it as its chip and the keyboard.
@@ -361,6 +361,21 @@ export function CommentThread({ ticket }: TicketProps) {
         <span className="editor-spacer" />
         <span className="comments-hint">{view.hint}</span>
       </div>
+      <CommentBox
+        ticket={ticket}
+        view={view.box}
+        value={value}
+        onChange={(next) => {
+          setValue(next);
+          setError(null);
+        }}
+        onSubmit={post}
+        busy={busy}
+        error={error}
+        ref={box}
+        tellAgent={tellAgent}
+        onTellAgent={setTellAgent}
+      />
       {view.comments.map((row) => (
         <Comment
           key={row.n}
@@ -378,21 +393,6 @@ export function CommentThread({ ticket }: TicketProps) {
           }}
         />
       ))}
-      <CommentBox
-        ticket={ticket}
-        view={view.box}
-        value={value}
-        onChange={(next) => {
-          setValue(next);
-          setError(null);
-        }}
-        onSubmit={post}
-        busy={busy}
-        error={error}
-        ref={box}
-        tellAgent={tellAgent}
-        onTellAgent={setTellAgent}
-      />
       {toDelete && (
         <DeleteDialog
           view={view}

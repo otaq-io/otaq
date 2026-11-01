@@ -559,7 +559,7 @@
   color: var(--text-primary);
 }
 
-/* The box at the end of the thread, and in the dialogs (T-0447). */
+/* The box at the top of the thread, and in the dialogs (T-0447). */
 .comment-box,
 .comment-edit {
   display: flex;

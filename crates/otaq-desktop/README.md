@@ -284,7 +284,7 @@ Run (`run.tab`) leads with "pnpm dev · in SHOP-22’s worktree · :4022" and Op
   terminal / Answer in terminal) focuses the shown side's terminal once it is live, for at most five seconds; the
   caller picks the side with the selection (`agent`, `check`).
 
-The sheet's Activity (SHT-05) is `ui/src/screens/activity/`: `sections.history`'s rows oldest first, each with its
+The sheet's Activity (SHT-05) is `ui/src/screens/activity/`: `sections.history`'s rows newest first, each with its
 kind, under the filters All · Comments · Stages · Description (`history.rs`).
 
 ## The Needs you strip and ⌘J

@@ -4,7 +4,7 @@ import type { HistoryRowView } from "./HistoryRowView";
 import type { HistoryTotal } from "./HistoryTotal";
 
 /**
- * The sheet's Activity (SHT-05; History, UI-04): sessions and events, oldest first, under its filters.
+ * The sheet's Activity (SHT-05; History, UI-04): sessions and events, newest first, under its filters.
  */
 export type HistoryView = { 
 /**
@@ -12,7 +12,7 @@ export type HistoryView = {
  */
 filters: Array<ActivityFilterView>, 
 /**
- * "oldest first".
+ * "newest first".
  */
 order: string, rows: Array<HistoryRowView>, copy_hint: string, copied: string, empty: string, 
 /**
