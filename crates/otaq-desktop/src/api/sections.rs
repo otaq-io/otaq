@@ -2,7 +2,7 @@
 //! EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side sheet*). The Dependencies section is
 //! `dependencies.rs`'s (DPV-04). The **Messages** between linked agents
 //! with their states (`messages.rs`), answerable when one went to the user (Needs you); the sheet's **Activity** (SHT-05), sessions
-//! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
+//! with their tool session ids and events newest first under All · Comments · Stages · Description (`history.rs`),
 //! with one entry per validation round that opens
 //! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12). Each view is `null` when
 //! its section has nothing to show for the ticket.

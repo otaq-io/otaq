@@ -1,4 +1,4 @@
-/* The sheet's Activity (SHT-05, canvas `s25-07`): the filters and "oldest first" over History's rows (whose styles are
+/* The sheet's Activity (SHT-05, canvas `s25-07`): the filters and "newest first" over History's rows (whose styles are
    the sections', `sections.css`). Not `.activity`: that is the header's Activity popover (`shell.css`). */
 .activity-tab {
   display: flex;
