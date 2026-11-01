@@ -772,3 +772,98 @@ async fn the_agent_in_charge_waiting_for_a_helper_isnt_idle() {
     assert_eq!(w.status("SHOP-1").await, Status::Idle);
     world.w.stop().await;
 }
+
+async fn new_turn(w: &TestService, caller: &Caller, prompt: &str) {
+    w.signals
+        .hook(
+            caller,
+            Tool::Claude,
+            "UserPromptSubmit",
+            &serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": prompt}),
+        )
+        .await
+        .unwrap();
+}
+
+/// Whether SHOP-1 is in Needs you (Idle there is what posts "SHOP-1 ended its turn"), at any age.
+async fn in_needs_you(w: &TestService) -> bool {
+    w.board
+        .needs_you_items(i64::MAX / 2)
+        .await
+        .unwrap()
+        .iter()
+        .any(|i| i.key.to_string() == "SHOP-1")
+}
+
+/// OTQ-5: the agent in charge ends its turn right after `otaq helper start`, before the helper's first hook: the
+/// helper is starting, so the agent in charge waits for it (Working in background), never Idle, and Needs you (and so
+/// the OS notification "SHOP-1 ended its turn") stays empty.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_in_charge_waits_for_a_helper_that_just_started() {
+    let world = world().await;
+    let w = &world.w;
+    w.signals.set_stage_reminders(false);
+    let (t, _, _agent, caller) = at_work(w, "Sentence case").await;
+    start(w, &t, &caller, 1, "English values").await;
+    start(w, &t, &caller, 2, "Turkish values").await;
+
+    stop_hook(w, &caller).await;
+    assert_eq!(w.status("SHOP-1").await, Status::WorkingInBackground);
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        ticket.signal.and_then(|s| s.text).as_deref(),
+        Some("background: helper 1.1, helper 1.2")
+    );
+    assert!(!in_needs_you(w).await);
+    world.w.stop().await;
+}
+
+/// OTQ-5: one helper hands back and is merged while another still works: the agent in charge's next turn end waits
+/// for the one at work ("background: helper 1.2"), not Idle. Once that one hands back too and nothing is at work, the
+/// agent in charge ending its turn without merging it is Idle, as before: it has work of its own left.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merged_helper_leaves_the_agent_in_charge_waiting_for_the_other() {
+    let world = world().await;
+    let w = &world.w;
+    w.signals.set_stage_reminders(false);
+    let (t, _, _agent, caller) = at_work(w, "Wishlist").await;
+    let first = start(w, &t, &caller, 1, "Wishlist API").await;
+    let second = start(w, &t, &caller, 2, "Wishlist page").await;
+    stop_hook(w, &caller).await;
+    assert_eq!(w.status("SHOP-1").await, Status::WorkingInBackground);
+
+    // Piece 1 hands back; the agent in charge is told, reviews it and merges it.
+    commit(
+        Path::new(&first.worktree),
+        "wishlist.rs",
+        "pub fn add() {}\n",
+    );
+    w.helpers
+        .done(&helper_caller(&t, &first), "API done.")
+        .await
+        .unwrap();
+    new_turn(w, &caller, "1.1 handed its piece back: API done.").await;
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    let merged = w.helpers.merge(&caller, "SHOP-1", 1).await.unwrap();
+    assert_eq!(merged.helper.status, HelperStatus::Merged);
+
+    stop_hook(w, &caller).await;
+    assert_eq!(w.status("SHOP-1").await, Status::WorkingInBackground);
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        ticket.signal.and_then(|s| s.text).as_deref(),
+        Some("background: helper 1.2")
+    );
+    assert!(!in_needs_you(w).await);
+
+    // Piece 2 hands back; the agent in charge ends its turn without merging it, with no helper at work: Idle.
+    commit(Path::new(&second.worktree), "page.tsx", "x");
+    w.helpers
+        .done(&helper_caller(&t, &second), "Page done.")
+        .await
+        .unwrap();
+    new_turn(w, &caller, "1.2 handed its piece back: Page done.").await;
+    stop_hook(w, &caller).await;
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    world.w.stop().await;
+}
