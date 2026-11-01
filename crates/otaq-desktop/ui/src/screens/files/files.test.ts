@@ -19,6 +19,7 @@ import { AllChanges, FileBody, FilesTabBody, SearchResults } from "./FilesTab";
 import { type CommentContext, Hunk } from "./Hunks";
 import {
   canSave,
+  changedRows,
   changeRuns,
   chunks,
   composerKey,
@@ -35,6 +36,7 @@ import {
   shownMode,
   steppedRow,
   threadsByAnchor,
+  toggled,
   visibleRows,
   writesNew,
 } from "./logic";
@@ -552,6 +554,43 @@ describe("the tab's interaction rules", () => {
     );
     expect(opened.filter).toBe("all");
     expect([...opened.open]).toEqual(["src", "src/a"]);
+  });
+
+  it("closes and reopens a folder in Changed; opening a file under it opens it again", () => {
+    const tree = [
+      row("src", { kind: "folder", quiet: false }),
+      row("src/app", { kind: "folder", quiet: false, depth: 1 }),
+      row("src/app/page.tsx", { depth: 2, quiet: false }),
+      row("src/middleware.ts", { depth: 1, quiet: false }),
+      row("README.md", { quiet: false }),
+    ];
+    const paths = (shut: ReadonlySet<string>) => changedRows(tree, shut).map((r) => r.path);
+    expect(paths(NOTHING_OPEN.shut)).toEqual(tree.map((r) => r.path));
+    const closed = toggled(NOTHING_OPEN.shut, "src");
+    expect(paths(closed)).toEqual(["src", "README.md"]);
+    expect(paths(new Set(["src/app"]))).toEqual(["src", "src/app", "src/middleware.ts", "README.md"]);
+    expect(paths(toggled(closed, "src"))).toEqual(tree.map((r) => r.path));
+    const opened = openFile(
+      { ...NOTHING_OPEN, filter: "changed", shut: new Set(["src", "src/app", "e2e"]) },
+      { path: "src/app/page.tsx", child: null, mode: null },
+    );
+    expect([...opened.shut]).toEqual(["e2e"]);
+  });
+
+  it("draws a closed Changed folder closed, its files gone from the tree but not from All changes", () => {
+    const state = { ...NOTHING_OPEN, filter: "changed" as const };
+    // The left column's tree only (All changes' file headers fold too).
+    const tree = (out: string) =>
+      out.slice(out.indexOf('role="tree"'), out.indexOf("</div>", out.indexOf('role="tree"')));
+    const open = body(SHOP_22, { state, changes: CHANGES });
+    expect(tree(open)).toContain('aria-expanded="true"');
+    expect(tree(open)).toContain("login.spec.ts");
+    const shut = body(SHOP_22, { state: { ...state, shut: new Set(["e2e"]) }, changes: CHANGES });
+    expect(tree(shut)).toContain('aria-expanded="false"');
+    expect(tree(shut)).toContain("e2e");
+    expect(tree(shut)).not.toContain("login.spec.ts");
+    expect(shut.match(/Open file/g)).toHaveLength(3);
+    expect(shut).toContain("login.spec.ts");
   });
 
   it("shows the opened folders' rows under them", () => {

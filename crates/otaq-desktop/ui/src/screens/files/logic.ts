@@ -99,6 +99,15 @@ export function visibleRows(
   return out;
 }
 
+/**
+ * The Changed tree's rows (Rust sends every folder open, `s25-08`) without those under a closed folder (`shut`, by
+ * path).
+ */
+export function changedRows(tree: readonly FilesTreeRow[], shut: ReadonlySet<string>): FilesTreeRow[] {
+  if (shut.size === 0) return [...tree];
+  return tree.filter((row) => !folders(row.path).some((folder) => shut.has(folder)));
+}
+
 /** The folders a file sits in, outermost first: `src/app/login/page.tsx` → `src`, `src/app`, `src/app/login`. */
 export function folders(path: string): string[] {
   const parts = path.split("/").slice(0, -1);
@@ -123,25 +132,33 @@ export interface OpenFile {
   line?: number | null;
 }
 
-/** The tab's own state for a ticket: the filter (null: where Rust opens it), the open file, the folders opened. */
+/**
+ * The tab's own state for a ticket: the filter (null: where Rust opens it), the open file, the folders opened under
+ * All files and the folders closed under Changed (where they start open).
+ */
 export interface FilesState {
   filter: FilesFilter | null;
   file: OpenFile | null;
   open: ReadonlySet<string>;
+  shut: ReadonlySet<string>;
 }
 
-export const NOTHING_OPEN: FilesState = { filter: null, file: null, open: new Set() };
+export const NOTHING_OPEN: FilesState = { filter: null, file: null, open: new Set(), shut: new Set() };
 
 /** The filter shown: the user's pick, else the one the tab opens on (Changed in your check, SHT-06). */
 export function shownFilter(state: FilesState, opensOn: FilesFilter): FilesFilter {
   return state.filter ?? opensOn;
 }
 
-/** Opening a file: All files with the file on the right and the folders above it open in the tree. */
+/** Opening a file: All files with the file on the right and the folders above it open in both trees. */
 export function openFile(state: FilesState, file: OpenFile): FilesState {
   const open = new Set(state.open);
-  for (const folder of folders(file.path)) open.add(folder);
-  return { filter: "all", file, open };
+  const shut = new Set(state.shut);
+  for (const folder of folders(file.path)) {
+    open.add(folder);
+    shut.delete(folder);
+  }
+  return { filter: "all", file, open, shut };
 }
 
 /** The mode a file shows in: the user's pick when the file has it, else the one Rust opens it in. */
