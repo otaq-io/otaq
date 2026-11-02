@@ -262,7 +262,8 @@ pub fn format_uptime(secs: u64) -> String {
 /// Gives the service the user's full `PATH` ([`otaq_core::tools::daemon_path`]): started from the app opened in
 /// Finder it inherits launchd's short one, and the tools checklist, the Install terminals and the agents would miss
 /// `brew`, `npm` and `~/.local/bin/claude`.
-fn use_full_path() {
+/// Returns it so its warning, if any, is logged once the log is open.
+fn use_full_path() -> otaq_core::tools::DaemonPath {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     let shell = std::env::var_os("SHELL")
         .filter(|s| !s.is_empty())
@@ -271,10 +272,13 @@ fn use_full_path() {
         &inherited,
         shell.as_deref(),
         std::env::home_dir().as_deref(),
+        otaq_core::tools::DAEMON_LOGIN_PATH_TIMEOUT,
     );
     // SAFETY: called first in `foreground`, before the log and the runtime start any thread, so nothing else reads
-    // or writes the environment at the same time.
-    unsafe { std::env::set_var("PATH", path) };
+    // or writes the environment at the same time. (The login shell's reader thread has ended or is only reading a
+    // pipe.)
+    unsafe { std::env::set_var("PATH", &path.path) };
+    path
 }
 
 /// The installed app's folder `daemon start` passed to a service it started from the runtime copy, taken out of the
@@ -298,7 +302,7 @@ fn drop_parent_session_vars() {
 }
 
 fn foreground(data: DataDir) -> Result<(), ErrorBody> {
-    use_full_path();
+    let path = use_full_path();
     drop_parent_session_vars();
     let installed = take_installed_dir();
     let _log = logging::init(&data).map_err(|e| internal(format!("can't open the log: {e}")))?;
@@ -306,6 +310,7 @@ fn foreground(data: DataDir) -> Result<(), ErrorBody> {
         command = naming::COMMAND_NAME,
         "starting the background service"
     );
+    path.log_warning();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
