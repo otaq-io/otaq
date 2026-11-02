@@ -41,8 +41,12 @@ pub mod cmd_shim;
 
 /// How long one tool may take to answer (`az` is slow).
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long the login shell may take to print its `PATH`.
+/// How long the login shell may take to print its `PATH` for the app's own checks ([`login_path`]).
 const LOGIN_PATH_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long the service waits for the login shell's `PATH` ([`daemon_path`]). It waits once, before its runtime
+/// starts, and a profile that loads nvm, conda or similar can take 6–7 s (OTQ-10), so it waits much longer than
+/// [`LOGIN_PATH_TIMEOUT`].
+pub const DAEMON_LOGIN_PATH_TIMEOUT: Duration = Duration::from_secs(30);
 /// Printed before the login shell's `PATH`, so whatever the profile prints first is skipped.
 const PATH_MARKER: &str = "__login_path__";
 
@@ -252,27 +256,111 @@ impl CheckEnv {
     }
 }
 
+/// The `PATH` the daemon runs with, and why the login shell's part is missing when it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonPath {
+    pub path: OsString,
+    /// Set when the login shell gave no `PATH`, so the service runs with the fallback folders only.
+    pub warning: Option<String>,
+}
+
+impl DaemonPath {
+    /// Logs [`DaemonPath::warning`], if any. The daemon calls it once its log is open.
+    pub fn log_warning(&self) {
+        if let Some(warning) = &self.warning {
+            tracing::warn!(path = %self.path.to_string_lossy(), "{warning}");
+        }
+    }
+}
+
 /// The `PATH` the daemon runs with: the user's login shell's (`.zprofile` and `.zshrc` both read), then the folders
 /// installers write to (`~/.local/bin` for Claude Code's native installer, Homebrew's), then `inherited`. Missing
-/// folders are harmless. Unchanged on Windows, where apps get the user's full `PATH`. Blocking: the daemon calls it
-/// once, before its runtime starts.
-pub fn daemon_path(inherited: &OsStr, shell: Option<&Path>, home: Option<&Path>) -> OsString {
+/// folders are harmless. Unchanged on Windows, where apps get the user's full `PATH`. Blocking, for up to `timeout`
+/// ([`DAEMON_LOGIN_PATH_TIMEOUT`]): the daemon calls it once, before its runtime starts.
+pub fn daemon_path(
+    inherited: &OsStr,
+    shell: Option<&Path>,
+    home: Option<&Path>,
+    timeout: Duration,
+) -> DaemonPath {
     if cfg!(windows) {
-        return inherited.to_owned();
+        return DaemonPath {
+            path: inherited.to_owned(),
+            warning: None,
+        };
     }
-    let login = shell.and_then(login_path).unwrap_or_default();
+    let (login, warning) = match shell {
+        None => (
+            OsString::new(),
+            Some(
+                "no login shell (SHELL is not set): the service runs with the fallback PATH only"
+                    .to_owned(),
+            ),
+        ),
+        Some(shell) => match login_path_within(shell, timeout) {
+            Ok(path) => (path, None),
+            Err(failure) => (
+                OsString::new(),
+                Some(format!(
+                    "couldn't read the login shell's PATH ({}): {failure}; the service runs with the fallback \
+                     PATH only, so tools the shell profile adds (nvm's npm, for example) aren't found",
+                    shell.display()
+                )),
+            ),
+        },
+    };
     let mut known: Vec<PathBuf> = Vec::new();
     if let Some(home) = home {
         known.push(home.join(".local").join("bin"));
     }
     known.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
     let known = std::env::join_paths(known).unwrap_or_default();
-    merge_paths(&merge_paths(&login, &known), inherited)
+    DaemonPath {
+        path: merge_paths(&merge_paths(&login, &known), inherited),
+        warning,
+    }
+}
+
+/// Why the login shell gave no `PATH`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoginPathFailure {
+    /// The shell couldn't be started.
+    Spawn(String),
+    /// It didn't finish within the limit and was stopped.
+    TimedOut(Duration),
+    /// It finished without printing a `PATH`; `status` is its exit status.
+    NoPath { status: String, elapsed: Duration },
+}
+
+impl std::fmt::Display for LoginPathFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Spawn(e) => write!(f, "it couldn't be started: {e}"),
+            Self::TimedOut(limit) => write!(
+                f,
+                "it didn't finish within {} s and was stopped",
+                limit.as_secs_f32()
+            ),
+            Self::NoPath { status, elapsed } => write!(
+                f,
+                "it printed no PATH ({status}) after {:.1} s",
+                elapsed.as_secs_f32()
+            ),
+        }
+    }
 }
 
 /// The `PATH` an interactive login shell ends up with; `None` when it fails or takes longer than
-/// [`LOGIN_PATH_TIMEOUT`]. `printenv` prints it colon-separated whatever the shell (fish keeps `$PATH` as a list).
+/// [`LOGIN_PATH_TIMEOUT`].
 pub fn login_path(shell: &Path) -> Option<OsString> {
+    login_path_within(shell, LOGIN_PATH_TIMEOUT).ok()
+}
+
+/// The `PATH` an interactive login shell ends up with, waiting at most `timeout`. `printenv` prints it
+/// colon-separated whatever the shell (fish keeps `$PATH` as a list). Its output is read on a thread, so a profile
+/// that prints a lot can't block on a full pipe.
+pub fn login_path_within(shell: &Path, timeout: Duration) -> Result<OsString, LoginPathFailure> {
+    use std::io::Read;
     let mut child = std::process::Command::new(shell)
         .args([
             "-l",
@@ -284,18 +372,37 @@ pub fn login_path(shell: &Path) -> Option<OsString> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .ok()?;
-    let started = std::time::Instant::now();
-    while child.try_wait().ok()?.is_none() {
-        if started.elapsed() > LOGIN_PATH_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
+        .map_err(|e| LoginPathFailure::Spawn(e.to_string()))?;
+    let mut stdout = child.stdout.take();
+    let reader = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        if let Some(stdout) = stdout.as_mut() {
+            let _ = stdout.read_to_end(&mut out);
         }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let output = child.wait_with_output().ok()?;
-    parse_login_path(&String::from_utf8_lossy(&output.stdout)).map(OsString::from)
+        out
+    });
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() > timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                // A background child of the profile may hold the pipe open: don't wait for the reader.
+                return Err(LoginPathFailure::TimedOut(timeout));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(_) => break None,
+        }
+    };
+    let elapsed = started.elapsed();
+    let output = reader.join().unwrap_or_default();
+    parse_login_path(&String::from_utf8_lossy(&output))
+        .map(OsString::from)
+        .ok_or_else(|| LoginPathFailure::NoPath {
+            status: status.map_or_else(|| "exit status unknown".to_owned(), |s| s.to_string()),
+            elapsed,
+        })
 }
 
 /// The `PATH` after the marker, skipping whatever the profile printed before it.
@@ -591,6 +698,115 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// A fake login shell: a script that ignores its arguments, sleeps `sleep` seconds and prints `printed`.
+    #[cfg(unix)]
+    fn fake_shell(dir: &Path, sleep: &str, printed: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let shell = dir.join("fake-shell");
+        std::fs::write(
+            &shell,
+            format!("#!/bin/sh\nsleep {sleep}\nprintf '%s' '{printed}'\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        shell
+    }
+
+    /// OTQ-10: a login shell slower than the old 5 s limit (but under the service's) still gives its PATH.
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_login_shell_still_gives_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(
+            dir.path(),
+            "6",
+            &format!("{PATH_MARKER}/Users/me/.nvm/versions/node/v20.20.0/bin:/usr/bin"),
+        );
+        let path = daemon_path(
+            OsStr::new("/usr/bin:/bin"),
+            Some(&shell),
+            Some(Path::new("/Users/me")),
+            DAEMON_LOGIN_PATH_TIMEOUT,
+        );
+        assert_eq!(path.warning, None);
+        assert_eq!(
+            path.path,
+            OsString::from(
+                "/Users/me/.nvm/versions/node/v20.20.0/bin:/usr/bin:/Users/me/.local/bin:/opt/homebrew/bin:\
+                 /usr/local/bin:/bin"
+            )
+        );
+    }
+
+    /// OTQ-10: a login shell that never finishes is stopped; the service gets the fallback PATH and logs why.
+    #[cfg(unix)]
+    #[test]
+    fn a_login_shell_that_never_finishes_gives_the_fallback_and_a_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(dir.path(), "1000", &format!("{PATH_MARKER}/never"));
+        let path = daemon_path(
+            OsStr::new("/usr/bin:/bin"),
+            Some(&shell),
+            Some(Path::new("/Users/me")),
+            Duration::from_millis(300),
+        );
+        assert_eq!(
+            path.path,
+            OsString::from("/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        );
+        let warning = path.warning.clone().expect("a warning");
+        assert!(warning.contains("didn't finish within 0.3 s"), "{warning}");
+
+        #[derive(Clone, Default)]
+        struct Log(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Log {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let log = Log::default();
+        let writer = log.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, || path.log_warning());
+        let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("WARN"), "{text}");
+        assert!(
+            text.contains("couldn't read the login shell's PATH"),
+            "{text}"
+        );
+        assert!(text.contains("didn't finish within 0.3 s"), "{text}");
+    }
+
+    /// A login shell that exits without printing a PATH is a failure too, with its exit status in the warning.
+    #[cfg(unix)]
+    #[test]
+    fn a_login_shell_that_prints_no_path_gives_a_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(dir.path(), "0", "no marker here");
+        let path = daemon_path(
+            OsStr::new("/usr/bin"),
+            Some(&shell),
+            None,
+            DAEMON_LOGIN_PATH_TIMEOUT,
+        );
+        assert_eq!(
+            path.path,
+            OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin")
+        );
+        let warning = path.warning.expect("a warning");
+        assert!(
+            warning.contains("printed no PATH (exit status: 0)"),
+            "{warning}"
+        );
+    }
 
     #[test]
     fn versions_as_the_checklist_shows_them() {
