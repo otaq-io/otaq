@@ -262,8 +262,39 @@ fn dacl_sddl(object: HANDLE) -> io::Result<String> {
     if status != 0 {
         return Err(io::Error::from_raw_os_error(status as i32));
     }
+    let result = descriptor_dacl_sddl(descriptor);
+    // SAFETY: allocated by GetSecurityInfo.
+    unsafe { LocalFree(descriptor) };
+    result
+}
+
+/// `sddl`'s access list as Windows writes it back: SIDs that have an SDDL alias come back as the alias (the
+/// built-in Administrator's `S-1-5-21-…-500` as `LA`), so it compares equal to what [`Listener::dacl_sddl`] reads.
+pub fn dacl_sddl_as_written(sddl: &str) -> io::Result<String> {
+    let wide: Vec<u16> = sddl.encode_utf16().chain([0]).collect();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: a NUL-terminated SDDL string; the descriptor is freed below.
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            wide.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            std::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let result = descriptor_dacl_sddl(descriptor);
+    // SAFETY: allocated with LocalAlloc by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+    unsafe { LocalFree(descriptor) };
+    result
+}
+
+/// A descriptor's access list in SDDL. The caller frees the descriptor.
+fn descriptor_dacl_sddl(descriptor: PSECURITY_DESCRIPTOR) -> io::Result<String> {
     let mut text: *mut u16 = std::ptr::null_mut();
-    // SAFETY: a descriptor from GetSecurityInfo; the string is freed by take_local_string.
+    // SAFETY: a valid descriptor; the string is freed by take_local_string.
     let ok = unsafe {
         ConvertSecurityDescriptorToStringSecurityDescriptorW(
             descriptor,
@@ -273,14 +304,11 @@ fn dacl_sddl(object: HANDLE) -> io::Result<String> {
             std::ptr::null_mut(),
         )
     };
-    let result = if ok == 0 {
+    if ok == 0 {
         Err(io::Error::last_os_error())
     } else {
         Ok(take_local_string(text))
-    };
-    // SAFETY: allocated by GetSecurityInfo.
-    unsafe { LocalFree(descriptor) };
-    result
+    }
 }
 
 #[cfg(test)]
