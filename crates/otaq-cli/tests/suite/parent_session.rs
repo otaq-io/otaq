@@ -11,7 +11,7 @@ use std::time::Duration;
 use otaq_core::agent_tools::Tool;
 use otaq_core::client::{Client, ClientConfig, CommandLauncher};
 use otaq_core::data_dir::DataDir;
-use otaq_core::protocol::{Reply, Request, ToolParams};
+use otaq_core::protocol::{Reply, Request, SessionTarget, ToolParams, decode_bytes};
 
 struct StopOnDrop(std::path::PathBuf);
 
@@ -77,8 +77,10 @@ async fn what_the_service_starts_doesnt_inherit_an_agents_session() {
         .request(Request::AgentToolsSignIn(ToolParams { tool: Tool::Codex }))
         .await
         .unwrap();
-    assert!(matches!(reply, Reply::ProjectTerminal(_)), "{reply:?}");
-    let env = tokio::time::timeout(Duration::from_secs(30), async {
+    let Reply::ProjectTerminal(terminal) = reply else {
+        panic!("{reply:?}")
+    };
+    let waited = tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             if let Ok(text) = std::fs::read_to_string(&seen) {
                 return text;
@@ -86,8 +88,15 @@ async fn what_the_service_starts_doesnt_inherit_an_agents_session() {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
-    .await
-    .expect("the stand-in codex ran");
+    .await;
+    let env = match waited {
+        Ok(env) => env,
+        Err(_) => panic!(
+            "the stand-in codex didn't run within 30 s.\nIts terminal: {}\nThe service's log:\n{}",
+            terminal_output(&client, &terminal.session.id).await,
+            service_log(&data)
+        ),
+    };
 
     let names: Vec<&str> = env
         .lines()
@@ -111,4 +120,42 @@ async fn what_the_service_starts_doesnt_inherit_an_agents_session() {
         names.contains(&"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"),
         "the user's own variable stays:\n{env}"
     );
+}
+
+/// What the session's terminal showed, for a failure message.
+async fn terminal_output(client: &Client, session: &str) -> String {
+    let reply = client
+        .request(Request::SessionAttach(
+            SessionTarget {
+                session: Some(session.to_owned()),
+                ..Default::default()
+            }
+            .into(),
+        ))
+        .await;
+    match reply {
+        Ok(Reply::SessionAttached(attached)) => {
+            let bytes = decode_bytes(&attached.scrollback).unwrap_or_default();
+            format!(
+                "{:?} {:?}",
+                attached.session,
+                String::from_utf8_lossy(&bytes)
+            )
+        }
+        other => format!("{other:?}"),
+    }
+}
+
+/// Every log file in the data folder, for a failure message.
+fn service_log(data: &DataDir) -> String {
+    let Ok(entries) = std::fs::read_dir(data.logs_dir()) else {
+        return format!("(no {})", data.logs_dir().display());
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|e| {
+            let text = std::fs::read_to_string(e.path()).unwrap_or_default();
+            format!("--- {}\n{text}", e.path().display())
+        })
+        .collect()
 }

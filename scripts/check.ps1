@@ -35,7 +35,16 @@ if (-not (Test-Path (Join-Path $usrBin 'sh.exe'))) {
     Write-Error "check.ps1: Git for Windows' sh.exe wasn't found in $usrBin"
     exit 1
 }
-$env:PATH = "$env:PATH;$usrBin"
+# Git's own bin folder (on PATH on GitHub's Windows runners) holds launchers: its sh.exe and bash.exe start
+# usr\bin\bash.exe as a child process with a login PATH in front of the session's, so a test's agent would be two
+# processes and see another PATH. It leaves PATH; git stays reachable through Git's cmd folder.
+$gitBin = Join-Path $gitRoot 'bin'
+$gitCmd = Join-Path $gitRoot 'cmd'
+$kept = @($env:PATH -split ';' | Where-Object { $_ -and ($_.TrimEnd('\') -ne $gitBin) })
+if (-not ($kept | Where-Object { $_.TrimEnd('\') -eq $gitCmd })) {
+    $kept += $gitCmd
+}
+$env:PATH = (($kept + $usrBin) -join ';')
 
 # The tests' sessions run in Microsoft's newer ConPTY, as the installed app's do (d0117 point 4, Q601): fetched once
 # into target\conpty, loaded from OTAQ_DEV_CONPTY_DIR.

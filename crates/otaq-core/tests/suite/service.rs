@@ -209,8 +209,10 @@ async fn the_pipe_grants_access_only_to_the_current_user() {
     DataDir::ensure_dir(data.root()).unwrap();
     let listener = ipc::Listener::bind(&data.socket_path()).unwrap();
     let sddl = listener.dacl_sddl().unwrap();
-    // `P`: protected, nothing inherited; one allow entry, for the current user's SID, with full access.
-    assert_eq!(sddl, format!("D:P(A;;FA;;;{})", current_user()), "{sddl}");
+    // `P`: protected, nothing inherited; one allow entry, for the current user's SID, with full access. As Windows
+    // writes it: the built-in Administrator (GitHub's Windows runner) comes back as `LA`, not its SID.
+    let want = ipc::dacl_sddl_as_written(&format!("D:P(A;;FA;;;{})", current_user())).unwrap();
+    assert_eq!(sddl, want, "{sddl}");
     // A second listener on the same name is refused, so nobody can sit on a running service's pipe.
     assert!(ipc::Listener::bind(&data.socket_path()).is_err());
 }

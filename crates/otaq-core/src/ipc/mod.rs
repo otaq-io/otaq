@@ -19,7 +19,7 @@ pub use os::{
     ClientStream, Listener, ServerStream, UserId, connect, current_user, peer_pid, peer_user,
 };
 #[cfg(windows)]
-pub use os::{pipe_name, pipe_sddl};
+pub use os::{dacl_sddl_as_written, pipe_name, pipe_sddl};
 
 /// The pipe's short name for clients that take one (`otaq-1a2b…` of `\\.\pipe\otaq-1a2b…`) on
 /// Windows; the socket path elsewhere.
