@@ -33,10 +33,11 @@ async fn what_the_service_starts_doesnt_inherit_an_agents_session() {
     std::fs::create_dir(&bin).unwrap();
     let seen = tmp.path().join("seen-env");
     let codex = bin.join("codex");
+    // Full paths: the service's PATH is the test's `bin` only, and on Linux the login shell adds nothing to it.
     std::fs::write(
         &codex,
         format!(
-            "#!/bin/sh\nenv > '{}.tmp'\nmv '{0}.tmp' '{0}'\n",
+            "#!/bin/sh\n/usr/bin/env > '{}.tmp'\n/bin/mv '{0}.tmp' '{0}'\n",
             seen.display()
         ),
     )
