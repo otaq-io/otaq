@@ -65,6 +65,9 @@ fontdb = "0.23.0"
 # setting. The versions Tauri 2.12 itself uses.
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
+# Whether the status icon's menu is open (`GetGUIThreadInfo`), so a menu on screen isn't dropped (`src/door.rs`).
+# MIT OR Apache-2.0; the version already in the workspace.
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 # Whether the taskbar is light or dark (`SystemUsesLightTheme`), for the status icon's image (d0139, `src/door.rs`).
 # MIT; the version already in the build (through Tauri's dependencies).
 winreg = "0.56.0"

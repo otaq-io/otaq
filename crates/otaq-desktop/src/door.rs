@@ -343,6 +343,86 @@ const STATUS_ICON: &str = "status";
 #[derive(Default)]
 struct StatusIconUp(AtomicBool);
 
+/// The summary whose menu waits for the icon's open menu to close. On Windows a new menu set on the icon drops the
+/// open one: muda then destroys its items and handle while Windows still shows it, which leaves an empty, see-through
+/// box, and a pick in it is lost (the icon answers the new menu's items only). So while a menu is open the icon keeps
+/// its menu, and the latest summary's is set once it closes ([`set_status_menu`]).
+#[derive(Default)]
+struct PendingStatusMenu(Mutex<Option<otaq_view::view_models::status_icon::Summary>>);
+
+/// How often a waiting menu checks whether the open one has closed.
+const PENDING_MENU_CHECK: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Sets `summary`'s menu on the icon, or, while a menu is open, keeps it for when it closes. Call on the main thread.
+fn set_status_menu(
+    handle: &tauri::AppHandle,
+    icon: &tauri::tray::TrayIcon,
+    summary: &otaq_view::view_models::status_icon::Summary,
+) -> tauri::Result<()> {
+    use tauri::Manager;
+    let pending = handle.state::<PendingStatusMenu>();
+    let mut pending = pending.0.lock().unwrap_or_else(|e| e.into_inner());
+    if menu_open() {
+        // One check at a time: a later summary only replaces the one that waits.
+        if pending.replace(summary.clone()).is_none() {
+            check_pending_status_menu(handle.clone());
+        }
+        return Ok(());
+    }
+    *pending = None;
+    icon.set_menu(Some(status_menu(handle, summary)?))
+}
+
+/// Sets the waiting summary's menu once no menu is open, checking every [`PENDING_MENU_CHECK`].
+fn check_pending_status_menu(handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(PENDING_MENU_CHECK);
+        let on_main = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            use tauri::Manager;
+            if menu_open() {
+                return check_pending_status_menu(on_main);
+            }
+            let waiting = on_main
+                .state::<PendingStatusMenu>()
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            let (Some(summary), Some(icon)) = (waiting, on_main.tray_by_id(STATUS_ICON)) else {
+                return;
+            };
+            if let Err(e) = set_status_menu(&on_main, &icon, &summary) {
+                eprintln!("couldn't update the status icon's menu: {e}");
+            }
+        });
+    });
+}
+
+/// Whether one of the app's menus is open now: the icon's runs its own loop on the main thread, which the summary's
+/// changes reach while it's open. Call on the main thread.
+#[cfg(windows)]
+fn menu_open() -> bool {
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GUI_INMENUMODE, GUI_POPUPMENUMODE, GUITHREADINFO, GetGUIThreadInfo,
+    };
+    // SAFETY: `info` is a GUITHREADINFO with its size set, as GetGUIThreadInfo requires.
+    unsafe {
+        let mut info: GUITHREADINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+        GetGUIThreadInfo(GetCurrentThreadId(), &mut info) != 0
+            && info.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE) != 0
+    }
+}
+
+/// macOS shows a copy of an open menu (see [`show_status_icon`]), and Linux's indicator its own: a menu set while one
+/// is open never takes it away there.
+#[cfg(not(windows))]
+fn menu_open() -> bool {
+    false
+}
+
 /// Puts the icon in the menu bar / tray (plain, with the plain menu, until the service's summary arrives). Picking a
 /// line opens it the way a notification click does (TRY-06); the actions are the summary's.
 ///
@@ -635,7 +715,7 @@ fn show_status_icon(
         icon.set_icon_as_template(true)?;
         icon.set_title(otaq_view::view_models::status_icon::title(summary))?;
     }
-    icon.set_menu(Some(status_menu(handle, summary)?))?;
+    set_status_menu(handle, &icon, summary)?;
     #[cfg(target_os = "macos")]
     accessible_name(&icon, &summary.name)?;
     icon.set_tooltip(Some(&summary.name))
@@ -1136,6 +1216,7 @@ pub fn run(
         .manage(app)
         .manage(placement)
         .manage(StatusIconUp::default())
+        .manage(PendingStatusMenu::default())
         .invoke_handler(tauri::generate_handler![
             request,
             subscribe_events,

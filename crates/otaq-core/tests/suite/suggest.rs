@@ -115,7 +115,13 @@ async fn no_answer_is_a_failure() {
 async fn cancel_stops_it_and_without_a_tool_it_is_refused() {
     let dir = tempfile::TempDir::new().unwrap();
     let pid_file = dir.path().join("suggest.pid");
-    let script = format!("echo $$ > '{}'; exec sleep 30", pid_file.display());
+    // Windows: Git Bash's `$$` is its own number, not the Windows process ID `process::alive` takes; and its `exec`
+    // starts a new process and ends the old one, so the shell stays and the test watches the shell.
+    let script = if cfg!(windows) {
+        format!("cat /proc/$$/winpid > '{}'; sleep 30", pid_file.display())
+    } else {
+        format!("echo $$ > '{}'; exec sleep 30", pid_file.display())
+    };
     let w = TestService::start_with(with_program(vec![
         "sh".into(),
         "-c".into(),
