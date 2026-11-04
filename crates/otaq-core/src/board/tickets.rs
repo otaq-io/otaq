@@ -435,6 +435,11 @@ stored_enum! {
         /// `project_agent`, `agent`), `by` ("you", "Noyan", "Spec writer") and `reason` (an agent's). History reads
         /// "Dev: Quick developer (set by Noyan)" · "typo fix".
         StageChoiceSet = "stage_choice_set",
+        /// A stage choice an agent stored, cleared once because the service now refuses it (T8, migration 0072): the
+        /// stage goes back to its own agent. Payload `stage` (its name), `stage_id`, `choice` ("skip" or the agent's
+        /// name), `set_by` (`project_agent`, `agent`) and `by` ("Noyan", "Spec writer"). History reads "Product spec:
+        /// Noyan's skip cleared" · "only the user skips stages now".
+        StageChoiceCleared = "stage_choice_cleared",
         /// The user's Pass on a human check that moved the card on (FLW-14, d0108): payload `stage` (its name),
         /// `stage_id`. History reads "You approved it at QA" (d0093). A Pass that offered the delivery choices logs the
         /// delivery's own event instead.
