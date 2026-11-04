@@ -64,16 +64,17 @@ async fn written_at_creation_edited_and_cleared_with_history() {
         (created.plan_by.clone(), created.plan_at)
     );
 
-    // Noyan rewrites it: History has the before and after.
+    // The Dev agent rewrites it (Noyan is intake only and writes none): History has the before and after.
     let edited = PLAN.replace("4. Share link — waits for 2, 3\n", "");
-    let noyan = Actor::ProjectAgent("pa1".into());
+    w.force_status(&created, Status::Working).await;
+    let dev = Actor::Agent(created.key.clone());
     let after = w
         .board
-        .update_ticket("SHOP-1", &plan(&edited), &noyan)
+        .update_ticket("SHOP-1", &plan(&edited), &dev)
         .await
         .unwrap();
     assert_eq!(after.plan, edited);
-    assert_eq!(after.plan_by.as_ref().map(PlanBy::label), Some("Noyan"));
+    assert_eq!(after.plan_by.as_ref().map(PlanBy::label), Some("Dev"));
     let history = w.board.history("SHOP-1").await.unwrap();
     let plan_rows: Vec<_> = history
         .iter()
@@ -86,7 +87,7 @@ async fn written_at_creation_edited_and_cleared_with_history() {
         .collect();
     assert_eq!(
         plan_rows,
-        [(noyan.clone(), PLAN.into(), edited.clone().into())]
+        [(dev.clone(), PLAN.into(), edited.clone().into())]
     );
 
     // The same text again changes nothing; an empty Plan removes it and its writer.
@@ -95,7 +96,7 @@ async fn written_at_creation_edited_and_cleared_with_history() {
         .update_ticket("SHOP-1", &plan(&edited), &me())
         .await
         .unwrap();
-    assert_eq!(same.plan_by.as_ref().map(PlanBy::label), Some("Noyan"));
+    assert_eq!(same.plan_by.as_ref().map(PlanBy::label), Some("Dev"));
     let cleared = w
         .board
         .update_ticket("SHOP-1", &plan("  \n"), &me())
