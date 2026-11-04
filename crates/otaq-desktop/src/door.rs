@@ -1530,8 +1530,7 @@ mod updater_config_tests {
     use crate::updates;
 
     /// The updater plugin's configuration: the one endpoint, no `{{…}}` variables or query (nothing about the user in
-    /// the request), and the same key as the app's (the marked placeholder until the maintainer puts the real public
-    /// key in both places; the release workflow refuses the placeholder, T-0583).
+    /// the request), and the same key as the app's (T-0583).
     #[test]
     fn the_shipped_config_asks_one_fixed_address_with_the_apps_key() {
         let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();

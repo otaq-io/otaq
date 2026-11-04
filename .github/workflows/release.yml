@@ -135,7 +135,7 @@ jobs:
         run: npm --prefix crates/otaq-desktop ci --no-audit --no-fund
 
       # The updater key: the repository's secrets for a release; for a dry run a throwaway pair made here (the dry run's
-      # app keeps the placeholder key, so it could never install what it signs; nothing is uploaded anyway).
+      # app carries the real public key, so it could never install what it signs; nothing is uploaded anyway).
       - name: Choose the updater key
         env:
           SECRET_KEY: ${{ needs.prepare.outputs.release == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}

@@ -537,8 +537,8 @@ gets it until the maintainer checks the draft and clicks **Publish**: installed 
 
 **A dry run** builds and smoke-checks everything and uploads nothing to a release (the files go between jobs as
 workflow artifacts kept for one day, and `latest.json` shows in the run's summary). It signs with a throwaway key made
-in the job, never the repository's secrets, so it also runs before the real key exists (its app keeps the
-placeholder key: it's for checking the builds, never for installing as an update). Start one by pushing a commit
+in the job, never the repository's secrets, so its app carries the real public key but
+nothing signed by the real private key: it's for checking the builds, never for installing as an update). Start one by pushing a commit
 to the branch `release-dry-run` (`git push origin <commit>:refs/heads/release-dry-run`), or, once `release.yml` is on
 `main`, with Actions → Release → Run workflow on any branch (`gh workflow run release.yml --ref <branch>`; GitHub only
 offers Run workflow for workflows on the default branch).
@@ -551,8 +551,8 @@ The scripts run on the Mac too: `scripts/release/check-release.sh --dry-run`, `n
 
 Updates are signed with Otaq's updater key (a minisign key pair, decision 0140). The app carries the **public** key
 (`PUBKEY` in `crates/otaq-desktop/src/updates.rs`, the same in `tauri.conf.json`) and refuses any update not signed
-with the private one. The repository ships a marked placeholder until the maintainer makes the pair; the release workflow
-refuses to run on it.
+with the private one. The pair was made for v0.1.0 (key ID `3897CF7922D87756`); the release workflow refuses to run
+while either place holds a placeholder or the two differ.
 
 Making the pair (once, the maintainer, on their own Mac; nobody else ever sees the private key):
 

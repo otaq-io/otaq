@@ -32,9 +32,9 @@ use tokio::sync::{Notify, watch};
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// The public key the updater checks signatures against (minisign, as `tauri signer generate` prints it).
-/// `tauri.conf.json`'s `plugins.updater.pubkey` carries the same placeholder.
+/// `tauri.conf.json`'s `plugins.updater.pubkey` carries the same key (minisign key ID 3897CF7922D87756, T-0583).
 pub const PUBKEY: &str =
-    "PLACEHOLDER — replaced by the maintainer before the first release (T-0583)";
+    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM4OTdDRjc5MjJEODc3NTYKUldSV2Q5Z2llYytYT045eEh4azRvK1cvWDI4T2RZMlhxUmEyVFJrSS9nNitRWU1pclp2OVhGaW0K";
 
 /// Whether this build is a release (the release workflow's flag at build time); every other build is built from
 /// source and never checks.
