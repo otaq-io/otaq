@@ -1,0 +1,36 @@
+name: Bug report
+description: Something in Otaq doesn't work.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: System
+      options: [macOS, Windows, Linux]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Otaq version
+      description: Shown in Settings → About.
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent tool
+      multiple: true
+      options: [Claude Code, Codex, GitHub Copilot, OpenCode, Not related to an agent]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Anything that helps us see it. Remove secrets first.

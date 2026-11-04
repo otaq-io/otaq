@@ -74,6 +74,11 @@ OTAQ_HOME=/tmp/otaq-dev npm run tauri dev   # the app with live reload, on a thr
 scripts/check.sh                             # every change must pass (scripts/check.ps1 on Windows)
 ```
 
+## contributing
+
+Otaq doesn't accept outside pull requests for now; bug reports and ideas are welcome as issues. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## license
 
 [FSL-1.1-MIT](LICENSE): use, change and share Otaq for anything except a competing commercial product. Each version
