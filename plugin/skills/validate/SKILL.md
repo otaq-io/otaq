@@ -39,7 +39,8 @@ the worktree: your check runs' output goes there (see "Long output").
    ones; their output goes to a file (see "Long output").
 5. **Look beyond the diff when it touches something shared:** a stored format or a migration, a config key or a
    flag, a public API or type other modules use, or output another program reads (JSON, a CLI's output). Skip this
-   step for a change that touches nothing shared. Don't list everything that might break: find **the one fact the
+   step for a change that touches nothing shared, and for a fix that only brings back the behaviour the docs or the
+   description already promise. Don't list everything that might break: find **the one fact the
    change is safe because of** ("nothing reads `old_name` from stored data") and check it with a search or a run.
    Give it one line in your verdict, starting `Checked: safe because` and naming what you ran, or
    `Checked: unproven:` and why you couldn't check it.

@@ -871,7 +871,9 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     }
     out.push_str(&format!(
         "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nKeep it short: one or two lines, one line per \
-         finding with its file and line; notes start with \"Note:\". Finish with `{cmd} check pass --stdin` or \
+         finding with its file and line; notes start with \"Note:\". When the diff touches something shared, add a \
+         `Checked: safe because …` line (see your skill). A suspicion you couldn't prove is a note, never a \
+         failure. Finish with `{cmd} check pass --stdin` or \
          `{cmd} check fail --stdin` and the verdict on stdin. The agent's comment says what it ran; decide yourself \
          whether to run it again. Save any run to a file in `${dir}` (never in the worktree) and name it in the \
          verdict. {manual}\n",
