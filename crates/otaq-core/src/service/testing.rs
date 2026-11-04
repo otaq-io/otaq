@@ -764,11 +764,13 @@ impl AgentShell {
             let script = self.dir.path().join(format!("request.{n}.ps1"));
             let name = crate::ipc::endpoint_name(socket);
             // With a byte-order mark: Windows PowerShell reads a script without one in the ANSI code page, which
-            // would turn a request's UTF-8 ("—") into other characters.
+            // would turn a request's UTF-8 ("—") into other characters. Its output is written in the console's code
+            // page too unless told otherwise, which turned an answer's "…" into "."; so the answer goes out as UTF-8.
             std::fs::write(
                 &script,
                 format!(
-                    "\u{feff}$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '{name}', \
+                    "\u{feff}[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\n\
+                     $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '{name}', \
                      [System.IO.Pipes.PipeDirection]::InOut)\n\
                      $pipe.Connect(5000)\n\
                      $writer = New-Object System.IO.StreamWriter($pipe)\n\

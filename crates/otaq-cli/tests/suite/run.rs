@@ -69,7 +69,12 @@ fn answer_once_starting(
 async fn start_wait_returns_once_running_with_the_url() {
     let w = TestService::start().await;
     let (_, port, agent) = in_dev(&w, 26_900..=26_919).await;
-    set_run_command(&w, "echo up on $PORT; sleep 30", "http://localhost:$PORT/").await;
+    set_run_command(
+        &w,
+        on_platform("echo up on $PORT; sleep 30", "echo up on %PORT%& sleep 30"),
+        "http://localhost:$PORT/",
+    )
+    .await;
     let listener = answer_once_starting(&w, "SHOP-1", port);
     let ran = agent.run(&format!("'{CB}' run start --wait")).await;
     assert_eq!(ran.status, 0, "{ran:?}");
@@ -271,10 +276,20 @@ async fn several_apps_are_named_and_status_lists_them() {
         apps: vec![
             app(
                 "web",
-                "echo web on $PORT; sleep 30",
+                on_platform(
+                    "echo web on $PORT; sleep 30",
+                    "echo web on %PORT%& sleep 30",
+                ),
                 "http://localhost:$PORT/",
             ),
-            app("api", "echo api on $PORT; sleep 30", ""),
+            app(
+                "api",
+                on_platform(
+                    "echo api on $PORT; sleep 30",
+                    "echo api on %PORT%& sleep 30",
+                ),
+                "",
+            ),
         ],
         ..Default::default()
     };

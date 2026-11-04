@@ -114,7 +114,15 @@ fn dev() -> StartedBy {
 async fn an_agent_starts_reads_and_stops_its_tickets_run() {
     let w = world().await;
     let (t, port, agent) = in_dev(&w, "Price table", 26_000..=26_099).await;
-    set_run_command(&w, "echo serving on $PORT; sleep 30").await;
+    set_run_command(
+        &w,
+        if cfg!(windows) {
+            "echo serving on %PORT%& sleep 30"
+        } else {
+            "echo serving on $PORT; sleep 30"
+        },
+    )
+    .await;
     let key = t.key.to_string();
 
     let started = run_of(&send(&w, &agent, "run.start", json!({"key": key})).await);
