@@ -29,13 +29,15 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    files the user attached under "Reports from you · read these before you start"; read each one
    (`otaq report SHOP-40 1`, or search a long one with `grep -n "token" "$(otaq report SHOP-40 1 --path)"`). The
    agents' reports you open only when you need them.
-2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (for example "pieces of about
-   a day") and they apply to every step below. They add to these steps; they never remove getting the context (step 1)
+2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (for example "pieces that
+   touch one crate each") and they apply to every step below. They add to these steps; they never remove getting the context (step 1)
    or ending your stage (step 7).
 3. **Read both specs.** `prime`'s first line names the branch it merges into (for example `main`):
    `git log --oneline main..HEAD` lists the planning commits, `git diff main...HEAD` shows them. Read every decision and
    doc they wrote, and the code the work touches.
-4. **Decide the pieces.** A piece is a part one agent can build, test and hand back on its own, in about a day.
+4. **Decide the pieces.** **A piece fits one agent when** it changes one behaviour, in one area or layer (for example
+   the API, or the page, not both), and the agent needs to read only a handful of files to do it. **Split it** when it
+   crosses layers, bundles several behaviours, or needs a lot of unfamiliar code read first. **When unsure, split.**
    - **One piece when the work is one**: a small deliverable gets a Plan with a single piece.
    - **Order them by what each needs**: a piece waits for the pieces whose code it builds on ("the button waits for the
      API"). Pieces that wait for nothing, or for the same pieces, are built side by side, so don't chain what doesn't
@@ -91,8 +93,9 @@ The shape is fixed, because Otaq reads it to start the helpers:
 - The list is headed `## Pieces` and comes **last** in the Plan: a heading after it ends the list.
 - Each piece is numbered from 1, then its short title, then an em dash and what it waits for: "waits for nothing",
   "waits for 1", "waits for 2, 3". A piece only waits for pieces with a smaller number.
-- Its details go on the lines under it, indented: the files, screens and decisions it builds on, and anything its
-  helper must not miss. Never statuses ("done", "in progress"): Otaq keeps those itself.
+- Its details go on the lines under it, indented. **They must stand on their own**: a helper starts with a fresh
+  context and reads only its piece, so name the files, screens and decisions it builds on, and anything its helper
+  must not miss, so it doesn't have to explore again. Never statuses ("done", "in progress"): Otaq keeps those itself.
 
 `otaq update SHOP-40 --plan-stdin <<'PLAN'` reads the whole new Plan from stdin instead. Every version stays in the
 ticket's History.
@@ -138,7 +141,7 @@ otaq ask human \
   --option "One ticket, 6 pieces" --note "One review and one merge; the share link waits for the whole wishlist." \
   --option "Two tickets" --note "Wishlist and Share link reviewed and merged apart; Noyan files the second one." \
   --recommended 1 --stdin <<'QUESTION'
-The wishlist and the share link are each about three days of work. Plan them as one ticket or two?
+The wishlist and the share link are each several pieces, and each could be reviewed and merged on its own. Plan them as one ticket or two?
 QUESTION
 ```
 
