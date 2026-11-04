@@ -2037,3 +2037,126 @@ async fn migration_0071_moves_each_run_port_to_app_app() {
         "settings are read as apps, never rewritten here"
     );
 }
+
+/// Noyan is intake only, and only the user skips a stage (T8): migration 0072 clears, on stages the ticket hasn't
+/// started, every choice Noyan set on its own and every skip a ticket's agent set, each with a History event by Otaq.
+/// The user's choices (an agent's `--by-user` one is stored as the user's), a ticket agent's agent picks and required
+/// choices, and anything on a stage that has a run stay.
+#[tokio::test]
+async fn migration_0072_clears_the_choices_agents_may_no_longer_set() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 71).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Price table', 'backlog', 'me', 0, 0),
+                ('t2', 'p', 2, 'Cart', 'working', 'me', 0, 0),
+                ('t3', 'p', 3, 'Wishlist', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, came_from, created_at, updated_at)
+         VALUES ('quick', 'Quick developer', '', 'agents_file', 1, 1),
+                ('strong', 'Strong validator', '', 'agents_file', 1, 1)",
+    )
+    .await;
+    // SHOP-2 has started: Product spec ran, so did Dev.
+    exec(
+        &pool,
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at)
+         VALUES ('r1', 't2', 'spec', 'agent', 'done', 1), ('r2', 't2', 'dev', 'agent', NULL, 2)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at)
+         VALUES ('t1', 'spec', 'skip', NULL, 'project_agent', 'Noyan', 'small fix', 1),
+                ('t1', 'dev', 'agent', 'quick', 'project_agent', 'Noyan', 'typo', 1),
+                ('t2', 'spec', 'skip', NULL, 'project_agent', 'Noyan', 'small fix', 1),
+                ('t2', 'validate', 'skip', NULL, 'agent', 'Developer', 'nothing to check', 3),
+                ('t2', 'qa', 'agent', 'strong', 'agent', 'Developer', 'risky change', 3),
+                ('t2', 'review', 'usual', NULL, 'agent', 'Developer', 'needs a look', 3),
+                ('t3', 'spec', 'skip', NULL, 'user', NULL, NULL, 1),
+                ('t3', 'validate', 'skip', NULL, 'user', NULL, NULL, 2)",
+    )
+    .await;
+    // SHOP-1's skip was recorded when it was set, naming the stage; its Dev pick wasn't.
+    exec(
+        &pool,
+        r#"INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+           VALUES ('e1', 't1', 'stage_choice_set', 'project-agent:pa',
+                   '{"stage":"Product spec","stage_id":"spec","choice":"skip","from":null,"set_by":"project_agent","by":"Noyan","reason":"small fix"}', 1)"#,
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let kept: Vec<(String, String, String, String)> = sqlx::query_as(
+        "SELECT ticket_id, stage_id, choice, set_by FROM ticket_stage_choices ORDER BY ticket_id, stage_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let row = |t: &str, s: &str, c: &str, by: &str| (t.into(), s.into(), c.into(), by.into());
+    assert_eq!(
+        kept,
+        [
+            row("t2", "qa", "agent", "agent"),
+            row("t2", "review", "usual", "agent"),
+            row("t2", "spec", "skip", "project_agent"),
+            row("t3", "spec", "skip", "user"),
+            row("t3", "validate", "skip", "user"),
+        ]
+    );
+    let cleared: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT ticket_id, actor, payload_json FROM events WHERE kind = 'stage_choice_cleared'
+         ORDER BY ticket_id, json_extract(payload_json, '$.stage_id')",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let cleared: Vec<(String, String, serde_json::Value)> = cleared
+        .into_iter()
+        .map(|(t, a, p)| (t, a, serde_json::from_str(&p).unwrap()))
+        .collect();
+    assert_eq!(
+        cleared,
+        [
+            (
+                "t1".into(),
+                "otaq".into(),
+                json!({"stage": "dev", "stage_id": "dev", "choice": "Quick developer",
+                       "set_by": "project_agent", "by": "Noyan"})
+            ),
+            (
+                "t1".into(),
+                "otaq".into(),
+                json!({"stage": "Product spec", "stage_id": "spec", "choice": "skip",
+                       "set_by": "project_agent", "by": "Noyan"})
+            ),
+            (
+                "t2".into(),
+                "otaq".into(),
+                json!({"stage": "validate", "stage_id": "validate", "choice": "skip",
+                       "set_by": "agent", "by": "Developer"})
+            ),
+        ]
+    );
+    let data = otaq_core::data_dir::DataDir::new(path.parent().unwrap().join("home"));
+    let board = otaq_core::board::Board::new(store.clone(), None, data);
+    let history = board.history("SHOP-1").await.unwrap();
+    let read = history
+        .iter()
+        .filter(|e| e.kind == otaq_core::board::tickets::EventKind::StageChoiceCleared)
+        .count();
+    assert_eq!(read, 2, "the History reads the cleared choices");
+}
