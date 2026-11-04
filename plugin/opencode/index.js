@@ -31,12 +31,16 @@ function send(event) {
 
 export default {
   id: "otaq",
+  // setup returns at once: OpenCode 2.2 waits for every plugin's setup before its server answers (until then its API
+  // answers 503 and the TUI never sends the launch's --prompt), so the subscription runs on its own.
   async setup(ctx) {
     if (!process.env.OTAQ_TICKET && !process.env.OTAQ_ROLE) return;
     let queue = Promise.resolve();
-    for await (const event of ctx.event.subscribe()) {
-      if (!FORWARDED.has(event?.type)) continue;
-      queue = queue.then(() => send(event));
-    }
+    (async () => {
+      for await (const event of ctx.event.subscribe()) {
+        if (!FORWARDED.has(event?.type)) continue;
+        queue = queue.then(() => send(event));
+      }
+    })();
   },
 };
