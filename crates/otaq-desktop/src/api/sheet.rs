@@ -916,7 +916,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
             }))
             .await
         {
-            // The pill shows the first app that is up, else the first app (d{RUN}).
+            // The pill shows the first app that is up, else the first app (agents run the app).
             Ok(Reply::Runs(all)) => {
                 let live = all.iter().position(|r| r.state.is_live()).unwrap_or(0);
                 all.into_iter().nth(live)

@@ -1,4 +1,4 @@
-//! The port pool: the ports of a started ticket (SES-01 step 6, d0026; d{RUN} for apps).
+//! The port pool: the ports of a started ticket (SES-01 step 6, d0026; agents run the app for apps).
 //!
 //! The **agent port** is `$PORT` in the ticket's agent session (4019 for SHOP-19); each of the project's apps has its
 //! own **Run port** (4020 for `web`, 4021 for `api`): `$PORT` in that app's Run, `OTAQ_PORT_<NAME>` in every app's Run
@@ -100,7 +100,7 @@ impl PortPool {
         Ok(TicketPorts { agent, apps })
     }
 
-    /// A Run port for each of `apps` of the ticket (d{RUN}): the ones it holds, the missing ones the lowest free. An
+    /// A Run port for each of `apps` of the ticket (agents run the app): the ones it holds, the missing ones the lowest free. An
     /// app added to the project while the ticket works gets its port here, at its first Run or Shell.
     pub async fn app_ports(
         &self,

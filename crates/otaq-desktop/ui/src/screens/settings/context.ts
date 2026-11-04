@@ -15,7 +15,7 @@ export interface SettingsContextValue {
   /** Saves one field (`settings.edit`); the fresh view replaces the page. */
   edit: (field: string, value: SettingsValue) => void;
   /** A button's action; `target` is what it acts on: the row's field (`edit_field`: `apps.add`, `apps.1.remove`) or
-   * the app whose "Set by" line it undoes (`undo_run_command`, d{RUN}). */
+   * the app whose "Set by" line it undoes (`undo_run_command`, agents run the app). */
   act: (action: SettingsButtonAction, target?: string | null) => void;
   /** The header's place for a topic's own buttons (Keyboard shortcuts' Reset all, T-0395); `null` until it is
    * drawn, absent in the gallery. */

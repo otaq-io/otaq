@@ -5,6 +5,6 @@
  */
 export type RunCommandParams = { project: string, command: string, 
 /**
- * The app (d{RUN}): Undo of its "Set by Dev"; `None`: the project's one app.
+ * The app (agents run the app): Undo of its "Set by Dev"; `None`: the project's one app.
  */
 app: string | null, };

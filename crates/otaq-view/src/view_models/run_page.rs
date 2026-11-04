@@ -116,7 +116,7 @@ pub const MENU_EDIT_COMMAND: &str = "edit_command";
 pub struct TabView {
     pub key: String,
     pub project: String,
-    /// The app (d{RUN}) in a project with several: its section's name and what Run, Stop and Undo name. `None` for a
+    /// The app (agents run the app) in a project with several: its section's name and what Run, Stop and Undo name. `None` for a
     /// project's one app.
     pub app: Option<String>,
     /// "pnpm dev · in SHOP-22’s worktree · :4022" (SHT-04); none before a run command is set.
@@ -220,7 +220,7 @@ pub fn tab_view(run: &RunInfo, several: bool, hhmm: impl Fn(i64) -> String) -> T
     }
 }
 
-/// Session's Run tab (d{RUN}): one section per app, in the project's order; one app reads as before apps had names.
+/// Session's Run tab (agents run the app): one section per app, in the project's order; one app reads as before apps had names.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "RunTabsView")]
 pub struct TabsView {
@@ -433,7 +433,7 @@ pub struct ShellView {
 pub struct ShellFacts<'a> {
     pub key: &'a str,
     pub worktree: Option<&'a str>,
-    /// The ticket's app ports (d{RUN}): one gives `$PORT`, several only `OTAQ_PORT_<NAME>`.
+    /// The ticket's app ports (agents run the app): one gives `$PORT`, several only `OTAQ_PORT_<NAME>`.
     pub ports: &'a [(String, u16)],
     pub session: Option<&'a SessionInfo>,
     pub problem: Option<String>,

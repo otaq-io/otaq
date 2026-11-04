@@ -77,14 +77,14 @@ pub fn with_port(text: &str, port: u16) -> String {
     text.replace("${PORT}", &port).replace("$PORT", &port)
 }
 
-/// `OTAQ_PORT_<NAME>` = the port of each of the ticket's apps (d{RUN}): set in every app's Run and in the Shell.
+/// `OTAQ_PORT_<NAME>` = the port of each of the ticket's apps (agents run the app): set in every app's Run and in the Shell.
 pub fn app_port_vars(apps: &[(String, u16)]) -> Vec<(String, String)> {
     apps.iter()
         .map(|(app, port)| (naming::app_port_env_var(app), port.to_string()))
         .collect()
 }
 
-/// [`with_port`], and each `$OTAQ_PORT_<NAME>` (or `${…}`) replaced by that app's port (d{RUN}): what a command or URL
+/// [`with_port`], and each `$OTAQ_PORT_<NAME>` (or `${…}`) replaced by that app's port (agents run the app): what a command or URL
 /// shows, and what Windows' shell, which has no `$` variables, runs. Longer names first, so `OTAQ_PORT_API` never
 /// eats the start of `OTAQ_PORT_API_V2`.
 pub fn with_ports(text: &str, port: Option<u16>, apps: &[(String, u16)]) -> String {

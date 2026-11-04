@@ -2,6 +2,6 @@
 import type { RunTabView } from "./RunTabView";
 
 /**
- * Session's Run tab (d{RUN}): one section per app, in the project's order; one app reads as before apps had names.
+ * Session's Run tab (agents run the app): one section per app, in the project's order; one app reads as before apps had names.
  */
 export type RunTabsView = { key: string, tabs: Array<RunTabView>, };

@@ -116,7 +116,7 @@ pub enum StopCause {
     StageEnded {
         stage: String,
     },
-    /// An agent of the ticket restarted it to run its new code (`otaq run restart`, d{RUN}); the Run that follows
+    /// An agent of the ticket restarted it to run its new code (`otaq run restart`, agents run the app); the Run that follows
     /// keeps its owner.
     Restarted {
         stage: String,
@@ -403,7 +403,7 @@ impl Runs {
         self.start_with(&ticket, app, agent, None, None).await
     }
 
-    /// `otaq run restart [<app>]` (d{RUN}): the app's Run stops and starts again with the same command and port, to
+    /// `otaq run restart [<app>]` (agents run the app): the app's Run stops and starts again with the same command and port, to
     /// run code changed since it started. Its owner stays: your Run stays yours (an agent never stops it, and it never
     /// stops at a stage end), but when an agent restarts it, its processes act for that agent, which wrote the code
     /// it now runs. A Run that isn't up just starts, as [`Runs::start_as`].

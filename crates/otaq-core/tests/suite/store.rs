@@ -719,7 +719,7 @@ async fn one_row_round_trips_through_every_table() {
         .await;
     assert!(again.is_err());
 
-    // An app's Run port in the ticket (d{RUN}); one per app, and the app a Run session ran.
+    // An app's Run port in the ticket (agents run the app); one per app, and the app a Run session ran.
     let port = "INSERT INTO app_ports (ticket_id, app, port) VALUES (?, 'web', 4020)";
     sqlx::query(port).bind(&t18.id).execute(pool).await.unwrap();
     assert!(sqlx::query(port).bind(&t18.id).execute(pool).await.is_err());

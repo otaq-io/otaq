@@ -1,4 +1,4 @@
--- d{RUN} (T4, monorepos): a project's run command becomes a list of named apps, each with its own Run port per ticket.
+-- agents run the app (T4, monorepos): a project's run command becomes a list of named apps, each with its own Run port per ticket.
 -- Never edit once committed.
 --
 -- One row per app port a ticket holds (`web` → 4020, `api` → 4021). Before apps had names every project had one app,

@@ -1988,7 +1988,7 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     assert!(lead_wake.is_err(), "the lead's deliveries are gone");
 }
 
-/// d{RUN} (T4, monorepos): migration 0071 moves each ticket's Run port to `app_ports` as app `app` (the one app every
+/// Agents run the app (T4, monorepos): migration 0071 moves each ticket's Run port to `app_ports` as app `app` (the one app every
 /// project had) and leaves `tickets.run_port` empty; the agent port and the projects' settings are untouched.
 #[tokio::test]
 async fn migration_0071_moves_each_run_port_to_app_app() {

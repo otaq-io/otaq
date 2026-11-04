@@ -247,7 +247,7 @@ async fn set_saves_the_command_once_it_runs_and_nothing_when_it_fails() {
     w.stop().await;
 }
 
-/// d{RUN} (T4): with several apps the commands name one (`run start web`); left out, the service refuses with their
+/// Agents run the app (T4): with several apps the commands name one (`run start web`); left out, the service refuses with their
 /// names, and `run status` lists every app.
 #[tokio::test(flavor = "multi_thread")]
 async fn several_apps_are_named_and_status_lists_them() {
@@ -328,7 +328,7 @@ async fn several_apps_are_named_and_status_lists_them() {
     w.stop().await;
 }
 
-/// d{RUN} (T4): `run restart` runs changed code on the user's Run: same port, a new session, still the user's.
+/// Agents run the app (T4): `run restart` runs changed code on the user's Run: same port, a new session, still the user's.
 #[tokio::test(flavor = "multi_thread")]
 async fn restart_runs_the_users_run_again_and_it_stays_theirs() {
     let w = TestService::start().await;

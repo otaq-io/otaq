@@ -825,7 +825,7 @@ impl Starter {
                 .map_err(at(StartStep::Setup))?;
         }
 
-        // 6. The ports: the agent's and one per app (d{RUN}).
+        // 6. The ports: the agent's and one per app (agents run the app).
         self.mark_step(ticket, StartStep::Ports).await;
         let ports = inner
             .ports

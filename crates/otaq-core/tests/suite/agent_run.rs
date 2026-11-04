@@ -336,7 +336,7 @@ async fn an_agents_run_acts_for_the_agent_never_the_user() {
     let out = w.wait_for_output(&session, "\"reply\"").await;
     assert!(!out.contains("\"error\""), "{out}");
 
-    // The agent restarts the user's Run to run its new code (`run restart`, d{RUN}, T4): a new session, still the
+    // The agent restarts the user's Run to run its new code (`run restart`, agents run the app, T4): a new session, still the
     // user's (the agent can't stop it, its stage end leaves it up), but its processes act for the agent.
     let restarted = run_of(&send(&w, &agent, "run.restart", json!({"key": key})).await);
     let again = restarted.session.clone().unwrap();

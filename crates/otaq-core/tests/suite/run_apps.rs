@@ -1,4 +1,4 @@
-//! d{RUN} (T4, monorepos): a project's run command is a list of named apps. Older settings read as one app `app` with
+//! Agents run the app (T4, monorepos): a project's run command is a list of named apps. Older settings read as one app `app` with
 //! nothing else changed; each app has its own Run port per ticket (distinct, stable, freed with the ticket's); every
 //! app's command gets every app's port as `OTAQ_PORT_<NAME>`; with several apps a request names one; the Shell gets
 //! `$PORT` only while there is one app; two tickets run both apps side by side without clashing; an agent adds a
