@@ -8,7 +8,9 @@ use std::process::{Command, Output};
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::stage_choices::{NOYAN_USER_CHOICES_ONLY, ONLY_THE_USER_SKIPS};
+use otaq_core::board::stage_choices::{
+    NOYAN_USER_CHOICES_ONLY, ONLY_NOYAN_PASSES_ON, ONLY_THE_USER_SKIPS,
+};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::{FlowFile, yaml};
@@ -368,6 +370,23 @@ async fn a_project_agents_choices_and_the_users_words() {
         choices_block(&shown),
         "Choices:     Dev: Quick developer · set by you"
     );
+    // The user's skip, passed on: theirs too.
+    let ran = agent
+        .run(&format!("'{CB}' update SHOP-1 --stage 'QA=skip' --by-user"))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
+    let qa = shown["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["stage"] == "QA")
+        .unwrap();
+    assert_eq!(
+        (&qa["choice"], &qa["set_by"]),
+        (&json!("skip"), &json!("user")),
+        "{shown}"
+    );
 
     // Only Backlog tickets (CLI-06).
     ok(&cb(&w, &["-P", "SHOP", "create", "Queued one"]));
@@ -392,7 +411,8 @@ async fn a_project_agents_choices_and_the_users_words() {
 }
 
 /// A ticket's agent picks agents for its own ticket's later stages with a reason (AGM-11), not a stage that started,
-/// nor another ticket, and never skips one: only the user skips a stage (T1).
+/// nor another ticket, and never skips one: only the user skips a stage (T1). Only Noyan passes on the user's
+/// choices: its `--by-user` is refused (T9).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ticket_agent_sets_its_own_later_stages() {
     let w = world().await;
@@ -491,12 +511,26 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
         &w,
         &["update", "SHOP-3", "--stage", "Dev=Quick developer"],
     ));
-    // The user's skip, and the agent's in the user's words, still work.
+    // The user's skip still works. Only Noyan passes on the user's choices: the ticket agent's `--by-user` skip or
+    // agent pick is refused, and nothing is written (T9).
     ok(&cb(&w, &["update", "SHOP-3", "--stage", "QA=skip"]));
-    let ran = agent
-        .run(&format!("'{CB}' update SHOP-2 --stage 'QA=skip' --by-user"))
-        .await;
-    assert_eq!(ran.status, 0, "{ran:?}");
+    for words in [
+        "--stage 'QA=skip' --by-user",
+        "--stage 'Dev=Rust developer' --by-user",
+        "--stage 'Dev=Rust developer' --reason 'the user asked' --by-user",
+    ] {
+        let ran = agent.run(&format!("'{CB}' update SHOP-2 {words}")).await;
+        assert_ne!(ran.status, 0, "{words}");
+        assert!(
+            ran.stderr.contains(ONLY_NOYAN_PASSES_ON),
+            "{words}: {ran:?}"
+        );
+    }
+    let shown = ok(&cb(&w, &["show", "SHOP-2"]));
+    assert_eq!(
+        choices_block(&shown),
+        "Choices:     Dev: Quick developer · set by Spec writer · small change"
+    );
     let ran = agent
         .run(&format!(
             "'{CB}' update SHOP-3 --stage 'Dev=Rust developer' --reason 'x'"
