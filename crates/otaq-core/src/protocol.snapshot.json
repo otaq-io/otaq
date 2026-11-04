@@ -6928,6 +6928,9 @@
         "run_command": {
           "ty": "String"
         },
+        "run_command_set_by": {
+          "ty": "Option<RunCommandSetBy>"
+        },
         "schema_paths": {
           "ty": "Vec<String>"
         },
@@ -8305,9 +8308,15 @@
         "review.feedback": {
           "newtype": "KeyParams"
         },
+        "run.command_undo": {
+          "newtype": "ProjectParams"
+        },
         "run.list": {},
         "run.log": {
           "newtype": "RunLogParams"
+        },
+        "run.set": {
+          "newtype": "RunSetParams"
         },
         "run.start": {
           "newtype": "KeyParams"
@@ -8778,6 +8787,27 @@
         "resumed"
       ]
     },
+    "RunCommandSetBy": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "open_url": {
+          "ty": "bool",
+          "omittable": true
+        },
+        "stage": {
+          "ty": "String",
+          "required": true
+        },
+        "ticket": {
+          "ty": "TicketKey",
+          "required": true
+        }
+      }
+    },
     "RunFiles": {
       "kind": "struct",
       "fields": {
@@ -8801,6 +8831,10 @@
         "command": {
           "ty": "String",
           "required": true
+        },
+        "command_set_by": {
+          "ty": "Option<RunCommandSetBy>",
+          "omittable": true
         },
         "ended_at": {
           "ty": "Option<i64>",
@@ -8896,6 +8930,23 @@
         "passed",
         "skipped"
       ]
+    },
+    "RunSetParams": {
+      "kind": "struct",
+      "fields": {
+        "command": {
+          "ty": "String",
+          "required": true
+        },
+        "key": {
+          "ty": "String",
+          "required": true
+        },
+        "open_url": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
     },
     "RunState": {
       "kind": "enum",

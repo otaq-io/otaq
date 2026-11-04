@@ -12,6 +12,7 @@ import {
   IconButton,
   pickTheme,
   Segmented,
+  SetByLine,
   TextArea,
   TextInput,
   ThemePicker,
@@ -521,6 +522,7 @@ function Reset({ row }: { row: SettingsRow }) {
 }
 
 function Row({ row }: { row: SettingsRow }) {
+  const { act } = useSettings();
   if (row.control.kind === "provider") return <ProviderRow row={row} />;
   if (row.control.kind === "tools") return <Control row={row} />;
   if (row.control.kind === "env_vars") return <EnvVarsRow row={row} />;
@@ -549,6 +551,14 @@ function Row({ row }: { row: SettingsRow }) {
           <span className="settings-row-description">
             <CodeText text={row.description} />
           </span>
+        )}
+        {row.set_by !== null && (
+          <SetByLine
+            setBy={row.set_by}
+            onUndo={() => {
+              act("undo_run_command");
+            }}
+          />
         )}
       </div>
       <div className="settings-row-control">

@@ -44,6 +44,7 @@ export { Popover, useDismiss, useEscape, type PopoverProps } from "./Popover";
 export { PriorityChip, PriorityLabel } from "./Priority";
 export { ResizeEdge, type ResizeEdgeProps } from "./ResizeEdge";
 export { Select, type SelectProps } from "./Select";
+export { SetByLine } from "./SetByLine";
 export {
   StageChoices,
   TicketPath,

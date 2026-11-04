@@ -42,6 +42,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       dimmed: false,
       reset: null,
       button: null,
+      set_by: null,
     },
     {
       field: "agent_limits.max_concurrency",
@@ -51,6 +52,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       dimmed: true,
       reset: null,
       button: null,
+      set_by: null,
     },
   ],
   note: null,
@@ -125,6 +127,7 @@ describe("the Settings screen", () => {
           dimmed: false,
           reset: null,
           button: null,
+          set_by: null,
         },
       ],
       note: null,
@@ -132,6 +135,75 @@ describe("the Settings screen", () => {
     const out = html(withPage(createElement(Section, { section })));
     expect(out).toContain('aria-invalid="true"');
     expect(out).toContain('<span class="settings-problem">localhost isn&#x27;t a URL</span>');
+  });
+
+  it("a run command an agent set says so, and Undo asks for it (d{RUN})", async () => {
+    const section: SettingsSection<"commands"> = {
+      id: "commands",
+      title: null,
+      intro: null,
+      rows: [
+        {
+          field: "run_command",
+          label: "Run command",
+          description: "",
+          control: {
+            kind: "text",
+            value: "node server.js",
+            placeholder: "not set",
+            mono: true,
+            multiline: false,
+            problem: null,
+          },
+          dimmed: false,
+          reset: null,
+          button: null,
+          set_by: {
+            text: "Set by Dev on SHOP-27",
+            undo: "Undo",
+            undo_hint: "Empties the run command the agent set",
+          },
+        },
+      ],
+      note: null,
+    };
+    expect(html(withPage(createElement(Section, { section })))).toMatch(
+      /Run command.*Set by Dev on SHOP-27.*Undo/,
+    );
+
+    const acted: string[] = [];
+    const host = document.body.appendChild(document.createElement("div"));
+    const { createRoot } = await import("react-dom/client");
+    const { act } = await import("react");
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        createElement(
+          SettingsContext,
+          {
+            value: {
+              page: PAGE,
+              project: "SHOP",
+              edit: () => undefined,
+              act: (a) => {
+                acted.push(a);
+              },
+            },
+          },
+          createElement(Section, { section }),
+        ),
+      );
+    });
+    const undo = [...host.querySelectorAll("button")].find((b) => b.textContent === "Undo");
+    act(() => {
+      undo?.click();
+    });
+    expect(acted).toEqual(["undo_run_command"]);
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
   });
 
   it("Ticket resources come right after Commands, and schema paths are one multi-line field", () => {
@@ -158,6 +230,7 @@ describe("the Settings screen", () => {
           dimmed: false,
           reset: null,
           button: null,
+          set_by: null,
         },
       ],
       note: null,

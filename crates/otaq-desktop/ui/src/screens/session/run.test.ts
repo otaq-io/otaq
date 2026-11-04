@@ -57,6 +57,7 @@ const RUNNING: RunTabView = {
   menu_label: "Run options",
   session: null,
   idle: "(not running)",
+  set_by: null,
 };
 
 const COMMAND: RunCommandView = {
@@ -135,6 +136,26 @@ describe("the Run & Shell screen", () => {
       }),
     );
     expect(html).toMatch(/pnpm dev · in SHOP-22’s worktree · :4022.*Serving · started by Dev.*Stop/);
+  });
+
+  it("says an agent set the run command, with Undo (d{RUN})", () => {
+    const html = renderToStaticMarkup(
+      createElement(RunTabBody, {
+        ticket: "SHOP-22",
+        view: {
+          ...RUNNING,
+          set_by: {
+            text: "Set by Dev on SHOP-27",
+            undo: "Undo",
+            undo_hint: "Empties the run command the agent set",
+          },
+        },
+      }),
+    );
+    expect(html).toMatch(/Serving.*Set by Dev on SHOP-27.*Undo/);
+    expect(
+      renderToStaticMarkup(createElement(RunTabBody, { ticket: "SHOP-22", view: RUNNING })),
+    ).not.toContain("Set by");
   });
 
   it("says each state in the line's words: Run when stopped, the reason under the line, the backend's note", () => {

@@ -342,7 +342,7 @@ async fn log_before_any_run_and_no_command_for_an_agent() {
         refused(&answer),
         (
             "no_run_command",
-            "shop-web has no run command yet: ask the user to set one (Settings → Run command)"
+            "shop-web has no run command yet: if you know how this project starts, run `otaq run set --command …`"
         )
     );
     w.stop().await;

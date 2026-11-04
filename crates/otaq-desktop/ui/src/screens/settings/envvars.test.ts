@@ -40,6 +40,7 @@ function envRow(rows: { name: string; value: string; problem?: string }[]): Sett
     dimmed: false,
     reset: null,
     button: null,
+    set_by: null,
   };
 }
 

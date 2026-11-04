@@ -399,6 +399,8 @@ pub enum ButtonAction {
     Credits,
     /// Asks before removing the project.
     RemoveProject,
+    /// Empties the run command an agent set ("Set by Dev on SHOP-27 · Undo", d{RUN}).
+    UndoRunCommand,
     /// Brings up macOS's notifications question (in the app's process) and answers Otaq's ask (ATT-13, ATT-14).
     AllowNotifications,
     /// Opens Otaq's entry in System Settings → Notifications (ATT-14).
@@ -421,6 +423,8 @@ pub struct Row {
     /// A button after the control: Run command's **Ask the agent** (T-0232, T-0342), which opens the run-command
     /// dialog.
     pub button: Option<RowButton>,
+    /// Run command's "Set by Dev on SHOP-27 · Undo" (d{RUN}); Undo is [`ButtonAction::UndoRunCommand`].
+    pub set_by: Option<crate::view_models::run_page::SetByView>,
 }
 
 /// A row's button and what it opens.
@@ -601,6 +605,7 @@ fn row(field: &str, label: &str, description: impl Into<String>, control: Contro
         dimmed: false,
         reset: None,
         button: None,
+        set_by: None,
     }
 }
 
@@ -1041,6 +1046,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             ),
             merge_check_row(s, p),
             Row {
+                set_by: crate::view_models::run_page::set_by_view(s.run_command_set_by.as_ref()),
                 button: input.tool_connected.then(|| RowButton {
                     label: crate::view_models::run_page::ASK_LABEL.into(),
                     icon: IconName::Sparkles,
@@ -2987,6 +2993,40 @@ mod tests {
             .find(|r| r.field == "run_command")
             .unwrap();
         assert_eq!(run.button, None);
+        assert_eq!(run.set_by, None, "the user's own command has no line");
+
+        // A command an agent set (d{RUN}): "Set by Dev on SHOP-27 · Undo" under the row.
+        let by_agent = ProjectSettings {
+            run_command_set_by: Some(otaq_core::board::settings::RunCommandSetBy {
+                stage: "Dev".into(),
+                ticket: "SHOP-27".parse().unwrap(),
+                at: 0,
+                open_url: false,
+            }),
+            ..s.clone()
+        };
+        let page = project_page(&ProjectInputs {
+            info: &info(),
+            settings: &by_agent,
+            problems: &problems,
+            global: &GlobalSettings::default(),
+            warm: None,
+            project_agent: "Strong",
+            tool_connected: true,
+        });
+        let Page::Project { sections, .. } = page else {
+            panic!()
+        };
+        let run = sections
+            .iter()
+            .flat_map(|s| &s.rows)
+            .find(|r| r.field == "run_command")
+            .unwrap();
+        let line = run.set_by.as_ref().expect("the set-by line");
+        assert_eq!(
+            (line.text.as_str(), line.undo),
+            ("Set by Dev on SHOP-27", "Undo")
+        );
         let url = rows.iter().find(|r| r.field == "open_url").unwrap();
         assert!(
             matches!(&url.control, Control::Text { problem: Some(p), .. } if p == "localhost isn't a URL")

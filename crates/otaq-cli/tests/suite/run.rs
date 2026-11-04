@@ -152,7 +152,7 @@ async fn a_held_port_and_no_run_command_are_errors() {
     assert_ne!(ran.status, 0);
     assert!(
         ran.stderr
-            .contains("shop-web has no run command yet: ask the user to set one"),
+            .contains("shop-web has no run command yet: if you know how this project starts, run `otaq run set"),
         "{ran:?}"
     );
 
@@ -192,5 +192,54 @@ async fn stop_refuses_the_users_run_and_log_before_a_run_is_an_error() {
     );
     assert!(w.runs.info("SHOP-1").await.unwrap().state.is_live());
     w.runs.stop("SHOP-1").await.unwrap();
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn set_saves_the_command_once_it_runs_and_nothing_when_it_fails() {
+    let w = TestService::start().await;
+    let (_, port, agent) = in_dev(&w, 26_980..=26_999).await;
+    let ran = agent
+        .run(&format!(
+            "'{CB}' run set --command {} --timeout 2",
+            on_platform("'exit 4'", "\"exit 4\"")
+        ))
+        .await;
+    assert_ne!(ran.status, 0, "{ran:?}");
+    assert!(
+        ran.stderr
+            .contains("Nothing saved: SHOP-1's Run failed to start (exit 4)"),
+        "{ran:?}"
+    );
+    assert_eq!(
+        w.board.project_settings("SHOP").await.unwrap().run_command,
+        ""
+    );
+
+    let listener = answer_once_starting(&w, "SHOP-1", port);
+    let ran = agent
+        .run(&format!(
+            "'{CB}' run set --command 'sleep 30' --open-url 'http://localhost:$PORT/'"
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        format!(
+            "Saved as shop-web's run command (Set by Dev on SHOP-1).\nSHOP-1's Run: running :{port} (started by \
+             Dev)\nhttp://localhost:{port}/"
+        )
+    );
+    let ran = agent
+        .run(&format!("'{CB}' run set --command 'pnpm dev'"))
+        .await;
+    assert_ne!(ran.status, 0);
+    assert!(
+        ran.stderr
+            .contains("shop-web already has a run command (`sleep 30`)"),
+        "{ran:?}"
+    );
+    agent.run(&format!("'{CB}' run stop")).await;
+    drop(listener.await.unwrap());
     w.stop().await;
 }

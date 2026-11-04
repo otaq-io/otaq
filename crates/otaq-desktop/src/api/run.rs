@@ -40,6 +40,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "run.command_edit" => reply(&command_edit(app, parse(params)?)?),
         "run.command_save" => reply(&command_save(app, parse(params)?).await?),
         "run.command_cancel" => reply(&command_cancel(app, parse(params)?).await?),
+        "run.command_undo" => reply(&command_undo(app, parse(params)?).await?),
         "run.shell" => reply(&shell(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
@@ -277,6 +278,24 @@ fn with_model(
     let fill = f(model);
     let command = fill.as_ref().map_or(command, |f| f.command.as_str());
     Ok(page::command_view(model, command, fill.clone()))
+}
+
+/// Undo of "Set by Dev on SHOP-27" (d{RUN}): the run command an agent set goes back to empty. Settings and the Run tab
+/// refetch on the `projects_changed` it sends.
+pub async fn command_undo(app: &App, params: CommandParams) -> Result<(), RequestError> {
+    match app
+        .service
+        .send(Request::RunCommandUndo(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, "The run command wasn\u{2019}t undone".to_owned(), &e);
+            Err(e)
+        }
+    }
 }
 
 /// A field changed, or Ask the agent / Cancel was clicked: the project and the command as typed.

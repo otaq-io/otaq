@@ -35,6 +35,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::{TerminalEnv, with_port};
+use crate::board::settings::RunCommandSetBy;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -172,6 +173,9 @@ pub struct RunInfo {
     /// Who started the last Run (agents run the app); `None` before any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_by: Option<StartedBy>,
+    /// The agent that set the project's run command ("Set by Dev on SHOP-27", with Undo; agents run the app).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_set_by: Option<RunCommandSetBy>,
 }
 
 /// What `otaq run log` prints (agents run the app): the Run's kept output as text, its last `tail` lines. Never read from disk:
@@ -284,6 +288,15 @@ struct Record {
     stopped_by: Option<StopCause>,
     /// The agent that started it; `None`: you did (agents run the app).
     agent: Option<RunAgent>,
+    /// The command an agent is trying (`otaq run set`, agents run the app): saved as the project's once this Run is running.
+    trying: Option<Trying>,
+}
+
+/// A run command an agent is trying for a project that has none (agents run the app).
+#[derive(Debug, Clone)]
+struct Trying {
+    open_url: Option<String>,
+    by: RunCommandSetBy,
 }
 
 impl Record {
@@ -352,6 +365,78 @@ impl Runs {
         key: &str,
         agent: Option<RunAgent>,
     ) -> Result<RunInfo, BoardError> {
+        self.start_with(key, agent, None).await
+    }
+
+    /// `otaq run set --command … [--open-url …]` (agents run the app): for a project with no run command, `agent` starts
+    /// `command` as this ticket's Run; it becomes the project's run command once the Run is running ("Set by Dev on
+    /// SHOP-27"). Failed to start: nothing is saved. Refused when the project already has one: an agent never changes
+    /// a command the user set.
+    pub async fn set_command(
+        &self,
+        key: &str,
+        agent: RunAgent,
+        command: &str,
+        open_url: Option<&str>,
+    ) -> Result<RunInfo, BoardError> {
+        let ticket = self.inner.board.ticket(key).await?;
+        let project = self
+            .inner
+            .board
+            .project(ticket.key.project.as_str())
+            .await?;
+        let settings = self.inner.board.project_settings(&project.key).await?;
+        let existing = settings.run_command.trim();
+        if !existing.is_empty() {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "{} already has a run command (`{existing}`): an agent never changes one. Start it with `{} run \
+                     start --wait`",
+                    project.name,
+                    naming::COMMAND_NAME
+                ),
+            ));
+        }
+        let command = command.trim();
+        if command.is_empty() {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                "the run command is empty".to_owned(),
+            ));
+        }
+        if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "{}'s Run is up: stop it first (`{} run stop`)",
+                    ticket.key,
+                    naming::COMMAND_NAME
+                ),
+            ));
+        }
+        let trying = Trying {
+            open_url: open_url
+                .map(str::trim)
+                .filter(|u| !u.is_empty())
+                .map(str::to_owned),
+            by: RunCommandSetBy {
+                stage: agent.stage.clone(),
+                ticket: ticket.key.clone(),
+                at: now_ms(),
+                open_url: false,
+            },
+        };
+        self.start_with(key, Some(agent), Some((command.to_owned(), trying)))
+            .await
+    }
+
+    async fn start_with(
+        &self,
+        key: &str,
+        agent: Option<RunAgent>,
+        trying: Option<(String, Trying)>,
+    ) -> Result<RunInfo, BoardError> {
         let inner = &self.inner;
         let ticket = inner.board.ticket(key).await?;
         if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
@@ -375,7 +460,10 @@ impl Runs {
         };
         let project = inner.board.project(ticket.key.project.as_str()).await?;
         let settings = inner.board.project_settings(&project.key).await?;
-        let command = settings.run_command.trim().to_owned();
+        let (command, trying) = match trying {
+            Some((command, trying)) => (command, Some(trying)),
+            None => (settings.run_command.trim().to_owned(), None),
+        };
         if command.is_empty() {
             return Err(BoardError::refused(
                 Refusal::NoRunCommand,
@@ -394,6 +482,7 @@ impl Runs {
             exit_code: None,
             stopped_by: None,
             agent: agent.clone(),
+            trying,
         };
         if !ports::is_free_on_machine_settled(port).await {
             tracing::info!(ticket = %ticket.key, port, "run port in use");
@@ -633,6 +722,7 @@ impl Runs {
                     exit_code: None,
                     stopped_by: Some(StopCause::Restart),
                     agent: None,
+                    trying: None,
                 },
             );
             runs.publish(&ticket);
@@ -719,6 +809,46 @@ impl Runs {
     }
 
     async fn became_running(&self, ticket_id: &str, session: &str) {
+        let tried = {
+            let mut records = self.inner.records.lock().expect("runs");
+            match records.get_mut(ticket_id) {
+                Some(r)
+                    if r.state == RunState::Starting && r.session.as_deref() == Some(session) =>
+                {
+                    r.trying
+                        .take()
+                        .map(|t| (r.key.clone(), r.command.clone(), t))
+                }
+                _ => return,
+            }
+        };
+        // The command an agent tried runs: it becomes the project's (agents run the app), unless one was set meanwhile.
+        if let Some((key, command, trying)) = tried {
+            match self
+                .inner
+                .board
+                .save_agent_run_command(
+                    key.project.as_str(),
+                    &command,
+                    trying.open_url.as_deref(),
+                    trying.by,
+                )
+                .await
+            {
+                Ok(true) => {
+                    tracing::info!(ticket = %key, %command, "run command set by the agent");
+                    // Settings pages refetch the project's settings: "Set by Dev on SHOP-27" shows.
+                    self.inner.events.publish(Event::ProjectsChanged);
+                }
+                Ok(false) => {
+                    tracing::info!(ticket = %key, "a run command was set meanwhile; the agent's isn't saved")
+                }
+                Err(e) => {
+                    tracing::warn!(ticket = %key, error = %e, "can't save the agent's run command")
+                }
+            }
+        }
+        // Running only now, once a tried command is saved: `run set` sees it saved when it sees running.
         {
             let mut records = self.inner.records.lock().expect("runs");
             match records.get_mut(ticket_id) {
@@ -820,7 +950,11 @@ impl Runs {
             .await?;
         let settings = self.inner.board.project_settings(&project.key).await?;
         let record = self.record(&ticket.id);
-        let open_url = Some(settings.open_url.trim().to_owned()).filter(|u| !u.is_empty());
+        let open_url = record
+            .as_ref()
+            .and_then(|r| r.trying.as_ref())
+            .and_then(|t| t.open_url.clone())
+            .or_else(|| Some(settings.open_url.trim().to_owned()).filter(|u| !u.is_empty()));
         let mut info = RunInfo {
             project: project.key.clone(),
             project_name: project.name.clone(),
@@ -836,6 +970,7 @@ impl Runs {
             exit_code: None,
             stopped_by: None,
             started_by: None,
+            command_set_by: settings.run_command_set_by.clone(),
         };
         if let Some(r) = record {
             info.started_by = r.started_by();
@@ -896,11 +1031,12 @@ async fn port_answers(port: u16) -> bool {
     false
 }
 
-/// The refusal when the project has no run command; an agent is told to ask the user (agents run the app).
+/// The refusal when the project has no run command; an agent is told how to add one (agents run the app).
 fn no_run_command(project: &str, agent: bool) -> String {
     if agent {
         format!(
-            "{project} has no run command yet: ask the user to set one (Settings → Run command)"
+            "{project} has no run command yet: if you know how this project starts, run `{} run set --command …`",
+            naming::COMMAND_NAME
         )
     } else {
         format!("{project} has no run command yet")

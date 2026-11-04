@@ -1506,3 +1506,13 @@
 .resize-edge:active {
   background: linear-gradient(to right, transparent 3px, var(--focus) 3px 5px, transparent 5px);
 }
+
+/* "Set by Dev on SHOP-27 · Undo" under the run command (d{RUN}). */
+.set-by-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 12px/1.4 var(--font-ui);
+}

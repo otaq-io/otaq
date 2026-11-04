@@ -44,6 +44,26 @@ pub(super) async fn handle(
             run(runs.stop_as(&p.key, agent.as_ref()).await)
         }
         Request::RunStatus(p) => run(runs.info(&p.key).await),
+        Request::RunSet(p) => match run_agent(caller, shared).await {
+            Some(agent) => run(runs
+                .set_command(&p.key, agent, &p.command, p.open_url.as_deref())
+                .await),
+            None => Err(ErrorBody::new(
+                ErrorKind::Refused,
+                "`run set` is for a ticket's agent; set the run command in Settings → Run command",
+            )),
+        },
+        Request::RunCommandUndo(p) => shared
+            .board
+            .undo_agent_run_command(&p.project)
+            .await
+            .map(|()| {
+                shared
+                    .events
+                    .publish(crate::protocol::Event::ProjectsChanged);
+                Reply::Ok
+            })
+            .map_err(|e| error_body(&e)),
         Request::RunLog(p) => runs
             .log(&p.key, p.tail.map_or(LOG_TAIL, |t| t as usize))
             .await
