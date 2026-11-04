@@ -3573,6 +3573,10 @@
           "ty": "Option<u16>",
           "omittable": true
         },
+        "run_started_by": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "sent_back": {
           "ty": "Option<SentBack>",
           "omittable": true
@@ -7783,6 +7787,9 @@
         "run": {
           "newtype": "RunInfo"
         },
+        "run_log": {
+          "newtype": "RunLog"
+        },
         "runs": {
           "newtype": "Vec<RunInfo>"
         },
@@ -8299,6 +8306,9 @@
           "newtype": "KeyParams"
         },
         "run.list": {},
+        "run.log": {
+          "newtype": "RunLogParams"
+        },
         "run.start": {
           "newtype": "KeyParams"
         },
@@ -8828,6 +8838,10 @@
           "ty": "Option<i64>",
           "omittable": true
         },
+        "started_by": {
+          "ty": "Option<StartedBy>",
+          "omittable": true
+        },
         "state": {
           "ty": "RunState",
           "required": true
@@ -8839,6 +8853,36 @@
         "title": {
           "ty": "String",
           "required": true
+        }
+      }
+    },
+    "RunLog": {
+      "kind": "struct",
+      "fields": {
+        "key": {
+          "ty": "TicketKey",
+          "required": true
+        },
+        "state": {
+          "ty": "RunState",
+          "required": true
+        },
+        "text": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "RunLogParams": {
+      "kind": "struct",
+      "fields": {
+        "key": {
+          "ty": "String",
+          "required": true
+        },
+        "tail": {
+          "ty": "Option<u32>",
+          "omittable": true
         }
       }
     },
@@ -9971,6 +10015,23 @@
         "worktree"
       ]
     },
+    "StartedBy": {
+      "kind": "enum",
+      "attrs": [
+        "tag=by"
+      ],
+      "variants": {
+        "agent": {
+          "fields": {
+            "stage": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
+        "you": {}
+      }
+    },
     "StartupReport": {
       "kind": "struct",
       "fields": {
@@ -10066,6 +10127,14 @@
         "tag=by"
       ],
       "variants": {
+        "agent": {
+          "fields": {
+            "stage": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "finished": {
           "fields": {
             "status": {
@@ -10076,6 +10145,14 @@
         },
         "parked": {},
         "restart": {},
+        "stage_ended": {
+          "fields": {
+            "stage": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "you": {}
       }
     },

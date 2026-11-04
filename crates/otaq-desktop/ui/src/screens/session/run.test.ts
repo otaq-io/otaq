@@ -126,6 +126,17 @@ describe("the Run & Shell screen", () => {
     expect(html).not.toContain("OUTPUT");
   });
 
+  it("says who started a Run an agent started (d{RUN}): `run_page::tab_view`'s words on the line", () => {
+    const html = renderToStaticMarkup(
+      createElement(RunTabBody, {
+        ticket: "SHOP-22",
+        head: createElement("span", null, "the switch"),
+        view: { ...RUNNING, state: { ...RUNNING.state, text: "Serving · started by Dev" } },
+      }),
+    );
+    expect(html).toMatch(/pnpm dev · in SHOP-22’s worktree · :4022.*Serving · started by Dev.*Stop/);
+  });
+
   it("says each state in the line's words: Run when stopped, the reason under the line, the backend's note", () => {
     const stopped = renderToStaticMarkup(
       createElement(RunTabBody, {

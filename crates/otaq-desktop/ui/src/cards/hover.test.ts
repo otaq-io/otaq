@@ -93,6 +93,28 @@ describe("the one-line card", () => {
     expect(bubble()).toBeNull();
   });
 
+  it("a card whose Run an agent started says so in its full status (d{RUN})", () => {
+    const running: TicketCardView = {
+      ...SHOP_32,
+      key: "SHOP-19",
+      status: { text: ":4020", dot: "working", tone: "muted", icon: null },
+      action: null,
+      hover: { status: "Serving :4020 · started by Dev", details: [] },
+    };
+    act(() => {
+      root.render(createElement(TicketCard, { card: running, onSelect: () => {}, onAction: () => {} }));
+    });
+    const head = host.querySelector<HTMLElement>(".card-head");
+    if (!head) throw new Error("the key's row");
+    act(() => {
+      head.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(TOOLTIP_DELAY);
+    });
+    expect(bubble()?.textContent).toContain("Serving :4020 · started by Dev");
+  });
+
   const titleTip = () => host.querySelector<HTMLElement>(".tooltip");
   const restOnTitle = () => {
     const title = host.querySelector<HTMLElement>(".card-title");

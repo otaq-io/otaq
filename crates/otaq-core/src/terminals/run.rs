@@ -1,6 +1,13 @@
 //! Run (RUN-01; d0035, d0026, d0045): the project's **run command** in a ticket's worktree, with `$PORT` = the
-//! ticket's **Run port** (4020 for SHOP-19, never the agent's 4019). Only on the user's click; Stop ends it; reaching
-//! Done or Close stops it (with a toast); a restart leaves it "stopped by restart" and nothing starts it again.
+//! ticket's **Run port** (4020 for SHOP-19, never the agent's 4019). The user's click or the ticket's own agent
+//! (`otaq run start`, d{RUN}) starts it; Stop ends it; reaching Done or Close stops it (with a toast); a restart leaves
+//! it "stopped by restart" and nothing starts it again.
+//!
+//! **Who started it** (d{RUN}): one Run per ticket, shared by the user and the ticket's agents (its Dev agent, its
+//! check). The Run records who started it ("started by Dev"). An agent uses a Run the user started and never stops
+//! it; it stops only a Run an agent of its ticket started. Otaq stops an agent's Run when that agent's stage ends or
+//! its verdict lands ([`Runs::stage_ended`], "stage ended"); a Run the user started is never stopped that way. The
+//! processes of an agent's Run act for that agent ([`crate::session::ActingFor`]), never as the user.
 //!
 //! A Run is a service-owned PTY session of kind `run` ([`SessionKind::Run`]): its output is the session's bounded
 //! scrollback, streamed to the app like any session's (`session.attach`, `session_output`), and Stop sends the
@@ -38,8 +45,8 @@ use crate::protocol::Event;
 use crate::review::finish::FinishedTicket;
 use crate::service::EventBus;
 use crate::session::{
-    END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
-    TerminalSize,
+    ActingFor, END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions,
+    SpawnSpec, Start, TerminalSize,
 };
 use crate::store::now_ms;
 use crate::ticket_env::TicketEnv;
@@ -83,7 +90,7 @@ impl RunState {
 }
 
 /// Who or what stopped a Run that didn't end on its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "by", rename_all = "snake_case")]
 pub enum StopCause {
     /// The user's Stop.
@@ -95,6 +102,41 @@ pub enum StopCause {
     /// The ticket was parked: its ports return to the pool (d0052, Q30).
     Parked,
     Restart,
+    /// An agent of the ticket stopped it (`otaq run stop`, d{RUN}): `stage` names it ("Dev").
+    Agent {
+        stage: String,
+    },
+    /// The agent that started it ended its stage (`stage next`, `stage done`) or gave its verdict (d{RUN}).
+    StageEnded {
+        stage: String,
+    },
+}
+
+/// Who started a Run (d{RUN}): your click, or one of the ticket's agents, named by its stage ("Dev", "Validate").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "by", rename_all = "snake_case")]
+pub enum StartedBy {
+    You,
+    Agent { stage: String },
+}
+
+impl StartedBy {
+    /// "started by Dev" for an agent's Run; `None` for yours (the board says nothing extra).
+    pub fn agent_label(&self) -> Option<String> {
+        match self {
+            Self::You => None,
+            Self::Agent { stage } => Some(format!("started by {stage}")),
+        }
+    }
+}
+
+/// The ticket agent asking to start or stop a Run (d{RUN}): its session, its stage's name ("Dev") and the session
+/// kind its processes are callers of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunAgent {
+    pub session: String,
+    pub stage: String,
+    pub kind: SessionKind,
 }
 
 /// A ticket's Run, as clients see it.
@@ -127,12 +169,71 @@ pub struct RunInfo {
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped_by: Option<StopCause>,
+    /// Who started the last Run (d{RUN}); `None` before any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_by: Option<StartedBy>,
 }
+
+/// What `otaq run log` prints (d{RUN}): the Run's kept output as text, its last `tail` lines. Never read from disk:
+/// Otaq writes no Run output there (d0045).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunLog {
+    pub key: TicketKey,
+    pub state: RunState,
+    pub text: String,
+}
+
+/// How many lines `otaq run log` prints by default.
+pub const LOG_TAIL: usize = 200;
 
 impl RunInfo {
     /// The Open URL with the Run port in it, when the project sets one and the Run has a port.
     pub fn url(&self) -> Option<String> {
         Some(with_port(self.open_url.as_deref()?, self.port?))
+    }
+
+    /// `otaq run status` in words (d{RUN}): "not started", "starting :4020 (started by Dev)", "running :4020 (started
+    /// by the user)", "stopped (Dev's stage ended)", "failed to start (exit 1)", "port :4020 in use", "stopped by
+    /// restart".
+    pub fn status_text(&self) -> String {
+        let port = self.port.map_or_else(String::new, |p| format!(" :{p}"));
+        let by = match &self.started_by {
+            Some(StartedBy::Agent { stage }) => format!(" (started by {stage})"),
+            Some(StartedBy::You) => " (started by the user)".to_owned(),
+            None => String::new(),
+        };
+        match self.state {
+            RunState::NotStarted => "not started".to_owned(),
+            RunState::Starting => format!("starting{port}{by}"),
+            RunState::Running => format!("running{port}{by}"),
+            RunState::Stopped => {
+                let how = match (&self.stopped_by, self.exit_code) {
+                    (Some(StopCause::You), _) => "by the user".to_owned(),
+                    (Some(StopCause::Agent { stage }), _) => format!("by {stage}"),
+                    (Some(StopCause::StageEnded { stage }), _) => format!("{stage}'s stage ended"),
+                    (Some(StopCause::Finished { status }), _) => format!(
+                        "{} is {}",
+                        self.key,
+                        if *status == Status::Merged {
+                            "done"
+                        } else {
+                            "closed"
+                        }
+                    ),
+                    (Some(StopCause::Parked), _) => format!("{} was parked", self.key),
+                    (Some(StopCause::Restart), _) => "by restart".to_owned(),
+                    (None, Some(code)) => format!("exited with code {code}"),
+                    (None, None) => "ended".to_owned(),
+                };
+                format!("stopped ({how})")
+            }
+            RunState::FailedToStart => match self.exit_code {
+                Some(code) => format!("failed to start (exit {code})"),
+                None => "failed to start".to_owned(),
+            },
+            RunState::PortInUse => format!("port{port} in use"),
+            RunState::StoppedByRestart => "stopped by restart".to_owned(),
+        }
     }
 }
 
@@ -140,19 +241,27 @@ impl RunInfo {
 /// board reads it when it builds tickets; [`Runs`] keeps it. Cheap to clone.
 #[derive(Debug, Clone, Default)]
 pub struct RunPorts {
-    inner: Arc<Mutex<HashMap<String, u16>>>,
+    inner: Arc<Mutex<HashMap<String, RunPort>>>,
 }
+
+/// A live Run's port and the stage of the agent that started it (`None`: you did).
+type RunPort = (u16, Option<String>);
 
 impl RunPorts {
     pub fn get(&self, ticket_id: &str) -> Option<u16> {
+        self.get_with_starter(ticket_id).map(|(port, _)| port)
+    }
+
+    /// The port, and the stage of the agent that started the Run ("Dev"; `None` when you did, d{RUN}).
+    pub fn get_with_starter(&self, ticket_id: &str) -> Option<(u16, Option<String>)> {
         self.inner
             .lock()
             .expect("run ports")
             .get(ticket_id)
-            .copied()
+            .cloned()
     }
 
-    fn set(&self, ticket_id: &str, port: Option<u16>) {
+    fn set(&self, ticket_id: &str, port: Option<(u16, Option<String>)>) {
         let mut all = self.inner.lock().expect("run ports");
         match port {
             Some(port) => all.insert(ticket_id.to_owned(), port),
@@ -173,6 +282,20 @@ struct Record {
     ended_at: Option<i64>,
     exit_code: Option<i32>,
     stopped_by: Option<StopCause>,
+    /// The agent that started it; `None`: you did (d{RUN}).
+    agent: Option<RunAgent>,
+}
+
+impl Record {
+    fn started_by(&self) -> Option<StartedBy> {
+        self.session.as_ref()?;
+        Some(match &self.agent {
+            Some(a) => StartedBy::Agent {
+                stage: a.stage.clone(),
+            },
+            None => StartedBy::You,
+        })
+    }
 }
 
 /// Starts, watches and stops Runs. Cheap to clone.
@@ -219,6 +342,16 @@ impl Runs {
     /// (the ticket never started) or without a run command (the UI then asks for one, RUN-02). When another
     /// program holds the Run port, nothing starts and the state is "port in use".
     pub async fn start(&self, key: &str) -> Result<RunInfo, BoardError> {
+        self.start_as(key, None).await
+    }
+
+    /// [`Runs::start`] for `agent`, one of the ticket's agents (`otaq run start`, d{RUN}), or for you (`None`). A
+    /// Run already up, whoever started it, is left alone and used.
+    pub async fn start_as(
+        &self,
+        key: &str,
+        agent: Option<RunAgent>,
+    ) -> Result<RunInfo, BoardError> {
         let inner = &self.inner;
         let ticket = inner.board.ticket(key).await?;
         if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
@@ -246,7 +379,7 @@ impl Runs {
         if command.is_empty() {
             return Err(BoardError::refused(
                 Refusal::NoRunCommand,
-                format!("{} has no run command yet", project.name),
+                no_run_command(&project.name, agent.is_some()),
             ));
         }
 
@@ -260,6 +393,7 @@ impl Runs {
             ended_at: None,
             exit_code: None,
             stopped_by: None,
+            agent: agent.clone(),
         };
         if !ports::is_free_on_machine_settled(port).await {
             tracing::info!(ticket = %ticket.key, port, "run port in use");
@@ -292,8 +426,16 @@ impl Runs {
         let shell = crate::shell::one_line_shown(&run, &with_port(&command, port));
         let mut env = inner.env.env(&inner.data, Some(&ticket.key), Some(port));
         env.extend(shell.env);
-        let session = inner
-            .sessions
+        let mut prepared = inner.sessions.prepared(None);
+        if let Some(a) = &agent {
+            prepared = prepared.acting_for(ActingFor {
+                kind: a.kind,
+                session: a.session.clone(),
+                ticket: ticket.key.clone(),
+                ticket_id: ticket.id.clone(),
+            });
+        }
+        let session = prepared
             .spawn(SpawnSpec {
                 kind: SessionKind::Run,
                 start: Start::User,
@@ -322,8 +464,9 @@ impl Runs {
         record.session = Some(session.id.clone());
         record.started_at = Some(session.started_at);
         self.store(&ticket.id, record);
-        inner.board.run_ports().set(&ticket.id, Some(port));
-        tracing::info!(ticket = %ticket.key, port, "run started");
+        let stage = agent.as_ref().map(|a| a.stage.clone());
+        tracing::info!(ticket = %ticket.key, port, by = ?stage, "run started");
+        inner.board.run_ports().set(&ticket.id, Some((port, stage)));
         self.publish(&ticket);
         tokio::spawn(self.clone().watch(ticket.id.clone(), session.id, port));
         self.info_of(&ticket).await
@@ -331,9 +474,96 @@ impl Runs {
 
     /// Stops the ticket's Run (the user's Stop): its whole process group ends.
     pub async fn stop(&self, key: &str) -> Result<RunInfo, BoardError> {
+        self.stop_as(key, None).await
+    }
+
+    /// [`Runs::stop`] for `agent` (`otaq run stop`, d{RUN}), or for you (`None`). An agent stops only a Run an agent
+    /// of its ticket started: the user's is refused, and stays up.
+    pub async fn stop_as(
+        &self,
+        key: &str,
+        agent: Option<&RunAgent>,
+    ) -> Result<RunInfo, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
-        self.stop_with(&ticket.id, StopCause::You).await;
+        let cause = match agent {
+            None => StopCause::You,
+            Some(a) => {
+                if let Some(r) = self.record(&ticket.id)
+                    && r.state.is_live()
+                    && r.agent.is_none()
+                {
+                    return Err(BoardError::refused(
+                        Refusal::NotAllowed,
+                        user_run_refusal(&ticket.key),
+                    ));
+                }
+                StopCause::Agent {
+                    stage: a.stage.clone(),
+                }
+            }
+        };
+        self.stop_with(&ticket.id, cause).await;
         self.info_of(&ticket).await
+    }
+
+    /// The agent of `session` ended its stage or gave its verdict (d{RUN}): a Run it started stops ("stage ended").
+    /// A Run the user started, or another agent's, is left alone. `true` when one stopped.
+    pub async fn stage_ended(&self, session: &str) -> bool {
+        let started: Vec<(String, String)> = self
+            .inner
+            .records
+            .lock()
+            .expect("runs")
+            .iter()
+            .filter(|(_, r)| r.state.is_live())
+            .filter_map(|(id, r)| {
+                let a = r.agent.as_ref().filter(|a| a.session == session)?;
+                Some((id.clone(), a.stage.clone()))
+            })
+            .collect();
+        let mut stopped = false;
+        for (ticket_id, stage) in started {
+            stopped |= self
+                .stop_with(&ticket_id, StopCause::StageEnded { stage })
+                .await;
+        }
+        stopped
+    }
+
+    /// The Run's kept output as text, its last `tail` lines (`otaq run log`, d{RUN}): the Run now or the last one
+    /// still in memory. Refused before any Run, and after a restart (output never goes to disk, d0045).
+    pub async fn log(&self, key: &str, tail: usize) -> Result<RunLog, BoardError> {
+        let ticket = self.inner.board.ticket(key).await?;
+        let record = self.record(&ticket.id);
+        let output = record
+            .as_ref()
+            .and_then(|r| r.session.as_deref())
+            .and_then(|s| self.inner.sessions.output_of_session(s));
+        let Some((_, bytes, size)) = output else {
+            let message = match record.map(|r| r.state) {
+                Some(RunState::StoppedByRestart) => {
+                    format!("{}'s Run output isn't kept after a restart.", ticket.key)
+                }
+                Some(RunState::PortInUse) => format!(
+                    "{}'s Run didn't start: its port is in use, so there is no output.",
+                    ticket.key
+                ),
+                _ => format!(
+                    "{}'s Run hasn't run yet, so there is no output.",
+                    ticket.key
+                ),
+            };
+            return Err(BoardError::refused(Refusal::SessionEnded, message));
+        };
+        let text = crate::session::screen::render_above(&bytes, size, tail);
+        let lines: Vec<&str> = text.lines().collect();
+        let text = lines[lines.len().saturating_sub(tail)..].join("\n");
+        let state = self.info_of(&ticket).await?.state;
+        Ok(RunLog {
+            key: ticket.key,
+            state,
+            text,
+        })
     }
 
     /// A ticket reached Done or was closed (REC-05): its Run stops and a toast says so.
@@ -402,6 +632,7 @@ impl Runs {
                     ended_at: info.ended_at,
                     exit_code: None,
                     stopped_by: Some(StopCause::Restart),
+                    agent: None,
                 },
             );
             runs.publish(&ticket);
@@ -523,7 +754,7 @@ impl Runs {
                 r.stopped_by = Some(StopCause::Restart);
             }
             r.ended_at = Some(info.ended_at.unwrap_or_else(now_ms));
-            let (state, line) = match r.stopped_by {
+            let (state, line) = match r.stopped_by.clone() {
                 Some(StopCause::You) => (RunState::Stopped, "stopped by you".to_owned()),
                 Some(StopCause::Finished { status }) => (
                     RunState::Stopped,
@@ -543,6 +774,13 @@ impl Runs {
                 Some(StopCause::Restart) => {
                     (RunState::StoppedByRestart, "stopped by restart".to_owned())
                 }
+                Some(StopCause::Agent { stage }) => {
+                    (RunState::Stopped, format!("stopped by {stage}"))
+                }
+                Some(StopCause::StageEnded { stage }) => (
+                    RunState::Stopped,
+                    format!("stopped · {stage}'s stage ended"),
+                ),
                 None => {
                     r.exit_code = exit_code;
                     let line = match exit_code {
@@ -597,8 +835,10 @@ impl Runs {
             ended_at: None,
             exit_code: None,
             stopped_by: None,
+            started_by: None,
         };
         if let Some(r) = record {
+            info.started_by = r.started_by();
             info.state = r.state;
             info.port = r.port.or(info.port);
             if r.state.is_live() {
@@ -654,4 +894,23 @@ async fn port_answers(port: u16) -> bool {
         }
     }
     false
+}
+
+/// The refusal when the project has no run command; an agent is told to ask the user (d{RUN}).
+fn no_run_command(project: &str, agent: bool) -> String {
+    if agent {
+        format!(
+            "{project} has no run command yet: ask the user to set one (Settings → Run command)"
+        )
+    } else {
+        format!("{project} has no run command yet")
+    }
+}
+
+/// An agent's `otaq run stop` of a Run the user started (d{RUN}).
+pub fn user_run_refusal(key: &TicketKey) -> String {
+    format!(
+        "{key}'s Run was started by the user, so it stays running: an agent stops only a Run an agent started. \
+         Use it as it is."
+    )
 }

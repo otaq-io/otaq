@@ -310,6 +310,9 @@ pub enum Command {
     /// `answer <n> --stdin`, `pass-on <id>`; a helper's `helper done --stdin`
     #[command(subcommand)]
     Helper(crate::helper::HelperCommand),
+    /// The ticket's Run (its app): `run start --wait`, `run status`, `run log --tail 50`, `run stop`
+    #[command(subcommand)]
+    Run(crate::run::RunCommand),
     /// Add, remove or show dependencies
     #[command(subcommand)]
     Dep(DepCommand),

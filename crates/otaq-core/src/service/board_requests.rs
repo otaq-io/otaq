@@ -811,6 +811,8 @@ pub(super) async fn handle(
                 && let Caller::Agent { session, .. } = caller
             {
                 shared.signals.mark_submitted_or_asked(session);
+                // The backstop (d{RUN}): a Run this agent started stops with its stage.
+                shared.runs.stage_ended(session).await;
             }
             let ticket = submitted?;
             let flow = board.effective_flow(&project).await?;
@@ -845,6 +847,7 @@ pub(super) async fn handle(
                 && let Caller::Agent { session, .. } = caller
             {
                 shared.signals.mark_submitted_or_asked(session);
+                shared.runs.stage_ended(session).await;
             }
             done.map(|ticket| {
                 let text = crate::board::review::stage_done_text(&ticket);
@@ -882,9 +885,13 @@ pub(super) async fn handle(
                 ),
             )
             .await;
-            crate::board::hand_over::settled(board, hand_over.as_ref(), verdict)
-                .await
-                .map(|t| Reply::Ticket(Box::new(t)))
+            let settled =
+                crate::board::hand_over::settled(board, hand_over.as_ref(), verdict).await;
+            if settled.is_ok() {
+                // The backstop (d{RUN}): a Run this check started stops with its verdict.
+                shared.runs.stage_ended(session).await;
+            }
+            settled.map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketValidationAction(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -1587,6 +1594,7 @@ pub(super) async fn handle(
         | Request::RunStart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
+        | Request::RunLog(_)
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)

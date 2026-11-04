@@ -440,10 +440,18 @@ pub struct Prepared<'a> {
     sessions: &'a Sessions,
     step: Option<PrepareStep>,
     project_agent: Option<String>,
+    acting_for: Option<ActingFor>,
     id: Option<String>,
 }
 
 impl Prepared<'_> {
+    /// The session's processes act for the ticket agent `agent` from its first instant (d{RUN}): a Run an agent
+    /// started is that agent's caller, never the user's.
+    pub fn acting_for(mut self, agent: ActingFor) -> Self {
+        self.acting_for = Some(agent);
+        self
+    }
+
     /// The session runs for the Project agent `agent` (its `sessions.project_agent_id`, d0068) from its first
     /// instant: its processes are that Project agent's callers before the program can run `otaq`.
     pub fn for_project_agent(mut self, agent: &str) -> Self {
@@ -461,7 +469,13 @@ impl Prepared<'_> {
     /// Runs the step, if any, then [`Sessions::spawn`].
     pub async fn spawn(self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
         self.sessions
-            .spawn_with(self.step.as_ref(), self.project_agent, self.id, spec)
+            .spawn_with(
+                self.step.as_ref(),
+                self.project_agent,
+                self.acting_for,
+                self.id,
+                spec,
+            )
             .await
     }
 }
@@ -522,6 +536,16 @@ async fn run_prepare(step: &PrepareStep, limit: Duration) -> Result<(), SessionE
     } else {
         printed.join("\n")
     }))
+}
+
+/// The ticket agent whose caller a session's processes are, though the session doesn't run it (d{RUN}): the agent
+/// or check that started a Run. Its kind is the agent's session's ([`crate::caller::Caller::of_root`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActingFor {
+    pub kind: SessionKind,
+    pub session: String,
+    pub ticket: TicketKey,
+    pub ticket_id: String,
 }
 
 /// The root process of a running agent session, for caller identity (CLI-01).
@@ -628,6 +652,8 @@ struct Live {
     ticket_id: Option<String>,
     /// The Project agent the session runs for (d0068), from its start ([`Prepared::for_project_agent`]).
     project_agent: Option<String>,
+    /// The ticket agent the session's processes act for (d{RUN}): set for a Run an agent started.
+    acting_for: Option<ActingFor>,
     /// The skill copies in its folder when it started (`otaq-address-review`…), once
     /// [`Sessions::set_started_skills`] said so (d0118): its tool read those, and only those, at its start.
     started_skills: Mutex<Vec<String>>,
@@ -735,6 +761,7 @@ impl Sessions {
             sessions: self,
             step,
             project_agent: None,
+            acting_for: None,
             id: None,
         }
     }
@@ -743,13 +770,14 @@ impl Sessions {
     /// the same ticket is refused, and so is an automatic start ([`Start::Auto`]) in a paused project (the backstop of
     /// PAU-04: its caller keeps the start for Resume).
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
-        self.spawn_with(None, None, None, spec).await
+        self.spawn_with(None, None, None, None, spec).await
     }
 
     async fn spawn_with(
         &self,
         prepare: Option<&PrepareStep>,
         project_agent: Option<String>,
+        acting_for: Option<ActingFor>,
         id: Option<String>,
         spec: SpawnSpec,
     ) -> Result<SessionInfo, SessionError> {
@@ -940,6 +968,7 @@ impl Sessions {
             info: Mutex::new(info.clone()),
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
             project_agent,
+            acting_for,
             started_skills: Mutex::new(Vec::new()),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
@@ -1222,16 +1251,10 @@ impl Sessions {
             .values()
             .filter_map(|l| {
                 let info = l.info.lock().expect("session info");
-                if !info.is_running() || !info.kind.runs_agent_tool() {
+                if !info.is_running() {
                     return None;
                 }
-                Some(AgentRoot {
-                    pid: l.pid?,
-                    kind: info.kind,
-                    session: info.id.clone(),
-                    ticket: info.ticket.clone()?,
-                    ticket_id: l.ticket_id.clone()?,
-                })
+                l.agent_root(&info)
             })
             .collect()
     }
@@ -1246,16 +1269,10 @@ impl Sessions {
             .values()
             .find_map(|l| {
                 let info = l.info.lock().expect("session info");
-                if !info.is_running() || !info.kind.runs_agent_tool() || !l.group.contains(pid) {
+                if !info.is_running() || !l.group.contains(pid) {
                     return None;
                 }
-                Some(AgentRoot {
-                    pid: l.pid?,
-                    kind: info.kind,
-                    session: info.id.clone(),
-                    ticket: info.ticket.clone()?,
-                    ticket_id: l.ticket_id.clone()?,
-                })
+                l.agent_root(&info)
             })
     }
 
@@ -1717,6 +1734,31 @@ impl Drop for Inner {
 }
 
 impl Live {
+    /// The agent caller this running session's processes are: its own agent when it runs an agent tool for a
+    /// ticket, the agent it acts for (an agent's Run, d{RUN}), else none (the user's).
+    fn agent_root(&self, info: &SessionInfo) -> Option<AgentRoot> {
+        let pid = self.pid?;
+        if let Some(a) = &self.acting_for {
+            return Some(AgentRoot {
+                pid,
+                kind: a.kind,
+                session: a.session.clone(),
+                ticket: a.ticket.clone(),
+                ticket_id: a.ticket_id.clone(),
+            });
+        }
+        if !info.kind.runs_agent_tool() {
+            return None;
+        }
+        Some(AgentRoot {
+            pid,
+            kind: info.kind,
+            session: info.id.clone(),
+            ticket: info.ticket.clone()?,
+            ticket_id: self.ticket_id.clone()?,
+        })
+    }
+
     /// The session as a running Project agent's root.
     fn project_agent_root(&self) -> Option<ProjectAgentRoot> {
         let info = self.info.lock().expect("session info");

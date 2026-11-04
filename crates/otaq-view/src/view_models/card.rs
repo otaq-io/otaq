@@ -1522,18 +1522,23 @@ impl CardViewModel {
             );
         }
         if let Some(port) = flags.run_port {
+            // Who started it, when an agent did (d{RUN}): "Serving :4020 · started by Dev".
+            let by = flags
+                .run_started_by
+                .as_ref()
+                .map_or(String::new(), |stage| format!(" \u{b7} started by {stage}"));
             parts.push(
                 Part::flag(
                     HeadFlag::new(
                         Rank::Running,
                         format!(":{port}"),
-                        format!("Serving :{port}"),
+                        format!("Serving :{port}{by}"),
                         Legend::Running,
                     ),
                     None,
                     Tone::Muted,
                 )
-                .lost(format!("also running :{port}")),
+                .lost(format!("also running :{port}{by}")),
             );
         }
         if stale {
@@ -3633,6 +3638,19 @@ mod tests {
         let (_, vm) = variant("Running (Run, 0035) · pinned (0047)");
         assert_eq!(flag_of(&vm), Some(":4020"));
         assert_eq!(vm.hover.status, "Serving :4020");
+        // A Run an agent started says so (d{RUN}); the chip stays short.
+        let (mut t, _) = variant("Running (Run, 0035) · pinned (0047)");
+        t.flags.run_started_by = Some("Dev".into());
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some(":4020"));
+        assert_eq!(vm.hover.status, "Serving :4020 · started by Dev");
+        let (mut t, _) = variant("Approved · PR open (0017)");
+        t.flags.run_port = Some(4020);
+        t.flags.run_started_by = Some("Dev".into());
+        assert_eq!(
+            line(&card(&t)),
+            Some(format!("{} · also running :4020 · started by Dev", pr_not_watched()).as_str())
+        );
         // Needs you over the port (the frame's combined card).
         let (_, vm) = variant("Needs you + running + 2 dependencies");
         assert_eq!(flag_of(&vm), Some("Needs you"));

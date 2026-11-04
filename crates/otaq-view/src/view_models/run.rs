@@ -73,20 +73,24 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
             vec![RunButton::Run],
         ),
         RunState::Starting => (
-            "Starting…".to_owned(),
+            with_starter("Starting…", run),
             Tone::Progress,
             None,
             open(false).into_iter().chain([RunButton::Stop]).collect(),
         ),
         RunState::Running => (
-            "Serving".to_owned(),
+            with_starter("Serving", run),
             Tone::Success,
             None,
             open(true).into_iter().chain([RunButton::Stop]).collect(),
         ),
         RunState::Stopped => {
-            let title = match (run.stopped_by, run.exit_code) {
+            let title = match (&run.stopped_by, run.exit_code) {
                 (Some(StopCause::You), _) => format!("Stopped by you at {ended}"),
+                (Some(StopCause::Agent { stage }), _) => format!("Stopped by {stage} at {ended}"),
+                (Some(StopCause::StageEnded { stage }), _) => {
+                    format!("Stopped at {ended} · {stage}’s stage ended")
+                }
                 (Some(StopCause::Finished { .. }), _) => {
                     format!("Stopped at {ended} · {} is finished", run.key)
                 }
@@ -147,6 +151,14 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
         command: Some(run.command.clone()).filter(|c| !c.is_empty()),
         message,
         buttons,
+    }
+}
+
+/// "Serving · started by Dev" for a Run an agent started (d{RUN}); yours is just "Serving".
+fn with_starter(title: &str, run: &RunInfo) -> String {
+    match run.started_by.as_ref().and_then(|s| s.agent_label()) {
+        Some(by) => format!("{title} · {by}"),
+        None => title.to_owned(),
     }
 }
 
@@ -212,6 +224,7 @@ mod tests {
             ended_at: Some(4_000),
             exit_code: None,
             stopped_by: None,
+            started_by: None,
         }
     }
 
@@ -225,6 +238,34 @@ mod tests {
             label: open_label(url),
             enabled,
         }
+    }
+
+    /// Who started it (d{RUN}): an agent's Run says so; yours doesn't; an agent's stop and the backstop name it.
+    #[test]
+    fn started_and_stopped_by_an_agent() {
+        let dev = || {
+            Some(otaq_core::terminals::run::StartedBy::Agent {
+                stage: "Dev".into(),
+            })
+        };
+        let mut r = run(RunState::Running);
+        r.started_by = dev();
+        assert_eq!(card(&r, hhmm).title, "Serving · started by Dev");
+        r.state = RunState::Starting;
+        assert_eq!(card(&r, hhmm).title, "Starting… · started by Dev");
+        r.started_by = Some(otaq_core::terminals::run::StartedBy::You);
+        assert_eq!(card(&r, hhmm).title, "Starting…");
+
+        let mut r = run(RunState::Stopped);
+        r.started_by = dev();
+        r.stopped_by = Some(StopCause::Agent {
+            stage: "Dev".into(),
+        });
+        assert_eq!(card(&r, hhmm).title, "Stopped by Dev at 11:48");
+        r.stopped_by = Some(StopCause::StageEnded {
+            stage: "Dev".into(),
+        });
+        assert_eq!(card(&r, hhmm).title, "Stopped at 11:48 · Dev’s stage ended");
     }
 
     #[test]
