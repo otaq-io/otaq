@@ -29,6 +29,10 @@
 //! (move, start, approve, merge, close, delete, edit a started ticket) is refused: "Noyan can only change Backlog
 //! tickets".
 //!
+//! **A Plan** (`otaq create|update --plan|--plan-file|--plan-stdin`, T11) is its own action, [`Action::WritePlan`]:
+//! Noyan is intake only, so a Project agent's is refused ([`NOYAN_NO_PLAN`]), clearing one included; ticket agents
+//! write Plans where they may edit, and the user anywhere.
+//!
 //! **Stage choices** (`otaq create|update --stage`, AGM-11; d0108, d0087) are their own action,
 //! [`Action::SetChoices`]: a Project agent on the tickets it may change (Backlog), a ticket agent on its own ticket
 //! and on the ones it may fix (d0129); a validator never. Which stage each may
@@ -60,6 +64,9 @@ pub const ONLY_A_VALIDATOR: &str = "Only an agent check can give a verdict";
 
 /// Every refusal of a Project agent (PAG-02).
 pub const BACKLOG_ONLY: &str = "Noyan can only change Backlog tickets";
+
+/// The refusal of a Plan written (or cleared) by a Project agent: Noyan is intake only (T11).
+pub const NOYAN_NO_PLAN: &str = "Noyan files tickets; the flow's stages write the Plan";
 
 /// Every refusal of a comment from a Project agent (CMT-04).
 pub const PROJECT_AGENT_NO_COMMENTS: &str = "Noyan can read comments, not write them";
@@ -134,6 +141,9 @@ pub enum Action {
         target: TicketFacts,
         project: String,
     },
+    /// Writes or clears a ticket's Plan (`--plan`, `--plan-file`, `--plan-stdin`), on top of creating or editing it:
+    /// never a Project agent's, since Noyan is intake only (T11).
+    WritePlan,
     /// Sets this ticket's stage choices (`--stage`, AGM-11); each is then judged by
     /// [`crate::board::stage_choices::judge`].
     SetChoices(TicketFacts),
@@ -265,6 +275,8 @@ pub fn authorize_in_stage(
     if let Caller::ProjectAgent { project, .. } = caller {
         return match action {
             Action::Read | Action::CreateTicket => Ok(()),
+            // Noyan is intake only: the flow's stages write the Plan.
+            Action::WritePlan => refuse(NOYAN_NO_PLAN.to_owned()),
             Action::ReadTerminal { project: of, .. } if of == project => Ok(()),
             Action::ReadTerminal { .. } => refuse(project_terminal_refusal(
                 names.caller.unwrap_or("Noyan"),
@@ -290,7 +302,8 @@ pub fn authorize_in_stage(
         return Ok(());
     };
     match action {
-        Action::Read | Action::CreateTicket => Ok(()),
+        // Where it may create or edit, a ticket's agent writes the Plan too.
+        Action::Read | Action::CreateTicket | Action::WritePlan => Ok(()),
         Action::ChangeTicket(target)
         | Action::EditTicket(target)
         | Action::SetChoices(target)

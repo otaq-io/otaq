@@ -2,14 +2,14 @@
 //! d0068, d0031, d0030, d0060): requests sent from inside its session (an ordinary `sh` started as a Project agent,
 //! running `nc`) are judged as that Project agent. It creates, edits, links and prioritises Backlog tickets only;
 //! its tickets name it; `prime --project`; Created and changed with Delete; `ask <KEY>` and `ask human`, with the
-//! answers typed into its session.
+//! answers typed into its session. Noyan is intake only: it never writes or clears a Plan (T11).
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::TempRepos;
-use otaq_core::policy::BACKLOG_ONLY;
+use otaq_core::policy::{BACKLOG_ONLY, NOYAN_NO_PLAN};
 use otaq_core::project_agents::ProjectAgent;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
@@ -149,6 +149,115 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
         "Price table"
     );
     assert_eq!(w.status("SHOP-44").await, Status::Backlog);
+    w.stop().await;
+}
+
+/// Noyan is intake only (T11): a Plan from it, on `create`, on `update` (clearing one too) or on any ticket of a
+/// batch, is refused with the one text and writes nothing. Its other Backlog edits pass, and a ticket's agent and
+/// the user keep writing Plans.
+#[tokio::test(flavor = "multi_thread")]
+async fn noyan_writes_no_plan_and_the_stages_and_the_user_still_do() {
+    const PLAN: &str = "## Pieces\n\n1. Query index — waits for nothing\n2. Cache — waits for 1\n";
+    let w = world().await;
+    let (_, shell) = open(&w).await;
+    let count = || async { w.board.tickets("SHOP").await.unwrap().len() };
+    let before = count().await;
+    let refused_plan = |answer: &Value| {
+        assert_eq!(
+            answer["error"]["data"]["refusal"], "not_allowed",
+            "{answer}"
+        );
+        assert_eq!(refused(answer), NOYAN_NO_PLAN);
+    };
+
+    let created = send(
+        &w,
+        &shell,
+        "ticket.create",
+        json!({"project": "SHOP", "title": "Slow checkout query", "plan": PLAN}),
+    )
+    .await;
+    refused_plan(&created);
+    let batch = send(
+        &w,
+        &shell,
+        "ticket.create_batch",
+        json!({"project": "SHOP", "tickets": [
+            {"title": "Slow checkout query"},
+            {"title": "Cache price table", "plan": PLAN},
+        ]}),
+    )
+    .await;
+    refused_plan(&batch);
+    assert_eq!(count().await, before, "nothing created");
+
+    // A user's Backlog ticket: writing a Plan, or clearing one, is refused; the description still changes.
+    w.board
+        .update_ticket(
+            "SHOP-13",
+            &otaq_core::board::tickets::TicketUpdate {
+                plan: Some(PLAN.into()),
+                ..Default::default()
+            },
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    for plan in ["1. Only piece — waits for nothing\n", ""] {
+        let answer = send(
+            &w,
+            &shell,
+            "ticket.update",
+            json!({"key": "SHOP-13", "plan": plan, "body": "x"}),
+        )
+        .await;
+        refused_plan(&answer);
+    }
+    let unchanged = w.board.ticket("SHOP-13").await.unwrap();
+    assert_eq!(unchanged.plan, PLAN);
+    assert_ne!(unchanged.body, "x");
+    let described = send(
+        &w,
+        &shell,
+        "ticket.update",
+        json!({"key": "SHOP-13", "body": "Checkout takes 4s on carts over 20 items."}),
+    )
+    .await;
+    assert!(described.get("error").is_none(), "{described}");
+    assert_eq!(
+        w.board.ticket("SHOP-13").await.unwrap().body,
+        "Checkout takes 4s on carts over 20 items."
+    );
+
+    // The ticket's own agent writes its Plan, and the user rewrites it.
+    let shop13 = w.board.ticket("SHOP-13").await.unwrap();
+    let agent = w.agent_shell(&shop13).await;
+    let by_agent = "1. Query index — waits for nothing\n";
+    let answer = send(
+        &w,
+        &agent,
+        "ticket.update",
+        json!({"key": "SHOP-13", "plan": by_agent}),
+    )
+    .await;
+    assert!(answer.get("error").is_none(), "{answer}");
+    assert_eq!(w.board.ticket("SHOP-13").await.unwrap().plan, by_agent);
+    let client = otaq_core::client::Client::connect(otaq_core::client::ClientConfig::new(&w.data))
+        .await
+        .unwrap();
+    client
+        .request(otaq_core::protocol::Request::TicketUpdate(
+            otaq_core::protocol::TicketUpdateParams {
+                key: "SHOP-13".into(),
+                update: otaq_core::board::tickets::TicketUpdate {
+                    plan: Some(PLAN.into()),
+                    ..Default::default()
+                },
+            },
+        ))
+        .await
+        .unwrap();
+    assert_eq!(w.board.ticket("SHOP-13").await.unwrap().plan, PLAN);
     w.stop().await;
 }
 
