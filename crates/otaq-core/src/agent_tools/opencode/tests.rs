@@ -26,7 +26,7 @@ fn names() {
     assert_eq!(adapter.resume_hint("ses_1"), "opencode --session ses_1");
     assert_eq!(
         adapter.install_command(Os::Linux),
-        "npm install -g @opencode/cli"
+        "npm install -g --allow-scripts=@opencode/cli @opencode/cli"
     );
     // No one-time setup: no folder trust, nothing written.
     assert_eq!(adapter.record_project(Path::new("/repo")), None);

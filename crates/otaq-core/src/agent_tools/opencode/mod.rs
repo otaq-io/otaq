@@ -56,8 +56,10 @@ const CLEAR_LINE: &[u8] = b"\x05\x15";
 
 /// How OpenCode is installed (the same npm package on every OS). OpenCode 2 ships as `@opencode/cli`; the
 /// `opencode-ai` package is OpenCode 1, which the adapter can't run (opencode.ai/v2/docs). Both install the
-/// `opencode` command.
-const INSTALL: &str = "npm install -g @opencode/cli";
+/// `opencode` command. Its postinstall links the platform's binary into place, so the command allows that script:
+/// npm 11 lists install scripts it wasn't told to allow and refuses them under `--strict-allow-scripts` (then
+/// nothing is installed), and npm 10 ignores the flag (checked on Windows with npm 10.9.9 and 11.19.1).
+const INSTALL: &str = "npm install -g --allow-scripts=@opencode/cli @opencode/cli";
 
 /// Where OpenCode finds things on this machine. Agents use the user's own OpenCode data folder (ADP-09).
 #[derive(Debug, Clone)]
