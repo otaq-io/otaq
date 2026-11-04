@@ -83,7 +83,7 @@ fn the_work_ticket_commands_are_checked() {
         );
     }
     // T-0539 (d0133): the agent in charge runs its helpers, a helper hands its piece back; a Send back may start a
-    // helper; Noyan writes a Plan.
+    // helper.
     for command in [
         "helper start",
         "helper list",
@@ -98,10 +98,7 @@ fn the_work_ticket_commands_are_checked() {
         assert!(work.contains(&command.to_owned()), "work-ticket: {command}");
     }
     assert!(named("address-review").contains(&"helper start".to_owned()));
+    // Noyan is intake only (T2): it writes no Plan.
     let noyan = std::fs::read_to_string(skills.join("noyan").join("SKILL.md")).unwrap();
-    assert!(noyan.contains("--plan-file"), "noyan: --plan-file");
-    assert!(
-        noyan.contains("Wishlist   Plan \u{b7} 3 pieces"),
-        "noyan: the table's Plan row"
-    );
+    assert!(!noyan.contains("--plan-file"), "noyan: --plan-file");
 }
