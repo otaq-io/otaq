@@ -307,7 +307,10 @@ fn work_ticket_proves_each_criterion_and_reproduces_bugs() {
         "never install a tool to climb higher",
         "**The project's own tests**",
         "**Browser tooling the project already has**",
+        "**The running app**",
         "**A manual check**",
+        "### Run the app",
+        "### Write down what you drove",
         "**Reproduce it before you change any code**",
         "**Fix it where it starts**",
         "**Run the same repro again**",
@@ -325,6 +328,97 @@ fn work_ticket_proves_each_criterion_and_reproduces_bugs() {
         let found = text[at..]
             .find(step)
             .unwrap_or_else(|| panic!("work-ticket must say {step:?} after the step before"));
+        at += found;
+    }
+}
+
+/// d{RUN}, d{GUIDE} (T3): work-ticket proves a criterion in the running app before a manual check: it starts the
+/// Run with `run start --wait` (adding a missing run command with `run set`), uses the ticket's database, drives the
+/// app as the verification guide at `docs/verify/` says, keeps the evidence in the resource folder, stops what it
+/// started before `stage next` and never the user's Run. Then it writes down what it drove: the guide's README when
+/// there is none, a file per feature it lacks, an update when the way to a feature changed; a follow-up ticket and a
+/// manual check when that is too big. Helpers get no Run.
+#[test]
+fn work_ticket_proves_in_the_running_app_and_grows_the_guide() {
+    let (_, body) = skill(WORK_TICKET_SKILL);
+    let text = flat(&body);
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        "**The running app**".to_owned(),
+        "**A manual check**".to_owned(),
+        "### Run the app".to_owned(),
+        format!("**Start it** with `{cmd} run start --wait`"),
+        format!("`{cmd} run set --command \"<cmd>\"`"),
+        "If the user already started the app for this ticket, you use theirs.".to_owned(),
+        "**Use this ticket's data.**".to_owned(),
+        format!("`${}`", naming::db_name_env_var()),
+        "**Drive it as the verification guide says**: `docs/verify/` in the repository, or where the project's notes \
+         say the guide lives"
+            .to_owned(),
+        "**Keep the evidence**".to_owned(),
+        format!(
+            "`{cmd} run log > \"${}/run.txt\"`",
+            naming::resource_dir_env_var()
+        ),
+        format!("**Stop what you started** with `{cmd} run stop` before `{cmd} stage next`"),
+        "Never stop a Run the user started".to_owned(),
+        "never write in your comment that the app was \"left running\"".to_owned(),
+        "### Write down what you drove".to_owned(),
+        "**No `docs/verify/README.md` yet**".to_owned(),
+        "the seed data an empty database needs".to_owned(),
+        "**A feature the guide lacks**: add its file".to_owned(),
+        "how to reach it, how to drive it, what proves it works".to_owned(),
+        "**You changed how a feature is reached**".to_owned(),
+        format!("file a follow-up with `{cmd} create \"Title\" --stdin`"),
+        "with a manual check this time".to_owned(),
+        "## Rules".to_owned(),
+        format!("**Stop the Run you started** (`{cmd} run stop`)"),
+        "Helpers get no Run".to_owned(),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = text[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("work-ticket must say {step:?} after the step before"));
+        at += found;
+    }
+}
+
+/// d{RUN}, d{GUIDE} (T3): Validate proves findings in the running app the same way, stays read-only (starting the
+/// app writes no tracked file; it never adds a run command), stops what it started before the verdict, and never
+/// counts edits under `docs/verify/` as out of scope.
+#[test]
+fn validate_proves_in_the_running_app_and_keeps_the_guide_in_scope() {
+    let (_, body) = skill("validate");
+    let text = flat(&body);
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        "leftovers and out-of-scope edits".to_owned(),
+        "Edits under `docs/verify/` (the verification guide, see \"Run the app\") are never out of scope".to_owned(),
+        "Prove each finding before it fails the ticket".to_owned(),
+        "a request to the running app (see \"Run the app\")".to_owned(),
+        "## Run the app".to_owned(),
+        format!("**Start it** with `{cmd} run start --wait`"),
+        "Starting the app is not a change: it writes no tracked file".to_owned(),
+        format!("don't add one (`{cmd} run set` saves a setting): make it a manual check"),
+        "**Drive it as the verification guide says**: `docs/verify/`".to_owned(),
+        format!("`${}`", naming::db_name_env_var()),
+        "**Keep the evidence**".to_owned(),
+        format!(
+            "`{cmd} run log > \"${}/run.txt\"`",
+            naming::resource_dir_env_var()
+        ),
+        format!("**Stop what you started** with `{cmd} run stop` before your verdict"),
+        "Never stop a Run the user started".to_owned(),
+        "## Long output".to_owned(),
+        "## Rules".to_owned(),
+        format!("Starting the app with `{cmd} run start` is not a change"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = text[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("validate must say {step:?} after the step before"));
         at += found;
     }
 }
