@@ -151,6 +151,44 @@ Those stages go back to their own agent. Kept:
 
 Each affected ticket's History says what was cleared and why.
 
+## Decisions after the first run (2026-11-04)
+
+Taken with the maintainer after T1–T8 were merged, from the questions the tasks and the T7 audit raised.
+
+### N15. Only Noyan passes on the user's words with `--by-user`
+
+`--by-user` is accepted from the Project agent only. A ticket's own agent (Dev, Validator, a helper…) using it is
+refused, so it sets agent picks for later stages with a reason, and never a skip. With N11 and N12, every skip on the
+board was set by the user, in the app or through Noyan.
+*Refines:* N12 and N14's "agents' `--by-user` ones" (choices already stored as `user` stay).
+
+### N16. The agent in charge drops a piece with `otaq helper drop`
+
+`otaq helper drop <n> --stdin` (the agent in charge only, with a reason) stops the piece's helper, removes its
+worktree and branch, and marks the piece "dropped", with the reason in History. A dropped piece is never merged and
+can't start again. Anything that waits for every piece to be merged (T7's guard G1) skips dropped ones.
+*Replaces:* sending a helper back and never merging it, which left it "sent back" for good.
+
+### N17. The service refuses a Plan from Noyan
+
+A Plan written by the Project agent (`--plan-file`, `--plan-stdin`) is refused with a clear text. This puts N1 into
+code. Ticket agents and the user keep writing Plans.
+
+### N18. The website demo's Noyan table has no Agent column
+
+The demo's proposal table is # · Title · Description, as the skill shows it when no stage has options, and the demo
+data stores no agent pick of Noyan's.
+
+### N19. History says why a choice was cleared, in short
+
+The History lines of N14 keep the short reasons ("only the user skips stages now", "Noyan sets only the stage
+choices the user names"), not the full refusal texts, whose second halves are instructions to an agent.
+
+### N20. A ticket agent sees only the stages it can change
+
+A ticket agent's "Stage choices" in `otaq prime` lists only the stages where it can pick another agent. When none
+remain, the section is left out.
+
 ## Dropped along the way
 
 - "Every skip needs evidence". Moot for Noyan after N4. See open question O1 for the Dev agent.
