@@ -1,5 +1,6 @@
 ---
 import Icon from "./Icon.astro";
+import { RELEASE_URL } from "./links";
 ---
 
 <section class="sec" id="install">
@@ -25,10 +26,11 @@ import Icon from "./Icon.astro";
         </p>
       </div>
       <div>
-        <h3>Otaq itself sends nothing</h3>
+        <h3>Nothing about you leaves</h3>
         <p>
-          Unless you opt in to anonymous usage data: which features are used, the Otaq version and your OS.
-          Never code, ticket text or file names. There is no update check.
+          Once a day Otaq asks GitHub for the newest version, and sends nothing with that request. Anonymous
+          usage data is sent only if you opt in: which features are used, the Otaq version and your OS. Never
+          code, ticket text or file names.
         </p>
       </div>
     </div>
@@ -39,39 +41,26 @@ import Icon from "./Icon.astro";
             <Icon icon="info" />
             v0.1
           </span>
-          Honest status
+          Download
         </h3>
         <p>
-          Otaq is used daily by its author and is early. There are no prebuilt releases yet: build it from
-          source. macOS is the most tested platform; Windows and Linux build and run but have seen less use.
-          Expect rough edges, and please open issues.
+          One setup file per system: macOS (Apple silicon and Intel), Windows 10/11, and Linux as an AppImage
+          or a .deb. Otaq updates itself. You need git and at least one agent tool installed and signed in.
         </p>
+        <div class="cta" style="margin-top:14px;justify-content:flex-start">
+          <a class="btn btn-p" href={RELEASE_URL}>
+            <Icon icon="download" />
+            Download the latest release
+          </a>
+        </div>
       </div>
       <div>
-        <h3>Build from source</h3>
-        <p>Rust 1.99+ and Node 24, plus at least one agent tool installed and signed in.</p>
-        <div class="term">
-          <div>
-            <span class="c"># the desktop app (the web page is built into the binary)</span>
-          </div>
-          <div>
-            <span class="g">$</span> git clone https://github.com/otaq-io/otaq.git &amp;&amp; cd otaq
-          </div>
-          <div>
-            <span class="g">$</span> cd crates/otaq-desktop &amp;&amp; npm ci &amp;&amp; npm run tauri build
-          </div>
-          <div>
-            <span class="c">
-              # the otaq command: opens the app, runs the service, and is what agents call
-            </span>
-          </div>
-          <div>
-            <span class="g">$</span> cargo build --release -p otaq-cli
-          </div>
-          <div>
-            <span class="g">$</span> otaq
-          </div>
-        </div>
+        <h3>Honest status</h3>
+        <p>
+          Otaq is early and used daily by its author. macOS is the most tested; Windows and Linux have seen
+          less use. Otaq isn’t code signed, so your system asks you to allow it the first time you open it.
+          Expect rough edges, and please open issues.
+        </p>
       </div>
     </div>
   </div>

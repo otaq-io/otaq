@@ -29,10 +29,10 @@ export const FAQS: readonly Faq[] = [
   },
   {
     q: "Is it Mac only?",
-    a: "No, but macOS is the most tested platform. Windows and Linux build and run, with less use so far. Warm builds need a filesystem that can clone copy-on-write (APFS, btrfs, XFS, ReFS); elsewhere a new worktree builds from scratch.",
+    a: "No, but macOS is the most tested platform. Windows and Linux have their own setup files, with less use so far. Warm builds need a filesystem that can clone copy-on-write (APFS, btrfs, XFS, ReFS); elsewhere a new worktree builds from scratch.",
   },
   {
     q: "What leaves my machine?",
-    a: "Only what your agent tools, git, gh or az send, with your own sign-ins. Otaq has no account and no server. It sends nothing itself unless you opt in to anonymous usage data, and there is no update check.",
+    a: "Only what your agent tools, git, gh or az send, with your own sign-ins. Otaq has no account and no server. On its own, it only asks GitHub once a day for the newest version, sending nothing about you. Anonymous usage data is sent only if you opt in.",
   },
 ];
