@@ -388,7 +388,8 @@ async fn validate_prime_plain() {
         "- depends on SHOP-19 · Price table (Working)",
         "## The diff\n\n```diff\n",
         "\n## Your verdict\n\nKeep it short: one or two lines, one line per finding with its file and line; notes \
-         start with \"Note:\". Finish with `otaq check pass --stdin` or `otaq check fail --stdin` and the verdict on \
+         start with \"Note:\". When the diff touches something shared, add a `Checked: safe because …` line \
+         (see your skill). A suspicion you couldn't prove is a note, never a failure. Finish with `otaq check pass --stdin` or `otaq check fail --stdin` and the verdict on \
          stdin. The agent's comment says what it ran; decide yourself whether to run it again. Save any run to a file \
          in `$OTAQ_RESOURCE_DIR` (never in the worktree) and name it in the verdict. What you couldn't \
          check yourself (a real browser, a device, a service you can't reach), list for the user: `--manual-check \
