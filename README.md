@@ -119,8 +119,10 @@ a new model needs no Otaq update.
   agent as the one in charge.
 - **Defaults per role, overridable per project.** Choose which named agent writes code, validates and answers as
   Noyan; a project can change any of the three.
-- **Agents suggest agents.** Noyan's plan and an agent's proposed tickets name an agent for each ticket from your
-  notes ("Light: docs-only change"), and they create nothing until you agree. Your own choice always wins.
+- **Stage choices are yours.** Noyan passes on only the choices you name ("2: Dev: Light"); otherwise every ticket
+  runs every stage of its flow with that stage's own agent. A ticket's agent may pick another agent for a later stage
+  of its ticket, with a reason (a stronger Validator when the change turned out risky), but it never skips one: only
+  you skip a stage. Your own choice always wins.
 - **Limits per tool, with fallbacks.** When one tool hits its usage limit or is logged out, only its agents wait; the
   rest keep going. The banner offers **Move waiting to…** another tool, and with **Use fallback agents automatically**
   on, waiting tickets start on each agent's fallback by themselves. A running conversation never changes tools.
@@ -133,7 +135,8 @@ the same in every tool. Cards show Working, Needs you and Idle from each tool's 
 ### Bigger features: a Plan and helpers
 
 A bigger feature is still **one ticket** that walks the flow, with one agent in charge at each stage. The ticket can
-carry a Markdown **Plan**, written by Noyan, by a planning stage of your flow, or by you, with one **Pieces** list:
+carry a Markdown **Plan**, written by a planning stage of your flow, by the Dev agent when it splits the work, or by
+you, with one **Pieces** list:
 
 ```markdown
 ## Pieces
@@ -147,6 +150,12 @@ reaches your base branch, or a pull request, as **one** change. Helpers are rows
 (`40.1 merged · 40.2 working`). A helper's questions go to the agent in charge, which answers them or passes them on
 to you with a note; its permission prompts come straight to you, and you answer in its terminal. The ticket takes one
 slot, and Pause, Park and a restart treat it and its helpers as one.
+
+When a ticket reaches the build stage without pieces, its Dev agent decides before it writes any code whether one
+agent should build it or the work should be split into pieces. A piece fits one agent when it changes one behaviour,
+in one area or layer, and needs only a handful of files read; when unsure, the agent splits. When the work turns out
+bigger partway through, the agent commits what it has and writes a Plan for the rest, and a helper whose piece turns out too big hands back what it built with a suggested
+split, which the agent in charge adds to the Plan. Helpers never start helpers of their own.
 
 ### Noyan and terminals
 
@@ -388,8 +397,8 @@ Every command takes `--json`. Run `otaq --help` for the full list.
 
 The agent's workflow lives in [`plugin/`](plugin) as skills: `work-ticket` (the main loop, for the agent in charge
 and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`, `answer-question`, `restack`, `flow`,
-`product-spec`, `tech-spec`, `milestone-plan` (the Spec first preset's planning stages) and `noyan` (one ticket
-with a Plan, or several tickets). Otaq gives the same skills to every tool, in the way that tool loads them (a Claude
+`product-spec`, `tech-spec`, `milestone-plan` (the Spec first preset's planning stages) and `noyan` (files tickets
+from a request, with notes for the next stage). Otaq gives the same skills to every tool, in the way that tool loads them (a Claude
 Code plugin, an OpenCode plugin in [`plugin/opencode`](plugin/opencode), and so on). You can replace the commit,
 push, open-PR and validate skills with your own, globally or per project, and the setting applies to every tool. The
 hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are unaffected.
