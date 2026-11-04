@@ -540,6 +540,9 @@ pub struct InputQuirks {
     pub clear_line: &'static [u8],
     /// The pause between the text and Enter.
     pub enter_delay: Duration,
+    /// Keys sent after the text and before Enter's pause, or none: a key the tool takes as the end of what was
+    /// typed, so Enter sends the message instead of joining it (Codex on Windows).
+    pub before_enter: &'static [u8],
     /// Whether [`Self::clear_line`] clears a multi-line draft. When not, SES-07 asks the user instead.
     pub multi_line_clearable: bool,
 }

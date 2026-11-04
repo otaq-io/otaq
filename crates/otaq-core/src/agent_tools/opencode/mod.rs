@@ -236,6 +236,7 @@ impl AgentTool for OpenCode {
         InputQuirks {
             clear_line: CLEAR_LINE,
             enter_delay: Duration::ZERO,
+            before_enter: b"",
             multi_line_clearable: false,
         }
     }
