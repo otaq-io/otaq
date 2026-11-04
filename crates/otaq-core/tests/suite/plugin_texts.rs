@@ -323,8 +323,25 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
         ),
         format!("{cmd} stage next --stdin"),
         "Milestone plan: 4 pieces; docs/milestones/wishlist.md".to_owned(),
+        // The size measure is concrete signs, not time (T3).
+        "**A piece fits one agent when** it changes one behaviour, in one area or layer (for example the API, or the \
+         page, not both), and the agent needs to read only a handful of files to do it."
+            .to_owned(),
+        "**Split it** when it crosses layers, bundles several behaviours, or needs a lot of unfamiliar code read first."
+            .to_owned(),
+        "**When unsure, split.**".to_owned(),
+        "**One piece when the work is one**".to_owned(),
+        "**Order them by what each needs**".to_owned(),
+        // A helper starts with a fresh context, so a piece's details stand on their own (T3).
+        "**They must stand on their own**: a helper starts with a fresh context".to_owned(),
     ] {
         assert!(plan.contains(&step), "milestone-plan must say {step:?}");
+    }
+    for time in ["about a day", "days of work"] {
+        assert!(
+            !plan.contains(time),
+            "milestone-plan measures a piece by concrete signs, not time: {time:?}"
+        );
     }
     assert!(
         !plan.contains(&format!("{cmd} create")),
