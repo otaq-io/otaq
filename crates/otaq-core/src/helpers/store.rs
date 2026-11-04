@@ -227,6 +227,22 @@ pub async fn merged(pool: &SqlitePool, id: &str, files: &[String]) -> Result<(),
     Ok(())
 }
 
+/// A helper's piece was dropped (T10): `reason` is its note; its port goes back to the pool, its open prompt and what
+/// it would be told on resume go with its session.
+pub async fn dropped(pool: &SqlitePool, id: &str, reason: &str) -> Result<(), StoreError> {
+    sqlx::query(
+        "UPDATE helpers SET status = 'dropped', note = ?, held_reason = NULL, port = NULL, prompt = NULL,
+                            prompt_at = NULL, resume_prompt = NULL, updated_at = ?
+         WHERE id = ?",
+    )
+    .bind(reason)
+    .bind(now_ms())
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Frees every helper port of the ticket (its Done).
 pub async fn free_ports(pool: &SqlitePool, ticket_id: &str) -> Result<(), StoreError> {
     sqlx::query("UPDATE helpers SET port = NULL WHERE ticket_id = ?")

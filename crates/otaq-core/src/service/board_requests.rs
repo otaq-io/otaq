@@ -1642,6 +1642,7 @@ pub(super) async fn handle(
         | Request::HelperDiff(_)
         | Request::HelperBack(_)
         | Request::HelperMerge(_)
+        | Request::HelperDrop(_)
         | Request::HelperAnswer(_)
         | Request::HelperPassOn(_)
         | Request::HelperDone(_)

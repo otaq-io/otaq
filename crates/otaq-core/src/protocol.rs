@@ -360,6 +360,10 @@ pub enum Request {
     /// [`Reply::Helper`].
     #[serde(rename = "helper.merge")]
     HelperMerge(HelperPieceParams),
+    /// `otaq helper drop <n> --stdin` (T10): the agent in charge drops a piece, the reason in `text`; its helper
+    /// stops, its worktree and branch go. Answered with [`Reply::Helper`].
+    #[serde(rename = "helper.drop")]
+    HelperDrop(HelperNoteParams),
     /// `otaq helper answer <n> --stdin` (d0133 audit 3): the agent in charge answers its helper's question; typed into
     /// the helper when it is idle. Answered with [`Reply::Helper`].
     #[serde(rename = "helper.answer")]
@@ -1703,8 +1707,9 @@ pub struct HelperPassOnParams {
     pub note: Option<String>,
 }
 
-/// `{"key": "SHOP-40", "piece": 3, "text": "…"}`: `otaq helper back` (the note), `otaq helper answer` (the answer) and
-/// `otaq helper done` (the summary; its piece is the caller's own, `piece` ignored).
+/// `{"key": "SHOP-40", "piece": 3, "text": "…"}`: `otaq helper back` (the note), `otaq helper answer` (the answer),
+/// `otaq helper drop` (the reason) and `otaq helper done` (the summary; its piece is the caller's own, `piece`
+/// ignored).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperNoteParams {
     pub key: String,
@@ -2129,6 +2134,7 @@ impl Request {
             Self::HelperDiff(_) => "helper.diff",
             Self::HelperBack(_) => "helper.back",
             Self::HelperMerge(_) => "helper.merge",
+            Self::HelperDrop(_) => "helper.drop",
             Self::HelperAnswer(_) => "helper.answer",
             Self::HelperPassOn(_) => "helper.pass_on",
             Self::HelperDone(_) => "helper.done",

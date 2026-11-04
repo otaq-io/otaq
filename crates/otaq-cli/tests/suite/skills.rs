@@ -89,6 +89,7 @@ fn the_work_ticket_commands_are_checked() {
         "helper list",
         "helper diff",
         "helper merge",
+        "helper drop",
         "helper back",
         "helper answer",
         "helper pass-on",

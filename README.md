@@ -388,6 +388,7 @@ otaq helper list             # each helper's piece, status and branch
 otaq helper diff 2           # what merging it would bring
 otaq helper back 2 --stdin   # send it back with a note
 otaq helper merge 2          # merge it into the ticket's branch
+otaq helper drop 2 --stdin   # drop the piece, with the reason: its helper stops, its branch goes
 otaq helper answer 2 --stdin # answer its question
 otaq helper pass-on <id> --note "a product question the Plan doesn't answer"
 otaq helper done --stdin     # a helper hands its piece back, with a summary

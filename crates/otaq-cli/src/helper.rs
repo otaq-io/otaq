@@ -1,7 +1,8 @@
 //! `otaq helper …` (d0133, T-0537): the agent in charge's helpers. `start <n> --title "<piece>" [--stdin]` starts the
 //! helper of piece `n` (the note on stdin is its first comment), `list` prints each helper's piece, title, status,
 //! branch, last activity and worktree, `diff <n>` its branch against the ticket's, `back <n> --stdin` sends it back
-//! with a note, `merge <n>` merges its piece into the ticket's branch, `answer <n> --stdin` answers its question and
+//! with a note, `merge <n>` merges its piece into the ticket's branch, `drop <n> --stdin` drops the piece with the
+//! reason on stdin (its helper stops, its worktree and branch go; T10), `answer <n> --stdin` answers its question and
 //! `pass-on <id> [--note …]` passes it on to the user (T-0538). A helper (`$OTAQ_PIECE` set) runs `done --stdin` to
 //! hand its piece back. They work on `$OTAQ_TICKET`; the service refuses anyone but the agent in charge (or the
 //! helper).
@@ -60,6 +61,15 @@ pub enum HelperCommand {
         /// The piece's number
         piece: u32,
     },
+    /// Drop the piece with the reason on stdin: its helper stops, its worktree and branch are removed, and it is never
+    /// merged or started again
+    Drop {
+        /// The piece's number
+        piece: u32,
+        /// Read the reason from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
     /// Answer the helper's question with the answer on stdin, typed into its session when it is idle
     Answer {
         /// The piece's number
@@ -112,6 +122,14 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
                 "give the note on stdin: `{cmd} helper back {piece} --stdin`"
             )));
         }
+        HelperCommand::Drop {
+            stdin: false,
+            piece,
+        } => {
+            return Err(usage(format!(
+                "give the reason on stdin: `{cmd} helper drop {piece} --stdin`"
+            )));
+        }
         HelperCommand::Answer {
             stdin: false,
             piece,
@@ -125,7 +143,10 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
                 "give your summary on stdin: `{cmd} helper done --stdin`"
             )));
         }
-        HelperCommand::Back { .. } | HelperCommand::Answer { .. } | HelperCommand::Done { .. } => {
+        HelperCommand::Back { .. }
+        | HelperCommand::Drop { .. }
+        | HelperCommand::Answer { .. }
+        | HelperCommand::Done { .. } => {
             let text = read_stdin()?;
             if text.is_empty() {
                 return Err(usage("the text on stdin is empty"));
@@ -153,6 +174,11 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
                 Request::HelperMerge(HelperPieceParams { key, piece })
             }
             HelperCommand::Back { piece, .. } => Request::HelperBack(HelperNoteParams {
+                key,
+                piece,
+                text: text.unwrap_or_default(),
+            }),
+            HelperCommand::Drop { piece, .. } => Request::HelperDrop(HelperNoteParams {
                 key,
                 piece,
                 text: text.unwrap_or_default(),
