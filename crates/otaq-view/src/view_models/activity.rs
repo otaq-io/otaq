@@ -650,6 +650,7 @@ pub mod fixtures {
             project_name: "pocket-notes".into(),
             key: key.parse().unwrap(),
             title: format!("{key} title"),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
             state: RunState::Running,
             port: Some(port),
             command: "npm run dev".into(),

@@ -87,7 +87,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   );
 
   const act = useCallback(
-    (action: SettingsButtonAction) => {
+    (action: SettingsButtonAction, target?: string | null) => {
       switch (action) {
         case "cleanup":
           close();
@@ -112,9 +112,13 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         // "Set by Dev on SHOP-27 · Undo" (agents run the app): the page refetches on the `projects_changed` it sends.
         case "undo_run_command":
           if (project === null) return;
-          request("run.command_undo", { project }).catch((e: unknown) => {
+          request("run.command_undo", { project, app: target ?? null }).catch((e: unknown) => {
             setError(asRequestError(e));
           });
+          return;
+        // Add app and Remove app (d{RUN}): the row's own field, sent as an edit.
+        case "edit_field":
+          if (target) edit(target, "");
           return;
         case "remove_project":
           if (project === null) return;
@@ -129,7 +133,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
           return;
       }
     },
-    [close, project],
+    [close, edit, project],
   );
 
   // A project's page at one of its sections (What this agent reads' Edit in <project>'s settings →).

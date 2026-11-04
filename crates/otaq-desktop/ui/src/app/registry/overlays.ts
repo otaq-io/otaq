@@ -50,7 +50,7 @@ export interface OverlayParams {
   /** The running processes (T-0232). */
   processes: undefined;
   /** The run-command dialog of a project's first Run (T-0232); `ask`: Settings' Ask the agent was the click. */
-  run_command: { project: string; ticket?: string; ask?: boolean };
+  run_command: { project: string; ticket?: string; ask?: boolean; app?: string | null };
   /** Recovery and Cleanup (T-0235). */
   cleanup: undefined;
   /** The project's Terminals drawer: Project terminals only (T-0242, T-0331). */

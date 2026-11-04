@@ -6,6 +6,15 @@ use otaq_core::domain::{Actor, Flags, Priority, Status};
 
 use crate::view_models::card::{AgentFacts, CardExtras};
 
+/// A project's one app running on `port`, started by the agent of stage `by` (`None`: you): the card's Run flag.
+pub fn running(port: u16, by: Option<&str>) -> Vec<otaq_core::domain::RunningApp> {
+    vec![otaq_core::domain::RunningApp {
+        app: otaq_core::board::settings::DEFAULT_APP.into(),
+        port,
+        started_by: by.map(str::to_owned),
+    }]
+}
+
 /// "Now" for fixtures, in Unix milliseconds.
 pub const NOW: i64 = 1_791_600_000_000;
 
@@ -179,7 +188,7 @@ pub fn variants() -> Vec<Variant> {
     ));
 
     let mut t = working.clone();
-    t.flags.run_port = Some(4020);
+    t.flags.run_apps = running(4020, None);
     t.flags.pinned_at = Some(1);
     out.push(v("Running (Run, 0035) · pinned (0047)", t, base()));
 
@@ -372,7 +381,7 @@ pub fn variants() -> Vec<Variant> {
 
     let mut t = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
     t.depends_on = keys(&["SHOP-18", "SHOP-19"]);
-    t.flags.run_port = Some(4022);
+    t.flags.run_apps = running(4022, None);
     live(&mut t, 12, 64_000);
     out.push(v(
         "Needs you + running + 2 dependencies",

@@ -215,6 +215,7 @@ mod tests {
             project_name: "shop-web".into(),
             key: "SHOP-19".parse().unwrap(),
             title: "Price table".into(),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
             state,
             port: Some(4020),
             command: "pnpm dev --port $PORT".into(),

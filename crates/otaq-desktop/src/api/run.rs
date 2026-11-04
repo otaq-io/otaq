@@ -7,8 +7,10 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use otaq_core::board::tickets::Ticket;
+use otaq_core::board::settings::{DEFAULT_APP, RunApp};
 use otaq_core::protocol::{
-    KeyParams, ProjectParams, ProjectSettingsParams, Reply, Request, ShellOpenParams,
+    KeyParams, ProjectParams, ProjectSettingsParams, Reply, Request, RunParams, RunUndoParams,
+    ShellOpenParams,
 };
 use otaq_core::terminals::run::RunInfo;
 use otaq_core::terminals::suggest::SuggestUpdate;
@@ -16,7 +18,7 @@ use otaq_view::view_models::clock;
 use otaq_view::view_models::agent_panel;
 use otaq_view::view_models::run_command::RunCommandModel;
 use otaq_view::view_models::run_page::{
-    self as page, CommandView, FillView, ProcessesView, ShellFacts, ShellView, TabView,
+    self as page, CommandView, FillView, ProcessesView, ShellFacts, ShellView, TabView, TabsView,
 };
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
@@ -68,11 +70,12 @@ fn toast_error(app: &App, title: String, e: &RequestError) {
     ));
 }
 
-async fn status(app: &App, key: &str) -> Result<RunInfo, RequestError> {
+async fn status(app: &App, key: &str, run_app: Option<&str>) -> Result<RunInfo, RequestError> {
     match app
         .service
-        .send(Request::RunStatus(KeyParams {
+        .send(Request::RunStatus(RunParams {
             key: key.to_owned(),
+            app: run_app.map(str::to_owned),
         }))
         .await?
     {
@@ -81,16 +84,33 @@ async fn status(app: &App, key: &str) -> Result<RunInfo, RequestError> {
     }
 }
 
-/// The open ticket.
+/// Every app's Run of the ticket, in the project's order (d{RUN}).
+async fn apps(app: &App, key: &str) -> Result<Vec<RunInfo>, RequestError> {
+    match app
+        .service
+        .send(Request::RunApps(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await?
+    {
+        Reply::Runs(all) => Ok(all),
+        other => Err(unexpected("run.apps", &other)),
+    }
+}
+
+/// The open ticket, and the app a button is for (d{RUN}); `None`: the project's one app (Run: every app).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "RunParams")]
 pub struct Params {
     pub key: String,
+    #[serde(default)]
+    pub app: Option<String>,
 }
 
-pub async fn tab(app: &App, params: Params) -> Result<TabView, RequestError> {
-    Ok(page::tab_view(
-        &status(app, &params.key).await?,
+pub async fn tab(app: &App, params: Params) -> Result<TabsView, RequestError> {
+    Ok(page::tabs_view(
+        &apps(app, &params.key).await?,
+        &params.key,
         clock::local_hhmm,
     ))
 }
@@ -104,17 +124,43 @@ pub enum Started {
     NeedsCommand { project: String },
 }
 
-/// Run (and Retry): refused without a run command, which opens the dialog (RUN-02).
+/// Run (and Retry): refused without a run command, which opens the dialog (RUN-02). With no app named in a project
+/// with several (the sheet's Run), every app that isn't up starts (d{RUN}).
 pub async fn start(app: &App, params: Params) -> Result<Started, RequestError> {
+    if params.app.is_none() {
+        let all = apps(app, &params.key).await?;
+        if all.len() > 1 {
+            let mut first = None;
+            for run in all.iter().filter(|r| !r.state.is_live()) {
+                let started = Box::pin(start(
+                    app,
+                    Params {
+                        key: params.key.clone(),
+                        app: Some(run.app.clone()),
+                    },
+                ))
+                .await?;
+                first.get_or_insert(started);
+            }
+            return Ok(first.unwrap_or_else(|| Started::Tab {
+                view: Box::new(page::tab_view(&all[0], true, clock::local_hhmm)),
+            }));
+        }
+    }
     match app
         .service
-        .send(Request::RunStart(KeyParams {
+        .send(Request::RunStart(RunParams {
             key: params.key.clone(),
+            app: params.app.clone(),
         }))
         .await
     {
         Ok(Reply::Run(run)) => Ok(Started::Tab {
-            view: Box::new(page::tab_view(&run, clock::local_hhmm)),
+            view: Box::new(page::tab_view(
+                &run,
+                params.app.is_some() && run.app != DEFAULT_APP,
+                clock::local_hhmm,
+            )),
         }),
         Ok(other) => Err(unexpected("run.start", &other)),
         Err(e) if e.refusal.as_deref() == Some("no_run_command") => Ok(Started::NeedsCommand {
@@ -130,11 +176,12 @@ pub async fn start(app: &App, params: Params) -> Result<Started, RequestError> {
     }
 }
 
-pub async fn stop(app: &App, params: Params) -> Result<TabView, RequestError> {
+pub async fn stop(app: &App, params: Params) -> Result<TabsView, RequestError> {
     match app
         .service
-        .send(Request::RunStop(KeyParams {
+        .send(Request::RunStop(RunParams {
             key: params.key.clone(),
+            app: params.app.clone(),
         }))
         .await
     {
@@ -180,7 +227,11 @@ pub async fn processes(app: &App) -> Result<ProcessesView, RequestError> {
 pub async fn stop_all(app: &App) -> Result<ProcessesView, RequestError> {
     for run in runs(app).await?.into_iter().filter(|r| r.state.is_live()) {
         let key = run.key.to_string();
-        if let Err(e) = app.service.send(Request::RunStop(KeyParams { key: key.clone() })).await {
+        let stop = Request::RunStop(RunParams {
+            key: key.clone(),
+            app: Some(run.app.clone()),
+        });
+        if let Err(e) = app.service.send(stop).await {
             toast_error(app, format!("{key}\u{2019}s Run didn\u{2019}t stop"), &e);
         }
     }
@@ -194,6 +245,9 @@ pub struct CommandOpenParams {
     pub project: String,
     #[serde(default)]
     pub ticket: Option<String>,
+    /// The app whose command it edits (d{RUN}); `None`: the project's one app.
+    #[serde(default)]
+    pub app: Option<String>,
 }
 
 /// The dialog as it opens, with the fields' first values (the project's settings).
@@ -226,8 +280,15 @@ pub async fn command_open(
     params: CommandOpenParams,
 ) -> Result<CommandOpened, RequestError> {
     let settings = settings(app, &params.project).await?;
+    let target = match params.app.as_deref() {
+        Some(name) => settings.app(name),
+        None => settings.only_app(),
+    };
+    let (command, open_url) = target.map_or((String::new(), String::new()), |a| {
+        (a.command.clone(), a.open_url.clone())
+    });
     let run = match &params.ticket {
-        Some(key) => status(app, key).await.ok(),
+        Some(key) => status(app, key, params.app.as_deref()).await.ok(),
         None => None,
     };
     let name = match &run {
@@ -249,18 +310,18 @@ pub async fn command_open(
         &name,
         &agent_panel::new_agent_name(agent.as_ref(), &super::agent_panel::tools(app).await),
         run.as_ref(),
-        &settings.run_command,
+        &command,
     )
     .with_tool_connected(any_tool);
-    let view = page::command_view(&model, &settings.run_command, None);
+    let view = page::command_view(&model, &command, None);
     app.run_commands
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(params.project, model);
     Ok(CommandOpened {
         view,
-        command: settings.run_command,
-        open_url: settings.open_url,
+        command,
+        open_url,
     })
 }
 
@@ -285,8 +346,9 @@ fn with_model(
 pub async fn command_undo(app: &App, params: CommandParams) -> Result<(), RequestError> {
     match app
         .service
-        .send(Request::RunCommandUndo(ProjectParams {
+        .send(Request::RunCommandUndo(RunUndoParams {
             project: params.project.clone(),
+            app: params.app.clone(),
         }))
         .await
     {
@@ -305,6 +367,9 @@ pub struct CommandParams {
     pub project: String,
     #[serde(default)]
     pub command: String,
+    /// The app (d{RUN}): Undo of its "Set by Dev"; `None`: the project's one app.
+    #[serde(default)]
+    pub app: Option<String>,
 }
 
 /// **Ask the agent** (RUN-02, P1: the user's click): progress and the answer arrive as `run_suggestion` events.
@@ -377,6 +442,9 @@ pub struct SaveParams {
     pub command: String,
     #[serde(default)]
     pub open_url: String,
+    /// The app whose command it saves (d{RUN}); `None`: the project's one app (added as `app` when it has none).
+    #[serde(default)]
+    pub app: Option<String>,
 }
 
 pub async fn command_save(app: &App, params: SaveParams) -> Result<CommandView, RequestError> {
@@ -395,8 +463,25 @@ pub async fn command_save(app: &App, params: SaveParams) -> Result<CommandView, 
     }
     let saved = match settings(app, &params.project).await {
         Ok(mut s) => {
-            s.run_command = params.command.trim().to_owned();
-            s.open_url = params.open_url.trim().to_owned();
+            let name = params
+                .app
+                .clone()
+                .or_else(|| s.only_app().map(|a| a.name.clone()))
+                .unwrap_or_else(|| DEFAULT_APP.to_owned());
+            let at = match s.apps.iter().position(|a| a.name == name) {
+                Some(at) => at,
+                None => {
+                    s.apps.push(RunApp {
+                        name,
+                        command: String::new(),
+                        open_url: String::new(),
+                        set_by: None,
+                    });
+                    s.apps.len() - 1
+                }
+            };
+            s.apps[at].command = params.command.trim().to_owned();
+            s.apps[at].open_url = params.open_url.trim().to_owned();
             app.service
                 .send(Request::ProjectSettingsSet(ProjectSettingsParams {
                     project: params.project.clone(),
@@ -418,7 +503,13 @@ pub async fn command_save(app: &App, params: SaveParams) -> Result<CommandView, 
         None
     })?;
     if let Some(key) = ticket
-        && let Err(e) = app.service.send(Request::RunStart(KeyParams { key: key.clone() })).await
+        && let Err(e) = app
+            .service
+            .send(Request::RunStart(RunParams {
+                key: key.clone(),
+                app: params.app.clone(),
+            }))
+            .await
     {
         toast_error(app, format!("{key} can\u{2019}t run"), &e);
     }
@@ -484,7 +575,11 @@ pub async fn shell(app: &App, params: ShellTabParams) -> Result<ShellView, Reque
         ShellFacts {
             key: &params.key,
             worktree: work.worktree.as_deref(),
-            port: work.run_port,
+            ports: &work
+                .app_ports
+                .iter()
+                .map(|p| (p.app.clone(), p.port))
+                .collect::<Vec<_>>(),
             session: session.as_ref(),
             problem,
             keys: &super::keymap::labels(app).await,
@@ -545,7 +640,11 @@ mod tests {
         };
         let key = created.key.to_string();
 
-        let view = table(&h.app, "run.tab", json!({ "key": key })).await.unwrap();
+        let tabs = table(&h.app, "run.tab", json!({ "key": key })).await.unwrap();
+        // One app: one section, unnamed (d{RUN}).
+        let view = &tabs["tabs"][0];
+        assert_eq!(tabs["tabs"].as_array().map(Vec::len), Some(1));
+        assert_eq!(view["app"], Value::Null);
         assert_eq!(view["state"]["text"], "Not running");
         assert_eq!(view["session"], Value::Null);
 
@@ -599,7 +698,10 @@ mod tests {
         else {
             panic!("no settings");
         };
-        assert_eq!(reply.settings.run_command, "sh -c 'sleep 30'");
+        assert_eq!(
+            reply.settings.only_app().map(|a| a.command.as_str()),
+            Some("sh -c 'sleep 30'")
+        );
         table(&h.app, "run.command_cancel", json!({ "project": project.key }))
             .await
             .unwrap();

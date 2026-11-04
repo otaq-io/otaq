@@ -3,4 +3,8 @@
 /**
  * The run-command dialog for a project, from a ticket's Run (its Run starts after Save) or from Settings.
  */
-export type RunCommandOpenParams = { project: string, ticket: string | null, };
+export type RunCommandOpenParams = { project: string, ticket: string | null, 
+/**
+ * The app whose command it edits (d{RUN}); `None`: the project's one app.
+ */
+app: string | null, };

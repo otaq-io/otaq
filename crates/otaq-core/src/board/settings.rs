@@ -943,11 +943,16 @@ impl Board {
         let stored = self.project_settings(project).await?;
         // "Set by Dev on SHOP-27" stays while the app's command does; a hand edit of it drops the line (agents run the app). The
         // page never sends it: Otaq's stored one is kept.
-        // A row left empty is no app; the one app of a project may stay unnamed (it is DEFAULT_APP).
+        // A row left wholly empty is no app (one just added has a name); the one app of a project may stay unnamed
+        // (it is DEFAULT_APP).
         let rows: Vec<&RunApp> = settings
             .apps
             .iter()
-            .filter(|a| !(a.command.trim().is_empty() && a.open_url.trim().is_empty()))
+            .filter(|a| {
+                !(a.name.trim().is_empty()
+                    && a.command.trim().is_empty()
+                    && a.open_url.trim().is_empty())
+            })
             .collect();
         let only = rows.len() == 1;
         let apps = rows

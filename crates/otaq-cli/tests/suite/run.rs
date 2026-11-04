@@ -24,8 +24,7 @@ fn on_platform<'a>(unix: &'a str, windows: &'a str) -> &'a str {
 
 async fn set_run_command(w: &TestService, command: &str, open_url: &str) {
     let settings = ProjectSettings {
-        run_command: command.into(),
-        open_url: open_url.into(),
+        apps: otaq_core::board::settings::RunApp::only(command, open_url),
         ..Default::default()
     };
     w.board
@@ -40,12 +39,12 @@ async fn in_dev(w: &TestService, range: RangeInclusive<u16>) -> (Ticket, u16, Ag
     let t = w.create("SHOP", "Price table").await;
     w.give_worktree(&t).await;
     let ports = PortPool::with_range(w.board.store().clone(), range)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;
     let agent = w.agent_shell(&t).await;
-    (t, ports.run, agent)
+    (t, ports.apps[0].1, agent)
 }
 
 /// Binds the Run port once the Run is starting, as a dev server coming up would.
@@ -58,7 +57,7 @@ fn answer_once_starting(
     let key = key.to_owned();
     tokio::spawn(async move {
         loop {
-            if runs.info(&key).await.unwrap().state == RunState::Starting {
+            if runs.info(&key, None).await.unwrap().state == RunState::Starting {
                 return TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).unwrap();
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -183,15 +182,15 @@ async fn stop_refuses_the_users_run_and_log_before_a_run_is_an_error() {
     let ran = agent.run(&format!("'{CB}' run status")).await;
     assert_eq!(ran.stdout.trim(), "SHOP-1's Run: not started");
 
-    w.runs.start("SHOP-1").await.unwrap();
+    w.runs.start("SHOP-1", None).await.unwrap();
     let ran = agent.run(&format!("'{CB}' run stop")).await;
     assert_ne!(ran.status, 0, "{ran:?}");
     assert!(
         ran.stderr.contains("SHOP-1's Run was started by the user"),
         "{ran:?}"
     );
-    assert!(w.runs.info("SHOP-1").await.unwrap().state.is_live());
-    w.runs.stop("SHOP-1").await.unwrap();
+    assert!(w.runs.info("SHOP-1", None).await.unwrap().state.is_live());
+    w.runs.stop("SHOP-1", None).await.unwrap();
     w.stop().await;
 }
 
@@ -211,9 +210,13 @@ async fn set_saves_the_command_once_it_runs_and_nothing_when_it_fails() {
             .contains("Nothing saved: SHOP-1's Run failed to start (exit 4)"),
         "{ran:?}"
     );
-    assert_eq!(
-        w.board.project_settings("SHOP").await.unwrap().run_command,
-        ""
+    assert!(
+        w.board
+            .project_settings("SHOP")
+            .await
+            .unwrap()
+            .apps
+            .is_empty()
     );
 
     let listener = answer_once_starting(&w, "SHOP-1", port);
@@ -241,5 +244,86 @@ async fn set_saves_the_command_once_it_runs_and_nothing_when_it_fails() {
     );
     agent.run(&format!("'{CB}' run stop")).await;
     drop(listener.await.unwrap());
+    w.stop().await;
+}
+
+/// d{RUN} (T4): with several apps the commands name one (`run start web`); left out, the service refuses with their
+/// names, and `run status` lists every app.
+#[tokio::test(flavor = "multi_thread")]
+async fn several_apps_are_named_and_status_lists_them() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Price table").await;
+    w.give_worktree(&t).await;
+    let ports = PortPool::with_range(w.board.store().clone(), 27_180..=27_199)
+        .allocate(&t.id, &["web".to_owned(), "api".to_owned()])
+        .await
+        .unwrap();
+    w.force_status(&t, Status::Working).await;
+    let (web, api) = (ports.apps[0].1, ports.apps[1].1);
+    let app = |name: &str, command: &str, url: &str| otaq_core::board::settings::RunApp {
+        name: name.into(),
+        command: command.into(),
+        open_url: url.into(),
+        set_by: None,
+    };
+    let settings = ProjectSettings {
+        apps: vec![
+            app(
+                "web",
+                "echo web on $PORT; sleep 30",
+                "http://localhost:$PORT/",
+            ),
+            app("api", "echo api on $PORT; sleep 30", ""),
+        ],
+        ..Default::default()
+    };
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    let agent = w.agent_shell(&t).await;
+
+    let ran = agent.run(&format!("'{CB}' run start --wait")).await;
+    assert_ne!(ran.status, 0, "{ran:?}");
+    assert!(
+        ran.stderr
+            .contains("shop-web has 2 apps: web, api. Name the one you mean: `otaq run start web`"),
+        "{ran:?}"
+    );
+
+    // web's port answers once its Run is starting, as a dev server coming up would; api's never does.
+    let runs = w.runs.clone();
+    let bind = tokio::spawn(async move {
+        loop {
+            if runs.info("SHOP-1", Some("web")).await.unwrap().state == RunState::Starting {
+                return TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, web)).unwrap();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    });
+    let ran = agent.run(&format!("'{CB}' run start web --wait")).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        format!("SHOP-1's web: running :{web} (started by Dev)\nhttp://localhost:{web}/")
+    );
+    let ran = agent.run(&format!("'{CB}' run start api")).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+
+    let ran = agent.run(&format!("'{CB}' run status")).await;
+    assert_eq!(
+        ran.stdout.trim(),
+        format!(
+            "SHOP-1's Runs:\n  web: running :{web} (started by Dev)\n  api: starting :{api} (started by Dev)"
+        )
+    );
+    let ran = agent.run(&format!("'{CB}' run log api --tail 5")).await;
+    assert!(ran.stdout.contains(&format!("api on {api}")), "{ran:?}");
+    let ran = agent.run(&format!("'{CB}' run stop api")).await;
+    assert_eq!(ran.stdout.trim(), "SHOP-1's api: stopped (by Dev)");
+    let ran = agent.run(&format!("'{CB}' run stop web")).await;
+    assert_eq!(ran.stdout.trim(), "SHOP-1's web: stopped (by Dev)");
+    drop(bind.await.unwrap());
     w.stop().await;
 }

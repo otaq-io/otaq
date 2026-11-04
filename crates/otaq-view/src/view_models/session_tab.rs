@@ -631,6 +631,7 @@ mod tests {
             project_name: "shop-web".into(),
             key: "SHOP-22".parse().unwrap(),
             title: "Fix flaky login redirect".into(),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
             state,
             port: Some(4022),
             command: "pnpm dev".into(),

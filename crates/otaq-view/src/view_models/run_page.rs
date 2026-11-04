@@ -86,15 +86,21 @@ pub struct OpenUrlView {
 #[ts(rename = "RunCommandSetByView")]
 pub struct SetByView {
     pub text: String,
+    /// The app whose command it is, in a project with several (`run.command_undo` names it); `None` for the one app.
+    pub app: Option<String>,
     pub undo: &'static str,
     /// Undo's tooltip.
     pub undo_hint: &'static str,
 }
 
 /// The line for a run command an agent set; none for the user's own.
-pub fn set_by_view(by: Option<&otaq_core::board::settings::RunCommandSetBy>) -> Option<SetByView> {
+pub fn set_by_view(
+    by: Option<&otaq_core::board::settings::RunCommandSetBy>,
+    app: Option<&str>,
+) -> Option<SetByView> {
     by.map(|by| SetByView {
         text: by.line(),
+        app: app.map(str::to_owned),
         undo: "Undo",
         undo_hint: "Empties the run command the agent set",
     })
@@ -110,6 +116,9 @@ pub const MENU_EDIT_COMMAND: &str = "edit_command";
 pub struct TabView {
     pub key: String,
     pub project: String,
+    /// The app (d{RUN}) in a project with several: its section's name and what Run, Stop and Undo name. `None` for a
+    /// project's one app.
+    pub app: Option<String>,
     /// "pnpm dev · in SHOP-22’s worktree · :4022" (SHT-04); none before a run command is set.
     pub line: Option<String>,
     pub state: StateView,
@@ -130,7 +139,9 @@ pub struct TabView {
     pub set_by: Option<SetByView>,
 }
 
-pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
+/// One app's Run line; `several`: the project has several apps, so it names its app.
+pub fn tab_view(run: &RunInfo, several: bool, hhmm: impl Fn(i64) -> String) -> TabView {
+    let app = several.then(|| run.app.clone());
     let card = vm::card(run, hhmm);
     let port = run.port.map(|p| p.to_string()).unwrap_or_default();
     // Retry leads unless the command is what needs fixing (it's under ⋯ now).
@@ -183,6 +194,7 @@ pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
     TabView {
         key: run.key.to_string(),
         project: run.project.clone(),
+        app: app.clone(),
         line: session_tab::run_line(&run.command, &run.key, run.port),
         state: StateView {
             text: card.title,
@@ -196,7 +208,7 @@ pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
             || {
                 format!(
                     "No Open URL set for {}, so there\u{2019}s no Open button.",
-                    run.project_name
+                    app.as_deref().unwrap_or(&run.project_name)
                 )
             },
         ),
@@ -204,7 +216,23 @@ pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
         menu_label: "Run options",
         session: run.session.clone(),
         idle: "(not running)",
-        set_by: set_by_view(run.command_set_by.as_ref()),
+        set_by: set_by_view(run.command_set_by.as_ref(), app.as_deref()),
+    }
+}
+
+/// Session's Run tab (d{RUN}): one section per app, in the project's order; one app reads as before apps had names.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "RunTabsView")]
+pub struct TabsView {
+    pub key: String,
+    pub tabs: Vec<TabView>,
+}
+
+pub fn tabs_view(runs: &[RunInfo], key: &str, hhmm: impl Fn(i64) -> String) -> TabsView {
+    let several = runs.len() > 1;
+    TabsView {
+        key: key.to_owned(),
+        tabs: runs.iter().map(|r| tab_view(r, several, &hhmm)).collect(),
     }
 }
 
@@ -405,7 +433,8 @@ pub struct ShellView {
 pub struct ShellFacts<'a> {
     pub key: &'a str,
     pub worktree: Option<&'a str>,
-    pub port: Option<u16>,
+    /// The ticket's app ports (d{RUN}): one gives `$PORT`, several only `OTAQ_PORT_<NAME>`.
+    pub ports: &'a [(String, u16)],
     pub session: Option<&'a SessionInfo>,
     pub problem: Option<String>,
     pub keys: &'a KeyLabels,
@@ -418,7 +447,7 @@ pub fn shell_view(f: ShellFacts, hhmm: impl Fn(i64) -> String) -> ShellView {
         path: f
             .worktree
             .map(|w| crate::view_models::terminal_strip::short_path(&crate::shell::tilde(w))),
-        port: f.port.map(shell::port_label),
+        port: shell::ports_label(f.ports),
         session: f.session.map(|s| s.id.clone()),
         live: f.session.is_some_and(SessionInfo::is_running),
         problem: f.problem,
@@ -460,6 +489,7 @@ mod tests {
             project_name: "shop-web".into(),
             key: "SHOP-19".parse().unwrap(),
             title: "Price table".into(),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
             state,
             port: Some(4020),
             command: "pnpm dev --port $PORT".into(),
@@ -486,14 +516,14 @@ mod tests {
     #[test]
     fn the_tab_says_an_agent_set_the_command() {
         let mut r = run(RunState::Running);
-        assert_eq!(tab_view(&r, |_| "11:48".into()).set_by, None);
+        assert_eq!(tab_view(&r, false, |_| "11:48".into()).set_by, None);
         r.command_set_by = Some(otaq_core::board::settings::RunCommandSetBy {
             stage: "Dev".into(),
             ticket: "SHOP-27".parse().unwrap(),
             at: 0,
             open_url: true,
         });
-        let line = tab_view(&r, |_| "11:48".into()).set_by.unwrap();
+        let line = tab_view(&r, false, |_| "11:48".into()).set_by.unwrap();
         assert_eq!(line.text, "Set by Dev on SHOP-27");
         assert_eq!(line.undo, "Undo");
     }
@@ -503,7 +533,7 @@ mod tests {
         let line = Some("pnpm dev --port $PORT \u{b7} in SHOP-19\u{2019}s worktree \u{b7} :4020");
         let words = |v: &TabView| (v.state.text.clone(), v.state.tone);
 
-        let idle = tab_view(&run(RunState::NotStarted), HHMM);
+        let idle = tab_view(&run(RunState::NotStarted), false, HHMM);
         assert_eq!(idle.line.as_deref(), line);
         assert_eq!(words(&idle), ("Not running".into(), ToneView::Neutral));
         assert_eq!(idle.state.icon, IconName::Play);
@@ -521,7 +551,7 @@ mod tests {
 
         let mut unset = run(RunState::NotStarted);
         unset.command = String::new();
-        let unset = tab_view(&unset, HHMM);
+        let unset = tab_view(&unset, false, HHMM);
         assert_eq!(unset.line, None);
         assert_eq!(
             unset.message.as_deref(),
@@ -529,7 +559,7 @@ mod tests {
         );
         assert_eq!(kinds(&unset), [ButtonKind::Run]);
 
-        let starting = tab_view(&run(RunState::Starting), HHMM);
+        let starting = tab_view(&run(RunState::Starting), false, HHMM);
         assert_eq!(
             words(&starting),
             ("Starting\u{2026}".into(), ToneView::Progress)
@@ -537,7 +567,7 @@ mod tests {
         assert_eq!(starting.open_url, None, "Open waits for the port");
         assert_eq!(kinds(&starting), [ButtonKind::Stop]);
 
-        let up = tab_view(&run(RunState::Running), HHMM);
+        let up = tab_view(&run(RunState::Running), false, HHMM);
         assert_eq!(words(&up), ("Serving".into(), ToneView::Success));
         assert_eq!(
             up.open_url,
@@ -552,18 +582,18 @@ mod tests {
 
         let mut stopped = run(RunState::Stopped);
         stopped.stopped_by = Some(StopCause::You);
-        let stopped = tab_view(&stopped, HHMM);
+        let stopped = tab_view(&stopped, false, HHMM);
         assert_eq!(
             words(&stopped),
             ("Stopped by you at 11:48".into(), ToneView::Neutral)
         );
         assert_eq!(kinds(&stopped), [ButtonKind::Run]);
         assert_eq!(
-            tab_view(&run(RunState::Stopped), HHMM).state.text,
+            tab_view(&run(RunState::Stopped), false, HHMM).state.text,
             "Stopped \u{b7} exited 1 at 11:48"
         );
 
-        let failed = tab_view(&run(RunState::FailedToStart), HHMM);
+        let failed = tab_view(&run(RunState::FailedToStart), false, HHMM);
         assert_eq!(
             words(&failed),
             ("Failed to start \u{b7} exit 1".into(), ToneView::Danger)
@@ -578,7 +608,7 @@ mod tests {
         assert!(!failed.buttons[0].primary, "fixing the command comes first");
         assert_eq!(failed.menu[0].id, MENU_EDIT_COMMAND);
 
-        let taken = tab_view(&run(RunState::PortInUse), HHMM);
+        let taken = tab_view(&run(RunState::PortInUse), false, HHMM);
         assert_eq!(
             words(&taken),
             ("Port 4020 is in use".into(), ToneView::Danger)
@@ -594,7 +624,7 @@ mod tests {
         assert!(taken.buttons[0].primary);
         assert_eq!(taken.buttons[1].copy.as_deref(), Some("lsof -i :4020"));
 
-        let restarted = tab_view(&run(RunState::StoppedByRestart), HHMM);
+        let restarted = tab_view(&run(RunState::StoppedByRestart), false, HHMM);
         assert_eq!(
             restarted.state.text,
             "Stopped by restart \u{b7} was running at 11:48"
@@ -604,7 +634,7 @@ mod tests {
         let mut backend = run(RunState::Running);
         backend.project_name = "billing-api".into();
         backend.open_url = None;
-        let backend = tab_view(&backend, HHMM);
+        let backend = tab_view(&backend, false, HHMM);
         assert_eq!(backend.open_url, None);
         assert_eq!(kinds(&backend), [ButtonKind::Stop]);
         assert_eq!(
@@ -704,7 +734,7 @@ mod tests {
             ShellFacts {
                 key: "BILL-4",
                 worktree: Some("/w/billing-api/BILL-4"),
-                port: Some(4004),
+                ports: &[("app".to_owned(), 4004)],
                 session: Some(&session),
                 problem: None,
                 keys: &crate::key_labels::fixtures::base(),
@@ -732,7 +762,7 @@ mod tests {
                 ShellFacts {
                     key: "BILL-4",
                     worktree: None,
-                    port: None,
+                    ports: &[],
                     session: None,
                     problem: None,
                     keys,

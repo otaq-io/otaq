@@ -911,12 +911,16 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     let run = if ticket.work.as_ref().is_some_and(|w| w.worktree.is_some()) {
         match app
             .service
-            .send(Request::RunStatus(KeyParams {
+            .send(Request::RunApps(KeyParams {
                 key: params.key.clone(),
             }))
             .await
         {
-            Ok(Reply::Run(run)) => Some(*run),
+            // The pill shows the first app that is up, else the first app (d{RUN}).
+            Ok(Reply::Runs(all)) => {
+                let live = all.iter().position(|r| r.state.is_live()).unwrap_or(0);
+                all.into_iter().nth(live)
+            }
             _ => None,
         }
     } else {
@@ -2220,6 +2224,7 @@ mod tests {
             project_name: "shop-web".into(),
             key: t.key.clone(),
             title: t.title.clone(),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
             state: RunState::Running,
             port: Some(4020),
             command: "pnpm dev --port $PORT".into(),

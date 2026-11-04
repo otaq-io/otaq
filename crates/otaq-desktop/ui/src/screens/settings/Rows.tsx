@@ -480,7 +480,7 @@ function Control({ row }: { row: SettingsRow }) {
             icon={c.icon}
             label={c.label}
             onClick={() => {
-              act(c.action);
+              act(c.action, row.field);
             }}
           />
         </span>
@@ -556,7 +556,7 @@ function Row({ row }: { row: SettingsRow }) {
           <SetByLine
             setBy={row.set_by}
             onUndo={() => {
-              act("undo_run_command");
+              act("undo_run_command", row.set_by?.app ?? null);
             }}
           />
         )}
