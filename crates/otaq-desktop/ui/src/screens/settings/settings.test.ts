@@ -137,7 +137,7 @@ describe("the Settings screen", () => {
     expect(out).toContain('<span class="settings-problem">localhost isn&#x27;t a URL</span>');
   });
 
-  it("a run command an agent set says so, and Undo asks for it (d{RUN})", async () => {
+  it("a run command an agent set says so, and Undo asks for it (agents run the app)", async () => {
     const section: SettingsSection<"commands"> = {
       id: "commands",
       title: null,

@@ -35,6 +35,6 @@ menu: Array<MenuItem>, menu_label: string,
  */
 session: string | null, idle: string, 
 /**
- * "Set by Dev on SHOP-27 · Undo" when an agent set the run command (d{RUN}).
+ * "Set by Dev on SHOP-27 · Undo" when an agent set the run command (agents run the app).
  */
 set_by: RunCommandSetByView | null, };

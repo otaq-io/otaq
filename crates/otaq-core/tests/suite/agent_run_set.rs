@@ -1,4 +1,4 @@
-//! Agents add a missing run command (d{RUN}, RUN-02's exception): `run.set` from a ticket's agent runs the command
+//! Agents add a missing run command (agents run the app, RUN-02's exception): `run.set` from a ticket's agent runs the command
 //! as the ticket's Run and saves it as the project's only once that Run is running ("Set by Dev on SHOP-1"); a failed
 //! start saves nothing; a project that has a run command refuses it; Undo (the user's) empties it; the user's hand
 //! edit of the command drops the line. Sessions are an ordinary `sh`; ports come from 27_000 up.

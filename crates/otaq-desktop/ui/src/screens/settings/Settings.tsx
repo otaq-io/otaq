@@ -109,7 +109,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             setError(asRequestError(e));
           });
           return;
-        // "Set by Dev on SHOP-27 · Undo" (d{RUN}): the page refetches on the `projects_changed` it sends.
+        // "Set by Dev on SHOP-27 · Undo" (agents run the app): the page refetches on the `projects_changed` it sends.
         case "undo_run_command":
           if (project === null) return;
           request("run.command_undo", { project }).catch((e: unknown) => {

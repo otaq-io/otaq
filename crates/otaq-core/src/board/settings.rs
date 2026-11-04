@@ -495,7 +495,7 @@ pub struct ProjectSettings {
     pub merge_check: Option<String>,
     pub run_command: String,
     pub open_url: String,
-    /// Who set the run command, when one of a ticket's agents did (d{RUN}): "Set by Dev on SHOP-27", with Undo. Only
+    /// Who set the run command, when one of a ticket's agents did (agents run the app): "Set by Dev on SHOP-27", with Undo. Only
     /// Otaq writes it: the user's save keeps it while the command stays the same and drops it when they change it.
     /// Stored as `null` when none: [`read_or_default`] keeps only the fields the default has.
     pub run_command_set_by: Option<RunCommandSetBy>,
@@ -525,7 +525,7 @@ pub struct ProjectSettings {
     pub view: ViewPrefs,
 }
 
-/// The agent that set a project's run command (d{RUN}): its stage's name, its ticket and when; `open_url` when it set
+/// The agent that set a project's run command (agents run the app): its stage's name, its ticket and when; `open_url` when it set
 /// the Open URL too (Undo then empties both).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunCommandSetBy {
@@ -879,7 +879,7 @@ impl Board {
         settings: &ProjectSettings,
     ) -> Result<(), BoardError> {
         let stored = self.project_settings(project).await?;
-        // "Set by Dev on SHOP-27" stays while the command does; a hand edit of it drops the line (d{RUN}).
+        // "Set by Dev on SHOP-27" stays while the command does; a hand edit of it drops the line (agents run the app).
         let set_by = stored
             .run_command_set_by
             .filter(|_| settings.run_command.trim() == stored.run_command.trim())
@@ -895,7 +895,7 @@ impl Board {
         self.set_project_settings(project, &settings).await
     }
 
-    /// Saves the run command an agent's Run proved (d{RUN}): only while the project still has none, so an agent never
+    /// Saves the run command an agent's Run proved (agents run the app): only while the project still has none, so an agent never
     /// changes one the user set. `false` when one was set meanwhile (nothing changes).
     pub async fn save_agent_run_command(
         &self,
@@ -922,7 +922,7 @@ impl Board {
         Ok(true)
     }
 
-    /// Undo of "Set by Dev on SHOP-27" (d{RUN}): the agent's run command (and its Open URL) back to empty. Refused when
+    /// Undo of "Set by Dev on SHOP-27" (agents run the app): the agent's run command (and its Open URL) back to empty. Refused when
     /// no agent set the command.
     pub async fn undo_agent_run_command(&self, project: &str) -> Result<(), BoardError> {
         let mut settings = self.project_settings(project).await?;

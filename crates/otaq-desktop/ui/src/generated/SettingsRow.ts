@@ -23,6 +23,6 @@ reset: string | null,
  */
 button: SettingsRowButton | null, 
 /**
- * Run command's "Set by Dev on SHOP-27 · Undo" (d{RUN}); Undo is [`ButtonAction::UndoRunCommand`].
+ * Run command's "Set by Dev on SHOP-27 · Undo" (agents run the app); Undo is [`ButtonAction::UndoRunCommand`].
  */
 set_by: RunCommandSetByView | null, };
