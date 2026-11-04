@@ -3013,6 +3013,7 @@
         "sent_back_with_pr_comments",
         "sent_to_fix",
         "session_ended",
+        "stage_choice_cleared",
         "stage_choice_set",
         "stage_finished",
         "start_interrupted",

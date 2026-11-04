@@ -577,6 +577,31 @@ fn choice_line(p: &serde_json::Value) -> (String, Option<String>) {
     )
 }
 
+/// A stage choice an agent stored, cleared once by migration 0072 because the service now refuses it (T8): "Product
+/// spec: Noyan's skip cleared" · "only the user skips stages now", "Dev: Noyan's choice of Quick developer cleared" ·
+/// "Noyan sets only the stage choices the user names". The migration names the stage by its id when no earlier
+/// event named it; the flow's name for that id reads then.
+fn cleared_choice_line(p: &serde_json::Value, facts: &Facts) -> (String, Option<String>) {
+    let stage_id = text(p, "stage_id").unwrap_or_default();
+    let stage = text(p, "stage")
+        .filter(|s| *s != stage_id)
+        .or_else(|| facts.stages.get(&stage_id).cloned())
+        .unwrap_or(stage_id);
+    let choice = text(p, "choice").unwrap_or_default();
+    let by = text(p, "by").unwrap_or_else(|| "Noyan".to_owned());
+    if choice == otaq_core::board::stage_choices::SKIP {
+        (
+            format!("{stage}: {by}\u{2019}s skip cleared"),
+            Some("only the user skips stages now".to_owned()),
+        )
+    } else {
+        (
+            format!("{stage}: {by}\u{2019}s choice of {choice} cleared"),
+            Some("Noyan sets only the stage choices the user names".to_owned()),
+        )
+    }
+}
+
 /// `detail` with the stage Apply now's move came from, when it did: "by you · Security was removed" (APN-04).
 fn removed(payload: &serde_json::Value, detail: String) -> String {
     match text(payload, "removed") {
@@ -1084,6 +1109,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         ),
         EventKind::AgentRowSet => stage_choices::row_change_line(p),
         EventKind::StageChoiceSet => choice_line(p),
+        EventKind::StageChoiceCleared => cleared_choice_line(p, facts),
         // FLW-05: "Quick developer is no longer an option for Dev · runs Rust developer".
         EventKind::ChoiceDropped => (
             otaq_core::flow::apply::dropped_choice_line(
@@ -1430,6 +1456,7 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
             | EventKind::RemoteUnreachable
             | EventKind::TemplateRefreshFailed
             | EventKind::ChoiceDropped
+            | EventKind::StageChoiceCleared
             | EventKind::SchemaOverlap
             | EventKind::Interrupted
             | EventKind::SessionEnded
@@ -2700,6 +2727,54 @@ mod tests {
             "Quick developer is no longer an option for Dev \u{b7} runs Rust developer"
         );
         assert_eq!(row.detail, None);
+    }
+
+    /// T8: a choice an agent stored that the service now refuses, cleared once: by Otaq, saying why.
+    #[test]
+    fn a_cleared_choice_line() {
+        let row = |payload| event_row(&event(EventKind::StageChoiceCleared, 1, payload)).unwrap();
+        let skip = row(serde_json::json!({
+            "stage": "Product spec", "stage_id": "spec", "choice": "skip", "set_by": "project_agent", "by": "Noyan"
+        }));
+        assert_eq!(skip.title, "Product spec: Noyan\u{2019}s skip cleared");
+        assert_eq!(
+            skip.detail.as_deref(),
+            Some("only the user skips stages now")
+        );
+        assert_eq!(skip.mark, Mark::Otaq);
+        let agents_skip = row(serde_json::json!({
+            "stage": "Validate", "stage_id": "validate", "choice": "skip", "set_by": "agent", "by": "Spec writer"
+        }));
+        assert_eq!(
+            agents_skip.title,
+            "Validate: Spec writer\u{2019}s skip cleared"
+        );
+        let pick = row(serde_json::json!({
+            "stage": "Dev", "stage_id": "dev", "choice": "Quick developer", "set_by": "project_agent", "by": "Noyan"
+        }));
+        assert_eq!(
+            pick.title,
+            "Dev: Noyan\u{2019}s choice of Quick developer cleared"
+        );
+        assert_eq!(
+            pick.detail.as_deref(),
+            Some("Noyan sets only the stage choices the user names")
+        );
+        // Named by its id only: the flow's name for it reads.
+        let facts = Facts {
+            stages: [("spec".to_owned(), "Product spec".to_owned())].into(),
+            ..Facts::default()
+        };
+        let by_id = event_row_in(
+            &event(
+                EventKind::StageChoiceCleared,
+                1,
+                serde_json::json!({"stage": "spec", "stage_id": "spec", "choice": "skip", "by": "Noyan"}),
+            ),
+            &facts,
+        )
+        .unwrap();
+        assert_eq!(by_id.title, "Product spec: Noyan\u{2019}s skip cleared");
     }
 
     /// APN-04: Apply now's moves name the stage that went: "Moved to Review" · "by you · Security was removed".
