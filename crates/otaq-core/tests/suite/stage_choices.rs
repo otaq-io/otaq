@@ -11,8 +11,8 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::resolve;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::stage_choices::{
-    ChoicePick, ChoiceWrite, Chooser, NOYAN_USER_CHOICES_ONLY, ONLY_THE_USER_SKIPS, SetBy,
-    TicketChoices, skipped_mark,
+    ChoicePick, ChoiceWrite, Chooser, NOYAN_USER_CHOICES_ONLY, ONLY_NOYAN_PASSES_ON,
+    ONLY_THE_USER_SKIPS, SetBy, TicketChoices, skipped_mark,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::board::{BoardError, Refusal};
@@ -116,7 +116,8 @@ async fn at_work_in(w: &TestService, ticket: &Ticket, stage: &str) {
 
 /// AGM-08's rules, sentence by sentence: Noyan sets only the choices the user names (`--by-user`), its own are
 /// refused; a ticket agent may pick an agent or `required` with a reason but only the user skips a stage; the user
-/// changes Dev and wins; a later agent can't override the user's choice (unless in the user's words, d0087); Spec
+/// changes Dev and wins; a later agent can't override the user's choice, and only Noyan passes on the user's words
+/// (`--by-user`); Spec
 /// writer, at work in Product spec, can't choose for Security (no options) and changes Dev with a reason; an option
 /// not in the stage's list is refused naming them; a choice locks when Dev starts.
 #[tokio::test(flavor = "multi_thread")]
@@ -243,19 +244,26 @@ async fn who_may_set_what() {
         ),
         set_by_you
     );
-    // The request comes from the user's words (`--by-user`): it is the user's.
-    choose(
-        &w,
-        &typo,
-        &[pick("Dev", "Quick developer", None)],
-        &spec_writer(),
-        true,
-    )
-    .await
-    .unwrap();
+    // Only Noyan passes on the user's choices: Spec writer's `--by-user` is refused, with a reason or not, and
+    // nothing is written (T9).
+    for words in [None, Some("the user asked")] {
+        assert_eq!(
+            refusal(
+                choose(
+                    &w,
+                    &typo,
+                    &[pick("Dev", "Quick developer", words)],
+                    &spec_writer(),
+                    true,
+                )
+                .await
+            ),
+            (Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON.into())
+        );
+    }
     assert_eq!(
         choice_of(&w, &typo, "Dev").await,
-        ("Quick developer".to_owned(), Some(SetBy::User))
+        ("Rust developer".to_owned(), Some(SetBy::User))
     );
 
     // Another ticket at work in Product spec: Spec writer changes the later Dev with a reason, not Product spec
@@ -349,7 +357,8 @@ async fn who_may_set_what() {
     assert_eq!(last.payload["from"], "Quick developer");
     assert_eq!(last.payload["by"], "Spec writer");
     assert_eq!(last.payload["reason"], "touches session handling");
-    // Only the user skips a stage: Spec writer can't skip the later QA, unless in the user's words.
+    // Only the user skips a stage: Spec writer can't skip the later QA, not even in the user's words (only Noyan
+    // passes those on), and nothing is written.
     assert_eq!(
         refusal(
             choose(
@@ -363,19 +372,20 @@ async fn who_may_set_what() {
         ),
         (Refusal::NotAllowed, ONLY_THE_USER_SKIPS.into())
     );
-    choose(
-        &w,
-        &session,
-        &[pick("QA", "skip", None)],
-        &spec_writer(),
-        true,
-    )
-    .await
-    .unwrap();
     assert_eq!(
-        choice_of(&w, &session, "QA").await,
-        ("skip".to_owned(), Some(SetBy::User))
+        refusal(
+            choose(
+                &w,
+                &session,
+                &[pick("QA", "skip", None)],
+                &spec_writer(),
+                true,
+            )
+            .await
+        ),
+        (Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON.into())
     );
+    assert_eq!(choice_of(&w, &session, "QA").await.1, None);
 
     // An option not in the stage's list is refused, naming the options; so is an unknown stage.
     let fresh = w.create("SHOP", "Export as CSV").await;
@@ -461,6 +471,29 @@ async fn who_may_set_what() {
     )
     .await
     .unwrap();
+
+    // Noyan passes on the user's skip and agent pick: both stored as the user's.
+    let noyan = w.create("SHOP", "Rename the export button").await;
+    choose(
+        &w,
+        &noyan,
+        &[
+            pick("QA", "skip", None),
+            pick("Dev", "Quick developer", None),
+        ],
+        &planner(),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        choice_of(&w, &noyan, "QA").await,
+        ("skip".to_owned(), Some(SetBy::User))
+    );
+    assert_eq!(
+        choice_of(&w, &noyan, "Dev").await,
+        ("Quick developer".to_owned(), Some(SetBy::User))
+    );
     w.stop().await;
 }
 

@@ -17,8 +17,8 @@
 //! the description's); an empty Plan removes it.
 //!
 //! **Stage choices** (AGM-11, d0108, d0087): `--stage "<stage>=<agent|skip>"` (repeatable; `required` sets a
-//! skippable stage back), `--reason` for an agent's choice, `--by-user` when the user named them. The service judges
-//! who may set which (`otaq_core::board::stage_choices`).
+//! skippable stage back), `--reason` for an agent's choice, `--by-user` when the user named them (Noyan only). The
+//! service judges who may set which (`otaq_core::board::stage_choices`).
 
 use std::io::Read;
 use std::path::PathBuf;

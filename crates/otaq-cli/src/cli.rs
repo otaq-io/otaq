@@ -46,7 +46,7 @@ pub struct ChoiceFlags {
     /// Why you chose (agents only: "typo fix")
     #[arg(long, value_name = "TEXT")]
     pub reason: Option<String>,
-    /// The user named these choices themselves (agents only): they show as set by you
+    /// The user named these choices themselves (Noyan only): they show as set by you
     #[arg(long)]
     pub by_user: bool,
 }
