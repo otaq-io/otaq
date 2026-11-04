@@ -162,6 +162,9 @@ pub enum Action {
     HandBack(TicketFacts),
     /// `otaq ask human` from a helper: its question goes to this ticket's agent in charge (d0133 audit 3).
     AskInCharge(TicketFacts),
+    /// Starts, stops or reads this ticket's Run (`otaq run start|stop|log`, d{RUN}): its own agent and its check;
+    /// never a helper, Noyan, or another ticket's agent.
+    Run(TicketFacts),
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. A Project
@@ -233,6 +236,8 @@ pub fn authorize_in_stage(
             Action::ReadTerminal { target, .. } => {
                 refuse(format!("{who} can't read {}'s terminal", target.label))
             }
+            Action::Run(target) if target.id == *ticket_id => Ok(()),
+            Action::Run(target) => refuse(format!("{who} can't run {}'s app", target.label)),
             // Its own comments (its verdicts) on its ticket: edit or delete (CMT-04, Q374). A new one only with a verdict.
             Action::Comment {
                 target,
@@ -270,6 +275,11 @@ pub fn authorize_in_stage(
             Action::Dependency { child, .. } if child.backlog => Ok(()),
             Action::All(actions) => all(actions),
             Action::Comment { .. } => refuse(PROJECT_AGENT_NO_COMMENTS.to_owned()),
+            Action::Run(target) => refuse(format!(
+                "{} can't run {}'s app; its own agent does, or the user",
+                names.caller.unwrap_or("Noyan"),
+                target.label
+            )),
             _ => refuse(BACKLOG_ONLY.to_owned()),
         };
     }
@@ -324,6 +334,8 @@ pub fn authorize_in_stage(
             target.label
         )),
         Action::HandBack(_) | Action::AskInCharge(_) => refuse(ONLY_A_HELPER_HANDS_BACK.to_owned()),
+        Action::Run(target) if target.id == *ticket_id => Ok(()),
+        Action::Run(target) => refuse(format!("{ticket}'s agent can't run {}'s app", target.label)),
         Action::Verdict(_) | Action::ProposeFlow { .. } => {
             unreachable!("handled above")
         }
@@ -334,6 +346,9 @@ pub fn authorize_in_stage(
 /// Whether the agent of `ticket` may fix `target` (d0129): its ticket created it and it never started. The refusal
 /// names who created it, or that it started: "SHOP-41 was created by you; SHOP-40's agent can only change tickets it
 /// created".
+/// A helper's `otaq run …` (d{RUN}).
+pub const HELPER_NO_RUN: &str = "A helper doesn't run the app: the agent in charge runs it once your piece is merged. Hand your piece back.";
+
 pub fn may_fix(ticket: &TicketKey, target: &TicketFacts) -> Result<(), String> {
     let me = format!("{ticket}'s agent");
     match &target.created_by {
@@ -356,6 +371,8 @@ fn helper_may(ticket_id: &str, action: &Action) -> Result<(), BoardError> {
         Action::Read => Ok(()),
         Action::HandBack(target) | Action::AskInCharge(target) if target.id == ticket_id => Ok(()),
         Action::All(actions) => actions.iter().try_for_each(|a| helper_may(ticket_id, a)),
+        // Helpers get no Run (d{RUN}): the agent in charge runs the app once the pieces are merged.
+        Action::Run(_) => Err(BoardError::refused(Refusal::NotAllowed, HELPER_NO_RUN)),
         _ => Err(BoardError::refused(
             Refusal::NotAllowed,
             HELPER_ONLY_ITS_PIECE,

@@ -446,6 +446,7 @@ mod tests {
             ended_at: Some(4_000),
             exit_code: Some(1),
             stopped_by: None,
+            started_by: None,
         }
     }
 

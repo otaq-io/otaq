@@ -853,11 +853,16 @@ pub enum Request {
     Hook(HookParams),
 
     // Run (RUN-01, RUN-04): the project's run command in a ticket's worktree.
-    /// Starts the ticket's Run; refused without a run command (`no_run_command`) or a worktree (`no_worktree`).
+    /// Starts the ticket's Run; refused without a run command (`no_run_command`) or a worktree (`no_worktree`). The
+    /// user's click, or the ticket's own agent or check (`otaq run start`, d{RUN}).
     #[serde(rename = "run.start")]
     RunStart(KeyParams),
+    /// Stops the ticket's Run. An agent's is refused for a Run the user started (d{RUN}).
     #[serde(rename = "run.stop")]
     RunStop(KeyParams),
+    /// The Run's kept output as text, its last `tail` lines (default 200; `otaq run log`, d{RUN}).
+    #[serde(rename = "run.log")]
+    RunLog(RunLogParams),
     /// The ticket's Run: state, port, command, Open URL, session.
     #[serde(rename = "run.status")]
     RunStatus(KeyParams),
@@ -1698,6 +1703,14 @@ pub struct KeyParams {
     pub key: String,
 }
 
+/// `{"key": "SHOP-27", "tail": 40}`: `otaq run log` (d{RUN}); no `tail` prints the last 200 lines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunLogParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<u32>,
+}
+
 /// `{"key": "SHOP-43", "reason": "merged into SHOP-42"}`: `otaq delete` (d0060, d0129). An agent's reason goes into
 /// its own ticket's History ("Deleted SHOP-43 · merged into SHOP-42").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2146,6 +2159,7 @@ impl Request {
             Self::RunStart(_) => "run.start",
             Self::RunStop(_) => "run.stop",
             Self::RunStatus(_) => "run.status",
+            Self::RunLog(_) => "run.log",
             Self::RunList => "run.list",
             Self::RunSuggest(_) => "run.suggest",
             Self::RunSuggestCancel(_) => "run.suggest_cancel",
@@ -2320,6 +2334,7 @@ pub enum Reply {
     WarmList(Box<crate::warm::store::WarmList>),
     WarmClear(crate::warm::store::ClearOutcome),
     Run(Box<crate::terminals::run::RunInfo>),
+    RunLog(Box<crate::terminals::run::RunLog>),
     Runs(Vec<crate::terminals::run::RunInfo>),
     Session(Box<SessionInfo>),
     CreatedHere(Box<crate::board::created::CreatedHere>),

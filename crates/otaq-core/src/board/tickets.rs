@@ -1098,9 +1098,11 @@ impl Board {
                 let merge_check_failed = row.conflicts_with.is_some()
                     && row.conflict_reason.as_deref()
                         == Some(super::conflicts::ConflictReason::MergeCheck.as_str());
+                let run = self.run_ports().get_with_starter(&row.id);
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
-                    run_port: self.run_ports().get(&row.id),
+                    run_port: run.as_ref().map(|(port, _)| *port),
+                    run_started_by: run.and_then(|(_, stage)| stage),
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && (status.is_queued() || status.at_work()),

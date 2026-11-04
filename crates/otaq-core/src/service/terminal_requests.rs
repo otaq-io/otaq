@@ -3,18 +3,52 @@
 
 use super::Shared;
 use super::board_requests::error_body;
+use super::permissions::stage_name;
+use crate::caller::Caller;
 use crate::protocol::{ErrorBody, ErrorKind, Reply, Request};
+use crate::session::SessionKind;
+use crate::terminals::run::{LOG_TAIL, RunAgent};
 
-pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, ErrorBody> {
+/// The ticket agent or check asking for a Run (d{RUN}), named by its stage ("Dev"); `None` for the user. The
+/// permission check already let only the ticket's own agent and check through.
+async fn run_agent(caller: &Caller, shared: &Shared) -> Option<RunAgent> {
+    let (session, kind, fallback) = match caller {
+        Caller::Agent { session, .. } => (session, SessionKind::Agent, "agent"),
+        Caller::Validator { session, .. } => (session, SessionKind::Validator, "check"),
+        _ => return None,
+    };
+    let stage = stage_name(caller, &shared.board)
+        .await
+        .unwrap_or_else(|| fallback.to_owned());
+    Some(RunAgent {
+        session: session.clone(),
+        stage,
+        kind,
+    })
+}
+
+pub(super) async fn handle(
+    request: Request,
+    caller: &Caller,
+    shared: &Shared,
+) -> Result<Reply, ErrorBody> {
     let runs = &shared.runs;
     let run = |r: Result<crate::terminals::run::RunInfo, crate::board::BoardError>| {
         r.map(|info| Reply::Run(Box::new(info)))
             .map_err(|e| error_body(&e))
     };
     match request {
-        Request::RunStart(p) => run(runs.start(&p.key).await),
-        Request::RunStop(p) => run(runs.stop(&p.key).await),
+        Request::RunStart(p) => run(runs.start_as(&p.key, run_agent(caller, shared).await).await),
+        Request::RunStop(p) => {
+            let agent = run_agent(caller, shared).await;
+            run(runs.stop_as(&p.key, agent.as_ref()).await)
+        }
         Request::RunStatus(p) => run(runs.info(&p.key).await),
+        Request::RunLog(p) => runs
+            .log(&p.key, p.tail.map_or(LOG_TAIL, |t| t as usize))
+            .await
+            .map(|log| Reply::RunLog(Box::new(log)))
+            .map_err(|e| error_body(&e)),
         Request::RunList => Ok(Reply::Runs(runs.running().await)),
         Request::RunSuggest(p) => shared
             .suggester

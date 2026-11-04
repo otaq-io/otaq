@@ -498,6 +498,7 @@ async fn respond(
         request @ (Request::RunStart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
+        | Request::RunLog(_)
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
@@ -508,7 +509,7 @@ async fn respond(
         | Request::ProjectTerminalClose(_)
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)) => {
-            match terminal_requests::handle(request, shared).await {
+            match terminal_requests::handle(request, who, shared).await {
                 Ok(reply) => (reply, Then::Continue),
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }

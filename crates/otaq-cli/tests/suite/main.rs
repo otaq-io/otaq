@@ -36,6 +36,7 @@ mod project_agents;
 mod read;
 mod release_scripts;
 mod restore_database;
+mod run;
 mod skills;
 mod stage_choices;
 mod stage_path;

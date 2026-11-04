@@ -19,6 +19,7 @@ mod pr;
 mod prime;
 mod read;
 mod restore;
+mod run;
 mod service;
 #[cfg(test)]
 mod skill_commands;
@@ -192,6 +193,7 @@ fn main() -> ExitCode {
         Some(Command::Comments { key }) => comment::list(key, &cli.global, &out),
         Some(Command::Report { args, path }) => comment::report(args, path, &cli.global, &out),
         Some(Command::Helper(command)) => helper::run(command, &cli.global, &out),
+        Some(Command::Run(command)) => run::run(command, &cli.global, &out),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Flow(command)) => flow::run(command, &cli.global, &out),

@@ -659,6 +659,7 @@ pub mod fixtures {
             ended_at: None,
             exit_code: None,
             stopped_by: None,
+            started_by: None,
         }
     }
 

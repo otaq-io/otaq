@@ -74,7 +74,7 @@ pub(crate) fn agent_activity(request: &Request, action: &Action) -> AgentActivit
 
 /// The name of the stage a ticket session's stage run is in, for its refusals (STG-10), on every flow (Q269, AGM-10):
 /// "NOTE-1's Validate check can only give its verdict". None for a session with no stage run.
-async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
+pub(super) async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
     let (Caller::Agent {
         ticket, session, ..
     }
@@ -422,7 +422,9 @@ async fn action_for(
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
         R::UninstallScan | R::UninstallRemove(_) => Action::UserOnly("run the uninstall"),
         R::WarmClear(_) => Action::UserOnly("clear warm builds"),
-        R::RunStart(_) | R::RunStop(_) => Action::UserOnly("start or stop Run"),
+        // The ticket's own agent and check start, stop and read its Run (d{RUN}); the user's Run is guarded by Runs.
+        R::RunStart(p) | R::RunStop(p) => Action::Run(facts(board, &p.key).await?),
+        R::RunLog(p) => Action::Run(facts(board, &p.key).await?),
         R::RunSuggest(_) | R::RunSuggestCancel(_) => {
             Action::UserOnly("ask the agent for a run command")
         }

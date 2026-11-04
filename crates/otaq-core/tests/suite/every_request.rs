@@ -340,6 +340,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::RunStart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
+        | Request::RunLog(_)
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)

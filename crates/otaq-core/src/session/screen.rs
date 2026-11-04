@@ -14,8 +14,13 @@ pub const LINES_ABOVE: usize = 200;
 /// Replays `bytes` (a session's kept output) in a terminal of `size` and returns the screen plus up to
 /// [`LINES_ABOVE`] lines above it: trailing spaces dropped from every line, empty lines at the end dropped.
 pub fn render(bytes: &[u8], size: TerminalSize) -> String {
+    render_above(bytes, size, LINES_ABOVE)
+}
+
+/// [`render`], keeping up to `above` lines above the screen (`otaq run log --tail N`, d{RUN}).
+pub fn render_above(bytes: &[u8], size: TerminalSize, above: usize) -> String {
     let (rows, cols) = (size.rows.max(1), size.cols.max(1));
-    let mut parser = vt100::Parser::new(rows, cols, LINES_ABOVE);
+    let mut parser = vt100::Parser::new(rows, cols, above);
     // A trimmed scrollback can start inside a character: its continuation bytes would show as "�".
     let start = bytes
         .iter()
