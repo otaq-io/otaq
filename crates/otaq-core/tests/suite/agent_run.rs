@@ -335,6 +335,21 @@ async fn an_agents_run_acts_for_the_agent_never_the_user() {
     let session = w.runs.info(&key, None).await.unwrap().session.unwrap();
     let out = w.wait_for_output(&session, "\"reply\"").await;
     assert!(!out.contains("\"error\""), "{out}");
+
+    // The agent restarts the user's Run to run its new code (`run restart`, d{RUN}, T4): a new session, still the
+    // user's (the agent can't stop it, its stage end leaves it up), but its processes act for the agent.
+    let restarted = run_of(&send(&w, &agent, "run.restart", json!({"key": key})).await);
+    let again = restarted.session.clone().unwrap();
+    assert_ne!(again, session);
+    assert_eq!(restarted.started_by, Some(StartedBy::You));
+    let out = w.wait_for_output(&again, "\"error\"").await;
+    assert!(
+        out.contains("SHOP-1's agent can't pin tickets; ask the user"),
+        "{out}"
+    );
+    let refused_stop = send(&w, &agent, "run.stop", json!({"key": key})).await;
+    assert_eq!(refused_stop["error"]["kind"], "refused", "{refused_stop}");
+    assert!(w.runs.info(&key, None).await.unwrap().state.is_live());
     w.runs.stop(&key, None).await.unwrap();
     w.stop().await;
 }

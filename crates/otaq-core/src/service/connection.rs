@@ -496,6 +496,7 @@ async fn respond(
             }
         }
         request @ (Request::RunStart(_)
+        | Request::RunRestart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
         | Request::RunApps(_)

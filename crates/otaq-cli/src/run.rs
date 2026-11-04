@@ -12,6 +12,9 @@
 //! - `status [<app>]`: not started · starting :4020 · running :4020 (started by Dev) · stopped (how).
 //! - `log [<app>] [--tail N]`: the Run's kept output as text, the last N lines (default 200). Otaq never writes it to disk
 //!   (d0045): save it yourself (`otaq run log > "$OTAQ_RESOURCE_DIR/run.txt"`).
+//! - `restart [<app>] [--wait] [--timeout S]`: stops the Run and starts it again with the same command and port, to run
+//!   code changed since it started; waits like `start`. The user's Run stays the user's: an agent may restart it,
+//!   never stop it.
 //! - `stop [<app>]`: stops a Run an agent of this ticket started; one the user started is refused and stays up.
 //! - `set [<app>] --command "<cmd>" [--open-url "<url>"]`: a project with no run command gets one, or a missing app
 //!   (`set api --command …`). The command runs as this ticket's Run and is saved once it is running ("Set by Dev on
@@ -72,6 +75,18 @@ pub enum RunCommand {
         #[arg(long, value_name = "N")]
         tail: Option<u32>,
     },
+    /// Restart the Run to run changed code (same command and port); the user's Run stays the user's
+    Restart {
+        /// The app, when the project has several
+        #[arg(value_name = "APP")]
+        app: Option<String>,
+        /// Wait until it is running again (prints its URL or port) or failed to start (exits non-zero)
+        #[arg(long)]
+        wait: bool,
+        /// With --wait: give up after this many seconds still starting
+        #[arg(long, value_name = "SECONDS", default_value_t = 300, requires = "wait")]
+        timeout: u64,
+    },
     /// Stop a Run an agent of this ticket started (one the user started stays running)
     Stop {
         /// The app, when the project has several
@@ -103,17 +118,20 @@ pub fn run(command: RunCommand, global: &GlobalArgs, out: &Output) -> Result<(),
         let key = target::resolve_key(&client, &data, None, global)
             .await?
             .to_string();
+        let restart = matches!(command, RunCommand::Restart { .. });
         match command {
-            RunCommand::Start { app, wait, timeout } => {
-                let info = run_reply(
-                    client
-                        .request(Request::RunStart(RunParams {
-                            key: key.clone(),
-                            app,
-                        }))
-                        .await
-                        .map_err(client_error)?,
-                )?;
+            RunCommand::Start { app, wait, timeout }
+            | RunCommand::Restart { app, wait, timeout } => {
+                let params = RunParams {
+                    key: key.clone(),
+                    app,
+                };
+                let request = if restart {
+                    Request::RunRestart(params)
+                } else {
+                    Request::RunStart(params)
+                };
+                let info = run_reply(client.request(request).await.map_err(client_error)?)?;
                 let info = if wait {
                     wait_until_up(&client, info, Duration::from_secs(timeout)).await?
                 } else {

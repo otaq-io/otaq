@@ -8321,6 +8321,9 @@
         "run.log": {
           "newtype": "RunLogParams"
         },
+        "run.restart": {
+          "newtype": "RunParams"
+        },
         "run.set": {
           "newtype": "RunSetParams"
         },
@@ -10280,6 +10283,14 @@
         },
         "parked": {},
         "restart": {},
+        "restarted": {
+          "fields": {
+            "stage": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "stage_ended": {
           "fields": {
             "stage": {

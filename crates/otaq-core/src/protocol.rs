@@ -861,6 +861,10 @@ pub enum Request {
     /// Stops an app's Run of the ticket. An agent's is refused for a Run the user started (agents run the app).
     #[serde(rename = "run.stop")]
     RunStop(RunParams),
+    /// Stops and starts an app's Run again, to run changed code (`otaq run restart`, agents run the app). Its owner stays (the
+    /// user's Run stays the user's); restarted by an agent, its processes act for that agent.
+    #[serde(rename = "run.restart")]
+    RunRestart(RunParams),
     /// The Run's kept output as text, its last `tail` lines (default 200; `otaq run log`, agents run the app).
     #[serde(rename = "run.log")]
     RunLog(RunLogParams),
@@ -2199,6 +2203,7 @@ impl Request {
             Self::Hook(_) => "hook",
             Self::RunStart(_) => "run.start",
             Self::RunStop(_) => "run.stop",
+            Self::RunRestart(_) => "run.restart",
             Self::RunStatus(_) => "run.status",
             Self::RunLog(_) => "run.log",
             Self::RunSet(_) => "run.set",

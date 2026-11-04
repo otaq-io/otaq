@@ -88,6 +88,9 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
             let title = match (&run.stopped_by, run.exit_code) {
                 (Some(StopCause::You), _) => format!("Stopped by you at {ended}"),
                 (Some(StopCause::Agent { stage }), _) => format!("Stopped by {stage} at {ended}"),
+                (Some(StopCause::Restarted { stage }), _) => {
+                    format!("Restarted by {stage} at {ended}")
+                }
                 (Some(StopCause::StageEnded { stage }), _) => {
                     format!("Stopped at {ended} · {stage}’s stage ended")
                 }
