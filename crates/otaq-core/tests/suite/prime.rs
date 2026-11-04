@@ -321,21 +321,64 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
         "\n## Agent instructions (Rust developer)\n\nFollow our error-handling rules: no unwrap in library code.\n",
         "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n",
         "\n## Earlier stages\n\n- Product spec · Spec writer · finished\n\n## Comments\n\n### Spec writer · Product spec · 9:05 am\n\nAgreed: newest first.\nDates in the user's time zone.\n",
-        "\n## Stage choices\n\nYou may change these later stages' choices for this ticket",
-        &format!("`otaq update {key} --stage \"QA=skip\" --reason \"…\"`"),
-        "\n- QA (now: required)\n  - skip: the ticket passes this stage\n",
+        // QA offers no other agent, and only the user skips a stage: no example, and no skip listed (T1).
+        "\n## Stage choices\n\nYou may pick another agent for these later stages of this ticket when what you \
+         learned changes how hard their work is, always with a reason. Never skip a stage: only the user skips one. \
+         A choice the user set isn't listed: it can't be changed.\n\n- QA (now: required)\n\n",
         "2. Commit everything with git (`git add -A`, `git commit`) before you end your stage.",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }
+    assert!(!text.contains("QA=skip"), "{text}");
     assert!(!text.contains("stopped"), "only the latest run: {text}");
     assert!(!text.contains("- Dev ("), "Dev has started: {text}");
     assert_eq!(context.commit_skill, "");
     w.stop().await;
 }
 
+/// A ticket agent's example picks another agent, never `skip` (only the user skips a stage), from the first stage that
+/// offers one; its options don't list `skip` (T1).
+#[test]
+fn a_ticket_agents_example_picks_an_agent_never_skip() {
+    use otaq_core::prime::{AgentReader, PrimeChoice, PrimeOption, render_choices};
+    let option = |name: &str, usual| PrimeOption {
+        name: name.into(),
+        usual,
+        model: String::new(),
+        about: String::new(),
+    };
+    let choices = [
+        PrimeChoice {
+            stage: "Tech spec".into(),
+            now: Some("Architect".into()),
+            options: vec![option("Architect", true)],
+            can_skip: true,
+        },
+        PrimeChoice {
+            stage: "Dev".into(),
+            now: Some("Rust developer".into()),
+            options: vec![
+                option("Rust developer", true),
+                option("Quick developer", false),
+            ],
+            can_skip: true,
+        },
+    ];
+    let text = render_choices(&choices, AgentReader::TicketAgent, None);
+    assert!(
+        text.contains("`otaq update <KEY> --stage \"Dev=Quick developer\" --reason \"…\"`"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Never skip a stage: only the user skips one."),
+        "{text}"
+    );
+    assert!(!text.contains("skip:"), "{text}");
+    assert!(!text.contains("=skip"), "{text}");
+}
+
 /// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage with options, each agent with its
-/// model and its instructions' first line, and how to set a choice.
+/// model and its instructions' first line, and how to pass on the user's choice with `--by-user` (T1).
 #[tokio::test(flavor = "multi_thread")]
 async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
     let w = with_agents().await;
@@ -356,9 +399,9 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
     );
     assert!(
         project.contains(&format!(
-            "\n## Stage choices\n\nA new ticket runs each stage's own agent. Pick another option for a ticket you \
-             create only when how hard the work is says so, with a reason: `otaq create \"Title\" --stage \
-             \"Product spec=skip\" --reason \"…\" --stdin`. When unsure, leave the stage's own agent.\n\n{options}"
+            "\n## Stage choices\n\nA new ticket runs every stage with the stage's own agent. Pass on only the \
+             choices the user names, with --by-user: `otaq create \"Title\" --stage \"Product spec=skip\" \
+             --by-user --stdin`.\n\n{options}"
         )),
         "{project}"
     );
