@@ -159,7 +159,10 @@ Taken with the maintainer after T1–T8 were merged, from the questions the task
 
 `--by-user` is accepted from the Project agent only. A ticket's own agent (Dev, Validator, a helper…) using it is
 refused, so it sets agent picks for later stages with a reason, and never a skip. With N11 and N12, every skip on the
-board was set by the user, in the app or through Noyan.
+board was set by the user, in the app or through Noyan. Refusal text, word for word:
+
+> Only Noyan passes on the user's choices: pick another agent with --reason, or ask the user to set it
+
 *Refines:* N12 and N14's "agents' `--by-user` ones" (choices already stored as `user` stay).
 
 ### N16. The agent in charge drops a piece with `otaq helper drop`
@@ -171,8 +174,10 @@ can't start again. Anything that waits for every piece to be merged (T7's guard 
 
 ### N17. The service refuses a Plan from Noyan
 
-A Plan written by the Project agent (`--plan-file`, `--plan-stdin`) is refused with a clear text. This puts N1 into
-code. Ticket agents and the user keep writing Plans.
+A Plan written by the Project agent (`--plan`, `--plan-file`, `--plan-stdin`, on `otaq create` or `otaq update`) is
+refused. This puts N1 into code. Ticket agents and the user keep writing Plans. Refusal text, word for word:
+
+> Noyan files tickets; the flow's stages write the Plan
 
 ### N18. The website demo's Noyan table has no Agent column
 
