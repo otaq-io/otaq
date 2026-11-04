@@ -55,6 +55,7 @@ function envRow(rows: { name: string; value: string }[]): SettingsRow {
     dimmed: false,
     reset: null,
     button: null,
+    set_by: null,
   };
 }
 

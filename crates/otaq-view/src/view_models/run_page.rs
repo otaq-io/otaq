@@ -80,6 +80,26 @@ pub struct OpenUrlView {
     pub url: String,
 }
 
+/// "Set by Dev on SHOP-27 · Undo" (d{RUN}): under the run command in Settings and on the Run tab, while the command
+/// an agent set is the project's. Undo empties it (`run.command_undo`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "RunCommandSetByView")]
+pub struct SetByView {
+    pub text: String,
+    pub undo: &'static str,
+    /// Undo's tooltip.
+    pub undo_hint: &'static str,
+}
+
+/// The line for a run command an agent set; none for the user's own.
+pub fn set_by_view(by: Option<&otaq_core::board::settings::RunCommandSetBy>) -> Option<SetByView> {
+    by.map(|by| SetByView {
+        text: by.line(),
+        undo: "Undo",
+        undo_hint: "Empties the run command the agent set",
+    })
+}
+
 /// The ⋯ menu's Edit command (RUN-02's dialog).
 pub const MENU_EDIT_COMMAND: &str = "edit_command";
 
@@ -106,6 +126,8 @@ pub struct TabView {
     /// The Run's session, attached read-only; `None` before the first Run.
     pub session: Option<String>,
     pub idle: &'static str,
+    /// "Set by Dev on SHOP-27 · Undo" when an agent set the run command (d{RUN}).
+    pub set_by: Option<SetByView>,
 }
 
 pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
@@ -182,6 +204,7 @@ pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
         menu_label: "Run options",
         session: run.session.clone(),
         idle: "(not running)",
+        set_by: set_by_view(run.command_set_by.as_ref()),
     }
 }
 
@@ -447,6 +470,7 @@ mod tests {
             exit_code: Some(1),
             stopped_by: None,
             started_by: None,
+            command_set_by: None,
         }
     }
 
@@ -458,6 +482,22 @@ mod tests {
 
     /// Q433: no state card. Each state reads in the line's words, with its buttons on the line and Edit command
     /// always under ⋯.
+    /// The Run tab says who set the run command, with Undo (d{RUN}); the user's own command says nothing.
+    #[test]
+    fn the_tab_says_an_agent_set_the_command() {
+        let mut r = run(RunState::Running);
+        assert_eq!(tab_view(&r, |_| "11:48".into()).set_by, None);
+        r.command_set_by = Some(otaq_core::board::settings::RunCommandSetBy {
+            stage: "Dev".into(),
+            ticket: "SHOP-27".parse().unwrap(),
+            at: 0,
+            open_url: true,
+        });
+        let line = tab_view(&r, |_| "11:48".into()).set_by.unwrap();
+        assert_eq!(line.text, "Set by Dev on SHOP-27");
+        assert_eq!(line.undo, "Undo");
+    }
+
     #[test]
     fn the_run_line_in_each_state() {
         let line = Some("pnpm dev --port $PORT \u{b7} in SHOP-19\u{2019}s worktree \u{b7} :4020");

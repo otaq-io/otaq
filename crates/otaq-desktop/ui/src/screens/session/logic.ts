@@ -7,7 +7,8 @@ import type { RunStarted } from "../../generated/RunStarted";
 import { request } from "../../tauri";
 
 /** The service events after which the Run tab, the processes and the sheet's pill are asked again. */
-export const RUN_EVENTS = ["run_changed", "ticket_changed"] as const;
+// `projects_changed`: an agent set the run command, or Undo emptied it (d{RUN}).
+export const RUN_EVENTS = ["run_changed", "ticket_changed", "projects_changed"] as const;
 
 /** What a button on the Run's line does (Open is the line's link, Edit command its ⋯). */
 export type Press =

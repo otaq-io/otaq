@@ -9,6 +9,7 @@ mod agent_edits;
 mod agent_launches;
 mod agent_reads;
 mod agent_run;
+mod agent_run_set;
 mod agent_session_facts;
 mod agent_tool_requests;
 mod agents;

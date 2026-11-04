@@ -499,6 +499,8 @@ async fn respond(
         | Request::RunStop(_)
         | Request::RunStatus(_)
         | Request::RunLog(_)
+        | Request::RunSet(_)
+        | Request::RunCommandUndo(_)
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)

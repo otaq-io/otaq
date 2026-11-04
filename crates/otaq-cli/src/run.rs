@@ -9,6 +9,9 @@
 //! - `log [--tail N]`: the Run's kept output as text, the last N lines (default 200). Otaq never writes it to disk
 //!   (d0045): save it yourself (`otaq run log > "$OTAQ_RESOURCE_DIR/run.txt"`).
 //! - `stop`: stops a Run an agent of this ticket started; one the user started is refused and stays up.
+//! - `set --command "<cmd>" [--open-url "<url>"]`: a project with no run command gets one. The command runs as this
+//!   ticket's Run and is saved once it is running ("Set by Dev on SHOP-27"); it waits like `start --wait`. Failed to
+//!   start: nothing is saved, and it prints the last lines. Refused when the project already has a run command.
 //!
 //! `--json` prints the Run (`otaq_core::terminals::run::RunInfo`); `log --json` `{"key", "state", "text"}`.
 
@@ -18,7 +21,9 @@ use clap::Subcommand;
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::naming;
-use otaq_core::protocol::{ErrorBody, ErrorKind, KeyParams, Reply, Request, RunLogParams};
+use otaq_core::protocol::{
+    ErrorBody, ErrorKind, KeyParams, Reply, Request, RunLogParams, RunSetParams,
+};
 use otaq_core::terminals::run::{RunInfo, RunLog, RunState};
 
 use crate::cli::GlobalArgs;
@@ -53,6 +58,18 @@ pub enum RunCommand {
     },
     /// Stop a Run an agent of this ticket started (one the user started stays running)
     Stop,
+    /// Add the project's missing run command: it runs as this ticket's Run and is saved once it is running
+    Set {
+        /// The command that starts the project; use $PORT where it listens (`pnpm dev --port $PORT`)
+        #[arg(long, value_name = "CMD")]
+        command: String,
+        /// Where it answers, optional (`http://localhost:$PORT`)
+        #[arg(long, value_name = "URL")]
+        open_url: Option<String>,
+        /// Give up after this many seconds still starting (nothing is saved)
+        #[arg(long, value_name = "SECONDS", default_value_t = 300)]
+        timeout: u64,
+    },
 }
 
 /// Runs one `otaq run` command.
@@ -89,6 +106,45 @@ pub fn run(command: RunCommand, global: &GlobalArgs, out: &Output) -> Result<(),
             RunCommand::Log { tail } => {
                 let log = log(&client, &key, tail).await?;
                 out.print(&log.text, &log, Some(&key));
+            }
+            RunCommand::Set {
+                command,
+                open_url,
+                timeout,
+            } => {
+                let info = run_reply(
+                    client
+                        .request(Request::RunSet(RunSetParams {
+                            key: key.clone(),
+                            command,
+                            open_url,
+                        }))
+                        .await
+                        .map_err(client_error)?,
+                )?;
+                let info = match wait_until_up(&client, info, Duration::from_secs(timeout)).await {
+                    Ok(info) => info,
+                    Err(mut e) => {
+                        e.message = format!("Nothing saved: {}", e.message);
+                        return Err(e);
+                    }
+                };
+                if info.state == RunState::PortInUse {
+                    return Err(port_in_use(&info));
+                }
+                let saved = match &info.command_set_by {
+                    Some(by) => format!(
+                        "Saved as {}'s run command ({}).",
+                        info.project_name,
+                        by.line()
+                    ),
+                    None => "Not saved: a run command was set meanwhile.".to_owned(),
+                };
+                out.print(
+                    &format!("{saved}\n{}", started_text(&info)),
+                    &info,
+                    Some(&key),
+                );
             }
             RunCommand::Stop => {
                 let info = run_reply(

@@ -6,7 +6,7 @@
 import { type ReactNode, useCallback, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
-import { AnchoredMenu, Button, IconButton, Tooltip } from "../../components";
+import { AnchoredMenu, Button, IconButton, SetByLine, Tooltip } from "../../components";
 import type { RunButtonView } from "../../generated/RunButtonView";
 import type { RunTabView } from "../../generated/RunTabView";
 import { useServiceView } from "../../service";
@@ -136,6 +136,14 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
   return (
     <div className="run-tab">
       <RunLine view={view} head={head} busy={busy} onPress={press} onMenu={menu} />
+      {view.set_by !== null && (
+        <SetByLine
+          setBy={view.set_by}
+          onUndo={() => {
+            request("run.command_undo", { project: view.project }).catch(ignore);
+          }}
+        />
+      )}
       {view.message !== null && (
         <p className="run-message" data-tone={view.state.tone}>
           {view.message}

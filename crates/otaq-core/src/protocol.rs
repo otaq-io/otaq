@@ -863,6 +863,13 @@ pub enum Request {
     /// The Run's kept output as text, its last `tail` lines (default 200; `otaq run log`, agents run the app).
     #[serde(rename = "run.log")]
     RunLog(RunLogParams),
+    /// A ticket's agent adds the missing run command (`otaq run set`, agents run the app): started as this ticket's Run and saved
+    /// once it is running; refused when the project already has one.
+    #[serde(rename = "run.set")]
+    RunSet(RunSetParams),
+    /// Undo of "Set by Dev on SHOP-27" (agents run the app): the agent's run command back to empty. The user's only.
+    #[serde(rename = "run.command_undo")]
+    RunCommandUndo(ProjectParams),
     /// The ticket's Run: state, port, command, Open URL, session.
     #[serde(rename = "run.status")]
     RunStatus(KeyParams),
@@ -1703,6 +1710,16 @@ pub struct KeyParams {
     pub key: String,
 }
 
+/// `{"key": "SHOP-27", "command": "pnpm dev --port $PORT", "open_url": "http://localhost:$PORT"}`: `otaq run set`
+/// (agents run the app).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunSetParams {
+    pub key: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_url: Option<String>,
+}
+
 /// `{"key": "SHOP-27", "tail": 40}`: `otaq run log` (agents run the app); no `tail` prints the last 200 lines.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunLogParams {
@@ -2160,6 +2177,8 @@ impl Request {
             Self::RunStop(_) => "run.stop",
             Self::RunStatus(_) => "run.status",
             Self::RunLog(_) => "run.log",
+            Self::RunSet(_) => "run.set",
+            Self::RunCommandUndo(_) => "run.command_undo",
             Self::RunList => "run.list",
             Self::RunSuggest(_) => "run.suggest",
             Self::RunSuggestCancel(_) => "run.suggest_cancel",

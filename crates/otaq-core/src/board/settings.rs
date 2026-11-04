@@ -15,7 +15,7 @@ use std::path::{Component, Path};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{Board, BoardError};
+use super::{Board, BoardError, Refusal};
 use crate::attention::notify::Kind;
 use crate::domain::stored_enum;
 use crate::naming;
@@ -495,6 +495,10 @@ pub struct ProjectSettings {
     pub merge_check: Option<String>,
     pub run_command: String,
     pub open_url: String,
+    /// Who set the run command, when one of a ticket's agents did (d{RUN}): "Set by Dev on SHOP-27", with Undo. Only
+    /// Otaq writes it: the user's save keeps it while the command stays the same and drops it when they change it.
+    /// Stored as `null` when none: [`read_or_default`] keeps only the fields the default has.
+    pub run_command_set_by: Option<RunCommandSetBy>,
     /// Files copied from the repository into each worktree, relative to the repository root.
     pub env_files: Vec<String>,
     /// "Notes every agent in this project gets" (d0040's per-project Agent instructions, kept by AGM-02): given to
@@ -521,6 +525,24 @@ pub struct ProjectSettings {
     pub view: ViewPrefs,
 }
 
+/// The agent that set a project's run command (d{RUN}): its stage's name, its ticket and when; `open_url` when it set
+/// the Open URL too (Undo then empties both).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunCommandSetBy {
+    pub stage: String,
+    pub ticket: crate::domain::TicketKey,
+    pub at: i64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_url: bool,
+}
+
+impl RunCommandSetBy {
+    /// "Set by Dev on SHOP-27".
+    pub fn line(&self) -> String {
+        format!("Set by {} on {}", self.stage, self.ticket)
+    }
+}
+
 impl Default for ProjectSettings {
     fn default() -> Self {
         Self {
@@ -528,6 +550,7 @@ impl Default for ProjectSettings {
             merge_check: None,
             run_command: String::new(),
             open_url: String::new(),
+            run_command_set_by: None,
             env_files: Vec::new(),
             project_notes: String::new(),
             let_finished_tickets_answer: true,
@@ -855,11 +878,64 @@ impl Board {
         project: &str,
         settings: &ProjectSettings,
     ) -> Result<(), BoardError> {
-        let view = self.project_settings(project).await?.view;
+        let stored = self.project_settings(project).await?;
+        // "Set by Dev on SHOP-27" stays while the command does; a hand edit of it drops the line (d{RUN}).
+        let set_by = stored
+            .run_command_set_by
+            .filter(|_| settings.run_command.trim() == stored.run_command.trim())
+            .map(|by| RunCommandSetBy {
+                open_url: by.open_url && settings.open_url.trim() == stored.open_url.trim(),
+                ..by
+            });
         let settings = ProjectSettings {
-            view,
+            view: stored.view,
+            run_command_set_by: set_by,
             ..settings.clone()
         };
+        self.set_project_settings(project, &settings).await
+    }
+
+    /// Saves the run command an agent's Run proved (d{RUN}): only while the project still has none, so an agent never
+    /// changes one the user set. `false` when one was set meanwhile (nothing changes).
+    pub async fn save_agent_run_command(
+        &self,
+        project: &str,
+        command: &str,
+        open_url: Option<&str>,
+        by: RunCommandSetBy,
+    ) -> Result<bool, BoardError> {
+        let mut settings = self.project_settings(project).await?;
+        if !settings.run_command.trim().is_empty() {
+            return Ok(false);
+        }
+        settings.run_command = command.trim().to_owned();
+        let set_url =
+            open_url.is_some_and(|u| !u.trim().is_empty()) && settings.open_url.trim().is_empty();
+        if set_url {
+            settings.open_url = open_url.unwrap_or_default().trim().to_owned();
+        }
+        settings.run_command_set_by = Some(RunCommandSetBy {
+            open_url: set_url,
+            ..by
+        });
+        self.set_project_settings(project, &settings).await?;
+        Ok(true)
+    }
+
+    /// Undo of "Set by Dev on SHOP-27" (d{RUN}): the agent's run command (and its Open URL) back to empty. Refused when
+    /// no agent set the command.
+    pub async fn undo_agent_run_command(&self, project: &str) -> Result<(), BoardError> {
+        let mut settings = self.project_settings(project).await?;
+        let Some(by) = settings.run_command_set_by.take() else {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                "No agent set this project's run command, so there is nothing to undo",
+            ));
+        };
+        settings.run_command.clear();
+        if by.open_url {
+            settings.open_url.clear();
+        }
         self.set_project_settings(project, &settings).await
     }
 

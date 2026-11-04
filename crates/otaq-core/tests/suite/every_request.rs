@@ -21,7 +21,7 @@ fn base_params() -> Value {
         "body": "b", "message": "m", "question": "q", "answer": "a", "proposal": "p", "name": "n",
         "url": "https://example.invalid/pr/1", "settings": {}, "cols": 80, "rows": 24, "data": "",
         "focused": false, "pass": false, "action": "stop",
-        "note": "Not covered by any ticket: x", "query": "q", "ticket": "NOPE-1"
+        "note": "Not covered by any ticket: x", "query": "q", "ticket": "NOPE-1", "command": "nope"
     })
 }
 
@@ -341,6 +341,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::RunStop(_)
         | Request::RunStatus(_)
         | Request::RunLog(_)
+        | Request::RunSet(_)
+        | Request::RunCommandUndo(_)
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
