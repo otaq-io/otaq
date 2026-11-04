@@ -37,7 +37,7 @@ pub fn rows(runs: &[RunInfo], now_ms: i64) -> Vec<ProcessRow> {
             project_name: r.project_name.clone(),
             key: r.key.clone(),
             title: r.title.clone(),
-            // A named app says which (d{RUN}): "api :4021"; a project's one app stays ":4020".
+            // A named app says which (agents run the app): "api :4021"; a project's one app stays ":4020".
             port: r.port.map(|p| {
                 if r.app == otaq_core::board::settings::DEFAULT_APP {
                     format!(":{p}")
@@ -107,7 +107,7 @@ mod tests {
         assert_eq!(rows[0].url, None, "billing-api has no Open URL");
         assert_eq!(rows[1].url.as_deref(), Some("http://localhost:4020"));
         assert_eq!(rows[1].port.as_deref(), Some(":4020"));
-        // A named app (d{RUN}).
+        // A named app (agents run the app).
         let mut api = run("SHOP", "shop-web", "SHOP-2", 4021, None);
         api.app = "api".into();
         assert_eq!(

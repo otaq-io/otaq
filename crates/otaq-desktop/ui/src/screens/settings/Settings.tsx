@@ -116,7 +116,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             setError(asRequestError(e));
           });
           return;
-        // Add app and Remove app (d{RUN}): the row's own field, sent as an edit.
+        // Add app and Remove app (agents run the app): the row's own field, sent as an edit.
         case "edit_field":
           if (target) edit(target, "");
           return;

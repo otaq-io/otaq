@@ -11,7 +11,7 @@ pub fn port_label(port: u16) -> String {
     format!("Run port · $PORT={port}")
 }
 
-/// The Shell's ports (d{RUN}): one app's "Run port · $PORT=4004"; several, "Run ports · OTAQ_PORT_WEB=4020 ·
+/// The Shell's ports (agents run the app): one app's "Run port · $PORT=4004"; several, "Run ports · OTAQ_PORT_WEB=4020 ·
 /// OTAQ_PORT_API=4021" (the Shell has no `$PORT` then); none before the ticket has one.
 pub fn ports_label(ports: &[(String, u16)]) -> Option<String> {
     match ports {
@@ -49,7 +49,7 @@ pub fn stopped_note(
 mod tests {
     use super::*;
 
-    /// d{RUN} (T4): one app's Shell has `$PORT`; with several, only each app's variable.
+    /// Agents run the app (T4): one app's Shell has `$PORT`; with several, only each app's variable.
     #[test]
     fn the_ports_label_follows_the_apps() {
         assert_eq!(ports_label(&[]), None);

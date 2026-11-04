@@ -160,7 +160,7 @@ describe("the Run & Shell screen", () => {
     ).not.toContain("Set by");
   });
 
-  it("names its app on the line when the project has several (d{RUN}); one app's line has no name", () => {
+  it("names its app on the line when the project has several (agents run the app); one app's line has no name", () => {
     const web = renderToStaticMarkup(
       createElement(RunTabBody, { ticket: "SHOP-22", view: { ...RUNNING, app: "web" } }),
     );

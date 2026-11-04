@@ -84,7 +84,7 @@ async fn status(app: &App, key: &str, run_app: Option<&str>) -> Result<RunInfo, 
     }
 }
 
-/// Every app's Run of the ticket, in the project's order (d{RUN}).
+/// Every app's Run of the ticket, in the project's order (agents run the app).
 async fn apps(app: &App, key: &str) -> Result<Vec<RunInfo>, RequestError> {
     match app
         .service
@@ -98,7 +98,7 @@ async fn apps(app: &App, key: &str) -> Result<Vec<RunInfo>, RequestError> {
     }
 }
 
-/// The open ticket, and the app a button is for (d{RUN}); `None`: the project's one app (Run: every app).
+/// The open ticket, and the app a button is for (agents run the app); `None`: the project's one app (Run: every app).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "RunParams")]
 pub struct Params {
@@ -125,7 +125,7 @@ pub enum Started {
 }
 
 /// Run (and Retry): refused without a run command, which opens the dialog (RUN-02). With no app named in a project
-/// with several (the sheet's Run), every app that isn't up starts (d{RUN}).
+/// with several (the sheet's Run), every app that isn't up starts (agents run the app).
 pub async fn start(app: &App, params: Params) -> Result<Started, RequestError> {
     if params.app.is_none() {
         let all = apps(app, &params.key).await?;
@@ -245,7 +245,7 @@ pub struct CommandOpenParams {
     pub project: String,
     #[serde(default)]
     pub ticket: Option<String>,
-    /// The app whose command it edits (d{RUN}); `None`: the project's one app.
+    /// The app whose command it edits (agents run the app); `None`: the project's one app.
     #[serde(default)]
     pub app: Option<String>,
 }
@@ -367,7 +367,7 @@ pub struct CommandParams {
     pub project: String,
     #[serde(default)]
     pub command: String,
-    /// The app (d{RUN}): Undo of its "Set by Dev"; `None`: the project's one app.
+    /// The app (agents run the app): Undo of its "Set by Dev"; `None`: the project's one app.
     #[serde(default)]
     pub app: Option<String>,
 }
@@ -442,7 +442,7 @@ pub struct SaveParams {
     pub command: String,
     #[serde(default)]
     pub open_url: String,
-    /// The app whose command it saves (d{RUN}); `None`: the project's one app (added as `app` when it has none).
+    /// The app whose command it saves (agents run the app); `None`: the project's one app (added as `app` when it has none).
     #[serde(default)]
     pub app: Option<String>,
 }
@@ -641,7 +641,7 @@ mod tests {
         let key = created.key.to_string();
 
         let tabs = table(&h.app, "run.tab", json!({ "key": key })).await.unwrap();
-        // One app: one section, unnamed (d{RUN}).
+        // One app: one section, unnamed (agents run the app).
         let view = &tabs["tabs"][0];
         assert_eq!(tabs["tabs"].as_array().map(Vec::len), Some(1));
         assert_eq!(view["app"], Value::Null);

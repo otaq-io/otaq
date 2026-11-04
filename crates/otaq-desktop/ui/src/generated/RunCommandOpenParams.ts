@@ -5,6 +5,6 @@
  */
 export type RunCommandOpenParams = { project: string, ticket: string | null, 
 /**
- * The app whose command it edits (d{RUN}); `None`: the project's one app.
+ * The app whose command it edits (agents run the app); `None`: the project's one app.
  */
 app: string | null, };

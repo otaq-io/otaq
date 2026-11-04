@@ -33,7 +33,7 @@ export function afterStart(started: RunStarted, ticket: string): void {
 }
 
 /** Run (the sheet's button, the tab's Run and Retry): starts the ticket's Run, or asks for the command first. `app`
- * names one of several apps (d{RUN}); left out, the sheet's Run starts every app. */
+ * names one of several apps (agents run the app); left out, the sheet's Run starts every app. */
 export function startRun(ticket: string, app: string | null = null): Promise<RunStarted | null> {
   return (request("run.start", { key: ticket, app }) as Promise<RunStarted>).then(
     (started) => {

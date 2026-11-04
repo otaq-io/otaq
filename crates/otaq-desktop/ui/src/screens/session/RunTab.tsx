@@ -176,7 +176,7 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
   );
 }
 
-/** Session's Run: one app reads as before apps had names; several (d{RUN}) get one section each, its name on its
+/** Session's Run: one app reads as before apps had names; several (agents run the app) get one section each, its name on its
  * line and its own terminal, stacked in the project's order. */
 export function RunTab({ ticket, head }: { ticket: string; head?: ReactNode }) {
   const load = useCallback(() => request("run.tab", { key: ticket }) as Promise<RunTabsView>, [ticket]);

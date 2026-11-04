@@ -11,7 +11,7 @@
   padding: 12px;
 }
 
-/* Several apps (d{RUN}): one section per app, stacked, each with its own line and terminal. */
+/* Several apps (agents run the app): one section per app, stacked, each with its own line and terminal. */
 .run-apps {
   display: flex;
   flex-direction: column;

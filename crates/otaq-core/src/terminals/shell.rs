@@ -67,7 +67,7 @@ pub struct Shells {
     env: TerminalEnv,
     /// Brings a freed build back before a new Shell (M19-c).
     ticket_env: TicketEnv,
-    /// The ticket's app ports (d{RUN}): an app added while the ticket works gets its port at the next Shell.
+    /// The ticket's app ports (agents run the app): an app added while the ticket works gets its port at the next Shell.
     ports: PortPool,
     /// The open Project terminals by session id, until closed. Kept in memory: a restart forgets them.
     terminals: Arc<Mutex<HashMap<String, Open>>>,
@@ -295,7 +295,7 @@ impl Shells {
     ) -> Result<SessionInfo, BoardError> {
         let project = self.board.project(ticket.key.project.as_str()).await?;
         // `$PORT` is the app's port while the project has one app (or none yet); with several the Shell gets only
-        // `OTAQ_PORT_<NAME>`, so a script never reaches the wrong app (d{RUN}).
+        // `OTAQ_PORT_<NAME>`, so a script never reaches the wrong app (agents run the app).
         let settings = self.board.project_settings(&project.key).await?;
         let apps = match self
             .ports

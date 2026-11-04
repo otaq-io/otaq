@@ -11,7 +11,7 @@ import type { RunStateView } from "./RunStateView";
  */
 export type RunTabView = { key: string, project: string, 
 /**
- * The app (d{RUN}) in a project with several: its section's name and what Run, Stop and Undo name. `None` for a
+ * The app (agents run the app) in a project with several: its section's name and what Run, Stop and Undo name. `None` for a
  * project's one app.
  */
 app: string | null, 

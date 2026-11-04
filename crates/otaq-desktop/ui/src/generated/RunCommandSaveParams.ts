@@ -6,6 +6,6 @@
  */
 export type RunCommandSaveParams = { project: string, command: string, open_url: string, 
 /**
- * The app whose command it saves (d{RUN}); `None`: the project's one app (added as `app` when it has none).
+ * The app whose command it saves (agents run the app); `None`: the project's one app (added as `app` when it has none).
  */
 app: string | null, };

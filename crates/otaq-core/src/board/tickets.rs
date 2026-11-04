@@ -137,7 +137,7 @@ pub struct AgentSignal {
 }
 
 /// A started ticket's branch, worktree and ports.
-/// One app's Run port in a ticket (d{RUN}).
+/// One app's Run port in a ticket (agents run the app).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppPort {
     pub app: String,
@@ -164,7 +164,7 @@ pub struct Work {
     /// `$PORT` in the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_port: Option<u16>,
-    /// Each app's Run port (d{RUN}): `$PORT` in that app's Run, `OTAQ_PORT_<NAME>` in every Run and the Shell;
+    /// Each app's Run port (agents run the app): `$PORT` in that app's Run, `OTAQ_PORT_<NAME>` in every Run and the Shell;
     /// lowest first. A project with one app (or none yet) has one, for app `app`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub app_ports: Vec<AppPort>,
@@ -1066,7 +1066,7 @@ impl Board {
         let mut arrivals = self.project_arrivals(project_id, &flow).await?;
         // Each ticket's latest round of a Check stage with several check agents (d0130).
         let check_rounds = project_check_rounds(pool, project_id).await?;
-        // Each ticket's app ports (d{RUN}).
+        // Each ticket's app ports (agents run the app).
         let mut app_ports = project_app_ports(pool, project_id).await?;
 
         records
@@ -1417,7 +1417,7 @@ fn validating_round(
 /// Each ticket's latest validation round of the project when two or more check agents check in it (d0130): every
 /// agent's latest row in the stage's order, with its session's tool and model, and whether a change already cancelled
 /// a round with that number.
-/// The project's tickets' app ports (d{RUN}), by ticket id, lowest port first.
+/// The project's tickets' app ports (agents run the app), by ticket id, lowest port first.
 async fn project_app_ports(
     pool: &sqlx::SqlitePool,
     project_id: &str,
