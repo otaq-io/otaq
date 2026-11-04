@@ -399,7 +399,7 @@ pub enum ButtonAction {
     Credits,
     /// Asks before removing the project.
     RemoveProject,
-    /// Empties the run command an agent set ("Set by Dev on SHOP-27 · Undo", d{RUN}).
+    /// Empties the run command an agent set ("Set by Dev on SHOP-27 · Undo", agents run the app).
     UndoRunCommand,
     /// Brings up macOS's notifications question (in the app's process) and answers Otaq's ask (ATT-13, ATT-14).
     AllowNotifications,
@@ -423,7 +423,7 @@ pub struct Row {
     /// A button after the control: Run command's **Ask the agent** (T-0232, T-0342), which opens the run-command
     /// dialog.
     pub button: Option<RowButton>,
-    /// Run command's "Set by Dev on SHOP-27 · Undo" (d{RUN}); Undo is [`ButtonAction::UndoRunCommand`].
+    /// Run command's "Set by Dev on SHOP-27 · Undo" (agents run the app); Undo is [`ButtonAction::UndoRunCommand`].
     pub set_by: Option<crate::view_models::run_page::SetByView>,
 }
 
@@ -2995,7 +2995,7 @@ mod tests {
         assert_eq!(run.button, None);
         assert_eq!(run.set_by, None, "the user's own command has no line");
 
-        // A command an agent set (d{RUN}): "Set by Dev on SHOP-27 · Undo" under the row.
+        // A command an agent set (agents run the app): "Set by Dev on SHOP-27 · Undo" under the row.
         let by_agent = ProjectSettings {
             run_command_set_by: Some(otaq_core::board::settings::RunCommandSetBy {
                 stage: "Dev".into(),

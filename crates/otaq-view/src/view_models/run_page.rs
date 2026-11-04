@@ -80,7 +80,7 @@ pub struct OpenUrlView {
     pub url: String,
 }
 
-/// "Set by Dev on SHOP-27 · Undo" (d{RUN}): under the run command in Settings and on the Run tab, while the command
+/// "Set by Dev on SHOP-27 · Undo" (agents run the app): under the run command in Settings and on the Run tab, while the command
 /// an agent set is the project's. Undo empties it (`run.command_undo`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RunCommandSetByView")]
@@ -126,7 +126,7 @@ pub struct TabView {
     /// The Run's session, attached read-only; `None` before the first Run.
     pub session: Option<String>,
     pub idle: &'static str,
-    /// "Set by Dev on SHOP-27 · Undo" when an agent set the run command (d{RUN}).
+    /// "Set by Dev on SHOP-27 · Undo" when an agent set the run command (agents run the app).
     pub set_by: Option<SetByView>,
 }
 
@@ -482,7 +482,7 @@ mod tests {
 
     /// Q433: no state card. Each state reads in the line's words, with its buttons on the line and Edit command
     /// always under ⋯.
-    /// The Run tab says who set the run command, with Undo (d{RUN}); the user's own command says nothing.
+    /// The Run tab says who set the run command, with Undo (agents run the app); the user's own command says nothing.
     #[test]
     fn the_tab_says_an_agent_set_the_command() {
         let mut r = run(RunState::Running);

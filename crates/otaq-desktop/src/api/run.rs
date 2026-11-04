@@ -280,7 +280,7 @@ fn with_model(
     Ok(page::command_view(model, command, fill.clone()))
 }
 
-/// Undo of "Set by Dev on SHOP-27" (d{RUN}): the run command an agent set goes back to empty. Settings and the Run tab
+/// Undo of "Set by Dev on SHOP-27" (agents run the app): the run command an agent set goes back to empty. Settings and the Run tab
 /// refetch on the `projects_changed` it sends.
 pub async fn command_undo(app: &App, params: CommandParams) -> Result<(), RequestError> {
     match app

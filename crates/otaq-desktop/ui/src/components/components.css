@@ -1507,7 +1507,7 @@
   background: linear-gradient(to right, transparent 3px, var(--focus) 3px 5px, transparent 5px);
 }
 
-/* "Set by Dev on SHOP-27 · Undo" under the run command (d{RUN}). */
+/* "Set by Dev on SHOP-27 · Undo" under the run command (agents run the app). */
 .set-by-line {
   display: flex;
   align-items: center;

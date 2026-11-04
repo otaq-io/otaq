@@ -1,4 +1,4 @@
-// "Set by Dev on SHOP-27 · Undo" (d{RUN}): under the run command in Settings and on the Run tab, while the command an
+// "Set by Dev on SHOP-27 · Undo" (agents run the app): under the run command in Settings and on the Run tab, while the command an
 // agent set is the project's. The words come from the Rust view (`run_page::SetByView`); Undo empties the command.
 import type { RunCommandSetByView } from "../generated/RunCommandSetByView";
 import { Button } from "./Button";

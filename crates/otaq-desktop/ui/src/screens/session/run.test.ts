@@ -138,7 +138,7 @@ describe("the Run & Shell screen", () => {
     expect(html).toMatch(/pnpm dev · in SHOP-22’s worktree · :4022.*Serving · started by Dev.*Stop/);
   });
 
-  it("says an agent set the run command, with Undo (d{RUN})", () => {
+  it("says an agent set the run command, with Undo (agents run the app)", () => {
     const html = renderToStaticMarkup(
       createElement(RunTabBody, {
         ticket: "SHOP-22",
