@@ -157,7 +157,7 @@ fn facts_of(ticket: Ticket) -> TicketFacts {
 }
 
 /// A batch creates tickets (always allowed) and links them: each link is judged with the new tickets created
-/// by the caller.
+/// by the caller. A Plan on any of its tickets is judged too.
 async fn batch_action(
     caller: &Caller,
     tickets: &[BatchTicket],
@@ -171,6 +171,10 @@ async fn batch_action(
         never_started: true,
     };
     let mut actions: Vec<Action> = tickets.iter().map(|_| Action::CreateTicket).collect();
+    // A Plan on any ticket refuses the whole batch for Noyan, before anything is created (T11).
+    if tickets.iter().any(|t| !t.plan.trim().is_empty()) {
+        actions.insert(0, Action::WritePlan);
+    }
     // Choices first: a ticket agent may set them on the tickets it creates (d0129), Noyan on Backlog ones.
     for (n, ticket) in tickets.iter().enumerate() {
         if !ticket.choices.is_empty() {
@@ -298,7 +302,7 @@ async fn action_for(
                 by_user: false,
                 ..p.update.clone()
             };
-            match (p.update.choices.is_empty(), fields == Default::default()) {
+            let edit = match (p.update.choices.is_empty(), fields == Default::default()) {
                 (true, _) => Action::EditTicket(target),
                 // Choices only: the choice rule alone.
                 (false, true) => Action::SetChoices(target),
@@ -306,6 +310,11 @@ async fn action_for(
                     Action::SetChoices(target.clone()),
                     Action::EditTicket(target),
                 ]),
+            };
+            // Writing a Plan, or clearing one, is judged first: Noyan is intake only (T11).
+            match p.update.plan {
+                Some(_) => Action::All(vec![Action::WritePlan, edit]),
+                None => edit,
             }
         }
         R::TicketSetChoice(p) => Action::SetChoices(facts(board, &p.key).await?),
@@ -363,6 +372,10 @@ async fn action_for(
         // A first comment at creation is the user's (RPT-03): the New ticket form's report.
         R::TicketCreate(input) if input.first_comment.is_some() => {
             Action::UserOnly("post a new ticket's first comment")
+        }
+        // A Plan at creation is judged first: Noyan is intake only (T11).
+        R::TicketCreate(input) if !input.plan.trim().is_empty() => {
+            Action::All(vec![Action::WritePlan, Action::CreateTicket])
         }
         R::TicketCreate(_) => Action::CreateTicket,
         R::TicketCreateBatch(p) => batch_action(caller, &p.tickets, board).await?,
