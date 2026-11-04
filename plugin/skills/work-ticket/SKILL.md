@@ -200,9 +200,46 @@ Playwright or a browser tool to the project is a ticket of its own):
 1. **The project's own tests**, reaching the logic: a unit test, or a component test with jsdom. Many frontend bugs
    live in a function, a hook or a store, not on the screen.
 2. **Browser tooling the project already has**, run from the shell: `npx playwright test`, `npx cypress run`.
-3. **A manual check**: when nothing above reaches it (a layout bug, a Safari-only glitch, a real device), say in one
+3. **The running app**, when the criterion shows in what the app does (a page, a response, a screen) and no test
+   above reaches it. See "Run the app" below.
+4. **A manual check**: when nothing above reaches it (a layout bug, a Safari-only glitch, a real device), say in one
    line why, and give the user `--manual-check` with the exact steps and what they should see: "On a phone-width
    window, open /prices and scroll the table sideways: the header stays put", never "check the table".
+
+### Run the app
+
+1. **Start it** with `otaq run start --wait`. It returns once the app is running and prints its URL (or its port), or
+   fails with the app's last lines. When the project has no run command yet, the refusal says so: if you know how the
+   project starts, add it with `otaq run set --command "<cmd>"` (use `$PORT` where it listens); it is saved once it
+   runs. If the user already started the app for this ticket, you use theirs.
+2. **Use this ticket's data.** Where the project has ticket resources, the app gets this ticket's database in
+   `$OTAQ_DB_NAME`, as your shell does: seed and change that one, never a shared one.
+3. **Drive it as the verification guide says**: `docs/verify/` in the repository, or where the project's notes say
+   the guide lives. Its `README.md` says how to drive the app and what counts as evidence; each feature's file says
+   how to reach the feature and what proves it. No guide yet: drive it the simplest way that shows the criterion
+   (`curl`, the project's own scripts), then write it down (see "Write down what you drove").
+4. **Keep the evidence** in `$OTAQ_RESOURCE_DIR`, like any long output: the requests you made and what came back, and
+   the app's own output with `otaq run log > "$OTAQ_RESOURCE_DIR/run.txt"`. `otaq run status` says whether it is
+   still up and who started it.
+5. **Stop what you started** with `otaq run stop` before `otaq stage next`. Never stop a Run the user started: it
+   stays up (Otaq refuses anyway). If you forget, Otaq stops your Run when your stage ends, so never write in your
+   comment that the app was "left running".
+
+For a bug, the running app can be the repro: the same request before and after the fix, both runs in your comment.
+
+### Write down what you drove
+
+When you drove the running app, leave the guide better than you found it, in this ticket's commits (a few lines, not
+a manual):
+
+- **No `docs/verify/README.md` yet** (and the project's notes name no other place): write it: how to start and drive
+  the app, what counts as evidence, and the seed data an empty database needs.
+- **A feature the guide lacks**: add its file, for example `docs/verify/prices.md`: how to reach it, how to drive it,
+  what proves it works.
+- **You changed how a feature is reached** (a new route, a renamed button, a new step): update its file.
+
+When that is too big to do in passing (for example the app needs seed data that doesn't exist at all), file a
+follow-up with `otaq create "Title" --stdin` and prove the criterion with a manual check this time.
 
 **A bug** (the description reports wrong behaviour, not something new):
 
@@ -365,6 +402,8 @@ QUESTION
   Long command output never does: it goes to a file (see "Long output").
 - Useful commands: `otaq show <KEY>` (any ticket), `otaq dep tree` (your ticket's chain),
   `otaq create "Title" --stdin` (a follow-up in Backlog).
+- **Stop the Run you started** (`otaq run stop`) before `otaq stage next`; never stop one the user started. Helpers
+  get no Run: the agent in charge runs the app after merging the pieces.
 - If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run
   since Otaq last resumed you), fix it and run it again.
 - If `prime` lists **Stage choices**, you may change a later stage's choice for this ticket when what you learned

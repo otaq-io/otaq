@@ -45,11 +45,12 @@ the worktree: your check runs' output goes there (see "Long output").
    Give it one line in your verdict, starting `Checked: safe because` and naming what you ran, or
    `Checked: unproven:` and why you couldn't check it.
 6. **Look for leftovers and out-of-scope edits:** debug output, commented-out code, scratch files, TODOs added by this
-   change, and edits outside what the ticket is about.
+   change, and edits outside what the ticket is about. Edits under `docs/verify/` (the verification guide, see "Run
+   the app") are never out of scope: the agent adds to the guide what it drove for this ticket.
 7. **Prove each finding before it fails the ticket.** A finding against the description needs the file and line
    that show it. A suspected breakage (a wrong result, a crash, something the change breaks elsewhere) needs a run:
-   reproduce it with a command, such as the app's CLI, a script in `$OTAQ_RESOURCE_DIR` or an existing test run
-   with a filter, and name the command and its log. Then:
+   reproduce it with a command, such as the app's CLI, a script in `$OTAQ_RESOURCE_DIR`, an existing test run
+   with a filter or a request to the running app (see "Run the app"), and name the command and its log. Then:
    - **The run shows it:** it fails the ticket.
    - **Proving it needs a real browser, a device or a service you can't reach:** it is a manual check (see step 9).
    - **You tried and it didn't show, or only a new test could show it:** it is a **note**, never a failure. Say
@@ -96,6 +97,22 @@ the worktree: your check runs' output goes there (see "Long output").
    the flow may merge without a PR. Each verdict replaces this check's earlier unticked ones, so list again the ones
    that still apply. Something you could check but didn't is not a manual check: run it.
 
+## Run the app
+
+When a finding or a criterion shows in what the app does (a page, a response, a screen) and no test reaches it,
+prove it in the running app, as the agent does:
+
+1. **Start it** with `otaq run start --wait`: it prints the URL (or the port) once the app is running. If the user or
+   the agent already started it for this ticket, you use that one. Starting the app is not a change: it writes no
+   tracked file (if it would, for example a database file kept in the repository, don't start it: make it a manual
+   check). With no run command yet, don't add one (`otaq run set` saves a setting): make it a manual check.
+2. **Drive it as the verification guide says**: `docs/verify/` (its `README.md` and the feature's file), or where the
+   project's notes say the guide lives. Where the project has ticket resources, the app uses this ticket's database
+   (`$OTAQ_DB_NAME`).
+3. **Keep the evidence** in `$OTAQ_RESOURCE_DIR`: what you sent and what came back, and the app's output with
+   `otaq run log > "$OTAQ_RESOURCE_DIR/run.txt"`. Name it in your verdict.
+4. **Stop what you started** with `otaq run stop` before your verdict. Never stop a Run the user started.
+
 ## Long output
 
 ```sh
@@ -116,7 +133,8 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/cart-tests.log"
 
 - **Change nothing:** don't edit, create or delete files, don't commit, don't push, and don't run commands that change
   tracked files or anything outside the worktree (no installs, no migrations, no formatting fixes). Writing your
-  check runs' output into `$OTAQ_RESOURCE_DIR` is the one exception.
+  check runs' output into `$OTAQ_RESOURCE_DIR` is the one exception. Starting the app with `otaq run start` is not a
+  change; stop what you started (`otaq run stop`) before your verdict.
 - Don't file tickets and don't run `otaq stage next`: the user creates tickets from your notes.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
   goes to a file in `$OTAQ_RESOURCE_DIR`, named in the verdict.
