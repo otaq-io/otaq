@@ -956,18 +956,47 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         assert!(body.contains(needle), "noyan must say {needle:?}");
     }
     assert_every_ask_human_reads_stdin(&body);
-    // 0129 (refined 2026-10-26, after OTQ-3): only small work skips planning; a Plan of several pieces runs it.
+    // Noyan is intake only (T2): it opens as this project's coordinator, takes a light look, hands on notes with
+    // open questions left unanswered, asks the user only about the request, and files several tickets only for
+    // separate deliverables.
     let text = flat(&body);
     for needle in [
-        "a bug fix, a small feature you already understand)",
-        "when you would write a Plan of several pieces, even when its design looks settled",
+        "# Work as Noyan, an Otaq project's coordinator",
+        "You are Noyan, this project's coordinator. You turn the user's requests into tickets, look into how tickets are doing, and change the board's flow when asked. The flow's stages plan and build the work.",
+        "**Take a light look at the code**",
+        "read enough to write a useful ticket, no more",
+        "One deliverable is one ticket, however big",
+        "## What a ticket carries",
+        "**Where the code lives:**",
+        "**What you saw:** what the code does now, with `file:line` where you can",
+        "**Open questions:** what you noticed is still open, left unanswered",
+        "Ask the user only about the **request**",
+        "never about design or architecture",
+        "Open questions: - Should the prices come from the same batched query?",
+        "**Several tickets** only when the request holds separate deliverables, each reviewed and merged on its own",
     ] {
         assert!(text.contains(needle), "noyan must say {needle:?}");
     }
-    assert!(
-        !text.contains("whose Plan you could settle"),
-        "noyan still skips planning on big work"
-    );
+    let description = front_matter("noyan")
+        .into_iter()
+        .find(|(k, _)| k == "description")
+        .map(|(_, v)| v)
+        .expect("a description");
+    assert!(description.contains("coordinator"), "{description}");
+    for gone in [
+        "planning agent",
+        "project agent",
+        "Plan of pieces",
+        "one agent, about a day",
+        "Investigate by reading",
+        "Decide the shape",
+        "with a Plan",
+    ] {
+        assert!(
+            !text.contains(gone) && !description.contains(gone),
+            "noyan still says {gone:?}"
+        );
+    }
 }
 
 /// The text of the first `<<'TAG'` heredoc after `from` in a skill, with each line's indent removed.
@@ -1073,50 +1102,41 @@ fn flat(body: &str) -> String {
     body.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// T-0339 (PAG-03; d0087), T-0409 (AGM-12, AGM-09; d0108): the noyan skill proposes two or more tickets with a
-/// table (# · Title · Description · Choices; the short table above about 10), creates one explicit
-/// ticket at once with its choice in the reply, sets stage choices by difficulty with a reason ("typo fix → Dev: Quick
-/// developer"), tells *set by you* from its own choice, and leaves the Choices column out when no stage has options
-/// (the default flow). The real flags only. T-0376 (PAG-08, d0091): it decides the shape. T-0534 (d0133): no epic.
+/// T-0339 (PAG-03; d0087): the noyan skill proposes two or more tickets with a table (# · Title · Description ·
+/// Choices; the short table above about 10), creates one explicit ticket at once, and leaves the Choices column out
+/// when no stage has options (the default flow). The real flags only. T-0534 (d0133): no epic. T2: Noyan sets no
+/// stage choices of its own: the Choices column shows only the user's, each passed with `--by-user`, and a refusal
+/// means the choice wasn't the user's.
 #[test]
-fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
+fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
     let (_, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
     let text = flat(&body);
     let cmd = naming::COMMAND_NAME;
     for needle in [
-        "Two or more tickets, or a ticket with a Plan:** propose first, then wait for the user's go-ahead",
+        "**Two or more tickets:** propose first, then wait for the user's go-ahead",
         "One ticket the user asked for explicitly**",
-        &format!(
-            "{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --reason \"typo fix\" --stdin"
-        ),
-        "\"Created SHOP-41 · typo fix → Dev: Quick developer\"",
+        &format!("{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --by-user --stdin"),
+        "\"Created SHOP-41 · Dev: Quick developer\"",
         "\"I'm proposing 2 tickets\"",
         "**# · Title · Description · Choices**",
-        "2 Order detail page items, totals, reorder Dev: Quick developer · Review: skip",
+        "1 Orders API paging cursor paging, 20 per page —",
+        "2 Order detail page items, totals, reorder Dev: Quick developer",
         "change any row by its number",
         "(\"2 needs a review\", \"drop 2\")",
-        "joined with \" · \" (\"Dev: Quick developer · Review: skip\")",
-        "It reads \"—\" when the ticket keeps every stage's own agent",
+        "The **Choices** cell shows only the choices **the user named**",
+        "joined with \" · \" (\"Dev: Quick developer · Review: skip\"). It reads \"—\" otherwise",
         "**Above about 10 tickets**",
         "**without the Description column** (**# · Title · Choices**)",
         "**first 10 rows**",
         "\"…50 more (say 'show all' to list them)\"",
         "When the user says \"show all\", list every row",
-        "**Only stages with options have choices.** `prime --project` lists them under **Stage choices**",
-        "a cheaper agent for a minor fix, a documentation change or a small config change (\"typo fix → Dev: Quick developer\")",
-        "**If you're unsure, leave the stage's own agent**",
-        "**Every choice has a reason**, passed with `--reason`",
-        "with no second approval",
+        "Every choice comes from the user, so pass it with `--by-user`",
+        &format!("{cmd} create \"Order detail page\" --deps SHOP-42 --stage \"Dev=Quick developer\" --by-user --stdin"),
+        &format!("`{cmd} create -f tickets.md --by-user`"),
+        "- **Stage:** Dev=Quick developer The returns page",
+        "If the CLI refuses a choice with \"Noyan sets only the stage choices the user names: add --by-user, or leave the stage's own agent\", the choice wasn't the user's: leave it out",
         "a choice the user set is never changed back by an agent",
-        "**A choice the user named** (\"2 needs a review\", \"use Quick developer for all of these\", \"keep these choices\") is the user's: add `--by-user`",
-        "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it yours",
-        "**Decide the shape, then propose before you create.**",
-        "## One ticket, or several",
-        "**One ticket with a Plan:**",
-        "### Writing a Plan",
-        "create \"Wishlist\" --plan-file \"$plan\" --stdin",
-        "1 Wishlist Plan \u{b7} 3 pieces",
-        "- **Stage:** Dev=Quick developer · typo fix",
+        "**Never set a stage choice the user didn't name.**",
         "When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
         "Otaq shows no dialog for it",
     ] {
@@ -1126,6 +1146,23 @@ fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
         !text.contains("--agent ") && !text.contains("--why "),
         "old flags"
     );
+    // Noyan writes no Plan and makes no choices of its own.
+    for gone in [
+        "--reason",
+        "--plan-file",
+        "--plan-stdin",
+        "Writing a Plan",
+        "Plan \u{b7} 3 pieces",
+        "ordinary work",
+        "skips planning",
+        "runs planning",
+        "cheaper agent",
+        "Setting stage choices",
+        "Planning stages",
+        "A plain approval of your own suggestion",
+    ] {
+        assert!(!text.contains(gone), "noyan still says {gone:?}");
+    }
     for gone in ["epic", "--parent", "--type", "lead"] {
         assert!(!text.contains(gone), "noyan still says {gone:?}");
     }
