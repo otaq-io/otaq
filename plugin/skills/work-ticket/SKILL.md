@@ -1,6 +1,6 @@
 ---
 name: work-ticket
-description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement (or, when the Plan has pieces, start a helper per piece, review, test and merge each), commit everything, then end your stage with a short comment through `otaq stage next` that says what you ran, at which commit, and where the log is. With $OTAQ_PIECE set, build one piece as a helper and hand it back with `otaq helper done`.
+description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, decide by the size measure whether to build alone or write a Plan of pieces, implement (or, when the Plan has pieces, start a helper per piece, review, test and merge each, and re-split when the work grows or a helper hands back a piece too big), commit everything, then end your stage with a short comment through `otaq stage next` that says what you ran, at which commit, and where the log is. With $OTAQ_PIECE set, build one piece as a helper and hand it back with `otaq helper done`, early with a suggested split when it is too big.
 disable-model-invocation: true
 ---
 
@@ -38,7 +38,10 @@ types a reminder into this session.
    your gap check listed (see "Prove it works"); for a bug, reproduce it before you change any code. Keep to the
    ticket; file anything else as a new ticket (see below) instead of doing it here. **When `prime` shows a Plan with pieces** ("Pieces: 4
    (1 → 2, 3 → 4)" under "## Plan"), don't build them yourself: you are the **agent in charge** (see "With a Plan:
-   work as the agent in charge"). With no pieces, you work alone, as described here.
+   work as the agent in charge"). **With no pieces, decide the split up front**: once your gap check has listed its
+   criteria, and before you write any code, judge the work by the size measure and either build it alone, as
+   described here, or write a Plan of pieces on this ticket and work as the agent in charge (see "Decide the split").
+   If the work turns out bigger partway through, see "When the work grows".
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
@@ -88,9 +91,64 @@ types a reminder into this session.
    REASON
    ```
 
+## Decide the split
+
+When `prime` shows no Pieces (a quick-flow ticket, a Plan with one piece, or a ticket whose planning the user
+skipped), decide after your gap check, before any code, whether one agent should build it. The size measure:
+
+> **A piece fits one agent when** it changes one behaviour, in one area or layer (for example the API, or the page,
+> not both), and the agent needs to read only a handful of files to do it. **Split it** when it crosses layers,
+> bundles several behaviours, or needs a lot of unfamiliar code read first. **When unsure, split.**
+
+Don't ask the user about size: decide it yourself. Ask only about design choices the ticket didn't settle, as in
+"Check the ticket first".
+
+- **It fits:** build it alone (step 4).
+- **It doesn't:** write a Plan of pieces on this ticket and work as the agent in charge (see "With a Plan: work as the
+  agent in charge"). Give it a "Pieces" heading and number the pieces 1, 2, 3; after each title write " — waits for "
+  and the pieces it needs ("nothing" when none). Indent a piece's details under it. Each piece stands on its own: its
+  helper sees the Plan and the ticket, not your reading of the code, so name the files and the behaviour. Each piece
+  also names which of your gap check's criteria it proves:
+
+  ```sh
+  otaq update --plan-stdin <<'PLAN'
+  Why: the API lands first so the page has something to call.
+
+  ## Pieces
+
+  1. Wishlist API — waits for nothing
+     Add, remove and list saved items in app/api/wishlist/. Proves: a saved item is still there after a reload.
+  2. Wishlist button — waits for 1
+     A heart on each product card (app/products/card.tsx). Proves: tapping it saves the item.
+  3. Wishlist page — waits for 1
+     /wishlist lists the saved items, with an empty state. Proves: the page shows what was saved.
+  PLAN
+  ```
+
+  It prints "Updated SHOP-40 · Wishlist", and `otaq prime` then shows the Plan with its order line ("Pieces: 3 (1 → 2,
+  3)"). Nothing else comes back: the card shows "Updated by agent" and the History "Written by Dev", as for any
+  agent edit. Then start the helpers. The pieces don't take the criteria off you: after merging them you still prove
+  every one yourself (see "Prove it works").
+
+## When the work grows
+
+Partway through, the work turns out bigger than you judged by the size measure (more layers, more behaviours, more
+unfamiliar code than it looked). Don't push on alone, and don't ask the user about size:
+
+1. **Stop coding**, and stop any Run you started (`otaq run stop`): helpers get no Run. Keep the evidence you already
+   gathered in `$OTAQ_RESOURCE_DIR`; you use it when you prove the criteria at the end.
+2. **Commit what you have**, as in step 5. Helpers start from this ticket's branch, so they build on it.
+3. **Write a Plan for the remaining work** with `otaq update --plan-stdin`, as in "Decide the split": only what is
+   left, each piece naming the criteria it proves, and say in the Plan's first lines what is already built.
+4. **Go on as the agent in charge** (see "With a Plan: work as the agent in charge").
+
+This is about size only. A failed check that repeats a finding is about a wrong idea, not size: see "When a finding
+comes back".
+
 ## With a Plan: work as the agent in charge
 
-When the Plan under "## Plan" in `prime` has a Pieces list, the work is already split. You start a **helper** for each
+When the Plan under "## Plan" in `prime` has a Pieces list (from a planning stage, or one you wrote), the work is
+already split. You start a **helper** for each
 piece, each in its own worktree on its own branch, check what it hands back and merge it into this ticket's branch. You
 stay the ticket's agent: the gap check (step 3), the questions to the user and ending your stage (step 6) are yours.
 **While helpers build the pieces, commit nothing yourself but the merges.**
@@ -155,7 +213,38 @@ stay the ticket's agent: the gap check (step 3), the questions to the user and e
 4. **The Plan changed** ("The plan changed: 40.4 removed. Run `otaq prime`…"): run `otaq prime` and read the Plan
    again. Tell running helpers what changed for them with `otaq helper back <n> --stdin`, start the new pieces, and
    never merge a removed piece (tell its helper to stop, with the same command).
-5. **Finish the stage** once every piece is merged (`otaq helper list` shows them all "merged"): the whole ticket's
+5. **A helper hands back a piece too big** ("40.1 handed its piece back: Add and list are done; export is left."). The
+   message carries only the hand-back's first line; its suggested split is in the helper's comment under
+   "## Comments" in `otaq prime`. **You alone change the Plan**; helpers only suggest.
+   1. **Check and merge the finished part**, as in step 2 (`otaq helper diff 1`, then `otaq helper merge 1`).
+   2. **Add the new pieces to the Plan**: rewrite it with `otaq update --plan-stdin`, as in "Decide the split". Judge
+      the helper's suggestion by the size measure; shrink the handed-back piece's text to what was built, and give
+      each new piece the criteria it proves:
+
+      ```sh
+      otaq update --plan-stdin <<'PLAN'
+      ## Pieces
+
+      1. Wishlist API — waits for nothing
+         Built: add and list.
+      2. Wishlist button — waits for 1
+      3. Wishlist page — waits for 1
+         Show the list only; export comes with 5.
+      4. Export API — waits for 1
+      5. Export button — waits for 3, 4
+      PLAN
+      ```
+
+      - **New pieces get the next free whole numbers** (4, 5), never "3a" or "3b": "3a." isn't read as a piece, only
+        as text under the piece above it.
+      - **Never renumber a piece or reuse a number.** Helpers are kept per number: a merged piece can't start again,
+        and a working one can't start twice. Work left over from a merged piece goes into new pieces.
+      - **Don't remove a piece whose helper still works**: it keeps running. Tell it to stop first, with
+        `otaq helper back <n> --stdin`, and never merge it.
+      - **Changing the Plan tells no one.** When you change a running piece's text, tell its helper with
+        `otaq helper back <n> --stdin`; its next `otaq prime` shows the new text.
+   3. **Start the new pieces that can start**, named as the Plan names them: `otaq helper start 4 --title "Export API"`.
+6. **Finish the stage** once every piece is merged (`otaq helper list` shows them all "merged"): the whole ticket's
    tests pass on this branch, nothing is uncommitted, and `otaq stage next` names the pieces in its comment, for
    example "40.1 Wishlist API, 40.2 Wishlist button, 40.3 Wishlist page, 40.4 Share link: merged." Add the checks your
    helpers couldn't do themselves (their hand-backs list them) as `--manual-check` lines.
@@ -414,9 +503,11 @@ QUESTION
   get no Run: the agent in charge runs the app after merging the pieces.
 - If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run
   since Otaq last resumed you), fix it and run it again.
-- If `prime` lists **Stage choices**, you may change a later stage's choice for this ticket when what you learned
-  changes how hard its work is, always with a reason (`otaq update <KEY> --stage "<stage>=<choice>" --reason "…"`).
-  A choice the user set can't be changed.
+- If `prime` lists **Stage choices**, you may pick another agent for a later stage of this ticket when what you
+  learned changes how hard its work is (for example a stronger Validator when the change turned out risky), always
+  with a reason (`otaq update <KEY> --stage "<stage>=<agent>" --reason "…"`). **You never skip a stage: only the user
+  does.** If you try, the CLI refuses: "Only the user skips a stage: pick another agent for it, or leave it". A choice
+  the user set can't be changed.
 
 ## As a helper
 
@@ -427,7 +518,7 @@ branch. The agent in charge reviews your work, merges it and moves the ticket; y
    the ticket, the whole Plan, its comments and your rules. Follow the user's Agent instructions and the project's
    notes it names, as far as they apply to your piece.
 2. **Build only your piece**, as the Plan describes it. Anything else you notice goes in your hand-back, not in your
-   code.
+   code. If the piece turns out too big for one agent, see step 7.
 3. **Commit everything** with the `otaq-commit` skill (or your agent's own commit skill); without one, commit with
    `git add -A` and `git commit`. Never push and never merge: the agent in charge merges your branch.
 4. **Questions** go through `otaq ask human --stdin`, as in "When you need the user": they reach the agent in charge
@@ -445,3 +536,21 @@ branch. The agent in charge reviews your work, merges it and moves the ticket; y
    It is refused while files are uncommitted. The agent in charge lists your "Couldn't check" lines for the user.
 6. **Sent back?** The agent in charge's note is typed into this session ("To 40.3: …" in `prime`). Read it, fix what it
    asks, commit, and hand back again with `otaq helper done --stdin`.
+7. **Piece too big?** When your piece turns out bigger than one agent should build, judged by the size measure in
+   "Decide the split" (it crosses layers, bundles several behaviours, or needs a lot of unfamiliar code read first),
+   hand it back early instead of pushing on:
+   1. **Commit what you built.** The hand-back is refused while files are uncommitted, and only what is committed
+      gets merged.
+   2. **Hand back early** with `otaq helper done --stdin`: the **first line** says what is done and what is left
+      (it is the only line the agent in charge is sent; the rest it reads in `prime`). Then suggest a split, with the
+      next free whole numbers after the Plan's last piece, never "3a" or "3b":
+
+      ```sh
+      otaq helper done --stdin <<'SUMMARY'
+      Add and list are done; export is left.
+      Piece 1 also needs the export API and an export button. Suggest: 4 export API, 5 export button.
+      SUMMARY
+      ```
+
+   3. **Never start helpers yourself, and never change the Plan**: the agent in charge does both (your `otaq update`
+      is refused). Then end your turn.
