@@ -321,14 +321,13 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
         "\n## Agent instructions (Rust developer)\n\nFollow our error-handling rules: no unwrap in library code.\n",
         "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n",
         "\n## Earlier stages\n\n- Product spec · Spec writer · finished\n\n## Comments\n\n### Spec writer · Product spec · 9:05 am\n\nAgreed: newest first.\nDates in the user's time zone.\n",
-        // QA offers no other agent, and only the user skips a stage: no example, and no skip listed (T1).
-        "\n## Stage choices\n\nYou may pick another agent for these later stages of this ticket when what you \
-         learned changes how hard their work is, always with a reason. Never skip a stage: only the user skips one. \
-         A choice the user set isn't listed: it can't be changed.\n\n- QA (now: required)\n\n",
         "2. Commit everything with git (`git add -A`, `git commit`) before you end your stage.",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }
+    // QA offers no other agent, and only the user skips a stage: the ticket agent can change no stage left, so the
+    // section is left out (T9).
+    assert!(!text.contains("## Stage choices"), "{text}");
     assert!(!text.contains("QA=skip"), "{text}");
     assert!(!text.contains("stopped"), "only the latest run: {text}");
     assert!(!text.contains("- Dev ("), "Dev has started: {text}");
@@ -337,7 +336,7 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
 }
 
 /// A ticket agent's example picks another agent, never `skip` (only the user skips a stage), from the first stage that
-/// offers one; its options don't list `skip` (T1).
+/// offers one; its options don't list `skip` (T1), and a stage that offers only `skip` isn't listed (T9).
 #[test]
 fn a_ticket_agents_example_picks_an_agent_never_skip() {
     use otaq_core::prime::{AgentReader, PrimeChoice, PrimeOption, render_choices};
@@ -375,6 +374,14 @@ fn a_ticket_agents_example_picks_an_agent_never_skip() {
     );
     assert!(!text.contains("skip:"), "{text}");
     assert!(!text.contains("=skip"), "{text}");
+    // It sees only the stages where it can pick another agent: Tech spec offers only `skip` (T9).
+    assert!(!text.contains("Tech spec"), "{text}");
+    assert!(text.contains("- Dev (now: Rust developer)"), "{text}");
+    // No stage left: no section.
+    assert_eq!(
+        render_choices(&choices[..1], AgentReader::TicketAgent, None),
+        ""
+    );
 }
 
 /// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage with options, each agent with its
@@ -678,11 +685,13 @@ async fn prime_prints_the_examples_four_comments() {
         other => panic!("{other:?}"),
     };
     let text = render(&context);
+    // Only QA is ahead, and it offers no other agent: no Stage choices section, so the rules follow (T9).
     let expected = format!(
         "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n\
          \n## Earlier stages\n\n- Product spec · Spec writer · finished\n- Validate · Validator · round 2 · failed\n{}\
-         \n## Stage choices\n",
-        example_comments(&key)
+         \n{}\n",
+        example_comments(&key),
+        RULES.lines().next().unwrap()
     );
     assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
     for gone in [

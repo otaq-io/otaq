@@ -3,12 +3,14 @@
 //! who set it. No choice = the stage's usual agent ("Product spec: Spec writer"), "required" on a stage that runs no
 //! agent ("Code review: required"; FLW-22, Q290).
 //!
-//! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins. An agent's
-//! request that carries `--by-user` (d0087) is the user's. Noyan is intake only: the Project agent sets only the
-//! choices the user names, with `--by-user`, and any choice of its own is refused ([`NOYAN_USER_CHOICES_ONLY`], T1).
+//! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins. Noyan is intake
+//! only: the Project agent sets only the choices the user names, with `--by-user` (d0087), which makes them the
+//! user's, and any choice of its own is refused ([`NOYAN_USER_CHOICES_ONLY`], T1). Only Noyan passes on the user's
+//! choices: a ticket's own agent (a helper too) that sends `--by-user` is refused ([`ONLY_NOYAN_PASSES_ON`], T9).
 //! A ticket's own agent may pick another agent (or `required`) only with a reason, never over the user's choice, and
 //! once the ticket has started only for a **later** stage; before the ticket starts it may set any stage's. Only the
-//! user skips a stage: a ticket agent's `skip` is refused ([`ONLY_THE_USER_SKIPS`]). Which tickets each agent may change at all is the policy's
+//! user skips a stage: a ticket agent's `skip` is refused ([`ONLY_THE_USER_SKIPS`]). So every skip on the board was
+//! set by the user, in the app or through Noyan. Which tickets each agent may change at all is the policy's
 //! ([`crate::policy::Action::SetChoices`], CLI-06; d0129): the Project agent its Backlog tickets, a ticket agent its
 //! own ticket and the never-started tickets it created. A choice **locks** when its stage starts (the ticket has a
 //! run of it, STG-05). A choice must be one of the stage's options, else it is refused naming them; a stage without
@@ -53,6 +55,10 @@ pub const NOYAN_USER_CHOICES_ONLY: &str = "Noyan sets only the stage choices the
 /// The refusal of a ticket agent's `skip` (T1): only the user skips a stage.
 pub const ONLY_THE_USER_SKIPS: &str =
     "Only the user skips a stage: pick another agent for it, or leave it";
+
+/// The refusal of a ticket agent's `--by-user` (T9): only Noyan passes on the user's choices, so a ticket agent picks
+/// another agent with a reason, or leaves the choice to the user.
+pub const ONLY_NOYAN_PASSES_ON: &str = "Only Noyan passes on the user's choices: pick another agent with --reason, or ask the user to set it";
 
 /// One choice a request sets: `{"stage": "Dev", "choice": "Quick developer", "reason": "typo fix"}`. `stage` is a
 /// stage's name (ignoring case) or id; `choice` an agent's name (ignoring case), [`SKIP`] or [`REQUIRED`].
@@ -194,12 +200,13 @@ pub enum Chooser {
 }
 
 impl Chooser {
-    /// Who the choice is recorded as: the user for the user and for `by_user` (d0087), else the agent with `reason`.
+    /// Who the choice is recorded as: the user for the user and for the Project agent's `by_user` (d0087), else the
+    /// agent with `reason`. Only Noyan passes on the user's choices: [`judge`] refuses a ticket agent's `by_user`.
     fn set_by(&self, by_user: bool, reason: &str) -> SetBy {
         let reason = reason.trim().to_owned();
         match self {
-            _ if by_user => SetBy::User,
             Self::User => SetBy::User,
+            Self::ProjectAgent { .. } if by_user => SetBy::User,
             Self::ProjectAgent { name } => SetBy::ProjectAgent {
                 name: name.clone(),
                 reason,
@@ -438,10 +445,11 @@ pub fn choice_of(stage: &Stage, options: &StageOptions, word: &str) -> Result<Ch
 }
 
 /// Judges one choice (AGM-08; d0108, d0087) of `choice` for `target` at flow position `index`, over `current` (the
-/// choice it has). `by_user` makes an agent's choice the user's.
+/// choice it has). `by_user` makes the Project agent's choice the user's.
 ///
 /// - a stage that started is locked, for everyone;
 /// - the Project agent sets only the user's choices (`by_user`): its own are refused;
+/// - only Noyan passes on the user's choices: a ticket agent's `by_user` is refused;
 /// - only the user skips a stage: a ticket agent's own `skip` is refused;
 /// - a ticket agent's own choice needs a reason, never overrides the user's, and once the ticket has started is only
 ///   for a later stage.
@@ -465,8 +473,16 @@ pub fn judge(
             ),
         ));
     }
-    if *chooser == Chooser::User || by_user {
-        return Ok(());
+    match chooser {
+        Chooser::User => return Ok(()),
+        Chooser::ProjectAgent { .. } if by_user => return Ok(()),
+        Chooser::TicketAgent { .. } if by_user => {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                ONLY_NOYAN_PASSES_ON,
+            ));
+        }
+        _ => {}
     }
     if matches!(chooser, Chooser::ProjectAgent { .. }) {
         return Err(BoardError::refused(
@@ -1117,7 +1133,7 @@ mod tests {
 
     /// Who may set what (AGM-08): the user until the stage starts; Noyan only the user's choices; a ticket agent
     /// another agent with a reason, never over the user, later stages only once the ticket started, and never a skip
-    /// (only the user skips a stage); `--by-user` is the user's.
+    /// (only the user skips a stage); only Noyan passes on the user's choices (`--by-user`).
     #[test]
     fn the_choice_rule() {
         let dev = stage("dev", Some("Rust developer"), &["Quick developer"]);
@@ -1231,6 +1247,16 @@ mod tests {
             (
                 "ticket agent over the user's choice, in the user's words",
                 judged(fresh, Some(&user_choice), &spec_writer, true, None),
+                refused(Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON),
+            ),
+            (
+                "ticket agent picks an agent in the user's words",
+                judged(in_spec, None, &spec_writer, true, Some("x")),
+                refused(Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON),
+            ),
+            (
+                "ticket agent picks a later agent with a reason",
+                judged(in_spec, None, &spec_writer, false, Some("risky change")),
                 Ok(()),
             ),
             (
@@ -1241,7 +1267,7 @@ mod tests {
             (
                 "ticket agent skips in the user's words",
                 judged_as(&Choice::Skip, in_spec, None, &spec_writer, true, None),
-                Ok(()),
+                refused(Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON),
             ),
             (
                 "ticket agent sets a later stage back to required",

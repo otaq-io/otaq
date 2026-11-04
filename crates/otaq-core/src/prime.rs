@@ -382,12 +382,17 @@ fn later_from(flow: &Flow, place: &Place) -> usize {
 /// The "## Stage choices" section (AGM-06, AGM-08): nothing when the reader may set none (the default flow), else
 /// what `reader` may do, with an example, and each stage's options. Noyan passes on only the user's choices
 /// (`--by-user`); a ticket agent may pick another agent but only the user skips a stage, so its example never skips
-/// and its options don't list `skip` (T1). `key` is the reading ticket's own.
+/// and its options don't list `skip` (T1). A ticket agent sees only the stages where it can pick another agent than
+/// the stage's own: nothing when none remain (T9). `key` is the reading ticket's own.
 pub fn render_choices(
     choices: &[PrimeChoice],
     reader: AgentReader,
     key: Option<&TicketKey>,
 ) -> String {
+    let choices: Vec<&PrimeChoice> = choices
+        .iter()
+        .filter(|c| reader == AgentReader::ProjectAgent || c.options.iter().any(|o| !o.usual))
+        .collect();
     let Some(first) = choices.first() else {
         return String::new();
     };
@@ -397,7 +402,7 @@ pub fn render_choices(
             let key = key
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "<KEY>".to_owned());
-            // Only the user skips a stage: the example picks another agent, and a stage that offers none isn't one.
+            // Only the user skips a stage: the example picks another agent.
             let example = choices.iter().find_map(|c| {
                 c.options
                     .iter()
@@ -429,7 +434,7 @@ pub fn render_choices(
         }
     };
     let mut out = format!("\n## Stage choices\n\n{lead}\n\n");
-    for c in choices {
+    for c in &choices {
         match &c.now {
             Some(now) => out.push_str(&format!("- {} (now: {now})\n", c.stage)),
             None => out.push_str(&format!("- {}\n", c.stage)),
