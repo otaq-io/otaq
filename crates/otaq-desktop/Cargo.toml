@@ -44,8 +44,10 @@ open = "5.4.4"
 tauri-plugin-dialog = "2.8.2"
 # Self-updates (UPD-04, d0140; `src/door.rs`, Rust side only, no JavaScript permission): the check against the release's
 # `latest.json`, the download with its signature checked (minisign), the install; and the relaunch after it. Tauri's
-# own plugins, MIT OR Apache-2.0, pinned. The updater with the OS's own TLS like the rest (no rustls / ring).
-tauri-plugin-updater = { version = "=2.13.3", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
+# own plugins, MIT OR Apache-2.0, pinned. The updater with the OS's own TLS like the rest (no rustls / ring). No `zip`
+# feature: our updater files (`scripts/release/latest-json.mjs`) are a raw setup.exe, a raw AppImage and an .app.tar.gz,
+# whose tar/flate2 the plugin always has on macOS; the feature only pulls in the old `zip` 4 crate (Dependabot alerts).
+tauri-plugin-updater = { version = "=2.13.3", default-features = false, features = ["native-tls", "system-proxy"] }
 tauri-plugin-process = "=2.4.0"
 # The kept update's signature checked again before it's put in place (UPD-05, `src/updates.rs`), as the updater
 # plugin checks a download: minisign through the same crate and base64 the plugin uses (MIT; MIT OR Apache-2.0).
