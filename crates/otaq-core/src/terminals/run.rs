@@ -116,6 +116,11 @@ pub enum StopCause {
     StageEnded {
         stage: String,
     },
+    /// An agent of the ticket restarted it to run its new code (`otaq run restart`, d{RUN}); the Run that follows
+    /// keeps its owner.
+    Restarted {
+        stage: String,
+    },
 }
 
 /// Who started a Run (agents run the app): your click, or one of the ticket's agents, named by its stage ("Dev", "Validate").
@@ -223,6 +228,7 @@ impl RunInfo {
                     (Some(StopCause::You), _) => "by the user".to_owned(),
                     (Some(StopCause::Agent { stage }), _) => format!("by {stage}"),
                     (Some(StopCause::StageEnded { stage }), _) => format!("{stage}'s stage ended"),
+                    (Some(StopCause::Restarted { stage }), _) => format!("restarted by {stage}"),
                     (Some(StopCause::Finished { status }), _) => format!(
                         "{} is {}",
                         self.key,
@@ -394,7 +400,52 @@ impl Runs {
         let ticket = self.inner.board.ticket(key).await?;
         let (project, settings) = self.project_of(&ticket).await?;
         let app = resolve_app(&settings, &project.name, app, "start", agent.is_some())?;
-        self.start_with(&ticket, app, agent, None).await
+        self.start_with(&ticket, app, agent, None, None).await
+    }
+
+    /// `otaq run restart [<app>]` (d{RUN}): the app's Run stops and starts again with the same command and port, to
+    /// run code changed since it started. Its owner stays: your Run stays yours (an agent never stops it, and it never
+    /// stops at a stage end), but when an agent restarts it, its processes act for that agent, which wrote the code
+    /// it now runs. A Run that isn't up just starts, as [`Runs::start_as`].
+    pub async fn restart_as(
+        &self,
+        key: &str,
+        app: Option<&str>,
+        agent: Option<RunAgent>,
+    ) -> Result<RunInfo, BoardError> {
+        let ticket = self.inner.board.ticket(key).await?;
+        let (project, settings) = self.project_of(&ticket).await?;
+        let app = self.resolve_live(
+            &ticket,
+            &settings,
+            &project.name,
+            app,
+            "restart",
+            agent.is_some(),
+        )?;
+        let Some(before) = self.record(&ticket.id, &app).filter(|r| r.state.is_live()) else {
+            return self.start_with(&ticket, app, agent, None, None).await;
+        };
+        let cause = match &agent {
+            Some(a) => StopCause::Restarted {
+                stage: a.stage.clone(),
+            },
+            None => StopCause::You,
+        };
+        self.stop_with(&ticket.id, &app, cause).await;
+        // The program may hold its port a moment after it ends.
+        if let Some(port) = before.port {
+            for _ in 0..40 {
+                if ports::is_free_on_machine(port) {
+                    break;
+                }
+                tokio::time::sleep(PORT_POLL).await;
+            }
+        }
+        let acting = if before.agent.is_none() { agent } else { None };
+        let ticket = self.inner.board.ticket(key).await?;
+        self.start_with(&ticket, app, before.agent, None, acting)
+            .await
     }
 
     /// `otaq run set [<app>] --command … [--open-url …]` (agents run the app): for an app the project doesn't have yet (or one
@@ -510,6 +561,7 @@ impl Runs {
             app,
             Some(agent),
             Some((command.to_owned(), trying)),
+            None,
         )
         .await
     }
@@ -520,6 +572,9 @@ impl Runs {
         app: String,
         agent: Option<RunAgent>,
         trying: Option<(String, Trying)>,
+        // The agent its processes act for when that isn't its owner: one that restarted your Run runs the code it
+        // wrote, so they act for it, never as you; the Run stays yours.
+        acting: Option<RunAgent>,
     ) -> Result<RunInfo, BoardError> {
         let inner = &self.inner;
         if self
@@ -630,7 +685,7 @@ impl Runs {
         env.extend(app_port_vars(&apps));
         env.extend(shell.env);
         let mut prepared = inner.sessions.prepared(None);
-        if let Some(a) = &agent {
+        if let Some(a) = acting.as_ref().or(agent.as_ref()) {
             prepared = prepared.acting_for(ActingFor {
                 kind: a.kind,
                 session: a.session.clone(),
@@ -1118,6 +1173,9 @@ impl Runs {
                     RunState::Stopped,
                     format!("stopped · {stage}'s stage ended"),
                 ),
+                Some(StopCause::Restarted { stage }) => {
+                    (RunState::Stopped, format!("restarted by {stage}"))
+                }
                 None => {
                     r.exit_code = exit_code;
                     let line = match exit_code {

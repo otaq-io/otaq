@@ -45,6 +45,9 @@ pub(super) async fn handle(
             let agent = run_agent(caller, shared).await;
             run(runs.stop_as(&p.key, p.app.as_deref(), agent.as_ref()).await)
         }
+        Request::RunRestart(p) => run(runs
+            .restart_as(&p.key, p.app.as_deref(), run_agent(caller, shared).await)
+            .await),
         Request::RunStatus(p) => run(runs.info(&p.key, p.app.as_deref()).await),
         Request::RunApps(p) => runs
             .apps(&p.key)

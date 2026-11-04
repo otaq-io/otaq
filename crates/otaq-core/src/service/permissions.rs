@@ -424,7 +424,9 @@ async fn action_for(
         R::UninstallScan | R::UninstallRemove(_) => Action::UserOnly("run the uninstall"),
         R::WarmClear(_) => Action::UserOnly("clear warm builds"),
         // The ticket's own agent and check start, stop and read its Run (agents run the app); the user's Run is guarded by Runs.
-        R::RunStart(p) | R::RunStop(p) => Action::Run(facts(board, &p.key).await?),
+        R::RunStart(p) | R::RunStop(p) | R::RunRestart(p) => {
+            Action::Run(facts(board, &p.key).await?)
+        }
         R::RunLog(p) => Action::Run(facts(board, &p.key).await?),
         R::RunSet(p) => Action::Run(facts(board, &p.key).await?),
         R::RunCommandUndo(_) => Action::UserOnly("undo a run command"),

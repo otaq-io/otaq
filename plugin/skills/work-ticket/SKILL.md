@@ -211,7 +211,9 @@ Playwright or a browser tool to the project is a ticket of its own):
 1. **Start it** with `otaq run start --wait`. It returns once the app is running and prints its URL (or its port), or
    fails with the app's last lines. When the project has no run command yet, the refusal says so: if you know how the
    project starts, add it with `otaq run set --command "<cmd>"` (use `$PORT` where it listens); it is saved once it
-   runs. If the user already started the app for this ticket, you use theirs.
+   runs. If the user already started the app for this ticket, you use theirs. **It runs code from before your
+   change?** Restart it with `otaq run restart --wait`: same command and port, and it stays theirs. Never start a copy
+   of the app yourself on a port you pick: it can take another ticket's port, and the board never sees it.
 
    **Several apps** (a monorepo: `otaq run status` lists them): name the one each command is for, and start the apps
    the criterion needs, for example both for a page that calls the API: `otaq run start api --wait`, then

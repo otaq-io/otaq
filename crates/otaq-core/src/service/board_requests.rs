@@ -1592,6 +1592,7 @@ pub(super) async fn handle(
         | Request::AppFocus(_)
         | Request::Hook(_)
         | Request::RunStart(_)
+        | Request::RunRestart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
         | Request::RunApps(_)

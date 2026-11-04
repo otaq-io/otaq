@@ -327,3 +327,24 @@ async fn several_apps_are_named_and_status_lists_them() {
     drop(bind.await.unwrap());
     w.stop().await;
 }
+
+/// d{RUN} (T4): `run restart` runs changed code on the user's Run: same port, a new session, still the user's.
+#[tokio::test(flavor = "multi_thread")]
+async fn restart_runs_the_users_run_again_and_it_stays_theirs() {
+    let w = TestService::start().await;
+    let (_, port, agent) = in_dev(&w, 27_200..=27_219).await;
+    set_run_command(&w, "sleep 30", "").await;
+    let before = w.runs.start("SHOP-1", None).await.unwrap();
+    let ran = agent.run(&format!("'{CB}' run restart")).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        format!("SHOP-1's Run: starting :{port} (started by the user)")
+    );
+    let after = w.runs.info("SHOP-1", None).await.unwrap();
+    assert_ne!(after.session, before.session);
+    let ran = agent.run(&format!("'{CB}' run stop")).await;
+    assert_ne!(ran.status, 0, "the user's Run: {ran:?}");
+    w.runs.stop("SHOP-1", None).await.unwrap();
+    w.stop().await;
+}
