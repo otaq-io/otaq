@@ -291,6 +291,44 @@ fn work_ticket_checks_the_ticket_before_any_code() {
     }
 }
 
+/// work-ticket proves what it builds: its gap check lists the criteria (inferred ones marked), each is proven by the
+/// ladder (the project's tests, its own browser tooling, then a manual check with exact steps, never a new tool), a
+/// bug is reproduced before any code and again after, and a finding that comes back has its idea tested first.
+#[test]
+fn work_ticket_proves_each_criterion_and_reproduces_bugs() {
+    let (_, body) = skill(WORK_TICKET_SKILL);
+    let text = flat(&body);
+    let order = [
+        "4. **Plan, then implement**",
+        "**prove each criterion**",
+        "**one line per criterion**",
+        "**If a finding repeats one from an earlier round**",
+        "## Prove it works",
+        "never install a tool to climb higher",
+        "**The project's own tests**",
+        "**Browser tooling the project already has**",
+        "**A manual check**",
+        "**Reproduce it before you change any code**",
+        "**Fix it where it starts**",
+        "**Run the same repro again**",
+        "in the same commit",
+        "## When a finding comes back",
+        "**Write the idea down**",
+        "**Test it directly**",
+        "A finding that is new in this round is a new bug",
+        "## Check the ticket first",
+        "**What will prove it's done?**",
+        "marked `(inferred)`",
+    ];
+    let mut at = 0;
+    for step in order {
+        let found = text[at..]
+            .find(step)
+            .unwrap_or_else(|| panic!("work-ticket must say {step:?} after the step before"));
+        at += found;
+    }
+}
+
 /// T-0087 (REV-05, PLG-02, PLG-03; AGM-12): address-review reads the feedback after prime, then commits and ends its
 /// stage with `stage next`.
 #[test]
@@ -465,7 +503,12 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
         "the diff already holds every merged piece".to_owned(),
         "Decide which checks to run".to_owned(),
         "obvious ones".to_owned(),
+        "Look beyond the diff when it touches something shared".to_owned(),
+        "the one fact the\n   change is safe because of".to_owned(),
         "leftovers and out-of-scope edits".to_owned(),
+        "Prove each finding before it fails the ticket".to_owned(),
+        "it is a **note**, never a failure".to_owned(),
+        "Never add the test yourself".to_owned(),
         "one line per finding, with its file and line".to_owned(),
         "**covered by a linked ticket** is a **note**, never a failure".to_owned(),
         "Note: UI for adding items: covered by SHOP-41".to_owned(),
@@ -496,6 +539,16 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     assert!(
         notes.contains(&"Not covered by any ticket: removing items"),
         "{notes:?}"
+    );
+    assert!(
+        notes.contains(
+            &"Suspected, not proven: an empty cart shows NaN (tried: `shop total --items none`, printed 0)"
+        ),
+        "{notes:?}"
+    );
+    assert!(
+        body.contains("a **proven** breakage this change\n     causes fail it"),
+        "validate: a proven breakage fails the ticket"
     );
 }
 

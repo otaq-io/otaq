@@ -37,17 +37,36 @@ the worktree: your check runs' output goes there (see "Long output").
    with none named, run the project's obvious ones (`npm test`, `cargo test`). Scope your runs from the diff (the
    packages it touches), not from habit; the choice is yours. Checks may write ignored files (caches), never tracked
    ones; their output goes to a file (see "Long output").
-5. **Look for leftovers and out-of-scope edits:** debug output, commented-out code, scratch files, TODOs added by this
+5. **Look beyond the diff when it touches something shared:** a stored format or a migration, a config key or a
+   flag, a public API or type other modules use, or output another program reads (JSON, a CLI's output). Skip this
+   step for a change that touches nothing shared. Don't list everything that might break: find **the one fact the
+   change is safe because of** ("nothing reads `old_name` from stored data") and check it with a search or a run.
+   Give it one line in your verdict, starting `Checked: safe because` and naming what you ran, or
+   `Checked: unproven:` and why you couldn't check it.
+6. **Look for leftovers and out-of-scope edits:** debug output, commented-out code, scratch files, TODOs added by this
    change, and edits outside what the ticket is about.
-6. **Write the verdict comment**, one or two lines in all: one line per finding, with its file and line, for
+7. **Prove each finding before it fails the ticket.** A finding against the description needs the file and line
+   that show it. A suspected breakage (a wrong result, a crash, something the change breaks elsewhere) needs a run:
+   reproduce it with a command, such as the app's CLI, a script in `$OTAQ_RESOURCE_DIR` or an existing test run
+   with a filter, and name the command and its log. Then:
+   - **The run shows it:** it fails the ticket.
+   - **Proving it needs a real browser, a device or a service you can't reach:** it is a manual check (see step 9).
+   - **You tried and it didn't show, or only a new test could show it:** it is a **note**, never a failure. Say
+     what you tried, or give the test you would have written:
+     `` Note: Suspected, not proven: an empty cart shows NaN (tried: `shop total --items none`, printed 0) `` or
+     `` Note: Suspected, not proven: an empty cart shows NaN; a test would show it: `assert_eq!(cart_total(&[]), 0)` ``.
+     Never add the test yourself: you change nothing.
+8. **Write the verdict comment**: the verdict in one or two lines, then one line for each `Checked:` and `Note:`
+   line. Give one line per finding, with its file and line, for
    example `src/cart.ts:42: the total ignores the discount`. Say what you relied on and what you ran, each in a few
    words; a run's output stays in its log, never in the comment (at most 2,000 characters).
    - A gap **covered by a linked ticket** is a **note**, never a failure:
      `Note: UI for adding items: covered by SHOP-41`.
    - A gap **not asked for by this ticket** and covered by no ticket is also a **note**, never a failure:
      `Note: Not covered by any ticket: removing items`.
-   - Only gaps against **this ticket's** description, failing checks and leftovers fail it.
-7. **Give the verdict** with the comment on stdin, then end your turn:
+   - Only gaps against **this ticket's** description, failing checks, leftovers and a **proven** breakage this change
+     causes fail it. A breakage is this ticket's to fix even when the description doesn't mention what broke.
+9. **Give the verdict** with the comment on stdin, then end your turn:
 
    ```sh
    otaq check fail --stdin <<'VERDICT'
@@ -64,7 +83,9 @@ the worktree: your check runs' output goes there (see "Long output").
      --manual-check "In Safari, the discount shows on the checkout page after a reload" <<'VERDICT'
    Pass: the discount applies to the total; no leftovers.
    Tests: relied on the agent's `npm test` at a1b2c3d (HEAD).
+   Checked: safe because saved carts store no total, only items (ran `rg total src/storage`, loaded an old cart fixture)
    Note: UI for adding items: covered by SHOP-41
+   Note: Suspected, not proven: an empty cart shows NaN (tried: `shop total --items none`, printed 0)
    VERDICT
    ```
 

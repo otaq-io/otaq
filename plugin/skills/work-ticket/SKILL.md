@@ -34,8 +34,9 @@ types a reminder into this session.
    (step 1) or ending your stage (step 6).
 3. **Check the ticket before you build** (see "Check the ticket first" below). If something that changes what gets
    built is open, ask before you write any code.
-4. **Plan, then implement** until the ticket is done, as its description describes. Keep to the ticket; file anything
-   else as a new ticket (see below) instead of doing it here. **When `prime` shows a Plan with pieces** ("Pieces: 4
+4. **Plan, then implement** until the ticket is done, as its description describes, and **prove each criterion**
+   your gap check listed (see "Prove it works"); for a bug, reproduce it before you change any code. Keep to the
+   ticket; file anything else as a new ticket (see below) instead of doing it here. **When `prime` shows a Plan with pieces** ("Pieces: 4
    (1 → 2, 3 → 4)" under "## Plan"), don't build them yourself: you are the **agent in charge** (see "With a Plan:
    work as the agent in charge"). With no pieces, you work alone, as described here.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
@@ -44,13 +45,16 @@ types a reminder into this session.
 6. **End your stage** with a short comment on stdin: what you changed and what the next stage needs to know, in a
    few lines (at most 2,000 characters); the next stage's agent reads it in `prime`. Run your last checks **after
    your last commit** and give one line each: the command, the commit (`git rev-parse --short HEAD`), the result and
-   the log (see "Long output"):
+   the log (see "Long output"). Then give **one line per criterion** with its evidence (a run proving several gets
+   one line), and for a bug the repro before and after the fix (see "Prove it works"):
 
    ```sh
    otaq stage next --stdin \
-     --manual-check "On a phone, the price table scrolls sideways and the header stays put" <<'COMMENT'
+     --manual-check "On a phone-width window, open /prices and scroll the table sideways: the header stays put" <<'COMMENT'
    Added the price table with sorting by price and name. Prices align right; the table scrolls on mobile widths.
    `npm test` at a1b2c3d: 48 passed; log: `$OTAQ_RESOURCE_DIR/test-run.txt`
+   Sort by price, sort by name: `npm test prices.sort` in that run, passed.
+   Header stays put on mobile (inferred): manual check; no browser tooling in this project.
    COMMENT
    ```
 
@@ -69,7 +73,9 @@ types a reminder into this session.
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message says only that ("Validate failed round 2. Run `otaq prime`."): run
    `otaq prime`, read the checker's comment under "Comments" and search the log it names when you need the details (see
-   "Long output"), then fix them, commit everything and run `otaq stage next` again. When it passes, the ticket
+   "Long output"), then fix them, commit everything and run `otaq stage next` again. **If a finding repeats one from
+   an earlier round** (the same behaviour or the same file and line), your last fix rested on a wrong idea: see
+   "When a finding comes back" before you change any code. When it passes, the ticket
    moves on (to Ready for Review on the default board) and the user reviews the diff.
 
    **Nothing to deliver?** Only when the ticket needs no change at all (for example it was already fixed in SHOP-31)
@@ -183,6 +189,62 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 Under a comment with a report, `prime` shows a line such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`".
 Open it only when you need it, and search it: `grep -n "expected" "$(otaq report SHOP-19 4 --path)"`.
 
+## Prove it works
+
+A passing test suite shows that nothing the tests cover broke, not that the ticket is done. Prove each criterion
+your gap check listed, and for a bug, prove the bug was there and is gone.
+
+**The ladder.** Prove each one with the first of these you can, and never install a tool to climb higher (adding
+Playwright or a browser tool to the project is a ticket of its own):
+
+1. **The project's own tests**, reaching the logic: a unit test, or a component test with jsdom. Many frontend bugs
+   live in a function, a hook or a store, not on the screen.
+2. **Browser tooling the project already has**, run from the shell: `npx playwright test`, `npx cypress run`.
+3. **A manual check**: when nothing above reaches it (a layout bug, a Safari-only glitch, a real device), say in one
+   line why, and give the user `--manual-check` with the exact steps and what they should see: "On a phone-width
+   window, open /prices and scroll the table sideways: the header stays put", never "check the table".
+
+**A bug** (the description reports wrong behaviour, not something new):
+
+1. **Reproduce it before you change any code**, with the ladder: a command, an existing test with a filter, or a
+   small new test. Its output goes to a file in `$OTAQ_RESOURCE_DIR`. If it doesn't fail, you haven't found the bug
+   yet: keep looking instead of fixing.
+2. **Fix it where it starts**: the first place the code does something wrong, not the place the symptom shows. A
+   guard is a fix only when the state it handles is one the code may really be in; otherwise find what produced it.
+3. **Run the same repro again** and give both runs in your comment:
+
+   ```text
+   Repro `cargo test cart_total_empty` before the fix: failed (NaN); log: `$OTAQ_RESOURCE_DIR/repro-before.txt`
+   After, at a1b2c3d: passed; log: `$OTAQ_RESOURCE_DIR/repro-after.txt`
+   ```
+
+   Commit the new test with the fix, in the same commit: a commit that fails on purpose breaks bisecting, and the
+   project's hooks may refuse it. When no cheap repro exists (a race, production data, a device), say why in one
+   line and use the closest check. No new test is better than a bad one: one that mostly tests mocks, depends on
+   timing, or copies the code it checks.
+
+## When a finding comes back
+
+When a failed check repeats a finding from an earlier round (the same behaviour or the same file and line), your
+fixes so far rested on the same wrong idea, and the check has few rounds left before the ticket stops for the user.
+Before you change any code:
+
+1. **Write the idea down** in one sentence: what both fixes assumed. "Both fixes assumed the discount is applied
+   before tax."
+2. **Test it directly**, with a run whose result would differ if the idea were wrong (the ladder above; its output
+   in `$OTAQ_RESOURCE_DIR`).
+3. **Follow the result.** Wrong: the cause is elsewhere, so look again. Right: the earlier fixes treated a symptom,
+   so ask the next "why" and fix where it starts.
+4. **Say both in your comment**:
+
+   ```text
+   Round 2 repeated "the total ignores the discount". Assumed: the discount applies before tax.
+   Tested: `shop total --debug` shows tax computed first (log: `$OTAQ_RESOURCE_DIR/premise.txt`). Wrong: fixed the
+   order in pricing.rs.
+   ```
+
+A finding that is new in this round is a new bug: fix it as usual.
+
 ## Check the ticket first
 
 Before you write any code, make a quick gap check: read the description, the comments, the dependencies' last
@@ -192,6 +254,9 @@ comments and the code the ticket touches, then answer for yourself:
 - **What is there already?** The files, screens and behaviour the ticket builds on.
 - **What is missing or doesn't fit?** A vague word ("faster", "better", "export"), a screen or user group the ticket
   doesn't name, a description that contradicts the code or a dependency, two ways to read the same sentence.
+- **What will prove it's done?** List the criteria you will prove (see "Prove it works"): the ones the description
+  writes, and the ones you infer from it, marked `(inferred)`. Don't ask the user about them; the inferred ones
+  show in your comment at review. A bug's criterion is its repro: it fails before your fix and passes after.
 
 Keep it quick: read, don't build or run long test suites for it. Then sort each open point:
 

@@ -46,7 +46,9 @@ types a reminder into this session.
    load, security). **Ask the user only where a choice changes what gets built** (what the user sees or can do, how
    much work it is, a new service or cost), one question at a time with `otaq ask human --stdin` (see "Asking"), then
    end your turn and go on when the answer arrives. **Decide everything else yourself** and record it with its reason:
-   a choice that only changes how it's built is yours. With nothing to ask, go straight on to step 6.
+   a choice that only changes how it's built is yours. With nothing to ask, go straight on to step 6. Shape the
+   design as "Shaping the design" says: start from the caller, design it twice when the shape matters, and check it
+   against the warning signs.
 6. **Write the architecture decisions and docs** there, then **commit everything** on the ticket's branch with the
    commit skill `prime` names (`otaq-commit`, or your agent's own commit skill); when it names none, commit with
    `git add -A` and `git commit -m "SHOP-40: …"`. You may edit any file the spec needs (an architecture doc, a schema
@@ -69,6 +71,39 @@ types a reminder into this session.
    **Nothing to build?** Only when the user agrees the ticket isn't needed and the branch has no commits, end the
    ticket instead with `otaq stage done --stdin` and the reason on stdin. Once Product spec committed, use
    `otaq stage next`.
+
+## Shaping the design
+
+1. **Start from the caller.** Before you decide the shape, write a few lines of how the new code will be used: the
+   call site, the command the user types, or the request and its response. Derive the types and the module from it,
+   not the other way round. Put the sketch in the doc, so Milestone plan, Dev and the user at Spec review see the
+   shape at a glance:
+
+   ```rust
+   let link = wishlists.share(list_id)?;   // ShareLink { token, url }
+   let list = wishlists.open_shared(&token)?;  // read-only Wishlist, or NotShared
+   ```
+
+2. **Design it twice when the shape matters**: the ticket adds a new module, a new stored data shape, or an API
+   other code will call. Then sketch two whole shapes, not two variants of one ("a share token column in
+   `wishlists`" against "a separate `shares` table"), pick one, and write the other in the doc's "considered" part
+   with why it lost. A smaller change needs one design, as before.
+3. **Check the chosen design against the warning signs.** The next contributor is an agent that sees only the files
+   it opened, copies the nearest example and takes the shortest path that compiles; prefer the design where a change
+   that looks right from one file is right for the whole repo. Fix each sign that fires; when you keep one on purpose,
+   the decision says why. Don't list the ones that passed.
+   - **Two writers of one state**: more than one module writes the same state or keeps its own copy. Give each
+     piece of state one owner; the others read it or ask the owner.
+   - **Two ways to do one task**: every way keeps gaining callers. Keep one.
+   - **Lists kept in step by hand**: adding an item means editing several places. Keep one list and derive the
+     rest, or make the build fail when they disagree.
+   - **Pass-through layers**: a layer that only forwards the same arguments. Remove it, or give it real work.
+   - **Shallow modules**: callers call several functions to do one thing, or the interface exposes its internal
+     steps. Hide more behind a smaller interface.
+   - **A decision leaking into several modules**: a storage format, wire type or policy that several modules
+     depend on, so changing it means coordinated edits. Keep it behind one module.
+   - **Internals other modules can import**: they become part of the interface. Make them private, so the import
+     fails.
 
 ## When the ticket comes back
 
