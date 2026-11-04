@@ -1,0 +1,37 @@
+# Closes pull requests from people without write access to this repository, with a comment that points to
+# CONTRIBUTING.md: Otaq doesn't accept outside pull requests for now. Pull requests from the team, and from bots
+# (Dependabot), are left alone.
+#
+# It runs on `pull_request_target`, so it has a token that can close the pull request even when it comes from a fork.
+# That's safe only because it never checks out or runs the pull request's code: keep it that way.
+name: Outside pull requests
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    name: Close an outside pull request
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Close unless the author has write access
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq .permission || echo none)"
+          case "$permission" in
+            admin|maintain|write)
+              echo "$AUTHOR has $permission access: the pull request stays open."
+              exit 0
+              ;;
+          esac
+          echo "$AUTHOR has $permission access: closing the pull request."
+          gh pr close "$PR_URL" --comment "Thanks for the pull request. Otaq doesn't accept pull requests from outside the team for now, so this one is closed automatically, unread. Bug reports and ideas are welcome as issues: see [CONTRIBUTING.md](https://github.com/$GITHUB_REPOSITORY/blob/main/CONTRIBUTING.md)."
