@@ -176,7 +176,7 @@ async fn a_successful_start_leaves_the_ticket_working() {
         work.base_sha,
         Some(git(&repo(&s.f), &["rev-parse", "main"]))
     );
-    let (agent, run) = (work.agent_port.unwrap(), work.run_port.unwrap());
+    let (agent, run) = (work.agent_port.unwrap(), work.app_ports[0].port);
     assert_ne!(agent, run);
 
     // Otaq's status line (USG-04) and the theme's kind (d0117 point 4): a settings file in the data folder, never

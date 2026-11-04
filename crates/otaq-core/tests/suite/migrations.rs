@@ -1987,3 +1987,53 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     .await;
     assert!(lead_wake.is_err(), "the lead's deliveries are gone");
 }
+
+/// d{RUN} (T4, monorepos): migration 0071 moves each ticket's Run port to `app_ports` as app `app` (the one app every
+/// project had) and leaves `tickets.run_port` empty; the agent port and the projects' settings are untouched.
+#[tokio::test]
+async fn migration_0071_moves_each_run_port_to_app_app() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 70).await;
+    let settings = r#"{"run_command":"pnpm dev","open_url":"http://localhost:$PORT"}"#;
+    exec(
+        &pool,
+        &format!(
+            "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at, settings_json)
+             VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0, '{settings}')"
+        ),
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at,
+                              agent_port, run_port)
+         VALUES ('t1', 'p', 1, 'Price table', 'working', 'me', 0, 0, 4019, 4020),
+                ('t2', 'p', 2, 'Cart', 'backlog', 'me', 0, 0, NULL, NULL)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let moved: Vec<(String, String, i64)> =
+        sqlx::query_as("SELECT ticket_id, app, port FROM app_ports ORDER BY ticket_id")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(moved, [("t1".to_owned(), "app".to_owned(), 4020)]);
+    let ports: Vec<(Option<i64>, Option<i64>)> =
+        sqlx::query_as("SELECT agent_port, run_port FROM tickets ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(ports, [(Some(4019), None), (None, None)]);
+    let kept: String = sqlx::query_scalar("SELECT settings_json FROM projects WHERE id = 'p'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        kept, settings,
+        "settings are read as apps, never rewritten here"
+    );
+}

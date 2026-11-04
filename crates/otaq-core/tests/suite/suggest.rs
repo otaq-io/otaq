@@ -91,7 +91,7 @@ async fn a_suggestion_with_progress() {
     );
     // Nothing was saved: the project still has no run command.
     let settings = w.board.project_settings("SHOP").await.unwrap();
-    assert!(settings.run_command.is_empty());
+    assert!(settings.apps.is_empty());
     w.stop().await;
 }
 

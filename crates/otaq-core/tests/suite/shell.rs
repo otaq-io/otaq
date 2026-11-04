@@ -40,7 +40,7 @@ async fn the_shell_runs_in_the_worktree_with_the_run_port_and_closes_at_close() 
     let t = w.create("SHOP", "Invoice PDF export").await;
     let worktree = w.start_worktree(&t).await;
     let ports = PortPool::with_range(w.board.store().clone(), 24_000..=24_099)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;
@@ -58,7 +58,7 @@ async fn the_shell_runs_in_the_worktree_with_the_run_port_and_closes_at_close() 
             format!("echo \"port=$PORT ticket=$OTAQ_TICKET\"; pwd{enter}").as_bytes(),
         )
         .unwrap();
-    w.wait_for_output(&shell.id, &format!("port={} ticket={key}", ports.run))
+    w.wait_for_output(&shell.id, &format!("port={} ticket={key}", ports.apps[0].1))
         .await;
     if cfg!(windows) {
         w.wait_for_output(&shell.id, &format!("/wt/shop-web/{key}"))
@@ -91,7 +91,7 @@ async fn after_a_restart_it_stays_stopped_until_reopen() {
     let t = w.create("SHOP", "Price table").await;
     w.start_worktree(&t).await;
     PortPool::with_range(w.board.store().clone(), 24_100..=24_199)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;

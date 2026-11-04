@@ -121,6 +121,7 @@ mod reopen;
 mod resume;
 mod resume_carry_on;
 mod run;
+mod run_apps;
 mod runtime_copy;
 mod scheduler;
 mod schema_watch;

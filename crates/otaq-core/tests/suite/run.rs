@@ -65,8 +65,7 @@ fn me() -> Actor {
 
 async fn set_run_command(w: &TestService, command: &str) {
     let settings = ProjectSettings {
-        run_command: command.into(),
-        open_url: "http://localhost:$PORT/swagger".into(),
+        apps: otaq_core::board::settings::RunApp::only(command, "http://localhost:$PORT/swagger"),
         ..Default::default()
     };
     w.board
@@ -80,18 +79,21 @@ async fn started(w: &TestService, title: &str, range: RangeInclusive<u16>) -> (T
     let t = w.create("SHOP", title).await;
     w.start_worktree(&t).await;
     let ports = PortPool::with_range(w.board.store().clone(), range)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;
-    (w.board.ticket(&t.key.to_string()).await.unwrap(), ports.run)
+    (
+        w.board.ticket(&t.key.to_string()).await.unwrap(),
+        ports.apps[0].1,
+    )
 }
 
 /// Waits until the ticket's Run is in `state` (10 s at most).
 async fn wait_state(w: &TestService, key: &str, state: RunState) -> RunInfo {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let info = w.runs.info(key).await.unwrap();
+            let info = w.runs.info(key, None).await.unwrap();
             if info.state == state {
                 return info;
             }
@@ -115,15 +117,19 @@ async fn refused_without_a_run_command_or_a_worktree() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let (t, _) = started(&w, "Price table", 23_000..=23_099).await;
-    let err = w.runs.start(&t.key.to_string()).await.unwrap_err();
+    let err = w.runs.start(&t.key.to_string(), None).await.unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::NoRunCommand));
     assert_eq!(err.to_string(), "shop-web has no run command yet");
 
     set_run_command(&w, "sleep 30").await;
     let backlog = w.create("SHOP", "Not started").await;
-    let err = w.runs.start(&backlog.key.to_string()).await.unwrap_err();
+    let err = w
+        .runs
+        .start(&backlog.key.to_string(), None)
+        .await
+        .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::NoWorktree));
-    let info = w.runs.info("SHOP-2").await.unwrap();
+    let info = w.runs.info("SHOP-2", None).await.unwrap();
     assert_eq!(info.state, RunState::NotStarted);
     assert_eq!(info.command, "sleep 30");
     w.stop().await;
@@ -147,7 +153,7 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
     .await;
     let key = t.key.to_string();
 
-    let info = w.runs.start(&key).await.unwrap();
+    let info = w.runs.start(&key, None).await.unwrap();
     assert_eq!(info.state, RunState::Starting, "nothing listens yet");
     assert_eq!(info.port, Some(port));
     assert_eq!(
@@ -179,12 +185,19 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
     }
     // The card shows ▶ :port while it runs.
     assert_eq!(
-        w.board.ticket(&key).await.unwrap().flags.run_port,
+        w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .run_apps
+            .first()
+            .map(|a| a.port),
         Some(port)
     );
     // Starting it again leaves it alone.
     assert_eq!(
-        w.runs.start(&key).await.unwrap().session,
+        w.runs.start(&key, None).await.unwrap().session,
         Some(session.clone())
     );
     assert_eq!(w.runs.running().await.len(), 1);
@@ -204,13 +217,23 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
     .unwrap();
     assert!(alive(child));
 
-    let info = w.runs.stop(&key).await.unwrap();
+    let info = w.runs.stop(&key, None).await.unwrap();
     assert_eq!(info.state, RunState::Stopped);
     assert_eq!(info.stopped_by, Some(StopCause::You));
     assert!(output(&w, &session).contains("] stopped by you"));
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!alive(child), "the whole process group stopped");
-    assert_eq!(w.board.ticket(&key).await.unwrap().flags.run_port, None);
+    assert_eq!(
+        w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .run_apps
+            .first()
+            .map(|a| a.port),
+        None
+    );
     assert!(w.runs.running().await.is_empty());
     w.stop().await;
 }
@@ -222,14 +245,14 @@ async fn running_once_the_port_answers() {
     let (t, port) = started(&w, "Price table", 23_200..=23_299).await;
     set_run_command(&w, "echo listening soon; sleep 30").await;
     let key = t.key.to_string();
-    let info = w.runs.start(&key).await.unwrap();
+    let info = w.runs.start(&key, None).await.unwrap();
     assert_eq!(info.state, RunState::Starting);
     // Something now listens on the Run port (the dev server came up).
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).unwrap();
     let info = wait_state(&w, &key, RunState::Running).await;
     assert_eq!(info.port, Some(port));
     drop(listener);
-    w.runs.stop(&key).await.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
     w.stop().await;
 }
 
@@ -247,7 +270,7 @@ async fn an_early_exit_is_failed_to_start_with_the_log_kept() {
     )
     .await;
     let key = t.key.to_string();
-    let info = w.runs.start(&key).await.unwrap();
+    let info = w.runs.start(&key, None).await.unwrap();
     let session = info.session.unwrap();
     let info = wait_state(&w, &key, RunState::FailedToStart).await;
     assert_eq!(info.exit_code, Some(1));
@@ -255,11 +278,21 @@ async fn an_early_exit_is_failed_to_start_with_the_log_kept() {
     let text = output(&w, &session);
     assert!(text.contains("Missing script: dev"), "{text}");
     assert!(text.contains("] exited with code 1"), "{text}");
-    assert_eq!(w.board.ticket(&key).await.unwrap().flags.run_port, None);
+    assert_eq!(
+        w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .run_apps
+            .first()
+            .map(|a| a.port),
+        None
+    );
 
     // A program that ran and finished cleanly is just stopped.
     set_run_command(&w, "echo done").await;
-    w.runs.start(&key).await.unwrap();
+    w.runs.start(&key, None).await.unwrap();
     let info = wait_state(&w, &key, RunState::Stopped).await;
     assert_eq!(info.exit_code, Some(0));
     w.stop().await;
@@ -272,14 +305,14 @@ async fn a_port_held_by_another_program_is_port_in_use() {
     let (t, port) = started(&w, "Price table", 23_400..=23_499).await;
     set_run_command(&w, "sleep 30").await;
     let held = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).unwrap();
-    let info = w.runs.start(&t.key.to_string()).await.unwrap();
+    let info = w.runs.start(&t.key.to_string(), None).await.unwrap();
     assert_eq!(info.state, RunState::PortInUse);
     assert_eq!(info.port, Some(port));
     assert_eq!(info.session, None, "nothing started");
     drop(held);
-    let info = w.runs.start(&t.key.to_string()).await.unwrap();
+    let info = w.runs.start(&t.key.to_string(), None).await.unwrap();
     assert_eq!(info.state, RunState::Starting);
-    w.runs.stop(&t.key.to_string()).await.unwrap();
+    w.runs.stop(&t.key.to_string(), None).await.unwrap();
     w.stop().await;
 }
 
@@ -291,12 +324,18 @@ async fn close_stops_it_with_a_toast_and_a_restart_leaves_stopped_by_restart() {
     let (closing, _) = started(&w, "Won't do", 23_500..=23_599).await;
     let (other, _) = started(&w, "Price table", 23_500..=23_599).await;
     let (closing_key, other_key) = (closing.key.to_string(), other.key.to_string());
-    let session = w.runs.start(&closing_key).await.unwrap().session.unwrap();
-    w.runs.start(&other_key).await.unwrap();
+    let session = w
+        .runs
+        .start(&closing_key, None)
+        .await
+        .unwrap()
+        .session
+        .unwrap();
+    w.runs.start(&other_key, None).await.unwrap();
     let mut listener = w.events.listen();
 
     w.review.close(&closing_key, true, &me()).await.unwrap();
-    let info = w.runs.info(&closing_key).await.unwrap();
+    let info = w.runs.info(&closing_key, None).await.unwrap();
     assert_eq!(info.state, RunState::Stopped);
     assert_eq!(
         info.stopped_by,
@@ -323,7 +362,14 @@ async fn close_stops_it_with_a_toast_and_a_restart_leaves_stopped_by_restart() {
     assert_eq!(info.stopped_by, Some(StopCause::Restart));
     assert!(w.runs.running().await.is_empty());
     assert_eq!(
-        w.board.ticket(&other_key).await.unwrap().flags.run_port,
+        w.board
+            .ticket(&other_key)
+            .await
+            .unwrap()
+            .flags
+            .run_apps
+            .first()
+            .map(|a| a.port),
         None
     );
     w.stop().await;
@@ -339,9 +385,9 @@ async fn a_local_merge_stops_it_as_done() {
     commit(std::path::Path::new(&worktree), "api.ts", "api\n");
     w.force_status(&t, Status::WaitingForYou).await;
     let key = t.key.to_string();
-    w.runs.start(&key).await.unwrap();
+    w.runs.start(&key, None).await.unwrap();
     w.review.local_merge(&key, "m", false, &me()).await.unwrap();
-    let info = w.runs.info(&key).await.unwrap();
+    let info = w.runs.info(&key, None).await.unwrap();
     assert_eq!(info.state, RunState::Stopped);
     assert_eq!(
         info.stopped_by,
@@ -376,7 +422,7 @@ async fn park_stops_the_run_and_frees_its_port() {
     )
     .await;
     let key = t.key.to_string();
-    let session = w.runs.start(&key).await.unwrap().session.unwrap();
+    let session = w.runs.start(&key, None).await.unwrap().session.unwrap();
     let pid_file = std::path::Path::new(&worktree).join("run.pid");
     let pid: i32 = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -400,7 +446,7 @@ async fn park_stops_the_run_and_frees_its_port() {
     let shell = w.shells.open_shell(&key, false).await.unwrap();
 
     w.review.park(&key, true, &me()).await.unwrap();
-    let info = w.runs.info(&key).await.unwrap();
+    let info = w.runs.info(&key, None).await.unwrap();
     assert_eq!(info.state, RunState::Stopped);
     assert_eq!(info.stopped_by, Some(StopCause::Parked));
     assert!(!w.sessions.info(&session).unwrap().is_running());
@@ -413,7 +459,17 @@ async fn park_stops_the_run_and_frees_its_port() {
         otaq_core::ports::is_free_on_machine(port),
         "nothing listens on the freed Run port"
     );
-    assert_eq!(w.board.ticket(&key).await.unwrap().flags.run_port, None);
+    assert_eq!(
+        w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .run_apps
+            .first()
+            .map(|a| a.port),
+        None
+    );
     assert!(w.runs.running().await.is_empty());
     assert!(
         w.sessions.info(&shell.id).unwrap().is_running(),
@@ -427,15 +483,18 @@ async fn park_stops_the_run_and_frees_its_port() {
 #[tokio::test(flavor = "multi_thread")]
 async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
     let w = freed::world().await;
-    let project = freed::shop_web(&w, |s| s.run_command = "sleep 30".into()).await;
+    let project = freed::shop_web(&w, |s| {
+        s.apps = otaq_core::board::settings::RunApp::only("sleep 30", "")
+    })
+    .await;
     let (t, wt) = freed::freed(&w, "Price table", "price.ts").await;
     PortPool::with_range(w.board.store().clone(), 23_800..=23_899)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     let key = t.key.to_string();
 
-    let info = w.runs.start(&key).await.unwrap();
+    let info = w.runs.start(&key, None).await.unwrap();
 
     assert!(info.state.is_live(), "{:?}", info.state);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Price table"));
@@ -448,7 +507,7 @@ async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
         "the Run holds the build"
     );
 
-    w.runs.stop(&key).await.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
     freed::until_state(&w, &key, BuildState::Freed).await;
     assert_eq!(freed::app_bin(&wt), None);
     assert_eq!(freed::entries(&w, &project).len(), 1, "back in the stock");
@@ -462,24 +521,24 @@ async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
 async fn a_failed_setup_still_frees_the_build_when_the_run_ends() {
     let w = freed::world().await;
     let project = freed::shop_web(&w, |s| {
-        s.run_command = "sleep 30".into();
+        s.apps = otaq_core::board::settings::RunApp::only("sleep 30", "");
         s.setup_command = "exit 3".into();
     })
     .await;
     let (t, wt) = freed::freed(&w, "Price badge", "badge.ts").await;
     PortPool::with_range(w.board.store().clone(), 23_700..=23_799)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     let key = t.key.to_string();
 
-    let info = w.runs.start(&key).await.unwrap();
+    let info = w.runs.start(&key, None).await.unwrap();
 
     assert!(info.state.is_live(), "{:?}", info.state);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Price badge"));
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
 
-    w.runs.stop(&key).await.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
     freed::until_state(&w, &key, BuildState::Freed).await;
     assert_eq!(freed::app_bin(&wt), None);
     assert_eq!(freed::entries(&w, &project).len(), 1, "back in the stock");
@@ -491,24 +550,24 @@ async fn a_failed_setup_still_frees_the_build_when_the_run_ends() {
 async fn a_second_click_while_the_build_comes_back_starts_no_second_run() {
     let w = freed::world().await;
     freed::shop_web(&w, |s| {
-        s.run_command = "sleep 30".into();
+        s.apps = otaq_core::board::settings::RunApp::only("sleep 30", "");
         s.setup_command = format!("sleep 1 && echo {}", freed::SETUP_RAN);
     })
     .await;
     let (t, _wt) = freed::freed(&w, "Price filter", "filter.ts").await;
     PortPool::with_range(w.board.store().clone(), 23_900..=23_999)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     let key = t.key.to_string();
 
-    let (a, b) = tokio::join!(w.runs.start(&key), w.runs.start(&key));
+    let (a, b) = tokio::join!(w.runs.start(&key, None), w.runs.start(&key, None));
     let (a, b) = (a.unwrap(), b.unwrap());
 
     assert!(a.state.is_live(), "{:?}", a.state);
     assert!(b.state.is_live(), "{:?}", b.state);
     assert!(a.session.is_some());
     assert_eq!(a.session, b.session, "one Run");
-    w.runs.stop(&key).await.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
     w.stop().await;
 }

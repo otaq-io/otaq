@@ -731,7 +731,7 @@ async fn an_agent_can_neither_pause_nor_resume() {
     let shop1 = w.create("SHOP", "Split user full name").await;
     let agent = w.agent_shell(&shop1).await;
     for method in ["agents.pause", "agents.resume"] {
-        let request = json!({"protocol_version": 1, "id": 1,
+        let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1,
             "request": {"method": method, "params": {"scope": "project", "project": "SHOP"}}});
         let ran = agent
             .send_raw(&w.data.socket_path(), &request.to_string())
@@ -742,7 +742,7 @@ async fn an_agent_can_neither_pause_nor_resume() {
     }
     assert!(!w.pause.is_paused("SHOP").await.unwrap());
     // The counts are a read.
-    let request = json!({"protocol_version": 1, "id": 1,
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1,
         "request": {"method": "agents.pause_counts", "params": {"scope": "all"}}});
     let ran = agent
         .send_raw(&w.data.socket_path(), &request.to_string())

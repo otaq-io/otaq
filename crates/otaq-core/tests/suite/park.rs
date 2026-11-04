@@ -125,8 +125,9 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
     );
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert!(!row.parked);
+    let back = w.board.ticket(&t.key.to_string()).await.unwrap();
     assert!(
-        row.agent_port.is_some() && row.run_port.is_some(),
+        row.agent_port.is_some() && back.work.is_some_and(|w| w.app_port("app").is_some()),
         "new ports"
     );
     assert!(std::path::Path::new(&worktree).join("draft.ts").is_file());

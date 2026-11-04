@@ -811,7 +811,7 @@ impl Service {
             deliveries.clone(),
             starter.clone(),
             scheduler.clone(),
-            ports,
+            ports.clone(),
             ticket_env.clone(),
         );
         // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
@@ -888,6 +888,7 @@ impl Service {
             events.clone(),
             config.terminals.clone(),
             ticket_env.clone(),
+            ports.clone(),
         );
         {
             let runs = runs.clone();
@@ -910,6 +911,7 @@ impl Service {
             config.data.clone(),
             config.terminals.clone(),
             ticket_env.clone(),
+            ports.clone(),
         );
         {
             let shells = shells.clone();

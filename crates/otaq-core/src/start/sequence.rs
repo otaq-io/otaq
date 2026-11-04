@@ -4,7 +4,7 @@
 //! 2. sync the base: fetch, fast-forward if only behind, **hold** in Queued if diverged;
 //! 3. branch `otaq/<KEY>`, worktree and `base_sha`; a new worktree is then seeded from the project's warm build
 //!    or the user's checkout ([`crate::warm::seed`], WRM-04), as part of the same step;
-//! 4. env files; then the ticket's resources (the project's Create command, d0087); 5. setup command; 6. two ports;
+//! 4. env files; then the ticket's resources (the project's Create command, d0087); 5. setup command; 6. the ports (the agent's, one per app);
 //! 7. launch the agent through its tool's adapter, store the tool and tool id, and set the ticket to Agent
 //!    Working.
 //!
@@ -825,11 +825,11 @@ impl Starter {
                 .map_err(at(StartStep::Setup))?;
         }
 
-        // 6. Two ports.
+        // 6. The ports: the agent's and one per app (d{RUN}).
         self.mark_step(ticket, StartStep::Ports).await;
         let ports = inner
             .ports
-            .allocate(&ticket.id)
+            .allocate(&ticket.id, &settings.port_apps())
             .await
             .map_err(|e| (StartStep::Ports, StartError::Other(e.to_string())))?;
 

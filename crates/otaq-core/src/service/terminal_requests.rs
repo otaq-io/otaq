@@ -38,15 +38,28 @@ pub(super) async fn handle(
             .map_err(|e| error_body(&e))
     };
     match request {
-        Request::RunStart(p) => run(runs.start_as(&p.key, run_agent(caller, shared).await).await),
+        Request::RunStart(p) => run(runs
+            .start_as(&p.key, p.app.as_deref(), run_agent(caller, shared).await)
+            .await),
         Request::RunStop(p) => {
             let agent = run_agent(caller, shared).await;
-            run(runs.stop_as(&p.key, agent.as_ref()).await)
+            run(runs.stop_as(&p.key, p.app.as_deref(), agent.as_ref()).await)
         }
-        Request::RunStatus(p) => run(runs.info(&p.key).await),
+        Request::RunStatus(p) => run(runs.info(&p.key, p.app.as_deref()).await),
+        Request::RunApps(p) => runs
+            .apps(&p.key)
+            .await
+            .map(Reply::Runs)
+            .map_err(|e| error_body(&e)),
         Request::RunSet(p) => match run_agent(caller, shared).await {
             Some(agent) => run(runs
-                .set_command(&p.key, agent, &p.command, p.open_url.as_deref())
+                .set_command(
+                    &p.key,
+                    agent,
+                    p.app.as_deref(),
+                    &p.command,
+                    p.open_url.as_deref(),
+                )
                 .await),
             None => Err(ErrorBody::new(
                 ErrorKind::Refused,
@@ -55,7 +68,7 @@ pub(super) async fn handle(
         },
         Request::RunCommandUndo(p) => shared
             .board
-            .undo_agent_run_command(&p.project)
+            .undo_agent_app(&p.project, p.app.as_deref())
             .await
             .map(|()| {
                 shared
@@ -65,7 +78,11 @@ pub(super) async fn handle(
             })
             .map_err(|e| error_body(&e)),
         Request::RunLog(p) => runs
-            .log(&p.key, p.tail.map_or(LOG_TAIL, |t| t as usize))
+            .log(
+                &p.key,
+                p.app.as_deref(),
+                p.tail.map_or(LOG_TAIL, |t| t as usize),
+            )
             .await
             .map(|log| Reply::RunLog(Box::new(log)))
             .map_err(|e| error_body(&e)),

@@ -493,12 +493,11 @@ pub struct ProjectSettings {
     /// target branch moves, when the rebase brought in new commits (`npm test`). Empty by default; never guessed
     /// (d0023). Read it with [`Self::merge_check`].
     pub merge_check: Option<String>,
-    pub run_command: String,
-    pub open_url: String,
-    /// Who set the run command, when one of a ticket's agents did (agents run the app): "Set by Dev on SHOP-27", with Undo. Only
-    /// Otaq writes it: the user's save keeps it while the command stays the same and drops it when they change it.
-    /// Stored as `null` when none: [`read_or_default`] keeps only the fields the default has.
-    pub run_command_set_by: Option<RunCommandSetBy>,
+    /// The project's apps (agents run the app, monorepos): each a named run command with its Open URL, run in a ticket's worktree
+    /// with its own port. Empty: no run command yet (the Run tab asks for one, RUN-02). A project with one app looks
+    /// and works as before apps had names; its app is [`DEFAULT_APP`]. Older settings stored one `run_command` and
+    /// `open_url`: [`Board::project_settings`] reads them as that one app.
+    pub apps: Vec<RunApp>,
     /// Files copied from the repository into each worktree, relative to the repository root.
     pub env_files: Vec<String>,
     /// "Notes every agent in this project gets" (d0040's per-project Agent instructions, kept by AGM-02): given to
@@ -525,6 +524,47 @@ pub struct ProjectSettings {
     pub view: ViewPrefs,
 }
 
+/// The name of a project's only app when nobody named it: the app older settings' `run_command` becomes, and the one
+/// `otaq run set` adds without a name (agents run the app).
+pub const DEFAULT_APP: &str = "app";
+
+/// One of a project's apps (agents run the app): `web`, `api`, `worker`. Its command runs with `$PORT` = its own port and
+/// `OTAQ_PORT_<NAME>` for every app of the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunApp {
+    pub name: String,
+    /// The run command, with `$PORT` where it listens (`pnpm dev --port $PORT`).
+    pub command: String,
+    /// Where it answers, with `$PORT` (RUN-03); empty: none.
+    #[serde(default)]
+    pub open_url: String,
+    /// Who set the command, when one of a ticket's agents did: "Set by Dev on SHOP-27", with Undo. Only Otaq writes
+    /// it: the user's save keeps it while the app's command stays the same and drops it when they change it.
+    #[serde(default)]
+    pub set_by: Option<RunCommandSetBy>,
+}
+
+impl RunApp {
+    /// A project's apps when it has one, unnamed ([`DEFAULT_APP`]): `command` with its Open URL; none when `command`
+    /// is empty (no run command yet).
+    pub fn only(command: &str, open_url: &str) -> Vec<RunApp> {
+        if command.trim().is_empty() {
+            return Vec::new();
+        }
+        vec![RunApp {
+            name: DEFAULT_APP.to_owned(),
+            command: command.trim().to_owned(),
+            open_url: open_url.trim().to_owned(),
+            set_by: None,
+        }]
+    }
+
+    /// The Open URL, trimmed; `None` when empty.
+    pub fn url(&self) -> Option<&str> {
+        Some(self.open_url.trim()).filter(|u| !u.is_empty())
+    }
+}
+
 /// The agent that set a project's run command (agents run the app): its stage's name, its ticket and when; `open_url` when it set
 /// the Open URL too (Undo then empties both).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -548,9 +588,7 @@ impl Default for ProjectSettings {
         Self {
             setup_command: String::new(),
             merge_check: None,
-            run_command: String::new(),
-            open_url: String::new(),
-            run_command_set_by: None,
+            apps: Vec::new(),
             env_files: Vec::new(),
             project_notes: String::new(),
             let_finished_tickets_answer: true,
@@ -566,6 +604,29 @@ impl Default for ProjectSettings {
 }
 
 impl ProjectSettings {
+    /// The project's app while it has exactly one: what a one-app project's Settings rows and Run tab show.
+    pub fn only_app(&self) -> Option<&RunApp> {
+        match self.apps.as_slice() {
+            [only] => Some(only),
+            _ => None,
+        }
+    }
+
+    /// The app named `name`.
+    pub fn app(&self, name: &str) -> Option<&RunApp> {
+        self.apps.iter().find(|a| a.name == name)
+    }
+
+    /// The names of the apps that get a port in a ticket: every app's, or [`DEFAULT_APP`] while there is none (so
+    /// a ticket's Shell has `$PORT` before the first run command, and `otaq run set` has a port to try).
+    pub fn port_apps(&self) -> Vec<String> {
+        if self.apps.is_empty() {
+            vec![DEFAULT_APP.to_owned()]
+        } else {
+            self.apps.iter().map(|a| a.name.clone()).collect()
+        }
+    }
+
     /// The Merge check command, trimmed; `None` when it is empty (d0120).
     pub fn merge_check(&self) -> Option<&str> {
         self.merge_check
@@ -808,6 +869,7 @@ impl Board {
     pub async fn project_settings(&self, project: &str) -> Result<ProjectSettings, BoardError> {
         let project = self.project(project).await?;
         let value: Value = serde_json::from_str(&project.settings_json).unwrap_or_default();
+        let value = with_apps(value);
         let view = read_or_default(value.get("view").cloned().unwrap_or_default());
         Ok(ProjectSettings {
             view,
@@ -879,42 +941,80 @@ impl Board {
         settings: &ProjectSettings,
     ) -> Result<(), BoardError> {
         let stored = self.project_settings(project).await?;
-        // "Set by Dev on SHOP-27" stays while the command does; a hand edit of it drops the line (agents run the app).
-        let set_by = stored
-            .run_command_set_by
-            .filter(|_| settings.run_command.trim() == stored.run_command.trim())
-            .map(|by| RunCommandSetBy {
-                open_url: by.open_url && settings.open_url.trim() == stored.open_url.trim(),
-                ..by
-            });
+        // "Set by Dev on SHOP-27" stays while the app's command does; a hand edit of it drops the line (agents run the app). The
+        // page never sends it: Otaq's stored one is kept.
+        // A row left empty is no app; the one app of a project may stay unnamed (it is DEFAULT_APP).
+        let rows: Vec<&RunApp> = settings
+            .apps
+            .iter()
+            .filter(|a| !(a.command.trim().is_empty() && a.open_url.trim().is_empty()))
+            .collect();
+        let only = rows.len() == 1;
+        let apps = rows
+            .into_iter()
+            .map(|app| {
+                let name = match app.name.trim() {
+                    "" if only => DEFAULT_APP,
+                    name => name,
+                };
+                let before = stored.app(name);
+                let set_by = before
+                    .filter(|b| b.command.trim() == app.command.trim())
+                    .and_then(|b| {
+                        b.set_by.clone().map(|by| RunCommandSetBy {
+                            open_url: by.open_url && b.open_url.trim() == app.open_url.trim(),
+                            ..by
+                        })
+                    });
+                RunApp {
+                    name: name.to_owned(),
+                    command: app.command.trim().to_owned(),
+                    open_url: app.open_url.trim().to_owned(),
+                    set_by,
+                }
+            })
+            .collect();
         let settings = ProjectSettings {
             view: stored.view,
-            run_command_set_by: set_by,
+            apps,
             ..settings.clone()
         };
         self.set_project_settings(project, &settings).await
     }
 
-    /// Saves the run command an agent's Run proved (agents run the app): only while the project still has none, so an agent never
-    /// changes one the user set. `false` when one was set meanwhile (nothing changes).
-    pub async fn save_agent_run_command(
+    /// Saves the run command an agent's Run proved for app `app` (agents run the app): only while the project has no such app (or
+    /// it has no command), so an agent adds apps and never changes one the user set. `false` when one was set meanwhile
+    /// (nothing changes).
+    pub async fn save_agent_app(
         &self,
         project: &str,
+        app: &str,
         command: &str,
         open_url: Option<&str>,
         by: RunCommandSetBy,
     ) -> Result<bool, BoardError> {
         let mut settings = self.project_settings(project).await?;
-        if !settings.run_command.trim().is_empty() {
-            return Ok(false);
+        let open_url = open_url.map(str::trim).filter(|u| !u.is_empty());
+        let at = match settings.apps.iter().position(|a| a.name == app) {
+            Some(at) if !settings.apps[at].command.trim().is_empty() => return Ok(false),
+            Some(at) => at,
+            None => {
+                settings.apps.push(RunApp {
+                    name: app.to_owned(),
+                    command: String::new(),
+                    open_url: String::new(),
+                    set_by: None,
+                });
+                settings.apps.len() - 1
+            }
+        };
+        let entry = &mut settings.apps[at];
+        entry.command = command.trim().to_owned();
+        let set_url = open_url.is_some() && entry.open_url.trim().is_empty();
+        if let Some(url) = open_url.filter(|_| set_url) {
+            entry.open_url = url.to_owned();
         }
-        settings.run_command = command.trim().to_owned();
-        let set_url =
-            open_url.is_some_and(|u| !u.trim().is_empty()) && settings.open_url.trim().is_empty();
-        if set_url {
-            settings.open_url = open_url.unwrap_or_default().trim().to_owned();
-        }
-        settings.run_command_set_by = Some(RunCommandSetBy {
+        entry.set_by = Some(RunCommandSetBy {
             open_url: set_url,
             ..by
         });
@@ -922,19 +1022,31 @@ impl Board {
         Ok(true)
     }
 
-    /// Undo of "Set by Dev on SHOP-27" (agents run the app): the agent's run command (and its Open URL) back to empty. Refused when
-    /// no agent set the command.
-    pub async fn undo_agent_run_command(&self, project: &str) -> Result<(), BoardError> {
+    /// Undo of "Set by Dev on SHOP-27" (agents run the app): the app an agent added is removed (its command, and its Open URL when
+    /// the agent set that too, back to empty when the user had named it). `app` `None`: the only app. Refused when no
+    /// agent set that app's command.
+    pub async fn undo_agent_app(&self, project: &str, app: Option<&str>) -> Result<(), BoardError> {
         let mut settings = self.project_settings(project).await?;
-        let Some(by) = settings.run_command_set_by.take() else {
+        let at = match app {
+            Some(name) => settings.apps.iter().position(|a| a.name == name),
+            None if settings.apps.len() == 1 => Some(0),
+            None => None,
+        };
+        let Some(by) = at.and_then(|at| settings.apps[at].set_by.clone()) else {
             return Err(BoardError::refused(
                 Refusal::NotAllowed,
-                "No agent set this project's run command, so there is nothing to undo",
+                "No agent set this run command, so there is nothing to undo",
             ));
         };
-        settings.run_command.clear();
+        let at = at.expect("found");
+        let entry = &mut settings.apps[at];
+        entry.set_by = None;
+        entry.command.clear();
         if by.open_url {
-            settings.open_url.clear();
+            entry.open_url.clear();
+        }
+        if entry.open_url.is_empty() {
+            settings.apps.remove(at);
         }
         self.set_project_settings(project, &settings).await
     }
@@ -1002,17 +1114,57 @@ impl Board {
             }
         }
         problems.extend(resource_problems(&settings));
-        if !settings.open_url.trim().is_empty() && !looks_like_url(settings.open_url.trim()) {
-            problems.push(problem(
-                "open_url",
-                &format!(
-                    "{} isn't a URL; use something like http://localhost:$PORT",
-                    settings.open_url.trim()
-                ),
-            ));
-        }
+        problems.extend(app_problems(&settings.apps));
         Ok(problems)
     }
+}
+
+/// The field of app `index`'s `what` ("name", "command", "open_url") in [`SettingProblem::field`]: `apps.1.name`.
+pub fn app_field(index: usize, what: &str) -> String {
+    format!("apps.{index}.{what}")
+}
+
+/// Problems with a project's apps (agents run the app): a name missing or used twice (also when two names give the same
+/// `OTAQ_PORT_<NAME>`), a command missing, an Open URL that isn't a URL. One app may stay unnamed in the page; it is
+/// [`DEFAULT_APP`].
+fn app_problems(apps: &[RunApp]) -> Vec<SettingProblem> {
+    let mut problems = Vec::new();
+    let mut seen: Vec<(String, &str)> = Vec::new();
+    for (index, app) in apps.iter().enumerate() {
+        let name = app.name.trim();
+        if name.is_empty() {
+            problems.push(problem(
+                &app_field(index, "name"),
+                "Give the app a name, like web or api",
+            ));
+        } else {
+            let var = crate::naming::app_port_env_var(name);
+            if let Some((_, other)) = seen.iter().find(|(v, _)| *v == var) {
+                let message = if *other == name {
+                    format!("Another app is already called {name}")
+                } else {
+                    format!("{name} and {other} both give {var}; rename one")
+                };
+                problems.push(problem(&app_field(index, "name"), &message));
+            }
+            seen.push((var, name));
+        }
+        if app.command.trim().is_empty() && apps.len() > 1 {
+            problems.push(problem(
+                &app_field(index, "command"),
+                "Add the command that starts it",
+            ));
+        }
+        if let Some(url) = app.url()
+            && !looks_like_url(url)
+        {
+            problems.push(problem(
+                &app_field(index, "open_url"),
+                &format!("{url} isn't a URL; use something like http://localhost:$PORT"),
+            ));
+        }
+    }
+    problems
 }
 
 /// What a project's own settings give its agents ([`Board::effective_settings`] reads them).
@@ -1023,6 +1175,44 @@ pub fn effective(own: &ProjectSettings) -> EffectiveSettings {
 }
 
 /// Reads settings from stored JSON; anything missing or unreadable gets its default.
+/// Settings stored before apps had names (agents run the app) keep one `run_command`, `open_url` and `run_command_set_by`: read
+/// them as one app named [`DEFAULT_APP`]. A stored `apps` list wins; nothing else changes. Written in the new shape at
+/// the next save.
+fn with_apps(mut value: Value) -> Value {
+    let Value::Object(map) = &mut value else {
+        return value;
+    };
+    let command = map.remove("run_command");
+    let open_url = map.remove("open_url");
+    let set_by = map.remove("run_command_set_by");
+    if map.contains_key("apps") {
+        return value;
+    }
+    let text = |v: &Option<Value>| {
+        v.as_ref()
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let command = text(&command);
+    if command.is_empty() {
+        return value;
+    }
+    let set_by: Option<RunCommandSetBy> = set_by.and_then(|v| serde_json::from_value(v).ok());
+    let app = RunApp {
+        name: DEFAULT_APP.to_owned(),
+        command,
+        open_url: text(&open_url),
+        set_by,
+    };
+    map.insert(
+        "apps".to_owned(),
+        serde_json::to_value(vec![app]).expect("apps serialize"),
+    );
+    value
+}
+
 fn read_or_default<T: Default + serde::de::DeserializeOwned + Serialize>(stored: Value) -> T {
     // Merge field by field so one bad value doesn't reset the others.
     let mut merged = serde_json::to_value(T::default()).expect("settings serialize");

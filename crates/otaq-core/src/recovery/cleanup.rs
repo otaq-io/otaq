@@ -352,9 +352,10 @@ impl Cleanup {
         // Ports held by tickets that are finished or back in Backlog.
         for ticket in &tickets {
             let Some(work) = &ticket.work else { continue };
-            let ports: Vec<u16> = [work.agent_port, work.run_port]
+            let ports: Vec<u16> = work
+                .agent_port
                 .into_iter()
-                .flatten()
+                .chain(work.app_ports.iter().map(|p| p.port))
                 .collect();
             if ports.is_empty() || !(ticket.place.is_done() || ticket.place.is_backlog()) {
                 continue;

@@ -77,7 +77,12 @@ async fn scan_lists_leftovers_and_delete_removes_only_the_selection() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    sqlx::query("UPDATE tickets SET agent_port = 4031, run_port = 4032 WHERE id = ?")
+    sqlx::query("UPDATE tickets SET agent_port = 4031 WHERE id = ?")
+        .bind(&merged.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO app_ports (ticket_id, app, port) VALUES (?, 'app', 4032)")
         .bind(&merged.id)
         .execute(w.board.store().pool())
         .await

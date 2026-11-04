@@ -40,15 +40,27 @@ async fn two_distinct_ports_per_ticket_and_idempotent() {
     let a = f.create("SHOP-1").await;
     let b = f.create("SHOP-2").await;
 
-    let pa = pool.allocate(&a.id).await.unwrap();
-    assert_ne!(pa.agent, pa.run);
-    assert!(range.contains(&pa.agent) && range.contains(&pa.run));
-    assert_eq!(pool.allocate(&a.id).await.unwrap(), pa, "same two again");
+    let pa = pool
+        .allocate(&a.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
+    assert_ne!(pa.agent, pa.apps[0].1);
+    assert!(range.contains(&pa.agent) && range.contains(&pa.apps[0].1));
+    assert_eq!(
+        pool.allocate(&a.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+            .await
+            .unwrap(),
+        pa,
+        "same two again"
+    );
 
-    let pb = pool.allocate(&b.id).await.unwrap();
-    for port in [pb.agent, pb.run] {
+    let pb = pool
+        .allocate(&b.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
+    for port in [pb.agent, pb.apps[0].1] {
         assert!(
-            port != pa.agent && port != pa.run,
+            port != pa.agent && port != pa.apps[0].1,
             "{port} is held by SHOP-1"
         );
     }
@@ -57,7 +69,7 @@ async fn two_distinct_ports_per_ticket_and_idempotent() {
         pa,
         TicketPorts {
             agent: *range.start(),
-            run: range.start() + 1
+            apps: vec![("app".to_owned(), range.start() + 1)],
         }
     );
 }
@@ -69,9 +81,12 @@ async fn skips_a_port_bound_on_the_machine() {
     let busy = TcpListener::bind(("127.0.0.1", *range.start())).unwrap();
     let pool = pool(&f, range.clone());
     let t = f.create("one").await;
-    let ports = pool.allocate(&t.id).await.unwrap();
+    let ports = pool
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
     assert_ne!(ports.agent, *range.start());
-    assert_ne!(ports.run, *range.start());
+    assert_ne!(ports.apps[0].1, *range.start());
     drop(busy);
 }
 
@@ -82,17 +97,28 @@ async fn freed_ports_are_reused() {
     let a = f.create("a").await;
     let b = f.create("b").await;
     let c = f.create("c").await;
-    let pa = pool.allocate(&a.id).await.unwrap();
-    pool.allocate(&b.id).await.unwrap();
+    let pa = pool
+        .allocate(&a.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
+    pool.allocate(&b.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
     assert!(matches!(
-        pool.allocate(&c.id).await,
+        pool.allocate(&c.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+            .await,
         Err(PortError::Exhausted { .. })
     ));
 
     pool.free(&a.id).await.unwrap();
     let row = f.board.store().ticket(&a.id).await.unwrap().unwrap();
     assert_eq!((row.agent_port, row.run_port), (None, None));
-    assert_eq!(pool.allocate(&c.id).await.unwrap(), pa);
+    assert_eq!(
+        pool.allocate(&c.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+            .await
+            .unwrap(),
+        pa
+    );
 }
 
 #[tokio::test]
@@ -101,9 +127,12 @@ async fn exhausted_is_a_typed_error() {
     let t = f.create("t").await;
     // One port can never give a ticket two.
     let range = free_range(1);
-    let err = pool(&f, range.clone()).allocate(&t.id).await.unwrap_err();
+    let err = pool(&f, range.clone())
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap_err();
     assert!(matches!(&err, PortError::Exhausted { range: r } if *r == range));
-    assert!(err.to_string().contains("no two free ports left"), "{err}");
+    assert!(err.to_string().contains("no free ports left"), "{err}");
     let row = f.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(row.agent_port, None, "nothing stored");
 }
@@ -113,16 +142,28 @@ async fn allocations_survive_a_restart() {
     let f = Fixture::shop().await;
     let range = free_range(4);
     let a = f.create("a").await;
-    let pa = pool(&f, range.clone()).allocate(&a.id).await.unwrap();
+    let pa = pool(&f, range.clone())
+        .allocate(&a.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
 
     // A new store and pool on the same database, as after a service restart.
     let store = Store::open_in(&DataDir::new(f.home.path().join("home")))
         .await
         .unwrap();
     let restarted = PortPool::with_range(store, range);
-    assert_eq!(restarted.allocate(&a.id).await.unwrap(), pa);
+    assert_eq!(
+        restarted
+            .allocate(&a.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+            .await
+            .unwrap(),
+        pa
+    );
     let b = f.create("b").await;
-    let pb = restarted.allocate(&b.id).await.unwrap();
-    assert!(![pb.agent, pb.run].contains(&pa.agent));
-    assert!(![pb.agent, pb.run].contains(&pa.run));
+    let pb = restarted
+        .allocate(&b.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
+        .await
+        .unwrap();
+    assert!(![pb.agent, pb.apps[0].1].contains(&pa.agent));
+    assert!(![pb.agent, pb.apps[0].1].contains(&pa.apps[0].1));
 }

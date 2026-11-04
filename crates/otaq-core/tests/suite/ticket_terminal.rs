@@ -134,7 +134,7 @@ async fn of_agent(
 
 /// `ticket.terminal` from inside `shell`'s session, in the socket's shape.
 async fn from(w: &TestService, shell: &AgentShell, key: &str) -> Value {
-    let request = json!({"protocol_version": 1, "id": 1,
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1,
         "request": {"method": "ticket.terminal", "params": {"key": key}}});
     let ran = shell
         .send_raw(&w.data.socket_path(), &request.to_string())

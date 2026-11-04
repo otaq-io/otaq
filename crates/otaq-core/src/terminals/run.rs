@@ -9,6 +9,11 @@
 //! its verdict lands ([`Runs::stage_ended`], "stage ended"); a Run the user started is never stopped that way. The
 //! processes of an agent's Run act for that agent ([`crate::session::ActingFor`]), never as the user.
 //!
+//! **Apps** (agents run the app, monorepos): a project's run command is a list of named apps (`web`, `api`), each with its own Run
+//! per ticket and its own port: `$PORT` in its Run, and `OTAQ_PORT_<NAME>` for every app in every app's Run. Every
+//! request names the app, or means the only one; with several, a request without a name is refused with their names.
+//! A project with one app works as before apps had names (its app is [`DEFAULT_APP`]).
+//!
 //! A Run is a service-owned PTY session of kind `run` ([`SessionKind::Run`]): its output is the session's bounded
 //! scrollback, streamed to the app like any session's (`session.attach`, `session_output`), and Stop sends the
 //! session's whole process group SIGHUP (SIGKILL after a grace period). The command runs as
@@ -34,14 +39,14 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::{TerminalEnv, with_port};
-use crate::board::settings::RunCommandSetBy;
+use super::{TerminalEnv, app_port_vars, with_ports};
+use crate::board::settings::{DEFAULT_APP, ProjectSettings, RunCommandSetBy};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Status, TicketKey};
+use crate::domain::{RunningApp, Status, TicketKey};
 use crate::naming;
-use crate::ports;
+use crate::ports::{self, PortPool};
 use crate::protocol::Event;
 use crate::review::finish::FinishedTicket;
 use crate::service::EventBus;
@@ -149,13 +154,15 @@ pub struct RunInfo {
     pub project_name: String,
     pub key: TicketKey,
     pub title: String,
+    /// The app (agents run the app): `web`; [`DEFAULT_APP`] in a project with one app nobody named.
+    pub app: String,
     pub state: RunState,
-    /// The Run port (`$PORT` in Run and Shell).
+    /// The app's Run port (`$PORT` in its Run).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
-    /// The run command as configured, with `$PORT` (empty: none set yet, the UI asks for one, RUN-02).
+    /// The app's run command as configured, with `$PORT` (empty: none set yet, the UI asks for one, RUN-02).
     pub command: String,
-    /// The project's Open URL, with `$PORT` (RUN-03); `None` when the project has none.
+    /// The app's Open URL, with `$PORT` (RUN-03); `None` when it has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_url: Option<String>,
     /// The Run's session, for `session.attach` (its output).
@@ -173,7 +180,7 @@ pub struct RunInfo {
     /// Who started the last Run (agents run the app); `None` before any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_by: Option<StartedBy>,
-    /// The agent that set the project's run command ("Set by Dev on SHOP-27", with Undo; agents run the app).
+    /// The agent that set the app's run command ("Set by Dev on SHOP-27", with Undo; agents run the app).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_set_by: Option<RunCommandSetBy>,
 }
@@ -183,6 +190,7 @@ pub struct RunInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunLog {
     pub key: TicketKey,
+    pub app: String,
     pub state: RunState,
     pub text: String,
 }
@@ -193,7 +201,7 @@ pub const LOG_TAIL: usize = 200;
 impl RunInfo {
     /// The Open URL with the Run port in it, when the project sets one and the Run has a port.
     pub fn url(&self) -> Option<String> {
-        Some(with_port(self.open_url.as_deref()?, self.port?))
+        Some(super::with_port(self.open_url.as_deref()?, self.port?))
     }
 
     /// `otaq run status` in words (agents run the app): "not started", "starting :4020 (started by Dev)", "running :4020 (started
@@ -241,43 +249,55 @@ impl RunInfo {
     }
 }
 
-/// Tickets whose Run is up, with its port: the card's `▶ :4020` flag ([`crate::domain::Flags::run_port`]). The
-/// board reads it when it builds tickets; [`Runs`] keeps it. Cheap to clone.
+/// Tickets' apps whose Run is up, with their ports: the card's `▶ :4020` flag ([`crate::domain::Flags::run_apps`]).
+/// The board reads it when it builds tickets; [`Runs`] keeps it. Cheap to clone.
 #[derive(Debug, Clone, Default)]
 pub struct RunPorts {
-    inner: Arc<Mutex<HashMap<String, RunPort>>>,
+    inner: Arc<Mutex<HashMap<String, Vec<RunningApp>>>>,
 }
 
-/// A live Run's port and the stage of the agent that started it (`None`: you did).
-type RunPort = (u16, Option<String>);
-
 impl RunPorts {
-    pub fn get(&self, ticket_id: &str) -> Option<u16> {
-        self.get_with_starter(ticket_id).map(|(port, _)| port)
-    }
-
-    /// The port, and the stage of the agent that started the Run ("Dev"; `None` when you did, agents run the app).
-    pub fn get_with_starter(&self, ticket_id: &str) -> Option<(u16, Option<String>)> {
+    /// The ticket's apps that run, lowest port first (the order their ports were given, so the project's).
+    pub fn get(&self, ticket_id: &str) -> Vec<RunningApp> {
         self.inner
             .lock()
             .expect("run ports")
             .get(ticket_id)
             .cloned()
+            .unwrap_or_default()
     }
 
-    fn set(&self, ticket_id: &str, port: Option<(u16, Option<String>)>) {
+    /// App `app` of the ticket runs on `port`, started by the agent of stage `started_by` (`None`: you), or stopped.
+    fn set(&self, ticket_id: &str, app: &str, running: Option<(u16, Option<String>)>) {
         let mut all = self.inner.lock().expect("run ports");
-        match port {
-            Some(port) => all.insert(ticket_id.to_owned(), port),
-            None => all.remove(ticket_id),
-        };
+        let apps = all.entry(ticket_id.to_owned()).or_default();
+        apps.retain(|a| a.app != app);
+        if let Some((port, started_by)) = running {
+            apps.push(RunningApp {
+                app: app.to_owned(),
+                port,
+                started_by,
+            });
+            apps.sort_by_key(|a| a.port);
+        }
+        if apps.is_empty() {
+            all.remove(ticket_id);
+        }
     }
+}
+
+/// A Run's key in [`Inner::records`]: the ticket's id and the app.
+type RunKey = (String, String);
+
+fn run_key(ticket_id: &str, app: &str) -> RunKey {
+    (ticket_id.to_owned(), app.to_owned())
 }
 
 /// What the service remembers of a ticket's last Run.
 #[derive(Debug, Clone)]
 struct Record {
     key: TicketKey,
+    app: String,
     state: RunState,
     port: Option<u16>,
     command: String,
@@ -325,8 +345,10 @@ struct Inner {
     env: TerminalEnv,
     /// Brings a freed build back before a Run (M19-c).
     ticket_env: TicketEnv,
-    /// By ticket id.
-    records: Mutex<HashMap<String, Record>>,
+    /// The apps' ports (agents run the app): an app added while the ticket works gets its port at its first Run.
+    ports: PortPool,
+    /// By ticket id and app.
+    records: Mutex<HashMap<RunKey, Record>>,
 }
 
 impl Runs {
@@ -337,6 +359,7 @@ impl Runs {
         events: EventBus,
         env: TerminalEnv,
         ticket_env: TicketEnv,
+        ports: PortPool,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -346,16 +369,18 @@ impl Runs {
                 events,
                 env,
                 ticket_env,
+                ports,
                 records: Mutex::new(HashMap::new()),
             }),
         }
     }
 
-    /// Starts the ticket's Run (the user's click). A Run already up is left alone. Refused without a worktree
-    /// (the ticket never started) or without a run command (the UI then asks for one, RUN-02). When another
-    /// program holds the Run port, nothing starts and the state is "port in use".
-    pub async fn start(&self, key: &str) -> Result<RunInfo, BoardError> {
-        self.start_as(key, None).await
+    /// Starts app `app`'s Run of the ticket (the user's click; `None`: the only app). A Run already up is left alone.
+    /// Refused without a worktree (the ticket never started), without a run command (the UI then asks for one,
+    /// RUN-02), or without a name while the project has several apps. When another program holds the app's port,
+    /// nothing starts and the state is "port in use".
+    pub async fn start(&self, key: &str, app: Option<&str>) -> Result<RunInfo, BoardError> {
+        self.start_as(key, app, None).await
     }
 
     /// [`Runs::start`] for `agent`, one of the ticket's agents (`otaq run start`, agents run the app), or for you (`None`). A
@@ -363,38 +388,89 @@ impl Runs {
     pub async fn start_as(
         &self,
         key: &str,
+        app: Option<&str>,
         agent: Option<RunAgent>,
     ) -> Result<RunInfo, BoardError> {
-        self.start_with(key, agent, None).await
+        let ticket = self.inner.board.ticket(key).await?;
+        let (project, settings) = self.project_of(&ticket).await?;
+        let app = resolve_app(&settings, &project.name, app, "start", agent.is_some())?;
+        self.start_with(&ticket, app, agent, None).await
     }
 
-    /// `otaq run set --command … [--open-url …]` (agents run the app): for a project with no run command, `agent` starts
-    /// `command` as this ticket's Run; it becomes the project's run command once the Run is running ("Set by Dev on
-    /// SHOP-27"). Failed to start: nothing is saved. Refused when the project already has one: an agent never changes
-    /// a command the user set.
+    /// `otaq run set [<app>] --command … [--open-url …]` (agents run the app): for an app the project doesn't have yet (or one
+    /// without a command), `agent` starts `command` as this ticket's Run of it; it becomes the project's once the Run
+    /// is running ("Set by Dev on SHOP-27"). `app` `None` adds [`DEFAULT_APP`] to a project with no app. Failed to
+    /// start: nothing is saved. Refused for an app that has a command: an agent never changes one the user set.
     pub async fn set_command(
         &self,
         key: &str,
         agent: RunAgent,
+        app: Option<&str>,
         command: &str,
         open_url: Option<&str>,
     ) -> Result<RunInfo, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
-        let project = self
-            .inner
-            .board
-            .project(ticket.key.project.as_str())
-            .await?;
-        let settings = self.inner.board.project_settings(&project.key).await?;
-        let existing = settings.run_command.trim();
-        if !existing.is_empty() {
+        let (project, settings) = self.project_of(&ticket).await?;
+        let cmd = naming::COMMAND_NAME;
+        let app = match app.map(str::trim) {
+            Some("") => {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    "the app's name is empty".to_owned(),
+                ));
+            }
+            Some(name) => name.to_owned(),
+            None => match settings.apps.as_slice() {
+                [] => DEFAULT_APP.to_owned(),
+                [only] => {
+                    return Err(BoardError::refused(
+                        Refusal::NotAllowed,
+                        format!(
+                            "{} already has a run command (`{}`): an agent never changes one. Start it with `{cmd} \
+                             run start --wait`; to add another app, name it: `{cmd} run set <app> --command …`",
+                            project.name,
+                            only.command.trim()
+                        ),
+                    ));
+                }
+                apps => {
+                    return Err(BoardError::refused(
+                        Refusal::NotAllowed,
+                        format!(
+                            "{} already has the apps {}: an agent never changes one. To add another app, name it: \
+                             `{cmd} run set <app> --command …`",
+                            project.name,
+                            names(apps)
+                        ),
+                    ));
+                }
+            },
+        };
+        if let Some(existing) = settings.app(&app)
+            && !existing.command.trim().is_empty()
+        {
             return Err(BoardError::refused(
                 Refusal::NotAllowed,
                 format!(
-                    "{} already has a run command (`{existing}`): an agent never changes one. Start it with `{} run \
-                     start --wait`",
+                    "{}'s app {app} already has a run command (`{}`): an agent never changes one. Start it with \
+                     `{}`",
                     project.name,
-                    naming::COMMAND_NAME
+                    existing.command.trim(),
+                    start_hint(&settings, &app)
+                ),
+            ));
+        }
+        let var = naming::app_port_env_var(&app);
+        if let Some(other) = settings
+            .apps
+            .iter()
+            .find(|a| a.name != app && naming::app_port_env_var(&a.name) == var)
+        {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "{app} and {} would both be {var}: pick another name",
+                    other.name
                 ),
             ));
         }
@@ -405,13 +481,15 @@ impl Runs {
                 "the run command is empty".to_owned(),
             ));
         }
-        if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
+        if self
+            .record(&ticket.id, &app)
+            .is_some_and(|r| r.state.is_live())
+        {
             return Err(BoardError::refused(
                 Refusal::NotAllowed,
                 format!(
-                    "{}'s Run is up: stop it first (`{} run stop`)",
-                    ticket.key,
-                    naming::COMMAND_NAME
+                    "{}'s Run of {app} is up: stop it first (`{cmd} run stop`)",
+                    ticket.key
                 ),
             ));
         }
@@ -427,29 +505,35 @@ impl Runs {
                 open_url: false,
             },
         };
-        self.start_with(key, Some(agent), Some((command.to_owned(), trying)))
-            .await
+        self.start_with(
+            &ticket,
+            app,
+            Some(agent),
+            Some((command.to_owned(), trying)),
+        )
+        .await
     }
 
     async fn start_with(
         &self,
-        key: &str,
+        ticket: &Ticket,
+        app: String,
         agent: Option<RunAgent>,
         trying: Option<(String, Trying)>,
     ) -> Result<RunInfo, BoardError> {
         let inner = &self.inner;
-        let ticket = inner.board.ticket(key).await?;
-        if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
-            return self.info_of(&ticket).await;
+        if self
+            .record(&ticket.id, &app)
+            .is_some_and(|r| r.state.is_live())
+        {
+            return self.info_of(ticket, &app).await;
         }
-        let worktree = ticket
-            .work
-            .as_ref()
+        let work = ticket.work.as_ref();
+        let worktree = work
             .and_then(|w| w.worktree.clone())
             .map(PathBuf::from)
-            .filter(|w| w.is_dir());
-        let port = ticket.work.as_ref().and_then(|w| w.run_port);
-        let (Some(worktree), Some(port)) = (worktree, port) else {
+            .filter(|w| w.is_dir() && work.is_some_and(|w| w.agent_port.is_some()));
+        let Some(worktree) = worktree else {
             return Err(BoardError::refused(
                 Refusal::NoWorktree,
                 format!(
@@ -458,21 +542,45 @@ impl Runs {
                 ),
             ));
         };
-        let project = inner.board.project(ticket.key.project.as_str()).await?;
-        let settings = inner.board.project_settings(&project.key).await?;
+        let (project, settings) = self.project_of(ticket).await?;
         let (command, trying) = match trying {
             Some((command, trying)) => (command, Some(trying)),
-            None => (settings.run_command.trim().to_owned(), None),
+            None => (
+                settings
+                    .app(&app)
+                    .map(|a| a.command.trim().to_owned())
+                    .unwrap_or_default(),
+                None,
+            ),
         };
         if command.is_empty() {
             return Err(BoardError::refused(
                 Refusal::NoRunCommand,
-                no_run_command(&project.name, agent.is_some()),
+                no_run_command(&project.name, &settings, &app, agent.is_some()),
             ));
         }
+        // Every app's port, this one's too when it is new (`run set`): `$PORT` is its own, `OTAQ_PORT_<NAME>` all.
+        let mut names = settings.port_apps();
+        if !names.contains(&app) {
+            if settings.apps.is_empty() {
+                names.clear();
+            }
+            names.push(app.clone());
+        }
+        let apps = inner
+            .ports
+            .app_ports(&ticket.id, &names)
+            .await
+            .map_err(|e| BoardError::refused(Refusal::NotAllowed, e.to_string()))?;
+        let port = apps
+            .iter()
+            .find(|(name, _)| *name == app)
+            .map(|(_, port)| *port)
+            .expect("the app's port was asked for");
 
         let mut record = Record {
             key: ticket.key.clone(),
+            app: app.clone(),
             state: RunState::PortInUse,
             port: Some(port),
             command: command.clone(),
@@ -485,35 +593,41 @@ impl Runs {
             trying,
         };
         if !ports::is_free_on_machine_settled(port).await {
-            tracing::info!(ticket = %ticket.key, port, "run port in use");
+            tracing::info!(ticket = %ticket.key, app, port, "run port in use");
             self.store(&ticket.id, record);
-            self.publish(&ticket);
-            return self.info_of(&ticket).await;
+            self.publish(ticket);
+            return self.info_of(ticket, &app).await;
         }
 
         // A build freed at Review comes back first; the ticket's lock is held until the Run is open, so no Free
         // takes it away before the Run holds it.
         let (fetched, _held) = inner
             .ticket_env
-            .fetch_for_terminal(&ticket, FetchWhy::Run)
+            .fetch_for_terminal(ticket, FetchWhy::Run)
             .await;
         if let Err(e) = fetched {
             let log = inner.data.setup_log_path(&ticket.key.to_string()).ok();
             tracing::warn!(ticket = %ticket.key, error = %e, log = ?log, "can't bring the build back; the Run starts anyway");
         }
         // A second click waited for the lock while the first brought the build back and started the Run.
-        if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
-            return self.info_of(&ticket).await;
+        if self
+            .record(&ticket.id, &app)
+            .is_some_and(|r| r.state.is_live())
+        {
+            return self.info_of(ticket, &app).await;
         }
 
-        // Windows' cmd has no `$PORT`: the documented placeholder is filled in there (the variable is set too).
+        // Windows' cmd has no `$` variables: the documented placeholders are filled in there (the variables are set
+        // too).
+        let shown = with_ports(&command, Some(port), &apps);
         let run = if cfg!(windows) {
-            with_port(&command, port)
+            shown.clone()
         } else {
             command.clone()
         };
-        let shell = crate::shell::one_line_shown(&run, &with_port(&command, port));
+        let shell = crate::shell::one_line_shown(&run, &shown);
         let mut env = inner.env.env(&inner.data, Some(&ticket.key), Some(port));
+        env.extend(app_port_vars(&apps));
         env.extend(shell.env);
         let mut prepared = inner.sessions.prepared(None);
         if let Some(a) = &agent {
@@ -549,21 +663,36 @@ impl Runs {
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        if let Err(e) =
+            sqlx::query("INSERT OR REPLACE INTO run_sessions (session_id, app) VALUES (?, ?)")
+                .bind(&session.id)
+                .bind(&app)
+                .execute(inner.board.store().pool())
+                .await
+        {
+            tracing::warn!(session = session.id, error = %e, "can't record the run's app");
+        }
         record.state = RunState::Starting;
         record.session = Some(session.id.clone());
         record.started_at = Some(session.started_at);
         self.store(&ticket.id, record);
         let stage = agent.as_ref().map(|a| a.stage.clone());
-        tracing::info!(ticket = %ticket.key, port, by = ?stage, "run started");
-        inner.board.run_ports().set(&ticket.id, Some((port, stage)));
-        self.publish(&ticket);
-        tokio::spawn(self.clone().watch(ticket.id.clone(), session.id, port));
-        self.info_of(&ticket).await
+        tracing::info!(ticket = %ticket.key, app, port, by = ?stage, "run started");
+        inner
+            .board
+            .run_ports()
+            .set(&ticket.id, &app, Some((port, stage)));
+        self.publish(ticket);
+        tokio::spawn(
+            self.clone()
+                .watch(ticket.id.clone(), app.clone(), session.id, port),
+        );
+        self.info_of(ticket, &app).await
     }
 
-    /// Stops the ticket's Run (the user's Stop): its whole process group ends.
-    pub async fn stop(&self, key: &str) -> Result<RunInfo, BoardError> {
-        self.stop_as(key, None).await
+    /// Stops app `app`'s Run of the ticket (the user's Stop; `None`: the only app): its whole process group ends.
+    pub async fn stop(&self, key: &str, app: Option<&str>) -> Result<RunInfo, BoardError> {
+        self.stop_as(key, app, None).await
     }
 
     /// [`Runs::stop`] for `agent` (`otaq run stop`, agents run the app), or for you (`None`). An agent stops only a Run an agent
@@ -571,13 +700,23 @@ impl Runs {
     pub async fn stop_as(
         &self,
         key: &str,
+        app: Option<&str>,
         agent: Option<&RunAgent>,
     ) -> Result<RunInfo, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
+        let (project, settings) = self.project_of(&ticket).await?;
+        let app = self.resolve_live(
+            &ticket,
+            &settings,
+            &project.name,
+            app,
+            "stop",
+            agent.is_some(),
+        )?;
         let cause = match agent {
             None => StopCause::You,
             Some(a) => {
-                if let Some(r) = self.record(&ticket.id)
+                if let Some(r) = self.record(&ticket.id, &app)
                     && r.state.is_live()
                     && r.agent.is_none()
                 {
@@ -591,81 +730,85 @@ impl Runs {
                 }
             }
         };
-        self.stop_with(&ticket.id, cause).await;
-        self.info_of(&ticket).await
+        self.stop_with(&ticket.id, &app, cause).await;
+        self.info_of(&ticket, &app).await
     }
 
-    /// The agent of `session` ended its stage or gave its verdict (agents run the app): a Run it started stops ("stage ended").
-    /// A Run the user started, or another agent's, is left alone. `true` when one stopped.
+    /// The agent of `session` ended its stage or gave its verdict (agents run the app): every Run it started stops ("stage
+    /// ended"), whichever app. A Run the user started, or another agent's, is left alone. `true` when one stopped.
     pub async fn stage_ended(&self, session: &str) -> bool {
-        let started: Vec<(String, String)> = self
+        let started: Vec<(RunKey, String)> = self
             .inner
             .records
             .lock()
             .expect("runs")
             .iter()
             .filter(|(_, r)| r.state.is_live())
-            .filter_map(|(id, r)| {
+            .filter_map(|(key, r)| {
                 let a = r.agent.as_ref().filter(|a| a.session == session)?;
-                Some((id.clone(), a.stage.clone()))
+                Some((key.clone(), a.stage.clone()))
             })
             .collect();
         let mut stopped = false;
-        for (ticket_id, stage) in started {
+        for ((ticket_id, app), stage) in started {
             stopped |= self
-                .stop_with(&ticket_id, StopCause::StageEnded { stage })
+                .stop_with(&ticket_id, &app, StopCause::StageEnded { stage })
                 .await;
         }
         stopped
     }
 
-    /// The Run's kept output as text, its last `tail` lines (`otaq run log`, agents run the app): the Run now or the last one
+    /// App `app`'s Run output as text, its last `tail` lines (`otaq run log`, agents run the app): the Run now or the last one
     /// still in memory. Refused before any Run, and after a restart (output never goes to disk, d0045).
-    pub async fn log(&self, key: &str, tail: usize) -> Result<RunLog, BoardError> {
+    pub async fn log(
+        &self,
+        key: &str,
+        app: Option<&str>,
+        tail: usize,
+    ) -> Result<RunLog, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
-        let record = self.record(&ticket.id);
+        let (project, settings) = self.project_of(&ticket).await?;
+        let app = self.resolve_live(&ticket, &settings, &project.name, app, "log", true)?;
+        let record = self.record(&ticket.id, &app);
         let output = record
             .as_ref()
             .and_then(|r| r.session.as_deref())
             .and_then(|s| self.inner.sessions.output_of_session(s));
+        let whose = if settings.apps.len() > 1 {
+            format!("{}'s Run of {app}", ticket.key)
+        } else {
+            format!("{}'s Run", ticket.key)
+        };
         let Some((_, bytes, size)) = output else {
             let message = match record.map(|r| r.state) {
                 Some(RunState::StoppedByRestart) => {
-                    format!("{}'s Run output isn't kept after a restart.", ticket.key)
+                    format!("{whose} output isn't kept after a restart.")
                 }
-                Some(RunState::PortInUse) => format!(
-                    "{}'s Run didn't start: its port is in use, so there is no output.",
-                    ticket.key
-                ),
-                _ => format!(
-                    "{}'s Run hasn't run yet, so there is no output.",
-                    ticket.key
-                ),
+                Some(RunState::PortInUse) => {
+                    format!("{whose} didn't start: its port is in use, so there is no output.")
+                }
+                _ => format!("{whose} hasn't run yet, so there is no output."),
             };
             return Err(BoardError::refused(Refusal::SessionEnded, message));
         };
         let text = crate::session::screen::render_above(&bytes, size, tail);
         let lines: Vec<&str> = text.lines().collect();
         let text = lines[lines.len().saturating_sub(tail)..].join("\n");
-        let state = self.info_of(&ticket).await?.state;
+        let state = self.info_of(&ticket, &app).await?.state;
         Ok(RunLog {
             key: ticket.key,
+            app,
             state,
             text,
         })
     }
 
-    /// A ticket reached Done or was closed (REC-05): its Run stops and a toast says so.
+    /// A ticket reached Done or was closed (REC-05): every Run of it stops and a toast says so.
     pub async fn finished(&self, ticket: &FinishedTicket) {
-        if !self
-            .stop_with(
-                &ticket.id,
-                StopCause::Finished {
-                    status: ticket.status,
-                },
-            )
-            .await
-        {
+        let cause = StopCause::Finished {
+            status: ticket.status,
+        };
+        if !self.stop_all(&ticket.id, cause).await {
             return;
         }
         let what = if ticket.status == Status::Merged {
@@ -680,13 +823,13 @@ impl Runs {
         });
     }
 
-    /// A ticket was parked (d0052): its Run stops before the ports are freed, so the freed Run port is really free
+    /// A ticket was parked (d0052): its Runs stop before the ports are freed, so the freed ports are really free
     /// (Q30). No toast: the Park confirmation already says the ticket's work stops.
     pub async fn parked(&self, ticket: &FinishedTicket) {
-        self.stop_with(&ticket.id, StopCause::Parked).await;
+        self.stop_all(&ticket.id, StopCause::Parked).await;
     }
 
-    /// A restart stopped this Run session (REC-01, d0045): the Run shows "stopped by restart".
+    /// A restart stopped this Run session (REC-01, d0045): its app's Run shows "stopped by restart".
     pub fn stopped_by_restart(&self, info: &SessionInfo) {
         if info.kind != SessionKind::Run {
             return;
@@ -700,7 +843,15 @@ impl Runs {
             let Ok(ticket) = runs.inner.board.ticket(&key.to_string()).await else {
                 return;
             };
-            if runs.record(&ticket.id).is_some() {
+            let app: Option<String> =
+                sqlx::query_scalar("SELECT app FROM run_sessions WHERE session_id = ?")
+                    .bind(&info.id)
+                    .fetch_optional(runs.inner.board.store().pool())
+                    .await
+                    .ok()
+                    .flatten();
+            let app = app.unwrap_or_else(|| DEFAULT_APP.to_owned());
+            if runs.record(&ticket.id, &app).is_some() {
                 return;
             }
             let settings = runs
@@ -714,8 +865,12 @@ impl Runs {
                 Record {
                     key,
                     state: RunState::StoppedByRestart,
-                    port: ticket.work.as_ref().and_then(|w| w.run_port),
-                    command: settings.run_command.trim().to_owned(),
+                    port: ticket.work.as_ref().and_then(|w| w.app_port(&app)),
+                    command: settings
+                        .app(&app)
+                        .map(|a| a.command.trim().to_owned())
+                        .unwrap_or_default(),
+                    app,
                     session: None,
                     started_at: Some(info.started_at),
                     ended_at: info.ended_at,
@@ -729,40 +884,90 @@ impl Runs {
         });
     }
 
-    /// The ticket's Run now.
-    pub async fn info(&self, key: &str) -> Result<RunInfo, BoardError> {
+    /// App `app`'s Run of the ticket now (`None`: the only app; with several, refused with their names).
+    pub async fn info(&self, key: &str, app: Option<&str>) -> Result<RunInfo, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
-        self.info_of(&ticket).await
+        let (project, settings) = self.project_of(&ticket).await?;
+        let app = self.resolve_live(&ticket, &settings, &project.name, app, "status", true)?;
+        self.info_of(&ticket, &app).await
     }
 
-    /// Every Run that is up, across projects, oldest first (RUN-04).
+    /// Every app's Run of the ticket (agents run the app), in the project's order, then any app still running that the project
+    /// no longer has. A project with no app yet gives one, [`DEFAULT_APP`], not started (the Run tab asks for a
+    /// command).
+    pub async fn apps(&self, key: &str) -> Result<Vec<RunInfo>, BoardError> {
+        let ticket = self.inner.board.ticket(key).await?;
+        let (_, settings) = self.project_of(&ticket).await?;
+        let mut names = settings.port_apps();
+        let mut extra: Vec<String> = self
+            .inner
+            .records
+            .lock()
+            .expect("runs")
+            .iter()
+            .filter(|((id, app), r)| *id == ticket.id && r.state.is_live() && !names.contains(app))
+            .map(|((_, app), _)| app.clone())
+            .collect();
+        extra.sort();
+        names.extend(extra);
+        let mut all = Vec::with_capacity(names.len());
+        for app in names {
+            all.push(self.info_of(&ticket, &app).await?);
+        }
+        Ok(all)
+    }
+
+    /// Every Run that is up, across projects and apps, oldest first (RUN-04).
     pub async fn running(&self) -> Vec<RunInfo> {
-        let live: Vec<String> = self
+        let live: Vec<RunKey> = self
             .inner
             .records
             .lock()
             .expect("runs")
             .iter()
             .filter(|(_, r)| r.state.is_live())
-            .map(|(id, _)| id.clone())
+            .map(|(key, _)| key.clone())
             .collect();
         let mut all = Vec::new();
-        for id in live {
+        for (id, app) in live {
             if let Ok(ticket) = self.inner.board.ticket_by_id(&id).await
-                && let Ok(info) = self.info_of(&ticket).await
+                && let Ok(info) = self.info_of(&ticket, &app).await
             {
                 all.push(info);
             }
         }
-        all.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.key.cmp(&b.key)));
+        all.sort_by(|a, b| {
+            a.started_at
+                .cmp(&b.started_at)
+                .then(a.key.cmp(&b.key))
+                .then(a.app.cmp(&b.app))
+        });
         all
     }
 
+    /// Stops every live Run of the ticket for `cause`; `true` when one was up.
+    async fn stop_all(&self, ticket_id: &str, cause: StopCause) -> bool {
+        let apps: Vec<String> = self
+            .inner
+            .records
+            .lock()
+            .expect("runs")
+            .iter()
+            .filter(|((id, _), r)| id == ticket_id && r.state.is_live())
+            .map(|((_, app), _)| app.clone())
+            .collect();
+        let mut stopped = false;
+        for app in apps {
+            stopped |= self.stop_with(ticket_id, &app, cause.clone()).await;
+        }
+        stopped
+    }
+
     /// Stops a live Run for `cause`; `true` when one was up.
-    async fn stop_with(&self, ticket_id: &str, cause: StopCause) -> bool {
+    async fn stop_with(&self, ticket_id: &str, app: &str, cause: StopCause) -> bool {
         let session = {
             let mut records = self.inner.records.lock().expect("runs");
-            match records.get_mut(ticket_id) {
+            match records.get_mut(&run_key(ticket_id, app)) {
                 Some(r) if r.state.is_live() => {
                     r.stopped_by = Some(cause);
                     r.session.clone()
@@ -777,41 +982,42 @@ impl Runs {
             tracing::warn!(session, error = %e, "can't stop the run");
         }
         if let Ok(info) = self.inner.sessions.info(&session) {
-            self.ended(ticket_id, &info).await;
+            self.ended(ticket_id, app, &info).await;
         }
         true
     }
 
     /// Follows a Run until its session ends: starting becomes running once the port answers.
-    async fn watch(self, ticket_id: String, session: String, port: u16) {
+    async fn watch(self, ticket_id: String, app: String, session: String, port: u16) {
         let sessions = self.inner.sessions.clone();
         let ended = sessions.wait_ended(&session);
         tokio::pin!(ended);
         let mut tick = tokio::time::interval(PORT_POLL);
         loop {
             let starting = self
-                .record(&ticket_id)
+                .record(&ticket_id, &app)
                 .is_some_and(|r| r.state == RunState::Starting);
             tokio::select! {
                 info = &mut ended => {
                     if let Some(info) = info {
-                        self.ended(&ticket_id, &info).await;
+                        self.ended(&ticket_id, &app, &info).await;
                     }
                     return;
                 }
                 _ = tick.tick(), if starting => {
                     if port_answers(port).await {
-                        self.became_running(&ticket_id, &session).await;
+                        self.became_running(&ticket_id, &app, &session).await;
                     }
                 }
             }
         }
     }
 
-    async fn became_running(&self, ticket_id: &str, session: &str) {
+    async fn became_running(&self, ticket_id: &str, app: &str, session: &str) {
+        let key = run_key(ticket_id, app);
         let tried = {
             let mut records = self.inner.records.lock().expect("runs");
-            match records.get_mut(ticket_id) {
+            match records.get_mut(&key) {
                 Some(r)
                     if r.state == RunState::Starting && r.session.as_deref() == Some(session) =>
                 {
@@ -822,13 +1028,14 @@ impl Runs {
                 _ => return,
             }
         };
-        // The command an agent tried runs: it becomes the project's (agents run the app), unless one was set meanwhile.
-        if let Some((key, command, trying)) = tried {
+        // The command an agent tried runs: it becomes the app's (agents run the app), unless one was set meanwhile.
+        if let Some((ticket, command, trying)) = tried {
             match self
                 .inner
                 .board
-                .save_agent_run_command(
-                    key.project.as_str(),
+                .save_agent_app(
+                    ticket.project.as_str(),
+                    app,
                     &command,
                     trying.open_url.as_deref(),
                     trying.by,
@@ -836,22 +1043,22 @@ impl Runs {
                 .await
             {
                 Ok(true) => {
-                    tracing::info!(ticket = %key, %command, "run command set by the agent");
+                    tracing::info!(%ticket, app, %command, "run command set by the agent");
                     // Settings pages refetch the project's settings: "Set by Dev on SHOP-27" shows.
                     self.inner.events.publish(Event::ProjectsChanged);
                 }
                 Ok(false) => {
-                    tracing::info!(ticket = %key, "a run command was set meanwhile; the agent's isn't saved")
+                    tracing::info!(%ticket, app, "a run command was set meanwhile; the agent's isn't saved")
                 }
                 Err(e) => {
-                    tracing::warn!(ticket = %key, error = %e, "can't save the agent's run command")
+                    tracing::warn!(%ticket, app, error = %e, "can't save the agent's run command")
                 }
             }
         }
         // Running only now, once a tried command is saved: `run set` sees it saved when it sees running.
         {
             let mut records = self.inner.records.lock().expect("runs");
-            match records.get_mut(ticket_id) {
+            match records.get_mut(&key) {
                 Some(r)
                     if r.state == RunState::Starting && r.session.as_deref() == Some(session) =>
                 {
@@ -861,20 +1068,20 @@ impl Runs {
             }
         }
         if let Ok(ticket) = self.inner.board.ticket_by_id(ticket_id).await {
-            tracing::info!(ticket = %ticket.key, "run is up");
+            tracing::info!(ticket = %ticket.key, app, "run is up");
             self.publish(&ticket);
         }
     }
 
     /// Records how a Run's session ended (once): its state, its last line, the card's chip gone.
-    async fn ended(&self, ticket_id: &str, info: &SessionInfo) {
+    async fn ended(&self, ticket_id: &str, app: &str, info: &SessionInfo) {
         let reason = info.end_reason.clone().unwrap_or_default();
         let exit_code = reason
             .strip_prefix("exit ")
             .and_then(|code| code.trim().parse::<i32>().ok());
         let line = {
             let mut records = self.inner.records.lock().expect("runs");
-            let Some(r) = records.get_mut(ticket_id) else {
+            let Some(r) = records.get_mut(&run_key(ticket_id, app)) else {
                 return;
             };
             if !r.state.is_live() || r.session.as_deref() != Some(info.id.as_str()) {
@@ -935,34 +1142,33 @@ impl Runs {
             .inner
             .sessions
             .append_line(&info.id, &format!("[{}] {line}", naming::COMMAND_NAME));
-        self.inner.board.run_ports().set(ticket_id, None);
+        self.inner.board.run_ports().set(ticket_id, app, None);
         if let Ok(ticket) = self.inner.board.ticket_by_id(ticket_id).await {
-            tracing::info!(ticket = %ticket.key, %line, "run ended");
+            tracing::info!(ticket = %ticket.key, app, %line, "run ended");
             self.publish(&ticket);
         }
     }
 
-    async fn info_of(&self, ticket: &Ticket) -> Result<RunInfo, BoardError> {
-        let project = self
-            .inner
-            .board
-            .project(ticket.key.project.as_str())
-            .await?;
-        let settings = self.inner.board.project_settings(&project.key).await?;
-        let record = self.record(&ticket.id);
+    async fn info_of(&self, ticket: &Ticket, app: &str) -> Result<RunInfo, BoardError> {
+        let (project, settings) = self.project_of(ticket).await?;
+        let record = self.record(&ticket.id, app);
+        let configured = settings.app(app);
         let open_url = record
             .as_ref()
             .and_then(|r| r.trying.as_ref())
             .and_then(|t| t.open_url.clone())
-            .or_else(|| Some(settings.open_url.trim().to_owned()).filter(|u| !u.is_empty()));
+            .or_else(|| configured.and_then(|a| a.url()).map(str::to_owned));
         let mut info = RunInfo {
             project: project.key.clone(),
             project_name: project.name.clone(),
             key: ticket.key.clone(),
             title: ticket.title.clone(),
+            app: app.to_owned(),
             state: RunState::NotStarted,
-            port: ticket.work.as_ref().and_then(|w| w.run_port),
-            command: settings.run_command.trim().to_owned(),
+            port: ticket.work.as_ref().and_then(|w| w.app_port(app)),
+            command: configured
+                .map(|a| a.command.trim().to_owned())
+                .unwrap_or_default(),
             open_url,
             session: None,
             started_at: None,
@@ -970,7 +1176,7 @@ impl Runs {
             exit_code: None,
             stopped_by: None,
             started_by: None,
-            command_set_by: settings.run_command_set_by.clone(),
+            command_set_by: configured.and_then(|a| a.set_by.clone()),
         };
         if let Some(r) = record {
             info.started_by = r.started_by();
@@ -988,12 +1194,45 @@ impl Runs {
         Ok(info)
     }
 
-    fn record(&self, ticket_id: &str) -> Option<Record> {
+    async fn project_of(
+        &self,
+        ticket: &Ticket,
+    ) -> Result<(crate::store::projects::Project, ProjectSettings), BoardError> {
+        let project = self
+            .inner
+            .board
+            .project(ticket.key.project.as_str())
+            .await?;
+        let settings = self.inner.board.project_settings(&project.key).await?;
+        Ok((project, settings))
+    }
+
+    /// [`resolve_app`], where a name left out may also mean the one app of the ticket still running that the project
+    /// no longer lists (an app renamed while its Run was up).
+    fn resolve_live(
+        &self,
+        ticket: &Ticket,
+        settings: &ProjectSettings,
+        project: &str,
+        app: Option<&str>,
+        verb: &str,
+        agent: bool,
+    ) -> Result<String, BoardError> {
+        if let Some(name) = app
+            && settings.app(name).is_none()
+            && self.record(&ticket.id, name).is_some()
+        {
+            return Ok(name.to_owned());
+        }
+        resolve_app(settings, project, app, verb, agent)
+    }
+
+    fn record(&self, ticket_id: &str, app: &str) -> Option<Record> {
         self.inner
             .records
             .lock()
             .expect("runs")
-            .get(ticket_id)
+            .get(&run_key(ticket_id, app))
             .cloned()
     }
 
@@ -1002,7 +1241,7 @@ impl Runs {
             .records
             .lock()
             .expect("runs")
-            .insert(ticket_id.to_owned(), record);
+            .insert(run_key(ticket_id, &record.app), record);
     }
 
     /// The Run changed: the Run tab, the header's list and the ticket's card (its chip) follow.
@@ -1031,15 +1270,86 @@ async fn port_answers(port: u16) -> bool {
     false
 }
 
-/// The refusal when the project has no run command; an agent is told how to add one (agents run the app).
-fn no_run_command(project: &str, agent: bool) -> String {
-    if agent {
-        format!(
-            "{project} has no run command yet: if you know how this project starts, run `{} run set --command …`",
-            naming::COMMAND_NAME
-        )
+/// Which app a Run request means (agents run the app): the one named, or the only app; with several apps and none named, refused
+/// with their names. A name the project doesn't have is refused too, unless the project has no app yet (then the
+/// start says how to add it). `verb` is the `run` subcommand, for the example in the refusal.
+pub fn resolve_app(
+    settings: &ProjectSettings,
+    project: &str,
+    app: Option<&str>,
+    verb: &str,
+    agent: bool,
+) -> Result<String, BoardError> {
+    let cmd = naming::COMMAND_NAME;
+    match app.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(name) if settings.app(name).is_some() || settings.apps.is_empty() => {
+            Ok(name.to_owned())
+        }
+        Some(name) => {
+            let add = if agent {
+                format!(
+                    ". If you know how {name} starts, add it: `{cmd} run set {name} --command …`"
+                )
+            } else {
+                String::new()
+            };
+            Err(BoardError::refused(
+                Refusal::NoRunCommand,
+                format!(
+                    "{project} has no app {name}; its apps: {}{add}",
+                    names(&settings.apps)
+                ),
+            ))
+        }
+        None => match settings.apps.as_slice() {
+            [] => Ok(DEFAULT_APP.to_owned()),
+            [only] => Ok(only.name.clone()),
+            apps => Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "{project} has {} apps: {}. Name the one you mean: `{cmd} run {verb} {}`",
+                    apps.len(),
+                    names(apps),
+                    apps[0].name
+                ),
+            )),
+        },
+    }
+}
+
+/// "web, api".
+fn names(apps: &[crate::board::settings::RunApp]) -> String {
+    apps.iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `otaq run start --wait`, with the app's name when the project has several.
+fn start_hint(settings: &ProjectSettings, app: &str) -> String {
+    let cmd = naming::COMMAND_NAME;
+    if settings.apps.len() > 1 {
+        format!("{cmd} run start {app} --wait")
     } else {
-        format!("{project} has no run command yet")
+        format!("{cmd} run start --wait")
+    }
+}
+
+/// The refusal when the app has no run command; an agent is told how to add one (agents run the app). A project with no app yet
+/// and the app left unnamed reads as before apps had names.
+fn no_run_command(project: &str, settings: &ProjectSettings, app: &str, agent: bool) -> String {
+    let cmd = naming::COMMAND_NAME;
+    let unnamed = settings.apps.is_empty() && app == DEFAULT_APP;
+    match (agent, unnamed) {
+        (true, true) => format!(
+            "{project} has no run command yet: if you know how this project starts, run `{cmd} run set --command …`"
+        ),
+        (true, false) => format!(
+            "{project} has no run command for {app} yet: if you know how it starts, run `{cmd} run set {app} \
+             --command …`"
+        ),
+        (false, true) => format!("{project} has no run command yet"),
+        (false, false) => format!("{project} has no run command for {app} yet"),
     }
 }
 

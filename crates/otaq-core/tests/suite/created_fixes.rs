@@ -8,8 +8,7 @@ use otaq_core::service::testing::{AgentShell, TestService};
 use serde_json::{Value, json};
 
 async fn send(world: &TestService, agent: &AgentShell, method: &str, params: Value) -> Value {
-    let request =
-        json!({"protocol_version": 1, "id": 1, "request": {"method": method, "params": params}});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": method, "params": params}});
     let ran = agent
         .send_raw(&world.data.socket_path(), &request.to_string())
         .await;

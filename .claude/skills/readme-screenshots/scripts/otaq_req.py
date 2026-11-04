@@ -16,13 +16,20 @@ import socket
 import sys
 
 HOME = os.environ.get("OTAQ_HOME", "/tmp/otaqdemo/home")
+# The protocol number the service speaks: learned from a `ping`, which every version answers (see call()).
+VERSION = None
 
 
 def call(sock, i, method, params=None):
+    global VERSION
+    if VERSION is None:
+        # `ping` is version-independent: any number gets an answer stamped with the service's own.
+        VERSION = 1
+        VERSION = call(sock, 0, "ping").get("protocol_version", 1)
     req = {"method": method}
     if params is not None:
         req["params"] = params
-    sock.sendall((json.dumps({"protocol_version": 1, "id": i, "request": req}) + "\n").encode())
+    sock.sendall((json.dumps({"protocol_version": VERSION, "id": i, "request": req}) + "\n").encode())
     buf = b""
     while True:
         chunk = sock.recv(65536)

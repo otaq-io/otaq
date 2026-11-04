@@ -258,12 +258,17 @@ async fn review_entry_frees_the_build_and_the_worktree_stays_clean() {
         assert_eq!(after.status, Status::WaitingForYou);
         let work = after.work.unwrap();
         assert_eq!(
-            (&work.worktree, &work.branch, work.agent_port, work.run_port),
+            (
+                &work.worktree,
+                &work.branch,
+                work.agent_port,
+                work.app_port("app")
+            ),
             (
                 &before.worktree,
                 &before.branch,
                 before.agent_port,
-                before.run_port
+                before.app_port("app")
             )
         );
         assert_eq!(work.build_problem, None);

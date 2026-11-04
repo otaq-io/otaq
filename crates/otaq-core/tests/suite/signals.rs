@@ -96,7 +96,10 @@ async fn labels_texts_clearing_and_last_signal() {
     let ran = shell
         .send_raw(
             &w.data.socket_path(),
-            r#"{"protocol_version":1,"id":1,"request":{"method":"ping"}}"#,
+            &format!(
+                r#"{{"protocol_version":{},"id":1,"request":{{"method":"ping"}}}}"#,
+                otaq_core::protocol::PROTOCOL_VERSION
+            ),
         )
         .await;
     assert!(ran.stdout.contains("pong"), "{ran:?}");
@@ -110,7 +113,7 @@ async fn labels_texts_clearing_and_last_signal() {
     let ran = shell
         .send_raw(
             &w.data.socket_path(),
-            r#"{"protocol_version":1,"id":1,"request":{"method":"decision.record","params":{"key":"SHOP-1","question":"Which order?","built":"newest first","other_options":["oldest first"],"why":"the list reads that way"}}}"#,
+            &format!(r#"{{"protocol_version":{},"id":1,"request":{{"method":"decision.record","params":{{"key":"SHOP-1","question":"Which order?","built":"newest first","other_options":["oldest first"],"why":"the list reads that way"}}}}}}"#, otaq_core::protocol::PROTOCOL_VERSION),
         )
         .await;
     assert!(!ran.stdout.contains("error"), "{ran:?}");
