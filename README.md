@@ -218,7 +218,7 @@ One Dark, Daylight (the board above) and Solarized Light.
 
 | | |
 |---|---|
-| **An agent tool** | at least one of [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex), [GitHub Copilot CLI](https://github.com/github/copilot-cli) or [OpenCode 2](https://opencode.ai/v2/docs/) (`npm install -g @opencode/cli`; the `opencode-ai` package is OpenCode 1, which Otaq can't run), installed and signed in |
+| **An agent tool** | at least one of [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex), [GitHub Copilot CLI](https://github.com/github/copilot-cli) or [OpenCode 2](https://opencode.ai/v2/docs/) (`npm install -g --allow-scripts=@opencode/cli @opencode/cli`; the `opencode-ai` package is OpenCode 1, which Otaq can't run), installed and signed in |
 | **git** | any recent version |
 | **OS** | macOS (most tested), Windows 10/11, or Linux |
 | **To build** (only from source) | Rust 1.99+ (edition 2024) and Node 24 |
