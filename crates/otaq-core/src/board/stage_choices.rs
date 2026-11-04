@@ -3,10 +3,12 @@
 //! who set it. No choice = the stage's usual agent ("Product spec: Spec writer"), "required" on a stage that runs no
 //! agent ("Code review: required"; FLW-22, Q290).
 //!
-//! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins; an agent (the
-//! Project agent, a ticket's own agent) only with a reason, never over the user's choice, and once the
-//! ticket has started only a **later** stage's; before the ticket starts it may set any stage's. An agent's request
-//! that carries `--by-user` (d0087) is the user's. Which tickets each agent may change at all is the policy's
+//! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins. An agent's
+//! request that carries `--by-user` (d0087) is the user's. Noyan is intake only: the Project agent sets only the
+//! choices the user names, with `--by-user`, and any choice of its own is refused ([`NOYAN_USER_CHOICES_ONLY`], T1).
+//! A ticket's own agent may pick another agent (or `required`) only with a reason, never over the user's choice, and
+//! once the ticket has started only for a **later** stage; before the ticket starts it may set any stage's. Only the
+//! user skips a stage: a ticket agent's `skip` is refused ([`ONLY_THE_USER_SKIPS`]). Which tickets each agent may change at all is the policy's
 //! ([`crate::policy::Action::SetChoices`], CLI-06; d0129): the Project agent its Backlog tickets, a ticket agent its
 //! own ticket and the never-started tickets it created. A choice **locks** when its stage starts (the ticket has a
 //! run of it, STG-05). A choice must be one of the stage's options, else it is refused naming them; a stage without
@@ -43,6 +45,14 @@ pub const REQUIRED: &str = "required";
 
 /// An agent's choice without a reason (AGM-08).
 pub const SAY_WHY: &str = "Say why with --reason";
+
+/// The refusal of a stage choice the Project agent makes on its own (T1): Noyan is intake only and passes on only
+/// the choices the user names.
+pub const NOYAN_USER_CHOICES_ONLY: &str = "Noyan sets only the stage choices the user names: add --by-user, or leave the stage's own agent";
+
+/// The refusal of a ticket agent's `skip` (T1): only the user skips a stage.
+pub const ONLY_THE_USER_SKIPS: &str =
+    "Only the user skips a stage: pick another agent for it, or leave it";
 
 /// One choice a request sets: `{"stage": "Dev", "choice": "Quick developer", "reason": "typo fix"}`. `stage` is a
 /// stage's name (ignoring case) or id; `choice` an agent's name (ignoring case), [`SKIP`] or [`REQUIRED`].
@@ -427,17 +437,21 @@ pub fn choice_of(stage: &Stage, options: &StageOptions, word: &str) -> Result<Ch
     ))
 }
 
-/// Judges one choice (AGM-08; d0108, d0087) for `target` at flow position `index`, over `current` (the choice it
-/// has). `by_user` makes an agent's choice the user's.
+/// Judges one choice (AGM-08; d0108, d0087) of `choice` for `target` at flow position `index`, over `current` (the
+/// choice it has). `by_user` makes an agent's choice the user's.
 ///
 /// - a stage that started is locked, for everyone;
-/// - an agent's own choice needs a reason, never overrides the user's, and once the ticket has started is only for
-///   a later stage.
+/// - the Project agent sets only the user's choices (`by_user`): its own are refused;
+/// - only the user skips a stage: a ticket agent's own `skip` is refused;
+/// - a ticket agent's own choice needs a reason, never overrides the user's, and once the ticket has started is only
+///   for a later stage.
+#[allow(clippy::too_many_arguments)]
 pub fn judge(
     target: Target<'_>,
     stage: &Stage,
     index: usize,
     current: Option<&StageChoice>,
+    choice: &Choice,
     chooser: &Chooser,
     by_user: bool,
     reason: Option<&str>,
@@ -453,6 +467,18 @@ pub fn judge(
     }
     if *chooser == Chooser::User || by_user {
         return Ok(());
+    }
+    if matches!(chooser, Chooser::ProjectAgent { .. }) {
+        return Err(BoardError::refused(
+            Refusal::NotAllowed,
+            NOYAN_USER_CHOICES_ONLY,
+        ));
+    }
+    if *choice == Choice::Skip {
+        return Err(BoardError::refused(
+            Refusal::NotAllowed,
+            ONLY_THE_USER_SKIPS,
+        ));
     }
     if reason.is_none_or(|r| r.trim().is_empty()) {
         return Err(BoardError::refused(Refusal::EmptyField, SAY_WHY));
@@ -820,6 +846,7 @@ impl Board {
                 stage,
                 index,
                 current,
+                &choice,
                 chooser,
                 by_user,
                 pick.reason.as_deref(),
@@ -1088,8 +1115,9 @@ mod tests {
         assert_eq!(Choice::Usual.label(&dev), "Rust developer");
     }
 
-    /// Who may set what (AGM-08): the user until the stage starts; an agent with a reason, never over the user,
-    /// later stages only once the ticket started; `--by-user` is the user's.
+    /// Who may set what (AGM-08): the user until the stage starts; Noyan only the user's choices; a ticket agent
+    /// another agent with a reason, never over the user, later stages only once the ticket started, and never a skip
+    /// (only the user skips a stage); `--by-user` is the user's.
     #[test]
     fn the_choice_rule() {
         let dev = stage("dev", Some("Rust developer"), &["Quick developer"]);
@@ -1135,9 +1163,16 @@ mod tests {
         let spec_writer = Chooser::TicketAgent {
             name: "Spec writer".into(),
         };
-        let judged = |target, current, chooser: &Chooser, by_user, reason| {
-            judge(target, &dev, 1, current, chooser, by_user, reason)
+        let quick = Choice::Agent {
+            id: "quick".into(),
+            name: "Quick developer".into(),
+        };
+        let judged_as = |choice: &Choice, target, current, chooser: &Chooser, by_user, reason| {
+            judge(target, &dev, 1, current, choice, chooser, by_user, reason)
                 .map_err(|e| (e.refusal().unwrap(), e.to_string()))
+        };
+        let judged = |target, current, chooser: &Chooser, by_user, reason| {
+            judged_as(&quick, target, current, chooser, by_user, reason)
         };
         let refused = |code, text: &str| Err((code, text.to_owned()));
         let set_by_you = "You set Dev for SHOP-5; the agent's choice doesn't replace yours";
@@ -1159,23 +1194,65 @@ mod tests {
                 refused(Refusal::ChoiceLocked, locked),
             ),
             (
-                "Noyan at creation, with a reason",
+                "Noyan's own choice, even with a reason",
                 judged(fresh, None, &noyan, false, Some("typo fix")),
+                refused(Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY),
+            ),
+            (
+                "Noyan's own required",
+                judged_as(&Choice::Usual, fresh, None, &noyan, false, Some("x")),
+                refused(Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY),
+            ),
+            (
+                "Noyan's own skip",
+                judged_as(&Choice::Skip, fresh, None, &noyan, false, Some("x")),
+                refused(Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY),
+            ),
+            (
+                "Noyan passes on the user's choice",
+                judged(fresh, None, &noyan, true, None),
                 Ok(()),
             ),
             (
-                "agent, no reason",
-                judged(fresh, None, &noyan, false, Some(" ")),
+                "Noyan passes on the user's skip",
+                judged_as(&Choice::Skip, fresh, None, &noyan, true, None),
+                Ok(()),
+            ),
+            (
+                "ticket agent, no reason",
+                judged(fresh, None, &spec_writer, false, Some(" ")),
                 refused(Refusal::EmptyField, SAY_WHY),
             ),
             (
-                "agent over the user's choice",
-                judged(fresh, Some(&user_choice), &noyan, false, Some("x")),
+                "ticket agent over the user's choice",
+                judged(fresh, Some(&user_choice), &spec_writer, false, Some("x")),
                 refused(Refusal::NotAllowed, set_by_you),
             ),
             (
-                "agent over the user's choice, in the user's words",
-                judged(fresh, Some(&user_choice), &noyan, true, None),
+                "ticket agent over the user's choice, in the user's words",
+                judged(fresh, Some(&user_choice), &spec_writer, true, None),
+                Ok(()),
+            ),
+            (
+                "ticket agent skips a later stage",
+                judged_as(&Choice::Skip, in_spec, None, &spec_writer, false, Some("x")),
+                refused(Refusal::NotAllowed, ONLY_THE_USER_SKIPS),
+            ),
+            (
+                "ticket agent skips in the user's words",
+                judged_as(&Choice::Skip, in_spec, None, &spec_writer, true, None),
+                Ok(()),
+            ),
+            (
+                "ticket agent sets a later stage back to required",
+                judged_as(
+                    &Choice::Usual,
+                    in_spec,
+                    None,
+                    &spec_writer,
+                    false,
+                    Some("x"),
+                ),
                 Ok(()),
             ),
             (
@@ -1203,14 +1280,36 @@ mod tests {
             later_from: 1,
             ..in_spec
         };
-        assert!(judge(waiting, &dev, 1, None, &spec_writer, false, Some("x")).is_ok());
+        assert!(
+            judge(
+                waiting,
+                &dev,
+                1,
+                None,
+                &quick,
+                &spec_writer,
+                false,
+                Some("x")
+            )
+            .is_ok()
+        );
         let spec = stage("spec", Some("Spec writer"), &[SKIP]);
         let past = Target {
             ran: &none,
             ..in_dev
         };
         assert_eq!(
-            refusal(judge(past, &spec, 0, None, &spec_writer, false, Some("x"))).0,
+            refusal(judge(
+                past,
+                &spec,
+                0,
+                None,
+                &Choice::Usual,
+                &spec_writer,
+                false,
+                Some("x")
+            ))
+            .0,
             Refusal::NotAllowed
         );
     }
