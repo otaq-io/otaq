@@ -8,7 +8,14 @@ use serde_json::Value;
 use super::{COMMAND_NAME, OpenCodeContext};
 use crate::agent_tools::{Detection, version_output};
 
-/// Installed when `opencode --version` names a version; signed in as [`signed_in`] says.
+/// The oldest OpenCode major version Otaq runs. OpenCode 1 (the `opencode-ai` package, still `latest` there and the
+/// version winget installs) has no `--standalone`, which every launch and check uses: it prints its help and exits
+/// 1, so Noyan and agents never start (seen with 1.19.5).
+const OLDEST_MAJOR: u32 = 2;
+
+/// Installed when `opencode --version` names a version; older than OpenCode 2 → update needed (never launched, and
+/// not asked whether it is signed in: its `auth list` has no `--standalone` either); else signed in as
+/// [`signed_in`] says.
 pub(super) async fn detect(context: &OpenCodeContext) -> Detection {
     let Some(output) = version_output(COMMAND_NAME, &context.tool.path).await else {
         return Detection::default();
@@ -16,6 +23,14 @@ pub(super) async fn detect(context: &OpenCodeContext) -> Detection {
     let Some(version) = output.as_deref().and_then(parse_version) else {
         return Detection::default();
     };
+    if update_needed(&version) {
+        return Detection {
+            installed: true,
+            version: Some(version),
+            update_needed: true,
+            ..Detection::default()
+        };
+    }
     let (signed_in, account) = signed_in(context).await;
     Detection {
         installed: true,
@@ -27,11 +42,28 @@ pub(super) async fn detect(context: &OpenCodeContext) -> Detection {
     }
 }
 
-/// `v2.0.17` → `2.0.17`.
+/// Whether `version` is older than OpenCode 2 ([`OLDEST_MAJOR`]); a version without a readable major counts as
+/// older.
+pub(super) fn update_needed(version: &str) -> bool {
+    version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .is_none_or(|major| major < OLDEST_MAJOR)
+}
+
+/// `v2.0.17` → `2.0.17`; `opencode v2.2.5` (2.2.x names itself first) → `2.2.5`; `1.19.5` → `1.19.5`.
 pub(super) fn parse_version(output: &str) -> Option<String> {
     let first = output.lines().next()?.trim();
-    let version = first.strip_prefix('v').unwrap_or(first);
-    (version.starts_with(|c: char| c.is_ascii_digit()) && !version.contains(char::is_whitespace))
+    let mut words = first.split_whitespace();
+    let word = match (words.next()?, words.next(), words.next()) {
+        (only, None, None) => only,
+        (name, Some(word), None) if name.eq_ignore_ascii_case(COMMAND_NAME) => word,
+        _ => return None,
+    };
+    let version = word.strip_prefix('v').unwrap_or(word);
+    version
+        .starts_with(|c: char| c.is_ascii_digit())
         .then(|| version.to_owned())
 }
 

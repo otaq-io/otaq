@@ -54,8 +54,10 @@ pub(super) const COMMAND_NAME: &str = "opencode";
 /// draft clears. Never Ctrl+C: it quits OpenCode on an empty line (ADP-06).
 const CLEAR_LINE: &[u8] = b"\x05\x15";
 
-/// How OpenCode is installed (the same npm package on every OS).
-const INSTALL: &str = "npm install -g opencode-ai";
+/// How OpenCode is installed (the same npm package on every OS). OpenCode 2 ships as `@opencode/cli`; the
+/// `opencode-ai` package is OpenCode 1, which the adapter can't run (opencode.ai/v2/docs). Both install the
+/// `opencode` command.
+const INSTALL: &str = "npm install -g @opencode/cli";
 
 /// Where OpenCode finds things on this machine. Agents use the user's own OpenCode data folder (ADP-09).
 #[derive(Debug, Clone)]

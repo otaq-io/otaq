@@ -26,7 +26,7 @@ fn names() {
     assert_eq!(adapter.resume_hint("ses_1"), "opencode --session ses_1");
     assert_eq!(
         adapter.install_command(Os::Linux),
-        "npm install -g opencode-ai"
+        "npm install -g @opencode/cli"
     );
     // No one-time setup: no folder trust, nothing written.
     assert_eq!(adapter.record_project(Path::new("/repo")), None);
@@ -79,8 +79,50 @@ async fn detect_reads_the_version_from_the_path() {
     assert!(!found.update_needed);
     assert_eq!(found.signed_in, None, "its auth list answer isn't a list");
 
+    // OpenCode 1 (the `opencode-ai` package) can't run Otaq's launches: update needed, and never asked to sign in.
+    stand_in(bin.path(), "opencode", "1.19.5\n");
+    let old = adapter.detect().await;
+    assert!(old.installed);
+    assert_eq!(old.version.as_deref(), Some("1.19.5"));
+    assert!(old.update_needed);
+    assert_eq!(old.signed_in, None);
+
     stand_in(bin.path(), "opencode", "something else\n");
     assert_eq!(adapter.detect().await, Detection::default());
+}
+
+/// The version as each OpenCode prints it: 2.0.x bare with a `v`, 2.2.x after its name, 1.x bare.
+#[test]
+fn versions_as_opencode_prints_them() {
+    for (output, version) in [
+        ("v2.0.17\n", Some("2.0.17")),
+        ("opencode v2.2.5\n", Some("2.2.5")),
+        ("1.19.5\n", Some("1.19.5")),
+        ("something else\n", None),
+        ("opencode is great\n", None),
+        ("", None),
+    ] {
+        assert_eq!(
+            super::detect::parse_version(output).as_deref(),
+            version,
+            "{output:?}"
+        );
+    }
+}
+
+/// OpenCode 2 and later run; OpenCode 1, and a version whose major can't be read, need an update.
+#[test]
+fn opencode_1_needs_an_update() {
+    for (version, needed) in [
+        ("2.0.17", false),
+        ("2.2.5", false),
+        ("3.0.0-beta.1", false),
+        ("1.19.5", true),
+        ("0.0.0-dev-202610280534", true),
+        ("dev", true),
+    ] {
+        assert_eq!(super::detect::update_needed(version), needed, "{version}");
+    }
 }
 
 /// OpenCode sends many event types; one the adapter doesn't map gives nothing (not *unrecognised*).
