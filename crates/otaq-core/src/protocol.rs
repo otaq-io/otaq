@@ -854,13 +854,13 @@ pub enum Request {
 
     // Run (RUN-01, RUN-04): the project's run command in a ticket's worktree.
     /// Starts the ticket's Run; refused without a run command (`no_run_command`) or a worktree (`no_worktree`). The
-    /// user's click, or the ticket's own agent or check (`otaq run start`, d{RUN}).
+    /// user's click, or the ticket's own agent or check (`otaq run start`, agents run the app).
     #[serde(rename = "run.start")]
     RunStart(KeyParams),
-    /// Stops the ticket's Run. An agent's is refused for a Run the user started (d{RUN}).
+    /// Stops the ticket's Run. An agent's is refused for a Run the user started (agents run the app).
     #[serde(rename = "run.stop")]
     RunStop(KeyParams),
-    /// The Run's kept output as text, its last `tail` lines (default 200; `otaq run log`, d{RUN}).
+    /// The Run's kept output as text, its last `tail` lines (default 200; `otaq run log`, agents run the app).
     #[serde(rename = "run.log")]
     RunLog(RunLogParams),
     /// The ticket's Run: state, port, command, Open URL, session.
@@ -1703,7 +1703,7 @@ pub struct KeyParams {
     pub key: String,
 }
 
-/// `{"key": "SHOP-27", "tail": 40}`: `otaq run log` (d{RUN}); no `tail` prints the last 200 lines.
+/// `{"key": "SHOP-27", "tail": 40}`: `otaq run log` (agents run the app); no `tail` prints the last 200 lines.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunLogParams {
     pub key: String,

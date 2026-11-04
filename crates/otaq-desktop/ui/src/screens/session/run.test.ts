@@ -126,7 +126,7 @@ describe("the Run & Shell screen", () => {
     expect(html).not.toContain("OUTPUT");
   });
 
-  it("says who started a Run an agent started (d{RUN}): `run_page::tab_view`'s words on the line", () => {
+  it("says who started a Run an agent started (agents run the app): `run_page::tab_view`'s words on the line", () => {
     const html = renderToStaticMarkup(
       createElement(RunTabBody, {
         ticket: "SHOP-22",

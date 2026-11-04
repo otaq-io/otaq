@@ -1,4 +1,4 @@
-//! `otaq run start|status|log|stop` (d{RUN}) from a ticket's agent session (`$OTAQ_TICKET` names the ticket):
+//! `otaq run start|status|log|stop` (agents run the app) from a ticket's agent session (`$OTAQ_TICKET` names the ticket):
 //! `start` returns at once, `start --wait` once the Run is running (its URL or port) or with a non-zero exit and the
 //! last lines when it failed to start or is still starting after `--timeout`; a held port and a missing run command
 //! are errors; `status` says who started it; `log --tail N` prints the kept output; `stop` refuses the user's Run.

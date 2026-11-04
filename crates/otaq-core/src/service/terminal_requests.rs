@@ -9,7 +9,7 @@ use crate::protocol::{ErrorBody, ErrorKind, Reply, Request};
 use crate::session::SessionKind;
 use crate::terminals::run::{LOG_TAIL, RunAgent};
 
-/// The ticket agent or check asking for a Run (d{RUN}), named by its stage ("Dev"); `None` for the user. The
+/// The ticket agent or check asking for a Run (agents run the app), named by its stage ("Dev"); `None` for the user. The
 /// permission check already let only the ticket's own agent and check through.
 async fn run_agent(caller: &Caller, shared: &Shared) -> Option<RunAgent> {
     let (session, kind, fallback) = match caller {

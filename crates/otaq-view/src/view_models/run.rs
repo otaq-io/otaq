@@ -154,7 +154,7 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
     }
 }
 
-/// "Serving · started by Dev" for a Run an agent started (d{RUN}); yours is just "Serving".
+/// "Serving · started by Dev" for a Run an agent started (agents run the app); yours is just "Serving".
 fn with_starter(title: &str, run: &RunInfo) -> String {
     match run.started_by.as_ref().and_then(|s| s.agent_label()) {
         Some(by) => format!("{title} · {by}"),
@@ -240,7 +240,7 @@ mod tests {
         }
     }
 
-    /// Who started it (d{RUN}): an agent's Run says so; yours doesn't; an agent's stop and the backstop name it.
+    /// Who started it (agents run the app): an agent's Run says so; yours doesn't; an agent's stop and the backstop name it.
     #[test]
     fn started_and_stopped_by_an_agent() {
         let dev = || {

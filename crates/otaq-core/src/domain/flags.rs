@@ -127,7 +127,7 @@ pub struct Flags {
     /// Run is running, on this port: `▶ :4020` (d0035).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_port: Option<u16>,
-    /// The stage of the agent that started the Run ("Dev"); `None` when you did or nothing runs (d{RUN}).
+    /// The stage of the agent that started the Run ("Dev"); `None` when you did or nothing runs (agents run the app).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_started_by: Option<String>,
     /// Updated by agent (d0019).

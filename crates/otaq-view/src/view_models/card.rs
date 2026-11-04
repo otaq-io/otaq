@@ -1522,7 +1522,7 @@ impl CardViewModel {
             );
         }
         if let Some(port) = flags.run_port {
-            // Who started it, when an agent did (d{RUN}): "Serving :4020 · started by Dev".
+            // Who started it, when an agent did (agents run the app): "Serving :4020 · started by Dev".
             let by = flags
                 .run_started_by
                 .as_ref()
@@ -3638,7 +3638,7 @@ mod tests {
         let (_, vm) = variant("Running (Run, 0035) · pinned (0047)");
         assert_eq!(flag_of(&vm), Some(":4020"));
         assert_eq!(vm.hover.status, "Serving :4020");
-        // A Run an agent started says so (d{RUN}); the chip stays short.
+        // A Run an agent started says so (agents run the app); the chip stays short.
         let (mut t, _) = variant("Running (Run, 0035) · pinned (0047)");
         t.flags.run_started_by = Some("Dev".into());
         let vm = card(&t);

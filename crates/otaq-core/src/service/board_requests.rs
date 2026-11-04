@@ -811,7 +811,7 @@ pub(super) async fn handle(
                 && let Caller::Agent { session, .. } = caller
             {
                 shared.signals.mark_submitted_or_asked(session);
-                // The backstop (d{RUN}): a Run this agent started stops with its stage.
+                // The backstop (agents run the app): a Run this agent started stops with its stage.
                 shared.runs.stage_ended(session).await;
             }
             let ticket = submitted?;
@@ -888,7 +888,7 @@ pub(super) async fn handle(
             let settled =
                 crate::board::hand_over::settled(board, hand_over.as_ref(), verdict).await;
             if settled.is_ok() {
-                // The backstop (d{RUN}): a Run this check started stops with its verdict.
+                // The backstop (agents run the app): a Run this check started stops with its verdict.
                 shared.runs.stage_ended(session).await;
             }
             settled.map(|t| Reply::Ticket(Box::new(t)))
