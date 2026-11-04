@@ -1115,7 +1115,9 @@ fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
     for needle in [
         "**Two or more tickets:** propose first, then wait for the user's go-ahead",
         "One ticket the user asked for explicitly**",
-        &format!("{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --by-user --stdin"),
+        &format!(
+            "{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --by-user --stdin"
+        ),
         "\"Created SHOP-41 · Dev: Quick developer\"",
         "\"I'm proposing 2 tickets\"",
         "**# · Title · Description · Choices**",
@@ -1131,7 +1133,9 @@ fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
         "\"…50 more (say 'show all' to list them)\"",
         "When the user says \"show all\", list every row",
         "Every choice comes from the user, so pass it with `--by-user`",
-        &format!("{cmd} create \"Order detail page\" --deps SHOP-42 --stage \"Dev=Quick developer\" --by-user --stdin"),
+        &format!(
+            "{cmd} create \"Order detail page\" --deps SHOP-42 --stage \"Dev=Quick developer\" --by-user --stdin"
+        ),
         &format!("`{cmd} create -f tickets.md --by-user`"),
         "- **Stage:** Dev=Quick developer The returns page",
         "If the CLI refuses a choice with \"Noyan sets only the stage choices the user names: add --by-user, or leave the stage's own agent\", the choice wasn't the user's: leave it out",
