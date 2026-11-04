@@ -8,6 +8,17 @@
 /// The longest chain walked, so a corrupt or racing process table can't loop forever.
 const MAX_DEPTH: usize = 128;
 
+/// Windows: whether a process that names a parent ID really was started by the process now holding that ID, from
+/// their start times (100 ns ticks). Only when both can be read and the parent started first. The service can't read
+/// the start of a system process (`winlogon`, `services`) or another user's, and such a process's parent ID often
+/// names a process long gone whose number Windows gave to something else, possibly inside an agent's session: the
+/// chain ends there instead, or every program of the desktop would walk up into that session and be taken for its
+/// agent. An agent's own processes run as the user, so their starts can always be read.
+#[cfg(any(windows, test))]
+fn parent_started_first(parent: Option<u64>, child: Option<u64>) -> bool {
+    matches!((parent, child), (Some(p), Some(c)) if p <= c)
+}
+
 /// The parent of `pid`, or `None` when the process is gone or has no parent (PID 0 and 1 end every chain).
 pub fn parent_of(pid: u32) -> Option<u32> {
     let parent = os::parent_of(pid)?;
@@ -78,7 +89,8 @@ pub fn tree_with(root: u32, members: &[u32]) -> Vec<TreeProcess> {
         );
     }
     // Children of what is inside, until nothing new joins (the table isn't in any order). On Windows a process that
-    // started before its parent only has its parent's reused ID (an unrelated program whose starter ended): no child.
+    // started before its parent only has its parent's reused ID (an unrelated program whose starter ended): no child;
+    // nor is one whose start can't be read (a system process such as `winlogon`, which names a long-gone parent).
     let mut reused = std::collections::HashSet::new();
     for _ in 0..MAX_DEPTH {
         let before = inside.len();
@@ -448,18 +460,16 @@ mod os {
         all
     }
 
-    /// Whether `pid` started before `parent` did (so `parent` only reuses its parent's ID).
+    /// Whether `parent` is not `pid`'s real parent: it started later and only reuses the number, or either start
+    /// can't be read ([`super::parent_started_first`]).
     pub fn started_before(pid: u32, parent: u32) -> bool {
-        matches!((started_at(parent), started_at(pid)), (Some(p), Some(c)) if p > c)
+        !super::parent_started_first(started_at(parent), started_at(pid))
     }
 
     pub fn parent_of(pid: u32) -> Option<u32> {
         let parent = snapshot_parent(pid)?;
         // The parent ID outlives the parent; a process that started later only reuses its number.
-        match (started_at(parent), started_at(pid)) {
-            (Some(parent_start), Some(child_start)) if parent_start > child_start => None,
-            _ => Some(parent),
-        }
+        super::parent_started_first(started_at(parent), started_at(pid)).then_some(parent)
     }
 
     fn snapshot_parent(pid: u32) -> Option<u32> {
@@ -905,6 +915,20 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_parent_counts_only_when_both_starts_are_read_and_it_started_first() {
+        // A real parent: it started first, or at the same tick.
+        assert!(parent_started_first(Some(100), Some(200)));
+        assert!(parent_started_first(Some(200), Some(200)));
+        // The parent's number now belongs to a later process (an agent's, say): not its parent.
+        assert!(!parent_started_first(Some(300), Some(200)));
+        // `winlogon` names a parent gone since boot whose number an agent's process now has; the service can't
+        // read `winlogon`'s start, so the chain ends there instead of walking into the agent's session.
+        assert!(!parent_started_first(Some(300), None));
+        assert!(!parent_started_first(None, Some(200)));
+        assert!(!parent_started_first(None, None));
+    }
 
     #[test]
     fn this_process_has_its_parent() {
