@@ -1,4 +1,4 @@
-//! `otaq run …` (d{RUN}): a ticket's agent starts, reads and stops the ticket's Run, the project's run command in
+//! `otaq run …` (agents run the app): a ticket's agent starts, reads and stops the ticket's Run, the project's run command in
 //! the worktree with `$PORT` = the Run port. They work on `$OTAQ_TICKET` (or `-P`/the folder's ticket for the user).
 //!
 //! - `start [--wait] [--timeout S]`: starts the Run, or uses the one already up (whoever started it). With `--wait` it

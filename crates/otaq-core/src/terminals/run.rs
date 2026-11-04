@@ -1,9 +1,9 @@
 //! Run (RUN-01; d0035, d0026, d0045): the project's **run command** in a ticket's worktree, with `$PORT` = the
 //! ticket's **Run port** (4020 for SHOP-19, never the agent's 4019). The user's click or the ticket's own agent
-//! (`otaq run start`, d{RUN}) starts it; Stop ends it; reaching Done or Close stops it (with a toast); a restart leaves
+//! (`otaq run start`, agents run the app) starts it; Stop ends it; reaching Done or Close stops it (with a toast); a restart leaves
 //! it "stopped by restart" and nothing starts it again.
 //!
-//! **Who started it** (d{RUN}): one Run per ticket, shared by the user and the ticket's agents (its Dev agent, its
+//! **Who started it** (agents run the app): one Run per ticket, shared by the user and the ticket's agents (its Dev agent, its
 //! check). The Run records who started it ("started by Dev"). An agent uses a Run the user started and never stops
 //! it; it stops only a Run an agent of its ticket started. Otaq stops an agent's Run when that agent's stage ends or
 //! its verdict lands ([`Runs::stage_ended`], "stage ended"); a Run the user started is never stopped that way. The
@@ -102,17 +102,17 @@ pub enum StopCause {
     /// The ticket was parked: its ports return to the pool (d0052, Q30).
     Parked,
     Restart,
-    /// An agent of the ticket stopped it (`otaq run stop`, d{RUN}): `stage` names it ("Dev").
+    /// An agent of the ticket stopped it (`otaq run stop`, agents run the app): `stage` names it ("Dev").
     Agent {
         stage: String,
     },
-    /// The agent that started it ended its stage (`stage next`, `stage done`) or gave its verdict (d{RUN}).
+    /// The agent that started it ended its stage (`stage next`, `stage done`) or gave its verdict (agents run the app).
     StageEnded {
         stage: String,
     },
 }
 
-/// Who started a Run (d{RUN}): your click, or one of the ticket's agents, named by its stage ("Dev", "Validate").
+/// Who started a Run (agents run the app): your click, or one of the ticket's agents, named by its stage ("Dev", "Validate").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "by", rename_all = "snake_case")]
 pub enum StartedBy {
@@ -130,7 +130,7 @@ impl StartedBy {
     }
 }
 
-/// The ticket agent asking to start or stop a Run (d{RUN}): its session, its stage's name ("Dev") and the session
+/// The ticket agent asking to start or stop a Run (agents run the app): its session, its stage's name ("Dev") and the session
 /// kind its processes are callers of.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunAgent {
@@ -169,12 +169,12 @@ pub struct RunInfo {
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped_by: Option<StopCause>,
-    /// Who started the last Run (d{RUN}); `None` before any.
+    /// Who started the last Run (agents run the app); `None` before any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_by: Option<StartedBy>,
 }
 
-/// What `otaq run log` prints (d{RUN}): the Run's kept output as text, its last `tail` lines. Never read from disk:
+/// What `otaq run log` prints (agents run the app): the Run's kept output as text, its last `tail` lines. Never read from disk:
 /// Otaq writes no Run output there (d0045).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunLog {
@@ -192,7 +192,7 @@ impl RunInfo {
         Some(with_port(self.open_url.as_deref()?, self.port?))
     }
 
-    /// `otaq run status` in words (d{RUN}): "not started", "starting :4020 (started by Dev)", "running :4020 (started
+    /// `otaq run status` in words (agents run the app): "not started", "starting :4020 (started by Dev)", "running :4020 (started
     /// by the user)", "stopped (Dev's stage ended)", "failed to start (exit 1)", "port :4020 in use", "stopped by
     /// restart".
     pub fn status_text(&self) -> String {
@@ -252,7 +252,7 @@ impl RunPorts {
         self.get_with_starter(ticket_id).map(|(port, _)| port)
     }
 
-    /// The port, and the stage of the agent that started the Run ("Dev"; `None` when you did, d{RUN}).
+    /// The port, and the stage of the agent that started the Run ("Dev"; `None` when you did, agents run the app).
     pub fn get_with_starter(&self, ticket_id: &str) -> Option<(u16, Option<String>)> {
         self.inner
             .lock()
@@ -282,7 +282,7 @@ struct Record {
     ended_at: Option<i64>,
     exit_code: Option<i32>,
     stopped_by: Option<StopCause>,
-    /// The agent that started it; `None`: you did (d{RUN}).
+    /// The agent that started it; `None`: you did (agents run the app).
     agent: Option<RunAgent>,
 }
 
@@ -345,7 +345,7 @@ impl Runs {
         self.start_as(key, None).await
     }
 
-    /// [`Runs::start`] for `agent`, one of the ticket's agents (`otaq run start`, d{RUN}), or for you (`None`). A
+    /// [`Runs::start`] for `agent`, one of the ticket's agents (`otaq run start`, agents run the app), or for you (`None`). A
     /// Run already up, whoever started it, is left alone and used.
     pub async fn start_as(
         &self,
@@ -477,7 +477,7 @@ impl Runs {
         self.stop_as(key, None).await
     }
 
-    /// [`Runs::stop`] for `agent` (`otaq run stop`, d{RUN}), or for you (`None`). An agent stops only a Run an agent
+    /// [`Runs::stop`] for `agent` (`otaq run stop`, agents run the app), or for you (`None`). An agent stops only a Run an agent
     /// of its ticket started: the user's is refused, and stays up.
     pub async fn stop_as(
         &self,
@@ -506,7 +506,7 @@ impl Runs {
         self.info_of(&ticket).await
     }
 
-    /// The agent of `session` ended its stage or gave its verdict (d{RUN}): a Run it started stops ("stage ended").
+    /// The agent of `session` ended its stage or gave its verdict (agents run the app): a Run it started stops ("stage ended").
     /// A Run the user started, or another agent's, is left alone. `true` when one stopped.
     pub async fn stage_ended(&self, session: &str) -> bool {
         let started: Vec<(String, String)> = self
@@ -530,7 +530,7 @@ impl Runs {
         stopped
     }
 
-    /// The Run's kept output as text, its last `tail` lines (`otaq run log`, d{RUN}): the Run now or the last one
+    /// The Run's kept output as text, its last `tail` lines (`otaq run log`, agents run the app): the Run now or the last one
     /// still in memory. Refused before any Run, and after a restart (output never goes to disk, d0045).
     pub async fn log(&self, key: &str, tail: usize) -> Result<RunLog, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
@@ -896,7 +896,7 @@ async fn port_answers(port: u16) -> bool {
     false
 }
 
-/// The refusal when the project has no run command; an agent is told to ask the user (d{RUN}).
+/// The refusal when the project has no run command; an agent is told to ask the user (agents run the app).
 fn no_run_command(project: &str, agent: bool) -> String {
     if agent {
         format!(
@@ -907,7 +907,7 @@ fn no_run_command(project: &str, agent: bool) -> String {
     }
 }
 
-/// An agent's `otaq run stop` of a Run the user started (d{RUN}).
+/// An agent's `otaq run stop` of a Run the user started (agents run the app).
 pub fn user_run_refusal(key: &TicketKey) -> String {
     format!(
         "{key}'s Run was started by the user, so it stays running: an agent stops only a Run an agent started. \

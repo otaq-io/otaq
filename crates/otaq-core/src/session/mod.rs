@@ -445,7 +445,7 @@ pub struct Prepared<'a> {
 }
 
 impl Prepared<'_> {
-    /// The session's processes act for the ticket agent `agent` from its first instant (d{RUN}): a Run an agent
+    /// The session's processes act for the ticket agent `agent` from its first instant (agents run the app): a Run an agent
     /// started is that agent's caller, never the user's.
     pub fn acting_for(mut self, agent: ActingFor) -> Self {
         self.acting_for = Some(agent);
@@ -538,7 +538,7 @@ async fn run_prepare(step: &PrepareStep, limit: Duration) -> Result<(), SessionE
     }))
 }
 
-/// The ticket agent whose caller a session's processes are, though the session doesn't run it (d{RUN}): the agent
+/// The ticket agent whose caller a session's processes are, though the session doesn't run it (agents run the app): the agent
 /// or check that started a Run. Its kind is the agent's session's ([`crate::caller::Caller::of_root`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActingFor {
@@ -652,7 +652,7 @@ struct Live {
     ticket_id: Option<String>,
     /// The Project agent the session runs for (d0068), from its start ([`Prepared::for_project_agent`]).
     project_agent: Option<String>,
-    /// The ticket agent the session's processes act for (d{RUN}): set for a Run an agent started.
+    /// The ticket agent the session's processes act for (agents run the app): set for a Run an agent started.
     acting_for: Option<ActingFor>,
     /// The skill copies in its folder when it started (`otaq-address-review`…), once
     /// [`Sessions::set_started_skills`] said so (d0118): its tool read those, and only those, at its start.
@@ -1735,7 +1735,7 @@ impl Drop for Inner {
 
 impl Live {
     /// The agent caller this running session's processes are: its own agent when it runs an agent tool for a
-    /// ticket, the agent it acts for (an agent's Run, d{RUN}), else none (the user's).
+    /// ticket, the agent it acts for (an agent's Run, agents run the app), else none (the user's).
     fn agent_root(&self, info: &SessionInfo) -> Option<AgentRoot> {
         let pid = self.pid?;
         if let Some(a) = &self.acting_for {

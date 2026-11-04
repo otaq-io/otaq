@@ -162,7 +162,7 @@ pub enum Action {
     HandBack(TicketFacts),
     /// `otaq ask human` from a helper: its question goes to this ticket's agent in charge (d0133 audit 3).
     AskInCharge(TicketFacts),
-    /// Starts, stops or reads this ticket's Run (`otaq run start|stop|log`, d{RUN}): its own agent and its check;
+    /// Starts, stops or reads this ticket's Run (`otaq run start|stop|log`, agents run the app): its own agent and its check;
     /// never a helper, Noyan, or another ticket's agent.
     Run(TicketFacts),
 }
@@ -346,7 +346,7 @@ pub fn authorize_in_stage(
 /// Whether the agent of `ticket` may fix `target` (d0129): its ticket created it and it never started. The refusal
 /// names who created it, or that it started: "SHOP-41 was created by you; SHOP-40's agent can only change tickets it
 /// created".
-/// A helper's `otaq run …` (d{RUN}).
+/// A helper's `otaq run …` (agents run the app).
 pub const HELPER_NO_RUN: &str = "A helper doesn't run the app: the agent in charge runs it once your piece is merged. Hand your piece back.";
 
 pub fn may_fix(ticket: &TicketKey, target: &TicketFacts) -> Result<(), String> {
@@ -371,7 +371,7 @@ fn helper_may(ticket_id: &str, action: &Action) -> Result<(), BoardError> {
         Action::Read => Ok(()),
         Action::HandBack(target) | Action::AskInCharge(target) if target.id == ticket_id => Ok(()),
         Action::All(actions) => actions.iter().try_for_each(|a| helper_may(ticket_id, a)),
-        // Helpers get no Run (d{RUN}): the agent in charge runs the app once the pieces are merged.
+        // Helpers get no Run (agents run the app): the agent in charge runs the app once the pieces are merged.
         Action::Run(_) => Err(BoardError::refused(Refusal::NotAllowed, HELPER_NO_RUN)),
         _ => Err(BoardError::refused(
             Refusal::NotAllowed,

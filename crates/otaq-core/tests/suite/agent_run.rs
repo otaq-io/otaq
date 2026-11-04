@@ -1,4 +1,4 @@
-//! A ticket's agents run its app (d{RUN}): the ticket's own agent and its check start, read and stop its Run with
+//! A ticket's agents run its app (agents run the app): the ticket's own agent and its check start, read and stop its Run with
 //! `run.start`, `run.log` and `run.stop` from inside their sessions; another ticket's agent, a helper and Noyan are
 //! refused. The Run records who started it ("started by Dev", on the card too). An agent never stops a Run the user
 //! started; Otaq stops an agent's Run when that agent's stage ends (`stage next`) or its verdict lands ("stage

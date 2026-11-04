@@ -93,7 +93,7 @@ describe("the one-line card", () => {
     expect(bubble()).toBeNull();
   });
 
-  it("a card whose Run an agent started says so in its full status (d{RUN})", () => {
+  it("a card whose Run an agent started says so in its full status (agents run the app)", () => {
     const running: TicketCardView = {
       ...SHOP_32,
       key: "SHOP-19",

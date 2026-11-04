@@ -17,7 +17,7 @@ pub fn render(bytes: &[u8], size: TerminalSize) -> String {
     render_above(bytes, size, LINES_ABOVE)
 }
 
-/// [`render`], keeping up to `above` lines above the screen (`otaq run log --tail N`, d{RUN}).
+/// [`render`], keeping up to `above` lines above the screen (`otaq run log --tail N`, agents run the app).
 pub fn render_above(bytes: &[u8], size: TerminalSize, above: usize) -> String {
     let (rows, cols) = (size.rows.max(1), size.cols.max(1));
     let mut parser = vt100::Parser::new(rows, cols, above);
