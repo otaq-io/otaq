@@ -34,7 +34,8 @@ fn names() {
     );
 }
 
-/// ADP-06: Enter 100 ms after the text (its paste detection); only the current line of a draft clears.
+/// ADP-06: Enter 100 ms after the text (its paste detection), with End before it on Windows (it closes Codex's
+/// paste burst there); only the current line of a draft clears.
 #[test]
 fn input_quirks() {
     let bin = tempfile::tempdir().unwrap();
@@ -42,6 +43,8 @@ fn input_quirks() {
     let quirks = adapter.input();
     assert_eq!(quirks.clear_line, b"\x05\x15");
     assert_eq!(quirks.enter_delay, Duration::from_millis(100));
+    let before_enter: &[u8] = if cfg!(windows) { b"\x1b[F" } else { b"" };
+    assert_eq!(quirks.before_enter, before_enter);
     assert!(!quirks.multi_line_clearable);
     assert!(!adapter.typed_key_answers_prompt());
     assert!(!adapter.turn_end_reports_background());

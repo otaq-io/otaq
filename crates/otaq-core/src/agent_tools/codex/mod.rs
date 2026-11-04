@@ -60,6 +60,17 @@ const CLEAR_LINE: &[u8] = b"\x05\x15";
 /// Codex takes text typed at once as a paste; Enter right after it is part of the paste, so it waits (ADP-06).
 const ENTER_DELAY: Duration = Duration::from_millis(100);
 
+/// End, between the text and Enter on Windows. Codex's TUI joins an Enter to the typed text while its paste burst
+/// is still open (`newline_should_insert_instead_of_submit` in its `paste_burst.rs`), and on Windows the ConPTY
+/// hands it the text and the later Enter together, so no pause closes the burst first: the hand-off line stayed
+/// typed but unsent (Windows 11 ARM64, Codex 0.166.0, with 100 ms and with 400 ms). A key that isn't a character
+/// closes the burst and its Enter window at once (`flush_before_modified_input`, `clear_window_after_non_char`);
+/// End leaves the cursor where it is, after the text.
+#[cfg(windows)]
+const BEFORE_ENTER: &[u8] = b"\x1b[F";
+#[cfg(not(windows))]
+const BEFORE_ENTER: &[u8] = b"";
+
 /// How Codex is installed (the same npm package on every OS).
 const INSTALL: &str = "npm install -g @openai/codex";
 
@@ -241,6 +252,7 @@ impl AgentTool for Codex {
         InputQuirks {
             clear_line: CLEAR_LINE,
             enter_delay: ENTER_DELAY,
+            before_enter: BEFORE_ENTER,
             multi_line_clearable: false,
         }
     }
