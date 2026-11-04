@@ -1010,7 +1010,7 @@
 }
 .oq.oq .msg .tbl div {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 110px;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.3fr);
   gap: 8px;
   padding: 5px 8px;
   border-top: 1px solid var(--bd);
