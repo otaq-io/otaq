@@ -97,6 +97,7 @@ mod pause_starts;
 mod permissions;
 mod plan;
 mod plan_limit;
+mod plan_mid_build;
 mod planning_skips;
 mod plugin;
 mod plugin_texts;
