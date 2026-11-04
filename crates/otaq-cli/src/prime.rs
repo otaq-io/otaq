@@ -35,7 +35,7 @@ pub fn run(
                 other => return Err(unexpected(&other)),
             };
             out.print(
-                otaq_core::helpers::prime::render(&context).trim_end(),
+                &with_shell_rule(otaq_core::helpers::prime::render(&context).trim_end()),
                 &context,
                 Some(&context.helper.label()),
             );
@@ -54,7 +54,7 @@ pub fn run(
                 other => return Err(unexpected(&other)),
             };
             out.print(
-                render_validate(&context).trim_end(),
+                &with_shell_rule(render_validate(&context).trim_end()),
                 &context,
                 Some(&context.ticket.key.to_string()),
             );
@@ -71,7 +71,7 @@ pub fn run(
             other => return Err(unexpected(&other)),
         };
         out.print(
-            render(&context).trim_end(),
+            &with_shell_rule(render(&context).trim_end()),
             &context,
             Some(&context.ticket.key.to_string()),
         );
@@ -98,10 +98,36 @@ pub fn project(global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
             other => return Err(unexpected(&other)),
         };
         out.print(
-            otaq_core::project_agents::prime::render(&context).trim_end(),
+            &with_shell_rule(otaq_core::project_agents::prime::render(&context).trim_end()),
             &context,
             Some(&context.project),
         );
         Ok(())
     })
+}
+
+/// The context, with the PowerShell rule after it when this command was started from PowerShell: the skills' stdin
+/// examples are bash heredocs ([`otaq_core::shell::powershell_stdin_rule`]). Only on Windows, where the tools
+/// differ: Claude Code runs commands with Git Bash, Codex with PowerShell.
+fn with_shell_rule(text: &str) -> String {
+    if cfg!(windows) && caller_shell() == otaq_core::shell::CallerShell::PowerShell {
+        format!(
+            "{text}\n\n{}",
+            otaq_core::shell::powershell_stdin_rule().trim_end()
+        )
+    } else {
+        text.to_owned()
+    }
+}
+
+/// The shell this `otaq` was started from, by the programs of its parent and theirs (a few levels: a shim can sit
+/// in between).
+fn caller_shell() -> otaq_core::shell::CallerShell {
+    let ancestors: Vec<_> = otaq_core::process::ancestry(std::process::id())
+        .into_iter()
+        .skip(1)
+        .take(4)
+        .filter_map(otaq_core::process::program_of)
+        .collect();
+    otaq_core::shell::caller_shell(&ancestors)
 }

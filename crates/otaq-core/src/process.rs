@@ -25,6 +25,11 @@ pub fn parent_of(pid: u32) -> Option<u32> {
     (parent != 0 && parent != pid).then_some(parent)
 }
 
+/// The program file `pid` runs (`/bin/zsh`, `C:\\…\\pwsh.exe`), when this user may read it.
+pub fn program_of(pid: u32) -> Option<std::path::PathBuf> {
+    os::program_of(pid)
+}
+
 /// `pid` itself, then its parent, grandparent and so on up to the first process (`launchd` or `init`).
 pub fn ancestry(pid: u32) -> Vec<u32> {
     let mut chain = vec![pid];

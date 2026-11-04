@@ -9,6 +9,10 @@
 //!   else `/bin/sh`) on macOS and Linux; on Windows PowerShell (`pwsh` when installed, else Windows PowerShell).
 //! - The **status line** is the user's Claude Code `statusLine` command, which Claude Code runs with Git Bash on
 //!   Windows; Otaq runs it the same way ([`status_line`]).
+//! - An **agent's commands** run in whatever shell its tool uses: Claude Code uses Git Bash on Windows, Codex
+//!   PowerShell. The skills' stdin examples are bash heredocs (`<<'EOF'`), which PowerShell can't parse, so
+//!   `otaq prime` adds [`powershell_stdin_rule`] when the shell it was started from is PowerShell
+//!   ([`caller_shell`]): the shell actually running the commands, not a guess from the tool's name.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -150,9 +154,111 @@ pub fn prepend_path(first: Option<&Path>, path: &OsStr) -> OsString {
     std::env::join_paths(parts).unwrap_or_else(|_| path.to_owned())
 }
 
+/// The shell an agent's commands run in, as far as it matters for passing text on stdin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallerShell {
+    /// Windows PowerShell or PowerShell 7 (`powershell.exe`, `pwsh`).
+    PowerShell,
+    /// A POSIX shell (`bash`, `sh`, `zsh`…), `cmd`, or one Otaq doesn't know.
+    Other,
+}
+
+/// The shell a command was started from: the first known shell among `ancestors` (the command's parent first), by
+/// the program's file name. Anything in between that isn't a shell (an `otaq` shim, `node`) is passed over; with no
+/// known shell it is [`CallerShell::Other`].
+pub fn caller_shell(ancestors: &[PathBuf]) -> CallerShell {
+    for program in ancestors {
+        let program = program.to_string_lossy().to_ascii_lowercase();
+        let name = program.rsplit(['/', '\\']).next().unwrap_or_default();
+        let stem = name.strip_suffix(".exe").unwrap_or(name);
+        match stem {
+            "powershell" | "pwsh" => return CallerShell::PowerShell,
+            "bash" | "sh" | "zsh" | "dash" | "fish" | "cmd" => return CallerShell::Other,
+            _ => {}
+        }
+    }
+    CallerShell::Other
+}
+
+/// What `otaq prime` adds when the agent's commands run in PowerShell: the skills' heredoc examples fail there
+/// ("Missing file specification after redirection operator").
+pub fn powershell_stdin_rule() -> String {
+    "\
+## Your shell is PowerShell
+
+Your commands run in PowerShell, not bash, so the skill's `<<'…'` examples (heredocs) fail here. Pass text on stdin \
+with a here-string piped into the command: `@'` ends its line, the text follows, and `'@` starts its own line. End a \
+continued line with a backtick (`` ` ``), never `\\`.
+
+```powershell
+@'
+Added the price table with sorting by price and name.
+`npm test` at a1b2c3d: 48 passed; log: `${dir}/test-run.txt`
+'@ | {cmd} stage next --stdin `
+  --manual-check \"On a phone-width window, open /prices: the header stays put\"
+```
+
+Inside `@' … '@` nothing is expanded; in a command you run, write a variable as `$env:{dir}`.
+"
+    .replace("{cmd}", naming::COMMAND_NAME)
+    .replace("{dir}", &naming::resource_dir_env_var())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn programs(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn the_first_known_shell_up_the_chain_decides() {
+        let ps = CallerShell::PowerShell;
+        assert_eq!(
+            caller_shell(&programs(&[
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+            ])),
+            ps
+        );
+        assert_eq!(
+            caller_shell(&programs(&[r"C:\Program Files\PowerShell\7\PWSH.EXE"])),
+            ps
+        );
+        assert_eq!(caller_shell(&programs(&["/usr/local/bin/pwsh"])), ps);
+        // A shim or runtime between the command and its shell is passed over.
+        assert_eq!(
+            caller_shell(&programs(&[r"C:\tools\node.exe", r"C:\x\pwsh.exe"])),
+            ps
+        );
+        // Claude Code on Windows: Git Bash, even when PowerShell is further up.
+        assert_eq!(
+            caller_shell(&programs(&[
+                r"C:\Program Files\Git\usr\bin\bash.exe",
+                r"C:\x\powershell.exe"
+            ])),
+            CallerShell::Other
+        );
+        assert_eq!(caller_shell(&programs(&["/bin/zsh"])), CallerShell::Other);
+        assert_eq!(
+            caller_shell(&programs(&[r"C:\Windows\System32\cmd.exe"])),
+            CallerShell::Other
+        );
+        assert_eq!(caller_shell(&[]), CallerShell::Other);
+    }
+
+    #[test]
+    fn the_powershell_rule_shows_a_here_string_into_the_command() {
+        let rule = powershell_stdin_rule();
+        assert!(rule.starts_with("## Your shell is PowerShell\n"), "{rule}");
+        assert!(rule.contains("@'\nAdded the price table"), "{rule}");
+        assert!(
+            rule.contains("\n'@ | otaq stage next --stdin `\n"),
+            "{rule}"
+        );
+        assert!(rule.contains("`$env:OTAQ_RESOURCE_DIR`"), "{rule}");
+        assert!(!rule.contains("{cmd}") && !rule.contains("{dir}"), "{rule}");
+    }
 
     #[test]
     fn path_gets_the_folder_first() {
