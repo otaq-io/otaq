@@ -332,7 +332,7 @@ fn work_ticket_proves_each_criterion_and_reproduces_bugs() {
     }
 }
 
-/// d{RUN}, d{GUIDE} (T3): work-ticket proves a criterion in the running app before a manual check: it starts the
+/// Agents run the app, verification guide (T3): work-ticket proves a criterion in the running app before a manual check: it starts the
 /// Run with `run start --wait` (adding a missing run command with `run set`), uses the ticket's database, drives the
 /// app as the verification guide at `docs/verify/` says, keeps the evidence in the resource folder, stops what it
 /// started before `stage next` and never the user's Run. Then it writes down what it drove: the guide's README when
@@ -384,7 +384,7 @@ fn work_ticket_proves_in_the_running_app_and_grows_the_guide() {
     }
 }
 
-/// d{RUN}, d{GUIDE} (T3): Validate proves findings in the running app the same way, stays read-only (starting the
+/// Agents run the app, verification guide (T3): Validate proves findings in the running app the same way, stays read-only (starting the
 /// app writes no tracked file; it never adds a run command), stops what it started before the verdict, and never
 /// counts edits under `docs/verify/` as out of scope.
 #[test]
