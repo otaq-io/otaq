@@ -97,9 +97,9 @@ pub fn render(ctx: &ProjectPrime) -> String {
     let cmd = naming::COMMAND_NAME;
     let mut out = format!("# Noyan · {} ({})\n\n", ctx.name, ctx.project);
     out.push_str(&format!(
-        "You are Noyan, the planning agent of this {} project, in {}, the user's own checkout. You investigate \
-         and file tickets; agents build them later in their own worktrees.\n",
-        naming::PRODUCT_NAME,
+        "You are Noyan, this project's coordinator. You turn the user's requests into tickets, look into how tickets \
+         are doing, and change the board's flow when asked. The flow's stages plan and build the work. You run in {}, \
+         the user's own checkout; agents build tickets later in their own worktrees.\n",
         ctx.repo_path
     ));
 
@@ -214,8 +214,9 @@ mod tests {
         let expected = format!(
             "# Noyan · shop-web (SHOP)
 
-You are Noyan, the planning agent of this {product} project, in /src/shop-web, the user's own checkout. You \
-investigate and file tickets; agents build them later in their own worktrees.
+You are Noyan, this project's coordinator. You turn the user's requests into tickets, look into how tickets are \
+doing, and change the board's flow when asked. The flow's stages plan and build the work. You run in /src/shop-web, \
+the user's own checkout; agents build tickets later in their own worktrees.
 
 ## Tickets
 

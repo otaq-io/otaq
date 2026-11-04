@@ -380,8 +380,9 @@ fn later_from(flow: &Flow, place: &Place) -> usize {
 }
 
 /// The "## Stage choices" section (AGM-06, AGM-08): nothing when the reader may set none (the default flow), else
-/// what `reader` may do, with an example from the first stage, and each stage's options. `key` is the reading
-/// ticket's own.
+/// what `reader` may do, with an example, and each stage's options. Noyan passes on only the user's choices
+/// (`--by-user`); a ticket agent may pick another agent but only the user skips a stage, so its example never skips
+/// and its options don't list `skip` (T1). `key` is the reading ticket's own.
 pub fn render_choices(
     choices: &[PrimeChoice],
     reader: AgentReader,
@@ -391,26 +392,41 @@ pub fn render_choices(
         return String::new();
     };
     let cmd = naming::COMMAND_NAME;
-    let pick = first
-        .options
-        .iter()
-        .find(|o| !o.usual)
-        .map(|o| o.name.clone())
-        .unwrap_or_else(|| crate::board::stage_choices::SKIP.to_owned());
-    let example = format!("--stage \"{}={pick}\"", first.stage);
     let lead = match reader {
-        AgentReader::TicketAgent => format!(
-            "You may change these later stages' choices for this ticket when what you learned changes how hard their \
-             work is, always with a reason: `{cmd} update {} {example} --reason \"…\"`. A choice the user set isn't \
-             listed: it can't be changed.",
-            key.map(ToString::to_string)
-                .unwrap_or_else(|| "<KEY>".to_owned())
-        ),
-        AgentReader::ProjectAgent => format!(
-            "A new ticket runs each stage's own agent. Pick another option for a ticket you create only when how hard \
-             the work is says so, with a reason: `{cmd} create \"Title\" {example} --reason \"…\" --stdin`. When \
-             unsure, leave the stage's own agent."
-        ),
+        AgentReader::TicketAgent => {
+            let key = key
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "<KEY>".to_owned());
+            // Only the user skips a stage: the example picks another agent, and a stage that offers none isn't one.
+            let example = choices.iter().find_map(|c| {
+                c.options
+                    .iter()
+                    .find(|o| !o.usual)
+                    .map(|o| format!("--stage \"{}={}\"", c.stage, o.name))
+            });
+            let how = match example {
+                Some(example) => format!(": `{cmd} update {key} {example} --reason \"…\"`"),
+                None => String::new(),
+            };
+            format!(
+                "You may pick another agent for these later stages of this ticket when what you learned changes how \
+                 hard their work is, always with a reason{how}. Never skip a stage: only the user skips one. A choice \
+                 the user set isn't listed: it can't be changed."
+            )
+        }
+        AgentReader::ProjectAgent => {
+            let pick = first
+                .options
+                .iter()
+                .find(|o| !o.usual)
+                .map(|o| o.name.clone())
+                .unwrap_or_else(|| crate::board::stage_choices::SKIP.to_owned());
+            format!(
+                "A new ticket runs every stage with the stage's own agent. Pass on only the choices the user names, \
+                 with --by-user: `{cmd} create \"Title\" --stage \"{}={pick}\" --by-user --stdin`.",
+                first.stage
+            )
+        }
     };
     let mut out = format!("\n## Stage choices\n\n{lead}\n\n");
     for c in choices {
@@ -421,7 +437,7 @@ pub fn render_choices(
         for option in &c.options {
             out.push_str(&format!("  - {}\n", option.label()));
         }
-        if c.can_skip {
+        if c.can_skip && reader == AgentReader::ProjectAgent {
             out.push_str("  - skip: the ticket passes this stage\n");
         }
     }

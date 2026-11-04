@@ -47,23 +47,23 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
     w.add_project("shop-web").await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     w.create("SHOP", "Fix README typo").await;
-    let planner = Chooser::ProjectAgent {
-        name: "Checkout slowness".into(),
+    let architect = Chooser::TicketAgent {
+        name: "Architect".into(),
     };
     choose(
         &w,
         "SHOP-1",
-        &[
-            pick("Dev", "Quick developer", Some("typo fix")),
-            pick("Product spec", "skip", Some("nothing to ask")),
-        ],
-        &planner,
+        &[pick("Dev", "Quick developer", Some("typo fix"))],
+        &architect,
     )
     .await;
     choose(
         &w,
         "SHOP-1",
-        &[pick("Dev", "Rust developer", None)],
+        &[
+            pick("Dev", "Rust developer", None),
+            pick("Product spec", "skip", None),
+        ],
         &Chooser::User,
     )
     .await;

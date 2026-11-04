@@ -8,6 +8,7 @@ use std::process::{Command, Output};
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::board::stage_choices::{NOYAN_USER_CHOICES_ONLY, ONLY_THE_USER_SKIPS};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::{FlowFile, yaml};
@@ -286,8 +287,9 @@ async fn the_old_flags_are_unknown() {
     w.stop().await;
 }
 
-/// A Project agent sets choices with a reason ("set by the Project agent · typo fix"); never over the user's, except
-/// with `--by-user`; only on Backlog tickets (CLI-06).
+/// Noyan sets only the choices the user names (T1): its own `--stage` is refused, with or without a reason, on
+/// `create`, `update` and a `-f` file's Stage lines, and nothing is created; with `--by-user` the choice is the user's;
+/// never over the user's; only on Backlog tickets (CLI-06).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agents_choices_and_the_users_words() {
     let w = world().await;
@@ -298,33 +300,49 @@ async fn a_project_agents_choices_and_the_users_words() {
         .unwrap();
     let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
 
+    for own in [
+        "--stage 'Dev=Quick developer' --reason 'typo fix'",
+        "--stage 'QA=required' --reason 'risky'",
+        "--stage 'Product spec=skip' --reason 'ordinary work'",
+        "--stage 'Product spec=skip'",
+    ] {
+        let ran = agent
+            .run(&format!("'{CB}' -P SHOP create 'Fix README typo' {own}"))
+            .await;
+        assert_ne!(ran.status, 0, "{own}");
+        assert!(
+            ran.stderr.contains(NOYAN_USER_CHOICES_ONLY),
+            "{own}: {ran:?}"
+        );
+    }
+    // A file with a Stage line and no --by-user: the whole batch is refused.
+    let plan = w.home.path().join("plan.md");
+    std::fs::write(
+        &plan,
+        "### Export as CSV\n\nCSV.\n\n### Fix README typo\n- **Stage:** Dev=Quick developer\n\nTypo.\n",
+    )
+    .unwrap();
+    let ran = agent
+        .run(&format!("'{CB}' -P SHOP create -f '{}'", plan.display()))
+        .await;
+    assert_ne!(ran.status, 0);
+    assert!(ran.stderr.contains(NOYAN_USER_CHOICES_ONLY), "{ran:?}");
+    assert!(w.board.tickets("SHOP").await.unwrap().is_empty());
+
+    // The user's choice, passed on: the user's.
     let ran = agent
         .run(&format!(
-            "'{CB}' -P SHOP create 'Fix README typo' --stage 'Dev=Quick developer' --reason 'typo fix'"
+            "'{CB}' -P SHOP create 'Fix README typo' --stage 'Dev=Quick developer' --by-user"
         ))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let shown = ok(&cb(&w, &["show", "SHOP-1"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Dev: Quick developer · set by Noyan · typo fix"
+        "Choices:     Dev: Quick developer · set by you"
     );
     let shown = json_of(&cb(&w, &["show", "SHOP-1", "--json"]));
-    assert_eq!(
-        shown["choices"][1],
-        json!({"stage": "Dev", "choice": "Quick developer", "set_by": "project_agent",
-               "by": "Noyan", "reason": "typo fix", "locked": false,
-               "options": ["Rust developer", "Quick developer"]})
-    );
-    // Without a reason: refused, nothing created.
-    let ran = agent
-        .run(&format!(
-            "'{CB}' -P SHOP create 'Other' --stage 'Product spec=skip'"
-        ))
-        .await;
-    assert_ne!(ran.status, 0);
-    assert!(ran.stderr.contains("Say why with --reason"), "{ran:?}");
-    assert_eq!(w.board.tickets("SHOP").await.unwrap().len(), 1);
+    assert_eq!(shown["choices"][1]["set_by"], "user", "{shown}");
 
     // The user's choice wins.
     ok(&cb(
@@ -337,11 +355,7 @@ async fn a_project_agents_choices_and_the_users_words() {
         ))
         .await;
     assert_ne!(ran.status, 0);
-    assert!(
-        ran.stderr
-            .contains("You set Dev for SHOP-1; the agent's choice doesn't replace yours"),
-        "{ran:?}"
-    );
+    assert!(ran.stderr.contains(NOYAN_USER_CHOICES_ONLY), "{ran:?}");
     // The user's own words, passed on: theirs.
     let ran = agent
         .run(&format!(
@@ -367,9 +381,7 @@ async fn a_project_agents_choices_and_the_users_words() {
         .await
         .unwrap();
     let ran = agent
-        .run(&format!(
-            "'{CB}' update SHOP-2 --stage 'QA=skip' --reason 'docs only'"
-        ))
+        .run(&format!("'{CB}' update SHOP-2 --stage 'QA=skip' --by-user"))
         .await;
     assert_ne!(ran.status, 0);
     assert!(
@@ -379,8 +391,8 @@ async fn a_project_agents_choices_and_the_users_words() {
     w.stop().await;
 }
 
-/// A ticket's agent sets its own ticket's later stages with a reason (AGM-11), not a stage that started, nor another
-/// ticket.
+/// A ticket's agent picks agents for its own ticket's later stages with a reason (AGM-11), not a stage that started,
+/// nor another ticket, and never skips one: only the user skips a stage (T1).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ticket_agent_sets_its_own_later_stages() {
     let w = world().await;
@@ -456,21 +468,35 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
         .run(&format!("'{CB}' create 'Cart badge' --json"))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
+    // Only the user skips a stage: its own skip is refused, an agent pick is its own (T1).
     let ran = agent
         .run(&format!(
             "'{CB}' update SHOP-3 --stage 'Product spec=skip' --reason 'planned already'"
+        ))
+        .await;
+    assert_ne!(ran.status, 0);
+    assert!(ran.stderr.contains(ONLY_THE_USER_SKIPS), "{ran:?}");
+    let ran = agent
+        .run(&format!(
+            "'{CB}' update SHOP-3 --stage 'Dev=Quick developer' --reason 'small change'"
         ))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let shown = ok(&cb(&w, &["show", "SHOP-3"]));
     assert_eq!(
         choices_block(&shown),
-        "Choices:     Product spec: skip · set by Spec writer · planned already"
+        "Choices:     Dev: Quick developer · set by Spec writer · small change"
     );
     ok(&cb(
         &w,
         &["update", "SHOP-3", "--stage", "Dev=Quick developer"],
     ));
+    // The user's skip, and the agent's in the user's words, still work.
+    ok(&cb(&w, &["update", "SHOP-3", "--stage", "QA=skip"]));
+    let ran = agent
+        .run(&format!("'{CB}' update SHOP-2 --stage 'QA=skip' --by-user"))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
     let ran = agent
         .run(&format!(
             "'{CB}' update SHOP-3 --stage 'Dev=Rust developer' --reason 'x'"
@@ -493,7 +519,7 @@ async fn a_ticket_agent_sets_its_own_later_stages() {
         .collect();
     assert_eq!(
         fixes,
-        [json!({"ticket": "SHOP-3", "change": "choices_set", "choices": ["Product spec: skip"]})]
+        [json!({"ticket": "SHOP-3", "change": "choices_set", "choices": ["Dev: Quick developer"]})]
     );
 
     w.stop().await;

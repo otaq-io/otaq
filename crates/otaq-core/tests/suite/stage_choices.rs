@@ -11,7 +11,8 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::resolve;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::stage_choices::{
-    ChoicePick, ChoiceWrite, Chooser, SetBy, TicketChoices, skipped_mark,
+    ChoicePick, ChoiceWrite, Chooser, NOYAN_USER_CHOICES_ONLY, ONLY_THE_USER_SKIPS, SetBy,
+    TicketChoices, skipped_mark,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::board::{BoardError, Refusal};
@@ -41,6 +42,12 @@ fn pick(stage: &str, choice: &str, reason: Option<&str>) -> ChoicePick {
 fn planner() -> Chooser {
     Chooser::ProjectAgent {
         name: "Checkout slowness".into(),
+    }
+}
+
+fn architect() -> Chooser {
+    Chooser::TicketAgent {
+        name: "Architect".into(),
     }
 }
 
@@ -107,25 +114,42 @@ async fn at_work_in(w: &TestService, ticket: &Ticket, stage: &str) {
         .unwrap();
 }
 
-/// AGM-08's rules, sentence by sentence: the Project agent sets Dev: Quick developer at creation; the user changes
-/// it and wins; a later agent can't override the user's choice (unless in the user's words, d0087); Spec writer, at
-/// work in Product spec, can't choose for Security (no options) and changes Dev with a reason; an option not in the
-/// stage's list is refused naming them; a choice locks when Dev starts.
+/// AGM-08's rules, sentence by sentence: Noyan sets only the choices the user names (`--by-user`), its own are
+/// refused; a ticket agent may pick an agent or `required` with a reason but only the user skips a stage; the user
+/// changes Dev and wins; a later agent can't override the user's choice (unless in the user's words, d0087); Spec
+/// writer, at work in Product spec, can't choose for Security (no options) and changes Dev with a reason; an option
+/// not in the stage's list is refused naming them; a choice locks when Dev starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn who_may_set_what() {
     let w = world().await;
 
-    // The Project agent at creation (a batch about to create it): with a reason.
+    // Noyan at creation (a batch about to create it): its own choice is refused, with a reason or not, `required`
+    // and `skip` too (T1).
     let label = "the new ticket \"Fix README typo\"";
+    for own in [
+        pick("Dev", "quick developer", Some("typo fix")),
+        pick("QA", "required", Some("risky")),
+        pick("Product spec", "skip", Some("ordinary work")),
+    ] {
+        let refused = w
+            .board
+            .check_choices("SHOP", None, label, &[own], &planner(), false)
+            .await;
+        assert_eq!(
+            refusal(refused),
+            (Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY.into())
+        );
+    }
+    // The user's choice, passed on with `--by-user`: accepted, and the user's.
     let writes = w
         .board
         .check_choices(
             "SHOP",
             None,
             label,
-            &[pick("Dev", "quick developer", Some("typo fix"))],
+            &[pick("Dev", "quick developer", None)],
             &planner(),
-            false,
+            true,
         )
         .await
         .unwrap();
@@ -133,22 +157,17 @@ async fn who_may_set_what() {
     w.board.write_choices(&typo, &writes, &me()).await.unwrap();
     assert_eq!(
         choice_of(&w, &typo, "Dev").await,
-        (
-            "Quick developer".to_owned(),
-            Some(SetBy::ProjectAgent {
-                name: "Checkout slowness".into(),
-                reason: "typo fix".into()
-            })
-        )
+        ("Quick developer".to_owned(), Some(SetBy::User))
     );
-    // Before the ticket starts, an agent may set any stage's choice, but always with a reason.
+    // Before the ticket starts, a ticket agent may set any stage's agent or `required`, always with a reason; it never
+    // skips one.
     assert_eq!(
         refusal(
             choose(
                 &w,
                 &typo,
-                &[pick("Product spec", "skip", None)],
-                &planner(),
+                &[pick("QA", "required", None)],
+                &architect(),
                 false
             )
             .await
@@ -158,12 +177,25 @@ async fn who_may_set_what() {
     choose(
         &w,
         &typo,
-        &[pick("Product spec", "skip", Some("nothing to ask"))],
-        &planner(),
+        &[pick("QA", "required", Some("touches payments"))],
+        &architect(),
         false,
     )
     .await
     .unwrap();
+    assert_eq!(
+        refusal(
+            choose(
+                &w,
+                &typo,
+                &[pick("Product spec", "skip", Some("nothing to ask"))],
+                &architect(),
+                false
+            )
+            .await
+        ),
+        (Refusal::NotAllowed, ONLY_THE_USER_SKIPS.into())
+    );
 
     // The user changes Dev back; their choice wins over any agent's later one.
     choose(
@@ -189,7 +221,7 @@ async fn who_may_set_what() {
                 &w,
                 &typo,
                 &[pick("Dev", "Quick developer", Some("typo fix"))],
-                &planner(),
+                &architect(),
                 false
             )
             .await
@@ -233,7 +265,7 @@ async fn who_may_set_what() {
         &w,
         &session,
         &[pick("Dev", "Quick developer", Some("small change"))],
-        &planner(),
+        &architect(),
         false,
     )
     .await
@@ -317,6 +349,33 @@ async fn who_may_set_what() {
     assert_eq!(last.payload["from"], "Quick developer");
     assert_eq!(last.payload["by"], "Spec writer");
     assert_eq!(last.payload["reason"], "touches session handling");
+    // Only the user skips a stage: Spec writer can't skip the later QA, unless in the user's words.
+    assert_eq!(
+        refusal(
+            choose(
+                &w,
+                &session,
+                &[pick("QA", "skip", Some("docs only"))],
+                &spec_writer(),
+                false
+            )
+            .await
+        ),
+        (Refusal::NotAllowed, ONLY_THE_USER_SKIPS.into())
+    );
+    choose(
+        &w,
+        &session,
+        &[pick("QA", "skip", None)],
+        &spec_writer(),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        choice_of(&w, &session, "QA").await,
+        ("skip".to_owned(), Some(SetBy::User))
+    );
 
     // An option not in the stage's list is refused, naming the options; so is an unknown stage.
     let fresh = w.create("SHOP", "Export as CSV").await;
