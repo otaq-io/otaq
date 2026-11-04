@@ -280,6 +280,14 @@ fn tech_spec_reads_the_product_spec_decides_commits_and_moves_on() {
             naming::copy_name("commit")
         ),
         format!("{cmd} stage next --stdin"),
+        "**Start from the caller.**".to_owned(),
+        "**Design it twice when the shape matters**".to_owned(),
+        "A smaller change needs one design".to_owned(),
+        "**Check the chosen design against the warning signs.**".to_owned(),
+        "**Two writers of one state**".to_owned(),
+        "**Two ways to do one task**".to_owned(),
+        "**Lists kept in step by hand**".to_owned(),
+        "when you keep one on purpose".to_owned(),
         format!(
             "SHOP-40 is back in Tech spec: Spec review sent it to Product spec, which finished. Run `{cmd} prime`."
         ),
