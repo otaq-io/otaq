@@ -252,11 +252,13 @@ mod tests {
         let rule = powershell_stdin_rule();
         assert!(rule.starts_with("## Your shell is PowerShell\n"), "{rule}");
         assert!(rule.contains("@'\nAdded the price table"), "{rule}");
+        let cmd = naming::COMMAND_NAME;
         assert!(
-            rule.contains("\n'@ | otaq stage next --stdin `\n"),
+            rule.contains(&format!("\n'@ | {cmd} stage next --stdin `\n")),
             "{rule}"
         );
-        assert!(rule.contains("`$env:OTAQ_RESOURCE_DIR`"), "{rule}");
+        let dir = naming::resource_dir_env_var();
+        assert!(rule.contains(&format!("`$env:{dir}`")), "{rule}");
         assert!(!rule.contains("{cmd}") && !rule.contains("{dir}"), "{rule}");
     }
 
