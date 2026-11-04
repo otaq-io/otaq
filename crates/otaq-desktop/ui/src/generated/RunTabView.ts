@@ -11,6 +11,11 @@ import type { RunStateView } from "./RunStateView";
  */
 export type RunTabView = { key: string, project: string, 
 /**
+ * The app (d{RUN}) in a project with several: its section's name and what Run, Stop and Undo name. `None` for a
+ * project's one app.
+ */
+app: string | null, 
+/**
  * "pnpm dev · in SHOP-22’s worktree · :4022" (SHT-04); none before a run command is set.
  */
 line: string | null, state: RunStateView, 

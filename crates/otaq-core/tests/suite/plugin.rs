@@ -333,7 +333,8 @@ fn work_ticket_proves_each_criterion_and_reproduces_bugs() {
 }
 
 /// Agents run the app, verification guide (T3): work-ticket proves a criterion in the running app before a manual check: it starts the
-/// Run with `run start --wait` (adding a missing run command with `run set`), uses the ticket's database, drives the
+/// Run with `run start --wait` (adding a missing run command with `run set`; with several apps, T4, it names each and
+/// starts the ones the criterion needs), uses the ticket's database, drives the
 /// app as the verification guide at `docs/verify/` says, keeps the evidence in the resource folder, stops what it
 /// started before `stage next` and never the user's Run. Then it writes down what it drove: the guide's README when
 /// there is none, a file per feature it lacks, an update when the way to a feature changed; a follow-up ticket and a
@@ -350,6 +351,12 @@ fn work_ticket_proves_in_the_running_app_and_grows_the_guide() {
         format!("**Start it** with `{cmd} run start --wait`"),
         format!("`{cmd} run set --command \"<cmd>\"`"),
         "If the user already started the app for this ticket, you use theirs.".to_owned(),
+        "**Several apps**".to_owned(),
+        "start the apps the criterion needs".to_owned(),
+        format!("`{cmd} run start api --wait`"),
+        format!("`{cmd} run start web --wait`"),
+        "finds the others at `$OTAQ_PORT_<NAME>`".to_owned(),
+        format!("`{cmd} run set worker --command \"<cmd>\"`"),
         "**Use this ticket's data.**".to_owned(),
         format!("`${}`", naming::db_name_env_var()),
         "**Drive it as the verification guide says**: `docs/verify/` in the repository, or where the project's notes \
@@ -401,6 +408,8 @@ fn validate_proves_in_the_running_app_and_keeps_the_guide_in_scope() {
         format!("**Start it** with `{cmd} run start --wait`"),
         "Starting the app is not a change: it writes no tracked file".to_owned(),
         format!("don't add one (`{cmd} run set` saves a setting): make it a manual check"),
+        "start the ones the finding needs, each by name".to_owned(),
+        format!("`{cmd} run start api --wait`"),
         "**Drive it as the verification guide says**: `docs/verify/`".to_owned(),
         format!("`${}`", naming::db_name_env_var()),
         "**Keep the evidence**".to_owned(),

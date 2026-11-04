@@ -273,6 +273,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::CleanupWarmClearParams::export_all(&cfg)?;
     // Run, the run-command dialog, the processes and the Shell tab (T-0232).
     otaq_view::view_models::run_page::TabView::export_all(&cfg)?;
+    otaq_view::view_models::run_page::TabsView::export_all(&cfg)?;
     otaq_view::view_models::run_page::ProcessesView::export_all(&cfg)?;
     otaq_view::view_models::run_page::ShellView::export_all(&cfg)?;
     crate::api::RunStarted::export_all(&cfg)?;

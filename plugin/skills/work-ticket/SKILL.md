@@ -212,6 +212,12 @@ Playwright or a browser tool to the project is a ticket of its own):
    fails with the app's last lines. When the project has no run command yet, the refusal says so: if you know how the
    project starts, add it with `otaq run set --command "<cmd>"` (use `$PORT` where it listens); it is saved once it
    runs. If the user already started the app for this ticket, you use theirs.
+
+   **Several apps** (a monorepo: `otaq run status` lists them): name the one each command is for, and start the apps
+   the criterion needs, for example both for a page that calls the API: `otaq run start api --wait`, then
+   `otaq run start web --wait`. `otaq run log` and `otaq run stop` take the name too. Each app listens on its own
+   `$PORT` and finds the others at `$OTAQ_PORT_<NAME>` (`$OTAQ_PORT_API`). An app the project lacks:
+   `otaq run set worker --command "<cmd>"`.
 2. **Use this ticket's data.** Where the project has ticket resources, the app gets this ticket's database in
    `$OTAQ_DB_NAME`, as your shell does: seed and change that one, never a shared one.
 3. **Drive it as the verification guide says**: `docs/verify/` in the repository, or where the project's notes say

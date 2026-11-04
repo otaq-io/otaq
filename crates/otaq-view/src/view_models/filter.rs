@@ -101,7 +101,7 @@ impl Is {
             ),
             Self::Queued => t.status.is_queued(),
             Self::Parked => t.status == Status::Parked,
-            Self::Running => t.flags.run_port.is_some(),
+            Self::Running => !t.flags.run_apps.is_empty(),
             Self::Backlog => t.place.is_backlog(),
             Self::Review => place_set(t) == StatusSet::HumanCheck,
             Self::Approved => place_set(t) == StatusSet::Delivery,
@@ -261,7 +261,7 @@ mod tests {
         let mut checkout = ticket("SHOP-20", "Checkout page", Status::Queued);
         checkout.depends_on = vec!["SHOP-18".parse().unwrap()];
         let mut running = ticket("SHOP-19", "Price table", Status::Working);
-        running.flags.run_port = Some(4020);
+        running.flags.run_apps = crate::view_models::card_fixtures::running(4020, None);
         vec![
             ticket("SHOP-40", "Wishlist", Status::Backlog),
             ticket("SHOP-44", "Wishlist share link", Status::Backlog),

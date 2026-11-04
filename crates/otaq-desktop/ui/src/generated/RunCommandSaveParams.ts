@@ -4,4 +4,8 @@
  * **Save (& start)**: both fields go into the project's settings (never the repo, d0023), then the ticket's Run
  * starts.
  */
-export type RunCommandSaveParams = { project: string, command: string, open_url: string, };
+export type RunCommandSaveParams = { project: string, command: string, open_url: string, 
+/**
+ * The app whose command it saves (d{RUN}); `None`: the project's one app (added as `app` when it has none).
+ */
+app: string | null, };

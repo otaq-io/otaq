@@ -127,7 +127,11 @@ export function RunCommandDialog({ params, close }: OverlayProps<"run_command">)
     if (opened.current) return;
     opened.current = true;
     (
-      request("run.command_open", { project, ticket: params.ticket ?? null }) as Promise<RunCommandOpened>
+      request("run.command_open", {
+        project,
+        ticket: params.ticket ?? null,
+        app: params.app ?? null,
+      }) as Promise<RunCommandOpened>
     ).then((o) => {
       typed.current = o.command;
       setCommand(o.command);
@@ -136,7 +140,7 @@ export function RunCommandDialog({ params, close }: OverlayProps<"run_command">)
       // Settings' Ask the agent was the click (P1).
       if (params.ask === true) ask();
     }, close);
-  }, [project, params.ticket, params.ask, ask, close]);
+  }, [project, params.ticket, params.app, params.ask, ask, close]);
   // Ask the agent's progress and answer go back to Rust, which keeps the dialog's state.
   useEffect(() => {
     const listening = pageEvents.listen((event) => {
@@ -159,7 +163,14 @@ export function RunCommandDialog({ params, close }: OverlayProps<"run_command">)
   const save = () => {
     if (busy || !view?.can_save) return;
     setBusy(true);
-    (request("run.command_save", { project, command, open_url: openUrl }) as Promise<RunCommandView>)
+    (
+      request("run.command_save", {
+        project,
+        command,
+        open_url: openUrl,
+        app: params.app ?? null,
+      }) as Promise<RunCommandView>
+    )
       .then(show, ignore)
       .finally(() => {
         setBusy(false);

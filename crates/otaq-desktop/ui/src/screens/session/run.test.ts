@@ -34,6 +34,7 @@ const button = (kind: RunButtonView["kind"], extra: Partial<RunButtonView> = {})
 const RUNNING: RunTabView = {
   key: "SHOP-22",
   project: "SHOP",
+  app: null,
   line: "pnpm dev · in SHOP-22’s worktree · :4022",
   state: { text: "Serving", tone: "success", icon: "dot" },
   message: null,
@@ -146,6 +147,7 @@ describe("the Run & Shell screen", () => {
           ...RUNNING,
           set_by: {
             text: "Set by Dev on SHOP-27",
+            app: null,
             undo: "Undo",
             undo_hint: "Empties the run command the agent set",
           },
@@ -156,6 +158,17 @@ describe("the Run & Shell screen", () => {
     expect(
       renderToStaticMarkup(createElement(RunTabBody, { ticket: "SHOP-22", view: RUNNING })),
     ).not.toContain("Set by");
+  });
+
+  it("names its app on the line when the project has several (d{RUN}); one app's line has no name", () => {
+    const web = renderToStaticMarkup(
+      createElement(RunTabBody, { ticket: "SHOP-22", view: { ...RUNNING, app: "web" } }),
+    );
+    expect(web).toContain('data-app="web"');
+    expect(web).toMatch(/run-app-name[^>]*>web<.*Serving/);
+    const one = renderToStaticMarkup(createElement(RunTabBody, { ticket: "SHOP-22", view: RUNNING }));
+    expect(one).not.toContain("run-app-name");
+    expect(one).not.toContain("data-app");
   });
 
   it("says each state in the line's words: Run when stopped, the reason under the line, the backend's note", () => {

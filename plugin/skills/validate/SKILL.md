@@ -105,7 +105,9 @@ prove it in the running app, as the agent does:
 1. **Start it** with `otaq run start --wait`: it prints the URL (or the port) once the app is running. If the user or
    the agent already started it for this ticket, you use that one. Starting the app is not a change: it writes no
    tracked file (if it would, for example a database file kept in the repository, don't start it: make it a manual
-   check). With no run command yet, don't add one (`otaq run set` saves a setting): make it a manual check.
+   check). With no run command yet, don't add one (`otaq run set` saves a setting): make it a manual check. With
+   several apps (`otaq run status` lists them), start the ones the finding needs, each by name:
+   `otaq run start api --wait`.
 2. **Drive it as the verification guide says**: `docs/verify/` (its `README.md` and the feature's file), or where the
    project's notes say the guide lives. Where the project has ticket resources, the app uses this ticket's database
    (`$OTAQ_DB_NAME`).

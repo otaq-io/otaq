@@ -4,7 +4,11 @@
  * "Set by Dev on SHOP-27 · Undo" (agents run the app): under the run command in Settings and on the Run tab, while the command
  * an agent set is the project's. Undo empties it (`run.command_undo`).
  */
-export type RunCommandSetByView = { text: string, undo: string, 
+export type RunCommandSetByView = { text: string, 
+/**
+ * The app whose command it is, in a project with several (`run.command_undo` names it); `None` for the one app.
+ */
+app: string | null, undo: string, 
 /**
  * Undo's tooltip.
  */

@@ -32,9 +32,10 @@ export function afterStart(started: RunStarted, ticket: string): void {
   if (started.outcome === "needs_command") openOverlay("run_command", { project: started.project, ticket });
 }
 
-/** Run (the sheet's button, the tab's Run and Retry): starts the ticket's Run, or asks for the command first. */
-export function startRun(ticket: string): Promise<RunStarted | null> {
-  return (request("run.start", { key: ticket }) as Promise<RunStarted>).then(
+/** Run (the sheet's button, the tab's Run and Retry): starts the ticket's Run, or asks for the command first. `app`
+ * names one of several apps (d{RUN}); left out, the sheet's Run starts every app. */
+export function startRun(ticket: string, app: string | null = null): Promise<RunStarted | null> {
+  return (request("run.start", { key: ticket, app }) as Promise<RunStarted>).then(
     (started) => {
       afterStart(started, ticket);
       return started;

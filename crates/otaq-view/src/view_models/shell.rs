@@ -11,6 +11,23 @@ pub fn port_label(port: u16) -> String {
     format!("Run port · $PORT={port}")
 }
 
+/// The Shell's ports (d{RUN}): one app's "Run port · $PORT=4004"; several, "Run ports · OTAQ_PORT_WEB=4020 ·
+/// OTAQ_PORT_API=4021" (the Shell has no `$PORT` then); none before the ticket has one.
+pub fn ports_label(ports: &[(String, u16)]) -> Option<String> {
+    match ports {
+        [] => None,
+        [(_, port)] => Some(port_label(*port)),
+        several => Some(format!(
+            "Run ports · {}",
+            several
+                .iter()
+                .map(|(app, port)| format!("{}={port}", otaq_core::naming::app_port_env_var(app)))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        )),
+    }
+}
+
 /// A terminal a restart stopped: its title and note, for the state shown instead of an empty terminal.
 pub fn stopped_note(
     session: &SessionInfo,
@@ -31,6 +48,27 @@ pub fn stopped_note(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// d{RUN} (T4): one app's Shell has `$PORT`; with several, only each app's variable.
+    #[test]
+    fn the_ports_label_follows_the_apps() {
+        assert_eq!(ports_label(&[]), None);
+        assert_eq!(
+            ports_label(&[("app".into(), 4004)]).as_deref(),
+            Some("Run port · $PORT=4004")
+        );
+        assert_eq!(
+            ports_label(&[("web".into(), 4020), ("api".into(), 4021)]).as_deref(),
+            Some(
+                format!(
+                    "Run ports · {}=4020 · {}=4021",
+                    otaq_core::naming::app_port_env_var("web"),
+                    otaq_core::naming::app_port_env_var("api")
+                )
+                .as_str()
+            )
+        );
+    }
     use otaq_core::session::{SessionKind, SessionState};
 
     fn shell(state: SessionState, reason: Option<&str>) -> SessionInfo {

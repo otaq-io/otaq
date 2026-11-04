@@ -1271,6 +1271,32 @@ fn validating_text(ticket: &Ticket, now_ms: i64) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" \u{b7} "))
 }
 
+/// The Run flag's label and what serves (agents run the app): one app `:4020` and ":4020" as before apps had names; several, their
+/// names while they fit the flag ("web · api", else "3 apps") and "web :4020 · api :4021" for the hover and status
+/// text, where the ports go.
+fn running_label(apps: &[otaq_core::domain::RunningApp]) -> (String, String) {
+    if let [only] = apps {
+        let port = format!(":{}", only.port);
+        return (port.clone(), port);
+    }
+    let names = apps
+        .iter()
+        .map(|a| a.app.as_str())
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ");
+    let label = if names.chars().count() <= FLAG_MAX_CHARS {
+        names
+    } else {
+        format!("{} apps", apps.len())
+    };
+    let serving = apps
+        .iter()
+        .map(|a| format!("{} :{}", a.app, a.port))
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ");
+    (label, serving)
+}
+
 /// How a ticket in Ready for Review got there (*Note · M12*): Validated · Skipped · Did not pass take the head;
 /// "Submitted by you · not validated" is a quiet line.
 fn review_part(ticket: &Ticket) -> Option<Part> {
@@ -1521,24 +1547,26 @@ impl CardViewModel {
                 .lost(format!("conflicts with {base}")),
             );
         }
-        if let Some(port) = flags.run_port {
+        if !flags.run_apps.is_empty() {
+            let (label, serving) = running_label(&flags.run_apps);
             // Who started it, when an agent did (agents run the app): "Serving :4020 · started by Dev".
             let by = flags
-                .run_started_by
-                .as_ref()
+                .run_apps
+                .iter()
+                .find_map(|a| a.started_by.as_ref())
                 .map_or(String::new(), |stage| format!(" \u{b7} started by {stage}"));
             parts.push(
                 Part::flag(
                     HeadFlag::new(
                         Rank::Running,
-                        format!(":{port}"),
-                        format!("Serving :{port}{by}"),
+                        label,
+                        format!("Serving {serving}{by}"),
                         Legend::Running,
                     ),
                     None,
                     Tone::Muted,
                 )
-                .lost(format!("also running :{port}{by}")),
+                .lost(format!("also running {serving}{by}")),
             );
         }
         if stale {
@@ -2858,6 +2886,42 @@ mod tests {
         CardViewModel::from(t, &main_project(), NOW)
     }
 
+    /// Agents run the app (T4): several apps keep the 12-character flag: their names while they fit, else how many; the ports go
+    /// to the hover and the line. One app reads `:4020` as before apps had names.
+    #[test]
+    fn several_running_apps_name_the_flag_and_put_the_ports_in_the_hover() {
+        let running = |apps: &[(&str, u16)], by: Option<&str>| {
+            apps.iter()
+                .map(|(app, port)| otaq_core::domain::RunningApp {
+                    app: (*app).into(),
+                    port: *port,
+                    started_by: by.map(str::to_owned),
+                })
+                .collect::<Vec<_>>()
+        };
+        let (mut t, _) = variant("Running (Run, 0035) · pinned (0047)");
+        t.flags.run_apps = running(&[("web", 4020), ("api", 4021)], Some("Dev"));
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("web \u{b7} api"));
+        assert_eq!(
+            vm.hover.status,
+            "Serving web :4020 \u{b7} api :4021 \u{b7} started by Dev"
+        );
+        t.flags.run_apps = running(
+            &[("frontend", 4020), ("backend", 4021), ("worker", 4022)],
+            None,
+        );
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("3 apps"));
+        assert!(flag_of(&vm).unwrap().chars().count() <= FLAG_MAX_CHARS);
+        assert_eq!(
+            vm.hover.status,
+            "Serving frontend :4020 \u{b7} backend :4021 \u{b7} worker :4022"
+        );
+        t.flags.run_apps = running(&[("app", 4020)], None);
+        assert_eq!(flag_of(&card(&t)), Some(":4020"));
+    }
+
     fn flag_of(vm: &CardViewModel) -> Option<&str> {
         vm.flag.as_ref().map(|f| f.label.as_str())
     }
@@ -3484,7 +3548,7 @@ mod tests {
         let mut conflicts = ticket("SHOP-1", "x", Status::WaitingForYou);
         conflicts.flags.conflicts_with = Some("main".into());
         let mut port = ticket("SHOP-1", "x", Status::Working);
-        port.flags.run_port = Some(4020);
+        port.flags.run_apps = crate::view_models::card_fixtures::running(4020, None);
         let mut pr = ticket("SHOP-1", "x", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let review = |entry| {
@@ -3627,7 +3691,7 @@ mod tests {
         );
         // The outcome over the running port.
         let (mut t, _) = variant("Approved · PR open (0017)");
-        t.flags.run_port = Some(4020);
+        t.flags.run_apps = crate::view_models::card_fixtures::running(4020, None);
         let vm = card(&t);
         assert_eq!(flag_of(&vm), Some("PR #481 open"));
         assert_eq!(
@@ -3640,13 +3704,12 @@ mod tests {
         assert_eq!(vm.hover.status, "Serving :4020");
         // A Run an agent started says so (agents run the app); the chip stays short.
         let (mut t, _) = variant("Running (Run, 0035) · pinned (0047)");
-        t.flags.run_started_by = Some("Dev".into());
+        t.flags.run_apps = crate::view_models::card_fixtures::running(4020, Some("Dev"));
         let vm = card(&t);
         assert_eq!(flag_of(&vm), Some(":4020"));
         assert_eq!(vm.hover.status, "Serving :4020 · started by Dev");
         let (mut t, _) = variant("Approved · PR open (0017)");
-        t.flags.run_port = Some(4020);
-        t.flags.run_started_by = Some("Dev".into());
+        t.flags.run_apps = crate::view_models::card_fixtures::running(4020, Some("Dev"));
         assert_eq!(
             line(&card(&t)),
             Some(format!("{} · also running :4020 · started by Dev", pr_not_watched()).as_str())
@@ -3662,7 +3725,7 @@ mod tests {
     fn losers_join_the_line_in_order() {
         let mut t = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
         t.depends_on = vec!["SHOP-17".parse().unwrap()];
-        t.flags.run_port = Some(4024);
+        t.flags.run_apps = crate::view_models::card_fixtures::running(4024, None);
         t.flags.conflicts_with = Some("main".into());
         t.flags.messages_waiting = 2;
         let x = CardExtras {
@@ -4072,7 +4135,7 @@ mod tests {
             (
                 "run",
                 Status::WaitingForYou,
-                |t, _| t.flags.run_port = Some(4020),
+                |t, _| t.flags.run_apps = crate::view_models::card_fixtures::running(4020, None),
                 "Serving :4020",
             ),
             (

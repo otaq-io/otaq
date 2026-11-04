@@ -11,6 +11,32 @@
   padding: 12px;
 }
 
+/* Several apps (d{RUN}): one section per app, stacked, each with its own line and terminal. */
+.run-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.run-apps > .run-tab {
+  flex: 1;
+  height: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.run-apps > .run-tab:first-of-type {
+  border-top: none;
+}
+
+.run-app-name {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 12px;
+}
+
 .run-problem {
   margin: 24px;
   color: var(--text-muted);

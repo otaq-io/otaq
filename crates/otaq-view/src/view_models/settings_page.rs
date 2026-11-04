@@ -12,8 +12,8 @@
 use otaq_core::attention::notify::{Kind, PermissionState};
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
-    EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES, TerminalRenderer,
-    UsageData, env_var_field, env_var_problems,
+    DEFAULT_APP, EnvVar, GlobalSettings, ProjectSettings, RunApp, SettingProblem,
+    TERMINAL_FONT_SIZES, TerminalRenderer, UsageData, env_var_field, env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming::{self, PRODUCT_NAME};
@@ -401,6 +401,9 @@ pub enum ButtonAction {
     RemoveProject,
     /// Empties the run command an agent set ("Set by Dev on SHOP-27 · Undo", agents run the app).
     UndoRunCommand,
+    /// Sends the row's own field as an edit with an empty value (agents run the app): Add app (`apps.add`), Remove app
+    /// (`apps.1.remove`).
+    EditField,
     /// Brings up macOS's notifications question (in the app's process) and answers Otaq's ask (ATT-13, ATT-14).
     AllowNotifications,
     /// Opens Otaq's entry in System Settings → Notifications (ATT-14).
@@ -1045,33 +1048,10 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                 ),
             ),
             merge_check_row(s, p),
-            Row {
-                set_by: crate::view_models::run_page::set_by_view(s.run_command_set_by.as_ref()),
-                button: input.tool_connected.then(|| RowButton {
-                    label: crate::view_models::run_page::ASK_LABEL.into(),
-                    icon: IconName::Sparkles,
-                    tooltip: Some(crate::view_models::run_page::ask_tooltip(
-                        input.project_agent,
-                    )),
-                }),
-                ..row(
-                    "run_command",
-                    "Run command",
-                    "Runs in the ticket’s worktree when you press Run. Use $PORT if it listens on a port.",
-                    text(
-                        &s.run_command,
-                        "not set",
-                        true,
-                        problem_for(p, "run_command"),
-                    ),
-                )
-            },
-            row(
-                "open_url",
-                "Open URL",
-                "Optional. Shows an Open button while it runs. Leave empty for backends, CLIs and libraries.",
-                text(&s.open_url, "none", true, problem_for(p, "open_url")),
-            ),
+        ]
+        .into_iter()
+        .chain(app_rows(s, p, input.tool_connected, input.project_agent))
+        .chain([
             row(
                 "env_files",
                 "Env files to copy into worktrees",
@@ -1091,7 +1071,8 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             ),
             env_vars_row(s, p),
             warm_builds_row(info, s, input.warm),
-        ],
+        ])
+        .collect(),
     );
     let resources = ticket_resources_section(s, p);
     let provider = section(
@@ -1231,6 +1212,136 @@ fn env_vars_description() -> String {
 /// The Environment variables row (ENV-01, ENV-03; d0082, d0087; *15 → Row · Environment variables (0082)*): every row as
 /// written, in full and in plain text, each with the problem the service found (`env_vars.<index>`). There are no
 /// built-in, read-only or computed rows; the hint is only an example.
+/// The run command rows (agents run the app). With one app (or none yet) they look as before apps had names: Run command (with
+/// Ask the agent and "Set by Dev on SHOP-27 · Undo"), Open URL, and Add app once there is a command. With several, each
+/// app has its name, command and Open URL rows and Remove, then Add app.
+fn app_rows(
+    s: &ProjectSettings,
+    p: &[SettingProblem],
+    tool_connected: bool,
+    project_agent: &str,
+) -> Vec<Row> {
+    use crate::view_models::run_page::{ASK_LABEL, ask_tooltip, set_by_view};
+    use otaq_core::board::settings::app_field;
+    let add = Row {
+        description: format!(
+            "A monorepo? Add another app (web, api, worker). Each runs with its own port; every app\u{2019}s command \
+             also gets each app\u{2019}s port as {}<NAME>.",
+            otaq_core::naming::env_var("PORT_")
+        ),
+        ..row(
+            "apps.add",
+            "More apps",
+            "",
+            Control::Button {
+                label: "Add app".into(),
+                icon: IconName::Plus,
+                destructive: false,
+                action: ButtonAction::EditField,
+            },
+        )
+    };
+    if s.apps.len() <= 1 {
+        let only = s.apps.first();
+        let mut rows = vec![
+            Row {
+                set_by: set_by_view(only.and_then(|a| a.set_by.as_ref()), None),
+                button: tool_connected.then(|| RowButton {
+                    label: ASK_LABEL.into(),
+                    icon: IconName::Sparkles,
+                    tooltip: Some(ask_tooltip(project_agent)),
+                }),
+                ..row(
+                    "run_command",
+                    "Run command",
+                    "Runs in the ticket’s worktree when you press Run. Use $PORT if it listens on a port.",
+                    text(
+                        only.map_or("", |a| a.command.as_str()),
+                        "not set",
+                        true,
+                        problem_for(p, &app_field(0, "command")),
+                    ),
+                )
+            },
+            row(
+                "open_url",
+                "Open URL",
+                "Optional. Shows an Open button while it runs. Leave empty for backends, CLIs and libraries.",
+                text(
+                    only.map_or("", |a| a.open_url.as_str()),
+                    "none",
+                    true,
+                    problem_for(p, &app_field(0, "open_url")),
+                ),
+            ),
+        ];
+        if only.is_some() {
+            rows.push(add);
+        }
+        return rows;
+    }
+    let mut rows = Vec::new();
+    for (i, app) in s.apps.iter().enumerate() {
+        let name = if app.name.trim().is_empty() {
+            "this app".to_owned()
+        } else {
+            app.name.trim().to_owned()
+        };
+        rows.push(row(
+            &app_field(i, "name"),
+            "App",
+            format!(
+                "Its port is $PORT in its own command and {} in every app\u{2019}s.",
+                otaq_core::naming::app_port_env_var(&app.name)
+            ),
+            text(
+                &app.name,
+                "web",
+                true,
+                problem_for(p, &app_field(i, "name")),
+            ),
+        ));
+        rows.push(Row {
+            set_by: set_by_view(app.set_by.as_ref(), Some(&app.name)),
+            ..row(
+                &app_field(i, "command"),
+                &format!("Run command \u{b7} {name}"),
+                "Runs in the ticket’s worktree. Use $PORT where it listens.",
+                text(
+                    &app.command,
+                    "not set",
+                    true,
+                    problem_for(p, &app_field(i, "command")),
+                ),
+            )
+        });
+        rows.push(row(
+            &app_field(i, "open_url"),
+            &format!("Open URL \u{b7} {name}"),
+            "Optional. Shows an Open button while it runs.",
+            text(
+                &app.open_url,
+                "none",
+                true,
+                problem_for(p, &app_field(i, "open_url")),
+            ),
+        ));
+        rows.push(row(
+            &app_field(i, "remove"),
+            "",
+            "",
+            Control::Button {
+                label: format!("Remove {name}"),
+                icon: IconName::Trash2,
+                destructive: true,
+                action: ButtonAction::EditField,
+            },
+        ));
+    }
+    rows.push(add);
+    rows
+}
+
 pub fn env_vars_row(s: &ProjectSettings, problems: &[SettingProblem]) -> Row {
     row(
         "env_vars",
@@ -2060,8 +2171,59 @@ pub fn edit_project(
             let text = value.text()?;
             s.merge_check = (!text.trim().is_empty()).then(|| text.to_owned());
         }
-        "run_command" => s.run_command = value.text()?.to_owned(),
-        "open_url" => s.open_url = value.text()?.trim().to_owned(),
+        // The one app's rows (agents run the app); emptied, the project has no run command again.
+        "run_command" | "open_url" => {
+            if s.apps.is_empty() {
+                s.apps.push(RunApp {
+                    name: DEFAULT_APP.into(),
+                    command: String::new(),
+                    open_url: String::new(),
+                    set_by: None,
+                });
+            }
+            let text = value.text()?;
+            if field == "run_command" {
+                s.apps[0].command = text.to_owned();
+            } else {
+                s.apps[0].open_url = text.trim().to_owned();
+            }
+            if s.apps.len() == 1
+                && s.apps[0].command.trim().is_empty()
+                && s.apps[0].open_url.is_empty()
+            {
+                s.apps.clear();
+            }
+        }
+        // Another app (agents run the app): the first free name `app2`, `app3`… for the user to rename.
+        "apps.add" => {
+            let name = (2..)
+                .map(|n| format!("{DEFAULT_APP}{n}"))
+                .find(|n| s.app(n).is_none())
+                .expect("a free name");
+            s.apps.push(RunApp {
+                name,
+                command: String::new(),
+                open_url: String::new(),
+                set_by: None,
+            });
+        }
+        other if other.starts_with("apps.") => {
+            let mut parts = other.splitn(3, '.').skip(1);
+            let index: usize = parts
+                .next()
+                .and_then(|i| i.parse().ok())
+                .filter(|i| *i < s.apps.len())
+                .ok_or_else(|| format!("no such field: {other}"))?;
+            match parts.next() {
+                Some("name") => s.apps[index].name = value.text()?.trim().to_owned(),
+                Some("command") => s.apps[index].command = value.text()?.to_owned(),
+                Some("open_url") => s.apps[index].open_url = value.text()?.trim().to_owned(),
+                Some("remove") => {
+                    s.apps.remove(index);
+                }
+                _ => return Err(format!("no such field: {other}")),
+            }
+        }
         "let_finished_tickets_answer" => s.let_finished_tickets_answer = value.flag()?,
         // Off clears the warm build after saving (the service; the page asked first when there was one).
         "warm_builds" => s.warm_builds = value.flag()?,
@@ -2133,6 +2295,95 @@ mod tests {
             paused_since: None,
             paused_by: None,
         }
+    }
+
+    fn app_page_rows(s: &ProjectSettings) -> Vec<Row> {
+        let Page::Project { sections, .. } = project_page(&ProjectInputs {
+            info: &info(),
+            settings: s,
+            problems: &[],
+            global: &GlobalSettings::default(),
+            warm: None,
+            project_agent: "Strong",
+            tool_connected: true,
+        }) else {
+            panic!()
+        };
+        sections.into_iter().flat_map(|s| s.rows).collect()
+    }
+
+    /// Agents run the app (T4): one app (or none) shows Run command and Open URL as before, Add app once there is a command;
+    /// several show each app's name, command, Open URL and Remove, then Add app; edits go to the app's fields, and
+    /// emptying the one app's command leaves no app.
+    #[test]
+    fn apps_get_rows_of_their_own_and_edits_by_field() {
+        let mut s = ProjectSettings::default();
+        let fields = |s: &ProjectSettings| -> Vec<String> {
+            app_page_rows(s)
+                .into_iter()
+                .map(|r| r.field)
+                .filter(|f| f == "run_command" || f == "open_url" || f.starts_with("apps."))
+                .collect()
+        };
+        assert_eq!(fields(&s), ["run_command", "open_url"]);
+        edit_project(&mut s, "run_command", &Value::Text("pnpm dev".into())).unwrap();
+        assert_eq!(s.apps, RunApp::only("pnpm dev", ""));
+        assert_eq!(fields(&s), ["run_command", "open_url", "apps.add"]);
+
+        edit_project(&mut s, "apps.add", &Value::Text(String::new())).unwrap();
+        assert_eq!(
+            s.apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+            ["app", "app2"]
+        );
+        assert_eq!(
+            fields(&s),
+            [
+                "apps.0.name",
+                "apps.0.command",
+                "apps.0.open_url",
+                "apps.0.remove",
+                "apps.1.name",
+                "apps.1.command",
+                "apps.1.open_url",
+                "apps.1.remove",
+                "apps.add"
+            ]
+        );
+        edit_project(&mut s, "apps.0.name", &Value::Text(" web ".into())).unwrap();
+        edit_project(&mut s, "apps.1.name", &Value::Text("api".into())).unwrap();
+        edit_project(&mut s, "apps.1.command", &Value::Text("node api.js".into())).unwrap();
+        edit_project(
+            &mut s,
+            "apps.1.open_url",
+            &Value::Text(" http://localhost:$PORT ".into()),
+        )
+        .unwrap();
+        let rows = app_page_rows(&s);
+        let row = |field: &str| rows.iter().find(|r| r.field == field).unwrap();
+        assert_eq!(row("apps.1.command").label, "Run command \u{b7} api");
+        assert_eq!(
+            row("apps.1.name").description,
+            format!(
+                "Its port is $PORT in its own command and {} in every app\u{2019}s.",
+                otaq_core::naming::app_port_env_var("api")
+            )
+        );
+        assert!(matches!(
+            &row("apps.1.remove").control,
+            Control::Button { label, action: ButtonAction::EditField, destructive: true, .. } if label == "Remove api"
+        ));
+        assert_eq!(s.apps[1].open_url, "http://localhost:$PORT");
+        assert!(edit_project(&mut s, "apps.7.name", &Value::Text("x".into())).is_err());
+
+        edit_project(&mut s, "apps.1.remove", &Value::Text(String::new())).unwrap();
+        assert_eq!(
+            s.apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+            ["web"]
+        );
+        // Back to one app: the rows of before, editing that app.
+        assert_eq!(fields(&s), ["run_command", "open_url", "apps.add"]);
+        edit_project(&mut s, "run_command", &Value::Text(String::new())).unwrap();
+        assert!(s.apps.is_empty());
     }
 
     fn global(settings: &GlobalSettings) -> Vec<Section<GlobalSection>> {
@@ -2933,7 +3184,12 @@ mod tests {
     fn a_project_page_shows_flagged_values_and_routes_name_and_branch() {
         let mut s = ProjectSettings {
             env_files: vec!["appsettings.json".into(), ".env.local".into()],
-            open_url: "localhost".into(),
+            apps: vec![RunApp {
+                name: DEFAULT_APP.into(),
+                command: "dotnet run".into(),
+                open_url: "localhost".into(),
+                set_by: None,
+            }],
             ..ProjectSettings::default()
         };
         let problems = vec![
@@ -2943,7 +3199,7 @@ mod tests {
                     .into(),
             },
             SettingProblem {
-                field: "open_url".into(),
+                field: "apps.0.open_url".into(),
                 message: "localhost isn't a URL".into(),
             },
         ];
@@ -2996,15 +3252,13 @@ mod tests {
         assert_eq!(run.set_by, None, "the user's own command has no line");
 
         // A command an agent set (agents run the app): "Set by Dev on SHOP-27 · Undo" under the row.
-        let by_agent = ProjectSettings {
-            run_command_set_by: Some(otaq_core::board::settings::RunCommandSetBy {
-                stage: "Dev".into(),
-                ticket: "SHOP-27".parse().unwrap(),
-                at: 0,
-                open_url: false,
-            }),
-            ..s.clone()
-        };
+        let mut by_agent = s.clone();
+        by_agent.apps[0].set_by = Some(otaq_core::board::settings::RunCommandSetBy {
+            stage: "Dev".into(),
+            ticket: "SHOP-27".parse().unwrap(),
+            at: 0,
+            open_url: false,
+        });
         let page = project_page(&ProjectInputs {
             info: &info(),
             settings: &by_agent,

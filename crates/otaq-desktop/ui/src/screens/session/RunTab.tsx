@@ -8,6 +8,7 @@ import { type ReactNode, useCallback, useRef, useState } from "react";
 import { openOverlay } from "../../app/overlays";
 import { AnchoredMenu, Button, IconButton, SetByLine, Tooltip } from "../../components";
 import type { RunButtonView } from "../../generated/RunButtonView";
+import type { RunTabsView } from "../../generated/RunTabsView";
 import type { RunTabView } from "../../generated/RunTabView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -117,7 +118,10 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
       case "request":
         if (busy) return;
         setBusy(true);
-        (p.method === "run.start" ? startRun(ticket) : request(p.method, { key: ticket }))
+        (p.method === "run.start"
+          ? startRun(ticket, view.app)
+          : request(p.method, { key: ticket, app: view.app })
+        )
           .catch(ignore)
           .finally(() => {
             setBusy(false);
@@ -131,16 +135,22 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
     }
   };
   const menu = (id: string) => {
-    if (id === "edit_command") openOverlay("run_command", { project: view.project, ticket });
+    if (id === "edit_command") openOverlay("run_command", { project: view.project, ticket, app: view.app });
   };
   return (
-    <div className="run-tab">
-      <RunLine view={view} head={head} busy={busy} onPress={press} onMenu={menu} />
+    <div className="run-tab" data-app={view.app ?? undefined}>
+      <RunLine
+        view={view}
+        head={head ?? (view.app !== null && <span className="run-app-name">{view.app}</span>)}
+        busy={busy}
+        onPress={press}
+        onMenu={menu}
+      />
       {view.set_by !== null && (
         <SetByLine
           setBy={view.set_by}
           onUndo={() => {
-            request("run.command_undo", { project: view.project }).catch(ignore);
+            request("run.command_undo", { project: view.project, app: view.app }).catch(ignore);
           }}
         />
       )}
@@ -156,7 +166,7 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
           <Terminal
             key={view.session}
             session={view.session}
-            label={`${ticket} · run`}
+            label={view.app === null ? `${ticket} · run` : `${ticket} · ${view.app}`}
             readOnly
             files={{ kind: "ticket", key: ticket }}
           />
@@ -166,15 +176,26 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
   );
 }
 
+/** Session's Run: one app reads as before apps had names; several (d{RUN}) get one section each, its name on its
+ * line and its own terminal, stacked in the project's order. */
 export function RunTab({ ticket, head }: { ticket: string; head?: ReactNode }) {
-  const load = useCallback(() => request("run.tab", { key: ticket }) as Promise<RunTabView>, [ticket]);
+  const load = useCallback(() => request("run.tab", { key: ticket }) as Promise<RunTabsView>, [ticket]);
   const { view, error } = useServiceView(load, RUN_EVENTS);
-  if (!view || view.key !== ticket)
+  if (!view || view.key !== ticket || view.tabs.length === 0)
     return (
       <>
         <div className="session-line">{head}</div>
         <p className="run-problem">{error?.message ?? ""}</p>
       </>
     );
-  return <RunTabBody view={view} ticket={ticket} head={head} />;
+  const [first] = view.tabs;
+  if (view.tabs.length === 1 && first) return <RunTabBody view={first} ticket={ticket} head={head} />;
+  return (
+    <div className="run-apps">
+      {head !== undefined && <div className="session-line">{head}</div>}
+      {view.tabs.map((tab) => (
+        <RunTabBody key={tab.app ?? ""} view={tab} ticket={ticket} />
+      ))}
+    </div>
+  );
 }

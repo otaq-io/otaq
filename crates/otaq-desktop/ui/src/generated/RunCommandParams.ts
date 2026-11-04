@@ -3,4 +3,8 @@
 /**
  * A field changed, or Ask the agent / Cancel was clicked: the project and the command as typed.
  */
-export type RunCommandParams = { project: string, command: string, };
+export type RunCommandParams = { project: string, command: string, 
+/**
+ * The app (d{RUN}): Undo of its "Set by Dev"; `None`: the project's one app.
+ */
+app: string | null, };

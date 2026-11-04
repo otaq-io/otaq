@@ -12,6 +12,7 @@ const TABLES: &[&str] = &[
     "agent_holds",
     "agent_skills",
     "agents",
+    "app_ports",
     "check_counters",
     "decisions",
     "events",
@@ -29,6 +30,7 @@ const TABLES: &[&str] = &[
     "projects",
     "review_comments",
     "reviews",
+    "run_sessions",
     "service_runs",
     "sessions",
     "settings",
@@ -716,6 +718,20 @@ async fn one_row_round_trips_through_every_table() {
         .execute(pool)
         .await;
     assert!(again.is_err());
+
+    // An app's Run port in the ticket (d{RUN}); one per app, and the app a Run session ran.
+    let port = "INSERT INTO app_ports (ticket_id, app, port) VALUES (?, 'web', 4020)";
+    sqlx::query(port).bind(&t18.id).execute(pool).await.unwrap();
+    assert!(sqlx::query(port).bind(&t18.id).execute(pool).await.is_err());
+    let session: String = sqlx::query_scalar("SELECT id FROM sessions LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO run_sessions (session_id, app) VALUES (?, 'web')")
+        .bind(&session)
+        .execute(pool)
+        .await
+        .unwrap();
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

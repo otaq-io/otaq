@@ -160,6 +160,7 @@ describe("the Settings screen", () => {
           button: null,
           set_by: {
             text: "Set by Dev on SHOP-27",
+            app: null,
             undo: "Undo",
             undo_hint: "Empties the run command the agent set",
           },

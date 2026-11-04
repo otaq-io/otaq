@@ -37,7 +37,14 @@ pub fn rows(runs: &[RunInfo], now_ms: i64) -> Vec<ProcessRow> {
             project_name: r.project_name.clone(),
             key: r.key.clone(),
             title: r.title.clone(),
-            port: r.port.map(|p| format!(":{p}")),
+            // A named app says which (d{RUN}): "api :4021"; a project's one app stays ":4020".
+            port: r.port.map(|p| {
+                if r.app == otaq_core::board::settings::DEFAULT_APP {
+                    format!(":{p}")
+                } else {
+                    format!("{} :{p}", r.app)
+                }
+            }),
             uptime: r.started_at.map(|at| super::clock::duration(now_ms - at)),
             url: r.url(),
         })
@@ -57,6 +64,7 @@ mod tests {
             project_name: name.into(),
             key: key.parse().unwrap(),
             title: format!("{key} title"),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
             state: RunState::Running,
             port: Some(port),
             command: "x".into(),
@@ -99,6 +107,13 @@ mod tests {
         assert_eq!(rows[0].url, None, "billing-api has no Open URL");
         assert_eq!(rows[1].url.as_deref(), Some("http://localhost:4020"));
         assert_eq!(rows[1].port.as_deref(), Some(":4020"));
+        // A named app (d{RUN}).
+        let mut api = run("SHOP", "shop-web", "SHOP-2", 4021, None);
+        api.app = "api".into();
+        assert_eq!(
+            super::rows(&[api], 12 * 60_000)[0].port.as_deref(),
+            Some("api :4021")
+        );
         assert_eq!(rows[1].uptime.as_deref(), Some("12 min"));
     }
 
