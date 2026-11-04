@@ -130,7 +130,7 @@ impl Signals {
     }
 
     /// Whether the ticket's agent should be reminded: at work in an Agent stage, no open question, every helper merged
-    /// and nothing else waiting to be typed into `session`.
+    /// (or dropped, T10) and nothing else waiting to be typed into `session`.
     async fn reminder_due(
         &self,
         ticket_id: &str,
@@ -164,7 +164,10 @@ impl Signals {
             return Ok(false);
         }
         let helpers = crate::helpers::store::of_ticket(pool, ticket_id).await?;
-        if helpers.iter().any(|h| h.status != HelperStatus::Merged) {
+        if helpers
+            .iter()
+            .any(|h| !matches!(h.status, HelperStatus::Merged | HelperStatus::Dropped))
+        {
             return Ok(false);
         }
         match deliveries.pending(session).await {

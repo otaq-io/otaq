@@ -75,6 +75,9 @@ impl Helpers {
                     format!("{label} is merged already"),
                 ));
             }
+            if existing.status == HelperStatus::Dropped {
+                return Err(super::dropped_already(&existing));
+            }
             if self.live_session(&existing).is_some() {
                 return Err(BoardError::refused(
                     Refusal::AlreadyRunning,

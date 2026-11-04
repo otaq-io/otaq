@@ -212,7 +212,8 @@ stay the ticket's agent: the gap check (step 3), the questions to the user and e
    then answer it with a note (`otaq helper back 3 --stdin`) or check its work as a hand-back.
 4. **The Plan changed** ("The plan changed: 40.4 removed. Run `otaq prime`…"): run `otaq prime` and read the Plan
    again. Tell running helpers what changed for them with `otaq helper back <n> --stdin`, start the new pieces, and
-   never merge a removed piece (tell its helper to stop, with the same command).
+   never merge a removed piece whose helper started: drop it with `otaq helper drop <n> --stdin` and the reason (see
+   below).
 5. **A helper hands back a piece too big** ("40.1 handed its piece back: Add and list are done; export is left."). The
    message carries only the hand-back's first line; its suggested split is in the helper's comment under
    "## Comments" in `otaq prime`. **You alone change the Plan**; helpers only suggest.
@@ -237,17 +238,25 @@ stay the ticket's agent: the gap check (step 3), the questions to the user and e
 
       - **New pieces get the next free whole numbers** (4, 5), never "3a" or "3b": "3a." isn't read as a piece, only
         as text under the piece above it.
-      - **Never renumber a piece or reuse a number.** Helpers are kept per number: a merged piece can't start again,
-        and a working one can't start twice. Work left over from a merged piece goes into new pieces.
-      - **Don't remove a piece whose helper still works**: it keeps running. Tell it to stop first, with
-        `otaq helper back <n> --stdin`, and never merge it.
+      - **Never renumber a piece or reuse a number.** Helpers are kept per number: a merged or dropped piece can't start
+        again, and a working one can't start twice. Work left over from a merged piece goes into new pieces.
+      - **Don't remove a piece whose helper still works**: it keeps running. Drop it first, with the reason on stdin,
+        then take it out of the Plan with `otaq update --plan-stdin`. Its helper stops, its worktree and branch are
+        removed, and it shows as "dropped":
+
+        ```sh
+        otaq helper drop 3 --stdin <<'WHY'
+        The page moved into pieces 4 and 5.
+        WHY
+        ```
+
       - **Changing the Plan tells no one.** When you change a running piece's text, tell its helper with
         `otaq helper back <n> --stdin`; its next `otaq prime` shows the new text.
    3. **Start the new pieces that can start**, named as the Plan names them: `otaq helper start 4 --title "Export API"`.
-6. **Finish the stage** once every piece is merged (`otaq helper list` shows them all "merged"): the whole ticket's
-   tests pass on this branch, nothing is uncommitted, and `otaq stage next` names the pieces in its comment, for
-   example "40.1 Wishlist API, 40.2 Wishlist button, 40.3 Wishlist page, 40.4 Share link: merged." Add the checks your
-   helpers couldn't do themselves (their hand-backs list them) as `--manual-check` lines.
+6. **Finish the stage** once every piece is merged (`otaq helper list` shows them all "merged", apart from those you
+   dropped): the whole ticket's tests pass on this branch, nothing is uncommitted, and `otaq stage next` names the
+   pieces in its comment, for example "40.1 Wishlist API, 40.2 Wishlist button, 40.3 Wishlist page, 40.4 Share link:
+   merged." Add the checks your helpers couldn't do themselves (their hand-backs list them) as `--manual-check` lines.
 
 When the ticket comes back (a failed check, a Send back), the fix is yours as the agent in charge: make a small one
 yourself, or start a helper for it with the next free piece number, for example piece 5 when the Plan has 4:

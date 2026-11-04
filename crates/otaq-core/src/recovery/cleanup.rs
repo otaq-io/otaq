@@ -200,7 +200,11 @@ impl Cleanup {
             } else if let Some((_, helper, ticket)) = helpers.iter().find(|(at, ..)| *at == path) {
                 WorktreeOwner::Helper {
                     in_use: !ticket.place.is_done()
-                        && helper.status != crate::helpers::HelperStatus::Merged,
+                        && !matches!(
+                            helper.status,
+                            crate::helpers::HelperStatus::Merged
+                                | crate::helpers::HelperStatus::Dropped
+                        ),
                     helper: Box::new(helper.clone()),
                     ticket: (*ticket).clone(),
                 }

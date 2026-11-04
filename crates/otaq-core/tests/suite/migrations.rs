@@ -2160,3 +2160,83 @@ async fn migration_0072_clears_the_choices_agents_may_no_longer_set() {
         .count();
     assert_eq!(read, 2, "the History reads the cleared choices");
 }
+
+/// The agent in charge drops a piece (T10): migration 0073 rebuilds `helpers` so its status takes `dropped`. Every
+/// row stays with its id, and a helper's question still points at it.
+#[tokio::test]
+async fn migration_0073_lets_a_helper_be_dropped_and_keeps_the_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 72).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 40, 'Wishlist', 'working', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO helpers (id, ticket_id, piece, title, branch, worktree, status, note, port, started_at, updated_at,
+                              resume_prompt)
+         VALUES ('h1', 't1', 1, 'Wishlist API', 'otaq/SHOP-40.1', '/wt/SHOP-40.1', 'merged', NULL, NULL, 1, 2, NULL),
+                ('h3', 't1', 3, 'Wishlist page', 'otaq/SHOP-40.3', '/wt/SHOP-40.3', 'working', 'No empty state.',
+                 4100, 1, 3, 'Carry on')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO human_questions (id, ticket_id, helper_id, helper_state, question, asked_at)
+         VALUES ('q1', 't1', 'h3', 'with_in_charge', 'Keep the heart filled?', 4)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    type HelperRow = (String, String, Option<String>, Option<i64>, Option<String>);
+    let rows: Vec<HelperRow> =
+        sqlx::query_as("SELECT id, status, note, port, resume_prompt FROM helpers ORDER BY piece")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        [
+            ("h1".into(), "merged".into(), None, None, None),
+            (
+                "h3".into(),
+                "working".into(),
+                Some("No empty state.".into()),
+                Some(4100),
+                Some("Carry on".into())
+            ),
+        ]
+    );
+    let asked: String = sqlx::query_scalar("SELECT helper_id FROM human_questions WHERE id = 'q1'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(asked, "h3");
+    exec(
+        pool,
+        "UPDATE helpers SET status = 'dropped' WHERE id = 'h3'",
+    )
+    .await;
+    let refused = sqlx::query("UPDATE helpers SET status = 'gone' WHERE id = 'h3'")
+        .execute(pool)
+        .await;
+    assert!(refused.is_err(), "the statuses are still checked");
+    // Deleting the ticket still takes its helpers and their questions with it.
+    exec(pool, "DELETE FROM tickets WHERE id = 't1'").await;
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM human_questions")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}

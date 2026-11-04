@@ -264,6 +264,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::HelperDiff(_)
         | Request::HelperBack(_)
         | Request::HelperMerge(_)
+        | Request::HelperDrop(_)
         | Request::HelperAnswer(_)
         | Request::HelperPassOn(_)
         | Request::HelperDone(_)

@@ -1,4 +1,4 @@
-//! `otaq helper start|list|diff|back|merge|done` and a helper's `otaq prime` (T-0537; d0133): each command's reply
+//! `otaq helper start|list|diff|back|merge|drop|done` and a helper's `otaq prime` (T-0537; d0133): each command's reply
 //! and refusal, from the agent in charge's session, a helper's session and the user's own terminal. A helper's tool is
 //! a plain `sh`, so commands typed into it run as the helper; repositories and `OTAQ_HOME` are temporary.
 
@@ -169,6 +169,35 @@ async fn the_agent_in_charge_starts_lists_reads_sends_back_and_merges() {
     let ran = agent.run(&format!("'{CB}' helper merge 1")).await;
     assert_ne!(ran.status, 0);
     assert_eq!(ran.stderr.trim(), "error: 1.1 is merged already");
+
+    // T10: the agent in charge drops piece 2, with the reason on stdin; `list` shows it dropped.
+    let ran = agent.run(&format!("'{CB}' helper drop 2")).await;
+    assert_ne!(ran.status, 0);
+    assert!(ran.stderr.contains("helper drop 2 --stdin"), "{ran:?}");
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' helper drop 2 --stdin"),
+            "The page moved to SHOP-2.",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        "Dropped 1.2 (Wishlist page): its helper stopped and its branch is gone. Take it out of the Plan with \
+         `otaq update --plan-stdin`."
+    );
+    let ran = agent.run(&format!("'{CB}' helper list")).await;
+    let dropped = ran.stdout.lines().find(|l| l.starts_with("1.2 ")).unwrap();
+    assert!(dropped.contains(" dropped "), "{ran:?}");
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' helper drop 2 --stdin"), "Again.")
+        .await;
+    assert_ne!(ran.status, 0);
+    assert_eq!(ran.stderr.trim(), "error: 1.2 is dropped already");
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' helper drop 1 --stdin"), "Not needed.")
+        .await;
+    assert_eq!(ran.stderr.trim(), "error: 1.1 is merged already");
     w.stop().await;
 }
 
@@ -256,6 +285,11 @@ async fn the_user_and_other_sessions_are_refused() {
         assert_ne!(ran.status, 0, "{command}");
         assert_eq!(ran.stderr.trim(), in_charge, "{command}: {ran:?}");
     }
+    let ran = user
+        .run_with_stdin(&format!("'{CB}' helper drop 1 --stdin"), "Not needed.")
+        .await;
+    assert_ne!(ran.status, 0);
+    assert_eq!(ran.stderr.trim(), in_charge, "{ran:?}");
     // Another ticket's agent.
     let other = w.create("SHOP", "Coupons").await;
     let theirs = w.agent_shell(&other).await;

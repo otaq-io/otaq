@@ -734,10 +734,12 @@ impl Board {
         }
         let branch = ticket.work.as_ref().and_then(|w| w.branch.clone());
         let git = self.git()?;
-        for helper in helpers
-            .iter()
-            .filter(|h| h.status != crate::helpers::HelperStatus::Merged)
-        {
+        for helper in helpers.iter().filter(|h| {
+            !matches!(
+                h.status,
+                crate::helpers::HelperStatus::Merged | crate::helpers::HelperStatus::Dropped
+            )
+        }) {
             let worktree = Path::new(&helper.worktree);
             let Some(branch) = branch.as_deref().filter(|_| worktree.is_dir()) else {
                 continue;
