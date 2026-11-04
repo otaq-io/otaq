@@ -43,7 +43,7 @@ async fn world() -> TestService {
 
 /// `ticket.create` sent from inside `shell`'s session; the new ticket's key.
 async fn create_from(w: &TestService, shell: &AgentShell, params: Value) -> String {
-    let request = json!({"protocol_version": 1, "id": 1,
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1,
                          "request": {"method": "ticket.create", "params": params}});
     let ran = shell
         .send_raw(&w.data.socket_path(), &request.to_string())

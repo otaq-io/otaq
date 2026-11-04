@@ -546,8 +546,7 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
 
 /// Sends one raw request from inside a session and returns the answer (no `'` in it: it goes through `sh`).
 async fn send(w: &TestService, shell: &AgentShell, method: &str, params: Value) -> Value {
-    let request =
-        json!({"protocol_version": 1, "id": 1, "request": {"method": method, "params": params}});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": method, "params": params}});
     let ran = shell
         .send_raw(&w.data.socket_path(), &request.to_string())
         .await;

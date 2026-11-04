@@ -500,7 +500,10 @@ async fn shell_project_and_run_sessions_are_the_user() {
 async fn requests_from_an_agent_session_act_as_the_agent() {
     let w = World::new().await;
     let out = w.home.path().join("reply");
-    let request = r#"{"protocol_version":1,"id":1,"caller":"nevzat","request":{"method":"ticket.update","params":{"key":"SHOP-1","title":"Split the full name"}}}"#;
+    let request = format!(
+        r#"{{"protocol_version":{},"id":1,"caller":"nevzat","request":{{"method":"ticket.update","params":{{"key":"SHOP-1","title":"Split the full name"}}}}}}"#,
+        otaq_core::protocol::PROTOCOL_VERSION
+    );
     #[cfg(unix)]
     let session = {
         let script = format!(

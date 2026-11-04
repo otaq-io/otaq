@@ -7,7 +7,7 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
-use otaq_core::board::settings::ProjectSettings;
+use otaq_core::board::settings::{ProjectSettings, RunApp};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
 use otaq_core::ports::PortPool;
@@ -33,17 +33,16 @@ async fn in_dev(w: &TestService, range: RangeInclusive<u16>) -> (Ticket, u16, Ag
     let t = w.create("SHOP", "Price table").await;
     w.give_worktree(&t).await;
     let ports = PortPool::with_range(w.board.store().clone(), range)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;
     let agent = w.agent_shell(&t).await;
-    (t, ports.run, agent)
+    (t, ports.apps[0].1, agent)
 }
 
 async fn send(w: &TestService, shell: &AgentShell, method: &str, params: Value) -> Value {
-    let request =
-        json!({"protocol_version": 1, "id": 1, "request": {"method": method, "params": params}});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": method, "params": params}});
     let ran = shell
         .send_raw(&w.data.socket_path(), &request.to_string())
         .await;
@@ -59,7 +58,7 @@ fn refused(answer: &Value) -> &str {
 async fn wait_state(w: &TestService, key: &str, state: RunState) -> RunInfo {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let info = w.runs.info(key).await.unwrap();
+            let info = w.runs.info(key, None).await.unwrap();
             if info.state == state {
                 return info;
             }
@@ -68,6 +67,11 @@ async fn wait_state(w: &TestService, key: &str, state: RunState) -> RunInfo {
     })
     .await
     .unwrap_or_else(|_| panic!("{key}'s Run never became {state:?}"))
+}
+
+/// The project's one run command; empty when it has none.
+fn command_of(s: &ProjectSettings) -> String {
+    s.only_app().map(|a| a.command.clone()).unwrap_or_default()
 }
 
 async fn settings(w: &TestService) -> ProjectSettings {
@@ -89,21 +93,23 @@ async fn the_command_is_saved_only_once_its_run_is_running() {
     assert_eq!(info.state, RunState::Starting);
     assert_eq!(info.command, "sleep 30");
     // Starting: nothing saved yet.
-    assert_eq!(settings(&w).await.run_command, "");
+    assert_eq!(command_of(&settings(&w).await), "");
 
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).unwrap();
     let running = wait_state(&w, "SHOP-1", RunState::Running).await;
     let s = settings(&w).await;
-    assert_eq!(s.run_command, "sleep 30");
-    assert_eq!(s.open_url, "http://localhost:$PORT/");
-    let by = s.run_command_set_by.expect("set by the agent");
+    let app = s.only_app().expect("one app");
+    assert_eq!(app.name, "app");
+    assert_eq!(app.command, "sleep 30");
+    assert_eq!(app.open_url, "http://localhost:$PORT/");
+    let by = app.set_by.clone().expect("set by the agent");
     assert_eq!(by.line(), "Set by Dev on SHOP-1");
     assert!(by.open_url);
     assert_eq!(
         running.command_set_by.map(|b| b.line()).as_deref(),
         Some("Set by Dev on SHOP-1")
     );
-    w.runs.stop("SHOP-1").await.unwrap();
+    w.runs.stop("SHOP-1", None).await.unwrap();
     drop(listener);
 
     // Now the project has one: an agent never changes it.
@@ -117,9 +123,9 @@ async fn the_command_is_saved_only_once_its_run_is_running() {
     assert_eq!(
         refused(&again),
         "shop-web already has a run command (`sleep 30`): an agent never changes one. Start it with `otaq run \
-         start --wait`"
+         start --wait`; to add another app, name it: `otaq run set <app> --command …`"
     );
-    assert_eq!(settings(&w).await.run_command, "sleep 30");
+    assert_eq!(command_of(&settings(&w).await), "sleep 30");
     w.stop().await;
 }
 
@@ -136,11 +142,11 @@ async fn a_failed_start_saves_nothing_and_a_users_command_is_never_changed() {
     .await;
     wait_state(&w, "SHOP-1", RunState::FailedToStart).await;
     let s = settings(&w).await;
-    assert_eq!((s.run_command.as_str(), s.run_command_set_by), ("", None));
+    assert!(s.apps.is_empty(), "{:?}", s.apps);
 
     // The user's own command: refused, unchanged.
     let mine = ProjectSettings {
-        run_command: "pnpm dev".into(),
+        apps: RunApp::only("pnpm dev", ""),
         ..settings(&w).await
     };
     w.board.save_project_settings("SHOP", &mine).await.unwrap();
@@ -155,7 +161,7 @@ async fn a_failed_start_saves_nothing_and_a_users_command_is_never_changed() {
         refused(&answer).starts_with("shop-web already has a run command (`pnpm dev`)"),
         "{answer}"
     );
-    assert_eq!(settings(&w).await.run_command, "pnpm dev");
+    assert_eq!(command_of(&settings(&w).await), "pnpm dev");
     w.stop().await;
 }
 
@@ -173,7 +179,7 @@ async fn undo_empties_it_and_a_hand_edit_drops_the_line() {
         .await;
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).unwrap();
         wait_state(&w, "SHOP-1", RunState::Running).await;
-        w.runs.stop("SHOP-1").await.unwrap();
+        w.runs.stop("SHOP-1", None).await.unwrap();
         drop(listener);
     };
     set_and_run().await;
@@ -184,34 +190,24 @@ async fn undo_empties_it_and_a_hand_edit_drops_the_line() {
         refused(&answer),
         "SHOP-1's agent can't undo a run command; ask the user"
     );
-    w.board.undo_agent_run_command("SHOP").await.unwrap();
-    let s = settings(&w).await;
-    assert_eq!(
-        (
-            s.run_command.as_str(),
-            s.open_url.as_str(),
-            s.run_command_set_by
-        ),
-        ("", "", None)
-    );
-    assert!(w.board.undo_agent_run_command("SHOP").await.is_err());
+    w.board.undo_agent_app("SHOP", None).await.unwrap();
+    assert!(settings(&w).await.apps.is_empty());
+    assert!(w.board.undo_agent_app("SHOP", None).await.is_err());
 
     // Saving the page unchanged keeps the line; editing the command by hand drops it.
     set_and_run().await;
     let same = settings(&w).await;
     w.board.save_project_settings("SHOP", &same).await.unwrap();
-    assert!(settings(&w).await.run_command_set_by.is_some());
-    let edited = ProjectSettings {
-        run_command: "sleep 60".into(),
-        ..settings(&w).await
-    };
+    assert!(settings(&w).await.apps[0].set_by.is_some());
+    let mut edited = settings(&w).await;
+    edited.apps[0].command = "sleep 60".into();
     w.board
         .save_project_settings("SHOP", &edited)
         .await
         .unwrap();
     let s = settings(&w).await;
     assert_eq!(
-        (s.run_command.as_str(), s.run_command_set_by),
+        (s.apps[0].command.as_str(), s.apps[0].set_by.clone()),
         ("sleep 60", None)
     );
     w.stop().await;
@@ -227,7 +223,7 @@ async fn an_agent_is_told_how_to_add_a_missing_command() {
         "shop-web has no run command yet: if you know how this project starts, run `otaq run set --command …`"
     );
     // The user's Run still asks in the app (RUN-02, unchanged).
-    let err = w.runs.start("SHOP-1").await.unwrap_err();
+    let err = w.runs.start("SHOP-1", None).await.unwrap_err();
     assert_eq!(err.to_string(), "shop-web has no run command yet");
     w.stop().await;
 }

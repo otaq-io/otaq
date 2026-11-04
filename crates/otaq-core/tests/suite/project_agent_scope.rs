@@ -53,8 +53,7 @@ async fn open(w: &TestService) -> (ProjectAgent, AgentShell) {
 }
 
 async fn send(w: &TestService, shell: &AgentShell, method: &str, params: Value) -> Value {
-    let request =
-        json!({"protocol_version": 1, "id": 1, "request": {"method": method, "params": params}});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": method, "params": params}});
     let ran = shell
         .send_raw(&w.data.socket_path(), &request.to_string())
         .await;

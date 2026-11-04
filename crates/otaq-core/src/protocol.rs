@@ -7,10 +7,10 @@
 //! body: `request`, `reply`, `event` or `error`.
 //!
 //! ```text
-//! {"protocol_version":1,"id":7,"request":{"method":"service.status"}}
-//! {"protocol_version":1,"id":7,"reply":{"service_status":{"pid":4120,...}}}
-//! {"protocol_version":1,"event":{"kind":"test","seq":3}}
-//! {"protocol_version":1,"id":8,"error":{"kind":"bad_request","message":"..."}}
+//! {"protocol_version":2,"id":7,"request":{"method":"service.status"}}
+//! {"protocol_version":2,"id":7,"reply":{"service_status":{"pid":4120,...}}}
+//! {"protocol_version":2,"event":{"kind":"test","seq":3}}
+//! {"protocol_version":2,"id":8,"error":{"kind":"bad_request","message":"..."}}
 //! ```
 //!
 //! A reply or error answers the request with the same id. Events have no id.
@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -853,26 +853,30 @@ pub enum Request {
     Hook(HookParams),
 
     // Run (RUN-01, RUN-04): the project's run command in a ticket's worktree.
-    /// Starts the ticket's Run; refused without a run command (`no_run_command`) or a worktree (`no_worktree`). The
-    /// user's click, or the ticket's own agent or check (`otaq run start`, agents run the app).
+    /// Starts an app's Run of the ticket; refused without a run command (`no_run_command`) or a worktree
+    /// (`no_worktree`), or without `app` while the project has several apps (agents run the app). The user's click, or the
+    /// ticket's own agent or check (`otaq run start`, agents run the app).
     #[serde(rename = "run.start")]
-    RunStart(KeyParams),
-    /// Stops the ticket's Run. An agent's is refused for a Run the user started (agents run the app).
+    RunStart(RunParams),
+    /// Stops an app's Run of the ticket. An agent's is refused for a Run the user started (agents run the app).
     #[serde(rename = "run.stop")]
-    RunStop(KeyParams),
+    RunStop(RunParams),
     /// The Run's kept output as text, its last `tail` lines (default 200; `otaq run log`, agents run the app).
     #[serde(rename = "run.log")]
     RunLog(RunLogParams),
-    /// A ticket's agent adds the missing run command (`otaq run set`, agents run the app): started as this ticket's Run and saved
-    /// once it is running; refused when the project already has one.
+    /// A ticket's agent adds a missing app's run command (`otaq run set [<app>]`, agents run the app): started as this ticket's
+    /// Run and saved once it is running; refused for an app that has one.
     #[serde(rename = "run.set")]
     RunSet(RunSetParams),
-    /// Undo of "Set by Dev on SHOP-27" (agents run the app): the agent's run command back to empty. The user's only.
+    /// Undo of "Set by Dev on SHOP-27" (agents run the app): the app the agent added is removed. The user's only.
     #[serde(rename = "run.command_undo")]
-    RunCommandUndo(ProjectParams),
-    /// The ticket's Run: state, port, command, Open URL, session.
+    RunCommandUndo(RunUndoParams),
+    /// An app's Run of the ticket: state, port, command, Open URL, session.
     #[serde(rename = "run.status")]
-    RunStatus(KeyParams),
+    RunStatus(RunParams),
+    /// Every app's Run of the ticket, in the project's order (agents run the app): the Run tab, `otaq run status` with several.
+    #[serde(rename = "run.apps")]
+    RunApps(KeyParams),
     /// Every Run that is up, across projects (the header's "▶ 3 processes").
     #[serde(rename = "run.list")]
     RunList,
@@ -1710,11 +1714,29 @@ pub struct KeyParams {
     pub key: String,
 }
 
-/// `{"key": "SHOP-27", "command": "pnpm dev --port $PORT", "open_url": "http://localhost:$PORT"}`: `otaq run set`
-/// (agents run the app).
+/// `{"key": "SHOP-27", "app": "web"}`: one app's Run of the ticket (agents run the app). No `app`: the project's only app.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+}
+
+/// `{"project": "SHOP", "app": "api"}`: undo the app an agent added (agents run the app). No `app`: the project's only app.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunUndoParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+}
+
+/// `{"key": "SHOP-27", "app": "api", "command": "pnpm dev --port $PORT", "open_url": "http://localhost:$PORT"}`:
+/// `otaq run set` (agents run the app). No `app`: the one app of a project with none yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunSetParams {
     pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_url: Option<String>,
@@ -1724,6 +1746,8 @@ pub struct RunSetParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunLogParams {
     pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tail: Option<u32>,
 }
@@ -2179,6 +2203,7 @@ impl Request {
             Self::RunLog(_) => "run.log",
             Self::RunSet(_) => "run.set",
             Self::RunCommandUndo(_) => "run.command_undo",
+            Self::RunApps(_) => "run.apps",
             Self::RunList => "run.list",
             Self::RunSuggest(_) => "run.suggest",
             Self::RunSuggestCancel(_) => "run.suggest_cancel",
@@ -2951,14 +2976,14 @@ mod tests {
         let as_json = |m: &Message| serde_json::to_value(m).unwrap();
         assert_eq!(
             as_json(&Message::request(7, Request::ServiceStatus)),
-            json!({"protocol_version": 1, "id": 7, "pid": std::process::id(), "request": {"method": "service.status"}})
+            json!({"protocol_version": PROTOCOL_VERSION, "id": 7, "pid": std::process::id(), "request": {"method": "service.status"}})
         );
         assert_eq!(
             as_json(&Message::error(
                 Some(8),
                 ErrorBody::new(ErrorKind::IncompatibleProtocol, "x")
             )),
-            json!({"protocol_version": 1, "id": 8, "error": {"kind": "incompatible_protocol", "message": "x"}})
+            json!({"protocol_version": PROTOCOL_VERSION, "id": 8, "error": {"kind": "incompatible_protocol", "message": "x"}})
         );
         assert_eq!(
             as_json(&Message::request(
@@ -2968,11 +2993,11 @@ mod tests {
                     parent: "SHOP-18".into()
                 })
             )),
-            json!({"protocol_version": 1, "id": 4, "pid": std::process::id(), "request": {"method": "dep.add", "params": {"child": "SHOP-20", "parent": "SHOP-18"}}})
+            json!({"protocol_version": PROTOCOL_VERSION, "id": 4, "pid": std::process::id(), "request": {"method": "dep.add", "params": {"child": "SHOP-20", "parent": "SHOP-18"}}})
         );
         assert_eq!(
             as_json(&Message::event(Event::Test { seq: 3 })),
-            json!({"protocol_version": 1, "event": {"kind": "test", "seq": 3}})
+            json!({"protocol_version": PROTOCOL_VERSION, "event": {"kind": "test", "seq": 3}})
         );
         for m in VERSION_INDEPENDENT_METHODS {
             assert!(
@@ -3006,10 +3031,10 @@ mod tests {
 
     #[test]
     fn unknown_error_kinds_are_tolerated() {
-        let m = decode(
-            br#"{"protocol_version":1,"id":1,"error":{"kind":"from_the_future","message":"m"}}"#,
-        )
-        .unwrap();
+        let frame = format!(
+            r#"{{"protocol_version":{PROTOCOL_VERSION},"id":1,"error":{{"kind":"from_the_future","message":"m"}}}}"#
+        );
+        let m = decode(frame.as_bytes()).unwrap();
         let Body::Error(e) = m.body else {
             panic!("{m:?}")
         };
@@ -3018,13 +3043,17 @@ mod tests {
 
     #[test]
     fn version_mismatch_is_a_distinct_error() {
-        let frame = br#"{"protocol_version":2,"id":5,"request":{"method":"tickets.frobnicate","params":{"x":1}}}"#;
-        let err = decode(frame).unwrap_err();
+        // A newer build's number: one this build doesn't speak.
+        let other = PROTOCOL_VERSION + 1;
+        let frame = format!(
+            r#"{{"protocol_version":{other},"id":5,"request":{{"method":"tickets.frobnicate","params":{{"x":1}}}}}}"#
+        );
+        let err = decode(frame.as_bytes()).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::IncompatibleProtocol);
         let DecodeError::IncompatibleVersion(foreign) = err else {
             panic!()
         };
-        assert_eq!(foreign.protocol_version, 2);
+        assert_eq!(foreign.protocol_version, other);
         assert_eq!(foreign.id, Some(5));
         assert_eq!(foreign.method(), Some("tickets.frobnicate"));
         assert!(!foreign.is_version_independent_request());
@@ -3060,9 +3089,10 @@ mod tests {
 
     #[test]
     fn malformed_frames() {
+        let only_version = format!(r#"{{"protocol_version":{PROTOCOL_VERSION}}}"#);
         for frame in [
             &b"not json"[..],
-            br#"{"protocol_version":1}"#,
+            only_version.as_bytes(),
             br#"{"id":1,"request":{"method":"ping"}}"#,
         ] {
             let err = decode(frame).unwrap_err();
@@ -3129,7 +3159,7 @@ mod tests {
     #[tokio::test]
     async fn stream_ending_mid_frame_is_an_error() {
         let mut stream = encode(&Message::request(1, Request::Ping));
-        stream.extend_from_slice(br#"{"protocol_version":1,"#);
+        stream.extend_from_slice(format!(r#"{{"protocol_version":{PROTOCOL_VERSION},"#).as_bytes());
         let mut reader = trickle(stream, 5);
         assert!(reader.next_frame().await.unwrap().is_some());
         let err = reader.next_frame().await.unwrap_err();

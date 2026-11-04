@@ -183,7 +183,7 @@ async fn nothing_without_the_flag_from_an_agent_or_with_no_session() {
     );
 
     // The agent's own comment never tells it, even with the flag.
-    let request = json!({"protocol_version": 1, "id": 1, "request": {"method": "ticket.comment_post",
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": "ticket.comment_post",
                    "params": {"key": "SHOP-1", "body": "Done with the table.", "tell_agent": true}}});
     let ran = agent
         .send_raw(&w.data.socket_path(), &request.to_string())

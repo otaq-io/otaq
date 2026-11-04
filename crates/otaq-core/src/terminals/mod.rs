@@ -77,6 +77,31 @@ pub fn with_port(text: &str, port: u16) -> String {
     text.replace("${PORT}", &port).replace("$PORT", &port)
 }
 
+/// `OTAQ_PORT_<NAME>` = the port of each of the ticket's apps (d{RUN}): set in every app's Run and in the Shell.
+pub fn app_port_vars(apps: &[(String, u16)]) -> Vec<(String, String)> {
+    apps.iter()
+        .map(|(app, port)| (naming::app_port_env_var(app), port.to_string()))
+        .collect()
+}
+
+/// [`with_port`], and each `$OTAQ_PORT_<NAME>` (or `${…}`) replaced by that app's port (d{RUN}): what a command or URL
+/// shows, and what Windows' shell, which has no `$` variables, runs. Longer names first, so `OTAQ_PORT_API` never
+/// eats the start of `OTAQ_PORT_API_V2`.
+pub fn with_ports(text: &str, port: Option<u16>, apps: &[(String, u16)]) -> String {
+    let mut vars = app_port_vars(apps);
+    vars.sort_by_key(|(name, _)| std::cmp::Reverse(name.len()));
+    let mut out = text.to_owned();
+    for (name, value) in vars {
+        out = out
+            .replace(&format!("${{{name}}}"), &value)
+            .replace(&format!("${name}"), &value);
+    }
+    match port {
+        Some(port) => with_port(&out, port),
+        None => out,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +117,33 @@ mod tests {
             "http://localhost:4004/swagger"
         );
         assert_eq!(with_port("cargo run", 4004), "cargo run");
+    }
+
+    #[test]
+    fn app_ports_become_variables_and_are_filled_in() {
+        let apps = vec![("api".to_owned(), 4021), ("api-v2".to_owned(), 4022)];
+        let vars = app_port_vars(&apps);
+        assert_eq!(
+            vars,
+            vec![
+                (naming::app_port_env_var("api"), "4021".to_owned()),
+                (naming::app_port_env_var("api-v2"), "4022".to_owned()),
+            ]
+        );
+        let api = format!("${}", naming::app_port_env_var("api"));
+        let v2 = format!("${{{}}}", naming::app_port_env_var("api-v2"));
+        assert_eq!(
+            with_ports(
+                &format!("serve --port $PORT --api {api} --v2 {v2}"),
+                Some(4020),
+                &apps
+            ),
+            "serve --port 4020 --api 4021 --v2 4022"
+        );
+        assert_eq!(
+            with_ports("serve --port $PORT", None, &apps),
+            "serve --port $PORT"
+        );
     }
 
     #[test]

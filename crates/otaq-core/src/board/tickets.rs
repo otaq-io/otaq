@@ -137,6 +137,20 @@ pub struct AgentSignal {
 }
 
 /// A started ticket's branch, worktree and ports.
+/// One app's Run port in a ticket (d{RUN}).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppPort {
+    pub app: String,
+    pub port: u16,
+}
+
+impl Work {
+    /// The Run port of app `app`.
+    pub fn app_port(&self, app: &str) -> Option<u16> {
+        self.app_ports.iter().find(|p| p.app == app).map(|p| p.port)
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Work {
     /// `otaq/SHOP-18` (the real name is chosen at the first push, M10).
@@ -150,9 +164,10 @@ pub struct Work {
     /// `$PORT` in the agent's session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_port: Option<u16>,
-    /// `$PORT` in Run and Shell.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_port: Option<u16>,
+    /// Each app's Run port (d{RUN}): `$PORT` in that app's Run, `OTAQ_PORT_<NAME>` in every Run and the Shell;
+    /// lowest first. A project with one app (or none yet) has one, for app `app`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_ports: Vec<AppPort>,
     /// The branch was pushed: its name can't change any more (GIT-07).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub branch_locked: bool,
@@ -1051,6 +1066,8 @@ impl Board {
         let mut arrivals = self.project_arrivals(project_id, &flow).await?;
         // Each ticket's latest round of a Check stage with several check agents (d0130).
         let check_rounds = project_check_rounds(pool, project_id).await?;
+        // Each ticket's app ports (d{RUN}).
+        let mut app_ports = project_app_ports(pool, project_id).await?;
 
         records
             .into_iter()
@@ -1098,11 +1115,10 @@ impl Board {
                 let merge_check_failed = row.conflicts_with.is_some()
                     && row.conflict_reason.as_deref()
                         == Some(super::conflicts::ConflictReason::MergeCheck.as_str());
-                let run = self.run_ports().get_with_starter(&row.id);
+                let run_apps = self.run_ports().get(&row.id);
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
-                    run_port: run.as_ref().map(|(port, _)| *port),
-                    run_started_by: run.and_then(|(_, stage)| stage),
+                    run_apps,
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && (status.is_queued() || status.at_work()),
@@ -1221,7 +1237,7 @@ impl Board {
                     worktree: row.worktree_path,
                     base_sha: row.base_sha,
                     agent_port: port(row.agent_port),
-                    run_port: port(row.run_port),
+                    app_ports: app_ports.remove(&row.id).unwrap_or_default(),
                     branch_locked: row.branch_pushed,
                     pr_url: row.pr_url.clone(),
                     build_state: row.build_state.parse().unwrap_or_default(),
@@ -1401,6 +1417,27 @@ fn validating_round(
 /// Each ticket's latest validation round of the project when two or more check agents check in it (d0130): every
 /// agent's latest row in the stage's order, with its session's tool and model, and whether a change already cancelled
 /// a round with that number.
+/// The project's tickets' app ports (d{RUN}), by ticket id, lowest port first.
+async fn project_app_ports(
+    pool: &sqlx::SqlitePool,
+    project_id: &str,
+) -> Result<std::collections::HashMap<String, Vec<AppPort>>, BoardError> {
+    let rows: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT a.ticket_id, a.app, a.port FROM app_ports a JOIN tickets t ON t.id = a.ticket_id
+         WHERE t.project_id = ? ORDER BY a.port",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+    let mut all: std::collections::HashMap<String, Vec<AppPort>> = std::collections::HashMap::new();
+    for (ticket, app, port) in rows {
+        if let Ok(port) = u16::try_from(port) {
+            all.entry(ticket).or_default().push(AppPort { app, port });
+        }
+    }
+    Ok(all)
+}
+
 async fn project_check_rounds(
     pool: &sqlx::SqlitePool,
     project_id: &str,

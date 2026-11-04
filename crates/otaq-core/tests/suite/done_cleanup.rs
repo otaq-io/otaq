@@ -33,7 +33,7 @@ async fn a_local_merge_cleans_up_a_clean_worktree_and_keeps_the_branch() {
     let wt = w.start_worktree(&t).await;
     commit(&wt, "api.ts", "api\n");
     PortPool::with_range(w.board.store().clone(), 21_000..=21_999)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::WaitingForYou).await;

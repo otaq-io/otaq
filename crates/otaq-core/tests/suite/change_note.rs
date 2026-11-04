@@ -78,7 +78,7 @@ async fn queued_for_user_edits_on_working_tickets_and_delivered_when_idle() {
     assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 2);
 
     // The agent's own edit sends nothing.
-    let request = json!({"protocol_version": 1, "id": 1, "request": {"method": "ticket.update",
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": "ticket.update",
                    "params": {"key": "SHOP-1", "title": "Price table v2"}}});
     let ran = agent
         .send_raw(&w.data.socket_path(), &request.to_string())

@@ -1594,6 +1594,7 @@ pub(super) async fn handle(
         | Request::RunStart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
+        | Request::RunApps(_)
         | Request::RunLog(_)
         | Request::RunSet(_)
         | Request::RunCommandUndo(_)

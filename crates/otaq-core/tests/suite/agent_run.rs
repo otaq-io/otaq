@@ -36,7 +36,7 @@ async fn with_validate() -> TestService {
 
 async fn set_run_command(w: &TestService, command: &str) {
     let settings = ProjectSettings {
-        run_command: command.into(),
+        apps: otaq_core::board::settings::RunApp::only(command, ""),
         ..Default::default()
     };
     w.board
@@ -55,20 +55,19 @@ async fn in_dev(
     let t = w.create("SHOP", title).await;
     w.give_worktree(&t).await;
     let ports = PortPool::with_range(w.board.store().clone(), range)
-        .allocate(&t.id)
+        .allocate(&t.id, &[otaq_core::board::settings::DEFAULT_APP.to_owned()])
         .await
         .unwrap();
     w.force_status(&t, Status::Working).await;
     let dev = w.agent_shell(&t).await;
     w.run_as_agent(&dev, "rust-dev", "Rust developer").await;
     let t = w.board.ticket(&t.key.to_string()).await.unwrap();
-    (t, ports.run, dev)
+    (t, ports.apps[0].1, dev)
 }
 
 /// One raw request from inside a session (no `'` in it: it goes through `sh`).
 async fn send(w: &TestService, shell: &AgentShell, method: &str, params: Value) -> Value {
-    let request =
-        json!({"protocol_version": 1, "id": 1, "request": {"method": method, "params": params}});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": method, "params": params}});
     let ran = shell
         .send_raw(&w.data.socket_path(), &request.to_string())
         .await;
@@ -94,7 +93,7 @@ fn run_of(answer: &Value) -> RunInfo {
 async fn wait_state(w: &TestService, key: &str, state: RunState) -> RunInfo {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let info = w.runs.info(key).await.unwrap();
+            let info = w.runs.info(key, None).await.unwrap();
             if info.state == state {
                 return info;
             }
@@ -130,8 +129,11 @@ async fn an_agent_starts_reads_and_stops_its_tickets_run() {
 
     // The card says who started it.
     let flags = w.board.ticket(&key).await.unwrap().flags;
-    assert_eq!(flags.run_port, Some(port));
-    assert_eq!(flags.run_started_by.as_deref(), Some("Dev"));
+    assert_eq!(flags.run_apps.first().map(|a| a.port), Some(port));
+    assert_eq!(
+        flags.run_apps.first().and_then(|a| a.started_by.as_deref()),
+        Some("Dev")
+    );
 
     // Its output, from memory.
     let log = send(&w, &agent, "run.log", json!({"key": key, "tail": 5})).await;
@@ -147,7 +149,17 @@ async fn an_agent_starts_reads_and_stops_its_tickets_run() {
         })
     );
     assert_eq!(stopped.status_text(), "stopped (by Dev)");
-    assert_eq!(w.board.ticket(&key).await.unwrap().flags.run_port, None);
+    assert_eq!(
+        w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .run_apps
+            .first()
+            .map(|a| a.port),
+        None
+    );
     drop(listener);
     w.stop().await;
 }
@@ -168,7 +180,10 @@ async fn only_the_tickets_own_agent_and_check_run_it() {
             "{method}"
         );
     }
-    assert_eq!(w.runs.info(&key).await.unwrap().state, RunState::NotStarted);
+    assert_eq!(
+        w.runs.info(&key, None).await.unwrap().state,
+        RunState::NotStarted
+    );
 
     // A helper of the ticket gets no Run: the agent in charge runs the app after merging.
     let helper = w.shell(&mine, SessionKind::Helper).await;
@@ -187,7 +202,7 @@ async fn only_the_tickets_own_agent_and_check_run_it() {
         "{:?}",
         started.started_by
     );
-    w.runs.stop(&key).await.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
     w.stop().await;
 }
 
@@ -197,7 +212,7 @@ async fn an_agent_uses_the_users_run_and_never_stops_it() {
     let (t, _, agent) = in_dev(&w, "Price table", 26_300..=26_399).await;
     set_run_command(&w, "sleep 30").await;
     let key = t.key.to_string();
-    let mine = w.runs.start(&key).await.unwrap();
+    let mine = w.runs.start(&key, None).await.unwrap();
     assert_eq!(mine.started_by, Some(StartedBy::You));
 
     // Starting it again uses the user's Run.
@@ -214,8 +229,8 @@ async fn an_agent_uses_the_users_run_and_never_stops_it() {
              started. Use it as it is."
         )
     );
-    assert!(w.runs.info(&key).await.unwrap().state.is_live());
-    w.runs.stop(&key).await.unwrap();
+    assert!(w.runs.info(&key, None).await.unwrap().state.is_live());
+    w.runs.stop(&key, None).await.unwrap();
     w.stop().await;
 }
 
@@ -229,7 +244,7 @@ async fn stage_next_stops_the_agents_run_and_never_the_users() {
     let key = t.key.to_string();
     run_of(&send(&w, &agent, "run.start", json!({"key": key})).await);
     let user_key = users.key.to_string();
-    w.runs.start(&user_key).await.unwrap();
+    w.runs.start(&user_key, None).await.unwrap();
 
     for (shell, key) in [(&agent, &key), (&other, &user_key)] {
         send(&w, shell, "ticket.prime", json!({"key": key})).await;
@@ -251,9 +266,9 @@ async fn stage_next_stops_the_agents_run_and_never_the_users() {
         })
     );
     assert_eq!(info.status_text(), "stopped (Dev's stage ended)");
-    let user = w.runs.info(&user_key).await.unwrap();
+    let user = w.runs.info(&user_key, None).await.unwrap();
     assert!(user.state.is_live(), "{user:?}");
-    w.runs.stop(&user_key).await.unwrap();
+    w.runs.stop(&user_key, None).await.unwrap();
     w.stop().await;
 }
 
@@ -268,7 +283,7 @@ async fn a_verdict_stops_the_run_its_check_started() {
     w.run_as_agent(&check, "validator", "Validator").await;
     w.validating_with(&t, &check.session).await;
     run_of(&send(&w, &check, "run.start", json!({"key": key})).await);
-    assert!(w.runs.info(&key).await.unwrap().state.is_live());
+    assert!(w.runs.info(&key, None).await.unwrap().state.is_live());
 
     send(&w, &check, "ticket.prime_validate", json!({"key": key})).await;
     let verdict = send(
@@ -295,7 +310,7 @@ async fn an_agents_run_acts_for_the_agent_never_the_user() {
     let w = world().await;
     let (t, _, agent) = in_dev(&w, "Price table", 26_700..=26_799).await;
     let key = t.key.to_string();
-    let request = json!({"protocol_version": 1, "id": 1, "request": {"method": "ticket.pin", "params": {"key": key}}});
+    let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": "ticket.pin", "params": {"key": key}}});
     set_run_command(
         &w,
         &format!(
@@ -305,7 +320,7 @@ async fn an_agents_run_acts_for_the_agent_never_the_user() {
     )
     .await;
     run_of(&send(&w, &agent, "run.start", json!({"key": key})).await);
-    let info = w.runs.info(&key).await.unwrap();
+    let info = w.runs.info(&key, None).await.unwrap();
     let session = info.session.unwrap();
     let out = w.wait_for_output(&session, "\"error\"").await;
     assert!(
@@ -315,12 +330,12 @@ async fn an_agents_run_acts_for_the_agent_never_the_user() {
     assert!(!w.board.ticket(&key).await.unwrap().flags.is_pinned());
 
     // The user's own Run stays the user's.
-    w.runs.stop(&key).await.unwrap();
-    w.runs.start(&key).await.unwrap();
-    let session = w.runs.info(&key).await.unwrap().session.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
+    w.runs.start(&key, None).await.unwrap();
+    let session = w.runs.info(&key, None).await.unwrap().session.unwrap();
     let out = w.wait_for_output(&session, "\"reply\"").await;
     assert!(!out.contains("\"error\""), "{out}");
-    w.runs.stop(&key).await.unwrap();
+    w.runs.stop(&key, None).await.unwrap();
     w.stop().await;
 }
 

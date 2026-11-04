@@ -268,6 +268,7 @@ async fn action_for(
         | R::SessionAttach(_)
         | R::SessionDetach(_)
         | R::RunStatus(_)
+        | R::RunApps(_)
         | R::RunList
         | R::ProjectTerminalCreated(_)
         | R::ProjectTerminalList(_)

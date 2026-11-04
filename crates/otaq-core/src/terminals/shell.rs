@@ -26,6 +26,7 @@ use super::TerminalEnv;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
+use crate::ports::PortPool;
 use crate::review::finish::FinishedTicket;
 use crate::session::{
     END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
@@ -66,6 +67,8 @@ pub struct Shells {
     env: TerminalEnv,
     /// Brings a freed build back before a new Shell (M19-c).
     ticket_env: TicketEnv,
+    /// The ticket's app ports (d{RUN}): an app added while the ticket works gets its port at the next Shell.
+    ports: PortPool,
     /// The open Project terminals by session id, until closed. Kept in memory: a restart forgets them.
     terminals: Arc<Mutex<HashMap<String, Open>>>,
 }
@@ -82,6 +85,7 @@ impl Shells {
         data: DataDir,
         env: TerminalEnv,
         ticket_env: TicketEnv,
+        ports: PortPool,
     ) -> Self {
         Self {
             board,
@@ -89,6 +93,7 @@ impl Shells {
             data,
             env,
             ticket_env,
+            ports,
             terminals: Arc::default(),
         }
     }
@@ -289,7 +294,26 @@ impl Shells {
         worktree: PathBuf,
     ) -> Result<SessionInfo, BoardError> {
         let project = self.board.project(ticket.key.project.as_str()).await?;
-        let port = ticket.work.as_ref().and_then(|w| w.run_port);
+        // `$PORT` is the app's port while the project has one app (or none yet); with several the Shell gets only
+        // `OTAQ_PORT_<NAME>`, so a script never reaches the wrong app (d{RUN}).
+        let settings = self.board.project_settings(&project.key).await?;
+        let apps = match self
+            .ports
+            .app_ports(&ticket.id, &settings.port_apps())
+            .await
+        {
+            Ok(apps) => apps,
+            Err(e) => {
+                tracing::warn!(ticket = %ticket.key, error = %e, "no app ports for the shell");
+                Vec::new()
+            }
+        };
+        let port = match apps.as_slice() {
+            [(_, port)] => Some(*port),
+            _ => None,
+        };
+        let mut env = self.env.env(&self.data, Some(&ticket.key), port);
+        env.extend(super::app_port_vars(&apps));
         let info = self
             .sessions
             .spawn(SpawnSpec {
@@ -304,7 +328,7 @@ impl Shells {
                 program: self.env.shell.clone(),
                 args: self.env.shell_args.clone(),
                 cwd: worktree,
-                env: self.env.env(&self.data, Some(&ticket.key), port),
+                env,
                 size: START_SIZE,
                 tool: None,
                 tool_session_id: None,

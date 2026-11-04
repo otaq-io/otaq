@@ -1,5 +1,5 @@
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -596,6 +596,19 @@
       "fields": {
         "focused": {
           "ty": "bool",
+          "required": true
+        }
+      }
+    },
+    "AppPort": {
+      "kind": "struct",
+      "fields": {
+        "app": {
+          "ty": "String",
+          "required": true
+        },
+        "port": {
+          "ty": "u16",
           "required": true
         }
       }
@@ -3569,12 +3582,8 @@
           "ty": "Option<ReviewEntryFlag>",
           "omittable": true
         },
-        "run_port": {
-          "ty": "Option<u16>",
-          "omittable": true
-        },
-        "run_started_by": {
-          "ty": "Option<String>",
+        "run_apps": {
+          "ty": "Vec<RunningApp>",
           "omittable": true
         },
         "sent_back": {
@@ -6898,6 +6907,9 @@
         "default"
       ],
       "fields": {
+        "apps": {
+          "ty": "Vec<RunApp>"
+        },
         "env_files": {
           "ty": "Vec<String>"
         },
@@ -6910,9 +6922,6 @@
         "merge_check": {
           "ty": "Option<String>"
         },
-        "open_url": {
-          "ty": "String"
-        },
         "project_notes": {
           "ty": "String"
         },
@@ -6924,12 +6933,6 @@
         },
         "resource_template_refresh": {
           "ty": "String"
-        },
-        "run_command": {
-          "ty": "String"
-        },
-        "run_command_set_by": {
-          "ty": "Option<RunCommandSetBy>"
         },
         "schema_paths": {
           "ty": "Vec<String>"
@@ -8308,8 +8311,11 @@
         "review.feedback": {
           "newtype": "KeyParams"
         },
+        "run.apps": {
+          "newtype": "KeyParams"
+        },
         "run.command_undo": {
-          "newtype": "ProjectParams"
+          "newtype": "RunUndoParams"
         },
         "run.list": {},
         "run.log": {
@@ -8319,13 +8325,13 @@
           "newtype": "RunSetParams"
         },
         "run.start": {
-          "newtype": "KeyParams"
+          "newtype": "RunParams"
         },
         "run.status": {
-          "newtype": "KeyParams"
+          "newtype": "RunParams"
         },
         "run.stop": {
-          "newtype": "KeyParams"
+          "newtype": "RunParams"
         },
         "run.suggest": {
           "newtype": "ProjectParams"
@@ -8787,6 +8793,25 @@
         "resumed"
       ]
     },
+    "RunApp": {
+      "kind": "struct",
+      "fields": {
+        "command": {
+          "ty": "String",
+          "required": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "open_url": {
+          "ty": "String"
+        },
+        "set_by": {
+          "ty": "Option<RunCommandSetBy>"
+        }
+      }
+    },
     "RunCommandSetBy": {
       "kind": "struct",
       "fields": {
@@ -8828,6 +8853,10 @@
     "RunInfo": {
       "kind": "struct",
       "fields": {
+        "app": {
+          "ty": "String",
+          "required": true
+        },
         "command": {
           "ty": "String",
           "required": true
@@ -8893,6 +8922,10 @@
     "RunLog": {
       "kind": "struct",
       "fields": {
+        "app": {
+          "ty": "String",
+          "required": true
+        },
         "key": {
           "ty": "TicketKey",
           "required": true
@@ -8910,6 +8943,10 @@
     "RunLogParams": {
       "kind": "struct",
       "fields": {
+        "app": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "key": {
           "ty": "String",
           "required": true
@@ -8917,6 +8954,19 @@
         "tail": {
           "ty": "Option<u32>",
           "omittable": true
+        }
+      }
+    },
+    "RunParams": {
+      "kind": "struct",
+      "fields": {
+        "app": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "key": {
+          "ty": "String",
+          "required": true
         }
       }
     },
@@ -8934,6 +8984,10 @@
     "RunSetParams": {
       "kind": "struct",
       "fields": {
+        "app": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "command": {
           "ty": "String",
           "required": true
@@ -8960,6 +9014,19 @@
         "stopped_by_restart": {}
       }
     },
+    "RunUndoParams": {
+      "kind": "struct",
+      "fields": {
+        "app": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "project": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "Running": {
       "kind": "struct",
       "fields": {
@@ -8970,6 +9037,23 @@
         "noyan_conversations": {
           "ty": "u32",
           "required": true
+        }
+      }
+    },
+    "RunningApp": {
+      "kind": "struct",
+      "fields": {
+        "app": {
+          "ty": "String",
+          "required": true
+        },
+        "port": {
+          "ty": "u16",
+          "required": true
+        },
+        "started_by": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -11921,6 +12005,10 @@
           "ty": "Option<u16>",
           "omittable": true
         },
+        "app_ports": {
+          "ty": "Vec<AppPort>",
+          "omittable": true
+        },
         "base_sha": {
           "ty": "Option<String>",
           "omittable": true
@@ -11955,10 +12043,6 @@
         },
         "resource_state": {
           "ty": "ResourceState",
-          "omittable": true
-        },
-        "run_port": {
-          "ty": "Option<u16>",
           "omittable": true
         },
         "schema_overlap": {

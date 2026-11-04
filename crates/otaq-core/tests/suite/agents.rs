@@ -898,7 +898,7 @@ async fn the_requests_are_the_users() {
         if !params.is_null() {
             request["params"] = params;
         }
-        let line = json!({"protocol_version": 1, "id": 1, "request": request}).to_string();
+        let line = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": request}).to_string();
         let ran = agent.send_raw(&w.data.socket_path(), &line).await;
         let answer: Value = serde_json::from_str(ran.stdout.lines().next().unwrap_or_default())
             .unwrap_or_else(|e| panic!("{e}: {ran:?}"));

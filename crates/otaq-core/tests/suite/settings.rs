@@ -186,7 +186,12 @@ async fn invalid_values_are_stored_and_flagged_and_the_repo_is_untouched() {
             ".env.missing".into(),
             "../secrets".into(),
         ],
-        open_url: "localhost:3000".into(),
+        apps: vec![otaq_core::board::settings::RunApp {
+            name: "app".into(),
+            command: "npm start".into(),
+            open_url: "localhost:3000".into(),
+            set_by: None,
+        }],
         setup_command: "npm install".into(),
         ..Default::default()
     };
@@ -219,7 +224,7 @@ async fn invalid_values_are_stored_and_flagged_and_the_repo_is_untouched() {
                 "../secrets must be a path inside the repository, like .env.local"
             ),
             (
-                "open_url",
+                "apps.0.open_url",
                 "localhost:3000 isn't a URL; use something like http://localhost:$PORT"
             ),
         ]

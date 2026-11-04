@@ -64,6 +64,23 @@ pub fn db_template_env_var() -> String {
 }
 
 /// The ticket's own resource folder in the data folder (d0087): `OTAQ_RESOURCE_DIR`.
+/// `OTAQ_PORT_<NAME>`: the port of the project's app `name` in a ticket (d{RUN}), set in every app's command and in the
+/// Shell. The name upper-cased, every character other than A–Z and 0–9 replaced by `_`: `web-admin` → `OTAQ_PORT_WEB_ADMIN`.
+pub fn app_port_env_var(name: &str) -> String {
+    let name: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    env_var(&format!("PORT_{name}"))
+}
+
 pub fn resource_dir_env_var() -> String {
     env_var("RESOURCE_DIR")
 }
@@ -202,6 +219,9 @@ mod tests {
         assert_eq!(db_name_env_var(), "OTAQ_DB_NAME");
         assert_eq!(db_template_env_var(), "OTAQ_DB_TEMPLATE");
         assert_eq!(resource_dir_env_var(), "OTAQ_RESOURCE_DIR");
+        assert_eq!(app_port_env_var("api"), "OTAQ_PORT_API");
+        assert_eq!(app_port_env_var("web-admin"), "OTAQ_PORT_WEB_ADMIN");
+        assert_eq!(app_port_env_var("Web.2"), "OTAQ_PORT_WEB_2");
         assert_eq!(resource_dir_name(), "res");
         assert_eq!(db_prefix(), "otaq");
     }

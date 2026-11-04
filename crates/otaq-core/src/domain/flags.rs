@@ -98,6 +98,16 @@ pub struct CheckRoundFlag {
 }
 
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
+/// One app whose Run is up (agents run the app): its name, its port and the stage of the agent that started it ("Dev"; `None`
+/// when you did).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunningApp {
+    pub app: String,
+    pub port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_by: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
     /// When the ticket was pinned, in Unix milliseconds (d0047). Pinned is not a status.
@@ -124,12 +134,10 @@ pub struct Flags {
     /// Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hand_off: Option<super::HandOffKind>,
-    /// Run is running, on this port: `▶ :4020` (d0035).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_port: Option<u16>,
-    /// The stage of the agent that started the Run ("Dev"); `None` when you did or nothing runs (agents run the app).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_started_by: Option<String>,
+    /// The apps whose Run is up, in the project's order: `▶ :4020` for one app (d0035), `▶ web :4020 · api :4021`
+    /// for several (agents run the app). Empty: nothing runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub run_apps: Vec<RunningApp>,
     /// Updated by agent (d0019).
     #[serde(default, skip_serializing_if = "is_false")]
     pub updated_by_agent: bool,
@@ -299,7 +307,7 @@ impl Flags {
             (Flag::ConflictsWithBase, self.conflicts_with.is_some()),
             (Flag::ChangedSinceReview, self.changed_since_review),
             (Flag::MessagesWaiting, self.messages_waiting > 0),
-            (Flag::RunRunning, self.run_port.is_some()),
+            (Flag::RunRunning, !self.run_apps.is_empty()),
             (Flag::UpdatedByAgent, self.updated_by_agent),
             (Flag::Answering, self.answering.is_some()),
             (Flag::Asked, self.asked.is_some()),
@@ -340,8 +348,11 @@ mod tests {
             changed_since_review: true,
             messages_waiting: 2,
             hand_off: None,
-            run_port: Some(4020),
-            run_started_by: None,
+            run_apps: vec![RunningApp {
+                app: "app".into(),
+                port: 4020,
+                started_by: None,
+            }],
             updated_by_agent: true,
             answering: Some("SHOP-42".parse().unwrap()),
             asked: Some("SHOP-41".parse().unwrap()),

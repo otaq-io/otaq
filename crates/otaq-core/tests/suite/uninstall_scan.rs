@@ -374,7 +374,7 @@ async fn an_agent_is_refused() {
         ("uninstall.scan", Value::Null),
         ("uninstall.remove", json!({"worktrees": true})),
     ] {
-        let mut request = json!({"protocol_version": 1, "id": 1, "request": {"method": method}});
+        let mut request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request": {"method": method}});
         if !params.is_null() {
             request["request"]["params"] = params;
         }

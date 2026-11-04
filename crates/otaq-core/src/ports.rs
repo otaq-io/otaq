@@ -1,8 +1,9 @@
-//! The port pool: two ports per started ticket (SES-01 step 6, d0026).
+//! The port pool: the ports of a started ticket (SES-01 step 6, d0026; d{RUN} for apps).
 //!
-//! The **agent port** is `$PORT` in the ticket's agent session (4019 for SHOP-19); the **Run port** is `$PORT` in
-//! its Run and Shell (4020). Two ports, so a dev server the agent left running never blocks the user's Run, and
-//! parallel agents never collide.
+//! The **agent port** is `$PORT` in the ticket's agent session (4019 for SHOP-19); each of the project's apps has its
+//! own **Run port** (4020 for `web`, 4021 for `api`): `$PORT` in that app's Run, `OTAQ_PORT_<NAME>` in every app's Run
+//! and in the Shell. Separate ports, so a dev server the agent left running never blocks a Run, and parallel tickets
+//! never collide. A project with one app (or none yet) has one Run port, as before apps had names.
 //!
 //! Implementation choices (SDD §26):
 //! - **Range:** 4000–4999 ([`DEFAULT_RANGE`]), shared by every project.
@@ -28,13 +29,13 @@ use crate::store::{Store, StoreError, now_ms};
 /// The ports handed out when no other range is configured.
 pub const DEFAULT_RANGE: RangeInclusive<u16> = 4000..=4999;
 
-/// A ticket's two ports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A ticket's ports.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TicketPorts {
     /// `$PORT` in the agent's session.
     pub agent: u16,
-    /// `$PORT` in Run and Shell.
-    pub run: u16,
+    /// Each app's Run port, in the order asked for.
+    pub apps: Vec<(String, u16)>,
 }
 
 /// Hands out and frees ticket ports. Cheap to clone; clones share the allocation lock.
@@ -59,41 +60,136 @@ impl PortPool {
         }
     }
 
-    /// The ticket's two ports. A ticket that holds ports already gets the same two again (idempotent, SES-02);
-    /// otherwise the two lowest free ports are stored on it.
-    pub async fn allocate(&self, ticket_id: &str) -> Result<TicketPorts, PortError> {
+    /// The ticket's agent port and a Run port for each of `apps`. Ports it holds already come back the same
+    /// (idempotent, SES-02); the missing ones are the lowest free ports, stored on it. All or nothing: when the range
+    /// can't give every missing port, nothing is stored.
+    pub async fn allocate(
+        &self,
+        ticket_id: &str,
+        apps: &[String],
+    ) -> Result<TicketPorts, PortError> {
         let _guard = self.lock.lock().await;
-        let (agent, run): (Option<i64>, Option<i64>) =
-            sqlx::query_as("SELECT agent_port, run_port FROM tickets WHERE id = ?")
-                .bind(ticket_id)
-                .fetch_optional(self.store.pool())
-                .await
-                .map_err(StoreError::from)?
-                .ok_or_else(|| PortError::NoSuchTicket(ticket_id.to_owned()))?;
-        if let (Some(agent), Some(run)) = (to_port(agent), to_port(run)) {
-            return Ok(TicketPorts { agent, run });
-        }
+        let agent: Option<i64> = sqlx::query_scalar("SELECT agent_port FROM tickets WHERE id = ?")
+            .bind(ticket_id)
+            .fetch_optional(self.store.pool())
+            .await
+            .map_err(StoreError::from)?
+            .ok_or_else(|| PortError::NoSuchTicket(ticket_id.to_owned()))?;
+        let held_agent = to_port(agent);
+        let (mut apps, missing) = self.split_apps(ticket_id, apps).await?;
+        let mut fresh = self
+            .lowest_free(missing.len() + usize::from(held_agent.is_none()))
+            .await?
+            .into_iter();
+        let agent = match held_agent {
+            Some(agent) => agent,
+            None => {
+                let agent = fresh.next().expect("counted");
+                sqlx::query("UPDATE tickets SET agent_port = ?, updated_at = ? WHERE id = ?")
+                    .bind(i64::from(agent))
+                    .bind(now_ms())
+                    .bind(ticket_id)
+                    .execute(self.store.pool())
+                    .await
+                    .map_err(StoreError::from)?;
+                agent
+            }
+        };
+        self.store_apps(ticket_id, &mut apps, missing, fresh)
+            .await?;
+        Ok(TicketPorts { agent, apps })
+    }
 
+    /// A Run port for each of `apps` of the ticket (d{RUN}): the ones it holds, the missing ones the lowest free. An
+    /// app added to the project while the ticket works gets its port here, at its first Run or Shell.
+    pub async fn app_ports(
+        &self,
+        ticket_id: &str,
+        apps: &[String],
+    ) -> Result<Vec<(String, u16)>, PortError> {
+        let _guard = self.lock.lock().await;
+        let (mut out, missing) = self.split_apps(ticket_id, apps).await?;
+        let fresh = self.lowest_free(missing.len()).await?.into_iter();
+        self.store_apps(ticket_id, &mut out, missing, fresh).await?;
+        Ok(out)
+    }
+
+    /// The Run ports the ticket holds, by app, lowest port first (no allocation).
+    pub async fn held_app_ports(&self, ticket_id: &str) -> Result<Vec<(String, u16)>, PortError> {
+        let rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT app, port FROM app_ports WHERE ticket_id = ? ORDER BY port")
+                .bind(ticket_id)
+                .fetch_all(self.store.pool())
+                .await
+                .map_err(StoreError::from)?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(app, port)| Some((app, to_port(Some(port))?)))
+            .collect())
+    }
+
+    /// `apps` with the ports the ticket holds (0 where it holds none yet), and the indexes still missing one.
+    async fn split_apps(
+        &self,
+        ticket_id: &str,
+        apps: &[String],
+    ) -> Result<(Vec<(String, u16)>, Vec<usize>), PortError> {
+        let held = self.held_app_ports(ticket_id).await?;
+        let mut out = Vec::with_capacity(apps.len());
+        let mut missing = Vec::new();
+        for (index, app) in apps.iter().enumerate() {
+            match held.iter().find(|(name, _)| name == app) {
+                Some((_, port)) => out.push((app.clone(), *port)),
+                None => {
+                    missing.push(index);
+                    out.push((app.clone(), 0));
+                }
+            }
+        }
+        Ok((out, missing))
+    }
+
+    /// Stores the `fresh` ports on the `missing` apps of `out`, in order.
+    async fn store_apps(
+        &self,
+        ticket_id: &str,
+        out: &mut [(String, u16)],
+        missing: Vec<usize>,
+        fresh: impl Iterator<Item = u16>,
+    ) -> Result<(), PortError> {
+        for (index, port) in missing.into_iter().zip(fresh) {
+            sqlx::query("INSERT INTO app_ports (ticket_id, app, port) VALUES (?, ?, ?)")
+                .bind(ticket_id)
+                .bind(&out[index].0)
+                .bind(i64::from(port))
+                .execute(self.store.pool())
+                .await
+                .map_err(StoreError::from)?;
+            out[index].1 = port;
+        }
+        Ok(())
+    }
+
+    /// The `count` lowest ports of the range no ticket or helper holds that nothing on the machine uses; exhausted
+    /// when there are fewer.
+    async fn lowest_free(&self, count: usize) -> Result<Vec<u16>, PortError> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
         let held = self.held_ports().await?;
-        let mut free = self
+        let found: Vec<u16> = self
             .range
             .clone()
             .filter(|port| !held.contains(port))
-            .filter(|port| is_free_on_machine(*port));
-        let (Some(agent), Some(run)) = (free.next(), free.next()) else {
+            .filter(|port| is_free_on_machine(*port))
+            .take(count)
+            .collect();
+        if found.len() < count {
             return Err(PortError::Exhausted {
                 range: self.range.clone(),
             });
-        };
-        sqlx::query("UPDATE tickets SET agent_port = ?, run_port = ?, updated_at = ? WHERE id = ?")
-            .bind(i64::from(agent))
-            .bind(i64::from(run))
-            .bind(now_ms())
-            .bind(ticket_id)
-            .execute(self.store.pool())
-            .await
-            .map_err(StoreError::from)?;
-        Ok(TicketPorts { agent, run })
+        }
+        Ok(found)
     }
 
     /// The port of the ticket's helper for `piece` (d0133: a helper's dev server never takes the ticket's): the one it
@@ -111,15 +207,7 @@ impl PortPool {
         if let Some(port) = to_port(held) {
             return Ok(port);
         }
-        let taken = self.held_ports().await?;
-        let port = self
-            .range
-            .clone()
-            .filter(|port| !taken.contains(port))
-            .find(|port| is_free_on_machine(*port))
-            .ok_or_else(|| PortError::Exhausted {
-                range: self.range.clone(),
-            })?;
+        let port = self.lowest_free(1).await?[0];
         sqlx::query("UPDATE helpers SET port = ? WHERE ticket_id = ? AND piece = ?")
             .bind(i64::from(port))
             .bind(ticket_id)
@@ -130,7 +218,7 @@ impl PortPool {
         Ok(port)
     }
 
-    /// Releases both of the ticket's ports; other tickets may get them from now on.
+    /// Releases all of the ticket's ports (its agent's and every app's); other tickets may get them from now on.
     pub async fn free(&self, ticket_id: &str) -> Result<(), PortError> {
         let _guard = self.lock.lock().await;
         sqlx::query(
@@ -141,6 +229,11 @@ impl PortPool {
         .execute(self.store.pool())
         .await
         .map_err(StoreError::from)?;
+        sqlx::query("DELETE FROM app_ports WHERE ticket_id = ?")
+            .bind(ticket_id)
+            .execute(self.store.pool())
+            .await
+            .map_err(StoreError::from)?;
         Ok(())
     }
 
@@ -149,7 +242,8 @@ impl PortPool {
         let rows: Vec<(Option<i64>, Option<i64>)> = sqlx::query_as(
             "SELECT agent_port, run_port FROM tickets
              WHERE agent_port IS NOT NULL OR run_port IS NOT NULL
-             UNION ALL SELECT port, NULL FROM helpers WHERE port IS NOT NULL",
+             UNION ALL SELECT port, NULL FROM helpers WHERE port IS NOT NULL
+             UNION ALL SELECT port, NULL FROM app_ports",
         )
         .fetch_all(self.store.pool())
         .await
@@ -202,7 +296,7 @@ impl fmt::Display for PortError {
         match self {
             Self::Exhausted { range } => write!(
                 f,
-                "no two free ports left in {}–{}; finish or park some tickets, or stop programs using these ports",
+                "no free ports left in {}–{}; finish or park some tickets, or stop programs using these ports",
                 range.start(),
                 range.end()
             ),
