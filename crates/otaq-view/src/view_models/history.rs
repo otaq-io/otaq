@@ -59,7 +59,7 @@ fn in_charge_at(facts: &Facts, at: i64) -> String {
 
 /// A helper's row (d0133): `who` is the agent in charge then. "Developer started a helper for 40.3" · "Wishlist page";
 /// "Developer sent 40.3 back: no empty state"; "40.3 handed its piece back" · its summary; "Developer merged 40.1" ·
-/// "Wishlist API"; "40.3 is waiting for limit reset".
+/// "Wishlist API"; "40.3 is waiting for limit reset"; "Developer dropped 40.3" · its reason (T10).
 fn helper_line(p: &serde_json::Value, who: &str) -> (String, Option<String>) {
     let label = text(p, "label").unwrap_or_default();
     let title = text(p, "title").filter(|t| !t.is_empty());
@@ -87,6 +87,7 @@ fn helper_line(p: &serde_json::Value, who: &str) -> (String, Option<String>) {
         ),
         Some("handed_back") => (format!("{label} handed its piece back"), note),
         Some("merged") => (format!("{who} merged {label}"), title),
+        Some("dropped") => (format!("{who} dropped {label}"), note),
         Some("held") => (format!("{label} is waiting for limit reset"), title),
         // Its questions (d0133 audit 3, d0030): who answered is in the line.
         Some("asked") => (format!("{label} asked the agent in charge"), note),
@@ -1577,7 +1578,8 @@ mod tests {
     const MIN: i64 = 60_000;
 
     /// d0133 (`s30-03`): a helper's rows name the agent in charge then, under the Stages filter: "Developer started a
-    /// helper for 40.3" · "Wishlist page", "Developer sent 40.3 back: no empty state", "Developer merged 40.1".
+    /// helper for 40.3" · "Wishlist page", "Developer sent 40.3 back: no empty state", "Developer merged 40.1",
+    /// "Developer dropped 40.2" · its reason (T10).
     #[test]
     fn a_helpers_rows_name_the_agent_in_charge() {
         let mut dev = session("s1", 0, None, None);
@@ -1610,6 +1612,13 @@ mod tests {
                 Some("No empty state.\nAdd one."),
             ),
             helper(4 * MIN, "merged", "40.1", "Wishlist API", None),
+            helper(
+                5 * MIN,
+                "dropped",
+                "40.2",
+                "Wishlist button",
+                Some("The button moved to SHOP-41.\nNothing to keep."),
+            ),
         ];
         let rows = oldest_first(rows_in(&events, &[dev], &[], &Facts::default()));
         let shown: Vec<(String, Option<String>, Kind)> = rows
@@ -1638,6 +1647,11 @@ mod tests {
                 (
                     "Developer merged 40.1".to_owned(),
                     Some("Wishlist API".to_owned()),
+                    Kind::Stage
+                ),
+                (
+                    "Developer dropped 40.2".to_owned(),
+                    Some("The button moved to SHOP-41".to_owned()),
                     Kind::Stage
                 ),
             ]

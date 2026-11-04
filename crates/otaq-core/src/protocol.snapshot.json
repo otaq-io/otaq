@@ -4226,6 +4226,7 @@
       "kind": "strings",
       "values": [
         "being_reviewed",
+        "dropped",
         "held",
         "merged",
         "sent_back",
@@ -8162,6 +8163,9 @@
           "newtype": "HelperPieceParams"
         },
         "helper.done": {
+          "newtype": "HelperNoteParams"
+        },
+        "helper.drop": {
           "newtype": "HelperNoteParams"
         },
         "helper.list": {

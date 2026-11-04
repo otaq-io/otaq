@@ -55,6 +55,9 @@ impl Helpers {
                 format!("{label} is merged already"),
             ));
         }
+        if helper.status == HelperStatus::Dropped {
+            return Err(super::dropped_already(&helper));
+        }
         let against = ticket_branch(&ticket)?;
         let ticket_wt = ticket_worktree(&ticket)?;
         let helper_wt = Path::new(&helper.worktree);

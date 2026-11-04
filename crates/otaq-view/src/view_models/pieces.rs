@@ -6,7 +6,8 @@
 //! - **Rows** ([`rows`]): one per piece, by number: the Plan's pieces and every helper (a fix after a check's Send back
 //!   may be a piece the Plan doesn't list, "40.5 · fixing the report"). Each has one status: "merged", "working",
 //!   "being reviewed", "sent back: no empty state", "waits for 40.2, 40.3", "waiting for limit reset", "not started",
-//!   "was working" after a restart.
+//!   "was working" after a restart, "dropped" once the agent in charge dropped it (T10: quiet, as a piece that is
+//!   done; it counts as neither merged nor waiting).
 //! - **On the card** ([`card`]): only once a helper started (a ticket with no helpers looks as today). "PIECES · 4",
 //!   the rows, and past four rows the merged ones fold into one ("3 merged"); "4 pieces merged · moving to Validate"
 //!   once every piece is merged; the status line "Working · 2 helpers" (· "1 sent back"), "Working · fixing the
@@ -64,6 +65,8 @@ pub enum State {
     NotStarted,
     /// A helper that was working when the service stopped (the ticket is Interrupted).
     WasWorking,
+    /// The agent in charge dropped it (T10): never merged, never started again.
+    Dropped,
     /// The helper fixing what a later check sent back (a piece the Plan doesn't list).
     Fixing,
     /// Its question is with the agent in charge (d0133 audit 3): the card stays Working.
@@ -83,7 +86,7 @@ impl State {
             Self::BeingReviewed => Tone::Review,
             Self::SentBack | Self::Held | Self::WasWorking => Tone::Warning,
             Self::Merged => Tone::Passed,
-            Self::Waits | Self::NotStarted => Tone::Muted,
+            Self::Waits | Self::NotStarted | Self::Dropped => Tone::Muted,
         }
     }
 }
@@ -124,6 +127,7 @@ impl Row {
             State::Waits => format!("waits for {}", self.waits_for.join(", ")),
             State::NotStarted => "not started".to_owned(),
             State::WasWorking => "was working".to_owned(),
+            State::Dropped => "dropped".to_owned(),
             State::Fixing => "fixing the report".to_owned(),
             State::AskedInCharge => "asked \u{b7} in charge is answering".to_owned(),
             State::AsksYou => "asks you".to_owned(),
@@ -199,6 +203,8 @@ pub fn rows(f: &Facts) -> Vec<Row> {
     let planned: Vec<Piece> = plan::pieces(&ticket.plan);
     let helper = |n: u32| f.own().find(|h| h.piece == n);
     let merged = |n: u32| helper(n).is_some_and(|h| h.status == HelperStatus::Merged);
+    // Nothing waits for a dropped piece (T10).
+    let dropped = |n: u32| helper(n).is_some_and(|h| h.status == HelperStatus::Dropped);
     let interrupted = ticket.status == Status::Interrupted;
     let back = back_from(ticket).is_some();
     let mut numbers: Vec<u32> = planned
@@ -217,13 +223,14 @@ pub fn rows(f: &Facts) -> Vec<Row> {
                 .map(|p| p.waits_for.as_slice())
                 .unwrap_or_default()
                 .iter()
-                .filter(|w| !merged(**w))
+                .filter(|w| !merged(**w) && !dropped(**w))
                 .map(|w| plan::piece_name(&ticket.key, *w))
                 .collect();
             use otaq_core::helpers::questions::HelperQuestionState as Q;
             let asked = h.and_then(|h| h.asked);
             let state = match h.map(|h| h.status) {
                 Some(HelperStatus::Merged) => State::Merged,
+                Some(HelperStatus::Dropped) => State::Dropped,
                 // After a restart, what Resume brings back (d0133 audit 5).
                 Some(_) if interrupted && h.is_some_and(Helper::resumes) => State::WasWorking,
                 // What waits (d0133 audit 3): its prompt, a question passed on, a question with the agent in charge.
@@ -305,9 +312,12 @@ pub fn card(f: &Facts, next_stage: Option<&str>) -> Option<CardPieces> {
     }
     let rows = rows(f);
     let back = back_from(f.ticket);
-    let all_merged = rows.iter().all(|r| r.state == State::Merged);
+    // A dropped piece is out of the work (T10): every other piece merged is "all merged".
+    let all_merged = rows
+        .iter()
+        .all(|r| matches!(r.state, State::Merged | State::Dropped));
     if all_merged && back.is_none() {
-        let merged = pieces_count(rows.len());
+        let merged = pieces_count(rows.iter().filter(|r| r.state == State::Merged).count());
         return Some(CardPieces {
             back_from: None,
             label: None,
@@ -437,7 +447,11 @@ pub fn pieces_detail(f: &Facts) -> Option<String> {
     if !f.split() {
         return None;
     }
-    let rows = rows(f);
+    // A dropped piece isn't counted (T10): "2 of 3 merged" once one of four is dropped.
+    let rows: Vec<Row> = rows(f)
+        .into_iter()
+        .filter(|r| r.state != State::Dropped)
+        .collect();
     let merged = rows.iter().filter(|r| r.state == State::Merged).count();
     Some(if merged == rows.len() {
         format!("{merged} merged")
@@ -974,6 +988,44 @@ mod tests {
             plan_status(&f, 3).unwrap().text,
             "sent back: no empty state · fixing"
         );
+    }
+
+    /// A dropped piece (T10) reads "dropped", quiet; nothing waits for it, it isn't counted as a piece left to merge,
+    /// and every other piece merged reads as all merged.
+    #[test]
+    fn a_dropped_piece_reads_dropped() {
+        let t = shop40(Status::Working);
+        let mut helpers = mid_way();
+        helpers[2].status = HelperStatus::Dropped;
+        helpers[2].note = Some("The page moved to SHOP-41.".into());
+        let f = Facts::new(&t, &helpers);
+        let card = card(&f, None).unwrap();
+        assert_eq!(
+            statuses(&card.rows),
+            [
+                "40.1 Wishlist API · merged",
+                "40.2 Wishlist button · working",
+                "40.3 Wishlist page · dropped",
+                "40.4 Share link · waits for 40.2",
+            ]
+        );
+        assert_eq!(card.rows[2].tone, Tone::Muted);
+        assert_eq!(card_line(&f).as_deref(), Some("Working · 1 helper"));
+        assert_eq!(pieces_detail(&f).as_deref(), Some("1 of 3 merged"));
+        assert_eq!(plan_status(&f, 3).unwrap().text, "dropped");
+        let list = session_list(&f, "Developer", None).unwrap();
+        assert_eq!(list.helpers[2].status, "dropped");
+        assert_eq!(list.in_charge.status, "waiting for 40.2");
+
+        helpers[1].status = HelperStatus::Merged;
+        helpers.push(helper("SHOP-40", 4, "Share link", HelperStatus::Merged));
+        let f = Facts::new(&t, &helpers);
+        let done = super::card(&f, Some("Validate")).unwrap();
+        assert_eq!(
+            done.done.as_deref(),
+            Some("3 pieces merged \u{b7} moving to Validate")
+        );
+        assert_eq!(pieces_detail(&f).as_deref(), Some("3 merged"));
     }
 
     #[test]

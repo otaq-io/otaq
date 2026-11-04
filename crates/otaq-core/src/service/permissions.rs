@@ -338,7 +338,9 @@ async fn action_for(
         | R::HelperMerge(crate::protocol::HelperPieceParams { key, .. }) => {
             Action::Helpers(facts(board, key).await?)
         }
-        R::HelperBack(p) | R::HelperAnswer(p) => Action::Helpers(facts(board, &p.key).await?),
+        R::HelperBack(p) | R::HelperAnswer(p) | R::HelperDrop(p) => {
+            Action::Helpers(facts(board, &p.key).await?)
+        }
         R::HelperPassOn(p) => Action::Helpers(facts(board, &p.key).await?),
         // A helper hands its own piece back and reads its prime; the handler finds its piece by its session.
         R::HelperDone(p) => Action::HandBack(facts(board, &p.key).await?),

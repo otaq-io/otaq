@@ -19,7 +19,9 @@
 //!   helper's branch onto the ticket's (d0038, no tokens); a conflict merges nothing and the reply says to send the
 //!   helper back to rebase; clean, a squash commit on the ticket's branch in its worktree, the helper's session
 //!   ended, its worktree removed (its branch stays until the ticket is Done, d0018) and the files recorded for the
-//!   Files tab's piece tags.
+//!   Files tab's piece tags;
+//! - `otaq helper drop <n> --stdin` ([`drop`], T10): the piece is dropped with the reason on stdin: its helper
+//!   stopped, its worktree and branch removed, status `dropped`. It is never merged and can't start again.
 //!
 //! **A helper** (`OTAQ_PIECE` set; its session is of kind `helper`) runs `otaq helper done --stdin` (status `being
 //! reviewed`, its text a comment; refused with uncommitted files) and `otaq prime` ([`prime`]: this piece first);
@@ -35,6 +37,7 @@
 //! Nothing here starts without the agent in charge's command, inside a stage the user started: the stage's start is
 //! the go-ahead, as a check's start is.
 
+pub mod drop;
 pub mod merge;
 pub mod prime;
 pub mod questions;
@@ -78,11 +81,14 @@ stored_enum! {
         BeingReviewed = "being_reviewed",
         /// Its work is on the ticket's branch.
         Merged = "merged",
+        /// The agent in charge dropped it (`otaq helper drop`, T10): its helper stopped, its worktree and branch are
+        /// gone, and it is never merged nor started again. Its note says why.
+        Dropped = "dropped",
     }
 }
 
 impl HelperStatus {
-    /// "working", "waiting for limit reset", "sent back", "being reviewed", "merged".
+    /// "working", "waiting for limit reset", "sent back", "being reviewed", "merged", "dropped".
     pub fn label(self) -> &'static str {
         match self {
             Self::Working => "working",
@@ -90,6 +96,7 @@ impl HelperStatus {
             Self::SentBack => "sent back",
             Self::BeingReviewed => "being reviewed",
             Self::Merged => "merged",
+            Self::Dropped => "dropped",
         }
     }
 }
@@ -256,6 +263,14 @@ pub fn handed_back_text(label: &str, piece: u32, summary: &str) -> String {
 /// sends back and merges its helpers".
 pub fn only_in_charge(ticket: &TicketKey) -> String {
     format!("Only the agent in charge of {ticket} starts, sends back and merges its helpers")
+}
+
+/// The refusal of a helper command on a dropped piece (T10): "40.3 is dropped already".
+fn dropped_already(helper: &Helper) -> BoardError {
+    BoardError::refused(
+        Refusal::MoveRefused,
+        format!("{} is dropped already", helper.label()),
+    )
 }
 
 fn no_helper(ticket: &TicketKey, piece: u32) -> BoardError {
@@ -432,6 +447,9 @@ impl Helpers {
     ) -> Result<HelperDiff, BoardError> {
         let (ticket, _) = self.in_charge(caller, key).await?;
         let helper = self.piece(&ticket, piece).await?;
+        if helper.status == HelperStatus::Dropped {
+            return Err(dropped_already(&helper));
+        }
         let against = ticket_branch(&ticket)?;
         let project = self
             .inner
@@ -466,6 +484,9 @@ impl Helpers {
         let note = crate::board::ticket_comments::check_body(note)?;
         let (ticket, in_charge) = self.in_charge(caller, key).await?;
         let helper = self.piece(&ticket, piece).await?;
+        if helper.status == HelperStatus::Dropped {
+            return Err(dropped_already(&helper));
+        }
         let label = helper.label();
         let live = helper
             .session
@@ -624,8 +645,8 @@ impl Helpers {
         Ok(())
     }
 
-    /// Records a helper's change in the ticket's History (`what`: started, held, sent_back, handed_back, merged) and
-    /// tells clients.
+    /// Records a helper's change in the ticket's History (`what`: started, held, sent_back, handed_back, merged,
+    /// dropped) and tells clients.
     async fn record(
         &self,
         ticket: &Ticket,

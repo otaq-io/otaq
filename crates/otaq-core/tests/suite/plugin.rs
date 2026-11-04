@@ -1049,7 +1049,8 @@ fn work_ticket_records_product_choices() {
 /// every piece is merged; with `OTAQ_PIECE` set, a helper builds its piece, commits, asks through `ask human` and hands
 /// back with `helper done`. T5: with no pieces, the agent decides the split up front by the size measure and may write a
 /// Plan on its own ticket; it re-splits when the work grows; a helper whose piece is too big hands back early with a
-/// suggested split in whole numbers, and only the agent in charge adds the new pieces to the Plan.
+/// suggested split in whole numbers, and only the agent in charge adds the new pieces to the Plan. T10: a piece taken
+/// out of the Plan is dropped with `helper drop` first.
 #[test]
 fn work_ticket_runs_helpers_as_the_agent_in_charge() {
     let (_, body) = skill(WORK_TICKET_SKILL);
@@ -1082,6 +1083,7 @@ fn work_ticket_runs_helpers_as_the_agent_in_charge() {
         format!("{cmd} decision record"),
         format!("{cmd} helper pass-on"),
         "**The Plan changed**".to_owned(),
+        format!("drop it with `{cmd} helper drop <n> --stdin`"),
         "**A helper hands back a piece too big**".to_owned(),
         "**You alone change the Plan**".to_owned(),
         "**Check and merge the finished part**".to_owned(),
@@ -1090,9 +1092,12 @@ fn work_ticket_runs_helpers_as_the_agent_in_charge() {
         "4. Export API — waits for 1".to_owned(),
         "**New pieces get the next free whole numbers**".to_owned(),
         "**Never renumber a piece or reuse a number.**".to_owned(),
+        "**Don't remove a piece whose helper still works**".to_owned(),
+        format!("{cmd} helper drop 3 --stdin <<'WHY'"),
         "**Changing the Plan tells no one.**".to_owned(),
         format!("{cmd} helper start 4 --title \"Export API\""),
         "once every piece is merged".to_owned(),
+        "apart from those you\n   dropped".to_owned(),
         format!("{cmd} stage next"),
         format!("{cmd} helper start 5 --title \"Fixing the Validate failure\""),
         "you may pick another agent for a later stage".to_owned(),
