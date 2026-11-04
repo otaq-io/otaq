@@ -1127,7 +1127,15 @@ mod tests {
             matches!(c, Connection::NewerDatabase { .. })
         })
         .await;
-        let notices = h.app.notices.view();
+        // The notices hear of the link through its events, a moment after the link itself changes.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let notices = loop {
+            let notices = h.app.notices.view();
+            if notices.input_enabled || Instant::now() >= deadline {
+                break notices;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
         assert!(notices.input_enabled, "the screen's buttons take clicks");
         assert!(notices.banners.is_empty(), "no banner over the screen");
 
