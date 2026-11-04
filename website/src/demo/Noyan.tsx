@@ -36,13 +36,13 @@ export function Noyan({ s, store }: DemoProps) {
                 <div>
                   <span>#</span>
                   <span>Title</span>
-                  <span>Agent</span>
+                  <span>Description</span>
                 </div>
-                {m.tbl.map(([n, title, agent]) => (
+                {m.tbl.map(([n, title, description]) => (
                   <div key={n}>
                     <span>{n}</span>
                     <span>{title}</span>
-                    <span>{agent}</span>
+                    <span>{description}</span>
                   </div>
                 ))}
               </div>
