@@ -773,7 +773,6 @@ export function noyanTickets(n: number): Ticket[] {
       col: "backlog",
       st: "queued",
       prio: 4,
-      agent: "Docs updater",
       by: "Noyan",
       desc: "640 ms of hydration on checkout.",
       acc: ["Loads after first paint"],
@@ -783,11 +782,14 @@ export function noyanTickets(n: number): Ticket[] {
 
 // --- Noyan ---------------------------------------------------------------------------------------------------------
 
-/** One message in Noyan's panel: yours (`u`) or Noyan's, with an optional ticket table, Create buttons or links. */
+/**
+ * One message in Noyan's panel: yours (`u`) or Noyan's, with an optional ticket table, Create buttons or links. The
+ * table is # · Title · Description: Noyan sets no stage choices of its own, so it has no Agent column (T12).
+ */
 export interface NoyanMsg {
   cls: "u" | "";
   t: string;
-  tbl?: readonly (readonly [n: string, title: string, agent: string])[];
+  tbl?: readonly (readonly [n: string, title: string, description: string])[];
   ask?: boolean;
   links?: readonly string[];
 }
@@ -798,9 +800,9 @@ export const NOYAN0: readonly NoyanMsg[] = [
     cls: "",
     t: "getPrices() runs once per cart row and prices are never cached. The shipping quote calls three carriers one after another. I’d make 3 tickets:",
     tbl: [
-      ["1", "Fetch carrier quotes in parallel", "Rust developer"],
-      ["2", "Cache product prices for 60 s", "Rust developer"],
-      ["3", "Load the reviews widget after paint", "Docs updater"],
+      ["1", "Fetch carrier quotes in parallel", "The 3 carrier calls run one after another: 1.9 s together."],
+      ["2", "Cache product prices for 60 s", "getPrices() runs once per cart row."],
+      ["3", "Load the reviews widget after paint", "640 ms of hydration on checkout."],
     ],
     ask: true,
   },
