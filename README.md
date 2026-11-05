@@ -17,9 +17,7 @@
 
 ---
 
-<p align="center">
-  <img src="docs/images/board.png" alt="The Otaq board: tickets waiting, working, in review and merged">
-</p>
+https://github.com/user-attachments/assets/6ee3da50-5354-4e59-8fe2-33d9576e9732
 
 **Coding agents that follow your process.** Otaq is a desktop app that runs Claude Code, Codex, GitHub Copilot and
 OpenCode through stages you design. Say what you want, answer when asked, and approve a diff that other agents
