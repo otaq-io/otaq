@@ -86,7 +86,7 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 - **Search it** with `grep` or `tail`; **never print it in full or retype it.**
 - **Name it** in your comment; never attach command output, such as a run, a diff or a log. **Attach only a
   document you wrote**, such as an investigation write-up, with `--report-file` (at most 20 MB).
-- **Reading a report:** under a comment with a report, `prime` shows a line such as "Report: 48 KB, 2,310 lines ·
+- **Reading a report:** under a comment with a report, `prime` shows a line such as "Report: test-run.txt · 48 KB, 2,310 lines ·
   `otaq report SHOP-27 4`". Open it only when you need it, and search it:
   `grep -n "expected" "$(otaq report SHOP-27 4 --path)"`.
 

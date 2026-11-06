@@ -166,7 +166,7 @@ async fn send_back_into_a_live_session_runs_address_review_on_each_tool() {
         // A line comment: a code review, so the skill goes (d0131 Q514).
         crate::common::line_comment(&w.board, &key).await;
         w.review
-            .fail(&key, "Keep the old URL working.", None, false, &me())
+            .fail(&key, "Keep the old URL working.", Vec::new(), false, &me())
             .await
             .unwrap();
         let out = w
@@ -281,7 +281,7 @@ async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     let key = t.key.to_string();
     crate::common::line_comment(&w.board, &key).await;
     w.review
-        .fail(&key, "Keep the old URL working.", None, false, &me())
+        .fail(&key, "Keep the old URL working.", Vec::new(), false, &me())
         .await
         .unwrap();
     let resumed = running(&w, &t).await;

@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use otaq_core::board::reports::size_label;
+use otaq_core::board::reports::{Attachment, with_attachments};
 use otaq_core::board::ticket_comments::CommentAuthor;
 use otaq_core::board::tickets::{EventKind, HistoryEvent};
 use otaq_core::board::validation::ValidationRecord;
@@ -29,7 +29,7 @@ use ts_rs::TS;
 use crate::view_models::card::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 use crate::view_models::clock;
 use crate::view_models::stage_choices::{self, HistoryLine};
-use crate::view_models::ticket_comments::{self as comments, Mark, ReportChip};
+use crate::view_models::ticket_comments::{self as comments, AttachmentChip, Mark};
 use crate::view_models::tool_problems::tool_word;
 use crate::view_models::validation_report;
 
@@ -126,22 +126,25 @@ pub struct DiffLine {
     pub text: String,
 }
 
-/// A comment's report in History: "Report · 48 KB" and Open (comment `n`'s, also once deleted).
+/// One attachment of a comment in History: "test-run.txt · 48 KB" and, for text, Open (comment `n`'s, also once
+/// deleted).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "HistoryReport")]
-pub struct OpenReport {
+#[ts(rename = "HistoryAttachment")]
+pub struct OpenAttachment {
+    /// The comment's number.
     pub n: u32,
-    pub chip: ReportChip,
+    pub chip: AttachmentChip,
 }
 
-/// What a row opens (`s05-45`): "DESCRIPTION" or "COMMENT", "Before / after" on an edit, the lines, a report.
+/// What a row opens (`s05-45`): "DESCRIPTION" or "COMMENT", "Before / after" on an edit, the lines, the comment's
+/// attachments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryOpens")]
 pub struct Opens {
     pub label: String,
     pub caption: Option<String>,
     pub lines: Vec<DiffLine>,
-    pub report: Option<OpenReport>,
+    pub attachments: Vec<OpenAttachment>,
 }
 
 /// What a row is about, for Activity's filters (SHT-05).
@@ -824,16 +827,52 @@ fn changed_by(e: &HistoryEvent) -> String {
     }
 }
 
-fn report_of(p: &serde_json::Value, n: u32, field: &str) -> Option<OpenReport> {
-    let bytes = p.get(field)?.get("bytes")?.as_u64()?;
-    Some(OpenReport {
-        n,
-        chip: ReportChip {
-            label: comments::REPORT.to_owned(),
-            size: format!("\u{b7} {}", size_label(bytes)),
-            open: comments::OPEN.to_owned(),
-        },
-    })
+/// The attachments a comment event names: `"attachments": [{"n", "name", "kind", "bytes", "lines"?}]`, or, in events
+/// written before migration 0076, `"report": {"bytes", "lines"}`, which became the comment's attachment 1 (its name
+/// isn't in the event: "Report").
+fn attachments_of(p: &serde_json::Value) -> Vec<Attachment> {
+    if let Some(list) = p.get("attachments").and_then(serde_json::Value::as_array) {
+        return list
+            .iter()
+            .filter_map(|a| {
+                Some(Attachment {
+                    n: u32::try_from(a.get("n")?.as_u64()?).ok()?,
+                    name: a.get("name")?.as_str()?.to_owned(),
+                    kind: serde_json::from_value(a.get("kind")?.clone()).ok()?,
+                    bytes: a.get("bytes")?.as_u64()?,
+                    lines: a.get("lines").and_then(serde_json::Value::as_u64),
+                    path: String::new(),
+                })
+            })
+            .collect();
+    }
+    p.get("report")
+        .and_then(|r| {
+            Some(Attachment {
+                n: 1,
+                name: OLD_REPORT.to_owned(),
+                kind: otaq_core::board::reports::AttachmentKind::Text,
+                bytes: r.get("bytes")?.as_u64()?,
+                lines: r.get("lines").and_then(serde_json::Value::as_u64),
+                path: String::new(),
+            })
+        })
+        .into_iter()
+        .collect()
+}
+
+/// What an event from before migration 0076 calls its comment's report.
+const OLD_REPORT: &str = "Report";
+
+/// A comment event's attachments as chips that open comment `n`'s.
+fn open_attachments(attachments: &[Attachment], n: u32) -> Vec<OpenAttachment> {
+    attachments
+        .iter()
+        .map(|a| OpenAttachment {
+            n,
+            chip: AttachmentChip::of(a),
+        })
+        .collect()
 }
 
 fn told(
@@ -907,7 +946,7 @@ fn plan_row(e: &HistoryEvent, changes: &[serde_json::Value], facts: &Facts) -> O
             label: "PLAN".to_owned(),
             caption: Some(BEFORE_AFTER.to_owned()),
             lines: around_changes(diff, 1),
-            report: None,
+            attachments: Vec::new(),
         },
         Kind::Description,
     ))
@@ -959,7 +998,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     label: "DESCRIPTION".to_owned(),
                     caption: Some(BEFORE_AFTER.to_owned()),
                     lines: around_changes(diff, 1),
-                    report: None,
+                    attachments: Vec::new(),
                 },
                 Kind::Description,
             ))
@@ -967,13 +1006,15 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::CommentPosted => {
             let author = author_of(p)?;
             let excerpt = text(p, "excerpt").unwrap_or_default();
-            let report = report_of(p, n, "report");
-            let with = p
-                .get("report")
-                .and_then(|r| r.get("bytes"))
-                .and_then(serde_json::Value::as_u64)
-                .map(|bytes| format!(" \u{b7} with a report ({})", size_label(bytes)))
-                .unwrap_or_default();
+            let attached = attachments_of(p);
+            // "· with test-run.txt (48 KB)", "· with 3 attachments (2.1 MB)"; an event from before migration 0076 names
+            // no file: "· with a report (48 KB)".
+            let with = match p.get("attachments") {
+                Some(_) => with_attachments(attached.iter().map(|a| (a.name.as_str(), a.bytes))),
+                None => with_attachments(attached.iter().map(|a| ("a report", a.bytes))),
+            }
+            .map(|w| format!(" \u{b7} {w}"))
+            .unwrap_or_default();
             Some(told(
                 e,
                 format!("{} commented{with}", author_label(&author, facts)),
@@ -983,7 +1024,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     label: "COMMENT".to_owned(),
                     caption: None,
                     lines: excerpt.lines().map(|l| line(LineKind::Same, l)).collect(),
-                    report,
+                    attachments: open_attachments(&attached, n),
                 },
                 Kind::Comment,
             ))
@@ -1009,7 +1050,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                         &text(p, "before").unwrap_or_default(),
                         &text(p, "after").unwrap_or_default(),
                     ),
-                    report: None,
+                    attachments: Vec::new(),
                 },
                 Kind::Comment,
             ))
@@ -1033,7 +1074,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     label: "COMMENT".to_owned(),
                     caption: None,
                     lines: body.lines().map(|l| line(LineKind::Same, l)).collect(),
-                    report: report_of(p, n, "report"),
+                    attachments: open_attachments(&attachments_of(p), n),
                 },
                 Kind::Comment,
             ))
@@ -2194,15 +2235,24 @@ mod tests {
             ]
         );
         // Validate's comment and the deleted one open their reports (the deleted one's still opens).
+        // These events are from before migration 0076: their report is the comment's attachment 1.
         let validate = at("Validator").opens.clone().unwrap();
-        let report = validate.report.unwrap();
-        assert_eq!((report.n, report.chip.size.as_str()), (4, "\u{b7} 48 KB"));
+        let report = &validate.attachments[0];
+        assert_eq!(
+            (
+                report.n,
+                report.chip.attachment,
+                report.chip.size.as_str(),
+                report.chip.open.as_deref()
+            ),
+            (4, 1, "\u{b7} 48 KB", Some("Open"))
+        );
         let deleted = at("You deleted").opens.clone().unwrap();
         assert_eq!(
             sign(&deleted.lines),
             ["Retry with the old writer if this fails."]
         );
-        assert_eq!(deleted.report.unwrap().n, 5);
+        assert_eq!(deleted.attachments[0].n, 5);
         // Never "Done when" (0067).
         assert!(rows.iter().all(|r| !r.title.contains("Done when")));
     }
@@ -2326,7 +2376,51 @@ mod tests {
             json!({"n": 3, "body": "x", "report": null, "author": agent("Rust developer", "dev", None, Tool::Claude)}),
         ));
         assert_eq!(gone.title, "Rust developer \u{b7} dev deleted its comment");
-        assert_eq!(gone.opens.unwrap().report, None);
+        assert_eq!(gone.opens.unwrap().attachments, []);
+        // tuq 001: a comment with three attachments, and a deleted one that still opens each.
+        let three = json!([
+            {"n": 1, "name": "shot.png", "kind": "image", "bytes": 1024 * 1024},
+            {"n": 2, "name": "run.txt", "kind": "text", "bytes": 1024 * 1024, "lines": 40},
+            {"n": 3, "name": "repro.zip", "kind": "other", "bytes": 102 * 1024},
+        ]);
+        let posted = row(event(
+            EventKind::CommentPosted,
+            MIN,
+            json!({"n": 6, "excerpt": "Three files.", "attachments": three,
+                   "author": {"kind": "user", "name": "me"}}),
+        ));
+        assert_eq!(
+            posted.title,
+            "You commented \u{b7} with 3 attachments (2.1 MB)"
+        );
+        let one = row(event(
+            EventKind::CommentPosted,
+            MIN,
+            json!({"n": 7, "excerpt": "One.", "author": {"kind": "user", "name": "me"},
+                   "attachments": [{"n": 1, "name": "run.txt", "kind": "text", "bytes": 48 * 1024, "lines": 9}]}),
+        ));
+        assert_eq!(one.title, "You commented \u{b7} with run.txt (48 KB)");
+        let deleted = row(event(
+            EventKind::CommentDeleted,
+            MIN,
+            json!({"n": 6, "body": "Three files.", "attachments": three,
+                   "author": {"kind": "user", "name": "me"}}),
+        ));
+        let opens: Vec<(u32, u32, String, Option<String>)> = deleted
+            .opens
+            .unwrap()
+            .attachments
+            .into_iter()
+            .map(|a| (a.n, a.chip.attachment, a.chip.name, a.chip.open))
+            .collect();
+        assert_eq!(
+            opens,
+            [
+                (6, 1, "shot.png".to_owned(), None),
+                (6, 2, "run.txt".to_owned(), Some("Open".to_owned())),
+                (6, 3, "repro.zip".to_owned(), None),
+            ]
+        );
         // The user's own comment edited.
         let mine = row(event(
             EventKind::CommentEdited,

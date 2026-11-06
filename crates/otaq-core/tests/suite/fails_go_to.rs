@@ -195,7 +195,13 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
 
     w.review
-        .fail(&key, "Ask about the old prices too.", None, false, &me())
+        .fail(
+            &key,
+            "Ask about the old prices too.",
+            Vec::new(),
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     let back = running(&w, &t, Some(&dev.id)).await;
@@ -254,7 +260,10 @@ async fn a_send_back_with_line_comments_runs_address_review_in_any_stage() {
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
     line_comment(&w, &key).await;
 
-    w.review.fail(&key, "", None, false, &me()).await.unwrap();
+    w.review
+        .fail(&key, "", Vec::new(), false, &me())
+        .await
+        .unwrap();
     let back = running(&w, &t, Some(&dev.id)).await;
     let resumed = args(&w, &back).await;
     assert!(
@@ -295,7 +304,7 @@ async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comment
     let t = w.board.ticket(&key).await.unwrap();
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
     w.review
-        .fail(&key, "Round the prices.", None, false, &me())
+        .fail(&key, "Round the prices.", Vec::new(), false, &me())
         .await
         .unwrap();
     let out = w
@@ -315,7 +324,10 @@ async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comment
 
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
     line_comment(&w, &key).await;
-    w.review.fail(&key, "", None, false, &me()).await.unwrap();
+    w.review
+        .fail(&key, "", Vec::new(), false, &me())
+        .await
+        .unwrap();
     let out = w.wait_for_output(&dev.id, "RUNS otaq-address-review").await;
     assert!(!out.contains("Unknown command"), "{out}");
     w.stop().await;
@@ -362,7 +374,7 @@ async fn an_agent_checks_fail_resumes_its_stage() {
         let now = w.board.ticket(&key).await.unwrap();
         let hand_over = w
             .board
-            .stage_end_hand_over(&now, author, text, None, &[])
+            .stage_end_hand_over(&now, author, text, Vec::new(), &[])
             .await
             .unwrap();
         w.validation

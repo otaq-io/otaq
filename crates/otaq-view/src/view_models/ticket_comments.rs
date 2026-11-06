@@ -5,7 +5,7 @@
 //! - **The thread:** "Comments · 4" with "Every stage's agent reads them before it starts", newest first under the
 //!   box (agents still read them oldest first in `otaq prime`, d0109). Each comment says who wrote it, in which stage
 //!   and round, and when ("Validate · round 2 · 3:05 pm"); yours are tinted with the accent, an agent's carries its tool's avatar (a plain agent mark while avatars are hidden, SHL-08); "· edited"
-//!   once changed; a report is a chip "Report · 48 KB" with Open.
+//!   once changed; each attachment is a chip under it, "test-run.txt · 48 KB", with Open for text (tuq 001, 002).
 //! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). A paste over the limit
 //!   becomes a "Pasted text · 48 KB" chip, never text; typing past it shows "2,140 / 2,000" and turns Comment off. The
 //!   page applies these rules while typing (it keeps no limit of its own: [`CommentLimits`] comes with the view); the
@@ -15,7 +15,7 @@
 //!   every comment (CMT-04), so every comment has all three.
 //! - **A failed check's card** shows its verdict ([`verdict_line`]).
 
-use otaq_core::board::reports::size_label;
+use otaq_core::board::reports::{Attachment, size_label};
 use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use serde::Serialize;
 use ts_rs::TS;
@@ -35,7 +35,6 @@ pub const NEEDS_LINE: &str = "Say what the next agent should look for";
 pub const PASTED: &str = "Pasted text";
 /// The box's line while a file added in Overview waits in it (RPT-02, `s25-05`).
 pub const FILE_LINE: &str = "A comment always has its own line; the file goes with it.";
-pub const REPORT: &str = "Report";
 pub const OPEN: &str = "Open";
 pub const EDITED: &str = "\u{b7} edited";
 pub const EDITING: &str = "editing";
@@ -55,16 +54,53 @@ pub enum Mark {
     Otaq,
 }
 
-/// A comment's report: "Report · 48 KB" and Open.
+/// What an attachment is (tuq 002): an image, text (opens in the report view) or any other file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "AttachmentKind")]
+pub enum AttachmentKind {
+    Image,
+    Text,
+    Other,
+}
+
+impl From<otaq_core::board::reports::AttachmentKind> for AttachmentKind {
+    fn from(kind: otaq_core::board::reports::AttachmentKind) -> Self {
+        use otaq_core::board::reports::AttachmentKind as Core;
+        match kind {
+            Core::Image => Self::Image,
+            Core::Text => Self::Text,
+            Core::Other => Self::Other,
+        }
+    }
+}
+
+/// One attachment of a comment (tuq 001, 002): "test-run.txt · 48 KB" and, for text, Open.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CommentReportChip")]
-pub struct ReportChip {
-    /// "Report".
-    pub label: String,
+#[ts(rename = "CommentAttachmentChip")]
+pub struct AttachmentChip {
+    /// Its number in its comment (1, 2, 3…): what Open sends with the comment's number.
+    pub attachment: u32,
+    /// "test-run.txt", "Pasted text", "shot.png".
+    pub name: String,
+    pub kind: AttachmentKind,
     /// "· 48 KB".
     pub size: String,
-    /// "Open".
-    pub open: String,
+    /// "Open" for text, which opens in the report view; none for images and other files.
+    pub open: Option<String>,
+}
+
+impl AttachmentChip {
+    pub fn of(a: &Attachment) -> Self {
+        let kind = AttachmentKind::from(a.kind);
+        Self {
+            attachment: a.n,
+            name: a.name.clone(),
+            kind,
+            size: format!("\u{b7} {}", size_label(a.bytes)),
+            open: (kind == AttachmentKind::Text).then(|| OPEN.to_owned()),
+        }
+    }
 }
 
 /// One comment in the thread.
@@ -87,7 +123,8 @@ pub struct CommentRow {
     /// Who and when in one line, for the delete dialog: "Validator · Validate · round 2 · 3:05 pm".
     pub heading: String,
     pub body: String,
-    pub report: Option<ReportChip>,
+    /// One chip per attachment, in order (tuq 001).
+    pub attachments: Vec<AttachmentChip>,
 }
 
 /// The box's words and its limits; the dialogs give it their own label and line (T-0447).
@@ -335,11 +372,7 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
         meta,
         edited: comment.edited_at.map(|_| EDITED.to_owned()),
         body: comment.body.clone(),
-        report: comment.report.map(|r| ReportChip {
-            label: REPORT.to_owned(),
-            size: format!("\u{b7} {}", size_label(r.bytes)),
-            open: OPEN.to_owned(),
-        }),
+        attachments: comment.attachments.iter().map(AttachmentChip::of).collect(),
     }
 }
 
@@ -399,7 +432,7 @@ pub(crate) fn cut(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use otaq_core::agent_tools::Tool;
-    use otaq_core::board::reports::ReportInfo;
+    use otaq_core::board::reports::AttachmentKind as Kind;
 
     const MIN: i64 = 60_000;
 
@@ -438,12 +471,67 @@ mod tests {
             author,
             stage_name: stage.map(str::to_owned),
             body: body.into(),
-            report: None,
+            attachments: Vec::new(),
             posted_at: posted,
             edited_at: None,
-            report_name: None,
             at_creation: false,
         }
+    }
+
+    fn attachment(n: u32, name: &str, kind: Kind, bytes: u64) -> Attachment {
+        Attachment {
+            n,
+            name: name.into(),
+            kind,
+            bytes,
+            lines: (kind == Kind::Text).then_some(bytes / 20),
+            path: format!("/data/reports/shop-web/SHOP-34/c/{n}/{name}"),
+        }
+    }
+
+    /// tuq 001, 002: a comment with an image, a text file and a zip has one chip each, in order; only text opens.
+    #[test]
+    fn a_comment_has_one_chip_per_attachment() {
+        let mut c = comment(
+            5,
+            CommentAuthor::User { name: "me".into() },
+            None,
+            "Before and after, with the log.",
+            at(15, 30),
+        );
+        c.attachments = vec![
+            attachment(1, "shot.png", Kind::Image, 120 * 1024),
+            attachment(2, "run.txt", Kind::Text, 2 * 1024),
+            attachment(3, "repro.zip", Kind::Other, 3 * 1024 * 1024),
+        ];
+        let v = view(&[c], None);
+        let chips: Vec<(u32, &str, AttachmentKind, &str, Option<&str>)> = v.comments[0]
+            .attachments
+            .iter()
+            .map(|a| {
+                (
+                    a.attachment,
+                    a.name.as_str(),
+                    a.kind,
+                    a.size.as_str(),
+                    a.open.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            chips,
+            [
+                (1, "shot.png", AttachmentKind::Image, "\u{b7} 120 KB", None),
+                (
+                    2,
+                    "run.txt",
+                    AttachmentKind::Text,
+                    "\u{b7} 2 KB",
+                    Some("Open")
+                ),
+                (3, "repro.zip", AttachmentKind::Other, "\u{b7} 3 MB", None),
+            ]
+        );
     }
 
     /// SHOP-34's four comments (`s05-41`): Product spec's hand-over, the user's, Dev's, and Validate's failed round 2
@@ -456,10 +544,7 @@ mod tests {
             "Fail: the 10,000 row limit isn\u{2019}t enforced; 3 tests fail in export_tests.rs.",
             at(15, 5),
         );
-        validate.report = Some(ReportInfo {
-            bytes: 48 * 1024,
-            lines: 2310,
-        });
+        validate.attachments = vec![attachment(1, "test-run.txt", Kind::Text, 48 * 1024)];
         vec![
             comment(
                 1,
@@ -540,16 +625,21 @@ mod tests {
             .collect();
         assert_eq!(letters, ["CX", "CC", "CC"]);
         // Only Validate's has a report.
-        let reports: Vec<Option<&ReportChip>> =
-            v.comments.iter().map(|c| c.report.as_ref()).collect();
-        assert_eq!(reports[1..], [None, None, None]);
+        let chips: Vec<&[AttachmentChip]> = v
+            .comments
+            .iter()
+            .map(|c| c.attachments.as_slice())
+            .collect();
+        assert!(chips[1..].iter().all(|c| c.is_empty()));
         assert_eq!(
-            reports[0],
-            Some(&ReportChip {
-                label: "Report".into(),
+            chips[0],
+            [AttachmentChip {
+                attachment: 1,
+                name: "test-run.txt".into(),
+                kind: AttachmentKind::Text,
                 size: "\u{b7} 48 KB".into(),
-                open: "Open".into(),
-            })
+                open: Some("Open".into()),
+            }]
         );
         assert!(v.comments.iter().all(|c| c.edited.is_none()));
         // The box, and the quiet line while an agent works.

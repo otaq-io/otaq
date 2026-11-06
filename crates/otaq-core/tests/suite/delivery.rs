@@ -741,7 +741,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     // address-review and what came back, never the note.
     let sent = w
         .review
-        .send_back_pr(&key, "Keep the old route working", None, false, &me())
+        .send_back_pr(&key, "Keep the old route working", Vec::new(), false, &me())
         .await
         .unwrap();
     assert!(matches!(

@@ -54,7 +54,7 @@ async fn sent_back(w: &TestService, t: &Ticket) {
         .await
         .unwrap();
     w.review
-        .fail(&key, "Keep the old URL working.", None, false, &me())
+        .fail(&key, "Keep the old URL working.", Vec::new(), false, &me())
         .await
         .unwrap();
 }

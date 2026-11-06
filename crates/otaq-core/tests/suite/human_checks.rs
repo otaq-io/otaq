@@ -355,7 +355,7 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     let note = "The CSV needs a header row.";
     match w
         .review
-        .fail("SHOP-1", note, None, false, &me())
+        .fail("SHOP-1", note, Vec::new(), false, &me())
         .await
         .unwrap()
     {

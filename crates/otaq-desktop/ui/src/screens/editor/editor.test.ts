@@ -229,13 +229,13 @@ describe("the New ticket form's report (RPT-03, T-0474)", () => {
         createElement(NewTicketReport, {
           field: REPORT_FIELD,
           project: "SHOP",
-          attach: { ...attach, error: "The report is 212 MB; the limit is 20 MB." },
+          attach: { ...attach, error: "run.log is 212 MB; the limit is 20 MB." },
           onSave: noop,
         }),
       );
     }
     const page = mount(createElement(Harness));
-    expect(page.querySelector("[role=alert]")?.textContent).toBe("The report is 212 MB; the limit is 20 MB.");
+    expect(page.querySelector("[role=alert]")?.textContent).toBe("run.log is 212 MB; the limit is 20 MB.");
     expect(page.textContent).not.toContain("agents read yours before they start");
     unmount();
   });

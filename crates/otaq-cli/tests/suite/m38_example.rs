@@ -781,7 +781,7 @@ async fn a_blocked_ticket_waits_in_ready_for_dev() {
             confirmed: true,
             note: String::new(),
             clear_first: false,
-            report: None,
+            attachments: Vec::new(),
         })
     };
 

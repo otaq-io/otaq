@@ -515,7 +515,7 @@ pub(super) async fn handle(
             let project = project_of(&p.key);
             let answers = crate::review::drag::DragAnswers {
                 note: &p.note,
-                report: p.report.as_ref(),
+                attachments: &p.attachments,
                 confirmed: p.confirmed,
                 clear_first: p.clear_first,
             };
@@ -684,9 +684,13 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                shared
-                    .review
-                    .fail(&p.key, &p.note, p.report.clone(), p.clear_first, &actor),
+                shared.review.fail(
+                    &p.key,
+                    &p.note,
+                    p.attachments.clone(),
+                    p.clear_first,
+                    &actor,
+                ),
             )
             .await
             .map(Reply::Returned)
@@ -779,7 +783,7 @@ pub(super) async fn handle(
                 shared.review.send_back_pr(
                     &p.key,
                     &p.note,
-                    p.report.clone(),
+                    p.attachments.clone(),
                     p.clear_first,
                     &actor,
                 ),
@@ -904,7 +908,7 @@ pub(super) async fn handle(
                     &ticket,
                     author,
                     &p.report,
-                    p.report_file.clone(),
+                    p.attachments.clone(),
                     &p.manual_checks,
                 )
                 .await?;
@@ -2280,7 +2284,7 @@ async fn stage_end_hand_over(
             ticket,
             author,
             &p.summary,
-            p.report_file.clone(),
+            p.attachments.clone(),
             &p.manual_checks,
         )
         .await
@@ -2303,7 +2307,7 @@ async fn ticket_comment_request(
                 .map(Reply::TicketComments);
         }
         Request::TicketReport(p) => {
-            let report = board.ticket_report(&p.key, p.n).await?;
+            let report = board.ticket_report(&p.key, p.n, p.attachment).await?;
             // A deleted comment's report is the user's (History); agents that start later never read it (Q375).
             if report.deleted && !matches!(caller, Caller::User) {
                 return Err(BoardError::refused(
@@ -2316,7 +2320,7 @@ async fn ticket_comment_request(
         Request::TicketCommentPost(p) => {
             let author = board.caller_author(caller, actor).await?;
             let posted = board
-                .post_ticket_comment(&p.key, &author, &p.body, p.report, actor)
+                .post_ticket_comment(&p.key, &author, &p.body, p.attachments, actor)
                 .await?;
             if p.tell_agent && matches!(author, CommentAuthor::User { .. }) {
                 tell_running_agent(shared, &p.key, posted.n).await;

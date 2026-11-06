@@ -267,7 +267,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     // conversation is gone.
     crate::common::line_comment(&w.board, "SHOP-1").await;
     w.review
-        .fail("SHOP-1", "", None, false, &me())
+        .fail("SHOP-1", "", Vec::new(), false, &me())
         .await
         .unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;

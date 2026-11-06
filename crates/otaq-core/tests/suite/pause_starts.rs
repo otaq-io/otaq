@@ -533,7 +533,7 @@ async fn send_back_and_a_conflicts_restack_wait_for_resume() {
     w.pause.pause(&shop()).await.unwrap();
 
     w.review
-        .fail("SHOP-1", "Page size 20, not 50.", None, false, &me())
+        .fail("SHOP-1", "Page size 20, not 50.", Vec::new(), false, &me())
         .await
         .unwrap();
     let merged = w

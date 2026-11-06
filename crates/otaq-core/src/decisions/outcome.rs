@@ -171,7 +171,10 @@ pub async fn change_and_send_back(
     let ticket = board.ticket_by_id(&decision.ticket_id).await?;
     let note = change_message(&decision, text);
     let key = ticket.key.to_string();
-    let ticket = match review.fail(&key, &note, None, clear_first, actor).await? {
+    let ticket = match review
+        .fail(&key, &note, Vec::new(), clear_first, actor)
+        .await?
+    {
         ReturnOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,

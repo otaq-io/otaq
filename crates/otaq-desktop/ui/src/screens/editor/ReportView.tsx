@@ -41,7 +41,7 @@ export function registerReportOpener(): void {
   setReportOpener((target) => {
     const params: ReportOpenParams =
       target.kind === "comment"
-        ? { kind: "comment", ticket: target.ticket, n: target.n }
+        ? { kind: "comment", ticket: target.ticket, n: target.n, attachment: target.attachment }
         : { kind: "pasted", ticket: target.ticket, text: target.text };
     openOverlay("report", params);
   });

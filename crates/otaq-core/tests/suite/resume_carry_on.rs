@@ -119,7 +119,7 @@ async fn sent_back_then_gone(w: &TestService, t: &Ticket, session: &SessionInfo)
     // A line comment: a code review, so the skill is the hand-off (d0131 Q514).
     crate::common::line_comment(&w.board, &key).await;
     w.review
-        .fail(&key, "Keep the old URL working.", None, false, &me())
+        .fail(&key, "Keep the old URL working.", Vec::new(), false, &me())
         .await
         .unwrap();
     let resumed = running(w, t).await;

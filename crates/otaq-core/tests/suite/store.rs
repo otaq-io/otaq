@@ -14,6 +14,7 @@ const TABLES: &[&str] = &[
     "agents",
     "app_ports",
     "check_counters",
+    "comment_attachments",
     "decisions",
     "events",
     "flow_proposals",
@@ -316,20 +317,29 @@ async fn one_row_round_trips_through_every_table() {
     assert_eq!(row.get::<i64, _>("line"), 42);
     assert_eq!(row.get::<Option<i64>, _>("sent_at"), None);
 
+    let comment_id = new_id();
     sqlx::query(
         "INSERT INTO ticket_comments (id, ticket_id, n, author_kind, author_id, author_name, author_tool, stage_id, \
-         round, body, report_file, report_bytes, report_lines, posted_at) \
-         VALUES (?, ?, 4, 'agent', 'validator', 'Validator', 'claude', 'validate', 2, 'Fail: 3 tests fail', \
-         'reports/shop-web/SHOP-18/x.txt', 49152, 2310, ?)",
+         round, body, posted_at) \
+         VALUES (?, ?, 4, 'agent', 'validator', 'Validator', 'claude', 'validate', 2, 'Fail: 3 tests fail', ?)",
     )
-    .bind(new_id())
+    .bind(&comment_id)
     .bind(&t18.id)
     .bind(at)
     .execute(pool)
     .await
     .unwrap();
+    sqlx::query(
+        "INSERT INTO comment_attachments (comment_id, n, file, name, kind, bytes, lines) \
+         VALUES (?, 1, 'reports/shop-web/SHOP-18/x/1/run.txt', 'run.txt', 'text', 49152, 2310)",
+    )
+    .bind(&comment_id)
+    .execute(pool)
+    .await
+    .unwrap();
     let row = sqlx::query(
-        "SELECT n, round, report_lines, deleted_at FROM ticket_comments WHERE ticket_id = ?",
+        "SELECT c.n, c.round, a.lines, c.deleted_at FROM ticket_comments c \
+         JOIN comment_attachments a ON a.comment_id = c.id WHERE c.ticket_id = ?",
     )
     .bind(&t18.id)
     .fetch_one(pool)
@@ -337,7 +347,7 @@ async fn one_row_round_trips_through_every_table() {
     .unwrap();
     assert_eq!(row.get::<i64, _>("n"), 4);
     assert_eq!(row.get::<i64, _>("round"), 2);
-    assert_eq!(row.get::<i64, _>("report_lines"), 2310);
+    assert_eq!(row.get::<i64, _>("lines"), 2310);
     assert_eq!(row.get::<Option<i64>, _>("deleted_at"), None);
 
     sqlx::query(

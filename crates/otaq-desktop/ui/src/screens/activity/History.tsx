@@ -17,7 +17,7 @@ import type { HistoryView } from "../../generated/HistoryView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { Mark, ReportChip } from "../editor/CommentThread";
+import { AttachmentChip, Mark } from "../editor/CommentThread";
 import { openReport } from "../editor/reportOpener";
 import { MessagesSection } from "../sections/Messages";
 import type { ActivityFilter } from "../../generated/ActivityFilter";
@@ -59,14 +59,18 @@ function Opened({ opens, ticket }: { opens: HistoryOpens; ticket: string }) {
           <span className="history-opens-text">{l.text}</span>
         </div>
       ))}
-      {opens.report !== null && (
-        <ReportChip
-          chip={opens.report.chip}
-          onOpen={() => {
-            const n = opens.report?.n;
-            if (n !== undefined) openReport({ kind: "comment", ticket, n });
-          }}
-        />
+      {opens.attachments.length > 0 && (
+        <span className="comment-attachments">
+          {opens.attachments.map((a) => (
+            <AttachmentChip
+              key={a.chip.attachment}
+              chip={a.chip}
+              onOpen={() => {
+                openReport({ kind: "comment", ticket, n: a.n, attachment: a.chip.attachment });
+              }}
+            />
+          ))}
+        </span>
       )}
     </div>
   );

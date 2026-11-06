@@ -63,7 +63,7 @@ async fn a_live_session_gets_the_skill_and_the_ticket_works_again() {
     let after = done(
         world
             .review
-            .fail("SHOP-1", "Also check page 0", None, false, &me())
+            .fail("SHOP-1", "Also check page 0", Vec::new(), false, &me())
             .await
             .unwrap(),
     );
@@ -124,7 +124,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
 
     let first = world
         .review
-        .fail("SHOP-1", "", None, false, &me())
+        .fail("SHOP-1", "", Vec::new(), false, &me())
         .await
         .unwrap();
     assert_eq!(
@@ -143,7 +143,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
     let after = done(
         world
             .review
-            .fail("SHOP-1", "", None, true, &me())
+            .fail("SHOP-1", "", Vec::new(), true, &me())
             .await
             .unwrap(),
     );
@@ -178,7 +178,7 @@ async fn a_full_agent_limit_queues_the_ticket_with_the_skill_to_run() {
     let after = done(
         world
             .review
-            .fail("SHOP-2", "", None, false, &me())
+            .fail("SHOP-2", "", Vec::new(), false, &me())
             .await
             .unwrap(),
     );
@@ -226,7 +226,7 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
     let after = done(
         world
             .review
-            .fail("SHOP-1", "", None, false, &me())
+            .fail("SHOP-1", "", Vec::new(), false, &me())
             .await
             .unwrap(),
     );
@@ -281,7 +281,7 @@ async fn send_back_is_refused_outside_review() {
     world.force_status(&t, Status::Working).await;
     let err = world
         .review
-        .fail("SHOP-1", "", None, false, &me())
+        .fail("SHOP-1", "", Vec::new(), false, &me())
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
@@ -388,7 +388,12 @@ async fn a_live_session_gets_the_build_back_then_the_skill() {
 
     // A line comment: a code review, so the skill goes (d0131 Q514).
     crate::common::line_comment(&w.board, &key).await;
-    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
+    let after = done(
+        w.review
+            .fail(&key, "", Vec::new(), false, &me())
+            .await
+            .unwrap(),
+    );
 
     assert_eq!(after.status, Status::Working);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Checkout API"));
@@ -427,7 +432,12 @@ async fn a_gone_session_is_resumed_with_its_build() {
 
     // A line comment: a code review, so the skill goes (d0131 Q514).
     crate::common::line_comment(&w.board, &key).await;
-    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
+    let after = done(
+        w.review
+            .fail(&key, "", Vec::new(), false, &me())
+            .await
+            .unwrap(),
+    );
 
     assert_eq!(after.status, Status::Working, "{:?}", after.start_problem);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Search paging"));
@@ -474,7 +484,12 @@ async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
     let key = t.key.to_string();
     w.record_ended_agent(&t, "0199-cart").await;
 
-    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
+    let after = done(
+        w.review
+            .fail(&key, "", Vec::new(), false, &me())
+            .await
+            .unwrap(),
+    );
     assert!(after.status.is_queued(), "{}", after.status);
     assert_eq!(freed::state(&w, &key).await, BuildState::Freed);
     assert_eq!(
@@ -556,7 +571,7 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
 
     done(
         w.review
-            .fail(&b.key.to_string(), "", None, false, &me())
+            .fail(&b.key.to_string(), "", Vec::new(), false, &me())
             .await
             .unwrap(),
     );
@@ -572,7 +587,12 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
     w.wait_for_output(&b_agent.session, &skill()).await;
 
     let a_key = a.key.to_string();
-    done(w.review.fail(&a_key, "", None, false, &me()).await.unwrap());
+    done(
+        w.review
+            .fail(&a_key, "", Vec::new(), false, &me())
+            .await
+            .unwrap(),
+    );
     assert_eq!(freed::app_bin(&a_wt), None, "no build to take");
     assert_eq!(freed::state(&w, &a_key).await, BuildState::Present);
     let log = freed::setup_log(&w, &a_key);
@@ -594,7 +614,12 @@ async fn a_failed_setup_on_send_back_still_delivers_the_skill() {
 
     // A line comment: a code review, so the skill goes (d0131 Q514).
     crate::common::line_comment(&w.board, &key).await;
-    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
+    let after = done(
+        w.review
+            .fail(&key, "", Vec::new(), false, &me())
+            .await
+            .unwrap(),
+    );
 
     assert_eq!(after.status, Status::Working);
     w.wait_for_output(&agent.session, &skill()).await;

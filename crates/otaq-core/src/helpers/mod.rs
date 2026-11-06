@@ -552,7 +552,7 @@ impl Helpers {
                 &ticket.key.to_string(),
                 &author,
                 &summary,
-                None,
+                Vec::new(),
                 &Actor::Agent(ticket.key.clone()),
             )
             .await?;
@@ -638,7 +638,7 @@ impl Helpers {
                 &ticket.key.to_string(),
                 &author,
                 &format!("To {label}: {note}"),
-                None,
+                Vec::new(),
                 &Actor::Agent(ticket.key.clone()),
             )
             .await?;

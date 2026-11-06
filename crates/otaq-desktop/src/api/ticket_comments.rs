@@ -175,9 +175,10 @@ pub async fn post(app: &App, params: PostParams) -> Result<Done, RequestError> {
         .send(Request::TicketCommentPost(TicketCommentPostParams {
             key: params.key,
             body: params.body,
-            report: match (params.file, params.pasted) {
-                (Some(path), _) => Some(ReportSource::Path(path.into())),
-                (None, pasted) => pasted.map(ReportSource::Text),
+            // The comment box sends at most one for now: the file (Overview's Add, a drop) or the pasted text.
+            attachments: match (params.file, params.pasted) {
+                (Some(path), _) => vec![ReportSource::Path(path.into())],
+                (None, pasted) => pasted.map(ReportSource::Text).into_iter().collect(),
             },
             tell_agent: params.tell_agent,
         }))
@@ -302,10 +303,10 @@ mod tests {
         assert_eq!(view["heading"], "Comments \u{b7} 2");
         // Newest first: the second comment on top.
         assert_eq!(view["comments"][0]["n"], 2);
-        assert_eq!(view["comments"][0]["report"], Value::Null);
+        assert_eq!(view["comments"][0]["attachments"], json!([]));
         assert_eq!(view["comments"][1]["author"], "You");
         assert_eq!(view["comments"][1]["mine"], true);
-        assert_eq!(view["comments"][1]["report"]["size"], "\u{b7} 51 KB");
+        assert_eq!(view["comments"][1]["attachments"][0]["size"], "\u{b7} 51 KB");
 
         table(
             &h.app,

@@ -527,7 +527,7 @@ mod tests {
             edited: None,
             heading: "Validator \u{b7} Validate \u{b7} round 2 \u{b7} 3:05 pm".into(),
             body: "Fail: the list isn\u{2019}t paginated".into(),
-            report: None,
+            attachments: Vec::new(),
         };
         let v = view(
             "h1".into(),

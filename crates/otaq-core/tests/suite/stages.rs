@@ -897,7 +897,7 @@ async fn skipped_and_failed_runs() {
         .await
         .unwrap();
     w.review
-        .fail("NOTE-1", "Use a comma", None, false, &me())
+        .fail("NOTE-1", "Use a comma", Vec::new(), false, &me())
         .await
         .unwrap();
     let runs: Vec<_> = w

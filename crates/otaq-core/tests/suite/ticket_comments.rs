@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use otaq_core::board::Refusal;
-use otaq_core::board::reports::{REPORT_LIMIT_BYTES, ReportInfo, ReportSource};
+use otaq_core::board::reports::{AttachmentKind, REPORT_LIMIT_BYTES, ReportSource};
 use otaq_core::board::ticket_comments::{
     COMMENT_LIMIT_CHARS, CommentAuthor, FirstComment, TicketComment,
 };
@@ -41,7 +41,7 @@ fn rust_developer() -> CommentAuthor {
 
 async fn post(w: &TestService, key: &str, body: &str) -> TicketComment {
     w.board
-        .post_ticket_comment(key, &you(), body, None, &me())
+        .post_ticket_comment(key, &you(), body, Vec::new(), &me())
         .await
         .unwrap()
 }
@@ -96,7 +96,7 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
     assert_eq!(post(&w, "SHOP-1", &at_limit).await.n, 1);
     let refused = w
         .board
-        .post_ticket_comment("SHOP-1", &you(), &"🦀".repeat(2_001), None, &me())
+        .post_ticket_comment("SHOP-1", &you(), &"🦀".repeat(2_001), Vec::new(), &me())
         .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::TooLong));
@@ -108,7 +108,7 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
     for blank in ["", "  \n "] {
         let refused = w
             .board
-            .post_ticket_comment("SHOP-1", &you(), blank, None, &me())
+            .post_ticket_comment("SHOP-1", &you(), blank, Vec::new(), &me())
             .await
             .unwrap_err();
         assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
@@ -122,7 +122,7 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
             "SHOP-1",
             &rust_developer(),
             "Reused the CSV writer.",
-            None,
+            Vec::new(),
             &Actor::Agent("SHOP-1".parse().unwrap()),
         )
         .await
@@ -229,23 +229,31 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             "SHOP-1",
             &rust_developer(),
             "Fail: the 10,000 row limit isn't enforced.",
-            Some(ReportSource::Path(run.clone())),
+            vec![ReportSource::Path(run.clone())],
             &me(),
         )
         .await
         .unwrap();
+    let [a] = fail.attachments.as_slice() else {
+        panic!("one attachment: {:?}", fail.attachments)
+    };
     assert_eq!(
-        fail.report,
-        Some(ReportInfo {
-            bytes: text.len() as u64,
-            lines: 3_000
-        })
+        (a.n, a.name.as_str(), a.kind, a.bytes, a.lines),
+        (
+            1,
+            "test-run.txt",
+            AttachmentKind::Text,
+            text.len() as u64,
+            Some(3_000)
+        )
     );
     // Copied, never moved.
     assert!(run.exists());
-    let report = w.board.ticket_report("SHOP-1", fail.n).await.unwrap();
+    let report = w.board.ticket_report("SHOP-1", fail.n, None).await.unwrap();
+    let path = report.attachment.path.clone();
+    assert_eq!(path, a.path);
     assert!(
-        report.path.starts_with(
+        path.starts_with(
             &w.data
                 .reports_dir()
                 .join("shop-web")
@@ -253,24 +261,22 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
                 .display()
                 .to_string()
         ),
-        "{}",
-        report.path
+        "{path}"
     );
-    // The file keeps its name, in its comment's folder (Q414): reports/shop-web/SHOP-1/<id>/test-run.txt.
-    assert_eq!(fail.report_name.as_deref(), Some("test-run.txt"));
-    assert_eq!(fail.report_label().as_deref(), Some("test-run.txt"));
-    let stored = std::path::Path::new(&report.path);
-    assert!(stored.ends_with("test-run.txt"), "{}", report.path);
+    // The file keeps its name, in its numbered folder in its comment's (Q414):
+    // reports/shop-web/SHOP-1/<id>/1/test-run.txt.
+    let stored = std::path::Path::new(&path);
+    assert!(stored.ends_with("1/test-run.txt"), "{path}");
     assert_eq!(
-        stored.parent().unwrap().parent().unwrap(),
+        stored.parent().unwrap().parent().unwrap().parent().unwrap(),
         w.data.reports_dir().join("shop-web").join("SHOP-1")
     );
-    assert_eq!(std::fs::read_to_string(&report.path).unwrap(), text);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
     assert!(!report.deleted);
     let events = comment_events(&w, "SHOP-1").await;
     assert_eq!(
-        events[0].payload["report"],
-        json!({"bytes": text.len(), "lines": 3_000})
+        events[0].payload["attachments"],
+        json!([{"n": 1, "name": "test-run.txt", "kind": "text", "bytes": text.len(), "lines": 3_000}])
     );
 
     // Pasted text from the app goes to the same store.
@@ -280,15 +286,20 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             "SHOP-1",
             &you(),
             "The log from my run.",
-            Some(ReportSource::Text("one\ntwo".into())),
+            vec![ReportSource::Text("one\ntwo".into())],
             &me(),
         )
         .await
         .unwrap();
-    assert_eq!(pasted.report, Some(ReportInfo { bytes: 7, lines: 2 }));
     // Pasted text has no name of its own: "Pasted text".
-    assert_eq!(pasted.report_name, None);
-    assert_eq!(pasted.report_label().as_deref(), Some("Pasted text"));
+    assert_eq!(
+        pasted
+            .attachments
+            .iter()
+            .map(|a| (a.name.as_str(), a.kind, a.bytes, a.lines))
+            .collect::<Vec<_>>(),
+        [("Pasted text", AttachmentKind::Text, 7, Some(2))]
+    );
 
     // Exactly 20 MB is accepted; one byte more refused, with nothing posted and no file left.
     let at_limit = resources.path().join("at-limit.txt");
@@ -302,12 +313,12 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             "SHOP-1",
             &you(),
             "The whole run.",
-            Some(ReportSource::Path(at_limit.clone())),
+            vec![ReportSource::Path(at_limit.clone())],
             &me(),
         )
         .await
         .unwrap();
-    assert_eq!(big.report.unwrap().bytes, REPORT_LIMIT_BYTES);
+    assert_eq!(big.attachments[0].bytes, REPORT_LIMIT_BYTES);
     let files_before = report_files(&w);
     assert_eq!(files_before.len(), 3);
     // `write`, not `append`: on Windows an append-only handle can't change the file's length (Access is denied).
@@ -323,7 +334,7 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             "SHOP-1",
             &you(),
             "The whole run again.",
-            Some(ReportSource::Path(at_limit.clone())),
+            vec![ReportSource::Path(at_limit.clone())],
             &me(),
         )
         .await
@@ -331,7 +342,7 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
     assert_eq!(refused.refusal(), Some(Refusal::BadReport));
     assert_eq!(
         refused.to_string(),
-        "The report is more than 20 MB; the limit is 20 MB. Keep the part that matters, for example the failing \
+        "at-limit.txt is more than 20 MB; the limit is 20 MB. Keep the part that matters, for example the failing \
          tests."
     );
     std::fs::OpenOptions::new()
@@ -346,14 +357,14 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             "SHOP-1",
             &you(),
             "The runaway log.",
-            Some(ReportSource::Path(at_limit.clone())),
+            vec![ReportSource::Path(at_limit.clone())],
             &me(),
         )
         .await
         .unwrap_err();
     assert_eq!(
         refused.to_string(),
-        "The report is 212 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests."
+        "at-limit.txt is 212 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests."
     );
     // A missing file and a relative path: refused before anything is posted.
     let missing = resources.path().join("nope.txt");
@@ -363,7 +374,7 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             "SHOP-1",
             &you(),
             "See the log.",
-            Some(ReportSource::Path(missing.clone())),
+            vec![ReportSource::Path(missing.clone())],
             &me(),
         )
         .await
@@ -381,7 +392,7 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
                 "SHOP-1",
                 &you(),
                 "See the log.",
-                Some(ReportSource::Path("test-run.txt".into())),
+                vec![ReportSource::Path("test-run.txt".into())],
                 &me(),
             )
             .await
@@ -404,12 +415,154 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
         .delete_ticket_comment("SHOP-1", fail.n, &me())
         .await
         .unwrap();
-    let kept = w.board.ticket_report("SHOP-1", fail.n).await.unwrap();
+    let kept = w.board.ticket_report("SHOP-1", fail.n, None).await.unwrap();
     assert!(kept.deleted);
-    assert_eq!(std::fs::read_to_string(&kept.path).unwrap(), text);
+    assert_eq!(
+        std::fs::read_to_string(&kept.attachment.path).unwrap(),
+        text
+    );
     assert_eq!(report_files(&w).len(), 3);
 
     // Deleting the never-started ticket removes its reports and its folder (d0060).
+    w.board.delete_ticket("SHOP-1").await.unwrap();
+    assert!(report_files(&w).is_empty());
+    assert!(
+        !w.data
+            .reports_dir()
+            .join("shop-web")
+            .join("SHOP-1")
+            .exists()
+    );
+    w.stop().await;
+}
+
+/// tuq 001, 002, 005, 006: an agent's comment carries a PNG, a .txt and a .zip, each kept with its name, kind and size
+/// (lines for text only); `ticket.report` picks each by its number and refuses a choice-less request; a second file
+/// over 20 MB refuses the whole comment by its name, with nothing posted and no copied file left; a ticket with them is
+/// deleted with its files.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_comment_carries_several_files_of_any_type() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let resources = tempfile::TempDir::new().unwrap();
+    let png = resources.path().join("shot.png");
+    std::fs::write(&png, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+    let txt = resources.path().join("run.txt");
+    std::fs::write(&txt, "ok\nFAILED\n").unwrap();
+    let zip = resources.path().join("repro.zip");
+    std::fs::write(&zip, b"PK\x03\x04\x14\0\0\0").unwrap();
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &rust_developer(),
+            "What the page looks like, the run and a repro.",
+            vec![
+                ReportSource::Path(png.clone()),
+                ReportSource::Path(txt.clone()),
+                ReportSource::Path(zip.clone()),
+            ],
+            &me(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        posted
+            .attachments
+            .iter()
+            .map(|a| (a.n, a.name.as_str(), a.kind, a.bytes, a.lines))
+            .collect::<Vec<_>>(),
+        [
+            (1, "shot.png", AttachmentKind::Image, 16, None),
+            (2, "run.txt", AttachmentKind::Text, 10, Some(2)),
+            (3, "repro.zip", AttachmentKind::Other, 8, None),
+        ]
+    );
+    for (a, source) in [(1, &png), (2, &txt), (3, &zip)] {
+        let picked = w
+            .board
+            .ticket_report("SHOP-1", posted.n, Some(a))
+            .await
+            .unwrap();
+        assert_eq!(picked.attachment.n, a);
+        assert_eq!(
+            std::fs::read(&picked.attachment.path).unwrap(),
+            std::fs::read(source).unwrap()
+        );
+    }
+    let unpicked = w
+        .board
+        .ticket_report("SHOP-1", posted.n, None)
+        .await
+        .unwrap_err();
+    assert_eq!(unpicked.refusal(), Some(Refusal::BadReport));
+    assert_eq!(
+        unpicked.to_string(),
+        "SHOP-1's comment 1 has 3 attachments; pick one with --attachment: 1 shot.png, 2 run.txt, 3 repro.zip"
+    );
+    // Each line names the file; text gives its command, the rest their path, never their bytes (tuq 006).
+    let lines = posted.attachment_lines(&"SHOP-1".parse().unwrap());
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "Image: shot.png \u{b7} 16 bytes \u{b7} open this path to view it: {}",
+                posted.attachments[0].path
+            ),
+            "Report: run.txt \u{b7} 10 bytes, 2 lines \u{b7} `otaq report SHOP-1 1 --attachment 2`"
+                .to_owned(),
+            format!(
+                "File: repro.zip \u{b7} 8 bytes \u{b7} open this path to view it: {}",
+                posted.attachments[2].path
+            ),
+        ]
+    );
+    let events = comment_events(&w, "SHOP-1").await;
+    assert_eq!(
+        events[0].payload["attachments"],
+        json!([
+            {"n": 1, "name": "shot.png", "kind": "image", "bytes": 16},
+            {"n": 2, "name": "run.txt", "kind": "text", "bytes": 10, "lines": 2},
+            {"n": 3, "name": "repro.zip", "kind": "other", "bytes": 8},
+        ])
+    );
+
+    // The second of two is 21 MB: refused by its name, nothing posted, nothing copied (the first neither).
+    let files_before = report_files(&w);
+    let big = resources.path().join("perf.mov");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(21 * 1024 * 1024)
+        .unwrap();
+    let refused = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &rust_developer(),
+            "The recording.",
+            vec![ReportSource::Path(txt.clone()), ReportSource::Path(big)],
+            &me(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(refused.refusal(), Some(Refusal::BadReport));
+    assert_eq!(
+        refused.to_string(),
+        "perf.mov is 21 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests."
+    );
+    assert_eq!(report_files(&w), files_before);
+    assert_eq!(
+        w.board
+            .ticket_comments("SHOP-1")
+            .await
+            .unwrap()
+            .comments
+            .len(),
+        1
+    );
+
+    // The ticket goes with every file and folder.
     w.board.delete_ticket("SHOP-1").await.unwrap();
     assert!(report_files(&w).is_empty());
     assert!(
@@ -467,18 +620,18 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
     );
     assert_eq!(first.body, "Fails 2 in 20 on Safari; the run is attached.");
     assert_eq!(
-        first.report,
-        Some(ReportInfo {
-            bytes: 30,
-            lines: 3
-        })
+        first
+            .attachments
+            .iter()
+            .map(|a| (a.n, a.name.as_str(), a.kind, a.bytes, a.lines))
+            .collect::<Vec<_>>(),
+        [(1, "test-run-login.md", AttachmentKind::Text, 30, Some(3))]
     );
-    assert_eq!(first.report_name.as_deref(), Some("test-run-login.md"));
-    let report = w.board.ticket_report(&key, 1).await.unwrap();
+    let report = w.board.ticket_report(&key, 1, None).await.unwrap();
     assert!(
-        std::path::Path::new(&report.path).ends_with("test-run-login.md"),
+        std::path::Path::new(&report.attachment.path).ends_with("test-run-login.md"),
         "{}",
-        report.path
+        report.attachment.path
     );
     assert!(run.exists(), "copied, never moved");
     let events = comment_events(&w, &key).await;
@@ -502,7 +655,7 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
         .await
         .unwrap();
     assert!(first.at_creation);
-    assert_eq!(first.report_label().as_deref(), Some("Pasted text"));
+    assert_eq!(first.attachments[0].name, "Pasted text");
 
     // Refused before anything is created: a missing report, an empty line.
     let files_before = report_files(&w);
@@ -685,7 +838,7 @@ async fn a_checker_edits_and_deletes_its_own_verdict() {
             "SHOP-1",
             &rust_developer(),
             "Reused the CSV writer.",
-            None,
+            Vec::new(),
             &me(),
         )
         .await
@@ -753,7 +906,7 @@ async fn each_change_tells_clients_the_ticket_changed() {
         Request::TicketCommentPost(TicketCommentPostParams {
             key: "SHOP-1".into(),
             body: "Also keep the column order.".into(),
-            report: None,
+            attachments: Default::default(),
             tell_agent: false,
         }),
         serde_json::from_value(json!({"method": "ticket.comment_edit",
@@ -796,7 +949,7 @@ async fn a_deleted_comments_report_is_the_users_only() {
             "SHOP-1",
             &you(),
             "The full log.",
-            Some(ReportSource::Text("line 1\nline 2\n".into())),
+            vec![ReportSource::Text("line 1\nline 2\n".into())],
             &me(),
         )
         .await
@@ -814,7 +967,7 @@ async fn a_deleted_comments_report_is_the_users_only() {
     match app.request(request).await.unwrap() {
         Reply::TicketReport(report) => {
             assert!(report.deleted);
-            assert!(std::path::Path::new(&report.path).exists());
+            assert!(std::path::Path::new(&report.attachment.path).exists());
         }
         other => panic!("{other:?}"),
     }

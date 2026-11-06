@@ -294,7 +294,13 @@ async fn a_human_fail_resets_both_checks_counters() {
     assert!(qa.flags.moved_past_check.is_some());
 
     w.review
-        .fail(&t.key.to_string(), "Escape the query", None, false, &me())
+        .fail(
+            &t.key.to_string(),
+            "Escape the query",
+            Vec::new(),
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     assert!(w.board.check_counts(&t.id).await.unwrap().0.is_empty());

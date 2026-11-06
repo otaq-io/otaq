@@ -83,7 +83,9 @@ const OVERVIEW: OverviewView = {
   attachments: [
     {
       n: 4,
-      name: "Report",
+      attachment: 1,
+      name: "test-run-login.md",
+      kind: "text",
       size: "3 KB",
       mark: { kind: "agent" },
       who: "Rust developer · Dev",
@@ -92,7 +94,9 @@ const OVERVIEW: OverviewView = {
     },
     {
       n: 1,
-      name: "Report",
+      attachment: 1,
+      name: "Pasted text",
+      kind: "text",
       size: "1 KB",
       mark: { kind: "you" },
       who: "You",

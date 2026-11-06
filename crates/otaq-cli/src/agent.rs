@@ -359,7 +359,7 @@ pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Resu
 /// What a stage end is given: `--stdin`, `--report-file` and the `--manual-check` items (d0125).
 pub struct StageEnd {
     pub stdin: bool,
-    pub report_file: Option<std::path::PathBuf>,
+    pub report_file: Vec<std::path::PathBuf>,
     pub manual_checks: Vec<String>,
 }
 
@@ -398,7 +398,7 @@ fn end_stage(
     request: fn(StageEndParams) -> Request,
 ) -> Result<(), ErrorBody> {
     // A missing report refuses the stage end before anything is read or sent (CMT-06).
-    let report_file = crate::comment::report_source(report_file)?;
+    let attachments = crate::comment::report_sources(report_file)?;
     let summary = if stdin { read_stdin()? } else { String::new() };
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
@@ -408,7 +408,7 @@ fn end_stage(
             .request(request(StageEndParams {
                 key: key.to_string(),
                 summary,
-                report_file,
+                attachments,
                 manual_checks,
             }))
             .await
@@ -560,7 +560,7 @@ pub fn check(
             manual_check,
         } => (false, stdin, report_file, manual_check),
     };
-    let report_file = crate::comment::report_source(report_file)?;
+    let attachments = crate::comment::report_sources(report_file)?;
     let report = if stdin { read_stdin()? } else { String::new() };
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
@@ -574,7 +574,7 @@ pub fn check(
                     key: key.to_string(),
                     pass,
                     report,
-                    report_file,
+                    attachments,
                     manual_checks,
                 },
             ))

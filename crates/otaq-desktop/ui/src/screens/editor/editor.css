@@ -486,6 +486,13 @@
   overflow-wrap: anywhere;
 }
 
+/* A comment's attachments: one chip each, stacked. */
+.comment-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .comment-report {
   display: flex;
   align-items: center;

@@ -242,7 +242,7 @@ pub async fn tick(app: &App, params: TickParams) -> Result<(), RequestError> {
     Ok(())
 }
 
-/// The chip for the file at `path`, or core's refusal as the error ("The report is 212 MB; the limit is 20 MB…").
+/// The chip for the file at `path`, or core's refusal as the error ("perf.mov is 212 MB; the limit is 20 MB…").
 pub async fn file(params: FileParams) -> Result<FileChip, RequestError> {
     let path = PathBuf::from(&params.path);
     let opened = path.clone();
@@ -294,6 +294,6 @@ mod tests {
         })
         .await
         .unwrap_err();
-        assert!(refused.message.starts_with("The report is 21 MB; the limit is 20 MB."), "{}", refused.message);
+        assert!(refused.message.starts_with("run.log is 21 MB; the limit is 20 MB."), "{}", refused.message);
     }
 }

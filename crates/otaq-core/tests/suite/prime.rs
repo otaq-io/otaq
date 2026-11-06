@@ -77,7 +77,7 @@ async fn comment_at(
 ) -> u32 {
     let posted = w
         .board
-        .post_ticket_comment(key, &author, body, None, &Actor::User("me".into()))
+        .post_ticket_comment(key, &author, body, Vec::new(), &Actor::User("me".into()))
         .await
         .unwrap();
     set_posted_at(w, key, posted.n, (hour, minute)).await;
@@ -627,9 +627,9 @@ async fn the_example(w: &TestService) -> String {
             &key,
             &agent("Validator", "validate", Some(2)),
             "Fail: the 10,000 row limit isn't enforced; 3 tests fail in `export_tests.rs`.",
-            Some(ReportSource::Text(
+            vec![ReportSource::Text(
                 "test export_tests::row_limit ... FAILED\n".into(),
-            )),
+            )],
             &Actor::User("me".into()),
         )
         .await
@@ -637,7 +637,8 @@ async fn the_example(w: &TestService) -> String {
     set_posted_at(w, &key, failed.n, (15, 5)).await;
     // The report as the example's: 48 KB, 2,310 lines.
     sqlx::query(
-        "UPDATE ticket_comments SET report_bytes = 49152, report_lines = 2310 WHERE ticket_id = ? AND n = ?",
+        "UPDATE comment_attachments SET bytes = 49152, lines = 2310 \
+         WHERE comment_id = (SELECT id FROM ticket_comments WHERE ticket_id = ? AND n = ?)",
     )
     .bind(&t.id)
     .bind(i64::from(failed.n))
@@ -665,7 +666,7 @@ fn example_comments(key: &str) -> String {
          Done. Excel not added; left a TODO where it would go.\n\n\
          ### Validator · Validate · round 2 · 3:05 pm\n\n\
          Fail: the 10,000 row limit isn't enforced; 3 tests fail in `export_tests.rs`.\n\n\
-         Report: 48 KB, 2,310 lines · `otaq report {key} 4`\n"
+         Report: Pasted text · 48 KB, 2,310 lines · `otaq report {key} 4`\n"
     )
 }
 
@@ -744,7 +745,7 @@ async fn prime_lists_the_users_reports_first() {
             &key,
             &agent("Rust developer", "dev", None),
             "The middleware reads the cookie too early.",
-            Some(ReportSource::Path(theirs)),
+            vec![ReportSource::Path(theirs)],
             &Actor::User("me".into()),
         )
         .await
@@ -766,14 +767,14 @@ async fn prime_lists_the_users_reports_first() {
          \n## Comments\n\n\
          ### You \u{b7} at creation \u{b7} 2:20 pm\n\n\
          Fails 2 in 20 on Safari.\nThe full run is attached.\n\n\
-         Report: 35 bytes, 3 lines \u{b7} `otaq report {key} 1`\n\
+         Report: test-run-login.md \u{b7} 35 bytes, 3 lines \u{b7} `otaq report {key} 1`\n\
          \n### Rust developer \u{b7} Dev \u{b7} 2:38 pm\n\n\
          The middleware reads the cookie too early.\n\n\
-         Report: 17 bytes, 1 line \u{b7} `otaq report {key} 2`\n"
+         Report: test-run.txt \u{b7} 17 bytes, 1 line \u{b7} `otaq report {key} 2`\n"
     );
     assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
     assert_eq!(text.matches("Reports from you").count(), 1, "{text}");
-    for gone in ["SECRET-USER-RUN", "SECRET-AGENT-RUN", "test-run.txt"] {
+    for gone in ["SECRET-USER-RUN", "SECRET-AGENT-RUN"] {
         assert!(!text.contains(gone), "{gone:?} in\n{text}");
     }
 
@@ -798,7 +799,7 @@ async fn post_agent_report(w: &TestService, key: &str) {
             key,
             &agent("Validator", "validate", Some(1)),
             "Fail: 3 tests fail.",
-            Some(ReportSource::Text("FAILED\n".into())),
+            vec![ReportSource::Text("FAILED\n".into())],
             &Actor::User("me".into()),
         )
         .await
@@ -873,7 +874,7 @@ async fn a_parents_last_comment_from_an_agent_stage() {
             &parent,
             &agent("Rust developer", "dev", None),
             "Fixed the row limit.",
-            Some(ReportSource::Text("ok\n".into())),
+            vec![ReportSource::Text("ok\n".into())],
             &me,
         )
         .await
@@ -887,7 +888,7 @@ async fn a_parents_last_comment_from_an_agent_stage() {
     let text = otaq_core::prime::render_validate(&ctx);
     let expected = format!(
         "- depends on {parent} · Export orders as CSV (Working)\n  Last comment, Rust developer · Dev · 4:00 pm:\n  \
-         > Fixed the row limit.\n  Report: 3 bytes, 1 line · `otaq report {parent} {}`\n",
+         > Fixed the row limit.\n  Report: Pasted text · 3 bytes, 1 line · `otaq report {parent} {}`\n",
         posted.n
     );
     assert!(text.contains(&expected), "missing {expected:?} in\n{text}");

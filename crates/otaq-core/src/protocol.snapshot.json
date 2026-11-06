@@ -1,5 +1,5 @@
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -966,6 +966,43 @@
           "ty": "bool",
           "omittable": true
         }
+      }
+    },
+    "Attachment": {
+      "kind": "struct",
+      "fields": {
+        "bytes": {
+          "ty": "u64",
+          "required": true
+        },
+        "kind": {
+          "ty": "AttachmentKind",
+          "required": true
+        },
+        "lines": {
+          "ty": "Option<u64>",
+          "omittable": true
+        },
+        "n": {
+          "ty": "u32",
+          "required": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "path": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "AttachmentKind": {
+      "kind": "enum",
+      "variants": {
+        "image": {},
+        "other": {},
+        "text": {}
       }
     },
     "AutoMergeStop": {
@@ -2469,6 +2506,10 @@
     "DragParams": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "clear_first": {
           "ty": "bool",
           "omittable": true
@@ -2482,10 +2523,6 @@
         },
         "note": {
           "ty": "String"
-        },
-        "report": {
-          "ty": "Option<ReportSource>",
-          "omittable": true
         },
         "target": {
           "ty": "DropOn",
@@ -3048,6 +3085,10 @@
     "FailParams": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "clear_first": {
           "ty": "bool",
           "omittable": true
@@ -3058,10 +3099,6 @@
         },
         "note": {
           "ty": "String"
-        },
-        "report": {
-          "ty": "Option<ReportSource>",
-          "omittable": true
         }
       }
     },
@@ -8004,13 +8041,13 @@
     "ReportFile": {
       "kind": "struct",
       "fields": {
+        "attachment": {
+          "ty": "Attachment",
+          "required": true
+        },
         "deleted": {
           "ty": "bool",
           "omittable": true
-        },
-        "info": {
-          "ty": "ReportInfo",
-          "required": true
         },
         "key": {
           "ty": "TicketKey",
@@ -8018,23 +8055,6 @@
         },
         "n": {
           "ty": "u32",
-          "required": true
-        },
-        "path": {
-          "ty": "String",
-          "required": true
-        }
-      }
-    },
-    "ReportInfo": {
-      "kind": "struct",
-      "fields": {
-        "bytes": {
-          "ty": "u64",
-          "required": true
-        },
-        "lines": {
-          "ty": "u64",
           "required": true
         }
       }
@@ -8663,7 +8683,7 @@
           "newtype": "KeyParams"
         },
         "ticket.report": {
-          "newtype": "TicketCommentParams"
+          "newtype": "TicketReportParams"
         },
         "ticket.resume": {
           "newtype": "KeyParams"
@@ -10084,16 +10104,16 @@
     "StageEndParams": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "key": {
           "ty": "String",
           "required": true
         },
         "manual_checks": {
           "ty": "Vec<String>",
-          "omittable": true
-        },
-        "report_file": {
-          "ty": "Option<ReportSource>",
           "omittable": true
         },
         "summary": {
@@ -10886,6 +10906,10 @@
           "ty": "bool",
           "omittable": true
         },
+        "attachments": {
+          "ty": "Vec<Attachment>",
+          "omittable": true
+        },
         "author": {
           "ty": "CommentAuthor",
           "required": true
@@ -10905,14 +10929,6 @@
         "posted_at": {
           "ty": "i64",
           "required": true
-        },
-        "report": {
-          "ty": "Option<ReportInfo>",
-          "omittable": true
-        },
-        "report_name": {
-          "ty": "Option<String>",
-          "omittable": true
         },
         "stage_name": {
           "ty": "Option<String>",
@@ -10953,6 +10969,10 @@
     "TicketCommentPostParams": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "body": {
           "ty": "String",
           "required": true
@@ -10960,10 +10980,6 @@
         "key": {
           "ty": "String",
           "required": true
-        },
-        "report": {
-          "ty": "Option<ReportSource>",
-          "omittable": true
         },
         "tell_agent": {
           "ty": "bool",
@@ -11000,6 +11016,23 @@
     "TicketKey": {
       "kind": "custom",
       "serde_impl": "ad2eb6a12c24f701"
+    },
+    "TicketReportParams": {
+      "kind": "struct",
+      "fields": {
+        "attachment": {
+          "ty": "Option<u32>",
+          "omittable": true
+        },
+        "key": {
+          "ty": "String",
+          "required": true
+        },
+        "n": {
+          "ty": "u32",
+          "required": true
+        }
+      }
     },
     "TicketTerminal": {
       "kind": "struct",
@@ -11820,6 +11853,10 @@
     "VerdictParams": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "key": {
           "ty": "String",
           "required": true
@@ -11834,10 +11871,6 @@
         },
         "report": {
           "ty": "String"
-        },
-        "report_file": {
-          "ty": "Option<ReportSource>",
-          "omittable": true
         }
       }
     },

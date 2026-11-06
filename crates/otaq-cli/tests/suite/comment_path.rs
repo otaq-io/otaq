@@ -393,7 +393,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     );
     let with_reports: Vec<u32> = all
         .iter()
-        .filter(|c| c.report.is_some())
+        .filter(|c| !c.attachments.is_empty())
         .map(|c| c.n)
         .collect();
     assert_eq!(with_reports, [4]);
@@ -431,9 +431,14 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         "a ~48 KB run: {}",
         run.len()
     );
-    let report = w.board.ticket_report(&key, 4).await.unwrap();
+    let report = w
+        .board
+        .ticket_report(&key, 4, None)
+        .await
+        .unwrap()
+        .attachment;
     assert_eq!(std::fs::read(&report.path).unwrap(), run);
-    assert_eq!(report.info.bytes, run.len() as u64);
+    assert_eq!(report.bytes, run.len() as u64);
     assert!(Path::new(&report.path).starts_with(w.data.root()));
 
     // Dev was told the round and `prime`, never the findings, and never the user's comment.
@@ -460,9 +465,11 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     );
     let prime = read(state, "dev-prime-2.md");
     assert!(prime.contains(VALIDATE_SAYS), "{prime}");
-    let line = all[3].report_line(&t.key).unwrap();
+    let line = all[3].attachment_lines(&t.key).remove(0);
     assert!(
-        line.starts_with("Report: 48 KB, 1,624 lines \u{b7} `otaq report SHOP-34 4`"),
+        line.starts_with(
+            "Report: test-run.txt \u{b7} 48 KB, 1,624 lines \u{b7} `otaq report SHOP-34 4`"
+        ),
         "{line}"
     );
     assert!(prime.contains(&line), "{prime}");
@@ -525,7 +532,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     );
     assert_eq!(
         refusal(&out),
-        "The report is 21 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests."
+        "big-run.txt is 21 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests."
     );
     assert_eq!(comments(&w, &key).await.len(), 6);
     w.stop().await;

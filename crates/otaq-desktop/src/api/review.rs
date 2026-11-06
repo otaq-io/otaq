@@ -555,7 +555,7 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
         key: key.to_string(),
         note: params.note.trim().to_owned(),
         clear_first: params.clear,
-        report: sb::pasted_report(params.report.as_deref()),
+        attachments: sb::pasted_report(params.report.as_deref()),
     });
     match app.service.send(request).await {
         Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {

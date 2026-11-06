@@ -3,8 +3,8 @@
 //! next` / `stage done` summary, a check's verdict, and the user's note on Move to next stage, Send back (a human
 //! check's Fail), Send back with PR comments and a drag back.
 //!
-//! A hand-over's text is checked ([`check_body`]) and its report copied ([`Board::prepare_report`]) **before** the
-//! move, so a text over the limit or a missing report refuses the whole hand-over and nothing moves. An empty optional
+//! A hand-over's text is checked ([`check_body`]) and its attachments copied ([`Board::prepare_attachments`]) **before** the
+//! move, so a text over the limit or a missing attachment refuses the whole hand-over and nothing moves. An empty optional
 //! note posts nothing. What the agent is then typed or resumed with names the hand-over, never its text ("SHOP-18 was
 //! sent back to Dev with 2 line comments and a comment. Run `otaq prime`, then `otaq review feedback`."): the agent
 //! reads the comment in `prime`.
@@ -12,20 +12,20 @@
 use sqlx::{Sqlite, Transaction};
 
 use super::manual_checks::{ManualHandOver, check_items};
-use super::reports::{ReportSource, StoredReport};
+use super::reports::{ReportSource, StoredAttachments};
 use super::ticket_comments::{CommentAuthor, Posted, check_body, post_in};
 use super::tickets::Ticket;
 use super::{Board, BoardError};
 use crate::domain::Actor;
 use crate::naming::COMMAND_NAME;
 
-/// A hand-over's comment, checked and with its report copied, ready to post inside the move's transaction.
+/// A hand-over's comment, checked and with its attachments copied, ready to post inside the move's transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandOver {
     pub author: CommentAuthor,
     /// The text as stored (trimmed, within the limit).
     pub body: String,
-    pub report: Option<StoredReport>,
+    pub attachments: Option<StoredAttachments>,
     /// A stage end's manual checks (d0125), stored with the comment; `None` for every other hand-over (a Send back's
     /// note, a drag back…), which leaves them as they are.
     pub manual: Option<ManualHandOver>,
@@ -44,7 +44,7 @@ impl HandOver {
             ticket_id,
             &self.author,
             &self.body,
-            self.report.as_ref(),
+            self.attachments.as_ref(),
             actor,
         )
         .await?;
@@ -55,24 +55,24 @@ impl HandOver {
         Ok(posted)
     }
 
-    /// Removes the copied report unless its comment was stored: the hand-over was refused or failed after the copy.
-    /// Safe after a commit (a stored comment keeps its report).
+    /// Removes the copied attachments unless its comment was stored: the hand-over was refused or failed after the copy.
+    /// Safe after a commit (a stored comment keeps its attachments).
     pub async fn discard_unposted(&self, board: &Board) {
-        let Some(report) = &self.report else {
+        let Some(stored) = &self.attachments else {
             return;
         };
         let posted: Result<Option<i64>, _> =
             sqlx::query_scalar("SELECT 1 FROM ticket_comments WHERE id = ?")
-                .bind(&report.comment_id)
+                .bind(&stored.comment_id)
                 .fetch_optional(board.store().pool())
                 .await;
         if matches!(posted, Ok(None)) {
-            report.discard();
+            stored.discard();
         }
     }
 }
 
-/// Discards `hand_over`'s report when `result` failed ([`HandOver::discard_unposted`]), and passes `result` on.
+/// Discards `hand_over`'s attachments when `result` failed ([`HandOver::discard_unposted`]), and passes `result` on.
 pub async fn settled<T>(
     board: &Board,
     hand_over: Option<&HandOver>,
@@ -88,31 +88,24 @@ pub async fn settled<T>(
 
 impl Board {
     /// The hand-over comment of `author` on `ticket`: `body` checked first (CMT-02's limit, refused whole), then the
-    /// report copied (missing or over 20 MB, refused). `None` when there is nothing to post: an empty optional note
-    /// and no report. A report with no text is refused: a comment always has its own line.
+    /// attachments copied (missing or over 20 MB, refused). `None` when there is nothing to post: an empty optional note
+    /// and no attachments. Attachments with no text are refused: a comment always has its own line.
     pub async fn hand_over(
         &self,
         ticket: &Ticket,
         author: CommentAuthor,
         body: &str,
-        report: Option<ReportSource>,
+        attachments: Vec<ReportSource>,
     ) -> Result<Option<HandOver>, BoardError> {
-        if body.trim().is_empty() && report.is_none() {
+        if body.trim().is_empty() && attachments.is_empty() {
             return Ok(None);
         }
         let body = check_body(body)?;
-        let report = match report {
-            Some(source) => {
-                let project = self.project(ticket.key.project.as_str()).await?;
-                let repo = crate::warm::store::repo_name(&project);
-                Some(self.prepare_report(&repo, &ticket.key, source).await?)
-            }
-            None => None,
-        };
+        let attachments = self.prepare_attachments(&ticket.key, attachments).await?;
         Ok(Some(HandOver {
             author,
             body,
-            report,
+            attachments,
             manual: None,
         }))
     }
@@ -126,7 +119,7 @@ impl Board {
         ticket: &Ticket,
         author: CommentAuthor,
         body: &str,
-        report: Option<ReportSource>,
+        attachments: Vec<ReportSource>,
         manual_checks: &[String],
     ) -> Result<Option<HandOver>, BoardError> {
         let items = check_items(manual_checks)?;
@@ -136,13 +129,13 @@ impl Board {
         };
         let replaces =
             matches!(author, CommentAuthor::Agent { stage: Some(_), .. }) || !items.is_empty();
-        if !items.is_empty() && body.trim().is_empty() && report.is_none() {
+        if !items.is_empty() && body.trim().is_empty() && attachments.is_empty() {
             return Err(BoardError::refused(
                 super::Refusal::EmptyField,
                 super::ticket_comments::EMPTY_COMMENT,
             ));
         }
-        let mut hand_over = self.hand_over(ticket, author, body, report).await?;
+        let mut hand_over = self.hand_over(ticket, author, body, attachments).await?;
         if let Some(hand_over) = hand_over.as_mut()
             && replaces
         {
@@ -161,13 +154,13 @@ impl Board {
         &self,
         ticket: &Ticket,
         note: &str,
-        report: Option<ReportSource>,
+        attachments: Vec<ReportSource>,
         actor: &Actor,
     ) -> Result<Option<HandOver>, BoardError> {
         let author = CommentAuthor::User {
             name: actor.to_string(),
         };
-        self.hand_over(ticket, author, note, report).await
+        self.hand_over(ticket, author, note, attachments).await
     }
 }
 

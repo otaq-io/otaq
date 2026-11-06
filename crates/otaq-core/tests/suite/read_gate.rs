@@ -56,7 +56,7 @@ async fn comment(w: &TestService, key: &str, body: &str) -> TicketComment {
             key,
             &CommentAuthor::User { name: "me".into() },
             body,
-            None,
+            Vec::new(),
             &Actor::User("me".into()),
         )
         .await
