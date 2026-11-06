@@ -3003,6 +3003,7 @@
         "helper",
         "host_closed",
         "interrupted",
+        "landed",
         "limit_marked",
         "manual_check_ticked",
         "merged",

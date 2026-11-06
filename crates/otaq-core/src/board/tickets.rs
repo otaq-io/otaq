@@ -494,6 +494,10 @@ stored_enum! {
         /// review on its own branch. Payload `host` (the closed ticket's key) and `from` (its status before).
         /// History reads "SHOP-18 was closed; back to review".
         HostClosed = "host_closed",
+        /// The host this ticket was merged into landed, and this ticket with it: Done, with the host's outcome and
+        /// merge commit. Payload `with` (the host's key), `from`, `commit` (the host's merge commit, when it has one)
+        /// and `not_merged` when the host finished without a merge. History reads "Landed with SHOP-18".
+        Landed = "landed",
     }
 }
 

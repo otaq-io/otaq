@@ -483,3 +483,181 @@ async fn mark_closed_on_the_host_sends_it_back_and_it_can_be_merged_again() {
     assert_eq!(paths, ["cart.ts", "coupon.ts"], "without SHOP-1's work");
     w.stop().await;
 }
+
+/// SHOP-20 merged into SHOP-18, and SHOP-21 waiting on SHOP-20 in the queue.
+async fn shop20_in_shop18_and_shop21_waiting(w: &TestService) -> (Ticket, Ticket) {
+    fillers_until(w, 18).await;
+    let (shop18, _) = reviewed(w, "Checkout API", &[("api.ts", "api\n")]).await;
+    w.create("SHOP", "filler").await;
+    let (shop20, _) = reviewed(w, "Coupon codes", &[("coupon.ts", "coupon\n")]).await;
+    let shop21 = w.create("SHOP", "Coupon page").await;
+    w.board
+        .add_dependency("SHOP-21", "SHOP-20", &me())
+        .await
+        .unwrap();
+    w.force_status(&shop21, Status::Queued).await;
+    w.review
+        .merge_into("SHOP-20", "SHOP-18", &me())
+        .await
+        .unwrap();
+    (shop18, shop20)
+}
+
+fn landed_line(
+    w: &[otaq_core::board::tickets::HistoryEvent],
+) -> &otaq_core::board::tickets::HistoryEvent {
+    w.iter()
+        .find(|e| e.kind == EventKind::Landed)
+        .expect("a Landed line")
+}
+
+#[tokio::test]
+async fn a_local_merge_of_the_host_lands_the_ticket_merged_into_it_and_its_dependent_starts() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, shop20) = shop20_in_shop18_and_shop21_waiting(&w).await;
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-18", "m", false, &me())
+        .await
+        .unwrap();
+    let otaq_core::review::LocalMergeOutcome::Merged {
+        ticket: host,
+        started,
+        ..
+    } = outcome
+    else {
+        panic!("expected merged, got {outcome:?}");
+    };
+    assert_eq!(host.status, Status::Merged);
+
+    // SHOP-20 is Done · Merged with SHOP-18's merge commit, its branch kept.
+    let landed = w.board.ticket("SHOP-20").await.unwrap();
+    assert_eq!(landed.status, Status::Merged);
+    assert_eq!(landed.place, Place::Done);
+    assert!(!landed.flags.done_without_merge);
+    assert_eq!(landed.flags.merged_into, None);
+    let row = w.board.store().ticket(&shop20.id).await.unwrap().unwrap();
+    let host_row = w.board.store().ticket(&host.id).await.unwrap().unwrap();
+    assert_eq!(row.outcome.as_deref(), Some("merged"));
+    assert!(host_row.merge_commit_sha.is_some());
+    assert_eq!(row.merge_commit_sha, host_row.merge_commit_sha);
+    git(
+        &repo,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/heads/{}", branch(&shop20)),
+        ],
+    );
+    let history = w.board.history("SHOP-20").await.unwrap();
+    let line = landed_line(&history);
+    assert_eq!(line.payload["with"], "SHOP-18");
+    assert_eq!(
+        line.payload["commit"].as_str(),
+        host_row.merge_commit_sha.as_deref()
+    );
+    // The link stays as the record.
+    assert_eq!(w.board.merged_in("SHOP-18").await.unwrap().len(), 1);
+
+    // SHOP-21, waiting on SHOP-20, starts through readiness as usual.
+    assert_eq!(started, ["SHOP-21".parse().unwrap()]);
+    w.stop().await;
+}
+
+#[tokio::test]
+async fn mark_merged_on_the_hosts_pr_lands_the_ticket_merged_into_it() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let (shop18, _) = shop20_in_shop18_and_shop21_waiting(&w).await;
+    w.force_status(&shop18, Status::PrOpen).await;
+    sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
+        .bind(&shop18.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+
+    let marked = w.review.mark_merged("SHOP-18", &me()).await.unwrap();
+    assert_eq!(marked.ticket.status, Status::Merged);
+    assert_eq!(w.status("SHOP-20").await, Status::Merged);
+    assert_eq!(marked.started, ["SHOP-21".parse().unwrap()]);
+    let history = w.board.history("SHOP-20").await.unwrap();
+    assert_eq!(landed_line(&history).payload["with"], "SHOP-18");
+    w.stop().await;
+}
+
+/// A host that ends Done without a merge counts as merged: the ticket merged into it is Done · not merged with it.
+#[tokio::test]
+async fn a_host_done_without_a_merge_lands_the_ticket_merged_into_it_not_merged() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let (shop18, shop20) = shop20_in_shop18_and_shop21_waiting(&w).await;
+    let shop18 = w.board.ticket(&shop18.key.to_string()).await.unwrap();
+
+    let done = w
+        .board
+        .record_done_without_merge(&shop18, None, &me())
+        .await
+        .unwrap();
+    w.review.finish(&done).await.unwrap();
+
+    let landed = w.board.ticket("SHOP-20").await.unwrap();
+    assert_eq!(landed.status, Status::Merged);
+    assert!(
+        landed.flags.done_without_merge,
+        "Done · not merged, as its host"
+    );
+    let row = w.board.store().ticket(&shop20.id).await.unwrap().unwrap();
+    assert_eq!(row.outcome.as_deref(), Some("done_without_merge"));
+    assert_eq!(row.merge_commit_sha, None);
+    let history = w.board.history("SHOP-20").await.unwrap();
+    assert_eq!(landed_line(&history).payload["not_merged"], true);
+    // It counts as merged: SHOP-21 starts after its host's Done, as Done itself asks.
+    let plan = w.scheduler.on_parent_merged("SHOP-18").await.unwrap();
+    let started: Vec<String> = plan.start.iter().map(|t| t.key.to_string()).collect();
+    assert_eq!(started, ["SHOP-21"]);
+    w.stop().await;
+}
+
+/// SHOP-1 merged into SHOP-2, then SHOP-2 into SHOP-3: SHOP-3's Local merge lands both, and SHOP-4 waiting on SHOP-1
+/// starts.
+#[tokio::test]
+async fn nested_merges_land_together() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    reviewed(&w, "Coupon codes", &[("coupon.ts", "c\n")]).await;
+    reviewed(&w, "Checkout API", &[("api.ts", "a\n")]).await;
+    reviewed(&w, "Checkout page", &[("page.ts", "p\n")]).await;
+    let shop4 = w.create("SHOP", "Coupon page").await;
+    w.board
+        .add_dependency("SHOP-4", "SHOP-1", &me())
+        .await
+        .unwrap();
+    w.force_status(&shop4, Status::Queued).await;
+    w.review
+        .merge_into("SHOP-1", "SHOP-2", &me())
+        .await
+        .unwrap();
+    w.review
+        .merge_into("SHOP-2", "SHOP-3", &me())
+        .await
+        .unwrap();
+    assert_eq!(w.status("SHOP-2").await, Status::MergedInto);
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-3", "m", false, &me())
+        .await
+        .unwrap();
+    let otaq_core::review::LocalMergeOutcome::Merged { started, .. } = outcome else {
+        panic!("expected merged, got {outcome:?}");
+    };
+    assert_eq!(w.status("SHOP-2").await, Status::Merged);
+    assert_eq!(w.status("SHOP-1").await, Status::Merged);
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert_eq!(landed_line(&history).payload["with"], "SHOP-2");
+    assert_eq!(started, ["SHOP-4".parse().unwrap()]);
+    w.stop().await;
+}

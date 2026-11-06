@@ -227,6 +227,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::MergedInto
         | EventKind::MergedIn
         | EventKind::HostClosed
+        | EventKind::Landed
         | EventKind::Reopened
         | EventKind::Parked
         | EventKind::Closed
@@ -1217,6 +1218,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 text(p, "host").unwrap_or_default()
             ),
             Some(who(&e.actor)),
+        ),
+        // The ticket it was merged into landed, and it with it: "Landed with SHOP-18" (· "Done · not merged" when that
+        // ticket finished without a merge).
+        EventKind::Landed => (
+            format!("Landed with {}", text(p, "with").unwrap_or_default()),
+            p.get("not_merged")
+                .is_some()
+                .then(|| DONE_NOT_MERGED.to_owned()),
         ),
         EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
         // A human check's Pass (FLW-14), its Approve (d0093): "You approved it at QA".
@@ -2522,6 +2531,22 @@ mod tests {
         );
         assert_eq!(rows[0].title, "SHOP-18 was closed; back to review");
         assert_eq!(rows[0].detail.as_deref(), Some("by you"));
+    }
+
+    /// A ticket merged into another lands with it: "Landed with SHOP-18", and "Done · not merged" when that ticket
+    /// finished without a merge.
+    #[test]
+    fn landing_with_the_host_reads_so() {
+        let landed = |payload| rows(&[event(EventKind::Landed, MIN, payload)], &[], &[]);
+        let merged = landed(json!({"from": "merged_into", "with": "SHOP-18", "commit": "abc"}));
+        assert_eq!(merged[0].title, "Landed with SHOP-18");
+        assert_eq!(merged[0].detail, None);
+        let not_merged =
+            landed(json!({"from": "merged_into", "with": "SHOP-18", "not_merged": true}));
+        assert_eq!(
+            not_merged[0].detail.as_deref(),
+            Some("Done \u{b7} not merged")
+        );
     }
 
     /// Q77: the exit row names the session's tool by its command.
