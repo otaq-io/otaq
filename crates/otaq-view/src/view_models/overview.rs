@@ -10,8 +10,8 @@
 //!   [`after_save`]). Saving sends only the description ([`crate::view_models::editor::EditorModel::description`]),
 //!   and an untouched description is never saved.
 //! - **Attachments** ([`attachments`]): every report of the ticket, newest first, each with its size, who added it and
-//!   in which stage, and its comment's first line; Add, a drop or a paste opens the comment box with the file as a
-//!   chip, since a comment always has its own line (d0109).
+//!   in which stage, and its comment's first line (none for a comment of only attachments, tuq 007); Add, a drop or a
+//!   paste opens the comment box with the file as a chip, sent with a line or on its own.
 
 use otaq_core::board::manual_checks::ManualChecks;
 use otaq_core::board::reports::size_label;

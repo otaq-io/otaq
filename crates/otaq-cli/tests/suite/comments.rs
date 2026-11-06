@@ -244,6 +244,49 @@ async fn the_user_posts_lists_edits_deletes_and_reads_reports() {
     w.stop().await;
 }
 
+/// tuq 007: `otaq comment --report-file` with an empty stdin posts the file alone, and `otaq comments` shows it with
+/// no empty line; with neither text nor a file it is still refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_comment_of_only_a_file_posts() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    std::fs::write(w.home.path().join("run.txt"), "test limit ... FAILED\n").unwrap();
+
+    let posted = cb(
+        &w,
+        &["comment", "SHOP-1", "--stdin", "--report-file", "run.txt"],
+        Some(" \n"),
+    );
+    assert_eq!(
+        stdout(&posted).trim(),
+        "Posted comment 1 on SHOP-1 with run.txt (22 bytes)."
+    );
+    let listed = stdout(&cb(&w, &["comments", "SHOP-1"], None));
+    let heading_end = listed.find('\n').unwrap();
+    let after = &listed[heading_end..];
+    assert!(
+        after.contains(" \u{b7} You \u{b7} ")
+            && after.contains(
+                "\nReport: run.txt \u{b7} 22 bytes, 1 line \u{b7} `otaq report SHOP-1 1`"
+            ),
+        "{listed}"
+    );
+    assert!(!listed.contains("\n\nReport:"), "{listed}");
+    assert_eq!(
+        json(&cb(&w, &["comments", "SHOP-1", "--json"], None))["comments"][0]["body"],
+        ""
+    );
+
+    let refused = cb(&w, &["comment", "SHOP-1", "--stdin"], Some("  "));
+    assert!(!refused.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&refused.stderr).trim(),
+        "error: Write the comment first"
+    );
+    w.stop().await;
+}
+
 /// Files in the data folder under `dir`, recursively.
 fn files_under(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();

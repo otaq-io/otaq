@@ -3,7 +3,7 @@
 //! next` / `stage done` summary, a check's verdict, and the user's note on Move to next stage, Send back (a human
 //! check's Fail), Send back with PR comments and a drag back.
 //!
-//! A hand-over's text is checked ([`check_body`]) and its attachments copied ([`Board::prepare_attachments`]) **before** the
+//! A hand-over's text is checked ([`check_comment`]) and its attachments copied ([`Board::prepare_attachments`]) **before** the
 //! move, so a text over the limit or a missing attachment refuses the whole hand-over and nothing moves. An empty optional
 //! note posts nothing. What the agent is then typed or resumed with names the hand-over, never its text ("SHOP-18 was
 //! sent back to Dev with 2 line comments and a comment. Run `otaq prime`, then `otaq review feedback`."): the agent
@@ -13,7 +13,7 @@ use sqlx::{Sqlite, Transaction};
 
 use super::manual_checks::{ManualHandOver, check_items};
 use super::reports::{ReportSource, StoredAttachments};
-use super::ticket_comments::{CommentAuthor, Posted, check_body, post_in};
+use super::ticket_comments::{CommentAuthor, Posted, check_comment, post_in};
 use super::tickets::Ticket;
 use super::{Board, BoardError};
 use crate::domain::Actor;
@@ -89,7 +89,7 @@ pub async fn settled<T>(
 impl Board {
     /// The hand-over comment of `author` on `ticket`: `body` checked first (CMT-02's limit, refused whole), then the
     /// attachments copied (missing or over 20 MB, refused). `None` when there is nothing to post: an empty optional note
-    /// and no attachments. Attachments with no text are refused: a comment always has its own line.
+    /// and no attachments. Attachments with no text are posted as they are (tuq 007).
     pub async fn hand_over(
         &self,
         ticket: &Ticket,
@@ -100,7 +100,7 @@ impl Board {
         if body.trim().is_empty() && attachments.is_empty() {
             return Ok(None);
         }
-        let body = check_body(body)?;
+        let body = check_comment(body, attachments.len())?;
         let attachments = self.prepare_attachments(&ticket.key, attachments).await?;
         Ok(Some(HandOver {
             author,
@@ -113,7 +113,7 @@ impl Board {
     /// The hand-over of a stage end (`stage next`, `stage done`, a check's verdict): [`Self::hand_over`] with the
     /// `--manual-check` items (d0125), checked before anything moves. An agent's stage end always replaces its stage's
     /// unticked items, so ending a round with none clears them; the user's own `stage next` touches them only when it
-    /// lists some. Items need the comment's text: "Write the comment first".
+    /// lists some. Items need a comment, its text or an attachment: "Write the comment first".
     pub async fn stage_end_hand_over(
         &self,
         ticket: &Ticket,

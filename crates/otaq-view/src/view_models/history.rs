@@ -669,6 +669,11 @@ fn quote(text: &str) -> String {
     format!("\u{201c}{out}\u{201d}")
 }
 
+/// A comment's quoted text under its row; none for a comment of only attachments (tuq 007), whose title names them.
+fn said(text: &str) -> Option<String> {
+    (!text.trim().is_empty()).then(|| quote(text))
+}
+
 /// "Rust developer · Dev", "Validator · Validate · round 2", "You".
 fn author_label(author: &CommentAuthor, facts: &Facts) -> String {
     match author {
@@ -1041,7 +1046,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             Some(told(
                 e,
                 format!("{} commented{with}", author_label(&author, facts)),
-                Some(quote(&excerpt)),
+                said(&excerpt),
                 author_mark(&author, facts),
                 Opens {
                     label: "COMMENT".to_owned(),
@@ -1083,6 +1088,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::CommentDeleted => {
             let author = author_of(p)?;
             let body = text(p, "body").unwrap_or_default();
+            let attached = attachments_of(p);
             let (title, mark) = match by_user {
                 true => ("You deleted a comment".to_owned(), Mark::You),
                 false => (
@@ -1090,17 +1096,24 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     author_mark(&author, facts),
                 ),
             };
+            // A comment of only attachments (tuq 007) has no text to quote: the title names them instead, "You
+            // deleted a comment · with shot.png (1.2 MB)".
+            let title = match with_attachments(attached.iter().map(|a| (a.name.as_str(), a.bytes)))
+            {
+                Some(with) if body.trim().is_empty() => format!("{title} \u{b7} {with}"),
+                _ => title,
+            };
             Some(told(
                 e,
                 title,
-                Some(quote(&body)),
+                said(&body),
                 mark,
                 Opens {
                     label: "COMMENT".to_owned(),
                     caption: None,
                     lines: body.lines().map(|l| line(LineKind::Same, l)).collect(),
-                    thumbnails: open_thumbnails(&attachments_of(p), n),
-                    attachments: open_attachments(&attachments_of(p), n),
+                    thumbnails: open_thumbnails(&attached, n),
+                    attachments: open_attachments(&attached, n),
                 },
                 Kind::Comment,
             ))
@@ -3086,5 +3099,44 @@ mod tests {
             Some("\u{201c}Reload a never-visited page offline\u{201d} \u{b7} by you")
         );
         assert_eq!(row(false).title, "Unticked a manual check");
+    }
+
+    /// tuq 007: a comment of only attachments has no empty quote under its row: the title names what it carried, and
+    /// opening it shows only its attachments.
+    #[test]
+    fn a_comment_of_only_attachments_has_no_empty_line() {
+        let shot = serde_json::json!([{"n": 1, "name": "shot.png", "kind": "image", "bytes": 1024 * 1024}]);
+        let me = serde_json::json!({"kind": "user", "name": "me"});
+        let posted = event_row(&event(
+            EventKind::CommentPosted,
+            MIN,
+            serde_json::json!({"n": 3, "excerpt": "", "attachments": shot, "author": me}),
+        ))
+        .unwrap();
+        assert_eq!(posted.title, "You commented \u{b7} with shot.png (1 MB)");
+        assert_eq!(posted.detail, None);
+        let opens = posted.opens.unwrap();
+        assert!(opens.lines.is_empty());
+        assert_eq!(opens.thumbnails.len(), 1);
+        let deleted = event_row(&event(
+            EventKind::CommentDeleted,
+            MIN,
+            serde_json::json!({"n": 3, "body": "", "attachments": shot, "author": me}),
+        ))
+        .unwrap();
+        assert_eq!(
+            deleted.title,
+            "You deleted a comment \u{b7} with shot.png (1 MB)"
+        );
+        assert_eq!(deleted.detail, None);
+        // With text, the deleted row keeps its quote and its plain title.
+        let worded = event_row(&event(
+            EventKind::CommentDeleted,
+            MIN,
+            serde_json::json!({"n": 4, "body": "Look here.", "attachments": shot, "author": me}),
+        ))
+        .unwrap();
+        assert_eq!(worded.title, "You deleted a comment");
+        assert_eq!(worded.detail.as_deref(), Some("\u{201c}Look here.\u{201d}"));
     }
 }

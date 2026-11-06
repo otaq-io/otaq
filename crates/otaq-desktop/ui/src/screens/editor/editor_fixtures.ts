@@ -121,7 +121,6 @@ export const REPORT_FIELD: EditorReportField = {
     submit: null,
     footer: "Posted as your first comment · You · at creation",
     footer_icon: "message-square",
-    needs_line: "Say what the next agent should look for",
     pasted: "Pasted text",
     file_line: "A comment always has its own line; the file goes with it.",
     remove_file: "Remove the file",

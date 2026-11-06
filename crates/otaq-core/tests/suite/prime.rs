@@ -793,6 +793,49 @@ async fn prime_lists_the_users_reports_first() {
     w.stop().await;
 }
 
+/// tuq 007: a comment of only attachments reads in `prime` with no empty line: its heading, then its attachments'
+/// lines, and "With comment N (…)" with no text after it under "Reports from you".
+#[tokio::test(flavor = "multi_thread")]
+async fn prime_shows_a_comment_of_only_attachments_without_an_empty_line() {
+    let w = with_agents().await;
+    let resources = tempfile::TempDir::new().unwrap();
+    let shot = resources.path().join("shot.png");
+    std::fs::write(&shot, [137, 80, 78, 71, 13, 10, 26, 10]).unwrap();
+    let t = w.create("SHOP", "Fix the cart badge").await;
+    let key = t.key.to_string();
+    let posted = w
+        .board
+        .post_ticket_comment(
+            &key,
+            &CommentAuthor::User { name: "me".into() },
+            "",
+            vec![ReportSource::Path(shot)],
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(posted.body, "");
+    set_posted_at(&w, &key, posted.n, (9, 5)).await;
+    let path = &posted.attachments[0].path;
+    w.force_status(&t, Status::Working).await;
+    let text = render(
+        &w.board
+            .prime_context(&key, w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
+    let expected = format!(
+        "\n## Reports from you \u{b7} read these before you start\n\n\
+         - shot.png \u{b7} 8 bytes \u{b7} open this path to view it: {path}\n  \
+         With comment 1 (You \u{b7} 9:05 am)\n\
+         \n## Comments\n\n\
+         ### You \u{b7} 9:05 am\n\n\
+         Image: shot.png \u{b7} 8 bytes \u{b7} open this path to view it: {path}\n"
+    );
+    assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
+    w.stop().await;
+}
+
 async fn post_agent_report(w: &TestService, key: &str) {
     w.board
         .post_ticket_comment(

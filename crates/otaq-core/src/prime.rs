@@ -1123,8 +1123,13 @@ pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> S
                     format!("{OPEN_PATH}: {}", a.path)
                 }
             };
+            // A comment of only attachments (tuq 007) has no line to quote: "With comment 3 (You · 3:05 pm)".
+            let said = match line {
+                "" => String::new(),
+                line => format!(": {line}"),
+            };
             out.push_str(&format!(
-                "- {} \u{b7} {} \u{b7} {open}\n  With comment {} ({}): {line}\n",
+                "- {} \u{b7} {} \u{b7} {open}\n  With comment {} ({}){said}\n",
                 a.name,
                 a.size_and_lines(),
                 c.n,
@@ -1169,8 +1174,9 @@ pub fn render_manual_checks(items: &[ManualCheck]) -> String {
 }
 
 /// The "## Comments" section (CMT-07): every comment in full, oldest first, under its heading ("Validator · Validate
-/// · round 2 · 3:05 pm"), with one line naming its report; nothing when the ticket has none. The user's reports are
-/// listed first ([`render_reports_from_you`], RPT-01). Reports are never printed.
+/// · round 2 · 3:05 pm"), with one line per attachment (a comment of only attachments has just those lines); nothing
+/// when the ticket has none. The user's reports are listed first ([`render_reports_from_you`], RPT-01). Reports are
+/// never printed.
 pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
     if comments.is_empty() {
         return String::new();
@@ -1178,7 +1184,12 @@ pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
     let mut out = render_reports_from_you(key, comments);
     out.push_str("\n## Comments\n");
     for c in comments {
-        out.push_str(&format!("\n### {}\n\n{}\n", c.heading(), c.body.trim()));
+        out.push_str(&format!("\n### {}\n", c.heading()));
+        // A comment of only attachments (tuq 007): its heading, then its attachments' lines.
+        let body = c.body.trim();
+        if !body.is_empty() {
+            out.push_str(&format!("\n{body}\n"));
+        }
         let lines = c.attachment_lines(key);
         if !lines.is_empty() {
             out.push('\n');

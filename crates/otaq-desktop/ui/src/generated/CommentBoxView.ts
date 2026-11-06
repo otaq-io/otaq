@@ -24,17 +24,14 @@ footer: string | null,
  */
 footer_icon: IconName, 
 /**
- * The hint while only a pasted report is there.
- */
-needs_line: string, 
-/**
  * The pasted chip's label: "Pasted text".
  */
 pasted: string, 
 /**
- * The line while a file waits in the box (Overview's Add, a drop): it still needs its own line.
+ * The line while a file waits in the box: only the New ticket form's ([`Self::one_report`]), whose report still
+ * needs its own line (RPT-03). Every other box sends attachments with no text (tuq 007).
  */
-file_line: string, 
+file_line: string | null, 
 /**
  * The file chip's ✕, for screen readers.
  */

@@ -6,8 +6,9 @@
 //! without loading it; an image or other file is never printed, only its path). They work on `$OTAQ_TICKET` unless a
 //! key is given; the service judges who may write (CMT-04).
 //!
-//! Every file is checked here before anything is sent: a missing, unreadable or oversized one (over 20 MB, named) is
-//! refused before posting. The service copies them into its data folder (they are never moved). `otaq report` streams
+//! A comment needs text, or at least one file, or both (tuq 007): `--report-file` with an empty stdin posts the file
+//! alone. Every file is checked here before anything is sent: a missing, unreadable or oversized one (over 20 MB,
+//! named) is refused before posting. The service copies them into its data folder (they are never moved). `otaq report` streams
 //! the file to stdout, so a 20 MB file never sits in memory or in one message.
 //!
 //! # `--json` shapes
@@ -45,7 +46,7 @@ pub struct CommentArgs {
     pub command: Option<CommentCommand>,
     /// SHOP-34, or 34 in the current project. Default: $OTAQ_TICKET
     pub key: Option<String>,
-    /// Read the comment from stdin (at most 2,000 characters)
+    /// Read the comment from stdin (at most 2,000 characters; it may be empty when a file is attached)
     #[arg(long)]
     pub stdin: bool,
     /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
@@ -292,11 +293,15 @@ pub fn render(comments: &TicketComments) -> String {
             ""
         };
         out.push_str(&format!(
-            "\n\n{} \u{b7} {}{edited}\n{}",
+            "\n\n{} \u{b7} {}{edited}",
             comment.n,
-            comment.heading(),
-            comment.body
+            comment.heading()
         ));
+        // A comment of only attachments (tuq 007): its heading, then its attachments' lines.
+        if !comment.body.is_empty() {
+            out.push('\n');
+            out.push_str(&comment.body);
+        }
         for line in comment.attachment_lines(&comments.key) {
             out.push('\n');
             out.push_str(&line);

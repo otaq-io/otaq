@@ -53,7 +53,7 @@ export interface AttachRequest {
 /** The newest file handed to a comment box; the thread of its ticket takes it, once. */
 export const attachRequests: Store<AttachRequest | null> = createStore<AttachRequest | null>(null);
 
-/** Opens `ticket`'s comment box with `attachments` added to its chips (RPT-02: a comment always has its own line). */
+/** Opens `ticket`'s comment box with `attachments` added to its chips (RPT-02): sent with a line or alone (tuq 007). */
 export function attachReport(
   ticket: string,
   attachments: AttachRequest["attachments"],
@@ -195,7 +195,9 @@ function EditInPlace({
   const [text, setText] = useState(row.body);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const state = boxState({ text, attachments: [] }, view.box.limits);
+  // Its text may go while it keeps an attachment (tuq 007).
+  const attached = row.thumbnails.length > 0 || row.attachments.length > 0;
+  const state = boxState({ text, attachments: [] }, view.box.limits, attached);
   const save = () => {
     if (!state.canSubmit || busy) return;
     if (text.trim() === row.body) {
@@ -296,7 +298,7 @@ function Comment({
       {editing ? (
         <EditInPlace view={view} row={row} onDone={onEditDone} />
       ) : (
-        <p className="comment-body">{row.body}</p>
+        row.body !== "" && <p className="comment-body">{row.body}</p>
       )}
       <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
       <AttachmentChips
@@ -337,7 +339,7 @@ function DeleteDialog({
         <div className="comment-delete">
           <p className="comment-meta">{row.heading}</p>
           <div className="comment comment-quoted">
-            <p className="comment-body">{row.body}</p>
+            {row.body !== "" && <p className="comment-body">{row.body}</p>}
             <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
             <AttachmentChips chips={row.attachments} />
           </div>
