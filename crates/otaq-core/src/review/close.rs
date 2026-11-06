@@ -3,7 +3,8 @@
 //! **Close ticket** works from any state that isn't finished: if an agent runs, the request needs `confirm`
 //! ("its agent will be stopped first"). The ticket becomes Done · Closed · not merged; the Done cleanup follows
 //! (T-0099): the agent stops, ports return, the worktree is removed unless it has uncommitted changes, the
-//! **branch is kept**. Mark closed on a PR ticket (M10) takes the same path.
+//! **branch is kept**. Mark closed on a PR ticket (M10) takes the same path. Tickets merged into the closed ticket's
+//! branch then go back to review on their own branches ([`Review::host_closed`]).
 //!
 //! **`otaq stage done`** (AGM-10, d0108) is the agent's close: from an Agent stage, only when the ticket's branch has
 //! no commits beyond its base, Done as **Closed · nothing to merge** with the agent's reason. Reopen works as for any
@@ -185,6 +186,8 @@ impl Review {
         if let Err(e) = self.finish(&closed).await {
             tracing::warn!(ticket = %closed.key, error = %e, "cleanup after close failed");
         }
+        // The tickets merged into it go back to review on their own branches.
+        self.host_closed(&closed, actor).await;
         board.ticket_by_id(&ticket.id).await
     }
 }

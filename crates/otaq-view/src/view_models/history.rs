@@ -226,6 +226,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::MergedAutomatically
         | EventKind::MergedInto
         | EventKind::MergedIn
+        | EventKind::HostClosed
         | EventKind::Reopened
         | EventKind::Parked
         | EventKind::Closed
@@ -1208,6 +1209,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 Some(title) => format!("{title} \u{b7} back to review with the combined diff"),
                 None => "back to review with the combined diff".to_owned(),
             }),
+        ),
+        // The ticket it was merged into was closed: "SHOP-18 was closed; back to review" · "by you".
+        EventKind::HostClosed => (
+            format!(
+                "{} was closed; back to review",
+                text(p, "host").unwrap_or_default()
+            ),
+            Some(who(&e.actor)),
         ),
         EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
         // A human check's Pass (FLW-14), its Approve (d0093): "You approved it at QA".
@@ -2481,6 +2490,22 @@ mod tests {
         );
         assert_eq!(rows[0].title, "Done \u{b7} nothing to merge");
         assert!(rows[0].detail.is_some());
+    }
+
+    /// The ticket it was merged into was closed: "SHOP-18 was closed; back to review", by whom.
+    #[test]
+    fn a_closed_host_reads_back_to_review() {
+        let rows = rows(
+            &[event(
+                EventKind::HostClosed,
+                MIN,
+                json!({"from": "merged_into", "host": "SHOP-18"}),
+            )],
+            &[],
+            &[],
+        );
+        assert_eq!(rows[0].title, "SHOP-18 was closed; back to review");
+        assert_eq!(rows[0].detail.as_deref(), Some("by you"));
     }
 
     /// Q77: the exit row names the session's tool by its command.

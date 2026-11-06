@@ -12,6 +12,11 @@
 //!    removed and its branch kept (the Done cleanup's steps). The host goes back to the human check before its
 //!    Delivery with the combined diff; with a PR open, Push to PR then carries the new commit. Which tickets went into
 //!    which is the `merged_into` table ([`crate::store::merged_into`]).
+//!
+//! When the host is closed without landing (Close ticket, Mark closed), every ticket merged into it goes back to the
+//! human check before its Delivery on its own kept branch ([`Review::host_closed`]): its worktree is added again from
+//! that branch, and the host's commits that the free rebase put under its own come off again, so it can land alone or
+//! be merged into another ticket. The host's worktree and branch are never touched.
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +26,7 @@ use super::Review;
 use crate::board::merge_into::can_be_merged_in;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
-use crate::domain::{Actor, TicketKey};
+use crate::domain::{Actor, Status, TicketKey};
 use crate::git::checkpoint::{RebaseError, RebaseOutcome};
 use crate::git::merge::uncommitted_files_message;
 use crate::session::SessionKind;
@@ -194,6 +199,136 @@ impl Review {
             into: Box::new(board.ticket_by_id(&host.id).await?),
             commit,
         })
+    }
+}
+
+impl Review {
+    /// `host` was closed without landing: every ticket merged into it goes back to review on its own branch (see the
+    /// module). A ticket whose worktree can't be added again still goes back; the failure is logged. The tickets that
+    /// went back.
+    pub(crate) async fn host_closed(&self, host: &Ticket, actor: &Actor) -> Vec<Ticket> {
+        let board = &self.inner.board;
+        let merged_in = match board.merged_in(&host.key.to_string()).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(host = %host.key, error = %e, "can't list the tickets merged into the closed ticket");
+                return Vec::new();
+            }
+        };
+        let mut back = Vec::new();
+        for row in merged_in {
+            let ticket = match board.ticket_by_id(&row.ticket_id).await {
+                Ok(t) if t.status == Status::MergedInto => t,
+                // Rows stay after the host landed, as the record: only a ticket still waiting for it goes back.
+                Ok(_) => continue,
+                Err(e) => {
+                    tracing::warn!(ticket = %row.key, error = %e, "can't read a ticket merged into the closed one");
+                    continue;
+                }
+            };
+            if let Err(e) = self.own_worktree_again(&ticket, &row.commit).await {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't add the worktree again on its own branch");
+            }
+            match board.record_host_closed(&ticket, host, actor).await {
+                Ok(t) => back.push(t),
+                Err(e) => {
+                    tracing::warn!(ticket = %ticket.key, error = %e, "can't send it back to review");
+                }
+            }
+        }
+        if let Some(first) = back.first() {
+            let project = board.project(first.key.project.as_str()).await;
+            if let Ok(project) = project
+                && let Err(e) = self
+                    .flag_conflicts(
+                        &first.key.project.to_string(),
+                        &PathBuf::from(&project.repo_path),
+                        first.base.branch(),
+                    )
+                    .await
+            {
+                tracing::warn!(error = %e, "can't test-merge the tickets in Review");
+            }
+        }
+        back
+    }
+
+    /// Adds `ticket`'s worktree again on its own kept branch, as a reopened ticket's start does, then takes the host's
+    /// commits off it: the free rebase had put the branch on the host's, at the parent of `squash` (the squash commit
+    /// on the host's branch), and the branch goes back onto where it left its base. A rebase that doesn't apply puts
+    /// everything back and leaves the branch as it was.
+    async fn own_worktree_again(&self, ticket: &Ticket, squash: &str) -> Result<(), BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
+        let branch = branch_of(ticket)?.to_owned();
+        let project = board.project(ticket.key.project.as_str()).await?;
+        let repo = PathBuf::from(&project.repo_path);
+        // With the project's variables: `worktree add` and the rebase run the user's hooks (ENV-02).
+        let git = board.project_git(&project.key).await?;
+        let repo_name = repo
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| project.name.clone());
+        let path = inner
+            .data
+            .worktree_path(&repo_name, &ticket.key.to_string())
+            .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))?;
+        crate::start::worktree::add_worktree(&git, &repo, &path, &branch)
+            .await
+            .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))?;
+        sqlx::query("UPDATE tickets SET worktree_path = ?, worktree_kept = FALSE WHERE id = ?")
+            .bind(path.display().to_string())
+            .bind(&ticket.id)
+            .execute(board.store().pool())
+            .await?;
+
+        // The host's commits come off: only when the branch still stands on the host's at the squash's parent.
+        let Some(base) = board
+            .store()
+            .ticket(&ticket.id)
+            .await?
+            .and_then(|row| row.base_sha)
+        else {
+            return Ok(());
+        };
+        let branch_ref = format!("refs/heads/{branch}");
+        let Some(before) = git.resolve(&repo, &branch_ref).await? else {
+            return Ok(());
+        };
+        let Ok(onto) = git.run(&repo, &["rev-parse", &format!("{squash}^")]).await else {
+            return Ok(());
+        };
+        let onto = onto.trim();
+        let is_ancestor = async |a: &str, b: &str| {
+            git.run(&repo, &["merge-base", "--is-ancestor", a, b])
+                .await
+                .is_ok()
+        };
+        if onto == base || !is_ancestor(onto, &before).await || is_ancestor(onto, &base).await {
+            return Ok(());
+        }
+        if !git.uncommitted_files(&path).await?.is_empty() {
+            return Ok(());
+        }
+        if let Err(e) = git
+            .run(
+                &path,
+                &["rebase", "--no-autostash", "--quiet", "--onto", &base, onto],
+            )
+            .await
+        {
+            // Abort if git left a rebase in progress (it may also have refused to start).
+            let _ = git.run(&path, &["rebase", "--abort"]).await;
+            tracing::warn!(ticket = %ticket.key, error = %e, "the host's commits don't come off its branch; left as it was");
+            return Ok(());
+        }
+        // Otaq's own rebase isn't a change to review (GIT-05).
+        if let Some(after) = git.resolve(&repo, &branch_ref).await? {
+            board
+                .record_otaq_rebase(&ticket.id, &before, &after)
+                .await?;
+        }
+        Ok(())
     }
 }
 

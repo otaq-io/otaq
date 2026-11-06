@@ -3001,6 +3001,7 @@
         "fixed_created_ticket",
         "held",
         "helper",
+        "host_closed",
         "interrupted",
         "limit_marked",
         "manual_check_ticked",

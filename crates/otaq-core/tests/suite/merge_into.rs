@@ -355,3 +355,131 @@ async fn a_hosts_pull_request_context_lists_the_tickets_merged_into_it() {
     );
     w.stop().await;
 }
+
+/// SHOP-20 merged into SHOP-18, then SHOP-18 closed: SHOP-20 is back in review on its own branch, with a worktree
+/// on it, without SHOP-18's commits, and its Approve menu works again: it lands alone.
+#[tokio::test]
+async fn closing_the_host_sends_the_ticket_merged_in_back_to_review() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    fillers_until(&w, 18).await;
+    let (shop18, _) = reviewed(&w, "Checkout API", &[("api.ts", "api\n")]).await;
+    w.create("SHOP", "filler").await;
+    let (shop20, _) = reviewed(&w, "Coupon codes", &[("coupon.ts", "coupon\n")]).await;
+    let outcome = w
+        .review
+        .merge_into("SHOP-20", "SHOP-18", &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, MergeIntoOutcome::Merged { .. }),
+        "{outcome:?}"
+    );
+    let host_head = head(&repo, &branch(&shop18));
+
+    let closed = w.review.close("SHOP-18", false, &me()).await.unwrap();
+    assert_eq!(closed.status, Status::ClosedNotMerged);
+    assert_eq!(
+        head(&repo, &branch(&shop18)),
+        host_head,
+        "the host's branch is untouched"
+    );
+
+    // Back in review, its link forgotten.
+    let back = w.board.ticket("SHOP-20").await.unwrap();
+    assert_eq!(back.status, Status::WaitingForYou);
+    assert_eq!(back.place, Place::stage_of(REVIEW));
+    assert_eq!(back.flags.merged_into, None);
+    assert!(w.board.merged_into("SHOP-20").await.unwrap().is_none());
+    assert!(w.board.merged_in("SHOP-18").await.unwrap().is_empty());
+    let history = w.board.history("SHOP-20").await.unwrap();
+    let line = history
+        .iter()
+        .find(|e| e.kind == EventKind::HostClosed)
+        .expect("back to review");
+    assert_eq!(line.payload["host"], "SHOP-18");
+
+    // A worktree on its own branch, which holds only its own work.
+    let wt = PathBuf::from(back.work.as_ref().unwrap().worktree.as_ref().unwrap());
+    assert!(wt.is_dir(), "worktree added again");
+    assert_eq!(
+        git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        branch(&shop20)
+    );
+    assert_eq!(
+        std::fs::read_to_string(wt.join("coupon.ts")).unwrap(),
+        "coupon\n"
+    );
+    assert!(!wt.join("api.ts").exists(), "SHOP-18's work came off");
+    let diff = w.board.diff_summary("SHOP-20").await.unwrap();
+    let paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["coupon.ts"]);
+
+    // The Approve menu works again: no change to review, and it lands alone.
+    assert!(matches!(
+        w.board.approve_check("SHOP-20").await.unwrap(),
+        otaq_core::board::review::ApproveCheck::Unchanged
+    ));
+    assert!(otaq_core::board::merge_into::can_be_merged_in(&back));
+    let landed = w
+        .review
+        .local_merge("SHOP-20", "SHOP-20: Coupon codes", false, &me())
+        .await
+        .unwrap();
+    let otaq_core::review::LocalMergeOutcome::Merged { commit, .. } = landed else {
+        panic!("expected merged, got {landed:?}");
+    };
+    assert_eq!(
+        git(
+            &repo,
+            &["diff", "--name-only", &format!("{commit}^"), &commit]
+        ),
+        "coupon.ts"
+    );
+    w.stop().await;
+}
+
+/// Mark closed on a host with a PR open takes the same path: the ticket merged in is back in review and can be
+/// merged into another ticket.
+#[tokio::test]
+async fn mark_closed_on_the_host_sends_it_back_and_it_can_be_merged_again() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let (host, _) = reviewed(&w, "Checkout API", &[("api.ts", "api\n")]).await;
+    reviewed(&w, "Coupon codes", &[("coupon.ts", "coupon\n")]).await;
+    reviewed(&w, "Cart page", &[("cart.ts", "cart\n")]).await;
+    w.review
+        .merge_into("SHOP-2", "SHOP-1", &me())
+        .await
+        .unwrap();
+    w.force_status(&host, Status::PrOpen).await;
+    sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
+        .bind(&host.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+
+    w.review.mark_closed("SHOP-1", true, &me()).await.unwrap();
+    let back = w.board.ticket("SHOP-2").await.unwrap();
+    assert_eq!(back.status, Status::WaitingForYou);
+    assert_eq!(back.flags.merged_into, None);
+
+    let hosts = w.board.merge_into_hosts("SHOP-2").await.unwrap();
+    let keys: Vec<String> = hosts.iter().map(|t| t.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-3"]);
+    let again = w
+        .review
+        .merge_into("SHOP-2", "SHOP-3", &me())
+        .await
+        .unwrap();
+    let MergeIntoOutcome::Merged { ticket, into, .. } = again else {
+        panic!("expected merged, got {again:?}");
+    };
+    assert_eq!(ticket.flags.merged_into, Some(into.key.clone()));
+    let diff = w.board.diff_summary("SHOP-3").await.unwrap();
+    let mut paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["cart.ts", "coupon.ts"], "without SHOP-1's work");
+    w.stop().await;
+}
