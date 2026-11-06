@@ -1026,7 +1026,7 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
         </div>
       )}
       {details.fail_to !== null && <span className="fe-hint">{details.fail_to.explanation}</span>}
-      {details.rule !== null && <p className="fe-rule">{details.rule}</p>}
+      {details.rule !== null && <p className="fe-check-rule">{details.rule}</p>}
       {details.can.length > 0 && (
         <div className="fe-field">
           <span className="fe-label">{details.can_label}</span>

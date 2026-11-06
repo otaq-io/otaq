@@ -901,7 +901,8 @@
   min-width: 0;
 }
 
-.fe-rule {
+/* The check agents' rule under Rounds and Fails go to (not .fe-rule, the 1px divider above). */
+.fe-check-rule {
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
