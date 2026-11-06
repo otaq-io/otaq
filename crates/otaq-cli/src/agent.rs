@@ -376,7 +376,7 @@ pub fn stage_next(
 }
 
 /// `otaq stage done [KEY] --stdin [--report-file PATH] [--manual-check TEXT]…`: nothing to deliver, the ticket is
-/// Closed · nothing to merge with the reason as the agent's comment (AGM-10, CMT-05).
+/// Done · nothing to merge (it counts as merged) with the reason as the agent's comment (AGM-10, CMT-05).
 pub fn stage_done(
     key: Option<String>,
     end: StageEnd,

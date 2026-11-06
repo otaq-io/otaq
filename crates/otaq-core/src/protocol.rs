@@ -337,8 +337,8 @@ pub enum Request {
     /// summary and the ticket moves to the next stage; refused with uncommitted files (REV-07) (AGM-10). Answered with [`Reply::StageEnded`].
     #[serde(rename = "ticket.stage_next")]
     TicketStageNext(StageEndParams),
-    /// `otaq stage done --stdin` (AGM-10): the agent ends the ticket from its Agent stage as Closed · nothing to
-    /// merge, the summary its reason; refused when the ticket's branch has commits. Answered with
+    /// `otaq stage done --stdin` (AGM-10): the agent ends the ticket from its Agent stage as Done · nothing to
+    /// merge (counting as merged), the summary its reason; refused when the ticket's branch has commits. Answered with
     /// [`Reply::StageEnded`].
     #[serde(rename = "ticket.stage_done")]
     TicketStageDone(StageEndParams),

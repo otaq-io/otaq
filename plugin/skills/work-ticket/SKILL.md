@@ -82,8 +82,9 @@ types a reminder into this session.
    moves on (to Ready for Review on the default board) and the user reviews the diff.
 
    **Nothing to deliver?** Only when the ticket needs no change at all (for example it was already fixed in SHOP-31)
-   and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Closed · nothing
-   to merge". It is refused once the branch has commits: then use `otaq stage next`, so they're checked and delivered.
+   and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Done · nothing to
+   merge" and counts as merged, so tickets waiting on it start. It is refused once the branch has commits: then use
+   `otaq stage next`, so they're checked and delivered.
 
    ```sh
    otaq stage done --stdin <<'REASON'

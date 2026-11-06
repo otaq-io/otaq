@@ -63,23 +63,26 @@ impl Review {
                 has_commits_message(&ticket.key, commits),
             ));
         }
-        self.finish_without_merge(&ticket, Some(""), actor).await
+        self.finish_without_merge(&ticket, Some(""), true, actor)
+            .await
     }
 
     /// Ends `ticket` as Done without a merge (`nothing_to_merge`: see [`crate::board::Board::record_done_without_merge`]),
     /// then the Done cleanup (worktree removed unless dirty, branch kept), then the waiting tickets whose last parent
-    /// this was start.
-    async fn finish_without_merge(
+    /// this was start. `clean_up_now` is false when the call comes from the ticket's own agent session (`otaq stage
+    /// done`): its cleanup waits for the turn to end ([`Review::after_agent_turn`]).
+    pub(crate) async fn finish_without_merge(
         &self,
         ticket: &Ticket,
         nothing_to_merge: Option<&str>,
+        clean_up_now: bool,
         actor: &Actor,
     ) -> Result<DoneOutcome, BoardError> {
         let board = &self.inner.board;
         let done = board
             .record_done_without_merge(ticket, nothing_to_merge, actor)
             .await?;
-        if let Err(e) = self.finish(&done).await {
+        if clean_up_now && let Err(e) = self.finish(&done).await {
             tracing::warn!(ticket = %done.key, error = %e, "Done cleanup failed");
         }
         let started = match self

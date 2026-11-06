@@ -69,8 +69,8 @@ types a reminder into this session.
    agents can't reach), one per check.
 
    **Nothing to build?** Only when the user agrees the ticket isn't needed and the branch has no commits, end the
-   ticket instead with `otaq stage done --stdin` and the reason on stdin. Once Product spec committed, use
-   `otaq stage next`.
+   ticket instead with `otaq stage done --stdin` and the reason on stdin: it goes to Done as "Done · nothing to
+   merge" and counts as merged. Once Product spec committed, use `otaq stage next`.
 
 ## Shaping the design
 

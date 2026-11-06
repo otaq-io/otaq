@@ -271,7 +271,7 @@ pub enum Command {
     #[command(subcommand)]
     Decision(DecisionCommand),
     /// End your stage: `stage next --stdin` (the default: on to the next stage with a summary) or `stage done
-    /// --stdin` (nothing to deliver: Closed · nothing to merge, with your reason)
+    /// --stdin` (nothing to deliver: Done · nothing to merge, with your reason)
     #[command(subcommand)]
     Stage(StageCommand),
     /// An agent check's verdict on its ticket, the report on stdin (`check pass|fail --stdin`, check sessions only)
@@ -382,8 +382,8 @@ pub enum StageCommand {
         #[arg(long = "manual-check", value_name = "TEXT")]
         manual_check: Vec<String>,
     },
-    /// Nothing to deliver (no commits on the branch): the ticket is Closed · nothing to merge, your reason on stdin
-    /// posted as your comment; refused when the branch has commits
+    /// Nothing to deliver (no commits on the branch): the ticket is Done · nothing to merge (it counts as merged), your
+    /// reason on stdin posted as your comment; refused when the branch has commits
     Done {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,

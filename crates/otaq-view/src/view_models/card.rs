@@ -1179,7 +1179,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             )
             .lost(into.clone())
         }
-        // Closed by an agent's `otaq stage done` (AGM-10, Q276): "Nothing to merge · already fixed in SHOP-31".
+        // Closed by an agent's `otaq stage done` before it finished as Done (AGM-10, Q276): "Nothing to merge · already
+        // fixed in SHOP-31".
         Status::ClosedNotMerged if let Some(reason) = &flags.nothing_to_merge => Part::flag(
             flag(
                 R::Outcome,
@@ -1202,7 +1203,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Some("closed without merging".into()),
             Tone::Muted,
         ),
-        // Finished from the Approve menu without a merge; it counts as merged: "Done · nothing to merge".
+        // Finished without a merge (the Approve menu, or `otaq stage done`); it counts as merged: "Done · nothing to
+        // merge".
         Status::Merged if flags.done_without_merge => {
             let (status, line) = match &flags.nothing_to_merge {
                 Some(reason) => (DONE_NOTHING_TO_MERGE, nothing_to_merge_line(reason)),
@@ -5331,8 +5333,8 @@ mod tests {
         );
     }
 
-    /// Q276, AGM-10 (`s03-48`): a ticket closed by `otaq stage done` says "Closed · nothing to merge" with the
-    /// agent's reason.
+    /// Q276, AGM-10 (`s03-48`): a ticket closed by `otaq stage done` (before it finished as Done) still says "Closed ·
+    /// nothing to merge" with the agent's reason.
     #[test]
     fn a_ticket_closed_with_nothing_to_merge_says_so() {
         let mut t = ticket(
@@ -5357,7 +5359,8 @@ mod tests {
         assert_eq!(line(&card(&t)), Some("closed without merging"));
     }
 
-    /// Finished from the Approve menu without a merge: "Done · nothing to merge" (it counts as merged).
+    /// Finished without a merge: "Done · nothing to merge" (it counts as merged), from the Approve menu with no
+    /// reason, or from an agent's `otaq stage done` with its reason.
     #[test]
     fn a_ticket_done_with_nothing_to_merge_says_so() {
         let mut t = ticket("SHOP-48", "Configure the CI secret", Status::Merged);
@@ -5367,6 +5370,14 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Done"));
         assert_eq!(vm.hover.status, "Done \u{b7} nothing to merge");
         assert_eq!(line(&vm), Some("Nothing to merge"));
+
+        t.flags.nothing_to_merge = Some("Already fixed in SHOP-31.".into());
+        let vm = card(&t);
+        assert_eq!(vm.hover.status, "Done \u{b7} nothing to merge");
+        assert_eq!(
+            line(&vm),
+            Some("Nothing to merge \u{b7} already fixed in SHOP-31")
+        );
     }
 
     /// With one tool connected the same cards show no avatar and name no tool beside the agent (d0086): the model's

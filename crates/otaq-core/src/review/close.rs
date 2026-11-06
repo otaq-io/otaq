@@ -6,14 +6,13 @@
 //! **branch is kept**. Mark closed on a PR ticket (M10) takes the same path. Tickets merged into the closed ticket's
 //! branch then go back to review on their own branches ([`Review::host_closed`]).
 //!
-//! **`otaq stage done`** (AGM-10, d0108) is the agent's close: from an Agent stage, only when the ticket's branch has
-//! no commits beyond its base, Done as **Closed · nothing to merge** with the agent's reason. Reopen works as for any
-//! closed ticket (d0033).
-
-use serde_json::json;
+//! **`otaq stage done`** (AGM-10, d0108) is the agent's end of a ticket: from an Agent stage, only when the ticket's
+//! branch has no commits beyond its base, the ticket finishes as **Done · nothing to merge** with the agent's reason,
+//! the same Done as the Approve menu's ([`super::done`]): it counts as merged, so tickets waiting on it start. Tickets
+//! closed this way before stay Closed · nothing to merge.
 
 use super::Review;
-use crate::board::close::{close_bookkeeping, close_bookkeeping_noting};
+use crate::board::close::close_bookkeeping;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Status};
@@ -66,8 +65,8 @@ impl Review {
         self.close_one(&ticket, actor).await
     }
 
-    /// **`otaq stage done`** (AGM-10): ends a ticket in an Agent stage as Done · Closed · nothing to merge, the reason
-    /// being the agent's comment (`hand_over`, CMT-05) and History's line. Refused outside an Agent stage,
+    /// **`otaq stage done`** (AGM-10): ends a ticket in an Agent stage as Done · nothing to merge (counting as merged),
+    /// the reason being the agent's comment (`hand_over`, CMT-05) and History's line. Refused outside an Agent stage,
     /// and when the ticket's branch has commits beyond its base. `own_session` is the calling session: when it is the
     /// ticket's agent, the Done cleanup (which ends that session) waits for its turn to end
     /// ([`Review::after_agent_turn`]).
@@ -117,35 +116,22 @@ impl Review {
             posted.as_ref().map(|p| p.id.as_str()),
         )
         .await?;
-        close_bookkeeping_noting(
-            &mut tx,
-            &ticket.id,
-            ticket.status,
-            actor,
-            json!({ "nothing_to_merge": true, "reason": reason }),
-        )
-        .await?;
-        sqlx::query(
-            "UPDATE tickets SET parked = FALSE, sent_back_at = NULL, resume_skill = NULL,
-                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL
-             WHERE id = ?",
-        )
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE tickets SET parked = FALSE WHERE id = ?")
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
-        tracing::info!(ticket = %ticket.key, from = %ticket.status, "closed: nothing to merge");
-        let closed = board.ticket_by_id(&ticket.id).await?;
         let own_agent = own_session.is_some_and(|session| {
             self.inner
                 .sessions
                 .running_of(&ticket.id, SessionKind::Agent)
                 .is_some_and(|s| s.id == session)
         });
-        if !own_agent && let Err(e) = self.finish(&closed).await {
-            tracing::warn!(ticket = %closed.key, error = %e, "cleanup after stage done failed");
-        }
-        board.ticket_by_id(&ticket.id).await
+        // Done, nothing to merge, as the Approve menu's Done: it counts as merged, so tickets waiting on it start.
+        let done = self
+            .finish_without_merge(&ticket, Some(reason), !own_agent, actor)
+            .await?;
+        Ok(*done.ticket)
     }
 
     /// A ticket agent's turn ended: when its ticket is finished meanwhile (`otaq stage done` from that session), the

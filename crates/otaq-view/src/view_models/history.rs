@@ -1172,7 +1172,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 _ => format!("no longer depends on {k}"),
             }),
         ),
-        // `otaq stage done` (AGM-10): the agent's reason.
+        // Closed by `otaq stage done` (AGM-10) before it finished as Done: the agent's reason.
         EventKind::Closed if p.get("nothing_to_merge").is_some() => (
             "Closed \u{b7} nothing to merge".to_owned(),
             text(p, "reason").map(first_line),
@@ -1191,7 +1191,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             "Merged".to_owned(),
             text(p, "target").map(|t| format!("into {t}")),
         ),
-        // Finished from the Approve menu without a merge: it counts as merged.
+        // Finished without a merge (the Approve menu, or `otaq stage done` with its reason): it counts as merged.
         EventKind::DoneWithoutMerge if p.get("nothing_to_merge").is_some() => (
             DONE_NOTHING_TO_MERGE.to_owned(),
             Some(text(p, "reason").map_or_else(|| who(&e.actor), first_line)),
@@ -2428,8 +2428,8 @@ mod tests {
     }
 
     /// T-0406 (Q263, AGM-10): "Finished Product spec" and "Finished Dev" for stages that end on their way to anything
-    /// but a human check, "Submitted for review" before one, and `stage done`'s "Closed · nothing to merge" with the
-    /// reason.
+    /// but a human check, "Submitted for review" before one, and "Closed · nothing to merge" with the reason on a
+    /// ticket `stage done` closed before it finished as Done.
     #[test]
     fn how_stages_ended() {
         let rows = rows(
@@ -2479,7 +2479,7 @@ mod tests {
     /// Done from the Approve menu with nothing to merge: "Done · nothing to merge", by whom.
     #[test]
     fn done_with_nothing_to_merge_reads_so() {
-        let rows = rows(
+        let by_user = rows(
             &[event(
                 EventKind::DoneWithoutMerge,
                 MIN,
@@ -2488,8 +2488,24 @@ mod tests {
             &[],
             &[],
         );
-        assert_eq!(rows[0].title, "Done \u{b7} nothing to merge");
-        assert!(rows[0].detail.is_some());
+        assert_eq!(by_user[0].title, "Done \u{b7} nothing to merge");
+        assert!(by_user[0].detail.is_some());
+
+        // An agent's `otaq stage done`: its reason's first line.
+        let by_agent = rows(
+            &[event(
+                EventKind::DoneWithoutMerge,
+                MIN,
+                json!({"from": "working", "nothing_to_merge": true, "reason": "Already fixed in SHOP-31.\nNo change."}),
+            )],
+            &[],
+            &[],
+        );
+        assert_eq!(by_agent[0].title, "Done \u{b7} nothing to merge");
+        assert_eq!(
+            by_agent[0].detail.as_deref(),
+            Some("Already fixed in SHOP-31.")
+        );
     }
 
     /// The ticket it was merged into was closed: "SHOP-18 was closed; back to review", by whom.

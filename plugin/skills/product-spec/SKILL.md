@@ -74,8 +74,8 @@ types a reminder into this session.
    user sees them as "Manual checks for you" at review.
 
    **Nothing to build?** Only when the user agrees the ticket isn't needed (for example "already fixed in SHOP-31")
-   and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Closed · nothing
-   to merge":
+   and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Done · nothing to
+   merge" and counts as merged, so tickets waiting on it start:
 
    ```sh
    otaq stage done --stdin <<'REASON'

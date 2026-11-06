@@ -227,14 +227,16 @@ pub struct Flags {
     /// for nobody, so it isn't in Needs you's group 3. Not a flag of its own.
     #[serde(default, skip_serializing_if = "is_false")]
     pub delivering_automatically: bool,
-    /// Finished from the Approve menu without a merge ([`crate::domain::Outcome::DoneWithoutMerge`]): Merged, so
+    /// Finished without a merge, from the Approve menu or an agent's `otaq stage done`
+    /// ([`crate::domain::Outcome::DoneWithoutMerge`]): Merged, so
     /// tickets waiting on it start, with no merge commit and its branch kept. "Done · nothing to merge" with
     /// [`Self::nothing_to_merge`]. Not a flag of its own.
     #[serde(default, skip_serializing_if = "is_false")]
     pub done_without_merge: bool,
-    /// Closed by an agent's `otaq stage done` (AGM-10): "Closed · nothing to merge", with the agent's reason (empty
-    /// when it gave none); on a ticket [`Self::done_without_merge`], its branch had nothing beyond its base (empty).
-    /// Not a flag of its own.
+    /// The branch had nothing beyond its base when the ticket finished: on a ticket [`Self::done_without_merge`],
+    /// "Done · nothing to merge", with the agent's `otaq stage done` reason (AGM-10) or empty (the Approve menu's
+    /// Done, or no reason given). On a ticket closed by `stage done` before it finished as Done: "Closed · nothing to
+    /// merge". Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nothing_to_merge: Option<String>,
     /// The Merge check (d0120): "Merging · running the merge check" while Local merge runs it, "Merge check failed ·

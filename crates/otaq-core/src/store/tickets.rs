@@ -73,7 +73,8 @@ pub struct TicketRow {
     pub auto_merge_conflicts: i64,
     pub auto_merge_stop: Option<String>,
     pub merged_automatically: bool,
-    /// T-0411 (migration 0049): the reason of an agent's `stage done` close (Closed · nothing to merge).
+    /// T-0411 (migration 0049): the branch had nothing to merge when the ticket finished; the reason of an agent's
+    /// `stage done` (Done · nothing to merge; Closed · nothing to merge on tickets closed that way before).
     pub nothing_to_merge: Option<String>,
     /// T-0419 (migration 0053): an automatic Delivery delivered it with no check passed before it.
     pub delivered_without_checks: bool,

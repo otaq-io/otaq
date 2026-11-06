@@ -1323,8 +1323,8 @@ pub fn render(ctx: &PrimeContext) -> String {
             .replace("{command}", "stage next"),
         format!(
             "Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already \
-             fixed elsewhere), end the ticket instead: `{cmd} stage done --stdin` with the reason on stdin. It is \
-             refused once the branch has commits."
+             fixed elsewhere), end the ticket instead: `{cmd} stage done --stdin` with the reason on stdin. It goes \
+             to Done as nothing to merge, counting as merged. It is refused once the branch has commits."
         ),
         format!(
             "When you are stuck or a decision is the user's, ask: `{cmd} ask human --stdin` with the question on \
