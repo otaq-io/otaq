@@ -647,9 +647,9 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("registers quick-create, the edit modal, the full-window view and the report view from its folder", () => {
+  it("registers quick-create, the edit modal, the full-window view, the report view and the image view from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
-      overlays: ["new_ticket", "edit_ticket", "full_view", "report"],
+      overlays: ["new_ticket", "edit_ticket", "full_view", "report", "image"],
     });
   });
 });

@@ -9,6 +9,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { overlays } from "../../app/overlays";
 import { closeTicket, NOTHING_SELECTED, openTicket, selection, showTab } from "../../app/selection";
+import type { AttachmentRow } from "../../generated/AttachmentRow";
 import type { EditorView } from "../../generated/EditorView";
 import type { OverviewView } from "../../generated/OverviewView";
 import { attachRequests } from "../editor/CommentThread";
@@ -86,6 +87,7 @@ const OVERVIEW: OverviewView = {
       attachment: 1,
       name: "test-run-login.md",
       kind: "text",
+      thumbnail: null,
       size: "3 KB",
       mark: { kind: "agent" },
       who: "Rust developer · Dev",
@@ -97,6 +99,7 @@ const OVERVIEW: OverviewView = {
       attachment: 1,
       name: "Pasted text",
       kind: "text",
+      thumbnail: null,
       size: "1 KB",
       mark: { kind: "you" },
       who: "You",
@@ -380,6 +383,37 @@ describe("the Attachments column (RPT-02, s25-05)", () => {
     }
     expect(out.match(/class="overview-attachment"/g)).toHaveLength(2);
     expect(out).toContain("data-mine");
+  });
+
+  it("shows an image's thumbnail in place of its icon, and the row opens (tuq 004)", () => {
+    const image: AttachmentRow = {
+      n: 4,
+      mark: { kind: "agent" },
+      who: "Rust developer · Dev",
+      mine: false,
+      line: "Fails 2 in 20 on Safari.",
+      attachment: 2,
+      name: "safari.png",
+      kind: "image",
+      thumbnail: {
+        attachment: 2,
+        name: "safari.png",
+        size: "120 KB",
+        open: "Open safari.png full size",
+        close: "Close",
+      },
+      size: "120 KB",
+    };
+    const out = renderToStaticMarkup(
+      createElement(Attachments, {
+        ticket: KEY,
+        view: { ...OVERVIEW, attachments: [image] },
+        error: null,
+        onAdd: () => undefined,
+      }),
+    );
+    expect(out).toContain(`src="otaq-attachment://localhost/${KEY}%2F4%2F2"`);
+    expect(out).not.toContain("aria-disabled");
   });
 });
 

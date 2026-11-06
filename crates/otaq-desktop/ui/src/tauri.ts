@@ -1,7 +1,7 @@
 // The one TypeScript file that names Tauri (UIT-02). Everything else imports these functions, so a Tauri upgrade
 // touches only this file and the Rust side's `src/door.rs`. Screens don't edit it: they call `request` with their own
 // method names and use the generated types for what goes in and comes back.
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import type { TerminalFeed } from "./generated/TerminalFeed";
 import type { WindowAction } from "./generated/WindowAction";
@@ -12,6 +12,24 @@ import type { WindowAction } from "./generated/WindowAction";
  */
 export function request(method: string, params: unknown = null): Promise<unknown> {
   return invoke("request", { method, params });
+}
+
+/** The scheme the Rust side serves comment images on (`src/attachment_images.rs`). */
+const ATTACHMENT_SCHEME = "otaq-attachment";
+
+/**
+ * Where an `<img>` loads image `attachment` of comment `n` on `ticket` (tuq 004): by its numbers, never a path; the
+ * Rust side finds the file and serves only images inside the data folder's reports. Tauri builds the URL for the
+ * platform (`otaq-attachment://localhost/…`, `http://otaq-attachment.localhost/…` on Windows); outside Tauri (tests)
+ * the macOS form.
+ */
+export function attachmentImage(ticket: string, n: number, attachment: number): string {
+  const path = `${ticket}/${String(n)}/${String(attachment)}`;
+  try {
+    return convertFileSrc(path, ATTACHMENT_SCHEME);
+  } catch {
+    return `${ATTACHMENT_SCHEME}://localhost/${encodeURIComponent(path)}`;
+  }
 }
 
 /** Subscribes to the app's event stream; `onEvent` gets every event from now on. */

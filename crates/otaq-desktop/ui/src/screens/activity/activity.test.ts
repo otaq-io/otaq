@@ -148,6 +148,7 @@ describe("Activity", () => {
               { kind: "same", sign: "", text: "Admins can export the orders table as CSV." },
               { kind: "added", sign: "+", text: "## Agreed" },
             ],
+            thumbnails: [],
             attachments: [],
           },
         }),
@@ -158,14 +159,22 @@ describe("Activity", () => {
             label: "COMMENT",
             caption: null,
             lines: [{ kind: "same", sign: "", text: "Fail: the 10,000 row limit isn't enforced." }],
+            thumbnails: [
+              {
+                n: 4,
+                thumbnail: {
+                  attachment: 2,
+                  name: "shot.png",
+                  size: "120 KB",
+                  open: "Open shot.png full size",
+                  close: "Close",
+                },
+              },
+            ],
             attachments: [
               {
                 n: 4,
                 chip: { attachment: 1, name: "test-run.txt", kind: "text", size: "· 48 KB", open: "Open" },
-              },
-              {
-                n: 4,
-                chip: { attachment: 2, name: "shot.png", kind: "image", size: "· 120 KB", open: null },
               },
             ],
           },
@@ -184,6 +193,9 @@ describe("Activity", () => {
     expect(opened).toContain("## Agreed");
     expect(opened).toContain("· 48 KB");
     expect(opened).toContain(">Open</button>");
+    // tuq 004: the image is a thumbnail, loaded by its numbers.
+    expect(opened).toContain('aria-label="Open shot.png full size"');
+    expect(opened).toContain('src="otaq-attachment://localhost/SHOP-34%2F4%2F2"');
   });
 
   it("filters by kind under All · Comments · Stages · Description, newest first; description edits open", () => {
@@ -215,6 +227,7 @@ describe("Activity", () => {
           label: "DESCRIPTION",
           caption: "Before / after",
           lines: [{ kind: "added", sign: "+", text: "· the redirect waits for the session cookie" }],
+          thumbnails: [],
           attachments: [],
         }),
         row("Spec writer · Product spec commented", "comment"),

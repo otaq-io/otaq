@@ -5,7 +5,8 @@
 //! - **The thread:** "Comments · 4" with "Every stage's agent reads them before it starts", newest first under the
 //!   box (agents still read them oldest first in `otaq prime`, d0109). Each comment says who wrote it, in which stage
 //!   and round, and when ("Validate · round 2 · 3:05 pm"); yours are tinted with the accent, an agent's carries its tool's avatar (a plain agent mark while avatars are hidden, SHL-08); "· edited"
-//!   once changed; each attachment is a chip under it, "test-run.txt · 48 KB", with Open for text (tuq 001, 002).
+//!   once changed; its images are a row of thumbnails under its text that open full size (tuq 004, 006), each other
+//!   attachment a chip, "test-run.txt · 48 KB", with Open for text (tuq 001, 002).
 //! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). A paste over the limit
 //!   becomes a "Pasted text · 48 KB" chip, never text; typing past it shows "2,140 / 2,000" and turns Comment off. The
 //!   page applies these rules while typing (it keeps no limit of its own: [`CommentLimits`] comes with the view); the
@@ -103,6 +104,58 @@ impl AttachmentChip {
     }
 }
 
+/// The thumbnail's label: "Open shot.png full size" (tuq 004).
+pub fn open_image_label(name: &str) -> String {
+    format!("Open {name} full size")
+}
+
+/// The full-size view's close button (tuq 004).
+pub const CLOSE_IMAGE: &str = "Close";
+
+/// One image of a comment as a thumbnail (tuq 004; 006: the user's and agents' alike): a click opens it full size over
+/// the sheet. The page loads its bytes by the ticket, the comment's number and [`Self::attachment`], never by a path
+/// (the desktop's `otaq-attachment` images, which serve only images inside the data folder's reports).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CommentThumbnail")]
+pub struct Thumbnail {
+    /// Its number in its comment (1, 2, 3…).
+    pub attachment: u32,
+    /// "shot.png": the image's alt text and the full-size view's title.
+    pub name: String,
+    /// "120 KB", after the title in the full-size view.
+    pub size: String,
+    /// "Open shot.png full size": the thumbnail's label for screen readers and its tooltip.
+    pub open: String,
+    /// The full-size view's close button: "Close".
+    pub close: String,
+}
+
+impl Thumbnail {
+    /// An image's thumbnail; none for text and other files, which stay chips (tuq 002).
+    pub fn of(a: &Attachment) -> Option<Self> {
+        (AttachmentKind::from(a.kind) == AttachmentKind::Image).then(|| Self {
+            attachment: a.n,
+            name: a.name.clone(),
+            size: size_label(a.bytes),
+            open: open_image_label(&a.name),
+            close: CLOSE_IMAGE.to_owned(),
+        })
+    }
+}
+
+/// A comment's attachments as the page shows them (tuq 002, 004): its images as a row of thumbnails, the rest (text,
+/// other files) as chips, each in order. One rule for the thread and History; the Attachments column gives an
+/// image's row its [`Thumbnail`] the same way.
+pub fn thumbnails_and_chips(attachments: &[Attachment]) -> (Vec<Thumbnail>, Vec<AttachmentChip>) {
+    let thumbnails = attachments.iter().filter_map(Thumbnail::of).collect();
+    let chips = attachments
+        .iter()
+        .filter(|a| AttachmentKind::from(a.kind) != AttachmentKind::Image)
+        .map(AttachmentChip::of)
+        .collect();
+    (thumbnails, chips)
+}
+
 /// One comment in the thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CommentRow")]
@@ -123,7 +176,9 @@ pub struct CommentRow {
     /// Who and when in one line, for the delete dialog: "Validator · Validate · round 2 · 3:05 pm".
     pub heading: String,
     pub body: String,
-    /// One chip per attachment, in order (tuq 001).
+    /// Its images as a row of thumbnails after its text, in order (tuq 004, 006).
+    pub thumbnails: Vec<Thumbnail>,
+    /// One chip per other attachment (text, other files), in order (tuq 001, 002).
     pub attachments: Vec<AttachmentChip>,
 }
 
@@ -354,6 +409,7 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
     meta.extend((!time.is_empty()).then_some(time));
     let meta = meta.join(" \u{b7} ");
     let author = comment.author_label();
+    let (thumbnails, attachments) = thumbnails_and_chips(&comment.attachments);
     CommentRow {
         n: comment.n,
         heading: [author.as_str(), meta.as_str()]
@@ -372,7 +428,8 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
         meta,
         edited: comment.edited_at.map(|_| EDITED.to_owned()),
         body: comment.body.clone(),
-        attachments: comment.attachments.iter().map(AttachmentChip::of).collect(),
+        thumbnails,
+        attachments,
     }
 }
 
@@ -489,7 +546,52 @@ mod tests {
         }
     }
 
-    /// tuq 001, 002: a comment with an image, a text file and a zip has one chip each, in order; only text opens.
+    /// tuq 004: a comment with two images and a .txt shows two thumbnails, in order, and one chip that opens.
+    #[test]
+    fn a_comments_images_are_thumbnails_and_its_text_a_chip() {
+        let mut c = comment(
+            6,
+            agent("Validator", Tool::Codex, "Validate", Some(1)),
+            Some("Validate"),
+            "The page before and after.",
+            at(15, 40),
+        );
+        c.attachments = vec![
+            attachment(1, "before.png", Kind::Image, 120 * 1024),
+            attachment(2, "run.txt", Kind::Text, 2 * 1024),
+            attachment(3, "after.jpg", Kind::Image, 80 * 1024),
+        ];
+        let v = view(&[c], None);
+        let row = &v.comments[0];
+        assert_eq!(
+            row.thumbnails,
+            [
+                Thumbnail {
+                    attachment: 1,
+                    name: "before.png".into(),
+                    size: "120 KB".into(),
+                    open: "Open before.png full size".into(),
+                    close: "Close".into(),
+                },
+                Thumbnail {
+                    attachment: 3,
+                    name: "after.jpg".into(),
+                    size: "80 KB".into(),
+                    open: "Open after.jpg full size".into(),
+                    close: "Close".into(),
+                },
+            ]
+        );
+        let chips: Vec<(u32, &str, Option<&str>)> = row
+            .attachments
+            .iter()
+            .map(|a| (a.attachment, a.name.as_str(), a.open.as_deref()))
+            .collect();
+        assert_eq!(chips, [(2, "run.txt", Some("Open"))]);
+    }
+
+    /// tuq 001, 002: a comment's text file and zip are one chip each, in order, and only text opens; its image is a
+    /// thumbnail, not a chip (tuq 004).
     #[test]
     fn a_comment_has_one_chip_per_attachment() {
         let mut c = comment(
@@ -521,7 +623,6 @@ mod tests {
         assert_eq!(
             chips,
             [
-                (1, "shot.png", AttachmentKind::Image, "\u{b7} 120 KB", None),
                 (
                     2,
                     "run.txt",
@@ -532,6 +633,12 @@ mod tests {
                 (3, "repro.zip", AttachmentKind::Other, "\u{b7} 3 MB", None),
             ]
         );
+        let images: Vec<&str> = v.comments[0]
+            .thumbnails
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(images, ["shot.png"]);
     }
 
     /// SHOP-34's four comments (`s05-41`): Product spec's hand-over, the user's, Dev's, and Validate's failed round 2

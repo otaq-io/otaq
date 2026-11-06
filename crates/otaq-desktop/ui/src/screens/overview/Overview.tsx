@@ -28,6 +28,7 @@ import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
 import { attachReport, COMMENT_EVENTS, CommentThread, Mark } from "../editor/CommentThread";
 import { EditForm, takeEditRequest } from "../editor/EditForm";
+import { AttachmentImage, openImage } from "../editor/ImageViewer";
 import { EDITOR_EVENTS } from "../editor/logic";
 import { openReport } from "../editor/reportOpener";
 import { BeforeYou } from "./BeforeYou";
@@ -47,10 +48,11 @@ function inTextField(target: EventTarget): boolean {
   );
 }
 
-/** One attachment: "test-run.txt 3 KB · CX Rust developer · Dev", its comment's line; a click opens a text one
- * (CMT-12). Images and other files don't open in the report view. */
+/** One attachment: "test-run.txt 3 KB · CX Rust developer · Dev", its comment's line; a click opens a text one in
+ * the report view (CMT-12) and an image full size, shown by its thumbnail (tuq 004). Other files don't open. */
 function Attachment({ ticket, row }: { ticket: string; row: AttachmentRow }) {
-  const opens = row.kind === "text";
+  const { thumbnail } = row;
+  const opens = row.kind === "text" || thumbnail !== null;
   return (
     <button
       type="button"
@@ -59,11 +61,22 @@ function Attachment({ ticket, row }: { ticket: string; row: AttachmentRow }) {
       data-kind={row.kind}
       aria-disabled={opens ? undefined : true}
       onClick={() => {
-        if (opens) openReport({ kind: "comment", ticket, n: row.n, attachment: row.attachment });
+        if (thumbnail !== null) openImage(ticket, row.n, thumbnail);
+        else if (opens) openReport({ kind: "comment", ticket, n: row.n, attachment: row.attachment });
       }}
     >
       <span className="overview-attachment-icon">
-        <Icon name={row.kind === "image" ? "image" : row.kind === "text" ? "file-text" : "file"} size={15} />
+        {thumbnail !== null ? (
+          <AttachmentImage
+            ticket={ticket}
+            n={row.n}
+            thumbnail={thumbnail}
+            className="comment-thumbnail-image"
+            decorative
+          />
+        ) : (
+          <Icon name={row.kind === "text" ? "file-text" : "file"} size={15} />
+        )}
       </span>
       <span className="overview-attachment-text">
         <span className="overview-attachment-name">{row.name}</span>

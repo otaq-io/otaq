@@ -12,7 +12,7 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: otaq-attachment: http://otaq-attachment.localhost"
     }
   },
   "plugins": {

@@ -5,6 +5,7 @@
 import type { ComponentType } from "react";
 
 import type { BlockedDialog } from "../../generated/BlockedDialog";
+import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
@@ -114,6 +115,8 @@ export interface OverlayParams {
   flow_editor: { project: string; from: FlowEditorFrom; select_stage?: string; add_after?: string | null };
   /** A comment's report, or a paste not posted yet, read-only over the sheet (CMT-12, T-0447). */
   report: ReportOpenParams;
+  /** A comment's image full size over the sheet (tuq 004): its ticket, its comment's number and its thumbnail. */
+  image: { ticket: string; n: number; thumbnail: CommentThumbnail };
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -159,6 +162,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   apply_now: true,
   flow_editor: true,
   report: true,
+  image: true,
 };
 
 export const OVERLAY_IDS = Object.keys(OVERLAY_MODAL) as OverlayId[];
