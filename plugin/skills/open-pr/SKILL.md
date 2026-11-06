@@ -52,7 +52,10 @@ the `otaq-push` skill, not this one.
    - **One message per commit**, for every commit `prime` lists, in the same order. Keep each message about what that
      commit changed. You only propose: never run `git commit --amend`, `git rebase` or `git branch -m` yourself.
    - **PR title:** the key (or the External ID) and the title, for example `SHOP-18 Login redirect`.
-   - **PR description:** what changed and why, and how it was tested, in Markdown.
+   - **PR description:** what changed and why, and how it was tested, in Markdown. When the "Pull request" section
+     has **Tickets merged into this one**, those tickets' work is in this branch too: the description lists each of
+     them, with its key, its title and a line on what it changed (for example
+     `- SHOP-20 Coupon codes: customers enter a coupon code at checkout`).
 5. **Propose it** with `otaq pr propose --stdin`. The proposal is one JSON object on stdin:
 
    ```sh

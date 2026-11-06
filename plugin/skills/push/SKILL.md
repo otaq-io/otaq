@@ -25,7 +25,7 @@ confirmed**. This happens in two turns, like opening the PR did.
    branch yet, oldest first, with their current messages. Commits that were already pushed are not yours to change.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1), proposing before pushing (step 3)
-   or reporting back (step 7).
+   or reporting back (step 8).
 3. **Propose** with `otaq pr propose --stdin`: one message per new commit, in the listed order. Keep the branch as
    `prime` names it. The title and description stay those of the open PR, so leave them out:
 
@@ -41,6 +41,8 @@ confirmed**. This happens in two turns, like opening the PR did.
    ```
 
    If the command refuses the proposal, fix what it names and propose again. Never reword or rebase commits yourself.
+   When the "Pull request" section has **Tickets merged into this one**, those tickets' work goes into the PR too:
+   you add them to its description in turn 2 (step 7).
 4. **End your turn.** Don't push. In click mode the user reviews the messages in Otaq; in automatic mode Otaq's
    confirmation arrives as your next message.
 
@@ -60,7 +62,17 @@ nothing is pushed.
    Use the user's own git credentials as they are; never store, print or ask for a token. If the push is rejected
    (for example because someone else pushed to the PR), don't force it and don't rebase: tell the user what git said
    with `otaq ask human --stdin` and end your turn.
-7. **Report back** with the PR's URL as `prime` shows it: `otaq pr opened <url>`, for example
+7. **List the merged-in tickets.** When the "Pull request" section has **Tickets merged into this one**, the PR's
+   description lists each of them, with its key, its title and a line on what it changed (for example
+   `- SHOP-20 Coupon codes: customers enter a coupon code at checkout`). Add the ones it doesn't list yet, keeping
+   the rest of the description as it is. Put the new description in a file, never in a quoted argument:
+   - **GitHub:** `gh pr view 481 --json body --jq .body` reads it; `gh pr edit 481 --body-file /tmp/SHOP-26-pr.md`
+     replaces it.
+   - **Azure DevOps:** `az repos pr show --id 481 --query description --output tsv` reads it;
+     `az repos pr update --id 481 --description "$(cat /tmp/SHOP-26-pr.md)"` replaces it.
+
+   If editing the description fails, tell the user what failed with `otaq ask human --stdin` and end your turn.
+8. **Report back** with the PR's URL as `prime` shows it: `otaq pr opened <url>`, for example
    `otaq pr opened https://github.com/acme/shop-web/pull/481`. The ticket returns to "Approved · PR open". End
    your turn.
 
