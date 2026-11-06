@@ -324,6 +324,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_review_check_types(&cfg)?;
     // The Ticket tab's comments and their box (T-0446, CMT-10, CMT-11): the thread's view and its requests.
     crate::api::export_ticket_comment_types(&cfg)?;
+    // What every comment box sends: its attachments, and the size check before one is added (tuq 003, 005).
+    crate::api::export_attachment_types(&cfg)?;
     // The sheet's Overview (T-0465, SHT-03, RPT-02): its view, the description's state, a file's chip.
     crate::api::export_overview_types(&cfg)?;
     // Dependencies (T-0463, DPV-01…DPV-04): the sheet's section, its search and link, the blocked dialog, the card's

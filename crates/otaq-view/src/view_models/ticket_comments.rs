@@ -37,6 +37,9 @@ pub const PASTED: &str = "Pasted text";
 /// The box's line while a file added in Overview waits in it (RPT-02, `s25-05`).
 pub const FILE_LINE: &str = "A comment always has its own line; the file goes with it.";
 pub const OPEN: &str = "Open";
+/// The button by the box that opens the system picker (tuq 003), and the picker's title.
+pub const ATTACH: &str = "Attach";
+pub const ATTACH_TITLE: &str = "Attach files to the comment";
 pub const EDITED: &str = "\u{b7} edited";
 pub const EDITING: &str = "editing";
 
@@ -207,6 +210,11 @@ pub struct CommentBoxView {
     pub open: String,
     /// The chip's ✕, for screen readers.
     pub remove: String,
+    /// The Attach button by the box (tuq 003): the system picker, several files at once. `None` for a box that holds
+    /// one report, where a new file replaces the last (the New ticket form's, RPT-03, with its own Add).
+    pub attach: Option<String>,
+    /// The picker's title.
+    pub attach_title: String,
     /// An empty box is fine (a dialog's optional comment); the thread's box needs text.
     pub optional: bool,
     pub limits: CommentLimits,
@@ -237,6 +245,8 @@ impl CommentBoxView {
             remove_file: "Remove the file".to_owned(),
             open: OPEN.to_owned(),
             remove: "Remove the pasted text".to_owned(),
+            attach: Some(ATTACH.to_owned()),
+            attach_title: ATTACH_TITLE.to_owned(),
             optional,
             limits: CommentLimits::current(),
             tell_agent: None,
@@ -265,6 +275,13 @@ impl CommentBoxView {
     /// No label over the box (the New ticket form's report has its own field label).
     pub fn without_label(mut self) -> Self {
         self.label = None;
+        self
+    }
+
+    /// A box that holds one report (the New ticket form's, RPT-03): no Attach button, and a file added replaces the
+    /// last.
+    pub fn one_report(mut self) -> Self {
+        self.attach = None;
         self
     }
 
@@ -847,6 +864,11 @@ mod tests {
         assert_eq!(b.needs_line, "Say what the next agent should look for");
         assert_eq!(b.limits.chars, 2000);
         assert_eq!(b.open, "Open");
+        assert_eq!(
+            b.attach.as_deref(),
+            Some("Attach"),
+            "every comment box takes files (tuq 003)"
+        );
         // A dialog's box (T-0447): its label and line, no button of its own.
         let d = CommentBoxView::dialog(
             "Comment for Dev (optional)",
@@ -861,6 +883,8 @@ mod tests {
         );
         assert!(d.optional);
         assert_eq!(d.limits, b.limits);
+        assert_eq!(d.attach, b.attach);
+        assert_eq!(d.one_report().attach, None);
     }
 
     /// `s05-41`'s card: "10,000 row limit isn't enforced · see comment".

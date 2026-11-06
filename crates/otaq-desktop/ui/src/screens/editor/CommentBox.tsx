@@ -1,27 +1,45 @@
 // The comment box (CMT-11, d0109; *05 → Row · Ticket comments and a report* and *Row · Writing, editing and
 // deleting*, `s05-41`…`s05-44`): at the end of the Ticket tab's thread, and inside the Send back, Fail and drag-back
 // dialogs (T-0447), which give it their label and line (`CommentBoxView.dialog`) and send it with their own button.
-// A paste over the limit becomes the "Pasted text · 48 KB" chip (open, remove), never text; with only the chip the
-// button stays off and the hint asks for a line; typing past the limit shows "2,140 / 2,000", the red box, and turns
-// the button off (`commentRules.ts`). A file added in Overview (Add, a drop; RPT-02) waits as its own chip
-// ("perf-notes.md · 2 KB ✕") with the line "A comment always has its own line; the file goes with it."; a file pasted
-// into the box becomes the pasted chip. Its words and the limit come from Rust (`CommentBoxView`); the box keeps only
-// what is typed. ⌘↵ sends it. While the ticket's agent or check runs the thread's box shows "Also tell the agent now"
-// (d0123, `CommentBoxView.tell_agent`), ticked by default; the thread keeps the tick and posts it as `tell_agent`.
-import { type ClipboardEvent, type KeyboardEvent, type Ref, useCallback, useId } from "react";
+// It holds the text and a list of attachments (tuq 001), each its own chip with ✕, added three ways (tuq 003): a paste
+// (a screenshot becomes an image, files copied in Finder keep their names, text over the limit becomes "Pasted text ·
+// 48 KB", never text), files dropped on the box, and Attach (the system picker, several at once). An image's chip shows
+// a thumbnail (tuq 002); other files show name and size. A file over 20 MB is refused when it is added, by name, and
+// the rest of the box stays (tuq 005; `attachmentAdding.ts`). With only pasted text the button stays off and the hint
+// asks for a line; with a file the line "A comment always has its own line; the file goes with it." shows; typing
+// past the limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
+// limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it. While the
+// ticket's agent or check runs the thread's box shows "Also tell the agent now" (d0123, `CommentBoxView.tell_agent`),
+// ticked by default; the thread keeps the tick and posts it as `tell_agent`.
+import {
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type Ref,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Button, Checkbox, Kbd, PROSE_TEXT } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import { useServiceView } from "../../service";
-import { request } from "../../tauri";
+import { pickAttachmentFiles, request } from "../../tauri";
+import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
+import { type Added, addFiles, addPaths, clipboardFiles, thumbnailOf } from "./attachmentAdding";
 import {
-  type AttachedFile,
   type BoxValue,
   boxState,
-  type Pasted,
+  type FileAttachment,
+  type PastedAttachment,
   pasteAction,
+  withAdded,
+  withoutAttachment,
   withPasted,
+  withThumb,
 } from "./commentRules";
 import { isSaveKey, SAVE_KEYS } from "./logic";
 import { openReport } from "./reportOpener";
@@ -36,7 +54,7 @@ function PastedChip({
   onRemove,
 }: {
   ticket: string;
-  pasted: Pasted;
+  pasted: PastedAttachment;
   view: CommentBoxView;
   onRemove: () => void;
 }) {
@@ -67,24 +85,33 @@ function PastedChip({
   );
 }
 
-/** "perf-notes.md 2 KB ✕": a file added in Overview, sent as the comment's report. */
+/** "perf-notes.md 2 KB ✕", or an image's thumbnail before its name (tuq 002). */
 function FileChip({
   file,
   view,
   onRemove,
 }: {
-  file: AttachedFile;
+  file: FileAttachment;
   view: CommentBoxView;
   onRemove: () => void;
 }) {
   return (
-    <span className="comment-chip" data-file>
+    <span className="comment-chip" data-file data-image={file.image || undefined}>
       <span className="comment-chip-open" data-static>
-        <Icon name="file-text" size={13} />
+        {file.image && file.thumb !== null ? (
+          <img className="comment-chip-thumb" src={file.thumb} alt="" />
+        ) : (
+          <Icon name={file.image ? "image" : "file-text"} size={13} />
+        )}
         <span className="comment-chip-label">{file.name}</span>
         <span className="comment-chip-size">{file.size}</span>
       </span>
-      <button type="button" className="comment-chip-remove" aria-label={view.remove_file} onClick={onRemove}>
+      <button
+        type="button"
+        className="comment-chip-remove"
+        aria-label={`${view.remove_file} ${file.name}`}
+        onClick={onRemove}
+      >
         <Icon name="x" size={13} />
       </button>
     </span>
@@ -123,27 +150,79 @@ export function CommentBox({
 }: CommentBoxProps) {
   const id = useId();
   const state = boxState(value, view.limits, view.optional);
+  // A box of one report (the New ticket form's): a file added replaces the last; its form takes drops itself.
+  const one = view.attach === null;
+  // Files arrive after a moment (a request, a picker): they join what the box holds then, not when they were added.
+  const latest = useRef(value);
+  useLayoutEffect(() => {
+    latest.current = value;
+  }, [value]);
+  const change = useCallback(
+    (next: BoxValue) => {
+      latest.current = next;
+      onChange(next);
+    },
+    [onChange],
+  );
+  // Why a file couldn't be added (over 20 MB, gone): under the box until the next one is added.
+  const [refused, setRefused] = useState<readonly string[]>([]);
+  const take = useCallback(
+    ({ added, refused: why }: Added) => {
+      change(withAdded(latest.current, added, one));
+      setRefused(why);
+    },
+    [change, one],
+  );
+  const addPathsToBox = useCallback(
+    (paths: readonly string[]) => {
+      if (paths.length > 0) void addPaths(paths).then(take);
+    },
+    [take],
+  );
+
+  // Files dropped on the box (the door's `files_dropped`, as Overview takes them).
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (!el || one) return;
+    return dropTargets.register(el, {
+      takesTyping: () => false,
+      paste: () => undefined,
+      takeFiles: addPathsToBox,
+    });
+  }, [one, addPathsToBox]);
+
+  // Each image's thumbnail, read once from its file.
+  const drawing = useRef(new Set<number>());
+  useEffect(() => {
+    for (const a of value.attachments) {
+      if (a.kind !== "file" || !a.image || a.thumb !== null || drawing.current.has(a.id)) continue;
+      drawing.current.add(a.id);
+      thumbnailOf(a.path).then(
+        (thumb) => {
+          change(withThumb(latest.current, a.id, thumb));
+        },
+        () => undefined,
+      );
+    }
+  }, [value.attachments, change]);
+
   const submit = () => {
     if (state.canSubmit && !busy) onSubmit();
   };
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    // A file (copied in Finder): its text becomes the pasted report, the comment still needs its line.
-    const file = (e.clipboardData.files as FileList | undefined)?.[0];
-    if (file !== undefined) {
+    // A screenshot or files copied in Finder: each becomes an attachment under its own name (tuq 003).
+    const files = clipboardFiles(e.clipboardData);
+    if (files.length > 0) {
       e.preventDefault();
-      file.text().then(
-        (text) => {
-          onChange(withPasted(value, text));
-        },
-        () => undefined,
-      );
+      void addFiles(files).then(take);
       return;
     }
     const text = e.clipboardData.getData("text/plain");
     if (pasteAction(text, view.limits) !== "chip") return;
     // Over the limit: the report chip, never text (d0109).
     e.preventDefault();
-    onChange(withPasted(value, text));
+    change(withPasted(value, text, one));
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!isSaveKey(e)) return;
@@ -152,8 +231,11 @@ export function CommentBox({
     e.stopPropagation();
     submit();
   };
+  const remove = (attachment: number) => {
+    change(withoutAttachment(value, attachment));
+  };
   return (
-    <div className="comment-box" data-over={state.over || undefined}>
+    <div ref={root} className="comment-box" data-over={state.over || undefined}>
       {view.label !== null && (
         <label className="comment-box-label" htmlFor={id}>
           {view.label}
@@ -169,35 +251,49 @@ export function CommentBox({
         aria-label={view.label ?? view.placeholder}
         aria-invalid={state.over || undefined}
         onChange={(e) => {
-          onChange({ ...value, text: e.target.value });
+          change({ ...value, text: e.target.value });
         }}
         onPaste={onPaste}
         onKeyDown={onKeyDown}
       />
-      {value.file !== null && (
+      {value.attachments.length > 0 && (
         <div className="comment-box-chips">
-          <FileChip
-            file={value.file}
-            view={view}
-            onRemove={() => {
-              onChange({ ...value, file: null });
-            }}
-          />
-        </div>
-      )}
-      {value.pasted !== null && (
-        <div className="comment-box-chips">
-          <PastedChip
-            ticket={ticket}
-            pasted={value.pasted}
-            view={view}
-            onRemove={() => {
-              onChange({ ...value, pasted: null });
-            }}
-          />
+          {value.attachments.map((a) =>
+            a.kind === "file" ? (
+              <FileChip
+                key={a.id}
+                file={a}
+                view={view}
+                onRemove={() => {
+                  remove(a.id);
+                }}
+              />
+            ) : (
+              <PastedChip
+                key={a.id}
+                ticket={ticket}
+                pasted={a}
+                view={view}
+                onRemove={() => {
+                  remove(a.id);
+                }}
+              />
+            ),
+          )}
         </div>
       )}
       <div className="comment-box-actions">
+        {view.attach !== null && (
+          <Button
+            variant="ghost"
+            compact
+            icon="paperclip"
+            label={view.attach}
+            onClick={() => {
+              pickAttachmentFiles(view.attach_title).then(addPathsToBox, () => undefined);
+            }}
+          />
+        )}
         {state.fileLine && (
           <span className="comment-box-hint" role="status">
             {view.file_line}
@@ -236,6 +332,11 @@ export function CommentBox({
           {error}
         </p>
       )}
+      {refused.map((why) => (
+        <p key={why} className="comment-box-error" role="alert">
+          {why}
+        </p>
+      ))}
       {view.footer !== null && (
         <p className="comment-box-footer">
           <Icon name={view.footer_icon} size={12} />

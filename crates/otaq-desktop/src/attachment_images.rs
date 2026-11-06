@@ -253,14 +253,14 @@ mod tests {
         table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "The page.", "file": shot.display().to_string() }),
+            json!({ "key": key, "body": "The page.", "attachments": [{ "kind": "file", "path": shot.display().to_string() }] }),
         )
         .await
         .unwrap();
         table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "The log.", "pasted": "one\ntwo\n" }),
+            json!({ "key": key, "body": "The log.", "attachments": [{ "kind": "pasted", "text": "one\ntwo\n" }] }),
         )
         .await
         .unwrap();

@@ -16,7 +16,7 @@ import type { TicketSendBackPrView } from "../../generated/TicketSendBackPrView"
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { CommentBox } from "../editor/CommentBox";
-import { type BoxValue, boxState, EMPTY_BOX } from "../editor/commentRules";
+import { type BoxValue, boxState, EMPTY_BOX, sentAttachments } from "../editor/commentRules";
 import { afterSend } from "./Dialogs";
 
 /** What a Pass opens next: nothing once the card moved on, else today's delivery choices (`menu`: the choice between
@@ -86,7 +86,7 @@ export function SendBackPrDialog({ params, close }: OverlayProps<"send_back_pr">
       request("review.send_back_pr", {
         key: ticket,
         note: comment.text,
-        report: comment.pasted?.text,
+        attachments: sentAttachments(comment),
         clear,
       } satisfies SendBackPrParams) as Promise<SheetSent>
     ).then((sent) => {

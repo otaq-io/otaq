@@ -44,9 +44,11 @@ export function canSave(form: EditorForm, saving: boolean): boolean {
  * line typed with it; no report, no line.
  */
 export function formReport(box: BoxValue): Pick<EditorForm, "report" | "report_line"> {
-  if (box.file !== null) return { report: { kind: "file", path: box.file.path }, report_line: box.text };
-  if (box.pasted !== null)
-    return { report: { kind: "pasted", text: box.pasted.text }, report_line: box.text };
+  // The form's box holds one (`CommentBoxView.attach` is null there): the last added.
+  const report = box.attachments.at(-1);
+  if (report?.kind === "file") return { report: { kind: "file", path: report.path }, report_line: box.text };
+  if (report?.kind === "pasted")
+    return { report: { kind: "pasted", text: report.text }, report_line: box.text };
   return { report: undefined, report_line: undefined };
 }
 

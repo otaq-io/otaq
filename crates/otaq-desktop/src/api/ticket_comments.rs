@@ -1,9 +1,9 @@
 //! `ticket_comments.*`: the comments in the Ticket tab and their box (CMT-10, CMT-11; d0109; `s05-41`…`s05-44`). The
 //! thread's words come from `otaq-view`'s `ticket_comments.rs`; posting, editing and deleting go to the service
 //! (`ticket.comment_post`, `…_edit`, `…_delete`), which checks the limit and the rights again and publishes
-//! `ticket_changed`, so the thread follows. A paste over the limit travels as the comment's report (`{"text": …}`).
+//! `ticket_changed`, so the thread follows. The box's attachments travel as one list ([`Sent`], `attachments.rs`):
+//! files by their paths, a paste over the limit as its text.
 
-use otaq_core::board::reports::ReportSource;
 use otaq_core::protocol::{
     KeyParams, Reply, Request, SessionListParams, TicketCommentEditParams, TicketCommentParams,
     TicketCommentPostParams,
@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+use super::attachments::{self, Sent, sources};
 use super::{RequestError, reply, unknown};
 use crate::App;
 
@@ -59,18 +60,16 @@ pub struct ThreadParams {
     pub key: String,
 }
 
-/// `{"key": "SHOP-34", "body": "…", "pasted": "…48 KB of log…"}`: a new comment, with the pasted text as its report;
-/// or with `"file": "/Users/me/perf-notes.md"`, a file added in Overview (Add, a drop; RPT-02), copied as its report.
-/// `"tell_agent": true` also tells the running agent to read it (d0123).
+/// `{"key": "SHOP-34", "body": "…", "attachments": [{"kind": "file", "path": "/Users/me/shot.png"}, {"kind":
+/// "pasted", "text": "…48 KB of log…"}]}`: a new comment with what its box holds (tuq 001, 003), each copied as one of
+/// its attachments, in order. `"tell_agent": true` also tells the running agent to read it (d0123).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "CommentPostParams")]
 pub struct PostParams {
     pub key: String,
     pub body: String,
     #[serde(default)]
-    pub pasted: Option<String>,
-    #[serde(default)]
-    pub file: Option<String>,
+    pub attachments: Vec<Sent>,
     /// "Also tell the agent now" ticked (d0123).
     #[serde(default)]
     pub tell_agent: bool,
@@ -175,15 +174,13 @@ pub async fn post(app: &App, params: PostParams) -> Result<Done, RequestError> {
         .send(Request::TicketCommentPost(TicketCommentPostParams {
             key: params.key,
             body: params.body,
-            // The comment box sends at most one for now: the file (Overview's Add, a drop) or the pasted text.
-            attachments: match (params.file, params.pasted) {
-                (Some(path), _) => vec![ReportSource::Path(path.into())],
-                (None, pasted) => pasted.map(ReportSource::Text).into_iter().collect(),
-            },
+            attachments: sources(&params.attachments),
             tell_agent: params.tell_agent,
         }))
         .await?;
-    posted("ticket.comment_post", answer)
+    let done = posted("ticket.comment_post", answer)?;
+    attachments::release(app, &params.attachments);
+    Ok(done)
 }
 
 pub async fn edit(app: &App, params: EditParams) -> Result<Done, RequestError> {
@@ -274,7 +271,11 @@ mod tests {
         let done = table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "Look at limit_rows first.", "pasted": pasted }),
+            json!({
+                "key": key,
+                "body": "Look at limit_rows first.",
+                "attachments": [{ "kind": "pasted", "text": pasted }],
+            }),
         )
         .await
         .unwrap();
@@ -329,6 +330,44 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(size, "\u{b7} 48 KB");
+
+        // A pasted screenshot (staged from its bytes), a picked file and a long paste go together, in the box's
+        // order (tuq 001, 003); the staged copy goes once the comment holds its own.
+        let shot = attachments::stage(&h.app, "image.png".into(), b"\x89PNG\r\n\x1a\n".to_vec())
+            .await
+            .unwrap();
+        assert!(shot.image);
+        let mine = tempfile::tempdir().unwrap();
+        let notes = mine.path().join("perf-notes.md");
+        std::fs::write(&notes, "slow\n").unwrap();
+        table(
+            &h.app,
+            "ticket_comments.post",
+            json!({
+                "key": key,
+                "body": "Before and after.",
+                "attachments": [
+                    { "kind": "file", "path": shot.path },
+                    { "kind": "file", "path": notes.display().to_string() },
+                    { "kind": "pasted", "text": "x".repeat(2500) },
+                ],
+            }),
+        )
+        .await
+        .unwrap();
+        let view = table(&h.app, "ticket_comments.thread", json!({ "key": key }))
+            .await
+            .unwrap();
+        // The image shows as a thumbnail (piece 3), attachment 1; the text ones as chips after it.
+        let thumbs = &view["comments"][0]["thumbnails"];
+        assert_eq!(thumbs[0]["name"], "image.png");
+        assert_eq!(thumbs[0]["attachment"], 1);
+        let chips = &view["comments"][0]["attachments"];
+        assert_eq!(chips[0]["name"], "perf-notes.md");
+        assert_eq!(chips[0]["kind"], "text");
+        assert_eq!(chips[1]["name"], "Pasted text");
+        assert!(!std::path::Path::new(&shot.path).exists(), "the staged copy went");
+        assert!(notes.exists(), "the user's own file stays");
         h.service.stop_all().await;
     }
 }

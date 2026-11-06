@@ -26,7 +26,14 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "./CommentBox";
 import { Thumbnails } from "./ImageViewer";
-import { type AttachedFile, type BoxValue, boxState, EMPTY_BOX, withFile, withPasted } from "./commentRules";
+import {
+  type BoxAttachment,
+  type BoxValue,
+  boxState,
+  EMPTY_BOX,
+  sentAttachments,
+  withAdded,
+} from "./commentRules";
 import { isSaveKey } from "./logic";
 import { openReport } from "./reportOpener";
 
@@ -35,10 +42,10 @@ export const COMMENT_EVENTS = ["ticket_changed", "ticket_deleted", "session_stat
 
 const ignore = () => undefined;
 
-/** A report for a ticket's comment box: a file (Overview's Add or a drop) or a pasted file's text. */
+/** Attachments for a ticket's comment box: files from Overview's Add, a drop or a paste (tuq 003). */
 export interface AttachRequest {
   ticket: string;
-  report: { kind: "file"; file: AttachedFile } | { kind: "pasted"; text: string };
+  attachments: readonly BoxAttachment[];
   /** Counts up with each request, so the same file twice is two requests. */
   seq: number;
 }
@@ -46,13 +53,13 @@ export interface AttachRequest {
 /** The newest file handed to a comment box; the thread of its ticket takes it, once. */
 export const attachRequests: Store<AttachRequest | null> = createStore<AttachRequest | null>(null);
 
-/** Opens `ticket`'s comment box with `report` as its chip (RPT-02: a comment always has its own line). */
+/** Opens `ticket`'s comment box with `attachments` added to its chips (RPT-02: a comment always has its own line). */
 export function attachReport(
   ticket: string,
-  report: AttachRequest["report"],
+  attachments: AttachRequest["attachments"],
   store: Store<AttachRequest | null> = attachRequests,
 ): void {
-  store.update((last) => ({ ticket, report, seq: (last?.seq ?? 0) + 1 }));
+  store.update((last) => ({ ticket, attachments, seq: (last?.seq ?? 0) + 1 }));
 }
 
 /** A comment author's mark: yours, an agent's tool avatar, or the plain agent mark (also the report view's poster). */
@@ -188,7 +195,7 @@ function EditInPlace({
   const [text, setText] = useState(row.body);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const state = boxState({ text, pasted: null, file: null }, view.box.limits);
+  const state = boxState({ text, attachments: [] }, view.box.limits);
   const save = () => {
     if (!state.canSubmit || busy) return;
     if (text.trim() === row.body) {
@@ -365,9 +372,9 @@ export function CommentThread({ ticket }: TicketProps) {
     // Once the box shows: it takes the keyboard.
     if (attach?.ticket !== ticket || view?.key !== ticket) return;
     attachRequests.set(null);
-    const { report } = attach;
+    const { attachments } = attach;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the file arrives from outside React (a store), once
-    setValue((v) => (report.kind === "file" ? withFile(v, report.file) : withPasted(v, report.text)));
+    setValue((v) => withAdded(v, attachments));
     setError(null);
     box.current?.scrollIntoView({ block: "nearest" });
     box.current?.focus();
@@ -379,8 +386,7 @@ export function CommentThread({ ticket }: TicketProps) {
     request("ticket_comments.post", {
       key: ticket,
       body: value.text,
-      pasted: value.pasted?.text ?? null,
-      file: value.file?.path ?? null,
+      attachments: sentAttachments(value),
       tell_agent: view.box.tell_agent !== null && tellAgent,
     }).then(
       () => {

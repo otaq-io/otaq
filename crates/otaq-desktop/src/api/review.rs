@@ -436,10 +436,9 @@ pub struct SendBackParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
-    /// Text pasted into the note as its report (CMT-13).
+    /// What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
     #[serde(default)]
-    #[ts(optional)]
-    pub report: Option<String>,
+    pub attachments: Vec<super::attachments::Sent>,
     #[serde(default)]
     pub clear: bool,
     /// How many comments it sends, for the unsent-text question's wording.
@@ -454,7 +453,7 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
         .send(sb::request(
             &key,
             &params.note,
-            params.report.as_deref(),
+            super::attachments::sources(&params.attachments),
             params.clear,
         ))
         .await
@@ -470,7 +469,10 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
                 .unclearable_by(unclearable_by),
             )))
         }
-        Ok(_) => Ok(Sent::Done),
+        Ok(_) => {
+            super::attachments::release(app, &params.attachments);
+            Ok(Sent::Done)
+        }
         Err(e) => {
             toast(
                 app,
@@ -541,10 +543,9 @@ pub struct SendBackPrParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
-    /// Text pasted into the note as its report (CMT-13).
+    /// What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
     #[serde(default)]
-    #[ts(optional)]
-    pub report: Option<String>,
+    pub attachments: Vec<super::attachments::Sent>,
     #[serde(default)]
     pub clear: bool,
 }
@@ -555,7 +556,7 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
         key: key.to_string(),
         note: params.note.trim().to_owned(),
         clear_first: params.clear,
-        attachments: sb::pasted_report(params.report.as_deref()),
+        attachments: super::attachments::sources(&params.attachments),
     });
     match app.service.send(request).await {
         Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
@@ -569,7 +570,10 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
                 .unclearable_by(unclearable_by),
             )))
         }
-        Ok(_) => Ok(Sent::Done),
+        Ok(_) => {
+            super::attachments::release(app, &params.attachments);
+            Ok(Sent::Done)
+        }
         Err(e) => {
             toast(
                 app,

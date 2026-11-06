@@ -106,10 +106,9 @@ pub struct DragBackParams {
     pub target: DropTargetId,
     #[serde(default)]
     pub note: String,
-    /// Text pasted into the note as its report (CMT-13).
+    /// What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
     #[serde(default)]
-    #[ts(optional)]
-    pub report: Option<String>,
+    pub attachments: Vec<super::attachments::Sent>,
     #[serde(default)]
     pub clear: bool,
 }
@@ -547,7 +546,7 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
             confirmed: true,
             note: params.note.clone(),
             clear_first: params.clear,
-            attachments: sb::pasted_report(params.report.as_deref()),
+            attachments: super::attachments::sources(&params.attachments),
         }))
         .await;
     match sent? {
@@ -563,7 +562,10 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
             )))
         }
         // A refusal comes back as the error: the dialog shows it and stays open.
-        _ => Ok(Sent::Done),
+        _ => {
+            super::attachments::release(app, &params.attachments);
+            Ok(Sent::Done)
+        }
     }
 }
 

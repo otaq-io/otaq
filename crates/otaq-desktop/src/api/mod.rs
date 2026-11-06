@@ -26,6 +26,12 @@ pub use apply_now::export_types as export_apply_now_types;
 #[cfg(test)]
 pub use ask_bar::export_types as export_ask_bar_types;
 #[cfg(test)]
+pub use attachments::export_types as export_attachment_types;
+pub use attachments::{
+    clear as clear_staged_attachments, image_bytes as box_image_bytes,
+    name_from_header as attachment_name, stage as stage_attachment,
+};
+#[cfg(test)]
 pub use board::{
     DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
     MenuParams as CardMenuParams, SearchParams, SetViewParams as BoardSetViewParams,
@@ -178,6 +184,7 @@ macro_rules! areas {
 }
 
 areas! {
+    attachments,
     service,
     theme,
     window,

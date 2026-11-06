@@ -32,7 +32,7 @@ import { useFormKeys } from "./Modal";
 import { takeEditRequest } from "./EditForm";
 import { useEditor } from "./useEditor";
 import { FORM, READ, REPORT_FIELD, TEXTS, VIEW } from "./editor_fixtures";
-import { EMPTY_BOX } from "./commentRules";
+import { EMPTY_BOX, fileAttachment, withPasted } from "./commentRules";
 import { NewTicketReport, useReportAttach } from "./NewTicketReport";
 import { dropTargets } from "../../terminal/drops";
 
@@ -161,12 +161,17 @@ describe("the editor's form state", () => {
 
 describe("the New ticket form's report (RPT-03, T-0474)", () => {
   it("turns the box into the form's fields: a file by its path, pasted text, nothing without a report", () => {
-    const file = { path: "/Users/me/test-run-login.md", name: "test-run-login.md", size: "3 KB" };
-    expect(formReport({ ...EMPTY_BOX, file, text: "The run." })).toEqual({
+    const file = fileAttachment({
+      path: "/Users/me/test-run-login.md",
+      name: "test-run-login.md",
+      size: "3 KB",
+      image: false,
+    });
+    expect(formReport({ attachments: [file], text: "The run." })).toEqual({
       report: { kind: "file", path: "/Users/me/test-run-login.md" },
       report_line: "The run.",
     });
-    expect(formReport({ text: "", pasted: { text: "log", bytes: 3 }, file: null })).toEqual({
+    expect(formReport(withPasted(EMPTY_BOX, "log", true))).toEqual({
       report: { kind: "pasted", text: "log" },
       report_line: "",
     });
@@ -179,7 +184,7 @@ describe("the New ticket form's report (RPT-03, T-0474)", () => {
   it("a dropped file becomes the chip waiting for its line; the line goes with it; ✕ takes it away", async () => {
     ipc.reply = (method, params) =>
       method === "overview.file"
-        ? { path: (params as { path: string }).path, name: "test-run-login.md", size: "3 KB" }
+        ? { path: (params as { path: string }).path, name: "test-run-login.md", size: "3 KB", image: false }
         : [];
     const seen: Partial<EditorForm>[] = [];
     function Harness() {

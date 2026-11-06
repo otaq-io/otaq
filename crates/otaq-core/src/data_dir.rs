@@ -107,6 +107,13 @@ impl DataDir {
         self.root.join("updates")
     }
 
+    /// Where the app keeps the files added to a comment box that have no path of their own (a pasted screenshot,
+    /// files pasted from Finder; tuq 003) until the comment is posted, which copies them into its own folder:
+    /// `staged-attachments/<id>/<name>`. The app empties it when it starts.
+    pub fn staged_attachments_dir(&self) -> PathBuf {
+        self.root.join("staged-attachments")
+    }
+
     /// The folder holding every comment's report (CMT-03, d0109), grouped by repository and ticket.
     pub fn reports_dir(&self) -> PathBuf {
         self.root.join("reports")

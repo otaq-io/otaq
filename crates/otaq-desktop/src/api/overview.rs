@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use otaq_core::board::reports::{open_report, size_label};
+use otaq_core::board::reports::{AttachmentKind, open_report, size_label};
 use otaq_core::protocol::{
     KeyParams, ManualCheckTickParams, ProjectParams, Reply, Request, SessionListParams,
 };
@@ -83,13 +83,27 @@ pub struct TickParams {
     pub ticked: bool,
 }
 
-/// The comment box's chip for a file: "perf-notes.md", "2 KB"; posted as the comment's report by its path.
+/// The comment box's chip for a file: "perf-notes.md", "2 KB"; posted as one of the comment's attachments by its
+/// path. An image's chip shows a thumbnail (tuq 002), read with the door's `box_image`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OverviewFileChip")]
 pub struct FileChip {
     pub path: String,
     pub name: String,
     pub size: String,
+    /// An image by its name ([`AttachmentKind::is_image_name`]), as the posted attachment's kind will be.
+    pub image: bool,
+}
+
+impl FileChip {
+    pub fn new(path: String, name: String, bytes: u64) -> Self {
+        Self {
+            image: AttachmentKind::is_image_name(&name),
+            size: size_label(bytes),
+            path,
+            name,
+        }
+    }
 }
 
 fn now_ms() -> i64 {
@@ -253,13 +267,10 @@ pub async fn file(params: FileParams) -> Result<FileChip, RequestError> {
     .await
     .map_err(|e| RequestError::plain(e.to_string()))?
     .map_err(RequestError::plain)?;
-    Ok(FileChip {
-        name: path
-            .file_name()
-            .map_or_else(|| params.path.clone(), |n| n.to_string_lossy().into_owned()),
-        size: size_label(bytes),
-        path: params.path,
-    })
+    let name = path
+        .file_name()
+        .map_or_else(|| params.path.clone(), |n| n.to_string_lossy().into_owned());
+    Ok(FileChip::new(params.path, name, bytes))
 }
 
 #[cfg(test)]
@@ -278,6 +289,15 @@ mod tests {
         .await
         .unwrap();
         assert_eq!((chip.name.as_str(), chip.size.as_str()), ("perf-notes.md", "2 KB"));
+        assert!(!chip.image);
+        let shot = dir.path().join("Shot.PNG");
+        std::fs::write(&shot, [0x89, b'P', b'N', b'G']).unwrap();
+        let chip = file(FileParams {
+            path: shot.display().to_string(),
+        })
+        .await
+        .unwrap();
+        assert!(chip.image, "an image shows its thumbnail in the box");
 
         let missing = file(FileParams {
             path: dir.path().join("gone.md").display().to_string(),

@@ -3,6 +3,7 @@
 // method names and use the generated types for what goes in and comes back.
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 
+import type { OverviewFileChip } from "./generated/OverviewFileChip";
 import type { TerminalFeed } from "./generated/TerminalFeed";
 import type { WindowAction } from "./generated/WindowAction";
 
@@ -72,6 +73,28 @@ export function pickFlowFile(title: string): Promise<string | null> {
 /** The system file picker for a report (Overview's Add): the file chosen, or `null` when cancelled. */
 export function pickReportFile(title: string): Promise<string | null> {
   return invoke<string | null>("pick_report_file", { title });
+}
+
+/** The system file picker for a comment box's Attach (tuq 003): every file chosen, none when cancelled. */
+export function pickAttachmentFiles(title: string): Promise<string[]> {
+  return invoke<string[]>("pick_attachment_files", { title });
+}
+
+/**
+ * A file pasted into a comment box (a screenshot, files copied in Finder), which has no path: its bytes go as a raw
+ * body (binary IPC, never JSON) and its name in a header; the data folder keeps it until the comment is posted. Its
+ * chip comes back, sent by path like a picked file.
+ */
+export async function stageAttachment(file: Blob, name: string): Promise<OverviewFileChip> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return invoke<OverviewFileChip>("stage_attachment", bytes, {
+    headers: { "x-name": encodeURIComponent(name) },
+  });
+}
+
+/** An image in a comment box, for its thumbnail: its bytes, as a raw answer. */
+export function boxImage(path: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("box_image", { path });
 }
 
 /** The system save dialog for a flow file (Export flow…), offering `fileName`: where to save, or `null` when cancelled. */

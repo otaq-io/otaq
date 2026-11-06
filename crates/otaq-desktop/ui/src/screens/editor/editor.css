@@ -600,6 +600,16 @@
   gap: 8px;
 }
 
+/* An image's thumbnail in its chip in the box (tuq 002). */
+.comment-chip-thumb {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin: -2px 0;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}
+
 .comment-box-actions {
   display: flex;
   align-items: center;

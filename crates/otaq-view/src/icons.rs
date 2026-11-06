@@ -169,6 +169,7 @@ icons! {
     Palette = "palette";
     PanelLeftClose = "panel-left-close";
     PanelRight = "panel-right";
+    Paperclip = "paperclip";
     Pause = "pause";
     Pencil = "pencil";
     Pin = "pin";

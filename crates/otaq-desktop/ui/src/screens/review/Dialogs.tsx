@@ -27,7 +27,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "../editor/CommentBox";
-import { type BoxValue, boxState, EMPTY_BOX } from "../editor/commentRules";
+import { type BoxValue, boxState, EMPTY_BOX, sentAttachments } from "../editor/commentRules";
 import {
   afterApproveAnyway,
   afterChoice,
@@ -640,7 +640,7 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
       request("review.send_back", {
         key: ticket,
         note: comment.text,
-        report: comment.pasted?.text,
+        attachments: sentAttachments(comment),
         clear,
         comments: view.comments.length,
       } satisfies SendBackParams) as Promise<SheetSent>

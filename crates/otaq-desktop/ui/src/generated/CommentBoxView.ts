@@ -44,6 +44,15 @@ remove_file: string, open: string,
  */
 remove: string, 
 /**
+ * The Attach button by the box (tuq 003): the system picker, several files at once. `None` for a box that holds
+ * one report, where a new file replaces the last (the New ticket form's, RPT-03, with its own Add).
+ */
+attach: string | null, 
+/**
+ * The picker's title.
+ */
+attach_title: string, 
+/**
  * An empty box is fine (a dialog's optional comment); the thread's box needs text.
  */
 optional: boolean, limits: CommentLimits, 

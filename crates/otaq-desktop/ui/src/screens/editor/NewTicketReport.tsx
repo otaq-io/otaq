@@ -7,13 +7,12 @@
 import { type ClipboardEvent, type RefObject, useCallback, useEffect, useState } from "react";
 
 import type { EditorReportField } from "../../generated/EditorReportField";
-import type { OverviewFileChip } from "../../generated/OverviewFileChip";
-import { asRequestError } from "../../service";
-import { pickReportFile, request } from "../../tauri";
+import { pickReportFile } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
+import { type Added, addFiles, addPaths, clipboardFiles } from "./attachmentAdding";
 import { CommentBox } from "./CommentBox";
-import { type BoxValue, EMPTY_BOX, withFile, withPasted } from "./commentRules";
+import { type BoxValue, EMPTY_BOX, withAdded } from "./commentRules";
 import { formReport } from "./logic";
 
 /** Whether a paste lands in something that takes text itself (a field, the description editor). */
@@ -30,7 +29,7 @@ export interface ReportAttach {
   error: string | null;
   /** A file by its path (Add, a drop): its chip, or why it can't be a report. */
   attachPath: (path: string) => void;
-  /** A file pasted outside a text field: its text becomes the pasted report. */
+  /** A file pasted outside a text field (a screenshot, a file copied in Finder): it becomes the report. */
   onPaste: (e: ClipboardEvent<HTMLElement>) => void;
 }
 
@@ -52,23 +51,23 @@ export function useReportAttach(
     },
     [onChange],
   );
-  const attachPath = useCallback(
-    (path: string) => {
-      setError(null);
-      (request("overview.file", { path }) as Promise<OverviewFileChip>).then(
-        (file) => {
-          setBox((v) => {
-            const next = withFile(v, file);
-            onChange(formReport(next));
-            return next;
-          });
-        },
-        (e: unknown) => {
-          setError(asRequestError(e).message);
-        },
-      );
+  // The form keeps one report: the last file added replaces the one before (RPT-03).
+  const take = useCallback(
+    ({ added, refused }: Added) => {
+      setError(refused[0] ?? null);
+      setBox((v) => {
+        const next = withAdded(v, added, true);
+        if (next !== v) onChange(formReport(next));
+        return next;
+      });
     },
     [onChange],
+  );
+  const attachPath = useCallback(
+    (path: string) => {
+      void addPaths([path]).then(take);
+    },
+    [take],
   );
   useEffect(() => {
     const el = root.current;
@@ -82,20 +81,10 @@ export function useReportAttach(
     });
   }, [root, enabled, attachPath]);
   const onPaste = (e: ClipboardEvent<HTMLElement>) => {
-    const file = (e.clipboardData.files as FileList | undefined)?.[0];
+    const file = clipboardFiles(e.clipboardData).at(-1);
     if (!enabled || file === undefined || inTextField(e.target)) return;
     e.preventDefault();
-    setError(null);
-    file.text().then(
-      (text) => {
-        setBox((v) => {
-          const next = withPasted(v, text);
-          onChange(formReport(next));
-          return next;
-        });
-      },
-      () => undefined,
-    );
+    void addFiles([file]).then(take);
   };
   return { value, setValue, error, attachPath, onPaste };
 }
@@ -114,7 +103,7 @@ export function NewTicketReport({
   /** ⌘↵ in the line saves the form. */
   onSave: () => void;
 }) {
-  const attached = attach.value.file !== null || attach.value.pasted !== null;
+  const attached = attach.value.attachments.length > 0;
   return (
     <div className="field editor-report">
       <div className="editor-report-head">

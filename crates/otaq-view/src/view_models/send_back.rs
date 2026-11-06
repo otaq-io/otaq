@@ -147,23 +147,19 @@ pub fn waiting_title(key: &TicketKey) -> String {
 }
 
 /// The request; `clear_first` is the unsent-text prompt's "Clear it and send"; `report` the text pasted into the
-/// comment box as its report (CMT-13; empty: none).
-pub fn request(key: &TicketKey, note: &str, report: Option<&str>, clear_first: bool) -> Request {
+/// comment box's attachments (CMT-13; tuq 001, 003: pasted text, files, pasted images; none: an empty list).
+pub fn request(
+    key: &TicketKey,
+    note: &str,
+    attachments: Vec<otaq_core::board::reports::ReportSource>,
+    clear_first: bool,
+) -> Request {
     Request::TicketFail(FailParams {
         key: key.to_string(),
         note: note.trim().to_owned(),
         clear_first,
-        attachments: pasted_report(report),
+        attachments,
     })
-}
-
-/// The text pasted into a dialog's note as its attachment (CMT-13): one "Pasted text", none when empty. The dialogs
-/// send at most one for now (tuq 001).
-pub fn pasted_report(text: Option<&str>) -> Vec<otaq_core::board::reports::ReportSource> {
-    text.filter(|t| !t.trim().is_empty())
-        .map(|t| otaq_core::board::reports::ReportSource::Text(t.to_owned()))
-        .into_iter()
-        .collect()
 }
 
 /// What the unsent-text prompt says Send back would type.
@@ -376,7 +372,7 @@ mod tests {
     fn an_empty_send_back_is_allowed() {
         let key: TicketKey = "SHOP-18".parse().unwrap();
         assert_eq!(
-            request(&key, "  ", Some(""), false),
+            request(&key, "  ", Vec::new(), false),
             Request::TicketFail(FailParams {
                 key: "SHOP-18".into(),
                 note: String::new(),
@@ -384,13 +380,14 @@ mod tests {
                 attachments: Vec::new(),
             })
         );
+        use otaq_core::board::reports::ReportSource;
         assert!(matches!(
-            request(&key, "x", Some("log"), true),
+            request(&key, "x", vec![ReportSource::Text("log".into()), ReportSource::Path("/tmp/shot.png".into())], true),
             Request::TicketFail(FailParams { attachments, .. })
-                if matches!(attachments.as_slice(), [otaq_core::board::reports::ReportSource::Text(_)])
+                if matches!(attachments.as_slice(), [ReportSource::Text(_), ReportSource::Path(_)])
         ));
         assert!(matches!(
-            request(&key, "x", None, true),
+            request(&key, "x", Vec::new(), true),
             Request::TicketFail(FailParams {
                 clear_first: true,
                 ..
