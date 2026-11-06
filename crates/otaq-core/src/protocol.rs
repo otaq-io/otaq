@@ -661,6 +661,11 @@ pub enum Request {
     /// commits.
     #[serde(rename = "ticket.done")]
     TicketDone(KeyParams),
+    /// **Done, don't merge** from the Approve menu, after its confirmation: a ticket whose branch has commits ends
+    /// as Done does, counting as merged, with nothing merged and its branch kept. Answered with [`Reply::Done`];
+    /// refused when the branch has no commits (Done finishes that one).
+    #[serde(rename = "ticket.done_not_merged")]
+    TicketDoneNotMerged(KeyParams),
     /// The tickets the Approve menu's "Merge into another ticket…" picker lists for this ticket: same project and
     /// base, not Done, a branch, no agent at work. Answered with [`Reply::Tickets`], in key order.
     #[serde(rename = "ticket.merge_into_hosts")]
@@ -2140,6 +2145,7 @@ impl Request {
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketDone(_) => "ticket.done",
+            Self::TicketDoneNotMerged(_) => "ticket.done_not_merged",
             Self::TicketMergeIntoHosts(_) => "ticket.merge_into_hosts",
             Self::TicketMergeInto(_) => "ticket.merge_into",
             Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",

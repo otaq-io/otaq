@@ -304,6 +304,7 @@ const FEATURES: &[&str] = &[
     "review.approve",
     "review.local_merge",
     "review.done",
+    "review.done_not_merged",
     "review.send_back",
     "review.change",
     "diff.comment_add",

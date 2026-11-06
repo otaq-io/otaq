@@ -899,6 +899,7 @@ fn choice_icon(choice: ApproveChoice) -> IconName {
         ApproveChoice::OpenPr => IconName::GitPullRequest,
         ApproveChoice::PushToPr => IconName::Upload,
         ApproveChoice::MergeInto => IconName::GitBranch,
+        ApproveChoice::DoneNotMerged => IconName::CircleMinus,
     }
 }
 
@@ -2366,7 +2367,7 @@ mod tests {
     }
 
     /// Two enabled deliveries offer the choice; Open PR without a provider leaves one, whose dialog opens without the
-    /// choice (dogfood #18).
+    /// choice (dogfood #18) unless "Done, don't merge" is offered too.
     #[test]
     fn one_way_to_deliver_skips_the_choice() {
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
@@ -2383,12 +2384,25 @@ mod tests {
             "main",
             std::slice::from_ref(&review),
             Some(&no_provider),
-            Some(1),
+            None,
         );
         assert_eq!(menu.items.len(), 3);
         assert!(!menu.items[1].enabled);
         assert!(!menu.items[2].enabled, "no other ticket to merge into");
         assert_eq!(menu.direct, Some(ApproveChoice::LocalMerge));
+        // With commits, "Done, don't merge" is a second choice, so the menu shows rather than hiding it.
+        let menu = approve_menu(
+            &review,
+            "main",
+            std::slice::from_ref(&review),
+            Some(&no_provider),
+            Some(1),
+        );
+        assert_eq!(menu.items.len(), 4);
+        assert_eq!(menu.items[3].choice, ApproveChoice::DoneNotMerged);
+        assert_eq!(menu.items[3].number, 4);
+        assert_eq!(menu.items[3].icon, IconName::CircleMinus);
+        assert_eq!(menu.direct, None);
         let mut pushed = ticket("SHOP-26", "Add sitemap", Status::WaitingForYou);
         pushed.flags.pr_number = Some(481);
         let menu = approve_menu(

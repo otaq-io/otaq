@@ -17,6 +17,7 @@ import type { DecisionChangeParams } from "../../generated/DecisionChangeParams"
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionSendBackView } from "../../generated/DecisionSendBackView";
 import type { DiffFileView } from "../../generated/DiffFileView";
+import type { DoneNotMergedView } from "../../generated/DoneNotMergedView";
 import type { LocalMergeResult } from "../../generated/LocalMergeResult";
 import type { SheetSent } from "../../generated/SheetSent";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
@@ -198,6 +199,51 @@ export function finishTicket(ticket: string, ask: typeof request = request): voi
   ask("review.done", { key: ticket }).catch(() => undefined);
 }
 
+/** "Done, don't merge", confirmed: the ticket finishes as Done; the toasts (Rust's) say how it ended, a refusal too. */
+export function finishNotMerged(ticket: string, ask: typeof request = request): Promise<unknown> {
+  return ask("review.done_not_merged", { key: ticket }).catch(() => undefined);
+}
+
+/** "Done, don't merge"'s confirmation: what won't land ("SHOP-18's 3 commits won't be merged; its branch is kept"),
+ * from `review.done_not_merged_view`. */
+export function DoneNotMergedDialog({ params, close }: OverlayProps<"done_not_merged">) {
+  const ticket = params.ticket;
+  const load = useCallback(
+    () => request("review.done_not_merged_view", { key: ticket }) as Promise<DoneNotMergedView>,
+    [ticket],
+  );
+  const { view, error } = useServiceView(load, []);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (error && !view) close();
+  }, [error, view, close]);
+  if (!view) return null;
+  const confirm = () => {
+    if (busy) return;
+    setBusy(true);
+    void finishNotMerged(ticket).then(close);
+  };
+  return (
+    <Dialog
+      title={view.title}
+      width={480}
+      onConfirm={confirm}
+      onCancel={close}
+      footer={
+        <>
+          <Button variant="ghost" label="Cancel" onClick={close} />
+          <Button label={view.confirm} icon="circle-minus" disabled={busy} onClick={confirm} />
+        </>
+      }
+    >
+      <div className="review-body">
+        <p>{view.message}</p>
+        <p className="review-muted">{view.note}</p>
+      </div>
+    </Dialog>
+  );
+}
+
 export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">) {
   const ticket = params.ticket;
   const menu = params.menu ?? false;
@@ -227,6 +273,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
     } else if (step?.kind === "merge_into") {
       close();
       openOverlay("merge_into", { ticket });
+    } else if (step?.kind === "done_not_merged") {
+      close();
+      openOverlay("done_not_merged", { ticket });
     } else if (step?.kind === "done") {
       close();
     } else if (step?.kind === "finish") {
@@ -263,6 +312,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   switch (step.kind) {
     case "open_pr":
     case "merge_into":
+    case "done_not_merged":
     case "done":
     case "finish":
       return null;

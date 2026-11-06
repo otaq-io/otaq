@@ -6,6 +6,9 @@
 //! The diff decides: no ticket field or flow setting marks a ticket as having no repo changes. A branch with commits
 //! is refused here; Local merge or Open PR delivers it.
 //!
+//! **Done, don't merge** is the same end for a branch that has commits: after the user confirms that they won't land,
+//! the ticket ends with the same outcome, counting as merged, and its branch keeps the commits.
+//!
 //! [`Outcome::DoneWithoutMerge`]: crate::domain::Outcome::DoneWithoutMerge
 
 use serde::{Deserialize, Serialize};
@@ -35,6 +38,40 @@ impl Review {
     /// **Done, nothing to merge**: from where Local merge works (a human check offering the Delivery, or the Delivery
     /// stage), without an open PR, only when the branch has no commits beyond its base.
     pub async fn done(&self, key: &str, actor: &Actor) -> Result<DoneOutcome, BoardError> {
+        let (ticket, commits) = self.done_ticket(key).await?;
+        if commits > 0 {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                has_commits_message(&ticket.key, commits),
+            ));
+        }
+        self.finish_without_merge(&ticket, Some(""), true, actor)
+            .await
+    }
+
+    /// **Done, don't merge**: from the same places as Done, for a branch with commits the user chose not to land. It
+    /// ends the same way, counting as merged; the commits stay on the kept branch and nothing lands on the base.
+    pub async fn done_not_merged(
+        &self,
+        key: &str,
+        actor: &Actor,
+    ) -> Result<DoneOutcome, BoardError> {
+        let (ticket, commits) = self.done_ticket(key).await?;
+        if commits == 0 {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{} has no commits; Done, nothing to merge finishes it",
+                    ticket.key
+                ),
+            ));
+        }
+        self.finish_without_merge(&ticket, None, true, actor).await
+    }
+
+    /// The ticket Done finishes, and its commits beyond its base: refused outside Ready for Review and its Delivery,
+    /// and with an open PR (Mark merged or Mark closed ends that one).
+    async fn done_ticket(&self, key: &str) -> Result<(Ticket, u32), BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
@@ -57,14 +94,7 @@ impl Review {
             ));
         }
         let commits = board.commits_beyond_base(&ticket).await?;
-        if commits > 0 {
-            return Err(BoardError::refused(
-                Refusal::MoveRefused,
-                has_commits_message(&ticket.key, commits),
-            ));
-        }
-        self.finish_without_merge(&ticket, Some(""), true, actor)
-            .await
+        Ok((ticket, commits))
     }
 
     /// Ends `ticket` as Done without a merge (`nothing_to_merge`: see [`crate::board::Board::record_done_without_merge`]),

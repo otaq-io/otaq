@@ -252,6 +252,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketMergeProposal(_)
         | Request::TicketLocalMerge(_)
         | Request::TicketDone(_)
+        | Request::TicketDoneNotMerged(_)
         | Request::TicketMergeIntoHosts(_)
         | Request::TicketMergeInto(_)
         | Request::TicketMergeCheckStop(_)

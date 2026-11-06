@@ -497,7 +497,8 @@ mod tests {
             [
                 ApproveChoice::LocalMerge,
                 ApproveChoice::OpenPr,
-                ApproveChoice::MergeInto
+                ApproveChoice::MergeInto,
+                ApproveChoice::DoneNotMerged
             ]
         );
     }
