@@ -15,6 +15,7 @@
 //!   `main`"). A merge resets the count.
 
 use std::future::Future;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
@@ -24,7 +25,7 @@ use serde_json::json;
 use super::stage_runs::StageRun;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, AutoMergeStop, Place, Status, TicketKey};
+use crate::domain::{Actor, AutoMergeStop, Outcome, Place, Status, TicketKey};
 use crate::flow::engine::{self, Move, RunResult};
 use crate::flow::{Delivers, Delivery, DeliveryMode, Flow, Stage};
 use crate::store::tickets::set_state_since;
@@ -142,6 +143,10 @@ pub struct MergeProposal {
     pub target: String,
     /// "SHOP-18: Checkout API" and the agent's summary.
     pub message: String,
+    /// The commits on the ticket's branch beyond its base ([`Board::commits_beyond_base`]): with none, the Approve
+    /// menu leads with "Done, nothing to merge".
+    #[serde(default)]
+    pub commits: u32,
 }
 
 impl Board {
@@ -172,11 +177,39 @@ impl Board {
             message.push_str("\n\n");
             message.push_str(body.trim());
         }
+        let commits = self.commits_beyond_base(&ticket).await?;
         Ok(MergeProposal {
             key: ticket.key,
             target: target.target,
             message,
+            commits,
         })
+    }
+
+    /// The commits on the ticket's branch beyond its base: in its worktree, else on the branch; none without either.
+    pub async fn commits_beyond_base(&self, ticket: &Ticket) -> Result<u32, BoardError> {
+        let Some(work) = &ticket.work else {
+            return Ok(0);
+        };
+        let Some(base) = &work.base_sha else {
+            return Ok(0);
+        };
+        let git = self.git()?;
+        let (cwd, head) = match (&work.worktree, &work.branch) {
+            (Some(worktree), _) if Path::new(worktree).is_dir() => {
+                (worktree.clone(), "HEAD".to_owned())
+            }
+            (_, Some(branch)) => (
+                self.project(ticket.key.project.as_str()).await?.repo_path,
+                format!("refs/heads/{branch}"),
+            ),
+            _ => return Ok(0),
+        };
+        let range = format!("{base}..{head}");
+        let count = git
+            .run(Path::new(&cwd), &["rev-list", "--count", &range])
+            .await?;
+        Ok(count.trim().parse().unwrap_or(0))
     }
 
     /// After a Local merge: Done · Merged with the squash commit, and the review action recorded. `onto` is the
@@ -239,6 +272,79 @@ impl Board {
         .await?;
         tx.commit().await?;
         tracing::info!(key = %ticket.key, target, commit, "merged locally");
+        self.ticket_by_id(&ticket.id).await
+    }
+
+    /// The user finished the ticket without a merge: Done with [`Outcome::DoneWithoutMerge`], which is
+    /// [`Status::Merged`] (tickets waiting on it start) with no merge commit, and the review action recorded, as
+    /// [`Self::record_local_merge`] does. `nothing_to_merge` is set when the branch had nothing beyond its base
+    /// (empty, or a reason): the card then reads "Done · nothing to merge".
+    pub async fn record_done_without_merge(
+        &self,
+        ticket: &Ticket,
+        nothing_to_merge: Option<&str>,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let now = now_ms();
+        let to = Status::Merged;
+        let outcome = Outcome::DoneWithoutMerge;
+        let round = self.current_round(&ticket.id).await?;
+        // The Delivery finished (STG-06), as a merge would have: from the human check that offered it, or from the
+        // Delivery stage.
+        let moved = self
+            .moved(ticket, ticket.status, Move::Delivered)
+            .await
+            .ok();
+        let mut tx = self.store.begin_write().await?;
+        if let Some(moved) = &moved {
+            moved.record(&mut tx, &ticket.id, None).await?;
+        }
+        sqlx::query(concat!(
+            "UPDATE tickets SET stage_id = NULL, state = ?, outcome = ?, merge_commit_sha = NULL, nothing_to_merge = ?,
+                                sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
+                                conflict_files = NULL, conflict_reason = NULL, auto_merge_conflicts = 0,
+                                auto_merge_stop = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
+                                merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.as_str())
+        .bind(outcome.as_str())
+        .bind(nothing_to_merge)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(new_id())
+        .bind(&ticket.id)
+        .bind(i64::from(round))
+        .bind(outcome.as_str())
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        let mut payload = json!({ "from": ticket.status });
+        if let Some(reason) = nothing_to_merge {
+            payload["nothing_to_merge"] = json!(true);
+            if !reason.is_empty() {
+                payload["reason"] = json!(reason);
+            }
+        }
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::DoneWithoutMerge,
+            actor,
+            payload,
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, "done without a merge");
         self.ticket_by_id(&ticket.id).await
     }
 }

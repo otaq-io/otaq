@@ -2306,6 +2306,19 @@
         }
       }
     },
+    "DoneOutcome": {
+      "kind": "struct",
+      "fields": {
+        "started": {
+          "ty": "Vec<TicketKey>",
+          "omittable": true
+        },
+        "ticket": {
+          "ty": "Ticket",
+          "required": true
+        }
+      }
+    },
     "Draft": {
       "kind": "struct",
       "fields": {
@@ -2982,6 +2995,7 @@
         "decisions_kept",
         "dependency_added",
         "dependency_removed",
+        "done_without_merge",
         "dragged",
         "fallback_used",
         "fixed_created_ticket",
@@ -3512,6 +3526,10 @@
           "omittable": true
         },
         "delivering_automatically": {
+          "ty": "bool",
+          "omittable": true
+        },
+        "done_without_merge": {
           "ty": "bool",
           "omittable": true
         },
@@ -4931,6 +4949,9 @@
     "MergeProposal": {
       "kind": "struct",
       "fields": {
+        "commits": {
+          "ty": "u32"
+        },
         "key": {
           "ty": "TicketKey",
           "required": true
@@ -7592,6 +7613,9 @@
         "diff_summary": {
           "newtype": "DiffSummary"
         },
+        "done": {
+          "newtype": "DoneOutcome"
+        },
         "file_content": {
           "newtype": "FileContent"
         },
@@ -8441,6 +8465,9 @@
           "newtype": "TicketDeleteParams"
         },
         "ticket.delete_preview": {
+          "newtype": "KeyParams"
+        },
+        "ticket.done": {
           "newtype": "KeyParams"
         },
         "ticket.drag": {

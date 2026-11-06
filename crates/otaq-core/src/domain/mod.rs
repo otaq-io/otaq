@@ -8,6 +8,7 @@ pub mod actor;
 pub mod flags;
 pub mod hand_off;
 pub mod key;
+pub mod outcome;
 pub mod plan;
 pub mod priority;
 pub mod status;
@@ -21,6 +22,7 @@ pub use flags::{
 };
 pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};
+pub use outcome::Outcome;
 pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Place, StartStep, Status, StatusSet};
 pub use ticket_env::{BuildState, RemoteWarning, ResourceState, SchemaOverlap, WentOn};

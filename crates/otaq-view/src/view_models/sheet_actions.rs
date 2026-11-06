@@ -488,7 +488,7 @@ mod tests {
         );
         assert!(approve_opens_menu(1) && approve_opens_menu(3));
         let shop23 = ticket("SHOP-23", "Split user full name", Status::WaitingForYou);
-        let menu: Vec<_> = options(&shop23, "main", &[], None)
+        let menu: Vec<_> = options(&shop23, "main", &[], None, Some(2))
             .into_iter()
             .map(|o| o.choice)
             .collect();

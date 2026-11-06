@@ -1,5 +1,6 @@
 // The Approve flow's steps (UIT-04: which step shows is the page's; every text and rule is Rust's, `review_page.rs`):
-// the Approve ▾ choice, "changed since you reviewed it", the Local merge confirmation, Merging…, and its result.
+// the Approve ▾ choice, "changed since you reviewed it", the Local merge confirmation, Merging…, and its result; or
+// "Done, nothing to merge", which finishes the ticket at once.
 import type { ApproveChoice } from "../../generated/ApproveChoice";
 import type { ApproveView } from "../../generated/ApproveView";
 import type { LocalMergeResult } from "../../generated/LocalMergeResult";
@@ -15,6 +16,8 @@ export type Step =
   | { kind: "result"; result: Exclude<LocalMergeResult, { kind: "merged" } | { kind: "changed" }> }
   /** Open PR or Push to PR: T-0227's dialog takes over. */
   | { kind: "open_pr" }
+  /** "Done, nothing to merge": `review.done` runs at once (no confirmation), its toasts say how it ended. */
+  | { kind: "finish" }
   | { kind: "done" };
 
 /** Where the flow starts: a ticket with a PR goes to Push to PR; new commits since the review show first. */
@@ -23,16 +26,31 @@ export function firstStep(view: ApproveView, menu: boolean): Step {
   return afterChanged(view, menu);
 }
 
-/** The choice, or with one way to deliver its dialog without the choice (dogfood #18), or the confirmation. */
+/** The choice, or with one way to deliver its dialog without the choice (dogfood #18), or the confirmation. With
+ * nothing to merge the choice always shows: it leads with Done, and Local merge is disabled. */
 function afterChanged(view: ApproveView, menu: boolean): Step {
   if (view.push_to_pr) return { kind: "open_pr" };
+  if (leadsWithDone(view)) return { kind: "menu" };
   if (!menu) return { kind: "confirm" };
   return view.menu.direct === null ? { kind: "menu" } : afterChoice(view.menu.direct);
 }
 
+/** Whether the menu leads with "Done, nothing to merge" (the branch has no commits beyond its base). */
+export function leadsWithDone(view: ApproveView): boolean {
+  return view.menu.items[0]?.choice === "done";
+}
+
 /** A pick in the Approve ▾ menu. */
 export function afterChoice(choice: ApproveChoice): Step {
-  return choice === "local_merge" ? { kind: "confirm" } : { kind: "open_pr" };
+  switch (choice) {
+    case "done":
+      return { kind: "finish" };
+    case "local_merge":
+      return { kind: "confirm" };
+    case "open_pr":
+    case "push_to_pr":
+      return { kind: "open_pr" };
+  }
 }
 
 /** Approve anyway: back to where the flow was going, or (as a merge's answer) the merge again. */

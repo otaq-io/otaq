@@ -18,10 +18,13 @@ pub struct ApproveOption {
     pub enabled: bool,
 }
 
-/// `ApproveChoice` on the page: `"local_merge"`, `"open_pr"`, `"push_to_pr"`.
+/// `ApproveChoice` on the page: `"done"`, `"local_merge"`, `"open_pr"`, `"push_to_pr"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ApproveChoice {
+    /// "Done, nothing to merge": the branch has no commits beyond its base; the ticket finishes at once, counting as
+    /// merged, with nothing merged (`review.done`).
+    Done,
     LocalMerge,
     OpenPr,
     /// A ticket with an open PR: its new commits go to that PR (REV-14, d0041).
@@ -48,6 +51,14 @@ pub fn menu_note(ticket: &Ticket) -> String {
         "Both open a confirmation step before anything runs.".to_owned()
     }
 }
+
+/// The choice that leads the menu when the branch has no commits beyond its base.
+pub const DONE_NOTHING_TO_MERGE: &str = "Done, nothing to merge";
+/// Why Local merge and Open PR are disabled then.
+pub const NO_CHANGES_IN_THE_REPO: &str = "No changes in the repo";
+/// The line under the choices then: Done runs at once, with no confirmation.
+pub const DONE_NOTE: &str =
+    "Done finishes the ticket at once; it counts as merged and its branch is kept.";
 
 /// Tickets that depend on `ticket` and still wait for another parent after it merges: "SHOP-20 still waits for
 /// SHOP-19".
@@ -87,11 +98,16 @@ fn keys(keys: &[TicketKey]) -> String {
 
 /// The menu: Local merge always; Open PR (d0059). With the built-in Open PR skill and no detected provider, Open PR is disabled with "PR provider
 /// not detected" (REV-11). A ticket with an open PR offers only Push to PR #N (REV-14, d0041).
+///
+/// `commits` are the commits on the branch beyond its base (`None`: unknown). With none, the menu leads with "Done,
+/// nothing to merge", and Local merge and Open PR stay listed, disabled, with "No changes in the repo": the diff
+/// decides, no ticket field or flow setting does.
 pub fn options(
     ticket: &Ticket,
     target: &str,
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
+    commits: Option<u32>,
 ) -> Vec<ApproveOption> {
     if let Some(n) = ticket.flags.pr_number {
         let provider = pr
@@ -134,6 +150,23 @@ pub fn options(
         detail,
         enabled: blocked.is_none(),
     });
+    if commits == Some(0) {
+        for option in &mut out {
+            option.detail = NO_CHANGES_IN_THE_REPO.to_owned();
+            option.enabled = false;
+        }
+        out.insert(
+            0,
+            ApproveOption {
+                choice: ApproveChoice::Done,
+                title: DONE_NOTHING_TO_MERGE.to_owned(),
+                detail: format!(
+                    "Nothing to merge into {target} \u{b7} counts as merged; the branch is kept"
+                ),
+                enabled: true,
+            },
+        );
+    }
     out
 }
 
@@ -371,7 +404,7 @@ mod tests {
             branch: Some("feature/SHOP-26-add-sitemap".into()),
             ..Default::default()
         });
-        let only = options(&t, "main", &[], None);
+        let only = options(&t, "main", &[], None, Some(2));
         assert_eq!(only.len(), 1, "Local merge and Open PR are hidden");
         assert_eq!(only[0].choice, ApproveChoice::PushToPr);
         assert_eq!(only[0].title, "Push to PR #481");
@@ -391,12 +424,12 @@ mod tests {
             cli_found: false,
             open_pr_skill: "open-pr".to_owned(),
         };
-        let open = &options(&shop18, "main", &tickets, Some(&pr))[1];
+        let open = &options(&shop18, "main", &tickets, Some(&pr), Some(2))[1];
         assert_eq!(open.title, "Open PR");
         assert_eq!(open.detail, "PR provider not detected");
         assert!(!open.enabled);
         pr.provider = Some(Provider::GitHub);
-        let open = &options(&shop18, "main", &tickets, Some(&pr))[1];
+        let open = &options(&shop18, "main", &tickets, Some(&pr), Some(2))[1];
         assert_eq!(open.title, "Open PR on GitHub");
         assert_ne!(open.detail, "PR provider not detected");
     }
@@ -404,7 +437,7 @@ mod tests {
     #[test]
     fn the_menu_offers_local_merge_and_open_pr() {
         let (shop18, tickets) = sample();
-        let options = options(&shop18, "main", &tickets, None);
+        let options = options(&shop18, "main", &tickets, None, Some(2));
         assert_eq!(menu_title(&shop18), "Approve SHOP-18 Checkout API");
         assert_eq!(options[0].choice, ApproveChoice::LocalMerge);
         assert_eq!(
@@ -414,6 +447,37 @@ mod tests {
         assert!(options[0].enabled);
         assert_eq!(options[1].choice, ApproveChoice::OpenPr);
         assert!(options[1].enabled, "Open PR works from M10");
+    }
+
+    /// A branch with no commits beyond its base: "Done, nothing to merge" leads; Local merge and Open PR stay listed,
+    /// disabled, with "No changes in the repo".
+    #[test]
+    fn nothing_to_merge_leads_with_done_and_disables_the_others() {
+        let (shop18, tickets) = sample();
+        let menu = options(&shop18, "main", &tickets, None, Some(0));
+        let choices: Vec<_> = menu.iter().map(|o| (o.choice, o.enabled)).collect();
+        assert_eq!(
+            choices,
+            [
+                (ApproveChoice::Done, true),
+                (ApproveChoice::LocalMerge, false),
+                (ApproveChoice::OpenPr, false),
+            ]
+        );
+        assert_eq!(menu[0].title, "Done, nothing to merge");
+        assert_eq!(
+            menu[0].detail,
+            "Nothing to merge into main \u{b7} counts as merged; the branch is kept"
+        );
+        for other in &menu[1..] {
+            assert_eq!(other.detail, "No changes in the repo");
+        }
+        // Commits, or a count nobody could read: the menu as before.
+        for commits in [Some(1), None] {
+            let menu = options(&shop18, "main", &tickets, None, commits);
+            assert_eq!(menu[0].choice, ApproveChoice::LocalMerge);
+            assert!(menu.iter().all(|o| o.choice != ApproveChoice::Done));
+        }
     }
 
     #[test]

@@ -27,6 +27,7 @@
 mod apply_now;
 mod close;
 pub mod delivery;
+pub mod done;
 pub mod drag;
 mod early_conflict;
 pub mod finish;

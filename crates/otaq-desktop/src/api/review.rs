@@ -34,6 +34,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.available" => reply(&available(app, parse(params)?).await?),
         "review.approve" => reply(&approve(app, parse(params)?).await?),
         "review.local_merge" => reply(&local_merge(app, parse(params)?).await?),
+        "review.done" => reply(&done(app, parse(params)?).await?),
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
         "review.pass" => reply(&pass(app, parse(params)?).await?),
@@ -173,7 +174,13 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         repo: &repo,
         project_base: &project_base,
         check: &check,
-        menu: board_page::approve_menu(&ticket, &proposal.target, &all, provider.as_ref()),
+        menu: board_page::approve_menu(
+            &ticket,
+            &proposal.target,
+            &all,
+            provider.as_ref(),
+            Some(proposal.commits),
+        ),
         merge_check: merge_check.as_deref(),
         // Unread, the dialog says nothing about them (d0125: they never block).
         manual_unticked: match manual {
@@ -244,6 +251,34 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
         }
     }
     Ok(result)
+}
+
+/// "Done, nothing to merge": the ticket finishes at once, counting as merged, with nothing merged. Its toasts show
+/// here; a refusal (the branch has commits after all) is a toast too.
+pub async fn done(app: &App, params: Params) -> Result<(), RequestError> {
+    let key = key_of(&params.key)?;
+    match app
+        .service
+        .send(Request::TicketDone(KeyParams { key: params.key }))
+        .await
+    {
+        Ok(Reply::Done(outcome)) => {
+            for t in page::done_toasts(&key, &outcome.started) {
+                toast(app, ToastLevel::Success, t.title, t.text);
+            }
+            Ok(())
+        }
+        Ok(other) => Err(unexpected("ticket.done", &other)),
+        Err(e) => {
+            toast(
+                app,
+                ToastLevel::Error,
+                format!("{key} couldn\u{2019}t be finished"),
+                Some(e.message.clone()),
+            );
+            Err(e)
+        }
+    }
 }
 
 /// The Send back dialog: every pending comment, the note field, who keeps waiting.
