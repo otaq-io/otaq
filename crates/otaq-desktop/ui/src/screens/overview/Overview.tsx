@@ -7,8 +7,8 @@
 // DEPENDENCIES with Blocked by and Blocks (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, STAGES (the
 // ticket's choices and path, `ChoicesAndPath`, `sheet.view`'s words), then the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
-// report view. Add (the system picker), a file dropped anywhere on Overview, or a file pasted outside a text field
-// opens the comment box with it as a chip. Its words are Rust's (`overview.view`, `editor.open`).
+// report view. Add (the system picker, several files), files dropped anywhere on Overview, or files pasted outside a
+// text field are added to the comment box's chips (tuq 003). Its words are Rust's (`overview.view`, `editor.open`).
 import { type ClipboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { useRegistries } from "../../app/registry";
@@ -19,13 +19,13 @@ import { useStore } from "../../app/store";
 import { Button } from "../../components";
 import type { AttachmentRow } from "../../generated/AttachmentRow";
 import type { EditorView } from "../../generated/EditorView";
-import type { OverviewFileChip } from "../../generated/OverviewFileChip";
 import type { OverviewView } from "../../generated/OverviewView";
 import type { SheetView } from "../../generated/SheetView";
 import { asRequestError, useServiceView } from "../../service";
-import { pickReportFile, request } from "../../tauri";
+import { pickAttachmentFiles, request } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
+import { type Added, addFiles, addPaths, clipboardFiles } from "../editor/attachmentAdding";
 import { attachReport, COMMENT_EVENTS, CommentThread, Mark } from "../editor/CommentThread";
 import { EditForm, takeEditRequest } from "../editor/EditForm";
 import { AttachmentImage, openImage } from "../editor/ImageViewer";
@@ -177,20 +177,19 @@ export function OverviewTab({ ticket }: TicketProps) {
     setFormNote(null);
   }, [pending, ticket]);
 
-  // A file for the comment box: its chip, or why it can't be a report.
-  const attachPath = useCallback(
-    (path: string) => {
-      setError(null);
-      (request("overview.file", { path }) as Promise<OverviewFileChip>).then(
-        (file) => {
-          attachReport(ticket, { kind: "file", file });
-        },
-        (e: unknown) => {
-          setError(asRequestError(e).message);
-        },
-      );
+  // Files for the comment box, added to what it holds (tuq 003); why any can't be attached shows here.
+  const attach = useCallback(
+    ({ added, refused }: Added) => {
+      setError(refused.length > 0 ? refused.join(" ") : null);
+      if (added.length > 0) attachReport(ticket, added);
     },
     [ticket],
+  );
+  const attachPaths = useCallback(
+    (paths: readonly string[]) => {
+      if (paths.length > 0) void addPaths(paths).then(attach);
+    },
+    [attach],
   );
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -199,22 +198,14 @@ export function OverviewTab({ ticket }: TicketProps) {
     return dropTargets.register(el, {
       takesTyping: () => false,
       paste: () => undefined,
-      takeFiles: (paths) => {
-        if (paths[0] !== undefined) attachPath(paths[0]);
-      },
+      takeFiles: attachPaths,
     });
-  }, [attachPath]);
+  }, [attachPaths]);
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
-    const file = (e.clipboardData.files as FileList | undefined)?.[0];
-    if (file === undefined || inTextField(e.target)) return;
+    const files = clipboardFiles(e.clipboardData);
+    if (files.length === 0 || inTextField(e.target)) return;
     e.preventDefault();
-    setError(null);
-    file.text().then(
-      (text) => {
-        attachReport(ticket, { kind: "pasted", text });
-      },
-      () => undefined,
-    );
+    void addFiles(files).then(attach);
   };
 
   const overviewTabs = sheet?.view.sheet.tabs.find((t) => t.tab === "overview")?.contents ?? [];
@@ -299,12 +290,7 @@ export function OverviewTab({ ticket }: TicketProps) {
             view={overview}
             error={error}
             onAdd={() => {
-              pickReportFile(overview.pick_title).then(
-                (path) => {
-                  if (path !== null) attachPath(path);
-                },
-                () => undefined,
-              );
+              pickAttachmentFiles(overview.pick_title).then(attachPaths, () => undefined);
             }}
           />
         )}

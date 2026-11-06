@@ -95,6 +95,59 @@ async fn pick_report_file(app: tauri::AppHandle, title: String) -> Option<String
         .map(|path| path.display().to_string())
 }
 
+/// The system file picker for a comment box's Attach (tuq 003): several files of any type, or none when cancelled.
+/// Too big ones are refused by name when the box adds them (`overview.file`).
+#[tauri::command]
+async fn pick_attachment_files(app: tauri::AppHandle, title: String) -> Vec<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(title)
+        .pick_files(move |files| {
+            let _ = tx.send(files.unwrap_or_default());
+        });
+    rx.await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
+/// A file pasted into a comment box (a screenshot, files copied in Finder; tuq 003), which has no path: its bytes come
+/// as the raw body (Tauri's binary IPC, never JSON) and its name in the `x-name` header, URI-encoded. Kept in the data
+/// folder until its comment is posted; the answer is its chip (`OverviewFileChip`), sent by path like a picked file.
+#[tauri::command]
+async fn stage_attachment(
+    app: AppState<'_>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<Value, RequestError> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(RequestError::plain("a pasted file comes as its bytes"));
+    };
+    let name = request
+        .headers()
+        .get("x-name")
+        .and_then(|v| v.to_str().ok())
+        .map(crate::api::attachment_name)
+        .unwrap_or_default();
+    let chip = crate::api::stage_attachment(&app, name, bytes.clone()).await?;
+    serde_json::to_value(chip).map_err(|e| RequestError::plain(e.to_string()))
+}
+
+/// An image in a comment box, for its thumbnail (tuq 002): its bytes as a raw answer (an `ArrayBuffer` on the page,
+/// never JSON). Only a file named as an image and within 20 MB is read.
+#[tauri::command]
+async fn box_image(path: String) -> Result<tauri::ipc::Response, RequestError> {
+    let bytes = tokio::task::spawn_blocking(move || {
+        crate::api::box_image_bytes(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|e| RequestError::plain(e.to_string()))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// The system save dialog for a flow file (Export flow…, T-0422), offering `file_name`: where to save, or `None`
 /// when cancelled.
 #[tauri::command]
@@ -1258,6 +1311,9 @@ pub fn run(
             pick_folder,
             pick_flow_file,
             pick_report_file,
+            pick_attachment_files,
+            stage_attachment,
+            box_image,
             save_flow_file,
             save_report_file
         ])

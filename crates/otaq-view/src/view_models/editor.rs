@@ -74,7 +74,8 @@ pub fn report_field() -> ReportField {
         drop: overview::DROP.to_owned(),
         line_box: CommentBoxView::dialog("", REPORT_FOOTER, true)
             .placeholder(REPORT_LINE_PLACEHOLDER)
-            .without_label(),
+            .without_label()
+            .one_report(),
     }
 }
 

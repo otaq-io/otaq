@@ -406,7 +406,7 @@ mod tests {
         table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "Fail: the 10,000 row limit isn't enforced.", "pasted": run }),
+            json!({ "key": key, "body": "Fail: the 10,000 row limit isn't enforced.", "attachments": [{ "kind": "pasted", "text": run }] }),
         )
         .await
         .unwrap();
@@ -557,7 +557,7 @@ mod tests {
         let posted = table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "The page.", "file": shot.display().to_string() }),
+            json!({ "key": key, "body": "The page.", "attachments": [{ "kind": "file", "path": shot.display().to_string() }] }),
         )
         .await
         .unwrap();

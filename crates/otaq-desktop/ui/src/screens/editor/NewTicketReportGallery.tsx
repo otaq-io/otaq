@@ -5,20 +5,25 @@ import { useCallback } from "react";
 import type { EditorReportField } from "../../generated/EditorReportField";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
-import { type BoxValue, EMPTY_BOX } from "./commentRules";
+import { type BoxValue, EMPTY_BOX, fileAttachment, pastedAttachment } from "./commentRules";
 import { NewTicketReport, type ReportAttach } from "./NewTicketReport";
 
 const ignore = () => undefined;
 
-const FILE = { path: "/Users/me/test-run-login.md", name: "test-run-login.md", size: "3 KB" };
+const FILE = fileAttachment({
+  path: "/Users/me/test-run-login.md",
+  name: "test-run-login.md",
+  size: "3 KB",
+  image: false,
+});
 
 const STATES: readonly [string, BoxValue][] = [
   ["No report yet", EMPTY_BOX],
-  ["A file waits for its line", { ...EMPTY_BOX, file: FILE }],
-  ["With its line", { ...EMPTY_BOX, file: FILE, text: "Fails 2 in 20 on Safari; the run is attached." }],
+  ["A file waits for its line", { ...EMPTY_BOX, attachments: [FILE] }],
+  ["With its line", { text: "Fails 2 in 20 on Safari; the run is attached.", attachments: [FILE] }],
   [
     "A pasted file",
-    { text: "My notes from the Safari run.", pasted: { text: "…", bytes: 2048 }, file: null },
+    { text: "My notes from the Safari run.", attachments: [{ ...pastedAttachment("…"), bytes: 2048 }] },
   ],
 ];
 

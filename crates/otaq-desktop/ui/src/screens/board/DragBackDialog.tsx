@@ -18,9 +18,9 @@ import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "../editor/CommentBox";
-import { type BoxValue, boxState, EMPTY_BOX } from "../editor/commentRules";
+import { type BoxValue, boxState, EMPTY_BOX, sentAttachments } from "../editor/commentRules";
 
-/** Sends the drag back with `comment` (its text and pasted report); unsent text in the agent's terminal asks first,
+/** Sends the drag back with `comment` (its text and attachments); unsent text in the agent's terminal asks first,
  * then sends the same again with `clear` (d0048). */
 export function sendDragBack(
   view: DragBackView,
@@ -28,8 +28,13 @@ export function sendDragBack(
   clear = false,
   ask: typeof request = request,
 ): Promise<void> {
-  const params: BoardDragBackParams = { key: view.key, target: view.target, note: comment.text, clear };
-  if (comment.pasted !== null) params.report = comment.pasted.text;
+  const params: BoardDragBackParams = {
+    key: view.key,
+    target: view.target,
+    note: comment.text,
+    attachments: sentAttachments(comment),
+    clear,
+  };
   return (ask("board.drag_back", params) as Promise<SheetSent>).then((sent) => {
     if (sent.outcome === "done") return;
     openOverlay("confirm", {

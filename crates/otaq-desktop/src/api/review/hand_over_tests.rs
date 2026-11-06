@@ -131,7 +131,7 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
     let sent = request(
         &app,
         "review.send_back",
-        json!({ "key": "SHOP-34", "note": SEND_BACK_NOTE, "report": log }),
+        json!({ "key": "SHOP-34", "note": SEND_BACK_NOTE, "attachments": [{ "kind": "pasted", "text": log }] }),
     )
     .await
     .unwrap();

@@ -14,21 +14,58 @@ import type { CommentLimits } from "../../generated/CommentLimits";
 import { CommentBox } from "./CommentBox";
 import { CommentThread } from "./CommentThread";
 import { ImageViewer } from "./ImageViewer";
-import { type BoxValue, boxState, chars, EMPTY_BOX, pasteAction, withPasted } from "./commentRules";
+import { dropTargets } from "../../terminal/drops";
+import {
+  type BoxValue,
+  boxState,
+  chars,
+  EMPTY_BOX,
+  pasteAction,
+  sentAttachments,
+  withPasted,
+} from "./commentRules";
 import { type ReportTarget, setReportOpener } from "./reportOpener";
 
-const ipc = vi.hoisted((): { calls: string[]; posts: unknown[]; thread: unknown } => ({
-  calls: [],
-  posts: [],
-  thread: null,
-}));
+const ipc = vi.hoisted(
+  (): { calls: string[]; posts: unknown[]; thread: unknown; staged: string[]; picked: string[] } => ({
+    calls: [],
+    posts: [],
+    thread: null,
+    staged: [],
+    picked: [],
+  }),
+);
+/** Core's refusal of a file over 20 MB (`too_big`). */
+const tooBig = (name: string) =>
+  `${name} is 21 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests.`;
+const chip = (path: string) => {
+  const name = path.split("/").at(-1) ?? path;
+  return { path, name, size: "2 KB", image: name.endsWith(".png") };
+};
 vi.mock(import("../../tauri"), async (original) => ({
   ...(await original()),
   request: (method: string, params?: unknown) => {
     ipc.calls.push(method);
     if (method === "ticket_comments.post") ipc.posts.push(params);
-    return Promise.resolve(method === "ticket_comments.thread" ? ipc.thread : "· 48 KB");
+    if (method === "ticket_comments.thread") return Promise.resolve(ipc.thread);
+    if (method === "overview.file") {
+      const { path } = params as { path: string };
+      return path.includes("big")
+        ? Promise.reject(new Error(tooBig("big.log")))
+        : Promise.resolve(chip(path));
+    }
+    if (method === "attachments.refusal") {
+      const { name, bytes } = params as { name: string; bytes: number };
+      return Promise.resolve(bytes > 20 * 1024 * 1024 ? tooBig(name) : null);
+    }
+    return Promise.resolve("· 48 KB");
   },
+  stageAttachment: (_file: Blob, name: string) => {
+    ipc.staged.push(name);
+    return Promise.resolve(chip(`/data/staged-attachments/1/${name}`));
+  },
+  boxImage: () => Promise.resolve(new Uint8Array([137, 80, 78, 71]).buffer),
+  pickAttachmentFiles: () => Promise.resolve(ipc.picked),
   subscribeEvents: () => Promise.resolve(),
 }));
 
@@ -39,6 +76,8 @@ beforeAll(() => {
 afterEach(() => {
   ipc.calls = [];
   ipc.posts = [];
+  ipc.staged = [];
+  ipc.picked = [];
   document.body.innerHTML = "";
 });
 
@@ -57,6 +96,8 @@ const BOX: CommentBoxView = {
   remove_file: "Remove the file",
   open: "Open",
   remove: "Remove the pasted text",
+  attach: "Attach",
+  attach_title: "Attach files to the comment",
   optional: false,
   limits: LIMITS,
   tell_agent: null,
@@ -74,20 +115,23 @@ describe("the paste rule", () => {
     expect(pasteAction("😀".repeat(2000), LIMITS)).toBe("text");
   });
 
-  it("keeps one pasted report: a second paste replaces the first", () => {
+  it("keeps every paste as its own attachment, in order (tuq 001)", () => {
     const once = withPasted(EMPTY_BOX, "x".repeat(3000));
     const twice = withPasted({ ...once, text: "Look at limit_rows" }, "é".repeat(2500));
-    expect(twice).toEqual({
-      text: "Look at limit_rows",
-      pasted: { text: "é".repeat(2500), bytes: 5000 },
-      file: null,
-    });
+    expect(twice.text).toBe("Look at limit_rows");
+    expect(twice.attachments.map((a) => (a.kind === "pasted" ? a.bytes : 0))).toEqual([3000, 5000]);
+    expect(sentAttachments(twice)).toEqual([
+      { kind: "pasted", text: "x".repeat(3000) },
+      { kind: "pasted", text: "é".repeat(2500) },
+    ]);
+    // A box of one report (the New ticket form's) keeps the last.
+    expect(withPasted(once, "y", true).attachments).toHaveLength(1);
   });
 });
 
 describe("the box's state", () => {
   it("shows 2,140 / 2,000 and turns Comment off when typing past the limit", () => {
-    const state = boxState({ text: "x".repeat(2140), pasted: null, file: null }, LIMITS);
+    const state = boxState({ text: "x".repeat(2140), attachments: [] }, LIMITS);
     expect(state).toEqual({
       count: 2140,
       over: true,
@@ -96,7 +140,7 @@ describe("the box's state", () => {
       fileLine: false,
       canSubmit: false,
     });
-    expect(boxState({ text: "x".repeat(2000), pasted: null, file: null }, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ text: "x".repeat(2000), attachments: [] }, LIMITS).canSubmit).toBe(true);
   });
 
   it("asks for a line while only a chip is there", () => {
@@ -142,17 +186,36 @@ async function mount(onSubmit: (value: BoxValue) => void = () => undefined) {
   return host;
 }
 
-/** A paste of `text` into the box; returns whether the box took it over (no default insert). */
-async function paste(host: HTMLElement, text: string): Promise<boolean> {
+/** Lets the requests, the staging and the thumbnails' reads finish. */
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 5; i += 1) await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+/** A paste of `text` (and `files`) into the box; returns whether the box took it over (no default insert). */
+async function paste(host: HTMLElement, text: string, files: File[] = []): Promise<boolean> {
   const area = host.querySelector("textarea");
   if (!area) throw new Error("no box");
   const event = new Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clipboardData", { value: { getData: () => text } });
+  Object.defineProperty(event, "clipboardData", { value: { getData: () => text, files } });
   await act(async () => {
     area.dispatchEvent(event);
     await Promise.resolve();
   });
+  await settle();
   return event.defaultPrevented;
+}
+
+/** A file of `bytes` bytes, without allocating them (its size is what the box reads first). */
+function fileOf(name: string, type: string, bytes: number): File {
+  const file = new File([new Uint8Array([137, 80, 78, 71])], name, { type });
+  Object.defineProperty(file, "size", { value: bytes });
+  return file;
+}
+
+function chipLabels(host: HTMLElement): string[] {
+  return [...host.querySelectorAll(".comment-chip-label")].map((l) => l.textContent);
 }
 
 async function type(host: HTMLElement, text: string) {
@@ -201,7 +264,7 @@ describe("CommentBox", () => {
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]?.text).toBe("Look at limit_rows first.");
-    expect(sent[0]?.pasted?.text).toBe("b".repeat(2001));
+    expect(sent[0] && sentAttachments(sent[0])).toEqual([{ kind: "pasted", text: "b".repeat(2001) }]);
 
     // ✕ removes the chip.
     const remove = host.querySelector<HTMLButtonElement>(".comment-chip-remove");
@@ -210,6 +273,85 @@ describe("CommentBox", () => {
       await Promise.resolve();
     });
     expect(host.querySelector(".comment-chip")).toBeNull();
+  });
+
+  it("turns a pasted screenshot into an image chip with its thumbnail, never pasted text (tuq 002, 003)", async () => {
+    const sent: BoxValue[] = [];
+    const host = await mount((v) => sent.push(v));
+    expect(await paste(host, "", [fileOf("image.png", "image/png", 48_000)])).toBe(true);
+    expect(chipLabels(host)).toEqual(["image.png"]);
+    expect(ipc.staged).toEqual(["image.png"]);
+    expect(ipc.calls).not.toContain("ticket_comments.pasted_size");
+    const thumb = host.querySelector<HTMLImageElement>(".comment-chip-thumb");
+    expect(thumb?.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+    // Files copied in Finder keep their names; the screenshot stays.
+    await paste(host, "notes.md", [fileOf("notes.md", "text/markdown", 2048), fileOf("run.zip", "", 100)]);
+    expect(chipLabels(host)).toEqual(["image.png", "notes.md", "run.zip"]);
+    expect(host.querySelectorAll(".comment-chip-thumb")).toHaveLength(1);
+    await type(host, "Before and after.");
+    await act(async () => {
+      button(host).click();
+      await Promise.resolve();
+    });
+    expect(sent[0] && sentAttachments(sent[0])).toEqual([
+      { kind: "file", path: "/data/staged-attachments/1/image.png" },
+      { kind: "file", path: "/data/staged-attachments/1/notes.md" },
+      { kind: "file", path: "/data/staged-attachments/1/run.zip" },
+    ]);
+  });
+
+  it("adds two dropped files as two chips, and ✕ removes one", async () => {
+    const host = await mount();
+    const box = host.querySelector(".comment-box");
+    await act(async () => {
+      dropTargets.at(box)?.takeFiles?.(["/Users/me/before.png", "/Users/me/test-run.txt"]);
+      await Promise.resolve();
+    });
+    await settle();
+    expect(chipLabels(host)).toEqual(["before.png", "test-run.txt"]);
+    expect(host.querySelector(".comment-chip-thumb")?.getAttribute("src")).toMatch(/^data:image\/png/);
+    expect(host.querySelector(".comment-box-hint")?.textContent).toBe(BOX.file_line);
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the file before.png"]');
+    await act(async () => {
+      remove?.click();
+      await Promise.resolve();
+    });
+    expect(chipLabels(host)).toEqual(["test-run.txt"]);
+  });
+
+  it("adds every file picked with Attach", async () => {
+    ipc.picked = ["/Users/me/a.txt", "/Users/me/b.pdf"];
+    const host = await mount();
+    const attach = [...host.querySelectorAll("button")].find((b) => b.textContent === "Attach");
+    await act(async () => {
+      attach?.click();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(chipLabels(host)).toEqual(["a.txt", "b.pdf"]);
+  });
+
+  it("refuses a 21 MB file by name when it is added; the text and the other files stay (tuq 005)", async () => {
+    const host = await mount();
+    await type(host, "The recording and the log.");
+    await paste(host, "", [
+      fileOf("perf.mov", "video/quicktime", 21 * 1024 * 1024),
+      fileOf("log.txt", "", 10),
+    ]);
+    expect(ipc.staged).toEqual(["log.txt"]);
+    expect(chipLabels(host)).toEqual(["log.txt"]);
+    expect(host.querySelector(".comment-box-error")?.textContent).toBe(
+      "perf.mov is 21 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests.",
+    );
+    expect(host.querySelector("textarea")?.value).toBe("The recording and the log.");
+    // A dropped one too, by `overview.file`'s refusal.
+    await act(async () => {
+      dropTargets.at(host.querySelector(".comment-box"))?.takeFiles?.(["/Users/me/big.log"]);
+      await Promise.resolve();
+    });
+    await settle();
+    expect(host.querySelector(".comment-box-error")?.textContent).toMatch(/^big\.log is 21 MB/);
+    expect(chipLabels(host)).toEqual(["log.txt"]);
   });
 
   it("shows the counter and the red box when 2,140 characters are typed", async () => {

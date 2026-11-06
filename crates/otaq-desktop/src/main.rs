@@ -146,6 +146,13 @@ fn main() {
         let data = data.clone();
         runtime.spawn_blocking(move || shell_path::refresh_bin(&data));
     }
+    // Files pasted into a comment box wait in the data folder until it is posted; no box outlives the app.
+    if let Ok(data) = &data
+        && first_copy.is_some()
+    {
+        let data = data.clone();
+        runtime.spawn_blocking(move || api::clear_staged_attachments(&data));
+    }
     let events = Arc::new(EventHub::default());
     // The `otaq` command next to this program starts the service when none runs (d0055).
     let placement = data.as_ref().ok().map(window::placement_file);

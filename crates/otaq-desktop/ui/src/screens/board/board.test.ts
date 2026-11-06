@@ -11,7 +11,7 @@ import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
 import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
-import { EMPTY_BOX } from "../editor/commentRules";
+import { EMPTY_BOX, fileAttachment, pastedAttachment, withAdded } from "../editor/commentRules";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import { BlockedBody } from "./BlockedDialog";
 import type { BlockedDialog } from "../../generated/BlockedDialog";
@@ -392,6 +392,8 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     remove_file: "Remove the file",
     open: "Open",
     remove: "Remove the pasted text",
+    attach: "Attach",
+    attach_title: "Attach files to the comment",
     optional: true,
     limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
     tell_agent: null,
@@ -526,11 +528,10 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
       }
       return Promise.resolve({ outcome: "done" });
     };
-    const comment = {
-      text: "Keep the old price column",
-      pasted: { text: "migration log", bytes: 13 },
-      file: null,
-    };
+    const comment = withAdded({ ...EMPTY_BOX, text: "Keep the old price column" }, [
+      pastedAttachment("migration log"),
+      fileAttachment({ path: "/tmp/shot.png", name: "shot.png", size: "2 KB", image: true }),
+    ]);
     await sendDragBack(sendBack, comment, false, ask);
     expect(asked).toEqual([
       [
@@ -540,7 +541,10 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
           target: "dev",
           note: "Keep the old price column",
           clear: false,
-          report: "migration log",
+          attachments: [
+            { kind: "pasted", text: "migration log" },
+            { kind: "file", path: "/tmp/shot.png" },
+          ],
         },
       ],
     ]);
@@ -557,7 +561,10 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
         target: "dev",
         note: "Keep the old price column",
         clear: true,
-        report: "migration log",
+        attachments: [
+          { kind: "pasted", text: "migration log" },
+          { kind: "file", path: "/tmp/shot.png" },
+        ],
       },
     ]);
   });
