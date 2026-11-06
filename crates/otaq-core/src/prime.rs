@@ -85,6 +85,18 @@ pub struct PrimePr {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
     pub view: crate::pr::flow::PrFlowView,
+    /// The tickets merged into this one's branch, oldest first: the PR's description lists each of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged_in: Vec<MergedInTicket>,
+}
+
+/// A ticket merged into the PR's ticket: its key, title and What and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergedInTicket {
+    pub key: TicketKey,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub body: String,
 }
 
 /// A ticket this one depends on.
@@ -665,7 +677,22 @@ impl Board {
                 .map(|p| p.name().to_owned()),
             remote: url.as_deref().map(crate::pr::provider::display_remote),
             view: self.pr_flow_view(&ticket.key.to_string()).await?,
+            merged_in: self.merged_in_tickets(ticket).await?,
         }))
+    }
+
+    /// The tickets merged into `ticket`'s branch, oldest first, with their title and What and why.
+    async fn merged_in_tickets(&self, ticket: &Ticket) -> Result<Vec<MergedInTicket>, BoardError> {
+        let mut out = Vec::new();
+        for m in self.merged_in(&ticket.key.to_string()).await? {
+            let merged = self.ticket(&m.key.to_string()).await?;
+            out.push(MergedInTicket {
+                key: merged.key,
+                title: merged.title,
+                body: merged.body.trim().to_owned(),
+            });
+        }
+        Ok(out)
     }
 
     /// The summary of a ticket's latest `stage next` (into a human check or not, Q263).
@@ -971,6 +998,19 @@ fn render_pr(pr: &PrimePr) -> String {
             "- Mode: automatic (no dialog): nobody reviews your proposal; {} confirms it at once\n",
             naming::PRODUCT_NAME
         ));
+    }
+    if !pr.merged_in.is_empty() {
+        out.push_str(
+            "\nTickets merged into this one (the PR's description lists each of them, with its key and title, and \
+             says what it changed):\n",
+        );
+        for m in &pr.merged_in {
+            out.push_str(&format!("- {} \u{b7} {}\n", m.key, m.title));
+            match m.body.is_empty() {
+                true => out.push_str("  (no description)\n"),
+                false => quote(&mut out, "  ", &m.body),
+            }
+        }
     }
     let kind = v.flow.as_ref().map(|f| f.kind);
     let pushed = v.commits.iter().filter(|c| c.pushed).count();

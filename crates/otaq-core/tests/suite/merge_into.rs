@@ -285,3 +285,73 @@ async fn the_picker_lists_only_tickets_waiting_with_a_branch_and_no_agent_at_wor
     assert!(refused.is_err(), "a working ticket can't take it");
     w.stop().await;
 }
+
+#[tokio::test]
+async fn a_hosts_pull_request_context_lists_the_tickets_merged_into_it() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    fillers_until(&w, 18).await;
+    let (host, _) = reviewed(&w, "Checkout API", &[("api.ts", "api\n")]).await;
+    w.force_status(&host, Status::PrOpen).await;
+    sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
+        .bind(&host.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    w.create("SHOP", "filler").await;
+    let (shop20, _) = reviewed(&w, "Coupon codes", &[("coupon.ts", "coupon\n")]).await;
+    w.board
+        .update_ticket(
+            "SHOP-20",
+            &otaq_core::board::tickets::TicketUpdate {
+                body: Some("Customers enter a coupon code at checkout.".into()),
+                ..Default::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+
+    // Before anything is merged in, the Pull request section says nothing extra.
+    let prime = w
+        .board
+        .prime_context("SHOP-18", w.adapters.for_new_session())
+        .await
+        .unwrap();
+    let pr = prime.pull_request.as_ref().expect("a PR section");
+    assert!(pr.merged_in.is_empty());
+    assert!(!otaq_core::prime::render(&prime).contains("merged into this one"));
+
+    w.review
+        .merge_into(&shop20.key.to_string(), "SHOP-18", &me())
+        .await
+        .unwrap();
+    let prime = w
+        .board
+        .prime_context("SHOP-18", w.adapters.for_new_session())
+        .await
+        .unwrap();
+    let pr = prime.pull_request.as_ref().expect("a PR section");
+    assert_eq!(pr.merged_in.len(), 1);
+    assert_eq!(pr.merged_in[0].key.to_string(), "SHOP-20");
+    assert_eq!(pr.merged_in[0].title, "Coupon codes");
+    assert_eq!(
+        pr.merged_in[0].body,
+        "Customers enter a coupon code at checkout."
+    );
+    let text = otaq_core::prime::render(&prime);
+    let section = &text[text.find("## Pull request").unwrap()..];
+    assert!(
+        section.contains(
+            "merged into this one (the PR's description lists each of them, with its key and title"
+        ),
+        "{section}"
+    );
+    assert!(
+        section.contains(
+            "- SHOP-20 \u{b7} Coupon codes\n  > Customers enter a coupon code at checkout.\n"
+        ),
+        "{section}"
+    );
+    w.stop().await;
+}

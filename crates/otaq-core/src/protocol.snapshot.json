@@ -5066,6 +5066,23 @@
         }
       }
     },
+    "MergedInTicket": {
+      "kind": "struct",
+      "fields": {
+        "body": {
+          "ty": "String",
+          "omittable": true
+        },
+        "key": {
+          "ty": "TicketKey",
+          "required": true
+        },
+        "title": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "MessageAgent": {
       "kind": "struct",
       "fields": {
@@ -6388,6 +6405,10 @@
     "PrimePr": {
       "kind": "struct",
       "fields": {
+        "merged_in": {
+          "ty": "Vec<MergedInTicket>",
+          "omittable": true
+        },
         "provider": {
           "ty": "Option<String>",
           "omittable": true

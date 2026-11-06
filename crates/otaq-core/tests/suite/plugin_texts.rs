@@ -490,6 +490,24 @@ fn open_pr_and_push_describe_click_and_automatic_mode() {
     assert!(read_skill("open-pr").contains(&format!("`{}` skill", naming::copy_name("push"))));
 }
 
+/// A host's PR lists the tickets merged into it: `open-pr` and `push` read prime's "Tickets merged into this one" and
+/// list each of them in the PR's description; `push` edits the open PR's description to add them.
+#[test]
+fn open_pr_and_push_list_the_merged_in_tickets_in_the_description() {
+    for name in ["open-pr", "push"] {
+        let text = flat(&read_skill(name));
+        for needle in [
+            "**Tickets merged into this one**",
+            "description lists each of them, with its key, its title and a line on what it changed",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+    }
+    let push = flat(&read_skill("push"));
+    assert!(push.contains("gh pr edit 481 --body-file"));
+    assert!(push.contains("az repos pr update --id 481 --description"));
+}
+
 /// T-0437 (ASK-09; d0108 "Each connected tool's agent looks for itself", "Every why line names its source"): `flow`
 /// has "A first flow" between its steps and the file: its own tool's history (found by itself, only what the user
 /// typed, never credentials or another tool's data), the repo with its AI files, nothing else (no `gh`, no home-folder
