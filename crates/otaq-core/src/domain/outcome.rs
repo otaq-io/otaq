@@ -9,11 +9,13 @@ stored_enum! {
     pub enum Outcome ("outcome") {
         /// Local merge, an automatic Delivery or Mark merged: a merge commit landed (or the PR was merged).
         Merged = "merged",
-        /// Close ticket, Mark closed, or an agent's `stage done`: abandoned, never counts as merged.
+        /// Close ticket or Mark closed (and, before it finished as Done, an agent's `stage done`): abandoned, never
+        /// counts as merged.
         Closed = "closed",
-        /// The user finished the ticket from the Approve menu without a merge ("Done, nothing to merge"): no merge
-        /// commit, the branch is kept, and it counts as merged. The card reads "Done · nothing to merge" when the
-        /// branch had nothing beyond its base (`nothing_to_merge` is set), else "Done · not merged".
+        /// Finished without a merge, from the Approve menu ("Done, nothing to merge") or by an agent's `stage done`
+        /// with nothing on the branch: no merge commit, the branch is kept, and it counts as merged. The card reads
+        /// "Done · nothing to merge" when the branch had nothing beyond its base (`nothing_to_merge` is set), else
+        /// "Done · not merged".
         DoneWithoutMerge = "done_without_merge",
     }
 }

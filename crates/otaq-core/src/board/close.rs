@@ -30,42 +30,23 @@ impl Board {
 }
 
 /// Moves a ticket to Done · Closed · not merged and logs it. Agents, worktrees and Run/Shell are handled with
-/// sessions (T-0100).
+/// sessions (T-0100). Tickets an agent's `otaq stage done` closed before it finished as Done keep their
+/// `nothing_to_merge` reason and "Closed · nothing to merge"; nothing closes that way now.
 pub(crate) async fn close_bookkeeping(
     tx: &mut Transaction<'_, Sqlite>,
     ticket_id: &str,
     from: Status,
     actor: &Actor,
 ) -> Result<(), BoardError> {
-    close_bookkeeping_noting(tx, ticket_id, from, actor, json!({})).await
-}
-
-/// [`close_bookkeeping`] with more fields in the Closed event (`otaq stage done`'s `nothing_to_merge` and reason).
-pub(crate) async fn close_bookkeeping_noting(
-    tx: &mut Transaction<'_, Sqlite>,
-    ticket_id: &str,
-    from: Status,
-    actor: &Actor,
-    note: serde_json::Value,
-) -> Result<(), BoardError> {
     let to = Status::ClosedNotMerged;
     let now = now_ms();
-    // `otaq stage done`'s reason, for the card's "Closed · nothing to merge" (Q276).
-    let nothing_to_merge = (note.get("nothing_to_merge") == Some(&serde_json::Value::Bool(true)))
-        .then(|| {
-            note.get("reason")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_owned()
-        });
     sqlx::query(concat!(
-        "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'closed', nothing_to_merge = ?, updated_by = ?, ",
+        "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'closed', nothing_to_merge = NULL, updated_by = ?, ",
         "updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
     .bind(to.as_str())
-    .bind(nothing_to_merge)
     .bind(actor.to_string())
     .bind(now)
     .bind(to.as_str())
@@ -73,12 +54,12 @@ pub(crate) async fn close_bookkeeping_noting(
     .bind(ticket_id)
     .execute(&mut **tx)
     .await?;
-    record_event(tx, ticket_id, EventKind::Closed, actor, {
-        let mut payload = json!({"from": from});
-        if let (Some(payload), serde_json::Value::Object(note)) = (payload.as_object_mut(), note) {
-            payload.extend(note);
-        }
-        payload
-    })
+    record_event(
+        tx,
+        ticket_id,
+        EventKind::Closed,
+        actor,
+        json!({"from": from}),
+    )
     .await
 }

@@ -86,9 +86,9 @@ pub fn stage_next_text(flow: &crate::flow::Flow, before: &Ticket, after: &Ticket
     format!("Finished {finished}. {now}")
 }
 
-/// What `otaq stage done` answers (AGM-10): "SHOP-18 is closed: nothing to merge. End your turn."
+/// What `otaq stage done` answers (AGM-10): "SHOP-18 is Done: nothing to merge. End your turn."
 pub fn stage_done_text(after: &Ticket) -> String {
-    format!("{} is closed: nothing to merge. End your turn.", after.key)
+    format!("{} is Done: nothing to merge. End your turn.", after.key)
 }
 
 /// The payload of a [`EventKind::StageFinished`]: the name and id of the stage `ticket` leaves, the summary and the

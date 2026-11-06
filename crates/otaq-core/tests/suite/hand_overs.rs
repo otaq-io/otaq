@@ -10,7 +10,7 @@ use otaq_core::board::hand_over::{SentBack, check_failed_text, sent_back_text};
 use otaq_core::board::reports::ReportSource;
 use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use otaq_core::board::tickets::{EventKind, Ticket};
-use otaq_core::domain::{Actor, Place, Status};
+use otaq_core::domain::{Actor, Outcome, Place, Status};
 use otaq_core::review::ReturnOutcome;
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
@@ -180,7 +180,8 @@ async fn stage_next_posts_the_summary_as_the_agents_comment() {
     w.stop().await;
 }
 
-/// `stage done`: the reason is the agent's comment; the ticket is Closed · nothing to merge.
+/// `stage done`: the reason is the agent's comment; the ticket is Done · nothing to merge, which counts as merged
+/// (no merge commit), the reason kept on it and in History.
 #[tokio::test(flavor = "multi_thread")]
 async fn stage_done_posts_the_reason() {
     let w = world().await;
@@ -199,7 +200,28 @@ async fn stage_done_posts_the_reason() {
     )
     .await;
     assert!(ended["reply"]["stage_ended"].is_object(), "{ended}");
-    assert_eq!(w.status("SHOP-1").await, Status::ClosedNotMerged);
+    assert_eq!(
+        ended["reply"]["stage_ended"]["text"],
+        "SHOP-1 is Done: nothing to merge. End your turn."
+    );
+    assert_eq!(w.status("SHOP-1").await, Status::Merged);
+    let done = w.board.ticket("SHOP-1").await.unwrap();
+    assert!(done.flags.done_without_merge);
+    assert_eq!(done.flags.nothing_to_merge.as_deref(), Some(reason));
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(
+        row.outcome.as_deref(),
+        Some(Outcome::DoneWithoutMerge.as_str())
+    );
+    assert_eq!(row.merge_commit_sha, None, "no merge commit");
+    let history = w.board.history("SHOP-1").await.unwrap();
+    let event = history
+        .iter()
+        .find(|e| e.kind == EventKind::DoneWithoutMerge)
+        .expect("History has the Done");
+    assert_eq!(event.payload["nothing_to_merge"], true);
+    assert_eq!(event.payload["reason"], reason);
+    assert!(!history.iter().any(|e| e.kind == EventKind::Closed));
     let posted = comments(&w, "SHOP-1").await;
     assert_eq!(
         posted
@@ -208,6 +230,54 @@ async fn stage_done_posts_the_reason() {
             .collect::<Vec<_>>(),
         [(&rust_developer("dev"), reason)]
     );
+    w.stop().await;
+}
+
+/// `stage done` counts as merged: a ticket waiting on it becomes ready and starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn stage_done_lets_a_dependent_start() {
+    let w = world().await;
+    let t = w.create("SHOP", "Configure the CI secret").await;
+    w.give_worktree_at_base(&t).await;
+    w.force_status(&t, Status::Working).await;
+    let waiting = w.create("SHOP", "Use the CI secret").await;
+    w.board
+        .add_dependency("SHOP-2", "SHOP-1", &me())
+        .await
+        .unwrap();
+    w.force_status(&waiting, Status::Queued).await;
+    let tickets = w.board.tickets("SHOP").await.unwrap();
+    let shop2 = tickets
+        .iter()
+        .find(|t| t.key.to_string() == "SHOP-2")
+        .unwrap();
+    assert!(!otaq_core::board::readiness::readiness(shop2, &tickets).is_ready());
+    let dev = w.agent_shell(&t).await;
+    w.run_as_agent(&dev, "rust-dev", "Rust developer").await;
+
+    let ended = end_stage(
+        &w,
+        &dev,
+        "ticket.stage_done",
+        json!({"key": "SHOP-1", "summary": "The secret was set by hand."}),
+    )
+    .await;
+    assert!(ended["reply"]["stage_ended"].is_object(), "{ended}");
+    assert_eq!(w.status("SHOP-1").await, Status::Merged);
+    let tickets = w.board.tickets("SHOP").await.unwrap();
+    let shop2 = tickets
+        .iter()
+        .find(|t| t.key.to_string() == "SHOP-2")
+        .unwrap();
+    assert!(otaq_core::board::readiness::readiness(shop2, &tickets).is_ready());
+    // The scheduler starts it (its start runs in the background).
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while w.status("SHOP-2").await == Status::Queued {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the scheduler starts SHOP-2");
     w.stop().await;
 }
 

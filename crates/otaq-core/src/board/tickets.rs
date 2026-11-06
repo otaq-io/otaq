@@ -354,9 +354,10 @@ stored_enum! {
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
-        /// The user finished the ticket without a merge (the Approve menu's "Done, nothing to merge"): Done, counting
-        /// as merged ([`crate::domain::Outcome::DoneWithoutMerge`]). Payload `from`, and `nothing_to_merge` when the
-        /// branch had nothing beyond its base. History reads "Done · nothing to merge".
+        /// The ticket finished without a merge (the Approve menu's "Done, nothing to merge", or an agent's `stage
+        /// done`): Done, counting as merged ([`crate::domain::Outcome::DoneWithoutMerge`]). Payload `from`, and
+        /// `nothing_to_merge` (with `stage done`'s `reason`) when the branch had nothing beyond its base. History
+        /// reads "Done · nothing to merge".
         DoneWithoutMerge = "done_without_merge",
         /// A Delivery's conflict went to the nearest earlier Agent stage with `restack`, no click (FLW-17): payload
         /// `target`, `to`.

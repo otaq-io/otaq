@@ -492,11 +492,11 @@ async fn stage_next_lists_manual_checks() {
     w.stop().await;
 }
 
-/// T-0406 (AGM-10, d0033): `otaq stage done` with no commits beyond the base closes the ticket as Closed · nothing
-/// to merge with the reason; the session ends after its turn, and Reopen brings the ticket back. With commits it is
-/// refused.
+/// T-0406 (AGM-10): `otaq stage done` with no commits beyond the base finishes the ticket as Done · nothing to merge
+/// with the reason, counting as merged; the session ends after its turn, and the ticket is locked like any merged
+/// one. With commits it is refused.
 #[tokio::test(flavor = "multi_thread")]
-async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
+async fn stage_done_finishes_a_ticket_with_nothing_to_merge() {
     let w = TestService::start().await;
     w.shop_sample().await;
     let shop27 = w.board.ticket("SHOP-27").await.unwrap();
@@ -511,28 +511,29 @@ async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
-    assert_eq!(ticket["status"], "closed_not_merged");
+    assert_eq!(ticket["status"], "merged");
     let ran = agent
         .run_with_stdin(&format!("'{CB}' stage done --stdin"), "again")
         .await;
     assert_ne!(
         ran.status, 0,
-        "a closed ticket is no longer in an Agent stage"
+        "a finished ticket is no longer in an Agent stage"
     );
     let history = w.board.history("SHOP-27").await.unwrap();
-    let closed = history
+    let done = history
         .iter()
-        .find(|e| e.kind == otaq_core::board::tickets::EventKind::Closed)
+        .find(|e| e.kind == otaq_core::board::tickets::EventKind::DoneWithoutMerge)
         .unwrap();
-    assert_eq!(closed.payload["nothing_to_merge"], true);
+    assert_eq!(done.payload["nothing_to_merge"], true);
     assert_eq!(
-        closed.payload["reason"],
+        done.payload["reason"],
         "Already fixed in SHOP-12.\nNothing left to change."
     );
-    // The card says so too (Q276): the reason is on the ticket while it is Closed.
-    let closed_ticket = w.board.ticket("SHOP-27").await.unwrap();
+    // The card says so too (Q276): "Done · nothing to merge" with the reason.
+    let done_ticket = w.board.ticket("SHOP-27").await.unwrap();
+    assert!(done_ticket.flags.done_without_merge);
     assert_eq!(
-        closed_ticket.flags.nothing_to_merge.as_deref(),
+        done_ticket.flags.nothing_to_merge.as_deref(),
         Some("Already fixed in SHOP-12.\nNothing left to change.")
     );
     let runs = w.board.stage_runs("SHOP-27").await.unwrap();
@@ -565,16 +566,15 @@ async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
     })
     .await
     .expect("the agent ends after its turn");
-    assert_eq!(w.status("SHOP-27").await, Status::ClosedNotMerged);
+    assert_eq!(w.status("SHOP-27").await, Status::Merged);
 
-    // Reopen (dragging it out of Done) works as for any closed ticket (d0033).
-    let reopened = w
-        .board
-        .reopen("SHOP-27", &otaq_core::domain::Actor::User("me".into()))
-        .await
-        .unwrap();
-    assert_eq!(reopened.status, Status::Backlog);
-    assert_eq!(reopened.flags.nothing_to_merge, None);
+    // It counts as merged, so it is locked: Reopen is refused.
+    assert!(
+        w.board
+            .reopen("SHOP-27", &otaq_core::domain::Actor::User("me".into()))
+            .await
+            .is_err()
+    );
 
     // With commits: refused, named with the count.
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
