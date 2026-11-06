@@ -31,10 +31,9 @@ pub const HEADING: &str = "Comments";
 pub const HINT: &str = "Every stage\u{2019}s agent reads them before it starts";
 pub const PLACEHOLDER: &str = "Add a comment for the next stage\u{2026}";
 pub const SUBMIT: &str = "Comment";
-/// With only a pasted report, the comment still needs its own line (d0109).
-pub const NEEDS_LINE: &str = "Say what the next agent should look for";
 pub const PASTED: &str = "Pasted text";
-/// The box's line while a file added in Overview waits in it (RPT-02, `s25-05`).
+/// The New ticket form's line while its report waits in the box (RPT-03): that form's first comment still needs its own
+/// line; every other box sends attachments alone (tuq 007).
 pub const FILE_LINE: &str = "A comment always has its own line; the file goes with it.";
 pub const OPEN: &str = "Open";
 /// The button by the box that opens the system picker (tuq 003), and the picker's title.
@@ -199,12 +198,11 @@ pub struct CommentBoxView {
     pub footer: Option<String>,
     /// Before the line: an arrow in the thread, a speech bubble in a dialog (`s03-50`, `s07-20`).
     pub footer_icon: IconName,
-    /// The hint while only a pasted report is there.
-    pub needs_line: String,
     /// The pasted chip's label: "Pasted text".
     pub pasted: String,
-    /// The line while a file waits in the box (Overview's Add, a drop): it still needs its own line.
-    pub file_line: String,
+    /// The line while a file waits in the box: only the New ticket form's ([`Self::one_report`]), whose report still
+    /// needs its own line (RPT-03). Every other box sends attachments with no text (tuq 007).
+    pub file_line: Option<String>,
     /// The file chip's ✕, for screen readers.
     pub remove_file: String,
     pub open: String,
@@ -239,9 +237,8 @@ impl CommentBoxView {
             placeholder: PLACEHOLDER.to_owned(),
             submit,
             footer,
-            needs_line: NEEDS_LINE.to_owned(),
             pasted: PASTED.to_owned(),
-            file_line: FILE_LINE.to_owned(),
+            file_line: None,
             remove_file: "Remove the file".to_owned(),
             open: OPEN.to_owned(),
             remove: "Remove the pasted text".to_owned(),
@@ -278,10 +275,11 @@ impl CommentBoxView {
         self
     }
 
-    /// A box that holds one report (the New ticket form's, RPT-03): no Attach button, and a file added replaces the
-    /// last.
+    /// A box that holds one report (the New ticket form's, RPT-03): no Attach button, a file added replaces the last,
+    /// and the report waits for its line ([`FILE_LINE`]).
     pub fn one_report(mut self) -> Self {
         self.attach = None;
+        self.file_line = Some(FILE_LINE.to_owned());
         self
     }
 
@@ -468,6 +466,9 @@ pub fn pasted_size(bytes: u64) -> String {
 /// How much of a verdict a card shows before "· see comment", so the pointer stays on its two lines.
 const VERDICT_CHARS: usize = 40;
 
+/// What a failed check's card line ends with.
+const SEE_COMMENT: &str = "see comment";
+
 /// A failed check's card line (CMT-10, `s05-41`): the verdict comment's first line, without the "Fail:" its card
 /// already says and up to its first ";", cut at a word to fit, and "· see comment" ("Fail: the 10,000 row limit isn't
 /// enforced; 3 tests fail in export_tests.rs." → "the 10,000 row limit isn't enforced · see comment").
@@ -482,7 +483,11 @@ pub fn verdict_line(verdict: &str) -> String {
         _ => line,
     };
     let clause = line.split(';').next().unwrap_or(line).trim();
-    format!("{} \u{b7} see comment", cut(clause, VERDICT_CHARS))
+    // A verdict of only attachments (tuq 007): nothing to quote.
+    if clause.is_empty() {
+        return SEE_COMMENT.to_owned();
+    }
+    format!("{} \u{b7} {SEE_COMMENT}", cut(clause, VERDICT_CHARS))
 }
 
 /// `text` within `max` characters, cut at the last space before it with "…".
@@ -853,15 +858,16 @@ mod tests {
         );
     }
 
-    /// `s05-43`'s three writing states rest on the box's words and limits: the paste chip ("Pasted text · 48 KB"),
-    /// the hint with only a chip, and the counter against the limit (the page counts; the view gives the limit).
+    /// `s05-43`'s writing states rest on the box's words and limits: the paste chip ("Pasted text · 48 KB") and the
+    /// counter against the limit (the page counts; the view gives the limit). A chip alone needs no line (tuq 007):
+    /// only the New ticket form's box asks for one.
     #[test]
     fn the_writing_states_words() {
         let b = CommentBoxView::thread(None);
         assert_eq!(b.pasted, "Pasted text");
         assert_eq!(b.tell_agent, None, "no tick box without a running session");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
-        assert_eq!(b.needs_line, "Say what the next agent should look for");
+        assert_eq!(b.file_line, None, "attachments alone are sent (tuq 007)");
         assert_eq!(b.limits.chars, 2000);
         assert_eq!(b.open, "Open");
         assert_eq!(
@@ -884,7 +890,10 @@ mod tests {
         assert!(d.optional);
         assert_eq!(d.limits, b.limits);
         assert_eq!(d.attach, b.attach);
-        assert_eq!(d.one_report().attach, None);
+        assert_eq!(d.file_line, None);
+        let one = d.one_report();
+        assert_eq!(one.attach, None);
+        assert_eq!(one.file_line.as_deref(), Some(FILE_LINE));
     }
 
     /// `s05-41`'s card: "10,000 row limit isn't enforced · see comment".
@@ -907,6 +916,9 @@ mod tests {
             "10,000 row limit isn\u{2019}t enforced \u{b7} see comment"
         );
         assert_eq!(verdict_line("fail : short"), "short \u{b7} see comment");
+        // A verdict of only attachments (tuq 007).
+        assert_eq!(verdict_line(""), "see comment");
+        assert_eq!(verdict_line("Fail:"), "see comment");
         assert_eq!(
             verdict_line("Failing: a word that only starts like it"),
             "Failing: a word that only starts like it \u{b7} see comment"

@@ -294,15 +294,9 @@ export function CommentBox({
             }}
           />
         )}
-        {state.fileLine && (
+        {state.fileLine && view.file_line !== null && (
           <span className="comment-box-hint" role="status">
             {view.file_line}
-          </span>
-        )}
-        {state.needsLine && (
-          <span className="comment-box-hint" role="status">
-            <Icon name="info" size={13} />
-            {view.needs_line}
           </span>
         )}
         {state.counter !== null && (

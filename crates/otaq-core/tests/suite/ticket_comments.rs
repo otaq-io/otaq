@@ -982,3 +982,96 @@ async fn a_deleted_comments_report_is_the_users_only() {
     assert_eq!(refusal(&refused), "Comment 1 on SHOP-1 was deleted.");
     w.stop().await;
 }
+
+/// tuq 007: a comment needs text, or at least one attachment, or both. One attachment and no text posts (the user's and
+/// a stage end's hand-over alike); neither is refused; the text may be edited away only while an attachment stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_comment_of_only_attachments_posts_and_an_empty_one_is_refused() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Export orders as CSV").await;
+    let shot = w.home.path().join("shot.png");
+    std::fs::write(&shot, [137, 80, 78, 71, 13, 10, 26, 10]).unwrap();
+
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &you(),
+            "  \n",
+            vec![ReportSource::Path(shot)],
+            &me(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(posted.body, "");
+    assert_eq!(posted.attachments.len(), 1);
+    assert_eq!(posted.attachments[0].kind, AttachmentKind::Image);
+    let events = comment_events(&w, "SHOP-1").await;
+    assert_eq!(events[0].payload["excerpt"], "");
+    assert_eq!(events[0].payload["attachments"][0]["name"], "shot.png");
+
+    // Neither text nor an attachment: refused, nothing posted.
+    let refused = w
+        .board
+        .post_ticket_comment("SHOP-1", &you(), " ", Vec::new(), &me())
+        .await
+        .unwrap_err();
+    assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
+    assert_eq!(refused.to_string(), "Write the comment first");
+    assert_eq!(
+        w.board
+            .ticket_comments("SHOP-1")
+            .await
+            .unwrap()
+            .comments
+            .len(),
+        1
+    );
+
+    // A stage end (`stage next`, `check pass|fail`) with an empty summary and a file hands the file over; with
+    // neither, nothing is posted.
+    let hand_over = w
+        .board
+        .stage_end_hand_over(
+            &ticket,
+            rust_developer(),
+            "",
+            vec![ReportSource::Text("FAILED\n".into())],
+            &[],
+        )
+        .await
+        .unwrap()
+        .expect("the file is handed over");
+    assert_eq!(hand_over.body, "");
+    hand_over.discard_unposted(&w.board).await;
+    assert!(
+        w.board
+            .stage_end_hand_over(&ticket, rust_developer(), "", Vec::new(), &[])
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    // Editing: the text may go while the comment keeps its attachment, never from a comment of only text.
+    let edited = w
+        .board
+        .edit_ticket_comment("SHOP-1", posted.n, "The badge, before.", &me())
+        .await
+        .unwrap();
+    assert_eq!(edited.body, "The badge, before.");
+    let edited = w
+        .board
+        .edit_ticket_comment("SHOP-1", posted.n, "", &me())
+        .await
+        .unwrap();
+    assert_eq!(edited.body, "");
+    let worded = post(&w, "SHOP-1", "Only words.").await;
+    let refused = w
+        .board
+        .edit_ticket_comment("SHOP-1", worded.n, "  ", &me())
+        .await
+        .unwrap_err();
+    assert_eq!(refused.to_string(), "Write the comment first");
+    w.stop().await;
+}

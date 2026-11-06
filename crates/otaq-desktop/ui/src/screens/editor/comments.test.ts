@@ -90,9 +90,8 @@ const BOX: CommentBoxView = {
   submit: "Comment",
   footer: "Read by the next stage’s agent",
   footer_icon: "arrow-right",
-  needs_line: "Say what the next agent should look for",
   pasted: "Pasted text",
-  file_line: "A comment always has its own line; the file goes with it.",
+  file_line: null,
   remove_file: "Remove the file",
   open: "Open",
   remove: "Remove the pasted text",
@@ -136,28 +135,26 @@ describe("the box's state", () => {
       count: 2140,
       over: true,
       counter: "2,140 / 2,000",
-      needsLine: false,
       fileLine: false,
       canSubmit: false,
     });
     expect(boxState({ text: "x".repeat(2000), attachments: [] }, LIMITS).canSubmit).toBe(true);
   });
 
-  it("asks for a line while only a chip is there", () => {
+  it("sends a chip with no line, with a line, or with only spaces typed (tuq 007)", () => {
     const chip = withPasted(EMPTY_BOX, "y".repeat(2001));
-    expect(boxState(chip, LIMITS)).toMatchObject({ needsLine: true, canSubmit: false });
-    expect(boxState({ ...chip, text: "  " }, LIMITS)).toMatchObject({ needsLine: true, canSubmit: false });
-    expect(boxState({ ...chip, text: "Look at limit_rows" }, LIMITS)).toMatchObject({
-      needsLine: false,
-      canSubmit: true,
-    });
+    expect(boxState(chip, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ ...chip, text: "  " }, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ ...chip, text: "Look at limit_rows" }, LIMITS).canSubmit).toBe(true);
+    // The limit still holds with a chip.
+    expect(boxState({ ...chip, text: "x".repeat(2001) }, LIMITS).canSubmit).toBe(false);
   });
 
-  it("needs text in the thread; a dialog's optional box may stay empty", () => {
+  it("needs text or an attachment in the thread; a dialog's optional box may stay empty", () => {
     expect(boxState(EMPTY_BOX, LIMITS).canSubmit).toBe(false);
+    expect(boxState({ text: " \n ", attachments: [] }, LIMITS).canSubmit).toBe(false);
     expect(boxState(EMPTY_BOX, LIMITS, true).canSubmit).toBe(true);
-    // Still never only a chip.
-    expect(boxState(withPasted(EMPTY_BOX, "z".repeat(2001)), LIMITS, true).canSubmit).toBe(false);
+    expect(boxState(withPasted(EMPTY_BOX, "z".repeat(2001)), LIMITS, true).canSubmit).toBe(true);
   });
 });
 
@@ -242,7 +239,7 @@ describe("CommentBox", () => {
     expect(host.querySelector(".comment-chip")).toBeNull();
   });
 
-  it("turns a 2,001-character paste into the chip, never text, with Comment off until a line is typed", async () => {
+  it("turns a 2,001-character paste into the chip, never text, with Comment on and no hint (tuq 007)", async () => {
     const sent: BoxValue[] = [];
     const host = await mount((v) => sent.push(v));
     expect(await paste(host, "b".repeat(2001))).toBe(true);
@@ -250,10 +247,8 @@ describe("CommentBox", () => {
     expect(host.querySelector(".comment-chip-label")?.textContent).toBe("Pasted text");
     expect(host.querySelector(".comment-chip-size")?.textContent).toBe("· 48 KB");
     expect(ipc.calls).toContain("ticket_comments.pasted_size");
-    expect(host.querySelector(".comment-box-hint")?.textContent).toBe(
-      "Say what the next agent should look for",
-    );
-    expect(button(host).disabled).toBe(true);
+    expect(host.querySelector(".comment-box-hint")).toBeNull();
+    expect(button(host).disabled).toBe(false);
 
     await type(host, "Look at limit_rows first.");
     expect(host.querySelector(".comment-box-hint")).toBeNull();
@@ -273,6 +268,25 @@ describe("CommentBox", () => {
       await Promise.resolve();
     });
     expect(host.querySelector(".comment-chip")).toBeNull();
+  });
+
+  it("sends a pasted screenshot on its own: Comment is on with only the image chip (tuq 007)", async () => {
+    const sent: BoxValue[] = [];
+    const host = await mount((v) => sent.push(v));
+    expect(button(host).disabled).toBe(true);
+    await paste(host, "", [fileOf("image.png", "image/png", 48_000)]);
+    expect(chipLabels(host)).toEqual(["image.png"]);
+    expect(host.querySelector(".comment-box-hint")).toBeNull();
+    expect(button(host).disabled).toBe(false);
+    await act(async () => {
+      button(host).click();
+      await Promise.resolve();
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toBe("");
+    expect(sent[0] && sentAttachments(sent[0])).toEqual([
+      { kind: "file", path: "/data/staged-attachments/1/image.png" },
+    ]);
   });
 
   it("turns a pasted screenshot into an image chip with its thumbnail, never pasted text (tuq 002, 003)", async () => {
@@ -310,7 +324,7 @@ describe("CommentBox", () => {
     await settle();
     expect(chipLabels(host)).toEqual(["before.png", "test-run.txt"]);
     expect(host.querySelector(".comment-chip-thumb")?.getAttribute("src")).toMatch(/^data:image\/png/);
-    expect(host.querySelector(".comment-box-hint")?.textContent).toBe(BOX.file_line);
+    expect(host.querySelector(".comment-box-hint")).toBeNull();
     const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the file before.png"]');
     await act(async () => {
       remove?.click();

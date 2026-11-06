@@ -2,8 +2,10 @@
 //! the user and any stage's agent; every later agent reads them all in `prime`. Not the line comments
 //! on a diff ([`super::comments`]), which stay as they are.
 //!
-//! - A comment's text is at most [`COMMENT_LIMIT_CHARS`] Unicode characters and never empty ([`check_body`]); longer
-//!   text goes in an **attachment** ([`super::reports`]); a comment may carry any number, of any type (tuq 001, 002).
+//! - A comment's text is at most [`COMMENT_LIMIT_CHARS`] Unicode characters; longer text goes in an **attachment**
+//!   ([`super::reports`]); a comment may carry any number, of any type (tuq 001, 002). It needs text, or at least one
+//!   attachment, or both: a pasted screenshot is sent on its own; an empty comment is refused ([`check_comment`], tuq
+//!   007).
 //! - `n` numbers a ticket's comments 1, 2, 3…, never reused: a deleted comment keeps its row (History shows what it
 //!   said) and no list shows it. Its attachments stay until the ticket is deleted.
 //! - Posting, editing and deleting log `comment_posted`, `comment_edited` and `comment_deleted` with the actor.
@@ -30,7 +32,7 @@ use crate::store::{new_id, now_ms};
 /// [`check_body`].
 pub const COMMENT_LIMIT_CHARS: usize = 2_000;
 
-/// The refusal of an empty comment (or one of only spaces), with or without a report.
+/// The refusal of an empty comment: no text (or only spaces) and no attachment (tuq 007).
 pub const EMPTY_COMMENT: &str = "Write the comment first";
 
 /// The `stage_id` of the user's comment posted with a new ticket (RPT-03): no stage id can take it (a stage's id is
@@ -71,12 +73,18 @@ pub struct FirstComment {
 /// How many characters of a comment History's "commented" line keeps.
 const EXCERPT_CHARS: usize = 120;
 
-/// The comment's text as stored (trimmed), or the refusal: empty, or over the limit with CMT-02's text: "Comment is
-/// 48,210 characters; the limit is 2,000. Put the full text in a report with `--report-file` and keep the comment to
-/// what the next agent needs."
+/// A text that has no attachments (a helper's note, the New ticket form's line): [`check_comment`] with none, so it
+/// is never empty.
 pub fn check_body(body: &str) -> Result<String, BoardError> {
+    check_comment(body, 0)
+}
+
+/// The comment's text as stored (trimmed, maybe empty), or the refusal: no text and none of its `attachments` (tuq
+/// 007), or over the limit with CMT-02's text: "Comment is 48,210 characters; the limit is 2,000. Put the full text
+/// in a report with `--report-file` and keep the comment to what the next agent needs."
+pub fn check_comment(body: &str, attachments: usize) -> Result<String, BoardError> {
     let body = body.trim();
-    if body.is_empty() {
+    if body.is_empty() && attachments == 0 {
         return Err(BoardError::refused(Refusal::EmptyField, EMPTY_COMMENT));
     }
     let chars = body.chars().count();
@@ -438,7 +446,7 @@ fn stored_json(stored: Option<&StoredAttachments>) -> Value {
 }
 
 /// Posts a comment on the ticket `ticket_id` inside `tx`, with its `comment_posted` event: what the hand-overs call
-/// (T-0443), so the comment and the move are one change. `body` must have passed [`check_body`]; the attachments, if
+/// (T-0443), so the comment and the move are one change. `body` must have passed [`check_comment`]; the attachments, if
 /// any, were copied with [`Board::prepare_attachments`] and the comment takes their id. On a later failure of `tx` the
 /// caller discards them ([`StoredAttachments::discard`]). No rights are checked here: the policy judged the request.
 pub async fn post_in(
@@ -537,7 +545,7 @@ pub(crate) async fn post_comment_in(
 
 impl Board {
     /// Posts a comment (the user's or an agent's) with any number of attachments (tuq 001, 006): the text is checked
-    /// first, then every attachment checked and copied (a missing file or one over 20 MB refused by name before
+    /// first (it may be empty when something is attached, tuq 007), then every attachment checked and copied (a missing file or one over 20 MB refused by name before
     /// anything is posted, leaving nothing behind), then the comment stored. Rights are the policy's (CMT-04).
     pub async fn post_ticket_comment(
         &self,
@@ -547,7 +555,7 @@ impl Board {
         attachments: Vec<ReportSource>,
         actor: &Actor,
     ) -> Result<TicketComment, BoardError> {
-        let body = check_body(body)?;
+        let body = check_comment(body, attachments.len())?;
         let ticket = self.ticket(key).await?;
         let stored = self.prepare_attachments(&ticket.key, attachments).await?;
         let posted = async {
@@ -570,7 +578,8 @@ impl Board {
         self.ticket_comment(&ticket.key.to_string(), posted.n).await
     }
 
-    /// Changes comment `n`'s text (the limit applies again), logging the before and after.
+    /// Changes comment `n`'s text (the limit applies again), logging the before and after. The text may go only while
+    /// the comment keeps an attachment (tuq 007).
     pub async fn edit_ticket_comment(
         &self,
         key: &str,
@@ -578,10 +587,17 @@ impl Board {
         body: &str,
         actor: &Actor,
     ) -> Result<TicketComment, BoardError> {
-        let body = check_body(body)?;
+        // The limit first, before anything is read; whether it may be empty once its attachments are known.
+        check_comment(body, usize::MAX)?;
         let ticket = self.ticket(key).await?;
         let mut tx = self.store.begin_write().await?;
         let row = live_row(&mut tx, &ticket.id, &ticket.key, n).await?;
+        let attached: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM comment_attachments WHERE comment_id = ?")
+                .bind(&row.id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let body = check_comment(body, usize::try_from(attached).unwrap_or(0))?;
         sqlx::query("UPDATE ticket_comments SET body = ?, edited_at = ? WHERE id = ?")
             .bind(&body)
             .bind(now_ms())

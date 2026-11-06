@@ -1,6 +1,8 @@
 // The comment box's rules while typing (CMT-11, d0109; *05 → Row · Writing, editing and deleting*): a paste over the
-// limit becomes a "Pasted text" chip, never text; typing past it shows "2,140 / 2,000" and turns the button off; with
-// only chips the comment still needs its own line. The limit comes with the view (`CommentLimits`, from core's
+// limit becomes a "Pasted text" chip, never text; typing past it shows "2,140 / 2,000" and turns the button off. A
+// comment needs text, or at least one attachment, or both (tuq 007): a pasted screenshot is sent on its own. The New
+// ticket form's box alone still asks its report for a line (`CommentBoxView.file_line`, RPT-03). The limit comes with
+// the view (`CommentLimits`, from core's
 // constant); the service checks it again. Typed text is never turned into a report.
 //
 // The box holds a list of attachments (tuq 001, 003), each its own chip with ✕, sent together in the box's order
@@ -125,27 +127,24 @@ export interface BoxState {
   over: boolean;
   /** "2,140 / 2,000" while over the limit. */
   counter: string | null;
-  /** Only pasted text, no line of text: "Say what the next agent should look for". */
-  needsLine: boolean;
-  /** A file waits in the box: "A comment always has its own line; the file goes with it." */
+  /** A file waits in the box: the New ticket form's "A comment always has its own line; the file goes with it." */
   fileLine: boolean;
   /** The button may send it. */
   canSubmit: boolean;
 }
 
-/** The box's state; `optional` is a dialog's box that may stay empty (no text and no chip). */
+/** The box's state; `optional` is a dialog's box that may stay empty (no text and no chip). Text, an attachment, or
+ * both may be sent (tuq 007). */
 export function boxState(value: BoxValue, limits: CommentLimits, optional = false): BoxState {
   const count = chars(value.text.trim());
   const over = count > limits.chars;
   const empty = count === 0;
-  const fileLine = value.attachments.some((a) => a.kind === "file");
-  const needsLine = value.attachments.length > 0 && empty;
+  const attached = value.attachments.length > 0;
   return {
     count,
     over,
     counter: over ? `${grouped(count)} / ${grouped(limits.chars)}` : null,
-    needsLine: needsLine && !fileLine,
-    fileLine,
-    canSubmit: !over && !needsLine && (!empty || optional),
+    fileLine: value.attachments.some((a) => a.kind === "file"),
+    canSubmit: !over && (!empty || attached || optional),
   };
 }

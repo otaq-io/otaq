@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(f.line_box.submit, None);
         assert!(f.line_box.optional);
         assert_eq!(f.line_box.placeholder, REPORT_LINE_PLACEHOLDER);
-        assert_eq!(f.line_box.file_line, REPORT_LINE_REQUIRED);
+        assert_eq!(f.line_box.file_line.as_deref(), Some(REPORT_LINE_REQUIRED));
     }
 
     /// The editor's payloads, sent to a real background service (temporary data folder), come back with their
