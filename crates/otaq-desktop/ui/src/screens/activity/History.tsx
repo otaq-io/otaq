@@ -18,6 +18,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { AttachmentChip, Mark } from "../editor/CommentThread";
+import { Thumbnail } from "../editor/ImageViewer";
 import { openReport } from "../editor/reportOpener";
 import { MessagesSection } from "../sections/Messages";
 import type { ActivityFilter } from "../../generated/ActivityFilter";
@@ -59,6 +60,13 @@ function Opened({ opens, ticket }: { opens: HistoryOpens; ticket: string }) {
           <span className="history-opens-text">{l.text}</span>
         </div>
       ))}
+      {opens.thumbnails.length > 0 && (
+        <div className="comment-thumbnails">
+          {opens.thumbnails.map((t) => (
+            <Thumbnail key={t.thumbnail.attachment} ticket={ticket} n={t.n} thumbnail={t.thumbnail} />
+          ))}
+        </div>
+      )}
       {opens.attachments.length > 0 && (
         <span className="comment-attachments">
           {opens.attachments.map((a) => (

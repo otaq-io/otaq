@@ -1172,6 +1172,31 @@ fn follow_notification_clicks(handle: &tauri::AppHandle, app: &App) {
     }));
 }
 
+/// A comment's image for the page (tuq 004): `otaq-attachment://localhost/<KEY>/<n>/<attachment>`, answered off the
+/// webview's thread by [`crate::attachment_images::serve`], which serves only images inside the data folder's reports.
+fn attachment_image(
+    app: &Arc<App>,
+    runtime: &tokio::runtime::Handle,
+    path: &str,
+    responder: tauri::UriSchemeResponder,
+) {
+    let app = app.clone();
+    let path = path.to_owned();
+    runtime.spawn(async move {
+        let served = crate::attachment_images::serve(&app, &path).await;
+        let mut response = tauri::http::Response::builder()
+            .status(served.status)
+            .header(tauri::http::header::CONTENT_TYPE, served.mime);
+        for (name, value) in crate::attachment_images::HEADERS {
+            response = response.header(*name, *value);
+        }
+        match response.body(served.body) {
+            Ok(response) => responder.respond(response),
+            Err(e) => eprintln!("couldn't answer an attachment image: {e}"),
+        }
+    });
+}
+
 // --- Running ----------------------------------------------------------------------------------------------------
 
 /// Opens the window and runs until the app quits. Tauri's async calls run on the app's own `runtime`; the window's
@@ -1199,6 +1224,8 @@ pub fn run(
     let exiting = app.clone();
     let clicks_of = app.clone();
     let icon_of = app.clone();
+    let images_of = app.clone();
+    let images_on = runtime.clone();
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.menu(app_menu).on_menu_event(|handle, event| {
@@ -1217,6 +1244,12 @@ pub fn run(
         .manage(placement)
         .manage(StatusIconUp::default())
         .manage(PendingStatusMenu::default())
+        .register_asynchronous_uri_scheme_protocol(
+            crate::attachment_images::SCHEME,
+            move |_, request, responder| {
+                attachment_image(&images_of, &images_on, request.uri().path(), responder);
+            },
+        )
         .invoke_handler(tauri::generate_handler![
             request,
             subscribe_events,

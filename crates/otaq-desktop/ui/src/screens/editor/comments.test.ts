@@ -8,9 +8,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
+import type { CommentThumbnail } from "../../generated/CommentThumbnail";
+import { overlays } from "../../app/overlays";
 import type { CommentLimits } from "../../generated/CommentLimits";
 import { CommentBox } from "./CommentBox";
 import { CommentThread } from "./CommentThread";
+import { ImageViewer } from "./ImageViewer";
 import { type BoxValue, boxState, chars, EMPTY_BOX, pasteAction, withPasted } from "./commentRules";
 import { type ReportTarget, setReportOpener } from "./reportOpener";
 
@@ -225,6 +228,14 @@ describe("CommentBox", () => {
   });
 });
 
+const SHOT: CommentThumbnail = {
+  attachment: 1,
+  name: "shot.png",
+  size: "120 KB",
+  open: "Open shot.png full size",
+  close: "Close",
+};
+
 const row = (n: number, over: Partial<CommentRow>): CommentRow => ({
   n,
   author: "Rust developer",
@@ -235,6 +246,7 @@ const row = (n: number, over: Partial<CommentRow>): CommentRow => ({
   edited: null,
   heading: "Rust developer · Dev · 2:58 pm",
   body: "Done. Excel not added; left a TODO where it would go.",
+  thumbnails: [],
   attachments: [],
   ...over,
 });
@@ -251,10 +263,8 @@ const THREAD: CommentThreadView = {
       meta: "Validate · round 2 · 3:05 pm",
       edited: "· edited",
       body: "Fail: the 10,000 row limit isn’t enforced; 3 tests fail in export_tests.rs.",
-      attachments: [
-        { attachment: 1, name: "shot.png", kind: "image", size: "· 120 KB", open: null },
-        { attachment: 2, name: "test-run.txt", kind: "text", size: "· 48 KB", open: "Open" },
-      ],
+      thumbnails: [SHOT],
+      attachments: [{ attachment: 2, name: "test-run.txt", kind: "text", size: "· 48 KB", open: "Open" }],
     }),
     row(2, {
       author: "You",
@@ -291,11 +301,28 @@ describe("CommentThread", () => {
     const box = host.querySelector(".comments > .comment-box");
     expect(box).not.toBeNull();
     expect(box?.compareDocumentPosition(comments[0] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // One chip per attachment (tuq 001); only the text one opens, with its number.
+    // The image is a thumbnail after the text, loaded by its numbers (tuq 004); a click opens it full size.
+    const thumbnail = (comments[0] as Element).querySelector<HTMLButtonElement>(".comment-thumbnail");
+    expect(thumbnail?.getAttribute("aria-label")).toBe("Open shot.png full size");
+    expect(thumbnail?.querySelector("img")?.getAttribute("src")).toBe(
+      "otaq-attachment://localhost/SHOP-34%2F4%2F1",
+    );
+    expect(
+      (comments[0] as Element).querySelector(".comment-body")?.compareDocumentPosition(thumbnail as Node),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    await act(async () => {
+      thumbnail?.click();
+      await Promise.resolve();
+    });
+    expect(overlays.store.get()).toEqual([
+      { id: "image", params: { ticket: "SHOP-34", n: 4, thumbnail: SHOT } },
+    ]);
+    overlays.closeTop();
+    // One chip per other attachment (tuq 001); only the text one opens, with its number.
     const sizes = [...(comments[0] as Element).querySelectorAll(".comment-chip-size")].map(
       (s) => s.textContent,
     );
-    expect(sizes).toEqual(["· 120 KB", "· 48 KB"]);
+    expect(sizes).toEqual(["· 48 KB"]);
     expect(host.querySelectorAll(".comment-report-open")).toHaveLength(1);
     await act(async () => {
       host.querySelector<HTMLButtonElement>(".comment-report-open")?.click();
@@ -303,6 +330,39 @@ describe("CommentThread", () => {
     });
     expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4, attachment: 2 }]);
     setReportOpener(() => undefined);
+  });
+});
+
+describe("ImageViewer (tuq 004)", () => {
+  it("shows the image full size with its name and size; Esc and its ✕ close it", async () => {
+    const closed: string[] = [];
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(
+        createElement(ImageViewer, {
+          params: { ticket: "SHOP-34", n: 4, thumbnail: SHOT },
+          close: () => closed.push("closed"),
+        }),
+      );
+      await Promise.resolve();
+    });
+    const dialog = host.querySelector<HTMLElement>(".image-view");
+    expect(dialog?.getAttribute("role")).toBe("dialog");
+    expect(dialog?.textContent).toContain("shot.png");
+    expect(dialog?.textContent).toContain("120 KB");
+    const img = host.querySelector<HTMLImageElement>(".image-view-image");
+    expect(img?.getAttribute("src")).toBe("otaq-attachment://localhost/SHOP-34%2F4%2F1");
+    expect(img?.getAttribute("alt")).toBe("shot.png");
+    const close = host.querySelector<HTMLButtonElement>('button[aria-label="Close"]');
+    expect(document.activeElement).toBe(close);
+    act(() => {
+      dialog?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    act(() => {
+      close?.click();
+    });
+    expect(closed).toEqual(["closed", "closed"]);
   });
 });
 

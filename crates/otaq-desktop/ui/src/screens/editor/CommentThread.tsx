@@ -25,6 +25,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "./CommentBox";
+import { Thumbnails } from "./ImageViewer";
 import { type AttachedFile, type BoxValue, boxState, EMPTY_BOX, withFile, withPasted } from "./commentRules";
 import { isSaveKey } from "./logic";
 import { openReport } from "./reportOpener";
@@ -290,6 +291,7 @@ function Comment({
       ) : (
         <p className="comment-body">{row.body}</p>
       )}
+      <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
       <AttachmentChips
         chips={row.attachments}
         onOpen={(attachment) => {
@@ -329,6 +331,7 @@ function DeleteDialog({
           <p className="comment-meta">{row.heading}</p>
           <div className="comment comment-quoted">
             <p className="comment-body">{row.body}</p>
+            <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
             <AttachmentChips chips={row.attachments} />
           </div>
           <p className="comment-meta">{view.delete.note}</p>

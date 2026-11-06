@@ -24,7 +24,7 @@ use otaq_core::domain::Status;
 use crate::icons::IconName;
 use crate::keymap::Platform;
 use crate::view_models::manual_checks::{self, ChecklistView};
-use crate::view_models::ticket_comments::{AttachmentKind, Mark, agent_mark};
+use crate::view_models::ticket_comments::{AttachmentKind, Mark, Thumbnail, agent_mark};
 
 pub const DESCRIPTION: &str = "Description";
 pub const CLICK_TO_EDIT: &str = "Click to edit";
@@ -194,8 +194,10 @@ pub struct AttachmentRow {
     /// Its number in its comment (1, 2, 3…): what Open sends with `n`.
     pub attachment: u32,
     pub name: String,
-    /// Text opens in the report view; images and other files don't (yet).
+    /// Text opens in the report view; an image opens full size (tuq 004); other files don't open.
     pub kind: AttachmentKind,
+    /// An image's thumbnail, shown in place of its icon; a click opens it full size (tuq 004). None for the rest.
+    pub thumbnail: Option<Thumbnail>,
     /// "3 KB".
     pub size: String,
     pub mark: Mark,
@@ -244,6 +246,7 @@ pub fn attachments(comments: &[TicketComment], avatars: bool) -> Vec<AttachmentR
                 attachment: a.n,
                 name: a.name.clone(),
                 kind: a.kind.into(),
+                thumbnail: Thumbnail::of(a),
                 size: size_label(a.bytes),
                 mark: mark.clone(),
                 who: who(c),
@@ -604,6 +607,32 @@ mod tests {
         assert_eq!(
             (mine.name.as_str(), mine.who.as_str()),
             ("Pasted text", "You")
+        );
+    }
+
+    /// tuq 004, 006: an agent's screenshot is a row with its thumbnail, which opens full size; text keeps none.
+    #[test]
+    fn an_image_row_has_its_thumbnail() {
+        let mut comments = fixtures::shop_22();
+        let last = comments.last_mut().unwrap();
+        let mut shot = last.attachments[0].clone();
+        shot.n = 2;
+        shot.name = "safari.png".into();
+        shot.kind = otaq_core::board::reports::AttachmentKind::Image;
+        shot.lines = None;
+        last.attachments.push(shot);
+        let rows = attachments(&comments, true);
+        let image = rows.iter().find(|r| r.name == "safari.png").unwrap();
+        assert_eq!(image.kind, AttachmentKind::Image);
+        let thumbnail = image.thumbnail.as_ref().unwrap();
+        assert_eq!(
+            (thumbnail.attachment, thumbnail.open.as_str()),
+            (2, "Open safari.png full size")
+        );
+        assert!(
+            rows.iter()
+                .filter(|r| r.name != "safari.png")
+                .all(|r| r.thumbnail.is_none())
         );
     }
 

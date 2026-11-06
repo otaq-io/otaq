@@ -7,6 +7,7 @@ mod about;
 mod api;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod app_menu;
+mod attachment_images;
 mod door;
 mod drops;
 mod events;

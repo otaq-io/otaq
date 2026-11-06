@@ -29,7 +29,7 @@ use ts_rs::TS;
 use crate::view_models::card::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 use crate::view_models::clock;
 use crate::view_models::stage_choices::{self, HistoryLine};
-use crate::view_models::ticket_comments::{self as comments, AttachmentChip, Mark};
+use crate::view_models::ticket_comments::{self as comments, AttachmentChip, Mark, Thumbnail};
 use crate::view_models::tool_problems::tool_word;
 use crate::view_models::validation_report;
 
@@ -136,6 +136,16 @@ pub struct OpenAttachment {
     pub chip: AttachmentChip,
 }
 
+/// One image of a comment in History: a thumbnail that opens comment `n`'s image full size (tuq 004), also once the
+/// comment is deleted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "HistoryThumbnail")]
+pub struct OpenThumbnail {
+    /// The comment's number.
+    pub n: u32,
+    pub thumbnail: Thumbnail,
+}
+
 /// What a row opens (`s05-45`): "DESCRIPTION" or "COMMENT", "Before / after" on an edit, the lines, the comment's
 /// attachments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -144,6 +154,9 @@ pub struct Opens {
     pub label: String,
     pub caption: Option<String>,
     pub lines: Vec<DiffLine>,
+    /// The comment's images, as thumbnails (tuq 004).
+    pub thumbnails: Vec<OpenThumbnail>,
+    /// Its text and other attachments, as chips.
     pub attachments: Vec<OpenAttachment>,
 }
 
@@ -864,14 +877,22 @@ fn attachments_of(p: &serde_json::Value) -> Vec<Attachment> {
 /// What an event from before migration 0076 calls its comment's report.
 const OLD_REPORT: &str = "Report";
 
-/// A comment event's attachments as chips that open comment `n`'s.
+/// A comment event's text and other attachments as chips that open comment `n`'s (its images are thumbnails,
+/// [`open_thumbnails`]; tuq 004, the thread's rule).
 fn open_attachments(attachments: &[Attachment], n: u32) -> Vec<OpenAttachment> {
-    attachments
-        .iter()
-        .map(|a| OpenAttachment {
-            n,
-            chip: AttachmentChip::of(a),
-        })
+    comments::thumbnails_and_chips(attachments)
+        .1
+        .into_iter()
+        .map(|chip| OpenAttachment { n, chip })
+        .collect()
+}
+
+/// A comment event's images as thumbnails that open comment `n`'s full size (tuq 004), a deleted comment's too.
+fn open_thumbnails(attachments: &[Attachment], n: u32) -> Vec<OpenThumbnail> {
+    comments::thumbnails_and_chips(attachments)
+        .0
+        .into_iter()
+        .map(|thumbnail| OpenThumbnail { n, thumbnail })
         .collect()
 }
 
@@ -946,6 +967,7 @@ fn plan_row(e: &HistoryEvent, changes: &[serde_json::Value], facts: &Facts) -> O
             label: "PLAN".to_owned(),
             caption: Some(BEFORE_AFTER.to_owned()),
             lines: around_changes(diff, 1),
+            thumbnails: Vec::new(),
             attachments: Vec::new(),
         },
         Kind::Description,
@@ -998,6 +1020,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     label: "DESCRIPTION".to_owned(),
                     caption: Some(BEFORE_AFTER.to_owned()),
                     lines: around_changes(diff, 1),
+                    thumbnails: Vec::new(),
                     attachments: Vec::new(),
                 },
                 Kind::Description,
@@ -1024,6 +1047,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     label: "COMMENT".to_owned(),
                     caption: None,
                     lines: excerpt.lines().map(|l| line(LineKind::Same, l)).collect(),
+                    thumbnails: open_thumbnails(&attached, n),
                     attachments: open_attachments(&attached, n),
                 },
                 Kind::Comment,
@@ -1050,6 +1074,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                         &text(p, "before").unwrap_or_default(),
                         &text(p, "after").unwrap_or_default(),
                     ),
+                    thumbnails: Vec::new(),
                     attachments: Vec::new(),
                 },
                 Kind::Comment,
@@ -1074,6 +1099,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     label: "COMMENT".to_owned(),
                     caption: None,
                     lines: body.lines().map(|l| line(LineKind::Same, l)).collect(),
+                    thumbnails: open_thumbnails(&attachments_of(p), n),
                     attachments: open_attachments(&attachments_of(p), n),
                 },
                 Kind::Comment,
@@ -2406,9 +2432,22 @@ mod tests {
             json!({"n": 6, "body": "Three files.", "attachments": three,
                    "author": {"kind": "user", "name": "me"}}),
         ));
+        let deleted = deleted.opens.unwrap();
+        // tuq 004: its image is a thumbnail that still opens full size.
+        let thumbnails: Vec<(u32, u32, &str, &str)> = deleted
+            .thumbnails
+            .iter()
+            .map(|t| {
+                (
+                    t.n,
+                    t.thumbnail.attachment,
+                    t.thumbnail.name.as_str(),
+                    t.thumbnail.open.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(thumbnails, [(6, 1, "shot.png", "Open shot.png full size")]);
         let opens: Vec<(u32, u32, String, Option<String>)> = deleted
-            .opens
-            .unwrap()
             .attachments
             .into_iter()
             .map(|a| (a.n, a.chip.attachment, a.chip.name, a.chip.open))
@@ -2416,7 +2455,6 @@ mod tests {
         assert_eq!(
             opens,
             [
-                (6, 1, "shot.png".to_owned(), None),
                 (6, 2, "run.txt".to_owned(), Some("Open".to_owned())),
                 (6, 3, "repro.zip".to_owned(), None),
             ]
