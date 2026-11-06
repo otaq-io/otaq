@@ -373,16 +373,22 @@ impl Scheduler {
     /// If the base diverged from its remote, or the fetch fails on a flow that delivers by PR, those children are
     /// **held** in Queued with the message; only the user's Retry start runs them again (nothing retries silently,
     /// d0018). A failed fetch on any other flow starts them from the local base, with the warning (d0121).
+    ///
+    /// The tickets merged into the parent landed with it (the Done cleanup), so their waiting children count as the
+    /// parent's here.
     pub async fn on_parent_merged(&self, parent: &str) -> Result<Plan, BoardError> {
         let _one_at_a_time = self.inner.pass.lock().await;
         let board = &self.inner.board;
         let parent = board.ticket(parent).await?;
         let tickets = board.tickets(parent.key.project.as_str()).await?;
+        let landed = landed_with(board, &parent, &tickets).await?;
         let starting = self.inner.starts.starting();
         let children: Vec<&Ticket> = tickets
             .iter()
             .filter(|t| {
-                t.depends_on.contains(&parent.key)
+                t.depends_on
+                    .iter()
+                    .any(|p| *p == parent.key || landed.contains(p))
                     && scheduled(t)
                     && !starting.contains(&t.id)
                     && readiness(t, &tickets).is_ready()
@@ -650,6 +656,27 @@ impl Scheduler {
             status,
         });
     }
+}
+
+/// The tickets that landed with `parent`: merged into it (or into one of them, nested) and Merged now.
+async fn landed_with(
+    board: &Board,
+    parent: &Ticket,
+    tickets: &[Ticket],
+) -> Result<HashSet<TicketKey>, BoardError> {
+    let mut landed = HashSet::new();
+    let mut hosts = vec![parent.key.to_string()];
+    while let Some(host) = hosts.pop() {
+        for row in board.merged_in(&host).await? {
+            let merged = tickets
+                .iter()
+                .any(|t| t.id == row.ticket_id && t.status == Status::Merged);
+            if merged && landed.insert(row.key.clone()) {
+                hosts.push(row.key.to_string());
+            }
+        }
+    }
+    Ok(landed)
 }
 
 /// Events that can change what a pass decides: any ticket change (a status, a link) or a project going.

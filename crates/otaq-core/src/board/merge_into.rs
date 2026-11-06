@@ -12,12 +12,15 @@
 //!   ([`crate::store::merged_into`]).
 //! - **The host closed without landing** ([`Board::record_host_closed`]): each ticket merged into it goes back to the
 //!   human check before its Delivery on its own branch, its link forgotten so it can land alone or be merged again.
+//! - **When the host lands** (Local merge, the automatic Delivery, Mark merged, or a Done that counts as merged), each
+//!   ticket still waiting as Merged into it lands with it ([`Board::record_landed_with`]): Done with the host's outcome
+//!   and merge commit, so tickets waiting on it start.
 
 use serde_json::json;
 
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Status};
+use crate::domain::{Actor, Outcome, Status};
 use crate::flow::engine::{self, Move};
 use crate::store::merged_into::{self, MergedIn};
 use crate::store::now_ms;
@@ -77,6 +80,75 @@ impl Board {
     pub async fn merged_in(&self, key: &str) -> Result<Vec<MergedIn>, BoardError> {
         let id = self.ticket_id(key).await?;
         Ok(merged_into::of_host(self.store().pool(), &id).await?)
+    }
+
+    /// The tickets still waiting as Merged into `host`, oldest first. Rows of tickets that already landed with it are
+    /// the record only.
+    pub(crate) async fn waiting_in(&self, host: &Ticket) -> Result<Vec<Ticket>, BoardError> {
+        let mut waiting = Vec::new();
+        for row in merged_into::of_host(self.store().pool(), &host.id).await? {
+            let ticket = self.ticket_by_id(&row.ticket_id).await?;
+            if ticket.status == Status::MergedInto {
+                waiting.push(ticket);
+            }
+        }
+        Ok(waiting)
+    }
+
+    /// `host` landed (it is Done and counts as merged): `ticket`, merged into it, lands with it. Done with the host's
+    /// outcome and merge commit (Done · Merged after a merge, Done · not merged when the host finished without one),
+    /// and a History line "Landed with SHOP-18". The cleanup is the caller's.
+    pub(crate) async fn record_landed_with(
+        &self,
+        ticket: &Ticket,
+        host: &Ticket,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let now = now_ms();
+        let to = Status::Merged;
+        let (outcome, commit): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT outcome, merge_commit_sha FROM tickets WHERE id = ?")
+                .bind(&host.id)
+                .fetch_one(self.store().pool())
+                .await?;
+        // The Delivery it waited in finished.
+        let moved = self
+            .moved(ticket, ticket.status, Move::Delivered)
+            .await
+            .ok();
+        let mut tx = self.store().begin_write().await?;
+        if let Some(moved) = &moved {
+            moved.record(&mut tx, &ticket.id, None).await?;
+        }
+        sqlx::query(concat!(
+            "UPDATE tickets SET stage_id = NULL, state = ?, outcome = ?, merge_commit_sha = ?, nothing_to_merge = NULL,
+                                sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL, conflict_files = NULL,
+                                conflict_reason = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
+                                merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.as_str())
+        .bind(&outcome)
+        .bind(&commit)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        let mut payload = json!({ "from": ticket.status, "with": host.key });
+        if let Some(commit) = &commit {
+            payload["commit"] = json!(commit);
+        }
+        if outcome.as_deref() == Some(Outcome::DoneWithoutMerge.as_str()) {
+            payload["not_merged"] = json!(true);
+        }
+        record_event(&mut tx, &ticket.id, EventKind::Landed, actor, payload).await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, with = %host.key, "landed with the ticket it was merged into");
+        self.ticket_by_id(&ticket.id).await
     }
 
     /// After the squash landed on `host`'s branch as `commit` (its head now): `ticket` waits as Merged into `host`,
