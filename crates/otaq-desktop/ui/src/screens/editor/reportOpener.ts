@@ -2,9 +2,10 @@
 // chip. The report view over the sheet is T-0447's (`ReportView.tsx`); it registers itself here with
 // `setReportOpener`. Until it does, Open does nothing.
 
-/** What Open shows: a posted comment's report (by its number), or the text pasted into a box, not posted yet. */
+/** What Open shows: a posted comment's text attachment (by the comment's number and its own), or the text pasted
+ * into a box, not posted yet. */
 export type ReportTarget =
-  | { kind: "comment"; ticket: string; n: number }
+  | { kind: "comment"; ticket: string; n: number; attachment?: number }
   | { kind: "pasted"; ticket: string; text: string; size: string };
 
 let opener: (target: ReportTarget) => void = () => undefined;

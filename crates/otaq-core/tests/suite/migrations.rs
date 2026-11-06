@@ -2302,3 +2302,147 @@ async fn done_without_merge_is_a_stored_outcome_and_rows_stay() {
         "an unknown outcome is still refused"
     );
 }
+
+/// tuq 001 (migration 0076): every comment's report becomes its attachment 1, with its name (a copied file's own,
+/// "Pasted text" for pasted text), size, lines (text only) and kind; a comment without one has none; 0055's report
+/// columns go; the board shows and opens the old report as before, and Delete removes it.
+#[tokio::test]
+async fn migration_0076_moves_each_report_into_the_comments_attachments() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = otaq_core::data_dir::DataDir::new(tmp.path().join("home"));
+    std::fs::create_dir_all(data.root()).unwrap();
+    let pool = database_at(&data.database_path(), 75).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t18', 'p', 18, 'Export orders as CSV', 'backlog', 'me', 1, 1)",
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO project_flows (project_id, version, yaml, applied_by, applied_at, current)
+         VALUES ('p', 1, ?, 'shipped', 0, TRUE)",
+    )
+    .bind(naming::DEFAULT_FLOW_YAML)
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (id, n, file, bytes, lines) in [
+        (
+            "c1",
+            1,
+            Some("reports/shop-web/SHOP-18/c1/test-run-login.md"),
+            49152,
+            2310,
+        ),
+        ("c2", 2, Some("reports/shop-web/SHOP-18/c2.txt"), 7, 2),
+        (
+            "c3",
+            3,
+            Some("reports/shop-web/SHOP-18/c3/Screen Shot.PNG"),
+            120_000,
+            40,
+        ),
+        ("c4", 4, None, 0, 0),
+    ] {
+        sqlx::query(
+            "INSERT INTO ticket_comments (id, ticket_id, n, author_kind, author_name, body, report_file,
+                                          report_bytes, report_lines, posted_at)
+             VALUES (?, 't18', ?, 'user', 'me', 'Comment', ?, ?, ?, 1)",
+        )
+        .bind(id)
+        .bind(n)
+        .bind(file)
+        .bind(file.map(|_| bytes))
+        .bind(file.map(|_| lines))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    pool.close().await;
+    // The old report's file, where 0055 put it.
+    let old = data.root().join("reports/shop-web/SHOP-18/c1");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("test-run-login.md"), "2 failed\n").unwrap();
+
+    let store = Store::open(&data.database_path()).await.unwrap();
+    type Moved = (String, i64, String, String, String, i64, Option<i64>);
+    let rows: Vec<Moved> = sqlx::query_as(
+        "SELECT comment_id, n, file, name, kind, bytes, lines FROM comment_attachments ORDER BY comment_id",
+    )
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    let moved = |id: &str, file: &str, name: &str, kind: &str, bytes: i64, lines: Option<i64>| {
+        (
+            id.to_owned(),
+            1,
+            file.to_owned(),
+            name.to_owned(),
+            kind.to_owned(),
+            bytes,
+            lines,
+        )
+    };
+    assert_eq!(
+        rows,
+        [
+            moved(
+                "c1",
+                "reports/shop-web/SHOP-18/c1/test-run-login.md",
+                "test-run-login.md",
+                "text",
+                49152,
+                Some(2310)
+            ),
+            moved(
+                "c2",
+                "reports/shop-web/SHOP-18/c2.txt",
+                "Pasted text",
+                "text",
+                7,
+                Some(2)
+            ),
+            moved(
+                "c3",
+                "reports/shop-web/SHOP-18/c3/Screen Shot.PNG",
+                "Screen Shot.PNG",
+                "image",
+                120_000,
+                None
+            ),
+        ]
+    );
+    for column in ["report_file", "report_bytes", "report_lines"] {
+        assert!(
+            !has_column(store.pool(), "ticket_comments", column).await,
+            "{column} is gone"
+        );
+    }
+
+    // The board shows the old comment's report as its attachment, and opens it.
+    let board = otaq_core::board::Board::new(store, None, data.clone());
+    let comments = board.ticket_comments("SHOP-18").await.unwrap().comments;
+    assert_eq!(
+        comments[0]
+            .attachments
+            .iter()
+            .map(|a| (a.n, a.name.as_str(), a.bytes, a.lines))
+            .collect::<Vec<_>>(),
+        [(1, "test-run-login.md", 49152, Some(2310))]
+    );
+    assert!(comments[3].attachments.is_empty());
+    let report = board.ticket_report("SHOP-18", 1, None).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&report.attachment.path).unwrap(),
+        "2 failed\n"
+    );
+    // Deleting the ticket removes the old report too (d0060).
+    board.delete_ticket("SHOP-18").await.unwrap();
+    assert!(!old.exists());
+}

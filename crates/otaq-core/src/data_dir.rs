@@ -112,26 +112,38 @@ impl DataDir {
         self.root.join("reports")
     }
 
-    /// The report of one ticket comment (CMT-03): a copied file keeps its own name in its comment's folder,
-    /// `reports/<repo-name>/<KEY>/<comment id>/<name>` (`reports/shop-web/SHOP-34/0f3a…/test-run-login.md`, RPT-02);
-    /// pasted text has none, `reports/<repo-name>/<KEY>/<comment id>.txt`. Otaq's own copy, never in the repository
-    /// (d0023).
-    pub fn report_path(
+    /// The folder of one ticket comment's attachments (CMT-03; tuq 001): `reports/<repo-name>/<KEY>/<comment id>`.
+    /// Each attachment sits in its own numbered folder there, keeping its file's name
+    /// (`reports/shop-web/SHOP-34/0f3a…/1/test-run-login.md`, RPT-02), so two files of the same name never meet.
+    /// Otaq's own copy, never in the repository (d0023). Comments posted before migration 0076 keep their older paths
+    /// (`…/<comment id>/<name>`, or `…/<comment id>.txt` for pasted text): the store keeps each file's path as written.
+    pub fn comment_attachments_dir(
         &self,
         repo_name: &str,
         key: &TicketKey,
         comment_id: &str,
-        name: Option<&str>,
     ) -> Result<PathBuf, DataDirError> {
         let repo = path_component(repo_name)?;
         let key = key.to_string();
         let key = path_component(&key)?;
         let id = path_component(comment_id)?;
-        let folder = self.reports_dir().join(repo).join(key);
-        Ok(match name {
-            Some(name) => folder.join(id).join(path_component(name)?),
-            None => folder.join(format!("{id}.txt")),
-        })
+        Ok(self.reports_dir().join(repo).join(key).join(id))
+    }
+
+    /// Attachment `n` (1, 2, 3…) of one ticket comment, named `file_name`: `<comment folder>/<n>/<file_name>`
+    /// ([`Self::comment_attachments_dir`]).
+    pub fn attachment_path(
+        &self,
+        repo_name: &str,
+        key: &TicketKey,
+        comment_id: &str,
+        n: u32,
+        file_name: &str,
+    ) -> Result<PathBuf, DataDirError> {
+        Ok(self
+            .comment_attachments_dir(repo_name, key, comment_id)?
+            .join(n.to_string())
+            .join(path_component(file_name)?))
     }
 
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,

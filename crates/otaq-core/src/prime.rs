@@ -18,8 +18,9 @@ use crate::agents::{Agent, AgentModel, ModelRef, SessionRole};
 use crate::board::comments::FeedbackComment;
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::manual_checks::ManualCheck;
+use crate::board::reports::AttachmentKind;
 use crate::board::stage_choices::StageOptions;
-use crate::board::ticket_comments::{CommentAuthor, TicketComment};
+use crate::board::ticket_comments::{CommentAuthor, OPEN_PATH, TicketComment};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::domain::{Place, Status, TicketKey};
@@ -1096,38 +1097,40 @@ pub fn render_earlier(earlier: &[EarlierStage]) -> String {
 /// The heading of the user's reports in `prime` (RPT-01): the shipped skills tell agents to open them first.
 pub const REPORTS_FROM_YOU: &str = "Reports from you \u{b7} read these before you start";
 
-/// The "## Reports from you" section (RPT-01, d0109): each report the user attached, oldest first, with its name,
-/// size and `otaq report KEY N`, and the first line of the comment it came with; nothing when the user attached none.
-/// Never a report's text.
+/// The "## Reports from you" section (RPT-01, d0109; tuq 002): every file the user attached, oldest first, with its
+/// name, size and `otaq report KEY N` (text) or "open this path to view it" (images and other files), and the first
+/// line of the comment it came with; nothing when the user attached none. Never a file's bytes.
 pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> String {
     let mine: Vec<&TicketComment> = comments
         .iter()
-        .filter(|c| c.report.is_some() && matches!(c.author, CommentAuthor::User { .. }))
+        .filter(|c| !c.attachments.is_empty() && matches!(c.author, CommentAuthor::User { .. }))
         .collect();
     if mine.is_empty() {
         return String::new();
     }
     let mut out = format!("\n## {REPORTS_FROM_YOU}\n\n");
     for c in mine {
-        let (Some(report), Some(name)) = (c.report, c.report_label()) else {
-            continue;
-        };
         let line = c
             .body
             .lines()
             .map(str::trim)
             .find(|l| !l.is_empty())
             .unwrap_or_default();
-        out.push_str(&format!(
-            "- {name} \u{b7} {}, {} line{} \u{b7} `{} report {key} {}`\n  With comment {} ({}): {line}\n",
-            crate::board::reports::size_label(report.bytes),
-            crate::board::reports::count_label(report.lines),
-            if report.lines == 1 { "" } else { "s" },
-            naming::COMMAND_NAME,
-            c.n,
-            c.n,
-            c.heading(),
-        ));
+        for a in &c.attachments {
+            let open = match a.kind {
+                AttachmentKind::Text => format!("`{}`", c.report_command(key, a.n)),
+                AttachmentKind::Image | AttachmentKind::Other => {
+                    format!("{OPEN_PATH}: {}", a.path)
+                }
+            };
+            out.push_str(&format!(
+                "- {} \u{b7} {} \u{b7} {open}\n  With comment {} ({}): {line}\n",
+                a.name,
+                a.size_and_lines(),
+                c.n,
+                c.heading(),
+            ));
+        }
     }
     out
 }
@@ -1176,8 +1179,12 @@ pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
     out.push_str("\n## Comments\n");
     for c in comments {
         out.push_str(&format!("\n### {}\n\n{}\n", c.heading(), c.body.trim()));
-        if let Some(line) = c.report_line(key) {
-            out.push_str(&format!("\n{line}\n"));
+        let lines = c.attachment_lines(key);
+        if !lines.is_empty() {
+            out.push('\n');
+            for line in lines {
+                out.push_str(&format!("{line}\n"));
+            }
         }
     }
     out
@@ -1188,7 +1195,7 @@ pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
 fn render_last_comment(out: &mut String, key: &TicketKey, comment: &TicketComment) {
     out.push_str(&format!("  Last comment, {}:\n", comment.heading()));
     quote(out, "  ", &comment.body);
-    if let Some(line) = comment.report_line(key) {
+    for line in comment.attachment_lines(key) {
         out.push_str(&format!("  {line}\n"));
     }
 }

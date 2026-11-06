@@ -401,7 +401,13 @@ async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
     w.force_status(&busy, Status::Working).await;
 
     w.review
-        .fail("SHOP-2", "The CSV needs a header row.", None, false, &me())
+        .fail(
+            "SHOP-2",
+            "The CSV needs a header row.",
+            Vec::new(),
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     let queued = w.board.ticket("SHOP-2").await.unwrap();

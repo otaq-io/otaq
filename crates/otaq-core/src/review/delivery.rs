@@ -191,10 +191,10 @@ impl Review {
         let board = &self.inner.board;
         let body = merge_check_failed(&failed.command, &failed.target, failed.exit);
         let report = match capped_output(&failed.output) {
-            Ok(path) => Some(ReportSource::Path(path)),
+            Ok(path) => vec![ReportSource::Path(path)],
             Err(e) => {
                 tracing::warn!(ticket = %ticket.key, error = %e, "can't read the merge check's output");
-                None
+                Vec::new()
             }
         };
         let author = CommentAuthor::User {
@@ -317,7 +317,7 @@ impl Review {
         &self,
         key: &str,
         note: &str,
-        report: Option<crate::board::reports::ReportSource>,
+        attachments: Vec<crate::board::reports::ReportSource>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -335,7 +335,7 @@ impl Review {
         let hand_over = self
             .inner
             .board
-            .user_hand_over(&ticket, note, report, actor)
+            .user_hand_over(&ticket, note, attachments, actor)
             .await?;
         let action = Return::PrComments {
             hand_over: hand_over.as_ref(),

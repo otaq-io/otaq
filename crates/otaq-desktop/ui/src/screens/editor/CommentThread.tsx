@@ -18,7 +18,7 @@ import {
   ToolAvatar,
   PROSE_TEXT,
 } from "../../components";
-import type { CommentReportChip } from "../../generated/CommentReportChip";
+import type { CommentAttachmentChip } from "../../generated/CommentAttachmentChip";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
 import { asRequestError, useServiceView } from "../../service";
@@ -81,22 +81,61 @@ export function Mark({ row }: { row: Pick<CommentRow, "mark"> }) {
   }
 }
 
-/** "Report · 48 KB" and Open. */
-export function ReportChip({ chip, onOpen }: { chip: CommentReportChip; onOpen?: () => void }) {
+/** The icon of an attachment's kind. */
+function kindIcon(kind: CommentAttachmentChip["kind"]): "image" | "file-text" | "file" {
+  switch (kind) {
+    case "image":
+      return "image";
+    case "text":
+      return "file-text";
+    case "other":
+      return "file";
+  }
+}
+
+/** One attachment: "test-run.txt · 48 KB", and Open for text (images and other files don't open here yet). */
+export function AttachmentChip({ chip, onOpen }: { chip: CommentAttachmentChip; onOpen?: () => void }) {
   return (
-    <span className="comment-report">
+    <span className="comment-report" data-kind={chip.kind}>
       <span className="comment-chip">
         <span className="comment-chip-open" data-static>
-          <Icon name="file-text" size={13} />
-          <span className="comment-chip-label">{chip.label}</span>
+          <Icon name={kindIcon(chip.kind)} size={13} />
+          <span className="comment-chip-label">{chip.name}</span>
           <span className="comment-chip-size">{chip.size}</span>
         </span>
       </span>
-      {onOpen && (
+      {onOpen && chip.open !== null && (
         <button type="button" className="comment-report-open" onClick={onOpen}>
           {chip.open}
         </button>
       )}
+    </span>
+  );
+}
+
+/** A comment's attachments, one chip each; `onOpen` opens attachment `a` (text only). */
+export function AttachmentChips({
+  chips,
+  onOpen,
+}: {
+  chips: CommentAttachmentChip[];
+  onOpen?: (attachment: number) => void;
+}) {
+  if (chips.length === 0) return null;
+  return (
+    <span className="comment-attachments">
+      {chips.map((chip) => (
+        <AttachmentChip
+          key={chip.attachment}
+          chip={chip}
+          onOpen={
+            onOpen &&
+            (() => {
+              onOpen(chip.attachment);
+            })
+          }
+        />
+      ))}
     </span>
   );
 }
@@ -251,14 +290,12 @@ function Comment({
       ) : (
         <p className="comment-body">{row.body}</p>
       )}
-      {row.report !== null && (
-        <ReportChip
-          chip={row.report}
-          onOpen={() => {
-            openReport({ kind: "comment", ticket: view.key, n: row.n });
-          }}
-        />
-      )}
+      <AttachmentChips
+        chips={row.attachments}
+        onOpen={(attachment) => {
+          openReport({ kind: "comment", ticket: view.key, n: row.n, attachment });
+        }}
+      />
     </article>
   );
 }
@@ -292,7 +329,7 @@ function DeleteDialog({
           <p className="comment-meta">{row.heading}</p>
           <div className="comment comment-quoted">
             <p className="comment-body">{row.body}</p>
-            {row.report !== null && <ReportChip chip={row.report} />}
+            <AttachmentChips chips={row.attachments} />
           </div>
           <p className="comment-meta">{view.delete.note}</p>
           {error !== null && (

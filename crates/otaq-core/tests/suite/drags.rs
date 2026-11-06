@@ -135,7 +135,7 @@ async fn drag(
 ) -> Result<ReturnOutcome, otaq_core::board::BoardError> {
     let answers = DragAnswers {
         note,
-        report: None,
+        attachments: Default::default(),
         confirmed: true,
         clear_first: false,
     };

@@ -10,7 +10,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use otaq_core::protocol::{KeyParams, Reply, Request, TicketCommentParams};
+use otaq_core::board::reports::AttachmentKind;
+use otaq_core::protocol::{KeyParams, Reply, Request, TicketReportParams};
 use otaq_view::view_models::report_view::{self as vm, Body, OpenReport};
 use otaq_view::view_models::ticket_comments as comments;
 use otaq_view::view_models::tool_avatar;
@@ -74,13 +75,23 @@ fn failed(e: impl std::fmt::Display) -> RequestError {
     RequestError::plain(format!("the report can\u{2019}t be read: {e}"))
 }
 
-/// What Open shows: comment `n`'s report, or the text pasted into a box on `ticket` (the chip's Open).
+/// What Open shows: a text attachment of comment `n` (`attachment`, 1, 2, 3…; without it, the comment's only one), or
+/// the text pasted into a box on `ticket` (the chip's Open). Images and other files don't open here.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "ReportOpenParams")]
 pub enum OpenParams {
-    Comment { ticket: String, n: u32 },
-    Pasted { ticket: String, text: String },
+    Comment {
+        ticket: String,
+        n: u32,
+        #[serde(default)]
+        #[ts(optional)]
+        attachment: Option<u32>,
+    },
+    Pasted {
+        ticket: String,
+        text: String,
+    },
 }
 
 /// `{"handle": "…", "start": 1180, "count": 200}`.
@@ -155,12 +166,17 @@ async fn index(body: Body) -> Result<OpenReport, RequestError> {
 
 pub async fn open(app: &App, params: OpenParams) -> Result<vm::View, RequestError> {
     let (report, ticket, n, row) = match params {
-        OpenParams::Comment { ticket, n } => {
+        OpenParams::Comment {
+            ticket,
+            n,
+            attachment,
+        } => {
             let file = match app
                 .service
-                .send(Request::TicketReport(TicketCommentParams {
+                .send(Request::TicketReport(TicketReportParams {
                     key: ticket.clone(),
                     n,
+                    attachment,
                 }))
                 .await?
             {
@@ -175,7 +191,14 @@ pub async fn open(app: &App, params: OpenParams) -> Result<vm::View, RequestErro
                 true => None,
                 false => comment_row(app, &ticket, n).await,
             };
-            let report = index(Body::File(PathBuf::from(&file.path))).await?;
+            // Only text reads in pages here (tuq 002); an image or another file opens elsewhere.
+            if file.attachment.kind != AttachmentKind::Text {
+                return Err(RequestError::plain(format!(
+                    "{} isn\u{2019}t text; it doesn\u{2019}t open in the report view",
+                    file.attachment.name
+                )));
+            }
+            let report = index(Body::File(PathBuf::from(&file.attachment.path))).await?;
             (report, ticket, Some(n), row)
         }
         OpenParams::Pasted { ticket, text } => {
@@ -391,7 +414,7 @@ mod tests {
         let view = table(
             &h.app,
             "report.open",
-            json!({ "kind": "comment", "ticket": key, "n": 1 }),
+            json!({ "kind": "comment", "ticket": key, "n": 1, "attachment": 1 }),
         )
         .await
         .unwrap();
@@ -495,13 +518,14 @@ mod tests {
             [
                 "You deleted a comment",
                 "You edited the description \u{b7} added Admins export orders. (3 lines)",
-                "You commented \u{b7} with a report (67 KB)",
+                "You commented \u{b7} with pasted text (67 KB)",
             ],
             "{titles:?}"
         );
         let deleted = &history["rows"][0];
         assert_eq!(deleted["mark"]["kind"], "you");
-        assert_eq!(deleted["opens"]["report"]["n"], 1);
+        assert_eq!(deleted["opens"]["attachments"][0]["n"], 1);
+        assert_eq!(deleted["opens"]["attachments"][0]["chip"]["attachment"], 1);
         assert_eq!(
             history["rows"][1]["opens"]["lines"][1]["text"],
             "## Agreed"
@@ -509,7 +533,7 @@ mod tests {
         let view = table(
             &h.app,
             "report.open",
-            json!({ "kind": "comment", "ticket": key, "n": 1 }),
+            json!({ "kind": "comment", "ticket": key, "n": 1, "attachment": 1 }),
         )
         .await
         .unwrap();
@@ -526,6 +550,28 @@ mod tests {
         .unwrap();
         assert_eq!(view["title"], "Pasted text");
         assert_eq!(view["meta"], "\u{b7} 8 bytes \u{b7} 2 lines \u{b7} read-only");
+
+        // An image doesn't open in the report view (tuq 002): only text reads in pages.
+        let shot = repos.repo("shots", 1).join("shot.png");
+        std::fs::write(&shot, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+        let posted = table(
+            &h.app,
+            "ticket_comments.post",
+            json!({ "key": key, "body": "The page.", "file": shot.display().to_string() }),
+        )
+        .await
+        .unwrap();
+        let refused = table(
+            &h.app,
+            "report.open",
+            json!({ "kind": "comment", "ticket": key, "n": posted["n"], "attachment": 1 }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            refused.message,
+            "shot.png isn\u{2019}t text; it doesn\u{2019}t open in the report view"
+        );
         h.service.stop_all().await;
     }
 }

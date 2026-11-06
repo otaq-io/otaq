@@ -495,7 +495,7 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         .fail(
             &t.key.to_string(),
             "Also the tax",
-            None,
+            Vec::new(),
             false,
             &Actor::User("me".into()),
         )

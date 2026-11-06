@@ -160,11 +160,13 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
         note.posted_at <= dev.started_at,
         "posted before Dev resumed"
     );
-    let info = note.report.expect("the pasted log is its report");
+    let [info] = note.attachments.as_slice() else {
+        panic!("the pasted log is its one attachment")
+    };
     assert_eq!(info.bytes, log.len() as u64);
-    assert_eq!(info.lines, 121);
-    let report = w.board.ticket_report("SHOP-34", note.n).await.unwrap();
-    assert_eq!(std::fs::read_to_string(&report.path).unwrap(), log);
+    assert_eq!(info.lines, Some(121));
+    let report = w.board.ticket_report("SHOP-34", note.n, None).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&report.attachment.path).unwrap(), log);
 
     // Dev's conversation ends; SHOP-34 comes back to Code review and is dragged back to Dev with a comment.
     w.sessions.stop(&dev.id).await.unwrap();
@@ -192,7 +194,7 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
     let drag = &posted[1];
     assert!(matches!(drag.author, CommentAuthor::User { .. }));
     assert_eq!((drag.n, drag.body.as_str()), (2, DRAG_NOTE));
-    assert!(drag.report.is_none());
+    assert!(drag.attachments.is_empty());
     assert!(drag.posted_at <= dev.started_at, "posted before Dev resumed");
     w.stop().await;
 }

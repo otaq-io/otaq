@@ -906,7 +906,7 @@ pub async fn said(
         round: None,
     };
     board
-        .hand_over(&ticket, author, text, None)
+        .hand_over(&ticket, author, text, Vec::new())
         .await
         .expect("a hand-over within the limit")
 }

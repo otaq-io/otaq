@@ -47,7 +47,7 @@ export function NewTicketReportGallery() {
           attach={{
             ...attach(EMPTY_BOX),
             error:
-              "The report is 212 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests.",
+              "run.log is 212 MB; the limit is 20 MB. Keep the part that matters, for example the failing tests.",
           }}
           onSave={ignore}
         />

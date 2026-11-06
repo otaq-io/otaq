@@ -104,7 +104,7 @@ async fn verdict(
     let author = w.board.session_author(&session.id).await.unwrap();
     let hand_over: Option<HandOver> = w
         .board
-        .stage_end_hand_over(&ticket(w, t).await, author, text, None, &[])
+        .stage_end_hand_over(&ticket(w, t).await, author, text, Vec::new(), &[])
         .await
         .unwrap();
     w.validation

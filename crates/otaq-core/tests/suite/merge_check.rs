@@ -115,8 +115,12 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
         comment.body,
         "Merge check `sh test.sh` failed on the result rebased onto main (exit 1). Fix it, then submit again."
     );
-    let report = w.board.ticket_report("SHOP-2", comment.n).await.unwrap();
-    let output = std::fs::read_to_string(&report.path).unwrap();
+    let report = w
+        .board
+        .ticket_report("SHOP-2", comment.n, None)
+        .await
+        .unwrap();
+    let output = std::fs::read_to_string(&report.attachment.path).unwrap();
     assert!(output.contains("FAIL: emerald is used"), "{output}");
     // The agent gets restack, and where to read why (CMT-05: never the comment's text). This shell wasn't started
     // with the skill, so the skill is named by its file (d0118).

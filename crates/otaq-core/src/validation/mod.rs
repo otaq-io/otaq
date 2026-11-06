@@ -1060,7 +1060,9 @@ impl Validation {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         crate::board::review::user_may_submit(&ticket)?;
-        let hand_over = board.user_hand_over(&ticket, note, None, actor).await?;
+        let hand_over = board
+            .user_hand_over(&ticket, note, Vec::new(), actor)
+            .await?;
         let result = async {
             if !self.next_is_agent_check(&ticket).await? {
                 let after = board.submit_by_user(key, hand_over.as_ref(), actor).await?;

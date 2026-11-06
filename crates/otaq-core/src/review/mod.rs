@@ -210,7 +210,7 @@ impl Review {
         &self,
         key: &str,
         note: &str,
-        report: Option<ReportSource>,
+        attachments: Vec<ReportSource>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -228,7 +228,7 @@ impl Review {
         let hand_over = self
             .inner
             .board
-            .user_hand_over(&ticket, note, report, actor)
+            .user_hand_over(&ticket, note, attachments, actor)
             .await?;
         let action = Return::SendBack {
             hand_over: hand_over.as_ref(),

@@ -17,7 +17,7 @@ fn comment(key: &str, body: &str, tell_agent: bool) -> Request {
     Request::TicketCommentPost(TicketCommentPostParams {
         key: key.into(),
         body: body.into(),
-        report: None,
+        attachments: Default::default(),
         tell_agent,
     })
 }

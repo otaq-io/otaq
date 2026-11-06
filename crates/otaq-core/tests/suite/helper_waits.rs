@@ -634,7 +634,7 @@ async fn park_and_drag_back_stop_every_session_and_keep_the_worktrees() {
             &DropOn::stage("product-spec"),
             DragAnswers {
                 note: "Ask about shared carts.",
-                report: None,
+                attachments: Default::default(),
                 confirmed: true,
                 clear_first: false,
             },

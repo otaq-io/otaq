@@ -235,7 +235,7 @@ const row = (n: number, over: Partial<CommentRow>): CommentRow => ({
   edited: null,
   heading: "Rust developer · Dev · 2:58 pm",
   body: "Done. Excel not added; left a TODO where it would go.",
-  report: null,
+  attachments: [],
   ...over,
 });
 
@@ -251,7 +251,10 @@ const THREAD: CommentThreadView = {
       meta: "Validate · round 2 · 3:05 pm",
       edited: "· edited",
       body: "Fail: the 10,000 row limit isn’t enforced; 3 tests fail in export_tests.rs.",
-      report: { label: "Report", size: "· 48 KB", open: "Open" },
+      attachments: [
+        { attachment: 1, name: "shot.png", kind: "image", size: "· 120 KB", open: null },
+        { attachment: 2, name: "test-run.txt", kind: "text", size: "· 48 KB", open: "Open" },
+      ],
     }),
     row(2, {
       author: "You",
@@ -288,12 +291,17 @@ describe("CommentThread", () => {
     const box = host.querySelector(".comments > .comment-box");
     expect(box).not.toBeNull();
     expect(box?.compareDocumentPosition(comments[0] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(host.querySelector(".comment-chip-size")?.textContent).toBe("· 48 KB");
+    // One chip per attachment (tuq 001); only the text one opens, with its number.
+    const sizes = [...(comments[0] as Element).querySelectorAll(".comment-chip-size")].map(
+      (s) => s.textContent,
+    );
+    expect(sizes).toEqual(["· 120 KB", "· 48 KB"]);
+    expect(host.querySelectorAll(".comment-report-open")).toHaveLength(1);
     await act(async () => {
       host.querySelector<HTMLButtonElement>(".comment-report-open")?.click();
       await Promise.resolve();
     });
-    expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4 }]);
+    expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4, attachment: 2 }]);
     setReportOpener(() => undefined);
   });
 });

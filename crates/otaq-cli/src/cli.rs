@@ -285,12 +285,16 @@ pub enum Command {
         /// SHOP-34, or 34 in the current project
         key: Option<String>,
     },
-    /// Print the report of comment N (`report [KEY] <N>`); `--path` prints only its file, to search it with grep
+    /// Print an attachment of comment N (`report [KEY] <N> [--attachment A]`); `--path` prints only its file, to
+    /// search it with grep. Images and other files that aren't text are never printed: their path is
     Report {
         /// [KEY] N: SHOP-34 4, or 4 on $OTAQ_TICKET
         #[arg(value_name = "KEY", num_args = 1..=2, required = true)]
         args: Vec<String>,
-        /// Print only the report's path
+        /// Which of the comment's attachments, by its number (1, 2, 3…); needed when it has several
+        #[arg(long, value_name = "A")]
+        attachment: Option<u32>,
+        /// Print only the attachment's path
         #[arg(long)]
         path: bool,
     },
@@ -374,9 +378,10 @@ pub enum StageCommand {
         /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
-        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
+        /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
-        report_file: Option<PathBuf>,
+        report_file: Vec<PathBuf>,
         /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
         /// review: one line; repeat it for each check
         #[arg(long = "manual-check", value_name = "TEXT")]
@@ -390,9 +395,10 @@ pub enum StageCommand {
         /// Read the reason from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
-        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
+        /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
-        report_file: Option<PathBuf>,
+        report_file: Vec<PathBuf>,
         /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
         /// review: one line; repeat it for each check
         #[arg(long = "manual-check", value_name = "TEXT")]
@@ -407,9 +413,10 @@ pub enum CheckCommand {
         /// Read the report from stdin, posted as your comment (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
-        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
+        /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
-        report_file: Option<PathBuf>,
+        report_file: Vec<PathBuf>,
         /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
         /// review: one line; repeat it for each check
         #[arg(long = "manual-check", value_name = "TEXT")]
@@ -421,9 +428,10 @@ pub enum CheckCommand {
         /// 2,000 characters)
         #[arg(long)]
         stdin: bool,
-        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
+        /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
-        report_file: Option<PathBuf>,
+        report_file: Vec<PathBuf>,
         /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
         /// review: one line; repeat it for each check
         #[arg(long = "manual-check", value_name = "TEXT")]
@@ -440,9 +448,10 @@ pub enum ReviewCommand {
         /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
-        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
+        /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
-        report_file: Option<PathBuf>,
+        report_file: Vec<PathBuf>,
         /// Something you couldn't check yourself (a real browser, a device, a service), for the user to try at
         /// review: one line; repeat it for each check
         #[arg(long = "manual-check", value_name = "TEXT")]

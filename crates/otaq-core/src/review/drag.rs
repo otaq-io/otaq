@@ -98,8 +98,8 @@ enum Stop<'a> {
 pub struct DragAnswers<'a> {
     /// The instructions (back to an Agent stage) or the note (back to an agent check): the user's comment (CMT-05).
     pub note: &'a str,
-    /// A report attached to that comment (the dialog's pasted text).
-    pub report: Option<&'a ReportSource>,
+    /// The attachments of that comment (the dialog's pasted text).
+    pub attachments: &'a [ReportSource],
     /// The dialog was confirmed.
     pub confirmed: bool,
     /// "Clear it and send" after the unsent-text question (d0048).
@@ -149,7 +149,7 @@ impl Review {
             (MoveAction::RunCheckAgain, Some(to)) => {
                 // The note is checked and its report copied, then uncommitted changes refused, before anything stops.
                 let hand_over = board
-                    .user_hand_over(&ticket, answers.note, answers.report.cloned(), actor)
+                    .user_hand_over(&ticket, answers.note, answers.attachments.to_vec(), actor)
                     .await?;
                 let ran = async {
                     let head = board.submit_head(&ticket).await?;
@@ -234,7 +234,7 @@ impl Review {
     ) -> Result<ReturnOutcome, BoardError> {
         let board = &self.inner.board;
         let hand_over = board
-            .user_hand_over(ticket, answers.note, answers.report.cloned(), actor)
+            .user_hand_over(ticket, answers.note, answers.attachments.to_vec(), actor)
             .await?;
         let outcome = self
             .send_back_with(

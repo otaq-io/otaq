@@ -24,7 +24,7 @@ use otaq_core::domain::Status;
 use crate::icons::IconName;
 use crate::keymap::Platform;
 use crate::view_models::manual_checks::{self, ChecklistView};
-use crate::view_models::ticket_comments::{Mark, agent_mark};
+use crate::view_models::ticket_comments::{AttachmentKind, Mark, agent_mark};
 
 pub const DESCRIPTION: &str = "Description";
 pub const CLICK_TO_EDIT: &str = "Click to edit";
@@ -184,13 +184,18 @@ pub fn after_save(saved: bool) -> LeaveStep {
     }
 }
 
-/// One report in the Attachments column (RPT-02): "Report · 3 KB", "CX Rust developer · Dev", its comment's line.
+/// One attachment in the Attachments column (RPT-02; tuq 001): "test-run.txt · 3 KB", "CX Rust developer · Dev", its
+/// comment's line. A comment with three attachments has three rows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AttachmentRow")]
 pub struct AttachmentRow {
     /// Its comment's number: what Open sends (the report view, CMT-12).
     pub n: u32,
+    /// Its number in its comment (1, 2, 3…): what Open sends with `n`.
+    pub attachment: u32,
     pub name: String,
+    /// Text opens in the report view; images and other files don't (yet).
+    pub kind: AttachmentKind,
     /// "3 KB".
     pub size: String,
     pub mark: Mark,
@@ -222,23 +227,25 @@ fn who(comment: &TicketComment) -> String {
     }
 }
 
-/// Every report of the ticket, newest first (`comments` oldest first, as `ticket.comments` answers).
+/// Every attachment of the ticket, one row each: newest comment first, each comment's in order (`comments` oldest
+/// first, as `ticket.comments` answers).
 pub fn attachments(comments: &[TicketComment], avatars: bool) -> Vec<AttachmentRow> {
     comments
         .iter()
         .rev()
-        .filter_map(|c| {
-            let report = c.report?;
+        .flat_map(|c| {
             let mine = matches!(c.author, CommentAuthor::User { .. });
             let mark = match &c.author {
                 CommentAuthor::User { .. } => Mark::You,
                 CommentAuthor::Agent { tool, .. } => agent_mark(*tool, avatars),
             };
-            Some(AttachmentRow {
+            c.attachments.iter().map(move |a| AttachmentRow {
                 n: c.n,
-                name: c.report_label().unwrap_or_default(),
-                size: size_label(report.bytes),
-                mark,
+                attachment: a.n,
+                name: a.name.clone(),
+                kind: a.kind.into(),
+                size: size_label(a.bytes),
+                mark: mark.clone(),
                 who: who(c),
                 mine,
                 line: first_line(&c.body),
@@ -399,7 +406,7 @@ pub fn gallery() -> OverviewView {
 /// repro with its findings, the user's line, and Rust developer's test run. Shared by the tests and the gallery.
 pub mod fixtures {
     use otaq_core::agent_tools::Tool;
-    use otaq_core::board::reports::ReportInfo;
+    use otaq_core::board::reports::{Attachment, AttachmentKind, PASTED_TEXT};
     use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 
     const MIN: i64 = 60_000;
@@ -427,13 +434,19 @@ pub mod fixtures {
             author,
             stage_name: stage.map(str::to_owned),
             body: body.into(),
-            report: report_kb.map(|kb| ReportInfo {
-                bytes: kb * 1024,
-                lines: kb * 30,
-            }),
+            attachments: report_kb
+                .map(|kb| Attachment {
+                    n: 1,
+                    name: PASTED_TEXT.into(),
+                    kind: AttachmentKind::Text,
+                    bytes: kb * 1024,
+                    lines: Some(kb * 30),
+                    path: format!("/data/reports/shop-web/SHOP-22/c{n}/1/pasted-text.txt"),
+                })
+                .into_iter()
+                .collect(),
             posted_at: (14 * 60 + minute) * MIN,
             edited_at: None,
-            report_name: None,
             at_creation: false,
         }
     }
@@ -447,7 +460,9 @@ pub mod fixtures {
             None,
             Some("test-run-login.md"),
         ]) {
-            c.report_name = name.map(str::to_owned);
+            if let (Some(a), Some(name)) = (c.attachments.first_mut(), name) {
+                a.name = name.to_owned();
+            }
         }
         comments[0].at_creation = true;
         comments
@@ -582,7 +597,7 @@ mod tests {
     #[test]
     fn a_pasted_report_and_a_later_one_of_yours() {
         let mut comments = fixtures::shop_22();
-        comments[0].report_name = None;
+        comments[0].attachments[0].name = otaq_core::board::reports::PASTED_TEXT.into();
         comments[0].at_creation = false;
         let rows = attachments(&comments, true);
         let mine = rows.iter().find(|r| r.n == 1).unwrap();
@@ -596,7 +611,7 @@ mod tests {
     fn no_reports_no_count() {
         let mut comments = fixtures::shop_22();
         for c in &mut comments {
-            c.report = None;
+            c.attachments.clear();
         }
         let v = view(
             "SHOP-22",

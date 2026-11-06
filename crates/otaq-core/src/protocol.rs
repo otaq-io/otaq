@@ -7,10 +7,10 @@
 //! body: `request`, `reply`, `event` or `error`.
 //!
 //! ```text
-//! {"protocol_version":2,"id":7,"request":{"method":"service.status"}}
-//! {"protocol_version":2,"id":7,"reply":{"service_status":{"pid":4120,...}}}
-//! {"protocol_version":2,"event":{"kind":"test","seq":3}}
-//! {"protocol_version":2,"id":8,"error":{"kind":"bad_request","message":"..."}}
+//! {"protocol_version":3,"id":7,"request":{"method":"service.status"}}
+//! {"protocol_version":3,"id":7,"reply":{"service_status":{"pid":4120,...}}}
+//! {"protocol_version":3,"event":{"kind":"test","seq":3}}
+//! {"protocol_version":3,"id":8,"error":{"kind":"bad_request","message":"..."}}
 //! ```
 //!
 //! A reply or error answers the request with the same id. Events have no id.
@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -623,10 +623,10 @@ pub enum Request {
     /// The ticket's comments, oldest first; answered with [`Reply::TicketComments`].
     #[serde(rename = "ticket.comments")]
     TicketComments(KeyParams),
-    /// Where comment `n`'s report is, with its size and lines; answered with [`Reply::TicketReport`]. The CLI prints
-    /// the file itself (streamed), so a 20 MB report never travels in one frame.
+    /// Where one attachment of comment `n` is, with its kind, size and lines; answered with [`Reply::TicketReport`].
+    /// The CLI prints a text one itself (streamed), so a 20 MB file never travels in one frame.
     #[serde(rename = "ticket.report")]
-    TicketReport(TicketCommentParams),
+    TicketReport(TicketReportParams),
     /// The ticket's manual checks for the user (d0125), with how many are not ticked; answered with
     /// [`Reply::ManualChecks`].
     #[serde(rename = "ticket.manual_checks")]
@@ -1502,7 +1502,7 @@ pub struct MergeIntoParams {
 }
 
 /// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send". The note
-/// is the user's comment (CMT-05), `report` a report attached to it (the dialog's pasted text, CMT-13).
+/// is the user's comment (CMT-05), `attachments` the files attached to it (the dialog's pasted text, CMT-13).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FailParams {
     pub key: String,
@@ -1510,8 +1510,8 @@ pub struct FailParams {
     pub note: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::board::reports::ReportSource>,
 }
 
 /// `{"id": "…", "body": "…"}`: a reply to, or the new text of, a comment.
@@ -1535,15 +1535,15 @@ pub struct CommentsParams {
     pub round: Option<u32>,
 }
 
-/// `{"key": "SHOP-34", "body": "…"}`, with `"report": {"path": "/abs/test-run.txt"}` or `{"text": "…"}`: a new
+/// `{"key": "SHOP-34", "body": "…"}`, with `"attachments": [{"path": "/abs/test-run.txt"}, {"text": "…"}]`: a new
 /// ticket comment (CMT-06, CMT-11). `"tell_agent": true` also tells the ticket's running agent (or check) to read it
 /// (d0123): the user's comments only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketCommentPostParams {
     pub key: String,
     pub body: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::board::reports::ReportSource>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub tell_agent: bool,
 }
@@ -1563,6 +1563,16 @@ pub struct TicketCommentParams {
     pub n: u32,
 }
 
+/// `{"key": "SHOP-34", "n": 4, "attachment": 2}`: attachment 2 of comment 4 (`otaq report SHOP-34 4 --attachment 2`);
+/// without `attachment`, the comment's only one (a comment with several is refused, naming them).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketReportParams {
+    pub key: String,
+    pub n: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<u32>,
+}
+
 /// `{"key": "SHOP-34", "n": 2, "ticked": true}`: tick (or untick) one manual check (d0125).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManualCheckTickParams {
@@ -1572,15 +1582,16 @@ pub struct ManualCheckTickParams {
 }
 
 /// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
-/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/notes.md"}`) is a document attached to the comment (CMT-06);
-/// `manual_checks` are what the agent couldn't check itself, one line each (`--manual-check`, d0125).
+/// reason), its comment (CMT-05); `attachments` (`[{"path": "/abs/notes.md"}]`, `--report-file` repeated) are the files
+/// attached to the comment (CMT-06, tuq 001); `manual_checks` are what the agent couldn't check itself, one line each
+/// (`--manual-check`, d0125).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEndParams {
     pub key: String,
     #[serde(default)]
     pub summary: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report_file: Option<crate::board::reports::ReportSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::board::reports::ReportSource>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manual_checks: Vec<String>,
 }
@@ -1610,9 +1621,9 @@ pub struct VerdictParams {
     /// The findings (one line each, file and line) and the notes: the checker's comment (CMT-05).
     #[serde(default)]
     pub report: String,
-    /// `--report-file`: a document attached to the comment (CMT-06).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report_file: Option<crate::board::reports::ReportSource>,
+    /// `--report-file`, repeated: the files attached to the comment (CMT-06, tuq 001).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::board::reports::ReportSource>,
     /// `--manual-check`: what the check couldn't check itself, one line each (d0125).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manual_checks: Vec<String>,
@@ -1872,9 +1883,9 @@ pub struct DragParams {
     /// "Clear it and send" after the unsent-text question (d0048).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
-    /// A report attached to the note's comment (the dialog's pasted text, CMT-13).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<crate::board::reports::ReportSource>,
+    /// The files attached to the note's comment (the dialog's pasted text, CMT-13).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::board::reports::ReportSource>,
 }
 
 /// `child` depends on `parent`.

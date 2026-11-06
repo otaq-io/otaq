@@ -313,7 +313,7 @@ async fn review_feedback_prints_the_latest_round() {
         .fail(
             "SHOP-1",
             "Also check page 0.",
-            None,
+            Vec::new(),
             false,
             &Actor::User("me".into()),
         )

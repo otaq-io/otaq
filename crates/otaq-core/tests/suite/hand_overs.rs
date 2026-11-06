@@ -139,7 +139,7 @@ async fn stage_next_posts_the_summary_as_the_agents_comment() {
         &w,
         &dev,
         "ticket.stage_next",
-        json!({"key": "SHOP-1", "summary": "Done.", "report_file": {"path": "/nonexistent/run.txt"}}),
+        json!({"key": "SHOP-1", "summary": "Done.", "attachments": [{"path": "/nonexistent/run.txt"}]}),
     )
     .await;
     assert_eq!(refusal(&missing).0, "bad_report");
@@ -153,7 +153,7 @@ async fn stage_next_posts_the_summary_as_the_agents_comment() {
         &w,
         &dev,
         "ticket.stage_next",
-        json!({"key": "SHOP-1", "summary": summary, "report_file": {"path": run}}),
+        json!({"key": "SHOP-1", "summary": summary, "attachments": [{"path": run}]}),
     )
     .await;
     assert!(ended["reply"]["stage_ended"].is_object(), "{ended}");
@@ -164,7 +164,14 @@ async fn stage_next_posts_the_summary_as_the_agents_comment() {
         (&posted[0].author, posted[0].body.as_str()),
         (&rust_developer("dev"), summary)
     );
-    assert_eq!(posted[0].report.map(|r| (r.bytes, r.lines)), Some((28, 2)));
+    assert_eq!(
+        posted[0]
+            .attachments
+            .iter()
+            .map(|a| (a.bytes, a.lines))
+            .collect::<Vec<_>>(),
+        [(28, Some(2))]
+    );
     assert!(run.exists(), "the original stays");
     let runs = w.board.stage_runs("SHOP-1").await.unwrap();
     assert_eq!(
@@ -357,7 +364,7 @@ async fn a_verdict_is_the_checkers_comment() {
         &w,
         &checker,
         "validation.verdict",
-        json!({"key": "SHOP-1", "pass": false, "report": findings, "report_file": {"path": run}}),
+        json!({"key": "SHOP-1", "pass": false, "report": findings, "attachments": [{"path": run}]}),
     )
     .await;
     assert!(failed["reply"]["ticket"].is_object(), "{failed}");
@@ -379,7 +386,7 @@ async fn a_verdict_is_the_checkers_comment() {
         }
     );
     assert_eq!(posted[0].body, findings);
-    assert!(posted[0].report.is_some());
+    assert_eq!(posted[0].attachments.len(), 1);
     let rounds = w.board.validations("SHOP-1").await.unwrap();
     assert_eq!(rounds[0].report.as_deref(), Some(findings));
     assert_eq!(
@@ -431,7 +438,7 @@ async fn send_back_posts_the_note_before_the_agent_is_told() {
 
     let refused = w
         .review
-        .fail("SHOP-1", &"z".repeat(2_001), None, false, &me())
+        .fail("SHOP-1", &"z".repeat(2_001), Vec::new(), false, &me())
         .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::TooLong));
@@ -449,7 +456,7 @@ async fn send_back_posts_the_note_before_the_agent_is_told() {
         .fail(
             "SHOP-1",
             note,
-            Some(ReportSource::Text(log.clone())),
+            vec![ReportSource::Text(log.clone())],
             false,
             &me(),
         )
@@ -458,7 +465,7 @@ async fn send_back_posts_the_note_before_the_agent_is_told() {
     assert!(matches!(outcome, ReturnOutcome::Done { .. }));
     let posted = comments(&w, "SHOP-1").await;
     assert_eq!((&posted[0].author, posted[0].body.as_str()), (&you(), note));
-    assert_eq!(posted[0].report.map(|r| r.lines), Some(100));
+    assert_eq!(posted[0].attachments[0].lines, Some(100));
     let out = w
         .wait_for_output(&dev.session, "otaq review feedback")
         .await;
@@ -487,7 +494,7 @@ async fn send_back_posts_the_note_before_the_agent_is_told() {
     let t2 = in_review_with_line_comments(&w, "Order list paging", 1).await;
     let dev2 = w.agent_shell(&t2).await;
     w.review
-        .fail("SHOP-2", " ", None, false, &me())
+        .fail("SHOP-2", " ", Vec::new(), false, &me())
         .await
         .unwrap();
     assert!(comments(&w, "SHOP-2").await.is_empty());
@@ -525,7 +532,7 @@ async fn a_queued_send_back_keeps_what_the_agent_is_told() {
 
     let note = "Use the CSV writer from SHOP-12.";
     w.review
-        .fail(&t.key.to_string(), note, None, false, &me())
+        .fail(&t.key.to_string(), note, Vec::new(), false, &me())
         .await
         .unwrap();
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
@@ -757,7 +764,7 @@ async fn send_back_and_a_human_fail_rearm_the_gate() {
         tick().await;
 
         w.review
-            .fail("SHOP-1", "Keep the column order.", None, false, &me())
+            .fail("SHOP-1", "Keep the column order.", Vec::new(), false, &me())
             .await
             .unwrap();
         w.wait_for_output(&dev.session, "with a comment. Run").await;
@@ -780,7 +787,13 @@ async fn a_pr_send_back_rearms_the_gate() {
     tick().await;
 
     w.review
-        .send_back_pr("SHOP-1", "Keep the old route working.", None, false, &me())
+        .send_back_pr(
+            "SHOP-1",
+            "Keep the old route working.",
+            Vec::new(),
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     w.wait_for_output(&dev.session, "with PR comments and a comment")
@@ -827,7 +840,7 @@ async fn a_drag_back_resume_rearms_the_gate() {
 
     let answers = otaq_core::review::drag::DragAnswers {
         note: "Keep the old price column.",
-        report: None,
+        attachments: Default::default(),
         confirmed: true,
         clear_first: false,
     };
@@ -872,7 +885,7 @@ async fn a_fresh_start_and_a_check_run_again_wait_for_prime() {
 
         let answers = otaq_core::review::drag::DragAnswers {
             note: "Ask about carts shared between devices.",
-            report: None,
+            attachments: Default::default(),
             confirmed: true,
             clear_first: false,
         };

@@ -626,14 +626,12 @@ impl Board {
         body: &str,
         report: Option<super::reports::ReportSource>,
         actor: &Actor,
-    ) -> Result<Option<super::reports::StoredReport>, BoardError> {
-        let stored = match report {
-            Some(source) => {
-                let repo = crate::warm::store::repo_name(project);
-                Some(self.prepare_report(&repo, key, source).await?)
-            }
-            None => None,
-        };
+    ) -> Result<Option<super::reports::StoredAttachments>, BoardError> {
+        // The New ticket form takes one report (RPT-03): the comment's attachment 1.
+        let repo = crate::warm::store::repo_name(project);
+        let stored = self
+            .prepare_attachments_in(&repo, key, report.into_iter().collect())
+            .await?;
         let author = super::ticket_comments::CommentAuthor::User {
             name: actor.to_string(),
         };

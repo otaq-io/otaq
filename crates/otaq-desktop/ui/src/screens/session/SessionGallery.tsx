@@ -102,7 +102,7 @@ const row = (
             { kind: "added", sign: "+", text: "· the redirect waits for the session cookie" },
             { kind: "added", sign: "+", text: "· e2e/login.spec passes 20 times in a row" },
           ],
-          report: null,
+          attachments: [],
         }
       : null,
   kind,

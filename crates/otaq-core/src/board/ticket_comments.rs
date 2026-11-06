@@ -3,9 +3,9 @@
 //! on a diff ([`super::comments`]), which stay as they are.
 //!
 //! - A comment's text is at most [`COMMENT_LIMIT_CHARS`] Unicode characters and never empty ([`check_body`]); longer
-//!   text goes in a **report** ([`super::reports`]), at most one per comment.
+//!   text goes in an **attachment** ([`super::reports`]); a comment may carry any number, of any type (tuq 001, 002).
 //! - `n` numbers a ticket's comments 1, 2, 3…, never reused: a deleted comment keeps its row (History shows what it
-//!   said) and no list shows it. Its report stays until the ticket is deleted.
+//!   said) and no list shows it. Its attachments stay until the ticket is deleted.
 //! - Posting, editing and deleting log `comment_posted`, `comment_edited` and `comment_deleted` with the actor.
 //! - A comment the user wrote with a new ticket ([`super::tickets::NewTicketInput::first_comment`], RPT-03) is marked
 //!   "at creation": its row's `stage_id` is [`AT_CREATION`] (a user's comment has no stage otherwise).
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{FromRow, Sqlite, Transaction};
 
-use super::reports::{ReportInfo, ReportSource, StoredReport, count_label};
+use super::reports::{Attachment, AttachmentKind, ReportSource, StoredAttachments, count_label};
 use super::tickets::{EventKind, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::agent_tools::Tool;
@@ -136,11 +136,9 @@ pub struct TicketComment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage_name: Option<String>,
     pub body: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<ReportInfo>,
-    /// The report's own name, its file's (`test-run-login.md`); `None` for pasted text ("Pasted text", RPT-02).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report_name: Option<String>,
+    /// Its attachments, in order (tuq 001): attachment 1 first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
     /// The user posted it with the new ticket (RPT-03): "You · at creation".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub at_creation: bool,
@@ -156,16 +154,6 @@ impl TicketComment {
             CommentAuthor::User { .. } => "You".to_owned(),
             CommentAuthor::Agent { name, .. } => name.clone().unwrap_or_else(|| "Agent".to_owned()),
         }
-    }
-
-    /// What its report is called (RPT-02): its file's name, "Pasted text" for pasted text; `None` without a report.
-    pub fn report_label(&self) -> Option<String> {
-        self.report?;
-        Some(
-            self.report_name
-                .clone()
-                .unwrap_or_else(|| super::reports::PASTED_TEXT.to_owned()),
-        )
     }
 
     /// Its heading in `prime` and `otaq comments` (CMT-07): "Validator · Validate · round 2 · 3:05 pm", "You · 2:14
@@ -186,18 +174,46 @@ impl TicketComment {
         parts.join(" \u{b7} ")
     }
 
-    /// The line under a comment with a report (CMT-07): "Report: 48 KB, 2,310 lines · `otaq report SHOP-34 4`".
-    pub fn report_line(&self, key: &TicketKey) -> Option<String> {
-        let report = self.report?;
-        Some(format!(
-            "Report: {}, {} line{} \u{b7} `{} report {key} {}`",
-            super::reports::size_label(report.bytes),
-            count_label(report.lines),
-            if report.lines == 1 { "" } else { "s" },
+    /// The command that prints its attachment `a` (text): `otaq report SHOP-34 4`, with `--attachment 2` when the
+    /// comment has several.
+    pub fn report_command(&self, key: &TicketKey, a: u32) -> String {
+        let pick = match self.attachments.len() {
+            0 | 1 => String::new(),
+            _ => format!(" --attachment {a}"),
+        };
+        format!(
+            "{} report {key} {}{pick}",
             crate::naming::COMMAND_NAME,
             self.n
-        ))
+        )
     }
+
+    /// One line per attachment under a comment (CMT-07; tuq 002, 006), never its bytes: "Report: test-run.txt · 48 KB,
+    /// 2,310 lines · `otaq report SHOP-34 4`" for text; "Image: shot.png · 120 KB · open this path to view it:
+    /// /…/shot.png" and "File: repro.zip · 2 MB · open this path to view it: /…/repro.zip" for the rest.
+    pub fn attachment_lines(&self, key: &TicketKey) -> Vec<String> {
+        self.attachments
+            .iter()
+            .map(|a| attachment_line(a, &self.report_command(key, a.n)))
+            .collect()
+    }
+}
+
+/// How agents are told to look at an image or another file: they open its path, never get its bytes (tuq 002, 006).
+pub const OPEN_PATH: &str = "open this path to view it";
+
+/// [`TicketComment::attachment_lines`]' line for one attachment; `command` prints a text one.
+pub fn attachment_line(a: &Attachment, command: &str) -> String {
+    let (label, open) = match a.kind {
+        AttachmentKind::Text => ("Report", format!("`{command}`")),
+        AttachmentKind::Image => ("Image", format!("{OPEN_PATH}: {}", a.path)),
+        AttachmentKind::Other => ("File", format!("{OPEN_PATH}: {}", a.path)),
+    };
+    format!(
+        "{label}: {} \u{b7} {} \u{b7} {open}",
+        a.name,
+        a.size_and_lines()
+    )
 }
 
 /// "3:05 pm", "12:40 am", local time (0093's form).
@@ -219,15 +235,16 @@ pub struct TicketComments {
     pub comments: Vec<TicketComment>,
 }
 
-/// Where a comment's report is (`otaq report`): the CLI prints or names the file, the app reads it in pages.
+/// One attachment of a comment (`otaq report`, the report view): the CLI prints or names its file, the app reads a
+/// text one in pages.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportFile {
     pub key: TicketKey,
+    /// Its comment's number.
     pub n: u32,
-    /// The full path in the data folder.
-    pub path: String,
-    pub info: ReportInfo,
-    /// Its comment was deleted; History still opens the report (CMT-14).
+    /// The attachment, with its full path in the data folder.
+    pub attachment: Attachment,
+    /// Its comment was deleted; History still opens its attachments (CMT-14).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
 }
@@ -250,16 +267,85 @@ struct Row {
     stage_id: Option<String>,
     round: Option<i64>,
     body: String,
-    report_file: Option<String>,
-    report_bytes: Option<i64>,
-    report_lines: Option<i64>,
     posted_at: i64,
     edited_at: Option<i64>,
     deleted_at: Option<i64>,
 }
 
-const COLUMNS: &str = "id, n, author_kind, author_id, author_name, author_tool, stage_id, round, body, report_file, \
-                       report_bytes, report_lines, posted_at, edited_at, deleted_at";
+const COLUMNS: &str = "id, n, author_kind, author_id, author_name, author_tool, stage_id, round, body, posted_at, \
+                       edited_at, deleted_at";
+
+/// One row of `comment_attachments` (migration 0076).
+#[derive(FromRow)]
+struct AttachmentRow {
+    comment_id: String,
+    n: i64,
+    file: String,
+    name: String,
+    kind: String,
+    bytes: i64,
+    lines: Option<i64>,
+}
+
+const ATTACHMENT_COLUMNS: &str = "a.comment_id, a.n, a.file, a.name, a.kind, a.bytes, a.lines";
+
+impl AttachmentRow {
+    fn attachment(self, root: &std::path::Path) -> Attachment {
+        Attachment {
+            n: u32::try_from(self.n).unwrap_or(0),
+            kind: AttachmentKind::parse(&self.kind),
+            bytes: u64::try_from(self.bytes).unwrap_or(0),
+            lines: self.lines.map(|l| u64::try_from(l).unwrap_or(0)),
+            path: root.join(&self.file).display().to_string(),
+            name: self.name,
+        }
+    }
+}
+
+/// The attachments of comments, by comment id, each comment's in order.
+type AttachmentsById = std::collections::HashMap<String, Vec<Attachment>>;
+
+fn by_comment(rows: Vec<AttachmentRow>, root: &std::path::Path) -> AttachmentsById {
+    let mut all = AttachmentsById::new();
+    for row in rows {
+        all.entry(row.comment_id.clone())
+            .or_default()
+            .push(row.attachment(root));
+    }
+    all
+}
+
+/// Every attachment of the ticket's comments, deleted ones' too.
+async fn ticket_attachments<'e>(
+    executor: impl sqlx::SqliteExecutor<'e>,
+    ticket_id: &str,
+    root: &std::path::Path,
+) -> Result<AttachmentsById, BoardError> {
+    let rows: Vec<AttachmentRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {ATTACHMENT_COLUMNS} FROM comment_attachments a
+         JOIN ticket_comments c ON c.id = a.comment_id
+         WHERE c.ticket_id = ? ORDER BY a.comment_id, a.n"
+    )))
+    .bind(ticket_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(by_comment(rows, root))
+}
+
+/// One comment's attachments, in order.
+async fn comment_attachments<'e>(
+    executor: impl sqlx::SqliteExecutor<'e>,
+    comment_id: &str,
+    root: &std::path::Path,
+) -> Result<Vec<Attachment>, BoardError> {
+    let rows: Vec<AttachmentRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {ATTACHMENT_COLUMNS} FROM comment_attachments a WHERE a.comment_id = ? ORDER BY a.n"
+    )))
+    .bind(comment_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(|r| r.attachment(root)).collect())
+}
 
 impl Row {
     fn author(&self) -> CommentAuthor {
@@ -278,14 +364,6 @@ impl Row {
         }
     }
 
-    fn report(&self) -> Option<ReportInfo> {
-        self.report_file.as_ref()?;
-        Some(ReportInfo {
-            bytes: u64::try_from(self.report_bytes.unwrap_or(0)).unwrap_or(0),
-            lines: u64::try_from(self.report_lines.unwrap_or(0)).unwrap_or(0),
-        })
-    }
-
     fn n(&self) -> u32 {
         u32::try_from(self.n).unwrap_or(0)
     }
@@ -295,16 +373,16 @@ impl Row {
         self.author_kind == "user" && self.stage_id.as_deref() == Some(AT_CREATION)
     }
 
-    fn into_comment(self, stage_name: Option<String>) -> TicketComment {
+    fn into_comment(
+        self,
+        stage_name: Option<String>,
+        attachments: Vec<Attachment>,
+    ) -> TicketComment {
         TicketComment {
             n: self.n(),
             author: self.author(),
             stage_name,
-            report: self.report(),
-            report_name: self
-                .report_file
-                .as_deref()
-                .and_then(|f| super::reports::stored_name(f, &self.id)),
+            attachments,
             at_creation: self.at_creation(),
             body: self.body,
             posted_at: self.posted_at,
@@ -323,23 +401,55 @@ fn excerpt(body: &str) -> String {
     cut
 }
 
-fn report_json(info: Option<ReportInfo>) -> Value {
-    info.map_or(Value::Null, |r| json!({"bytes": r.bytes, "lines": r.lines}))
+/// A comment's attachments as its events keep them (History): `[{"n", "name", "kind", "bytes", "lines"?}]`. Events
+/// written before migration 0076 have `"report": {"bytes", "lines"} | null` instead.
+pub fn attachments_json<'a>(attachments: impl IntoIterator<Item = &'a Attachment>) -> Value {
+    Value::Array(
+        attachments
+            .into_iter()
+            .map(|a| {
+                let mut v = json!({"n": a.n, "name": a.name, "kind": a.kind, "bytes": a.bytes});
+                if let Some(lines) = a.lines {
+                    v["lines"] = json!(lines);
+                }
+                v
+            })
+            .collect(),
+    )
+}
+
+fn stored_json(stored: Option<&StoredAttachments>) -> Value {
+    let list: Vec<Attachment> = stored
+        .map(|s| {
+            s.files
+                .iter()
+                .map(|f| Attachment {
+                    n: f.n,
+                    name: f.name.clone(),
+                    kind: f.kind,
+                    bytes: f.bytes,
+                    lines: f.lines,
+                    path: String::new(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    attachments_json(&list)
 }
 
 /// Posts a comment on the ticket `ticket_id` inside `tx`, with its `comment_posted` event: what the hand-overs call
-/// (T-0443), so the comment and the move are one change. `body` must have passed [`check_body`]; the report, if any,
-/// was copied with [`Board::prepare_report`] and the comment takes its id. On a later failure of `tx` the caller
-/// discards the report ([`StoredReport::discard`]). No rights are checked here: the policy judged the request.
+/// (T-0443), so the comment and the move are one change. `body` must have passed [`check_body`]; the attachments, if
+/// any, were copied with [`Board::prepare_attachments`] and the comment takes their id. On a later failure of `tx` the
+/// caller discards them ([`StoredAttachments::discard`]). No rights are checked here: the policy judged the request.
 pub async fn post_in(
     tx: &mut Transaction<'_, Sqlite>,
     ticket_id: &str,
     author: &CommentAuthor,
     body: &str,
-    report: Option<&StoredReport>,
+    attachments: Option<&StoredAttachments>,
     actor: &Actor,
 ) -> Result<Posted, BoardError> {
-    post_comment_in(tx, ticket_id, author, body, report, false, actor).await
+    post_comment_in(tx, ticket_id, author, body, attachments, false, actor).await
 }
 
 /// [`post_in`], marking a user's comment "at creation" when `at_creation` (the new ticket's first comment, RPT-03).
@@ -348,7 +458,7 @@ pub(crate) async fn post_comment_in(
     ticket_id: &str,
     author: &CommentAuthor,
     body: &str,
-    report: Option<&StoredReport>,
+    attachments: Option<&StoredAttachments>,
     at_creation: bool,
     actor: &Actor,
 ) -> Result<Posted, BoardError> {
@@ -359,7 +469,7 @@ pub(crate) async fn post_comment_in(
             .fetch_one(&mut **tx)
             .await?;
     let n = last.unwrap_or(0) + 1;
-    let id = report.map_or_else(new_id, |r| r.comment_id.clone());
+    let id = attachments.map_or_else(new_id, |a| a.comment_id.clone());
     let (author_id, author_name, tool, stage, round) = match author {
         CommentAuthor::User { name } => (
             None,
@@ -378,8 +488,8 @@ pub(crate) async fn post_comment_in(
     };
     sqlx::query(
         "INSERT INTO ticket_comments (id, ticket_id, n, author_kind, author_id, author_name, author_tool, stage_id,
-                                      round, body, report_file, report_bytes, report_lines, posted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                      round, body, posted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(ticket_id)
@@ -391,16 +501,28 @@ pub(crate) async fn post_comment_in(
     .bind(stage)
     .bind(round.map(i64::from))
     .bind(body)
-    .bind(report.map(|r| r.relative.clone()))
-    .bind(report.map(|r| i64::try_from(r.info.bytes).unwrap_or(i64::MAX)))
-    .bind(report.map(|r| i64::try_from(r.info.lines).unwrap_or(i64::MAX)))
     .bind(now_ms())
     .execute(&mut **tx)
     .await?;
+    for file in attachments.map(|a| a.files.as_slice()).unwrap_or_default() {
+        sqlx::query(
+            "INSERT INTO comment_attachments (comment_id, n, file, name, kind, bytes, lines)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(i64::from(file.n))
+        .bind(&file.relative)
+        .bind(&file.name)
+        .bind(file.kind.as_str())
+        .bind(i64::try_from(file.bytes).unwrap_or(i64::MAX))
+        .bind(file.lines.map(|l| i64::try_from(l).unwrap_or(i64::MAX)))
+        .execute(&mut **tx)
+        .await?;
+    }
     let mut detail = json!({
         "n": n,
         "excerpt": excerpt(body),
-        "report": report_json(report.map(|r| r.info)),
+        "attachments": stored_json(attachments),
         "author": author,
     });
     if at_creation {
@@ -414,27 +536,20 @@ pub(crate) async fn post_comment_in(
 }
 
 impl Board {
-    /// Posts a comment (the user's or an agent's) with an optional report: the text is checked first, then
-    /// the report copied (a missing file or one over 20 MB refused before anything is posted), then the comment
-    /// stored. Rights are the policy's (CMT-04).
+    /// Posts a comment (the user's or an agent's) with any number of attachments (tuq 001, 006): the text is checked
+    /// first, then every attachment checked and copied (a missing file or one over 20 MB refused by name before
+    /// anything is posted, leaving nothing behind), then the comment stored. Rights are the policy's (CMT-04).
     pub async fn post_ticket_comment(
         &self,
         key: &str,
         author: &CommentAuthor,
         body: &str,
-        report: Option<ReportSource>,
+        attachments: Vec<ReportSource>,
         actor: &Actor,
     ) -> Result<TicketComment, BoardError> {
         let body = check_body(body)?;
         let ticket = self.ticket(key).await?;
-        let stored = match report {
-            Some(source) => {
-                let project = self.project(ticket.key.project.as_str()).await?;
-                let repo = crate::warm::store::repo_name(&project);
-                Some(self.prepare_report(&repo, &ticket.key, source).await?)
-            }
-            None => None,
-        };
+        let stored = self.prepare_attachments(&ticket.key, attachments).await?;
         let posted = async {
             let mut tx = self.store.begin_write().await?;
             let posted =
@@ -510,7 +625,7 @@ impl Board {
             json!({
                 "n": n,
                 "body": row.body,
-                "report": report_json(row.report()),
+                "attachments": attachments_json(&deleted.attachments),
                 "author": row.author(),
             }),
         )
@@ -528,6 +643,8 @@ impl Board {
         .bind(&ticket.id)
         .fetch_all(self.store.pool())
         .await?;
+        let mut attachments =
+            ticket_attachments(self.store.pool(), &ticket.id, self.data().root()).await?;
         let flow = self.effective_flow(ticket.key.project.as_str()).await.ok();
         let stage_name = |stage: Option<&String>| {
             stage.map(|id| {
@@ -545,7 +662,8 @@ impl Board {
                     } else {
                         stage_name(row.stage_id.as_ref())
                     };
-                    row.into_comment(name)
+                    let files = attachments.remove(&row.id).unwrap_or_default();
+                    row.into_comment(name, files)
                 })
                 .collect(),
             key: ticket.key,
@@ -563,21 +681,55 @@ impl Board {
             .ok_or_else(|| no_comment(&key, n))
     }
 
-    /// Where comment `n`'s report is. A deleted comment's report still opens (History, CMT-14).
-    pub async fn ticket_report(&self, key: &str, n: u32) -> Result<ReportFile, BoardError> {
+    /// Where attachment `attachment` (1, 2, 3…) of comment `n` is; with `None`, its only one. A comment with several
+    /// refuses `None`, listing them, so the caller names one. A deleted comment's attachments still open (History,
+    /// CMT-14).
+    pub async fn ticket_report(
+        &self,
+        key: &str,
+        n: u32,
+        attachment: Option<u32>,
+    ) -> Result<ReportFile, BoardError> {
         let ticket = self.ticket(key).await?;
         let row = row(self.store.pool(), &ticket.id, n)
             .await?
             .ok_or_else(|| no_comment(&ticket.key, n))?;
-        let (Some(file), Some(info)) = (row.report_file.as_deref(), row.report()) else {
-            return Err(BoardError::NotFound(format!(
-                "{}'s comment {n} has no report",
-                ticket.key
-            )));
+        let mut all = comment_attachments(self.store.pool(), &row.id, self.data().root()).await?;
+        let picked = match (attachment, all.len()) {
+            (_, 0) => {
+                return Err(BoardError::NotFound(format!(
+                    "{}'s comment {n} has no attachments",
+                    ticket.key
+                )));
+            }
+            (None, 1) => all.remove(0),
+            (None, _) => {
+                let list = all
+                    .iter()
+                    .map(|a| format!("{} {}", a.n, a.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(BoardError::refused(
+                    Refusal::BadReport,
+                    format!(
+                        "{}'s comment {n} has {} attachments; pick one with --attachment: {list}",
+                        ticket.key,
+                        all.len()
+                    ),
+                ));
+            }
+            (Some(a), _) => match all.iter().position(|x| x.n == a) {
+                Some(i) => all.remove(i),
+                None => {
+                    return Err(BoardError::NotFound(format!(
+                        "{}'s comment {n} has no attachment {a}",
+                        ticket.key
+                    )));
+                }
+            },
         };
         Ok(ReportFile {
-            path: self.report_file(file).display().to_string(),
-            info,
+            attachment: picked,
             deleted: row.deleted_at.is_some(),
             key: ticket.key,
             n,
@@ -684,7 +836,8 @@ impl Board {
         let mut files = Vec::new();
         for id in ticket_ids {
             let mine: Vec<String> = sqlx::query_scalar(
-                "SELECT report_file FROM ticket_comments WHERE ticket_id = ? AND report_file IS NOT NULL",
+                "SELECT a.file FROM comment_attachments a JOIN ticket_comments c ON c.id = a.comment_id
+                 WHERE c.ticket_id = ?",
             )
             .bind(id)
             .fetch_all(self.store.pool())

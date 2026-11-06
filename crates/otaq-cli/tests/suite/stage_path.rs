@@ -225,7 +225,7 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     // Send back: the live session gets the plain sentence (only a note), ends its stage again; the check passes →
     // Review.
     w.review
-        .fail(&key, "Also the tax", None, false, &me())
+        .fail(&key, "Also the tax", Vec::new(), false, &me())
         .await
         .unwrap();
     until(&w, &key, "reached Review after Send back", async |w| {

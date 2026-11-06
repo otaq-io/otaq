@@ -191,7 +191,11 @@ fn main() -> ExitCode {
         Some(Command::Questions { key }) => agent::questions(key, &cli.global, &out),
         Some(Command::Comment(args)) => comment::comment(args, &cli.global, &out),
         Some(Command::Comments { key }) => comment::list(key, &cli.global, &out),
-        Some(Command::Report { args, path }) => comment::report(args, path, &cli.global, &out),
+        Some(Command::Report {
+            args,
+            attachment,
+            path,
+        }) => comment::report(args, attachment, path, &cli.global, &out),
         Some(Command::Helper(command)) => helper::run(command, &cli.global, &out),
         Some(Command::Run(command)) => run::run(command, &cli.global, &out),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),

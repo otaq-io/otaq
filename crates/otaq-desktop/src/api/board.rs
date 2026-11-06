@@ -486,7 +486,7 @@ async fn carry_out(
                     confirmed: false,
                     note: String::new(),
                     clear_first: false,
-                    report: None,
+                    attachments: Vec::new(),
                 }))
                 .await?;
             DropOutcome::Moved
@@ -547,7 +547,7 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
             confirmed: true,
             note: params.note.clone(),
             clear_first: params.clear,
-            report: sb::pasted_report(params.report.as_deref()),
+            attachments: sb::pasted_report(params.report.as_deref()),
         }))
         .await;
     match sent? {

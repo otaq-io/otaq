@@ -82,7 +82,7 @@ async fn only_the_validator_reports_a_verdict() {
     // The findings are the checker's comment with its report; the agent is told only the round (CMT-05).
     let comment = w.board.ticket_comments("SHOP-19").await.unwrap().comments;
     assert_eq!(comment[0].body, "src/prices.ts:3 not sorted");
-    assert_eq!(comment[0].report.map(|r| r.lines), Some(1));
+    assert_eq!(comment[0].attachments[0].lines, Some(1));
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending[0].text, "Validate failed round 1. Run `otaq prime`.",

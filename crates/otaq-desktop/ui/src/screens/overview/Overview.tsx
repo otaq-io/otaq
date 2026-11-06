@@ -47,19 +47,23 @@ function inTextField(target: EventTarget): boolean {
   );
 }
 
-/** One report: "Report 3 KB · CX Rust developer · Dev", its comment's line; a click opens it (CMT-12). */
+/** One attachment: "test-run.txt 3 KB · CX Rust developer · Dev", its comment's line; a click opens a text one
+ * (CMT-12). Images and other files don't open in the report view. */
 function Attachment({ ticket, row }: { ticket: string; row: AttachmentRow }) {
+  const opens = row.kind === "text";
   return (
     <button
       type="button"
       className="overview-attachment"
       data-mine={row.mine || undefined}
+      data-kind={row.kind}
+      aria-disabled={opens ? undefined : true}
       onClick={() => {
-        openReport({ kind: "comment", ticket, n: row.n });
+        if (opens) openReport({ kind: "comment", ticket, n: row.n, attachment: row.attachment });
       }}
     >
       <span className="overview-attachment-icon">
-        <Icon name="file-text" size={15} />
+        <Icon name={row.kind === "image" ? "image" : row.kind === "text" ? "file-text" : "file"} size={15} />
       </span>
       <span className="overview-attachment-text">
         <span className="overview-attachment-name">{row.name}</span>
@@ -111,7 +115,7 @@ export function Attachments({
         </button>
       </div>
       {view.attachments.map((row) => (
-        <Attachment key={row.n} ticket={ticket} row={row} />
+        <Attachment key={`${String(row.n)}-${String(row.attachment)}`} ticket={ticket} row={row} />
       ))}
       <div className="overview-drop">
         <Icon name="upload" size={13} />

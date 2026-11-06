@@ -285,8 +285,10 @@ grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
 
 ### Reading a report
 
-Under a comment with a report, `prime` shows a line such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`".
+Under a comment with a report, `prime` shows a line such as "Report: test-run.txt · 48 KB, 2,310 lines · `otaq report SHOP-19 4`".
 Open it only when you need it, and search it: `grep -n "expected" "$(otaq report SHOP-19 4 --path)"`.
+A comment can carry several files (`--attachment 2` picks one); an image or any other file shows as "Image: shot.png ·
+120 KB · open this path to view it: …": open that path, `otaq report` never prints it.
 
 ## Prove it works
 

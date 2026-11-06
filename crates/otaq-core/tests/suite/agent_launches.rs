@@ -529,7 +529,7 @@ async fn resume(
                 .await
                 .unwrap();
             w.review
-                .fail("SHOP-1", "", None, false, &me())
+                .fail("SHOP-1", "", Vec::new(), false, &me())
                 .await
                 .unwrap();
             let s = w

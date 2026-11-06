@@ -18,7 +18,7 @@ ticket's work). You answer from what you did here. **You change nothing.**
    anything in this session.
 3. **Find the answer** in this conversation and in the code of this worktree. You may read files, search, and read
    `git log` / `git show`. Keep it short and concrete: the asking agent is in the middle of its own work.
-   A comment's report ("Report: 48 KB, 2,310 lines · `otaq report SHOP-17 3`" in `prime`) may hold the answer:
+   A comment's report ("Report: test-run.txt · 48 KB, 2,310 lines · `otaq report SHOP-17 3`" in `prime`) may hold the answer:
    search its file, `grep -n "402" "$(otaq report SHOP-17 3 --path)"`, instead of printing it. Long command output
    goes to a file in `$OTAQ_RESOURCE_DIR` (`git log -p > "$OTAQ_RESOURCE_DIR/log.txt"`), never in the worktree;
    search it with `grep`, and **never print it in full or retype it** into the answer.

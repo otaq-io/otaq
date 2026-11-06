@@ -148,7 +148,7 @@ describe("Activity", () => {
               { kind: "same", sign: "", text: "Admins can export the orders table as CSV." },
               { kind: "added", sign: "+", text: "## Agreed" },
             ],
-            report: null,
+            attachments: [],
           },
         }),
         row({
@@ -158,7 +158,16 @@ describe("Activity", () => {
             label: "COMMENT",
             caption: null,
             lines: [{ kind: "same", sign: "", text: "Fail: the 10,000 row limit isn't enforced." }],
-            report: { n: 4, chip: { label: "Report", size: "· 48 KB", open: "Open" } },
+            attachments: [
+              {
+                n: 4,
+                chip: { attachment: 1, name: "test-run.txt", kind: "text", size: "· 48 KB", open: "Open" },
+              },
+              {
+                n: 4,
+                chip: { attachment: 2, name: "shot.png", kind: "image", size: "· 120 KB", open: null },
+              },
+            ],
           },
         }),
         row({ title: "You deleted a comment", mark: { kind: "you" } }),
@@ -206,7 +215,7 @@ describe("Activity", () => {
           label: "DESCRIPTION",
           caption: "Before / after",
           lines: [{ kind: "added", sign: "+", text: "· the redirect waits for the session cookie" }],
-          report: null,
+          attachments: [],
         }),
         row("Spec writer · Product spec commented", "comment"),
         row("Moved to Dev", "stage"),

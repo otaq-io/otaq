@@ -153,14 +153,17 @@ pub fn request(key: &TicketKey, note: &str, report: Option<&str>, clear_first: b
         key: key.to_string(),
         note: note.trim().to_owned(),
         clear_first,
-        report: pasted_report(report),
+        attachments: pasted_report(report),
     })
 }
 
-/// The text pasted into a dialog's note as its report (CMT-13); none when empty.
-pub fn pasted_report(text: Option<&str>) -> Option<otaq_core::board::reports::ReportSource> {
+/// The text pasted into a dialog's note as its attachment (CMT-13): one "Pasted text", none when empty. The dialogs
+/// send at most one for now (tuq 001).
+pub fn pasted_report(text: Option<&str>) -> Vec<otaq_core::board::reports::ReportSource> {
     text.filter(|t| !t.trim().is_empty())
         .map(|t| otaq_core::board::reports::ReportSource::Text(t.to_owned()))
+        .into_iter()
+        .collect()
 }
 
 /// What the unsent-text prompt says Send back would type.
@@ -378,15 +381,13 @@ mod tests {
                 key: "SHOP-18".into(),
                 note: String::new(),
                 clear_first: false,
-                report: None,
+                attachments: Vec::new(),
             })
         );
         assert!(matches!(
             request(&key, "x", Some("log"), true),
-            Request::TicketFail(FailParams {
-                report: Some(otaq_core::board::reports::ReportSource::Text(_)),
-                ..
-            })
+            Request::TicketFail(FailParams { attachments, .. })
+                if matches!(attachments.as_slice(), [otaq_core::board::reports::ReportSource::Text(_)])
         ));
         assert!(matches!(
             request(&key, "x", None, true),
