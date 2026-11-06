@@ -13,6 +13,7 @@ use otaq_core::protocol::{
     Request,
 };
 use otaq_core::review::ReturnOutcome;
+use otaq_view::view_models::approve::{self, MergeIntoPicker};
 use otaq_view::view_models::board_page;
 use otaq_view::view_models::check_dialogs::{self, SendBackPrView};
 use otaq_view::view_models::decision_change::{self as dc, ChangeView};
@@ -34,6 +35,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.available" => reply(&available(app, parse(params)?).await?),
         "review.approve" => reply(&approve(app, parse(params)?).await?),
         "review.local_merge" => reply(&local_merge(app, parse(params)?).await?),
+        "review.merge_into_view" => reply(&merge_into_view(app, parse(params)?).await?),
+        "review.merge_into" => reply(&merge_into(app, parse(params)?).await?),
         "review.done" => reply(&done(app, parse(params)?).await?),
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
@@ -279,6 +282,71 @@ pub async fn done(app: &App, params: Params) -> Result<(), RequestError> {
             Err(e)
         }
     }
+}
+
+/// The picker "Merge into another ticket…" opens: the tickets whose branch can take this one's.
+pub async fn merge_into_view(app: &App, params: Params) -> Result<MergeIntoPicker, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let hosts = match app
+        .service
+        .send(Request::TicketMergeIntoHosts(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await?
+    {
+        Reply::Tickets(list) => list,
+        other => return Err(unexpected("ticket.merge_into_hosts", &other)),
+    };
+    Ok(approve::merge_into_picker(&ticket, &hosts))
+}
+
+/// A pick in the picker: merge `key` into `into`'s branch.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "MergeIntoParams")]
+pub struct MergeIntoParams {
+    pub key: String,
+    pub into: String,
+}
+
+/// Merges the ticket into the picked one. Merged or not, the toast says what happened.
+pub async fn merge_into(
+    app: &App,
+    params: MergeIntoParams,
+) -> Result<approve::MergeIntoView, RequestError> {
+    let key = key_of(&params.key)?;
+    let outcome = match app
+        .service
+        .send(Request::TicketMergeInto(otaq_core::protocol::MergeIntoParams {
+            key: params.key.clone(),
+            into: params.into.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::MergedInto(outcome)) => outcome,
+        Ok(other) => return Err(unexpected("ticket.merge_into", &other)),
+        Err(e) => {
+            toast(
+                app,
+                ToastLevel::Error,
+                format!("Merging {key} into {} failed", params.into),
+                Some(e.message.clone()),
+            );
+            return Err(e);
+        }
+    };
+    let view = approve::merge_into_view(&key, &outcome);
+    match &view {
+        approve::MergeIntoView::Merged { title, text } => {
+            toast(app, ToastLevel::Success, title.clone(), Some(text.clone()));
+        }
+        approve::MergeIntoView::Refused { message } => toast(
+            app,
+            ToastLevel::Error,
+            format!("Nothing was merged into {}", params.into),
+            Some(message.clone()),
+        ),
+    }
+    Ok(view)
 }
 
 /// The Send back dialog: every pending comment, the note field, who keeps waiting.

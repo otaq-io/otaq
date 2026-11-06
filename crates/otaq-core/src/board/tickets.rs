@@ -481,6 +481,14 @@ stored_enum! {
         /// payload `ticket` (its key) and `change` (as [`super::fixes::Fix`]). History reads "Edited SHOP-42" ·
         /// "title, priority" or "Deleted SHOP-43" · "merged into SHOP-42".
         FixedCreatedTicket = "fixed_created_ticket",
+        /// The user merged the ticket into another ticket's branch: logged on the ticket merged in, payload `into` (the
+        /// host's key), `commit` (the squash commit on the host's branch) and `from` (its status before). History
+        /// reads "Merged into SHOP-18" · "waits for it to land".
+        MergedInto = "merged_into",
+        /// Another ticket was merged into this one's branch: logged on the host, payload `ticket` (the key merged in),
+        /// `title`, `commit` and `from` (the host's status before). History reads "SHOP-20 merged in" · "back to
+        /// review with the combined diff".
+        MergedIn = "merged_in",
     }
 }
 
@@ -1077,6 +1085,13 @@ impl Board {
         let check_rounds = project_check_rounds(pool, project_id).await?;
         // Each ticket's app ports (agents run the app).
         let mut app_ports = project_app_ports(pool, project_id).await?;
+        // The host each ticket merged into another ticket's branch waits for: "Merged into SHOP-18".
+        let merged_into: std::collections::HashMap<String, TicketKey> =
+            crate::store::merged_into::of_project(pool, project_id)
+                .await?
+                .into_iter()
+                .map(|m| (m.ticket_id, m.into))
+                .collect();
 
         records
             .into_iter()
@@ -1240,6 +1255,10 @@ impl Board {
                     }),
                 );
                 flags.helpers_to_resume = crate::helpers::restart::to_resume(own_helpers, status);
+                flags.merged_into = merged_into
+                    .get(&row.id)
+                    .filter(|_| status == Status::MergedInto)
+                    .cloned();
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
                     branch: row.branch_name,

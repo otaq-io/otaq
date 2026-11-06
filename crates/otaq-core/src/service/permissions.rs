@@ -248,6 +248,7 @@ async fn action_for(
         | R::ReviewComments(_)
         | R::ReviewFeedback(_)
         | R::TicketMergeProposal(_)
+        | R::TicketMergeIntoHosts(_)
         | R::TicketApproveCheck(_)
         | R::TicketConflict(_)
         | R::TicketPrime(_)
@@ -511,9 +512,10 @@ async fn action_for(
         }
         R::TicketFail(_) => Action::UserOnly("send tickets back"),
         R::TicketPass(_) => Action::UserOnly("pass human checks"),
-        R::TicketLocalMerge(_) | R::TicketDone(_) | R::TicketMergeCheckStop(_) => {
-            Action::UserOnly("merge tickets")
-        }
+        R::TicketLocalMerge(_)
+        | R::TicketDone(_)
+        | R::TicketMergeCheckStop(_)
+        | R::TicketMergeInto(_) => Action::UserOnly("merge tickets"),
         R::TicketMarkMerged(_) | R::TicketMarkClosed(_) => Action::UserOnly("mark pull requests"),
         R::MessageResume(_) => Action::UserOnly("resume finished tickets to answer"),
         R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) | R::TicketPrRetry(_) => {

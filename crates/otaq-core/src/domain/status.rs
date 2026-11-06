@@ -76,6 +76,10 @@ stored_enum! {
         ToDeliver = "to_deliver",
         /// A PR is open; waits for Mark merged / Mark closed (d0015, d0017).
         PrOpen = "pr_open",
+        /// Merged into another open ticket's branch: it lands when that ticket lands. Not Done, so tickets waiting on
+        /// it keep waiting; its worktree is gone and its branch kept. The card names the ticket
+        /// ([`super::Flags::merged_into`]).
+        MergedInto = "merged_into",
 
         // Done
         /// Merged locally or marked merged.
@@ -243,7 +247,7 @@ impl Status {
                 StatusSet::AgentCheck
             }
             Self::WaitingForYou => StatusSet::HumanCheck,
-            Self::ToDeliver | Self::PrOpen => StatusSet::Delivery,
+            Self::ToDeliver | Self::PrOpen | Self::MergedInto => StatusSet::Delivery,
             Self::Merged | Self::ClosedNotMerged => StatusSet::Done,
         }
     }
@@ -299,6 +303,8 @@ impl Status {
             Self::WaitingForYou => "Ready for Review",
             Self::ToDeliver => "To deliver",
             Self::PrOpen => "PR open",
+            // The card adds the ticket: "Merged into SHOP-18".
+            Self::MergedInto => "Merged into",
             Self::Merged => "Merged",
             Self::ClosedNotMerged => "Closed · not merged",
         }

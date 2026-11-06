@@ -224,6 +224,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
       // Approve anyway was this flow's click: Open PR mustn't ask it again (REV-06). Push to PR came without a choice,
       // so its dialog shows what goes to the PR first.
       openOverlay("open_pr", { ticket, approveAnyway: anyway, intro: view?.push_to_pr ?? false });
+    } else if (step?.kind === "merge_into") {
+      close();
+      openOverlay("merge_into", { ticket });
     } else if (step?.kind === "done") {
       close();
     } else if (step?.kind === "finish") {
@@ -259,6 +262,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   if (!view || !step) return null;
   switch (step.kind) {
     case "open_pr":
+    case "merge_into":
     case "done":
     case "finish":
       return null;

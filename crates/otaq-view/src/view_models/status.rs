@@ -35,7 +35,8 @@ pub fn pill(status: Core) -> (Legend, &'static str) {
         Core::Interrupted | Core::ResumeFailed => Legend::Interrupted,
         Core::WaitingForYou => Legend::ReadyForReview,
         Core::ToDeliver => Legend::ReadyForReview,
-        Core::PrOpen => Legend::PrOpen,
+        // Waiting for another ticket to land, as a PR waits for its merge.
+        Core::PrOpen | Core::MergedInto => Legend::PrOpen,
         Core::Merged => Legend::Merged,
         Core::ClosedNotMerged => Legend::ClosedNotMerged,
         // *Status Legend → Pills · M12* (d0063, d0064).

@@ -80,6 +80,7 @@ mod local_merge;
 mod manual_checks;
 mod mark_pr;
 mod merge_check;
+mod merge_into;
 mod migrations;
 mod model_refused;
 mod moves;

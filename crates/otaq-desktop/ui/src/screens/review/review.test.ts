@@ -209,6 +209,7 @@ describe("the approve flow", () => {
     expect(afterChoice("local_merge")).toEqual({ kind: "confirm" });
     expect(afterChoice("open_pr")).toEqual({ kind: "open_pr" });
     expect(afterChoice("push_to_pr")).toEqual({ kind: "open_pr" });
+    expect(afterChoice("merge_into")).toEqual({ kind: "merge_into" });
   });
 
   it("closes after a merge and shows every other answer", () => {

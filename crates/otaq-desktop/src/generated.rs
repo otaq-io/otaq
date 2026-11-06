@@ -234,6 +234,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ReviewParams::export_all(&cfg)?;
     crate::api::ReviewAvailable::export_all(&cfg)?;
     crate::api::LocalMergeParams::export_all(&cfg)?;
+    // Merge into another ticket…: the picker, its pick and its answer.
+    otaq_view::view_models::approve::MergeIntoPicker::export_all(&cfg)?;
+    crate::api::MergeIntoParams::export_all(&cfg)?;
+    otaq_view::view_models::approve::MergeIntoView::export_all(&cfg)?;
     crate::api::SendBackParams::export_all(&cfg)?;
     // Recorded decisions in the review (T-0287); also writes the item, its mark, status, labels, groups and child.
     otaq_view::view_models::decision_item::DecisionsSection::export_all(&cfg)?;

@@ -1168,6 +1168,17 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             )
             .lost(open.clone())
         }
+        // Merged into another ticket's branch: it lands with that ticket ("Merged into SHOP-18 · lands with it").
+        Status::MergedInto => {
+            let host = flags.merged_into.as_ref()?;
+            let into = format!("Merged into {host}");
+            Part::flag(
+                flag(R::Outcome, &into, &into, Legend::PrOpen),
+                Some(format!("lands with {host}")),
+                Tone::Muted,
+            )
+            .lost(into.clone())
+        }
         // Closed by an agent's `otaq stage done` (AGM-10, Q276): "Nothing to merge · already fixed in SHOP-31".
         Status::ClosedNotMerged if let Some(reason) = &flags.nothing_to_merge => Part::flag(
             flag(

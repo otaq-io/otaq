@@ -3,11 +3,13 @@
 //! M10 on delivery units only), the confirmation's texts, and one state per Local merge result. Nothing here
 //! pushes, and no state offers to stash or discard.
 
+use otaq_core::board::merge_into::{can_be_merged_in, can_take};
 use otaq_core::board::review::{ApproveCheck, changed_message};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::review::LocalMergeOutcome;
+use otaq_core::review::merge_into::{MergeIntoOutcome, conflict_message};
 
 /// One choice in the Approve menu ("1 Local merge", "2 Open PR on GitHub").
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +20,7 @@ pub struct ApproveOption {
     pub enabled: bool,
 }
 
-/// `ApproveChoice` on the page: `"done"`, `"local_merge"`, `"open_pr"`, `"push_to_pr"`.
+/// `ApproveChoice` on the page: `"done"`, `"local_merge"`, `"open_pr"`, `"push_to_pr"`, `"merge_into"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ApproveChoice {
@@ -29,6 +31,8 @@ pub enum ApproveChoice {
     OpenPr,
     /// A ticket with an open PR: its new commits go to that PR (REV-14, d0041).
     PushToPr,
+    /// Merge into another ticket…: the picker of tickets whose branch can take this one's, so they land together.
+    MergeInto,
 }
 
 /// "Approve SHOP-18 Checkout API", "Push SHOP-26 Add sitemap to PR #481".
@@ -150,6 +154,7 @@ pub fn options(
         detail,
         enabled: blocked.is_none(),
     });
+    out.push(merge_into_option(ticket, tickets));
     if commits == Some(0) {
         for option in &mut out {
             option.detail = NO_CHANGES_IN_THE_REPO.to_owned();
@@ -168,6 +173,102 @@ pub fn options(
         );
     }
     out
+}
+
+/// "Merge into another ticket…": enabled when another ticket can take this one's branch (the picker lists them).
+fn merge_into_option(ticket: &Ticket, tickets: &[Ticket]) -> ApproveOption {
+    let can = can_be_merged_in(ticket) && tickets.iter().any(|host| can_take(ticket, host));
+    ApproveOption {
+        choice: ApproveChoice::MergeInto,
+        title: MERGE_INTO.to_owned(),
+        detail: if can {
+            "Squash into another ticket\u{2019}s branch \u{b7} they land together".to_owned()
+        } else {
+            NO_HOST.to_owned()
+        },
+        enabled: can,
+    }
+}
+
+/// The Approve menu's choice that opens the picker.
+pub const MERGE_INTO: &str = "Merge into another ticket\u{2026}";
+
+/// Why nothing can take the ticket's branch: the choice's detail, and the empty picker's line.
+pub const NO_HOST: &str =
+    "No other ticket of this base waits in review, at its Delivery or with a PR open";
+
+/// One ticket the picker offers: "SHOP-18 Checkout API · Ready for Review".
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[ts(rename = "MergeIntoItem")]
+pub struct MergeIntoItem {
+    pub key: String,
+    pub title: String,
+    /// Where it waits: "Ready for Review", "To deliver", "PR #481 open".
+    pub status: String,
+}
+
+/// The picker "Merge into another ticket…" opens.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[ts(rename = "MergeIntoPicker")]
+pub struct MergeIntoPicker {
+    /// "Merge SHOP-20 Coupon codes into…".
+    pub title: String,
+    /// What happens on a pick.
+    pub note: String,
+    pub items: Vec<MergeIntoItem>,
+    /// No ticket can take it: why ([`NO_HOST`]).
+    pub empty: Option<String>,
+}
+
+/// The picker for `ticket`, listing `hosts` (the service's `ticket.merge_into_hosts`).
+pub fn merge_into_picker(ticket: &Ticket, hosts: &[Ticket]) -> MergeIntoPicker {
+    let key = &ticket.key;
+    MergeIntoPicker {
+        title: format!("Merge {key} {} into\u{2026}", ticket.title),
+        note: format!(
+            "Squashes {key}\u{2019}s branch into the ticket you pick as one commit. {key} waits as Merged into it and \
+             lands with it; that ticket goes back to review with the combined diff."
+        ),
+        items: hosts
+            .iter()
+            .map(|host| MergeIntoItem {
+                key: host.key.to_string(),
+                title: host.title.clone(),
+                status: match (host.status, host.flags.pr_number) {
+                    (Status::PrOpen, Some(n)) => format!("PR #{n} open"),
+                    (status, _) => status.label().to_owned(),
+                },
+            })
+            .collect(),
+        empty: hosts.is_empty().then(|| NO_HOST.to_owned()),
+    }
+}
+
+/// What the merge's answer shows: a toast once merged, else what stopped it (nothing merged). The dialog closes
+/// either way; the toast says which.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "MergeIntoResult")]
+pub enum MergeIntoView {
+    /// "SHOP-20 merged into SHOP-18" · "SHOP-18 is back in review with the combined diff".
+    Merged { title: String, text: String },
+    /// A conflict or uncommitted files: nothing merged, the ticket where it was.
+    Refused { message: String },
+}
+
+pub fn merge_into_view(key: &TicketKey, outcome: &MergeIntoOutcome) -> MergeIntoView {
+    match outcome {
+        MergeIntoOutcome::Merged { into, .. } => MergeIntoView::Merged {
+            title: format!("{key} merged into {}", into.key),
+            text: format!("{} is back in review with the combined diff", into.key),
+        },
+        MergeIntoOutcome::Conflict { into, files } => MergeIntoView::Refused {
+            message: conflict_message(key, into, files),
+        },
+        MergeIntoOutcome::RefusedUncommitted { message, .. } => MergeIntoView::Refused {
+            message: format!("{message}: nothing was merged"),
+        },
+    }
 }
 
 /// "Open PR on GitHub", or plain "Open PR" when no provider is detected (a custom skill decides).
@@ -434,6 +535,64 @@ mod tests {
         assert_ne!(open.detail, "PR provider not detected");
     }
 
+    /// Merge into another ticket…: enabled when another ticket of the base waits with a branch; the picker lists it.
+    #[test]
+    fn merge_into_is_offered_when_another_ticket_can_take_the_branch() {
+        let with_branch = |key: &str, title: &str, status: Status| {
+            let mut t = ticket(key, title, status);
+            t.work = Some(otaq_core::board::tickets::Work {
+                branch: Some(format!("feature/{key}")),
+                ..Default::default()
+            });
+            t
+        };
+        let shop20 = with_branch("SHOP-20", "Coupon codes", Status::WaitingForYou);
+        let shop18 = with_branch("SHOP-18", "Checkout API", Status::WaitingForYou);
+        let shop19 = with_branch("SHOP-19", "Price table", Status::Working);
+        let all = [shop18.clone(), shop19, shop20.clone()];
+        let menu = options(&shop20, "main", &all, None, Some(2));
+        let merge = menu.last().unwrap();
+        assert_eq!(merge.choice, ApproveChoice::MergeInto);
+        assert_eq!(merge.title, "Merge into another ticket\u{2026}");
+        assert!(merge.enabled);
+        let alone = options(
+            &shop20,
+            "main",
+            std::slice::from_ref(&shop20),
+            None,
+            Some(2),
+        );
+        assert!(!alone.last().unwrap().enabled, "nothing can take it");
+        assert_eq!(alone.last().unwrap().detail, NO_HOST);
+
+        let picker = merge_into_picker(&shop20, std::slice::from_ref(&shop18));
+        assert_eq!(picker.title, "Merge SHOP-20 Coupon codes into\u{2026}");
+        assert_eq!(
+            picker.items,
+            [MergeIntoItem {
+                key: "SHOP-18".into(),
+                title: "Checkout API".into(),
+                status: "Ready for Review".into(),
+            }]
+        );
+        assert_eq!(picker.empty, None);
+        assert_eq!(
+            merge_into_picker(&shop20, &[]).empty.as_deref(),
+            Some(NO_HOST)
+        );
+        let conflict = MergeIntoOutcome::Conflict {
+            into: shop18.key.clone(),
+            files: vec!["lib.ts".into()],
+        };
+        assert_eq!(
+            merge_into_view(&shop20.key, &conflict),
+            MergeIntoView::Refused {
+                message: "SHOP-20 conflicts with SHOP-18 in lib.ts: nothing was merged. SHOP-20 stays where it was."
+                    .into()
+            }
+        );
+    }
+
     #[test]
     fn the_menu_offers_local_merge_and_open_pr() {
         let (shop18, tickets) = sample();
@@ -462,6 +621,7 @@ mod tests {
                 (ApproveChoice::Done, true),
                 (ApproveChoice::LocalMerge, false),
                 (ApproveChoice::OpenPr, false),
+                (ApproveChoice::MergeInto, false),
             ]
         );
         assert_eq!(menu[0].title, "Done, nothing to merge");

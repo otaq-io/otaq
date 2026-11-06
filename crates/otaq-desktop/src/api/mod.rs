@@ -93,7 +93,7 @@ pub use report::export_types as export_report_types;
 #[cfg(test)]
 pub use review::{
     Available as ReviewAvailable, ChangeParams as DecisionChangeParams,
-    ChangeViewParams as DecisionChangeViewParams, MergeParams as LocalMergeParams,
+    ChangeViewParams as DecisionChangeViewParams, MergeIntoParams, MergeParams as LocalMergeParams,
     Params as ReviewParams, SendBackParams, export_check_types as export_review_check_types,
 };
 #[cfg(test)]

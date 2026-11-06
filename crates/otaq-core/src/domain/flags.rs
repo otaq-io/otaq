@@ -263,6 +263,10 @@ pub struct Flags {
     /// ("40.2", "40.3"; d0133 audit 5): "Interrupted · 2 helpers were working". Not a flag of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub helpers_to_resume: Vec<String>,
+    /// Merged into another ticket's branch, waiting for it to land: the card's "Merged into SHOP-18". Set only while
+    /// the ticket is [`super::Status::MergedInto`]. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged_into: Option<TicketKey>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -416,6 +420,7 @@ mod tests {
                 note: None,
             }),
             helpers_to_resume: vec!["40.2".into()],
+            merged_into: Some("SHOP-18".parse().unwrap()),
         }
     }
 

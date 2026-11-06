@@ -18,6 +18,8 @@ export type Step =
   | { kind: "open_pr" }
   /** "Done, nothing to merge": `review.done` runs at once (no confirmation), its toasts say how it ended. */
   | { kind: "finish" }
+  /** Merge into another ticket…: its picker takes over. */
+  | { kind: "merge_into" }
   | { kind: "done" };
 
 /** Where the flow starts: a ticket with a PR goes to Push to PR; new commits since the review show first. */
@@ -47,6 +49,8 @@ export function afterChoice(choice: ApproveChoice): Step {
       return { kind: "finish" };
     case "local_merge":
       return { kind: "confirm" };
+    case "merge_into":
+      return { kind: "merge_into" };
     case "open_pr":
     case "push_to_pr":
       return { kind: "open_pr" };

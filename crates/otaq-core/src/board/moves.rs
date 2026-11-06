@@ -146,6 +146,9 @@ impl MoveCheck {
 pub const ONLY_AGENT_SUBMITS: &str =
     "Only the agent or Move to next stage moves a ticket to Ready for Review";
 pub const MERGED_LOCKED: &str = "Merged tickets are locked";
+/// A drag of a ticket merged into another ticket's branch: it waits for that ticket.
+pub const MERGED_INTO_WAITS: &str =
+    "It waits for the ticket it was merged into and moves when that ticket lands or is closed";
 /// The refusal of Reopen on a merged ticket (CLS-03).
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
 /// Ready for Dev → Dev: the scheduler starts it (SCH-01).
