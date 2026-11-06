@@ -140,6 +140,9 @@ pub enum Move {
     /// Another ticket was merged into this one's branch: back to the human check before the Delivery from the
     /// Delivery (To deliver, PR open); a ticket waiting in a human check stays there.
     MergedIn,
+    /// The ticket this one was merged into was closed without landing: from Merged into back to the human check
+    /// before the Delivery, on its own branch. With no such check it waits at the Delivery to be delivered.
+    HostClosed,
     /// Mark closed, or Close ticket.
     Close,
     /// Into the queue from Backlog.
@@ -680,6 +683,18 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
                 Some(check),
             )
             .ended(RunResult::Cancelled)
+        }
+        Move::HostClosed if is(StageKind::Delivery) && at.status == Status::MergedInto => {
+            match human_check_before_delivery(at.flow) {
+                Some(check) => Step::to(
+                    &at,
+                    Place::stage_of(&check.id),
+                    Status::WaitingForYou,
+                    Some(check),
+                )
+                .ended(RunResult::Cancelled),
+                None => Step::stay(&at, Status::ToDeliver),
+            }
         }
         Move::Close if !at.place.is_done() => {
             Step::to(&at, Place::Done, Status::ClosedNotMerged, None).ended(RunResult::Cancelled)

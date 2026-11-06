@@ -489,6 +489,10 @@ stored_enum! {
         /// `title`, `commit` and `from` (the host's status before). History reads "SHOP-20 merged in" · "back to
         /// review with the combined diff".
         MergedIn = "merged_in",
+        /// The ticket this one was merged into was closed without landing: logged on the ticket merged in, back in
+        /// review on its own branch. Payload `host` (the closed ticket's key) and `from` (its status before).
+        /// History reads "SHOP-18 was closed; back to review".
+        HostClosed = "host_closed",
     }
 }
 

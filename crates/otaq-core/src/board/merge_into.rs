@@ -10,6 +10,8 @@
 //!   on it keep waiting. The host goes back to the human check before its Delivery (one waiting in a human check
 //!   stays there), its review starting again on the combined branch. The link is in the `merged_into` table
 //!   ([`crate::store::merged_into`]).
+//! - **The host closed without landing** ([`Board::record_host_closed`]): each ticket merged into it goes back to the
+//!   human check before its Delivery on its own branch, its link forgotten so it can land alone or be merged again.
 
 use serde_json::json;
 
@@ -161,5 +163,47 @@ impl Board {
             self.ticket_by_id(&ticket.id).await?,
             self.ticket_by_id(&host.id).await?,
         ))
+    }
+
+    /// `host` was closed without landing: `ticket`, merged into it, goes back to the human check before its Delivery
+    /// (or waits at the Delivery when the flow has no such check), its review starting again, and its link to `host`
+    /// is forgotten. One transaction; recreating its worktree is the caller's.
+    pub(crate) async fn record_host_closed(
+        &self,
+        ticket: &Ticket,
+        host: &Ticket,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let back = self.moved(ticket, ticket.status, Move::HostClosed).await?;
+        let now = now_ms();
+        let mut tx = self.store().begin_write().await?;
+        back.record(&mut tx, &ticket.id, None).await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET stage_id = ?, state = ?, review_entered_at = ?, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(back.place.stage_id())
+        .bind(back.status.as_str())
+        .bind(now)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(back.status.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        merged_into::remove(&mut tx, &ticket.id).await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::HostClosed,
+            actor,
+            json!({ "from": ticket.status, "host": host.key }),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, host = %host.key, "back to review: the ticket it was merged into was closed");
+        self.ticket_by_id(&ticket.id).await
     }
 }
