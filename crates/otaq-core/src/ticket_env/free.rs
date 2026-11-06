@@ -26,9 +26,11 @@ use crate::warm::keep;
 /// status set.
 pub const FREED_IN: [Status; 3] = [Status::WaitingForYou, Status::ToDeliver, Status::PrOpen];
 
-/// Whether a ticket with this status has its build freed: it waits in a human check or a Delivery stage (STG-11).
+/// Whether a ticket with this status has its build freed: it waits in a human check or a Delivery stage (STG-11). A
+/// ticket merged into another ticket's branch has no worktree, so no build either way.
 pub fn freed_in(status: Status) -> bool {
     matches!(status.set(), StatusSet::HumanCheck | StatusSet::Delivery)
+        && status != Status::MergedInto
 }
 
 /// What a Free did.

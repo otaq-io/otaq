@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use super::default::{DEV, REVIEW, VALIDATE};
 use super::model::{CheckBy, Column, Delivers, DeliveryMode, Flow, Stage, StageKind};
 use crate::board::moves::{
-    DropOn, DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, QUEUE_FIRST,
-    STARTS_BY_ITSELF,
+    DropOn, DropTarget, MERGED_INTO_WAITS, MERGED_LOCKED, MoveAction, MoveCheck,
+    ONLY_AGENT_SUBMITS, QUEUE_FIRST, STARTS_BY_ITSELF,
 };
 use crate::domain::{Place, Status, StatusSet, stored_enum};
 
@@ -134,6 +134,12 @@ pub enum Move {
     /// Send back with PR comments (FLW-16): from the open PR to the nearest earlier Agent stage, whose session
     /// resumes; every later stage runs again and the Delivery pushes to the same PR.
     PrComments,
+    /// The user merged the ticket into another ticket's branch: from the human check whose Pass offers the Delivery,
+    /// or from the Delivery, it waits in the Delivery as Merged into until that ticket lands.
+    MergedInto,
+    /// Another ticket was merged into this one's branch: back to the human check before the Delivery from the
+    /// Delivery (To deliver, PR open); a ticket waiting in a human check stays there.
+    MergedIn,
     /// Mark closed, or Close ticket.
     Close,
     /// Into the queue from Backlog.
@@ -374,6 +380,16 @@ pub fn stage_for<'f>(flow: &'f Flow, place: &Place, status: Status) -> Option<&'
         StatusSet::AgentStage if current.is_agent_check() => back_to(flow, &current.id, &[]),
         _ => None,
     }
+}
+
+/// The nearest human check before the Delivery: the review a ticket goes back to when another ticket is merged into
+/// its branch. `None` when the flow has none.
+pub fn human_check_before_delivery(flow: &Flow) -> Option<&Stage> {
+    let delivery = flow.stages.iter().position(Stage::is_delivery)?;
+    flow.stages[..delivery]
+        .iter()
+        .rev()
+        .find(|s| s.is_human_check())
 }
 
 /// The first human check after `from`: where Move on anyway takes a card.
@@ -628,6 +644,43 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
                 .ended(RunResult::Cancelled)
                 .counters(Counters::ResetAll)
         }
+        Move::MergedInto
+            if human_check
+                && at.status == Status::WaitingForYou
+                && at
+                    .index()
+                    .and_then(|i| at.flow.stages.get(i + 1))
+                    .is_some_and(Stage::is_delivery) =>
+        {
+            let delivery = &at.flow.stages[at.index().expect("in a check") + 1];
+            Step::to(
+                &at,
+                Place::stage_of(&delivery.id),
+                Status::MergedInto,
+                Some(delivery),
+            )
+            .ended(RunResult::Passed)
+        }
+        Move::MergedInto if is(StageKind::Delivery) && at.status == Status::ToDeliver => {
+            Step::stay(&at, Status::MergedInto)
+        }
+        Move::MergedIn if human_check && at.status == Status::WaitingForYou => {
+            Step::stay(&at, Status::WaitingForYou)
+        }
+        Move::MergedIn
+            if is(StageKind::Delivery)
+                && matches!(at.status, Status::ToDeliver | Status::PrOpen) =>
+        {
+            let check = human_check_before_delivery(at.flow)
+                .ok_or_else(|| NotNow("No human check before the Delivery".to_owned()))?;
+            Step::to(
+                &at,
+                Place::stage_of(&check.id),
+                Status::WaitingForYou,
+                Some(check),
+            )
+            .ended(RunResult::Cancelled)
+        }
         Move::Close if !at.place.is_done() => {
             Step::to(&at, Place::Done, Status::ClosedNotMerged, None).ended(RunResult::Cancelled)
         }
@@ -779,6 +832,10 @@ pub fn drag_with(
     };
     if from == to {
         return MoveCheck::Unchanged;
+    }
+    // A ticket merged into another ticket's branch waits for it: it moves when that ticket lands or is closed.
+    if status == Status::MergedInto {
+        return refused(MERGED_INTO_WAITS);
     }
     let at_work = |s: &Stage| s.is_agent_stage() || s.is_agent_check();
     let index = |s: &Stage| flow.position(&s.id).unwrap_or(usize::MAX);

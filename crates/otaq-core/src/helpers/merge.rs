@@ -162,8 +162,8 @@ impl Helpers {
 }
 
 /// `git merge --squash` of `branch` in `worktree` (clean), committed with `message`; a refused commit (a hook) puts
-/// the worktree back as it was.
-async fn squash(
+/// the worktree back as it was. Merging a ticket into another ticket's branch takes the same step.
+pub(crate) async fn squash(
     git: &crate::git::Git,
     worktree: &Path,
     branch: &str,

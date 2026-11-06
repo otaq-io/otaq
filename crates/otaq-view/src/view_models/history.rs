@@ -224,6 +224,8 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::Merged
         | EventKind::DoneWithoutMerge
         | EventKind::MergedAutomatically
+        | EventKind::MergedInto
+        | EventKind::MergedIn
         | EventKind::Reopened
         | EventKind::Parked
         | EventKind::Closed
@@ -1194,6 +1196,19 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             Some(text(p, "reason").map_or_else(|| who(&e.actor), first_line)),
         ),
         EventKind::DoneWithoutMerge => (DONE_NOT_MERGED.to_owned(), Some(who(&e.actor))),
+        // Merged into another ticket's branch: "Merged into SHOP-18" · "waits for it to land".
+        EventKind::MergedInto => (
+            format!("Merged into {}", text(p, "into").unwrap_or_default()),
+            Some("waits for it to land".to_owned()),
+        ),
+        // On the ticket that took it: "SHOP-20 merged in" · "Coupon codes · back to review with the combined diff".
+        EventKind::MergedIn => (
+            format!("{} merged in", text(p, "ticket").unwrap_or_default()),
+            Some(match text(p, "title") {
+                Some(title) => format!("{title} \u{b7} back to review with the combined diff"),
+                None => "back to review with the combined diff".to_owned(),
+            }),
+        ),
         EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
         // A human check's Pass (FLW-14), its Approve (d0093): "You approved it at QA".
         EventKind::Passed => (

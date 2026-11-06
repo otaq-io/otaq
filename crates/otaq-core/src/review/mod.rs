@@ -32,6 +32,7 @@ pub mod drag;
 mod early_conflict;
 pub mod finish;
 mod merge_check;
+pub mod merge_into;
 pub mod park;
 pub mod pr_state;
 pub mod resume;

@@ -19,6 +19,7 @@ pub mod human_check;
 pub mod manual_checks;
 pub mod merge;
 pub mod merge_check;
+pub mod merge_into;
 pub mod moves;
 pub mod needs_you;
 pub mod order;

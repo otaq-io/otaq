@@ -3006,6 +3006,8 @@
         "manual_check_ticked",
         "merged",
         "merged_automatically",
+        "merged_in",
+        "merged_into",
         "moved",
         "parked",
         "passed",
@@ -3551,6 +3553,10 @@
         },
         "merged_automatically": {
           "ty": "bool",
+          "omittable": true
+        },
+        "merged_into": {
+          "ty": "Option<TicketKey>",
           "omittable": true
         },
         "messages_waiting": {
@@ -4944,6 +4950,67 @@
       "variants": {
         "failed": {},
         "running": {}
+      }
+    },
+    "MergeIntoOutcome": {
+      "kind": "enum",
+      "attrs": [
+        "tag=outcome"
+      ],
+      "variants": {
+        "conflict": {
+          "fields": {
+            "files": {
+              "ty": "Vec<String>",
+              "required": true
+            },
+            "into": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        },
+        "merged": {
+          "fields": {
+            "commit": {
+              "ty": "String",
+              "required": true
+            },
+            "into": {
+              "ty": "Ticket",
+              "required": true
+            },
+            "ticket": {
+              "ty": "Ticket",
+              "required": true
+            }
+          }
+        },
+        "refused_uncommitted": {
+          "fields": {
+            "files": {
+              "ty": "Vec<String>",
+              "required": true
+            },
+            "message": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        }
+      }
+    },
+    "MergeIntoParams": {
+      "kind": "struct",
+      "fields": {
+        "into": {
+          "ty": "String",
+          "required": true
+        },
+        "key": {
+          "ty": "String",
+          "required": true
+        }
       }
     },
     "MergeProposal": {
@@ -7697,6 +7764,9 @@
         "merge_proposal": {
           "newtype": "MergeProposal"
         },
+        "merged_into": {
+          "newtype": "MergeIntoOutcome"
+        },
         "message": {
           "newtype": "crate::messages::Message"
         },
@@ -8504,6 +8574,12 @@
           "newtype": "KeyParams"
         },
         "ticket.merge_check_stop": {
+          "newtype": "KeyParams"
+        },
+        "ticket.merge_into": {
+          "newtype": "MergeIntoParams"
+        },
+        "ticket.merge_into_hosts": {
           "newtype": "KeyParams"
         },
         "ticket.merge_proposal": {
@@ -10251,6 +10327,7 @@
         "interrupted",
         "merge_conflict_fixing",
         "merged",
+        "merged_into",
         "needs_you",
         "parent_closed",
         "parked",

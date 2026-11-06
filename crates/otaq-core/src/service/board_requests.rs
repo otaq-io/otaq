@@ -741,6 +741,19 @@ pub(super) async fn handle(
             };
             mutate(shared, &project, done).await.map(Reply::Done)
         }),
+        Request::TicketMergeIntoHosts(p) => {
+            boxed(move || async move { board.merge_into_hosts(&p.key).await.map(Reply::Tickets) })
+        }
+        Request::TicketMergeInto(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.merge_into(&p.key, &p.into, &actor),
+            )
+            .await
+            .map(Reply::MergedInto)
+        }),
         Request::TicketMergeCheckStop(p) => boxed(move || async move {
             shared
                 .review

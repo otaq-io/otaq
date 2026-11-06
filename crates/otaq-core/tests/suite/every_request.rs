@@ -117,6 +117,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method.starts_with("ticket.comment_") || method == "ticket.report" {
             params["n"] = json!(1);
         }
+        if method == "ticket.merge_into" {
+            params["into"] = json!("SHOP-2");
+        }
         if method == "ticket.manual_check_tick" {
             params["n"] = json!(1);
             params["ticked"] = json!(true);
@@ -249,6 +252,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketMergeProposal(_)
         | Request::TicketLocalMerge(_)
         | Request::TicketDone(_)
+        | Request::TicketMergeIntoHosts(_)
+        | Request::TicketMergeInto(_)
         | Request::TicketMergeCheckStop(_)
         | Request::TicketApproveCheck(_)
         | Request::TicketConflict(_)

@@ -1482,6 +1482,65 @@
           {
             "target": "backlog",
             "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
+            }
+          },
+          {
+            "target": "ready_for_dev",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
+            }
+          },
+          {
+            "target": "dev",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
+            }
+          },
+          {
+            "target": "review",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
+            }
+          },
+          {
+            "target": "approved",
+            "verdict": {
+              "kind": "home"
+            }
+          },
+          {
+            "target": "done",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
+            }
+          }
+        ]
+      },
+      {
+        "key": "ALL-26",
+        "targets": [
+          {
+            "target": "backlog",
+            "verdict": {
               "detail": "Fixing merged work means a new ticket.",
               "kind": "forbidden",
               "title": "Merged tickets are locked"
@@ -1536,7 +1595,7 @@
         ]
       },
       {
-        "key": "ALL-26",
+        "key": "ALL-27",
         "targets": [
           {
             "target": "backlog",
@@ -1899,6 +1958,18 @@
       },
       {
         "key": "ALL-26",
+        "steps": {
+          "approved": "Nothing",
+          "backlog": "Nothing",
+          "dev": "Nothing",
+          "done": "Nothing",
+          "ready_for_dev": "Nothing",
+          "review": "Nothing",
+          "validate": "Nothing"
+        }
+      },
+      {
+        "key": "ALL-27",
         "steps": {
           "approved": "Nothing",
           "backlog": "Move",
@@ -2849,7 +2920,7 @@
             "add": null,
             "cards": [],
             "collapsed": false,
-            "count": "3",
+            "count": "4",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
             "folded": [],
@@ -3041,9 +3112,35 @@
                     },
                     "kind": "ticket",
                     "needs_you": false
+                  },
+                  {
+                    "card": {
+                      "action": null,
+                      "avatar": null,
+                      "blocks": null,
+                      "edge": null,
+                      "faded": null,
+                      "fresh": false,
+                      "hover": {
+                        "details": [],
+                        "status": "Merged into"
+                      },
+                      "key": "ALL-25",
+                      "open_sheet": "Open panel",
+                      "open_sheet_keys": "↵",
+                      "open_terminal": "Open terminal",
+                      "origin": null,
+                      "priority": null,
+                      "status": null,
+                      "time": null,
+                      "title": "Merged into",
+                      "who": null
+                    },
+                    "kind": "ticket",
+                    "needs_you": false
                   }
                 ],
-                "count": "2",
+                "count": "3",
                 "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
                 "empty": "Nothing approved",
                 "fold": "Fold Approved",
@@ -3080,7 +3177,7 @@
                     "details": [],
                     "status": "Merged"
                   },
-                  "key": "ALL-25",
+                  "key": "ALL-26",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -3106,7 +3203,7 @@
                     "details": [],
                     "status": "Closed · not merged"
                   },
-                  "key": "ALL-26",
+                  "key": "ALL-27",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -4242,7 +4339,7 @@
             "add": null,
             "cards": [],
             "collapsed": false,
-            "count": "3",
+            "count": "4",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
             "folded": [],
@@ -4434,9 +4531,35 @@
                     },
                     "kind": "ticket",
                     "needs_you": false
+                  },
+                  {
+                    "card": {
+                      "action": null,
+                      "avatar": null,
+                      "blocks": null,
+                      "edge": null,
+                      "faded": null,
+                      "fresh": false,
+                      "hover": {
+                        "details": [],
+                        "status": "Merged into"
+                      },
+                      "key": "ALL-25",
+                      "open_sheet": "Open panel",
+                      "open_sheet_keys": "↵",
+                      "open_terminal": "Open terminal",
+                      "origin": null,
+                      "priority": null,
+                      "status": null,
+                      "time": null,
+                      "title": "Merged into",
+                      "who": null
+                    },
+                    "kind": "ticket",
+                    "needs_you": false
                   }
                 ],
-                "count": "2",
+                "count": "3",
                 "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
                 "empty": "Nothing approved",
                 "fold": "Fold Approved",
@@ -4473,7 +4596,7 @@
                     "details": [],
                     "status": "Merged"
                   },
-                  "key": "ALL-25",
+                  "key": "ALL-26",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -4499,7 +4622,7 @@
                     "details": [],
                     "status": "Closed · not merged"
                   },
-                  "key": "ALL-26",
+                  "key": "ALL-27",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -5635,7 +5758,7 @@
             "add": null,
             "cards": [],
             "collapsed": false,
-            "count": "3",
+            "count": "4",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
             "folded": [],
@@ -5827,9 +5950,35 @@
                     },
                     "kind": "ticket",
                     "needs_you": false
+                  },
+                  {
+                    "card": {
+                      "action": null,
+                      "avatar": null,
+                      "blocks": null,
+                      "edge": null,
+                      "faded": null,
+                      "fresh": false,
+                      "hover": {
+                        "details": [],
+                        "status": "Merged into"
+                      },
+                      "key": "ALL-25",
+                      "open_sheet": "Open panel",
+                      "open_sheet_keys": "↵",
+                      "open_terminal": "Open terminal",
+                      "origin": null,
+                      "priority": null,
+                      "status": null,
+                      "time": null,
+                      "title": "Merged into",
+                      "who": null
+                    },
+                    "kind": "ticket",
+                    "needs_you": false
                   }
                 ],
-                "count": "2",
+                "count": "3",
                 "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
                 "empty": "Nothing approved",
                 "fold": "Fold Approved",
@@ -5866,7 +6015,7 @@
                     "details": [],
                     "status": "Merged"
                   },
-                  "key": "ALL-25",
+                  "key": "ALL-26",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
@@ -5892,7 +6041,7 @@
                     "details": [],
                     "status": "Closed · not merged"
                   },
-                  "key": "ALL-26",
+                  "key": "ALL-27",
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",

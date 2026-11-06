@@ -661,6 +661,15 @@ pub enum Request {
     /// commits.
     #[serde(rename = "ticket.done")]
     TicketDone(KeyParams),
+    /// The tickets the Approve menu's "Merge into another ticket…" picker lists for this ticket: same project and
+    /// base, not Done, a branch, no agent at work. Answered with [`Reply::Tickets`], in key order.
+    #[serde(rename = "ticket.merge_into_hosts")]
+    TicketMergeIntoHosts(KeyParams),
+    /// **Merge into another ticket**: squashes the ticket's branch into `into`'s branch; the ticket waits as Merged
+    /// into it and `into` goes back to its review. Answered with [`Reply::MergedInto`]: merged, refused (uncommitted
+    /// files) or a conflict (nothing merged).
+    #[serde(rename = "ticket.merge_into")]
+    TicketMergeInto(MergeIntoParams),
     /// **Stop** on "Merging · running the merge check" (d0120, Q475): the Merge check of the ticket's Local merge
     /// ends, nothing is merged and the ticket stays where it was; the Local merge request answers
     /// [`LocalMergeOutcome::CheckStopped`]. Answered with [`Reply::Ok`]; refused when it runs none.
@@ -1480,6 +1489,13 @@ pub struct LocalMergeParams {
     pub approve_anyway: bool,
 }
 
+/// `{"key": "SHOP-20", "into": "SHOP-18"}`: merge SHOP-20 into SHOP-18's branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeIntoParams {
+    pub key: String,
+    pub into: String,
+}
+
 /// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send". The note
 /// is the user's comment (CMT-05), `report` a report attached to it (the dialog's pasted text, CMT-13).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2124,6 +2140,8 @@ impl Request {
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketDone(_) => "ticket.done",
+            Self::TicketMergeIntoHosts(_) => "ticket.merge_into_hosts",
+            Self::TicketMergeInto(_) => "ticket.merge_into",
             Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
@@ -2378,6 +2396,7 @@ pub enum Reply {
     MergeProposal(MergeProposal),
     LocalMerge(LocalMergeOutcome),
     Done(crate::review::done::DoneOutcome),
+    MergedInto(crate::review::merge_into::MergeIntoOutcome),
     ApproveCheck(ApproveCheck),
     Conflict(Option<Conflict>),
     /// The tickets resumed (`tickets.resume_all`, or a tool's Resume after its limit), in key order.

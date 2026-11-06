@@ -898,6 +898,7 @@ fn choice_icon(choice: ApproveChoice) -> IconName {
         ApproveChoice::LocalMerge => IconName::GitMerge,
         ApproveChoice::OpenPr => IconName::GitPullRequest,
         ApproveChoice::PushToPr => IconName::Upload,
+        ApproveChoice::MergeInto => IconName::GitBranch,
     }
 }
 
@@ -2384,8 +2385,9 @@ mod tests {
             Some(&no_provider),
             Some(1),
         );
-        assert_eq!(menu.items.len(), 2);
+        assert_eq!(menu.items.len(), 3);
         assert!(!menu.items[1].enabled);
+        assert!(!menu.items[2].enabled, "no other ticket to merge into");
         assert_eq!(menu.direct, Some(ApproveChoice::LocalMerge));
         let mut pushed = ticket("SHOP-26", "Add sitemap", Status::WaitingForYou);
         pushed.flags.pr_number = Some(481);
@@ -2422,6 +2424,7 @@ mod tests {
                 (1, ApproveChoice::Done, true),
                 (2, ApproveChoice::LocalMerge, false),
                 (3, ApproveChoice::OpenPr, false),
+                (4, ApproveChoice::MergeInto, false),
             ]
         );
         assert_eq!(menu.items[0].icon, IconName::CircleCheck);

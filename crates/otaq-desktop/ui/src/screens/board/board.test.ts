@@ -328,9 +328,11 @@ describe("drops", () => {
     expect(overlays.store.get()).toEqual([]);
     openApproveChoice("local_merge", "SHOP-18");
     openApproveChoice("push_to_pr", "SHOP-26");
+    openApproveChoice("merge_into", "SHOP-20");
     expect(overlays.store.get()).toEqual([
       { id: "local_merge", params: { ticket: "SHOP-18" } },
       { id: "open_pr", params: { ticket: "SHOP-26" } },
+      { id: "merge_into", params: { ticket: "SHOP-20" } },
     ]);
   });
 

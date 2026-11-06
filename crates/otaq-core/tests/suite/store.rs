@@ -22,6 +22,7 @@ const TABLES: &[&str] = &[
     "human_questions",
     "limit_windows",
     "manual_checks",
+    "merged_into",
     "messages",
     "pending_deliveries",
     "pr_flows",
@@ -357,6 +358,22 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!(ticked, None);
+
+    sqlx::query(
+        "INSERT INTO merged_into (ticket_id, into_id, commit_sha, merged_at) VALUES (?, ?, 'abc123', ?)",
+    )
+    .bind(&t19.id)
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let into: String = sqlx::query_scalar("SELECT into_id FROM merged_into WHERE ticket_id = ?")
+        .bind(&t19.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(into, t18.id);
 
     sqlx::query(
         "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, 1, 'send_back', ?)",

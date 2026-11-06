@@ -306,7 +306,7 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
             (A::MarkMerged, Primary),
             (A::MarkClosed, Danger),
         ],
-        Status::Merged => vec![(A::ViewDiff, Secondary)],
+        Status::Merged | Status::MergedInto => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
         // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
         Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
@@ -492,7 +492,14 @@ mod tests {
             .into_iter()
             .map(|o| o.choice)
             .collect();
-        assert_eq!(menu, [ApproveChoice::LocalMerge, ApproveChoice::OpenPr]);
+        assert_eq!(
+            menu,
+            [
+                ApproveChoice::LocalMerge,
+                ApproveChoice::OpenPr,
+                ApproveChoice::MergeInto
+            ]
+        );
     }
 
     /// Every row of *Action bar · every state*, as designed (later features included).
