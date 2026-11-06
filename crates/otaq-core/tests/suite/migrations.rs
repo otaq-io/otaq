@@ -2240,3 +2240,65 @@ async fn migration_0073_lets_a_helper_be_dropped_and_keeps_the_rows() {
         .unwrap();
     assert_eq!(left, 0);
 }
+
+/// "Done, nothing to merge": migration 0074 lets `tickets.outcome` and `reviews.action` take `done_without_merge`,
+/// keeping every row (the Plan included) and still refusing an unknown value.
+#[tokio::test]
+async fn done_without_merge_is_a_stored_outcome_and_rows_stay() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 73).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, plan, plan_by, state, outcome, branch_name, created_by,
+                              created_at, updated_at)
+         VALUES ('t18', 'p', 18, 'Checkout API', '1. Piece', 'me', 'merged', 'merged', 'otaq/SHOP-18', 'me', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES ('r1', 't18', 1, 'approve_local', 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row = store.ticket("t18").await.unwrap().unwrap();
+    assert_eq!(
+        (
+            row.plan.as_str(),
+            row.outcome.as_deref(),
+            row.branch_name.as_deref()
+        ),
+        ("1. Piece", Some("merged"), Some("otaq/SHOP-18"))
+    );
+    exec(
+        store.pool(),
+        "UPDATE tickets SET outcome = 'done_without_merge' WHERE id = 't18'",
+    )
+    .await;
+    exec(
+        store.pool(),
+        "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES ('r2', 't18', 1, 'done_without_merge', 3)",
+    )
+    .await;
+    let actions: Vec<String> =
+        sqlx::query_scalar("SELECT action FROM reviews WHERE ticket_id = 't18' ORDER BY at")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(actions, ["approve_local", "done_without_merge"]);
+    assert!(
+        sqlx::query("UPDATE tickets SET outcome = 'shipped' WHERE id = 't18'")
+            .execute(store.pool())
+            .await
+            .is_err(),
+        "an unknown outcome is still refused"
+    );
+}

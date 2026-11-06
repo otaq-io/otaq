@@ -174,6 +174,37 @@ describe("the approve flow", () => {
     expect(afterApproveAnyway({ ...first, checkedFirst: false }, VIEW, false)).toBe("merge");
   });
 
+  it("with nothing to merge, always shows the choice, Done first, and Done finishes at once", () => {
+    const local = {
+      choice: "local_merge" as const,
+      number: 2,
+      icon: "git-merge" as const,
+      title: "Local merge",
+      detail: "No changes in the repo",
+      enabled: false,
+    };
+    const nothing: ApproveView = {
+      ...VIEW,
+      menu: {
+        ...VIEW.menu,
+        items: [
+          {
+            choice: "done",
+            number: 1,
+            icon: "circle-check",
+            title: "Done, nothing to merge",
+            detail: "Nothing to merge into main · counts as merged; the branch is kept",
+            enabled: true,
+          },
+          local,
+        ],
+      },
+    };
+    expect(firstStep(nothing, false)).toEqual({ kind: "menu" });
+    expect(firstStep(nothing, true)).toEqual({ kind: "menu" });
+    expect(afterChoice("done")).toEqual({ kind: "finish" });
+  });
+
   it("hands Open PR and Push to PR to their dialog", () => {
     expect(afterChoice("local_merge")).toEqual({ kind: "confirm" });
     expect(afterChoice("open_pr")).toEqual({ kind: "open_pr" });

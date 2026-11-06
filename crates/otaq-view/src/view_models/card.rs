@@ -1191,6 +1191,18 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Some("closed without merging".into()),
             Tone::Muted,
         ),
+        // Finished from the Approve menu without a merge; it counts as merged: "Done · nothing to merge".
+        Status::Merged if flags.done_without_merge => {
+            let (status, line) = match &flags.nothing_to_merge {
+                Some(reason) => (DONE_NOTHING_TO_MERGE, nothing_to_merge_line(reason)),
+                None => (DONE_NOT_MERGED, "finished without merging".to_owned()),
+            };
+            Part::flag(
+                flag(R::Outcome, "Done", status, Legend::Merged),
+                Some(line),
+                Tone::Muted,
+            )
+        }
         // An automatic Delivery with no check passed before it (d0108 rule 8, `s03-48`): amber, once.
         Status::Merged if flags.delivered_without_checks => {
             Part::quiet(validation::DELIVERED_WITHOUT_CHECKS, Tone::Paused)
@@ -2127,6 +2139,12 @@ fn moved_part(status: Status, x: &CardExtras) -> Option<Part> {
         Tone::Warning,
     ))
 }
+
+/// A ticket finished without a merge ([`otaq_core::domain::Outcome::DoneWithoutMerge`]) whose branch had nothing
+/// beyond its base: the card's status and History's line.
+pub const DONE_NOTHING_TO_MERGE: &str = "Done \u{b7} nothing to merge";
+/// A ticket finished without a merge whose branch had commits: they didn't land, the branch keeps them.
+pub const DONE_NOT_MERGED: &str = "Done \u{b7} not merged";
 
 /// "Nothing to merge · already fixed in SHOP-31": the agent's reason as the line goes on (its first line, without
 /// the closing full stop, starting lower case).
@@ -5326,6 +5344,18 @@ mod tests {
         assert_eq!(nothing_to_merge_line(""), "Nothing to merge");
         t.flags.nothing_to_merge = None;
         assert_eq!(line(&card(&t)), Some("closed without merging"));
+    }
+
+    /// Finished from the Approve menu without a merge: "Done · nothing to merge" (it counts as merged).
+    #[test]
+    fn a_ticket_done_with_nothing_to_merge_says_so() {
+        let mut t = ticket("SHOP-48", "Configure the CI secret", Status::Merged);
+        t.flags.done_without_merge = true;
+        t.flags.nothing_to_merge = Some(String::new());
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Done"));
+        assert_eq!(vm.hover.status, "Done \u{b7} nothing to merge");
+        assert_eq!(line(&vm), Some("Nothing to merge"));
     }
 
     /// With one tool connected the same cards show no avatar and name no tool beside the agent (d0086): the model's

@@ -26,6 +26,7 @@ use otaq_core::usage::SessionUsage;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::view_models::card::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 use crate::view_models::clock;
 use crate::view_models::stage_choices::{self, HistoryLine};
 use crate::view_models::ticket_comments::{self as comments, Mark, ReportChip};
@@ -221,6 +222,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::SentBack
         | EventKind::SentBackWithPrComments
         | EventKind::Merged
+        | EventKind::DoneWithoutMerge
         | EventKind::MergedAutomatically
         | EventKind::Reopened
         | EventKind::Parked
@@ -1186,6 +1188,12 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             "Merged".to_owned(),
             text(p, "target").map(|t| format!("into {t}")),
         ),
+        // Finished from the Approve menu without a merge: it counts as merged.
+        EventKind::DoneWithoutMerge if p.get("nothing_to_merge").is_some() => (
+            DONE_NOTHING_TO_MERGE.to_owned(),
+            Some(text(p, "reason").map_or_else(|| who(&e.actor), first_line)),
+        ),
+        EventKind::DoneWithoutMerge => (DONE_NOT_MERGED.to_owned(), Some(who(&e.actor))),
         EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
         // A human check's Pass (FLW-14), its Approve (d0093): "You approved it at QA".
         EventKind::Passed => (
@@ -2442,6 +2450,22 @@ mod tests {
                 ("Finished Product spec", Some("Agreed: CSV.")),
             ]
         );
+    }
+
+    /// Done from the Approve menu with nothing to merge: "Done · nothing to merge", by whom.
+    #[test]
+    fn done_with_nothing_to_merge_reads_so() {
+        let rows = rows(
+            &[event(
+                EventKind::DoneWithoutMerge,
+                MIN,
+                json!({"from": "ready_for_review", "nothing_to_merge": true}),
+            )],
+            &[],
+            &[],
+        );
+        assert_eq!(rows[0].title, "Done \u{b7} nothing to merge");
+        assert!(rows[0].detail.is_some());
     }
 
     /// Q77: the exit row names the session's tool by its command.

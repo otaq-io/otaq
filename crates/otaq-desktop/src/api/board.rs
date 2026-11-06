@@ -391,7 +391,8 @@ async fn choices_of(app: &App, key: &str) -> Vec<StageOptions> {
 }
 
 /// The branch an approve merges into: the service's own proposal, else the ticket's base.
-async fn merge_target(app: &App, ticket: &Ticket) -> String {
+/// Where the ticket merges, and its commits beyond its base (`None` when the proposal can't be read).
+async fn merge_target(app: &App, ticket: &Ticket) -> (String, Option<u32>) {
     let proposal = app
         .service
         .send(Request::TicketMergeProposal(KeyParams {
@@ -399,8 +400,8 @@ async fn merge_target(app: &App, ticket: &Ticket) -> String {
         }))
         .await;
     match proposal {
-        Ok(Reply::MergeProposal(p)) => p.target,
-        _ => ticket.base.branch().to_owned(),
+        Ok(Reply::MergeProposal(p)) => (p.target, Some(p.commits)),
+        _ => (ticket.base.branch().to_owned(), None),
     }
 }
 
@@ -501,7 +502,7 @@ async fn carry_out(
         }
         DropStep::Approve => {
             let project = ticket.key.project.to_string();
-            let (board, target, provider) = tokio::join!(
+            let (board, (target, commits), provider) = tokio::join!(
                 snapshot(app, &project),
                 merge_target(app, ticket),
                 app.service.send(Request::ProjectPrProvider(ProjectParams {
@@ -514,7 +515,13 @@ async fn carry_out(
                 _ => None,
             };
             DropOutcome::Approve {
-                menu: board_page::approve_menu(ticket, &target, &tickets, provider.as_ref()),
+                menu: board_page::approve_menu(
+                    ticket,
+                    &target,
+                    &tickets,
+                    provider.as_ref(),
+                    commits,
+                ),
             }
         }
     })

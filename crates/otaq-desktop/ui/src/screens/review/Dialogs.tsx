@@ -193,6 +193,11 @@ function Callout({
   );
 }
 
+/** "Done, nothing to merge": the ticket finishes at once; the toasts (Rust's) say how it ended, a refusal too. */
+export function finishTicket(ticket: string, ask: typeof request = request): void {
+  ask("review.done", { key: ticket }).catch(() => undefined);
+}
+
 export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">) {
   const ticket = params.ticket;
   const menu = params.menu ?? false;
@@ -221,6 +226,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
       openOverlay("open_pr", { ticket, approveAnyway: anyway, intro: view?.push_to_pr ?? false });
     } else if (step?.kind === "done") {
       close();
+    } else if (step?.kind === "finish") {
+      close();
+      finishTicket(ticket);
     }
   }, [step, close, ticket, anyway, view]);
   useEffect(() => {
@@ -252,6 +260,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   switch (step.kind) {
     case "open_pr":
     case "done":
+    case "finish":
       return null;
     case "menu": {
       const first = view.menu.items[0];

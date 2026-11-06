@@ -894,19 +894,22 @@ pub struct ApproveMenu {
 
 fn choice_icon(choice: ApproveChoice) -> IconName {
     match choice {
+        ApproveChoice::Done => IconName::CircleCheck,
         ApproveChoice::LocalMerge => IconName::GitMerge,
         ApproveChoice::OpenPr => IconName::GitPullRequest,
         ApproveChoice::PushToPr => IconName::Upload,
     }
 }
 
+/// `commits`: the commits on the branch beyond its base, `None` when unknown ([`approve::options`]).
 pub fn approve_menu(
     ticket: &Ticket,
     target: &str,
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
+    commits: Option<u32>,
 ) -> ApproveMenu {
-    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr)
+    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr, commits)
         .into_iter()
         .zip(1..)
         .map(|(o, number)| ApproveItem {
@@ -920,14 +923,23 @@ pub fn approve_menu(
         .collect();
     let mut enabled = items.iter().filter(|i| i.enabled).map(|i| i.choice);
     let direct = match (enabled.next(), enabled.next()) {
+        // Done has no confirmation of its own: the menu is where the user says it.
+        (Some(ApproveChoice::Done), None) => None,
         (Some(only), None) => Some(only),
         _ => None,
     };
+    let done_leads = items
+        .first()
+        .is_some_and(|i| i.choice == ApproveChoice::Done);
     ApproveMenu {
         key: ticket.key.to_string(),
         title: approve::menu_title(ticket),
         items,
-        note: approve::menu_note(ticket),
+        note: if done_leads {
+            approve::DONE_NOTE.to_owned()
+        } else {
+            approve::menu_note(ticket)
+        },
         direct,
     }
 }
@@ -2370,14 +2382,51 @@ mod tests {
             "main",
             std::slice::from_ref(&review),
             Some(&no_provider),
+            Some(1),
         );
         assert_eq!(menu.items.len(), 2);
         assert!(!menu.items[1].enabled);
         assert_eq!(menu.direct, Some(ApproveChoice::LocalMerge));
         let mut pushed = ticket("SHOP-26", "Add sitemap", Status::WaitingForYou);
         pushed.flags.pr_number = Some(481);
-        let menu = approve_menu(&pushed, "main", std::slice::from_ref(&pushed), None);
+        let menu = approve_menu(
+            &pushed,
+            "main",
+            std::slice::from_ref(&pushed),
+            None,
+            Some(1),
+        );
         assert_eq!(menu.direct, Some(ApproveChoice::PushToPr));
+    }
+
+    /// Nothing to merge: Done is the only enabled choice, yet the menu shows (Done has no confirmation of its own),
+    /// and its note says Done runs at once.
+    #[test]
+    fn nothing_to_merge_shows_the_menu_with_done_first() {
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        let menu = approve_menu(
+            &review,
+            "main",
+            std::slice::from_ref(&review),
+            None,
+            Some(0),
+        );
+        let items: Vec<_> = menu
+            .items
+            .iter()
+            .map(|i| (i.number, i.choice, i.enabled))
+            .collect();
+        assert_eq!(
+            items,
+            [
+                (1, ApproveChoice::Done, true),
+                (2, ApproveChoice::LocalMerge, false),
+                (3, ApproveChoice::OpenPr, false),
+            ]
+        );
+        assert_eq!(menu.items[0].icon, IconName::CircleCheck);
+        assert_eq!(menu.direct, None, "the user picks Done in the menu");
+        assert_eq!(menu.note, approve::DONE_NOTE);
     }
 
     #[test]
@@ -2396,7 +2445,13 @@ mod tests {
             drop_step(&review, &[], DropTargetId::APPROVED),
             DropStep::Approve
         );
-        let menu = approve_menu(&review, "main", std::slice::from_ref(&review), None);
+        let menu = approve_menu(
+            &review,
+            "main",
+            std::slice::from_ref(&review),
+            None,
+            Some(1),
+        );
         assert_eq!(menu.title, "Approve SHOP-18 Checkout API");
         assert_eq!(menu.items[0].choice, ApproveChoice::LocalMerge);
         assert_eq!((menu.items[0].number, menu.items[1].number), (1, 2));

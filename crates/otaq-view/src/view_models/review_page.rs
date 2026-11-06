@@ -336,6 +336,27 @@ pub fn merged_toasts(
     toasts
 }
 
+/// The toasts after "Done, nothing to merge": "Done · SHOP-18" and who started.
+pub fn done_toasts(key: &TicketKey, started: &[TicketKey]) -> Vec<ToastText> {
+    let mut toasts = vec![ToastText {
+        title: format!("Done \u{b7} {key}"),
+        text: Some("Nothing to merge; it counts as merged and its branch is kept".to_owned()),
+    }];
+    if let Some(title) = ap::started_label(started.len()) {
+        toasts.push(ToastText {
+            title,
+            text: Some(
+                started
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+        });
+    }
+    toasts
+}
+
 pub fn merge_result(
     ticket: &Ticket,
     target: &str,
@@ -523,7 +544,7 @@ mod tests {
             repo: "/nowhere/code/shop-web",
             project_base: "main",
             check,
-            menu: approve_menu(t, target, all, None),
+            menu: approve_menu(t, target, all, None, Some(1)),
             merge_check: None,
             manual_unticked: 0,
         }

@@ -9,8 +9,6 @@
 //! no commits beyond its base, Done as **Closed · nothing to merge** with the agent's reason. Reopen works as for any
 //! closed ticket (d0033).
 
-use std::path::Path;
-
 use serde_json::json;
 
 use super::Review;
@@ -98,7 +96,7 @@ impl Review {
                 ),
             ));
         }
-        let commits = self.commits_beyond_base(&ticket).await?;
+        let commits = board.commits_beyond_base(&ticket).await?;
         if commits > 0 {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
@@ -159,33 +157,6 @@ impl Review {
             self.finish(&ticket).await?;
         }
         Ok(())
-    }
-
-    /// The commits on the ticket's branch beyond its base: in its worktree, else on the branch; none without either.
-    async fn commits_beyond_base(&self, ticket: &Ticket) -> Result<u32, BoardError> {
-        let board = &self.inner.board;
-        let Some(work) = &ticket.work else {
-            return Ok(0);
-        };
-        let Some(base) = &work.base_sha else {
-            return Ok(0);
-        };
-        let git = board.git()?;
-        let (cwd, head) = match (&work.worktree, &work.branch) {
-            (Some(worktree), _) if Path::new(worktree).is_dir() => {
-                (worktree.clone(), "HEAD".to_owned())
-            }
-            (_, Some(branch)) => (
-                board.project(ticket.key.project.as_str()).await?.repo_path,
-                format!("refs/heads/{branch}"),
-            ),
-            _ => return Ok(0),
-        };
-        let range = format!("{base}..{head}");
-        let count = git
-            .run(Path::new(&cwd), &["rev-list", "--count", &range])
-            .await?;
-        Ok(count.trim().parse().unwrap_or(0))
     }
 
     fn agent_runs(&self, ticket: &Ticket) -> bool {

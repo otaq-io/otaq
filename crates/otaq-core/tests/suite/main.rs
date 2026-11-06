@@ -50,6 +50,7 @@ mod delivery;
 mod deps;
 mod diff;
 mod done_cleanup;
+mod done_without_merge;
 mod drags;
 mod events;
 mod every_request;

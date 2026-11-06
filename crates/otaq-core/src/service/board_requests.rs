@@ -731,6 +731,16 @@ pub(super) async fn handle(
             .await
             .map(Reply::LocalMerge)
         }),
+        Request::TicketDone(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            // As Local merge's Approve: the open decisions are kept (DEC-05).
+            let done = async {
+                let done = shared.review.done(&p.key, &actor).await?;
+                crate::decisions::outcome::keep_all(shared.review.board(), &p.key, &actor).await?;
+                Ok(done)
+            };
+            mutate(shared, &project, done).await.map(Reply::Done)
+        }),
         Request::TicketMergeCheckStop(p) => boxed(move || async move {
             shared
                 .review

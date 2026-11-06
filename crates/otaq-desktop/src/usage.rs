@@ -303,6 +303,7 @@ const FEATURES: &[&str] = &[
     // Review and the Files tab.
     "review.approve",
     "review.local_merge",
+    "review.done",
     "review.send_back",
     "review.change",
     "diff.comment_add",

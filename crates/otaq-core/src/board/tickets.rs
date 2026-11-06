@@ -354,6 +354,10 @@ stored_enum! {
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
+        /// The user finished the ticket without a merge (the Approve menu's "Done, nothing to merge"): Done, counting
+        /// as merged ([`crate::domain::Outcome::DoneWithoutMerge`]). Payload `from`, and `nothing_to_merge` when the
+        /// branch had nothing beyond its base. History reads "Done · nothing to merge".
+        DoneWithoutMerge = "done_without_merge",
         /// A Delivery's conflict went to the nearest earlier Agent stage with `restack`, no click (FLW-17): payload
         /// `target`, `to`.
         SentToFix = "sent_to_fix",
@@ -1178,10 +1182,10 @@ impl Board {
                     delivered_without_checks: row.delivered_without_checks
                         && status == Status::Merged,
                     delivering_automatically: delivering.contains(&row.id),
-                    nothing_to_merge: row
-                        .nothing_to_merge
-                        .clone()
-                        .filter(|_| status == Status::ClosedNotMerged),
+                    done_without_merge: done_without_merge(&row, status),
+                    nothing_to_merge: row.nothing_to_merge.clone().filter(|_| {
+                        status == Status::ClosedNotMerged || done_without_merge(&row, status)
+                    }),
                     open_decisions: open_decisions
                         .get(&row.id)
                         .filter(|_| status == Status::WaitingForYou)
@@ -1364,6 +1368,12 @@ impl CountedCheck {
             count,
         }
     }
+}
+
+/// Done without a merge ([`crate::domain::Outcome::DoneWithoutMerge`]): Merged, with no merge commit.
+fn done_without_merge(row: &TicketRow, status: Status) -> bool {
+    status == Status::Merged
+        && row.outcome.as_deref() == Some(crate::domain::Outcome::DoneWithoutMerge.as_str())
 }
 
 /// "Validated · round 2" and the like: how the ticket reached Review (d0063). Shown in Review, Approved and Done.

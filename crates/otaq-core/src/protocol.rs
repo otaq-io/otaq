@@ -656,6 +656,11 @@ pub enum Request {
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
     TicketLocalMerge(LocalMergeParams),
+    /// **Done, nothing to merge** from the Approve menu: a ticket whose branch has no commits beyond its base ends
+    /// Done, counting as merged, with no merge commit. Answered with [`Reply::Done`]; refused when the branch has
+    /// commits.
+    #[serde(rename = "ticket.done")]
+    TicketDone(KeyParams),
     /// **Stop** on "Merging · running the merge check" (d0120, Q475): the Merge check of the ticket's Local merge
     /// ends, nothing is merged and the ticket stays where it was; the Local merge request answers
     /// [`LocalMergeOutcome::CheckStopped`]. Answered with [`Reply::Ok`]; refused when it runs none.
@@ -2118,6 +2123,7 @@ impl Request {
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
+            Self::TicketDone(_) => "ticket.done",
             Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
@@ -2371,6 +2377,7 @@ pub enum Reply {
     ReviewFeedback(ReviewFeedback),
     MergeProposal(MergeProposal),
     LocalMerge(LocalMergeOutcome),
+    Done(crate::review::done::DoneOutcome),
     ApproveCheck(ApproveCheck),
     Conflict(Option<Conflict>),
     /// The tickets resumed (`tickets.resume_all`, or a tool's Resume after its limit), in key order.
