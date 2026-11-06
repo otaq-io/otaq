@@ -236,6 +236,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::LocalMergeParams::export_all(&cfg)?;
     // Merge into another ticket…: the picker, its pick and its answer.
     otaq_view::view_models::approve::MergeIntoPicker::export_all(&cfg)?;
+    otaq_view::view_models::approve::DoneNotMergedView::export_all(&cfg)?;
     crate::api::MergeIntoParams::export_all(&cfg)?;
     otaq_view::view_models::approve::MergeIntoView::export_all(&cfg)?;
     crate::api::SendBackParams::export_all(&cfg)?;

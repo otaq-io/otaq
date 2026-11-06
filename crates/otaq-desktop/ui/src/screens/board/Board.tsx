@@ -197,8 +197,8 @@ export function confirmPark(dialog: ParkDialog, ask: typeof request = request): 
   });
 }
 
-/** An approve choice opens its dialog (T-0226's Local merge, T-0227's Open PR / Push to PR, the Merge into picker);
- * Done, nothing to merge, has none and finishes the ticket at once. */
+/** An approve choice opens its dialog (T-0226's Local merge, T-0227's Open PR / Push to PR, the Merge into picker,
+ * Done, don't merge's confirmation); Done, nothing to merge, has none and finishes the ticket at once. */
 export function openApproveChoice(choice: Choice, ticket: string): void {
   switch (choice) {
     case "done":
@@ -214,6 +214,9 @@ export function openApproveChoice(choice: Choice, ticket: string): void {
       return;
     case "merge_into":
       openOverlay("merge_into", { ticket });
+      return;
+    case "done_not_merged":
+      openOverlay("done_not_merged", { ticket });
       return;
   }
 }

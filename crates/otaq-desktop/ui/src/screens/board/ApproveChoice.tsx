@@ -1,8 +1,8 @@
 // The approve choice on a drop into Approved (*03 → Approve choice on drop*, UI-02): a drop never approves by
 // itself; the popover asks how. 1 / 2 (or a click) picks, Esc or a press outside cancels and the card stays in
 // Ready for Review. Local merge opens T-0226's confirmation, Open PR and Push to PR open T-0227's dialog; "Done,
-// nothing to merge" (first, when the branch has no commits) finishes the ticket at once. Its words are the
-// `ApproveMenu`'s (`approve.rs`).
+// nothing to merge" (first, when the branch has no commits) finishes the ticket at once; "Done, don't merge" (last,
+// when it has some) opens its confirmation. Its words are the `ApproveMenu`'s (`approve.rs`).
 import { useEffect, useRef } from "react";
 
 import { type Anchor, Kbd, Popover } from "../../components";

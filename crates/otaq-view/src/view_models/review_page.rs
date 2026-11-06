@@ -338,9 +338,26 @@ pub fn merged_toasts(
 
 /// The toasts after "Done, nothing to merge": "Done · SHOP-18" and who started.
 pub fn done_toasts(key: &TicketKey, started: &[TicketKey]) -> Vec<ToastText> {
+    finished_toasts(
+        key,
+        "Nothing to merge; it counts as merged and its branch is kept",
+        started,
+    )
+}
+
+/// The toasts after "Done, don't merge": "Done · SHOP-18" · "Not merged; …" and who started.
+pub fn done_not_merged_toasts(key: &TicketKey, started: &[TicketKey]) -> Vec<ToastText> {
+    finished_toasts(
+        key,
+        "Not merged; it counts as merged and its branch keeps the commits",
+        started,
+    )
+}
+
+fn finished_toasts(key: &TicketKey, text: &str, started: &[TicketKey]) -> Vec<ToastText> {
     let mut toasts = vec![ToastText {
         title: format!("Done \u{b7} {key}"),
-        text: Some("Nothing to merge; it counts as merged and its branch is kept".to_owned()),
+        text: Some(text.to_owned()),
     }];
     if let Some(title) = ap::started_label(started.len()) {
         toasts.push(ToastText {

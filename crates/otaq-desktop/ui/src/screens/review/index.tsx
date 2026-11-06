@@ -1,5 +1,6 @@
 // Area 07 · Review (T-0226): the `local_merge` overlay (Approve ▾, changed since review, the Local merge
-// confirmation and its results), the `merge_into` picker (Approve ▾'s Merge into another ticket…) and the `send_back`
+// confirmation and its results), the `merge_into` picker (Approve ▾'s Merge into another ticket…), Done, don't
+// merge's `done_not_merged` confirmation and the `send_back`
 // overlay, and ⌘↵ / ⌘⌫ on the open ticket. The sheet's Approve and
 // Send back buttons and the board's approve choice open the same overlays. `change_decision` is Change… on a
 // recorded decision (T-0288). What they say is Rust's
@@ -10,7 +11,7 @@ import { selection } from "../../app/selection";
 import type { ReviewAvailable } from "../../generated/ReviewAvailable";
 import { request } from "../../tauri";
 import { passTicket, SendBackPrDialog } from "./CheckDialogs";
-import { ChangeDecisionDialog, LocalMergeDialog, SendBackDialog } from "./Dialogs";
+import { ChangeDecisionDialog, DoneNotMergedDialog, LocalMergeDialog, SendBackDialog } from "./Dialogs";
 import { MergeIntoDialog } from "./MergeIntoDialog";
 import "./review.css";
 
@@ -32,6 +33,7 @@ function onOpenTicket(open: (ticket: string, available: ReviewAvailable) => void
 export const review: Screen = (app) => {
   app.overlays.register("local_merge", { Component: LocalMergeDialog });
   app.overlays.register("merge_into", { Component: MergeIntoDialog });
+  app.overlays.register("done_not_merged", { Component: DoneNotMergedDialog });
   app.overlays.register("send_back", { Component: SendBackDialog });
   app.overlays.register("change_decision", { Component: ChangeDecisionDialog });
   app.overlays.register("send_back_pr", { Component: SendBackPrDialog });

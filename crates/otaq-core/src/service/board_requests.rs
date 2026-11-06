@@ -741,6 +741,16 @@ pub(super) async fn handle(
             };
             mutate(shared, &project, done).await.map(Reply::Done)
         }),
+        Request::TicketDoneNotMerged(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            // As Done: the open decisions are kept (DEC-05).
+            let done = async {
+                let done = shared.review.done_not_merged(&p.key, &actor).await?;
+                crate::decisions::outcome::keep_all(shared.review.board(), &p.key, &actor).await?;
+                Ok(done)
+            };
+            mutate(shared, &project, done).await.map(Reply::Done)
+        }),
         Request::TicketMergeIntoHosts(p) => {
             boxed(move || async move { board.merge_into_hosts(&p.key).await.map(Reply::Tickets) })
         }

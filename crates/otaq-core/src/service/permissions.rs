@@ -514,6 +514,7 @@ async fn action_for(
         R::TicketPass(_) => Action::UserOnly("pass human checks"),
         R::TicketLocalMerge(_)
         | R::TicketDone(_)
+        | R::TicketDoneNotMerged(_)
         | R::TicketMergeCheckStop(_)
         | R::TicketMergeInto(_) => Action::UserOnly("merge tickets"),
         R::TicketMarkMerged(_) | R::TicketMarkClosed(_) => Action::UserOnly("mark pull requests"),

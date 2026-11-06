@@ -107,3 +107,77 @@ async fn a_branch_with_commits_is_refused_and_stays() {
     assert!(wt.exists());
     w.stop().await;
 }
+
+/// "Done, don't merge": a branch with commits finishes the same way after the user's confirmation. It ends Merged
+/// with the same outcome and no merge commit, read as "not merged" (no nothing-to-merge reason), the kept branch
+/// still holds both commits, and a ticket waiting on it starts.
+#[tokio::test]
+async fn done_not_merged_keeps_the_commits_on_the_branch_and_counts_as_merged() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = Path::new(&project.repo_path);
+    let t = w.create("SHOP", "Checkout API").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "api.ts", "api\n");
+    commit(&wt, "api.ts", "api v2\n");
+    w.force_status(&t, Status::WaitingForYou).await;
+    let waiting = w.create("SHOP", "Checkout page").await;
+    w.board
+        .add_dependency("SHOP-2", "SHOP-1", &me())
+        .await
+        .unwrap();
+    w.force_status(&waiting, Status::Queued).await;
+    let main_before = git(repo, &["rev-parse", "main"]);
+    let branch = otaq_core::naming::branch("SHOP-1");
+    let head_before = git(repo, &["rev-parse", &branch]);
+
+    let done = w.review.done_not_merged("SHOP-1", &me()).await.unwrap();
+    assert_eq!(done.ticket.status, Status::Merged);
+    assert!(done.ticket.flags.done_without_merge);
+    assert_eq!(
+        done.ticket.flags.nothing_to_merge, None,
+        "not merged, rather than nothing to merge"
+    );
+    assert_eq!(done.started, ["SHOP-2".parse().unwrap()]);
+
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(
+        row.outcome.as_deref(),
+        Some(Outcome::DoneWithoutMerge.as_str())
+    );
+    assert_eq!(row.merge_commit_sha, None, "no merge commit");
+    assert_eq!(
+        git(repo, &["rev-parse", "main"]),
+        main_before,
+        "nothing landed"
+    );
+    assert!(!wt.exists(), "worktree removed");
+    assert_eq!(
+        git(repo, &["rev-parse", &branch]),
+        head_before,
+        "the branch is kept"
+    );
+    assert_eq!(
+        git(repo, &["rev-list", "--count", &format!("main..{branch}")]),
+        "2",
+        "with both commits"
+    );
+    w.stop().await;
+}
+
+#[tokio::test]
+async fn done_not_merged_refuses_an_empty_branch() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Configure the CI secret").await;
+    w.start_worktree(&t).await;
+    w.force_status(&t, Status::WaitingForYou).await;
+    let refused = w.review.done_not_merged("SHOP-1", &me()).await.unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("Done, nothing to merge finishes it"),
+        "{refused}"
+    );
+    w.stop().await;
+}

@@ -20,7 +20,8 @@ pub struct ApproveOption {
     pub enabled: bool,
 }
 
-/// `ApproveChoice` on the page: `"done"`, `"local_merge"`, `"open_pr"`, `"push_to_pr"`, `"merge_into"`.
+/// `ApproveChoice` on the page: `"done"`, `"local_merge"`, `"open_pr"`, `"push_to_pr"`, `"merge_into"`,
+/// `"done_not_merged"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ApproveChoice {
@@ -33,6 +34,9 @@ pub enum ApproveChoice {
     PushToPr,
     /// Merge into another ticket…: the picker of tickets whose branch can take this one's, so they land together.
     MergeInto,
+    /// "Done, don't merge": the branch has commits the user chooses not to land. After its confirmation the ticket
+    /// finishes as Done does, counting as merged, with the commits kept on its branch (`review.done_not_merged`).
+    DoneNotMerged,
 }
 
 /// "Approve SHOP-18 Checkout API", "Push SHOP-26 Add sitemap to PR #481".
@@ -63,6 +67,45 @@ pub const NO_CHANGES_IN_THE_REPO: &str = "No changes in the repo";
 /// The line under the choices then: Done runs at once, with no confirmation.
 pub const DONE_NOTE: &str =
     "Done finishes the ticket at once; it counts as merged and its branch is kept.";
+
+/// The last choice when the branch has commits: finish without landing them.
+pub const DONE_DONT_MERGE: &str = "Done, don\u{2019}t merge";
+
+/// What won't land, in the confirmation: "SHOP-18’s 3 commits won’t be merged; its branch is kept".
+pub fn not_merged_message(key: &TicketKey, commits: u32) -> String {
+    let commits = match commits {
+        1 => "1 commit".to_owned(),
+        n => format!("{n} commits"),
+    };
+    format!("{key}\u{2019}s {commits} won\u{2019}t be merged; its branch is kept")
+}
+
+/// The confirmation "Done, don't merge" opens.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[ts(rename = "DoneNotMergedView")]
+pub struct DoneNotMergedView {
+    /// "Done, don’t merge SHOP-18 Checkout API".
+    pub title: String,
+    /// What won't land ([`not_merged_message`]).
+    pub message: String,
+    /// What happens on confirm.
+    pub note: String,
+    /// The confirm button.
+    pub confirm: String,
+}
+
+pub fn done_not_merged_view(ticket: &Ticket, target: &str, commits: u32) -> DoneNotMergedView {
+    let key = &ticket.key;
+    DoneNotMergedView {
+        title: format!("{DONE_DONT_MERGE} {key} {}", ticket.title),
+        message: not_merged_message(key, commits),
+        note: format!(
+            "Nothing lands on {target}. {key} finishes as Done and counts as merged, so tickets waiting on it start. \
+             The worktree is removed unless it has uncommitted changes."
+        ),
+        confirm: DONE_DONT_MERGE.to_owned(),
+    }
+}
 
 /// Tickets that depend on `ticket` and still wait for another parent after it merges: "SHOP-20 still waits for
 /// SHOP-19".
@@ -105,7 +148,8 @@ fn keys(keys: &[TicketKey]) -> String {
 ///
 /// `commits` are the commits on the branch beyond its base (`None`: unknown). With none, the menu leads with "Done,
 /// nothing to merge", and Local merge and Open PR stay listed, disabled, with "No changes in the repo": the diff
-/// decides, no ticket field or flow setting does.
+/// decides, no ticket field or flow setting does. With some, "Done, don't merge" comes last, after every way to
+/// deliver them (its confirmation says what won't land).
 pub fn options(
     ticket: &Ticket,
     target: &str,
@@ -171,6 +215,19 @@ pub fn options(
                 enabled: true,
             },
         );
+    } else if let Some(n) = commits.filter(|n| *n > 0) {
+        out.push(ApproveOption {
+            choice: ApproveChoice::DoneNotMerged,
+            title: DONE_DONT_MERGE.to_owned(),
+            detail: format!(
+                "Finish without merging {} \u{b7} counts as merged; the branch is kept",
+                match n {
+                    1 => "its commit".to_owned(),
+                    n => format!("its {n} commits"),
+                }
+            ),
+            enabled: true,
+        });
     }
     out
 }
@@ -551,7 +608,7 @@ mod tests {
         let shop19 = with_branch("SHOP-19", "Price table", Status::Working);
         let all = [shop18.clone(), shop19, shop20.clone()];
         let menu = options(&shop20, "main", &all, None, Some(2));
-        let merge = menu.last().unwrap();
+        let merge = &menu[2];
         assert_eq!(merge.choice, ApproveChoice::MergeInto);
         assert_eq!(merge.title, "Merge into another ticket\u{2026}");
         assert!(merge.enabled);
@@ -562,8 +619,8 @@ mod tests {
             None,
             Some(2),
         );
-        assert!(!alone.last().unwrap().enabled, "nothing can take it");
-        assert_eq!(alone.last().unwrap().detail, NO_HOST);
+        assert!(!alone[2].enabled, "nothing can take it");
+        assert_eq!(alone[2].detail, NO_HOST);
 
         let picker = merge_into_picker(&shop20, std::slice::from_ref(&shop18));
         assert_eq!(picker.title, "Merge SHOP-20 Coupon codes into\u{2026}");
@@ -638,6 +695,57 @@ mod tests {
             assert_eq!(menu[0].choice, ApproveChoice::LocalMerge);
             assert!(menu.iter().all(|o| o.choice != ApproveChoice::Done));
         }
+    }
+
+    /// A branch with commits: "Done, don't merge" comes last, after every way to deliver them, and its confirmation
+    /// says what won't land. Not with an open PR, nor when nobody could count the commits.
+    #[test]
+    fn done_not_merged_comes_last_and_names_what_wont_land() {
+        let (shop18, tickets) = sample();
+        let menu = options(&shop18, "main", &tickets, None, Some(2));
+        let choices: Vec<_> = menu.iter().map(|o| o.choice).collect();
+        assert_eq!(
+            choices,
+            [
+                ApproveChoice::LocalMerge,
+                ApproveChoice::OpenPr,
+                ApproveChoice::MergeInto,
+                ApproveChoice::DoneNotMerged,
+            ]
+        );
+        let last = menu.last().unwrap();
+        assert_eq!(last.title, "Done, don\u{2019}t merge");
+        assert_eq!(
+            last.detail,
+            "Finish without merging its 2 commits \u{b7} counts as merged; the branch is kept"
+        );
+        assert!(last.enabled);
+        assert!(
+            options(&shop18, "main", &tickets, None, None)
+                .iter()
+                .all(|o| o.choice != ApproveChoice::DoneNotMerged)
+        );
+        let mut pr = shop18.clone();
+        pr.flags.pr_number = Some(481);
+        assert!(
+            options(&pr, "main", &tickets, None, Some(2))
+                .iter()
+                .all(|o| o.choice != ApproveChoice::DoneNotMerged),
+            "the menu stays Push to PR #N"
+        );
+
+        let view = done_not_merged_view(&shop18, "main", 3);
+        assert_eq!(view.title, "Done, don\u{2019}t merge SHOP-18 Checkout API");
+        assert_eq!(
+            view.message,
+            "SHOP-18\u{2019}s 3 commits won\u{2019}t be merged; its branch is kept"
+        );
+        assert_eq!(
+            not_merged_message(&shop18.key, 1),
+            "SHOP-18\u{2019}s 1 commit won\u{2019}t be merged; its branch is kept"
+        );
+        assert!(view.note.starts_with("Nothing lands on main."));
+        assert_eq!(view.confirm, "Done, don\u{2019}t merge");
     }
 
     #[test]

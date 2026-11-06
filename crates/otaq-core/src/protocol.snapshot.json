@@ -8562,6 +8562,9 @@
         "ticket.done": {
           "newtype": "KeyParams"
         },
+        "ticket.done_not_merged": {
+          "newtype": "KeyParams"
+        },
         "ticket.drag": {
           "newtype": "DragParams"
         },

@@ -88,6 +88,8 @@ export interface OverlayParams {
   local_merge: { ticket: string; menu?: boolean };
   /** Merge into another ticket…: the picker of tickets whose branch can take this one's (Approve ▾). */
   merge_into: { ticket: string };
+  /** "Done, don't merge" (Approve ▾, a branch with commits): the confirmation naming what won't land. */
+  done_not_merged: { ticket: string };
   /** The Open PR / Push to PR dialog (T-0227). `approveAnyway`: the user already chose Approve anyway after "changed
    * since you reviewed it"; `intro`: Push to PR shows what goes to the PR first (the review flow's ⌘↵ / Approve). */
   open_pr: { ticket: string; approveAnyway?: boolean; intro?: boolean };
@@ -146,6 +148,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   change_decision: true,
   local_merge: true,
   merge_into: true,
+  done_not_merged: true,
   open_pr: true,
   confirm: true,
   restart_service: true,

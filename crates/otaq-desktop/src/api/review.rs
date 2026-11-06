@@ -13,7 +13,7 @@ use otaq_core::protocol::{
     Request,
 };
 use otaq_core::review::ReturnOutcome;
-use otaq_view::view_models::approve::{self, MergeIntoPicker};
+use otaq_view::view_models::approve::{self, DoneNotMergedView, MergeIntoPicker};
 use otaq_view::view_models::board_page;
 use otaq_view::view_models::check_dialogs::{self, SendBackPrView};
 use otaq_view::view_models::decision_change::{self as dc, ChangeView};
@@ -38,6 +38,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.merge_into_view" => reply(&merge_into_view(app, parse(params)?).await?),
         "review.merge_into" => reply(&merge_into(app, parse(params)?).await?),
         "review.done" => reply(&done(app, parse(params)?).await?),
+        "review.done_not_merged_view" => reply(&done_not_merged_view(app, parse(params)?).await?),
+        "review.done_not_merged" => reply(&done_not_merged(app, parse(params)?).await?),
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
         "review.pass" => reply(&pass(app, parse(params)?).await?),
@@ -259,19 +261,61 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
 /// "Done, nothing to merge": the ticket finishes at once, counting as merged, with nothing merged. Its toasts show
 /// here; a refusal (the branch has commits after all) is a toast too.
 pub async fn done(app: &App, params: Params) -> Result<(), RequestError> {
-    let key = key_of(&params.key)?;
-    match app
+    finish(app, params, false).await
+}
+
+/// The confirmation "Done, don't merge" opens: what won't land ("SHOP-18’s 3 commits won’t be merged; its branch is
+/// kept"), counted now.
+pub async fn done_not_merged_view(
+    app: &App,
+    params: Params,
+) -> Result<DoneNotMergedView, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let proposal = match app
         .service
-        .send(Request::TicketDone(KeyParams { key: params.key }))
-        .await
+        .send(Request::TicketMergeProposal(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await?
     {
+        Reply::MergeProposal(p) => p,
+        other => return Err(unexpected("ticket.merge_proposal", &other)),
+    };
+    Ok(approve::done_not_merged_view(
+        &ticket,
+        &proposal.target,
+        proposal.commits,
+    ))
+}
+
+/// "Done, don't merge", confirmed: the ticket finishes as Done does, counting as merged, with its commits left on
+/// the kept branch. Its toasts show here; a refusal is a toast too.
+pub async fn done_not_merged(app: &App, params: Params) -> Result<(), RequestError> {
+    finish(app, params, true).await
+}
+
+/// Done (`not_merged`: false) or Done, don't merge (true), and the toasts that say how it ended.
+async fn finish(app: &App, params: Params, not_merged: bool) -> Result<(), RequestError> {
+    let key = key_of(&params.key)?;
+    let k = KeyParams { key: params.key };
+    let (request, what) = if not_merged {
+        (Request::TicketDoneNotMerged(k), "ticket.done_not_merged")
+    } else {
+        (Request::TicketDone(k), "ticket.done")
+    };
+    match app.service.send(request).await {
         Ok(Reply::Done(outcome)) => {
-            for t in page::done_toasts(&key, &outcome.started) {
+            let toasts = if not_merged {
+                page::done_not_merged_toasts(&key, &outcome.started)
+            } else {
+                page::done_toasts(&key, &outcome.started)
+            };
+            for t in toasts {
                 toast(app, ToastLevel::Success, t.title, t.text);
             }
             Ok(())
         }
-        Ok(other) => Err(unexpected("ticket.done", &other)),
+        Ok(other) => Err(unexpected(what, &other)),
         Err(e) => {
             toast(
                 app,
