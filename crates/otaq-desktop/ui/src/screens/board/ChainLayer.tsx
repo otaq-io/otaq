@@ -1,9 +1,7 @@
-// The dependencies' drawing layer over the board (DPV-02, d0006; *24 · Dependencies on the board* `s24-09`, *Always*
-// `s24-10`): with Dependencies: Always, every open link between cards in view, quiet and dashed; over them the hovered
-// or selected card's chain in accent, parent → child, and under a hovered linked card its tooltip ("SHOP-20 is
-// blocked" · "by SHOP-18 (Review) and SHOP-29 (Dev)"). Only cards in view are joined (a card scrolled out of its
-// column, folded in Dev or in the Done rail gets none). Like the lifted card it is fixed to the window inside the
-// scrolling board, laid over the board's own box, and measured again as the board or a column scrolls or resizes.
+// What waits for the hovered or selected card, drawn over the board: arrows in accent, parent → child, between the
+// card and the tickets waiting for it. Only cards in view are joined (a card scrolled out of its column, folded in Dev
+// or in the Done rail gets none). Like the lifted card it is fixed to the window inside the scrolling board, laid over
+// the board's own box, and measured again as the board or a column scrolls or resizes.
 import { useLayoutEffect, useRef } from "react";
 
 import type { ChainEdge } from "../../generated/ChainEdge";
@@ -56,18 +54,10 @@ export function arrowsOf(edges: readonly ChainEdge[], boxes: ReadonlyMap<string,
   });
 }
 
-/** Always's links without those the chain shown draws itself. */
-export function quietLinks(links: readonly ChainEdge[], chain: ChainView | null): ChainEdge[] {
-  if (chain === null) return [...links];
-  return links.filter((l) => !chain.edges.some((e) => e.parent === l.parent && e.child === l.child));
-}
-
 const px = (n: number) => `${String(Math.round(n))}px`;
 
 export interface ChainLayerProps {
   chain: ChainView | null;
-  /** Dependencies: Always's links (`BoardView.links`); empty with On hover. */
-  links: readonly ChainEdge[];
   /** The hovered card: its chain's tooltip shows under it. */
   hovered: string | null;
   /** The board's scrolling element, holding the cards. */
@@ -76,11 +66,11 @@ export interface ChainLayerProps {
   layout: unknown;
 }
 
-export function ChainLayer({ chain, links, hovered, board, layout }: ChainLayerProps) {
+export function ChainLayer({ chain, hovered, board, layout }: ChainLayerProps) {
   const svg = useRef<SVGSVGElement>(null);
   const tipBox = useRef<HTMLDivElement>(null);
   const tip = chain !== null && chain.key === hovered ? chain.tip : null;
-  const drawn = chain !== null || links.length > 0;
+  const drawn = chain !== null;
 
   // The layer follows the cards' places on screen, so it is placed and drawn straight in the DOM (no render per
   // scroll).
@@ -88,7 +78,6 @@ export function ChainLayer({ chain, links, hovered, board, layout }: ChainLayerP
     const layer = svg.current;
     if (!drawn || board === null || layer === null) return;
     let pending = 0;
-    const quiet = quietLinks(links, chain);
     const draw = () => {
       const box = board.getBoundingClientRect();
       Object.assign(layer.style, {
@@ -97,20 +86,15 @@ export function ChainLayer({ chain, links, hovered, board, layout }: ChainLayerP
         width: px(box.width),
         height: px(box.height),
       });
-      const keys = [...(chain?.members ?? []), ...quiet.flatMap((l) => [l.parent, l.child])];
-      const boxes = boxesOf(keys, board, box);
+      const boxes = boxesOf(chain.members, board, box);
       layer.replaceChildren(
-        ...arrowsOf(quiet, boxes).flatMap((a) => [
-          path("board-link-line", a.line),
-          path("board-link-head", a.head),
-        ]),
-        ...(chain === null ? [] : arrowsOf(chain.edges, boxes)).flatMap((a) => [
+        ...arrowsOf(chain.edges, boxes).flatMap((a) => [
           path("board-chain-line", a.line),
           path("board-chain-head", a.head),
         ]),
       );
       const note = tipBox.current;
-      const under = chain === null ? undefined : boxes.get(chain.key);
+      const under = boxes.get(chain.key);
       if (note) {
         note.hidden = under === undefined;
         if (under) {
@@ -137,7 +121,7 @@ export function ChainLayer({ chain, links, hovered, board, layout }: ChainLayerP
       observer.disconnect();
       window.removeEventListener("resize", later);
     };
-  }, [chain, links, drawn, board, layout, tip]);
+  }, [chain, drawn, board, layout, tip]);
 
   if (!drawn) return null;
   return (

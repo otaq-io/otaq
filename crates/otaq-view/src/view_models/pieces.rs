@@ -1378,8 +1378,18 @@ mod tests {
         assert_eq!(plan_statuses(&Facts::new(&t, &[])), None);
     }
 
-    fn card_of(t: &Ticket, helpers: Vec<Helper>) -> crate::view_models::card_page::TicketCardView {
-        use crate::view_models::card::{AgentFacts, CardExtras};
+    /// What the card shows of a ticket with helpers, and the pieces and Plan line its view model keeps for the sheet
+    /// (the card itself never shows them).
+    struct Card {
+        status: Option<crate::view_models::card::StatusLine>,
+        edge: Option<Tone>,
+        who: Option<String>,
+        pieces: Option<CardPieces>,
+        plan: Option<String>,
+    }
+
+    fn card_of(t: &Ticket, helpers: Vec<Helper>) -> Card {
+        use crate::view_models::card::{AgentFacts, CardExtras, CardViewModel};
         let extras = CardExtras {
             helpers,
             next_stage: Some("Validate".into()),
@@ -1390,7 +1400,15 @@ mod tests {
             },
             ..CardExtras::default()
         };
-        crate::view_models::card_page::TicketCardView::of(t, &extras, card_fixtures::NOW)
+        let vm = CardViewModel::from(t, &extras, card_fixtures::NOW);
+        let view = crate::view_models::card_page::TicketCardView::from_vm(vm.clone(), t);
+        Card {
+            status: view.status,
+            edge: view.edge,
+            who: view.who,
+            pieces: vm.pieces.map(|p| *p),
+            plan: vm.plan,
+        }
     }
 
     #[test]
@@ -1419,10 +1437,8 @@ mod tests {
             .map(|n| helper("SHOP-40", n, "x", HelperStatus::Merged))
             .collect();
         let card = card_of(&t, helpers);
-        assert_eq!(
-            card.status.unwrap().text,
-            "Checking the whole ticket · round 1 of 3"
-        );
+        // No rounds on the card.
+        assert_eq!(card.status.unwrap().text, "Checking the whole ticket");
         assert_eq!(card.plan.as_deref(), Some("4 pieces merged"));
         assert_eq!(card.pieces, None);
     }

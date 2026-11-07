@@ -1,8 +1,9 @@
-//! The dependency chain of a hovered or selected card (DEP-05, DPV-02; d0006; *24 · Dependencies on the board*
-//! `s24-09`): its parents and children, transitively, keep full opacity with an accent outline; everything else dims;
-//! arrows are drawn for this chain, parent → child, and a tooltip says why ("SHOP-20 is blocked" · "by SHOP-18
-//! (Review) and SHOP-29 (Dev)"). With Dependencies: Always every open link stays drawn as well
-//! ([`crate::view_models::dependencies::links`]). No graph view.
+//! What waits for a hovered or selected card: hovering a card that other tickets wait for keeps it and them, directly
+//! or through others, at full strength and dims everything else; its card gains one line, "SHOP-30 waits for it"
+//! ([`crate::view_models::dependencies::Blocks`]). Arrows join them, parent → child. A card nothing waits for lights
+//! nothing. No graph view, and no always-on drawing of every link.
+
+use std::collections::HashSet;
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
@@ -14,7 +15,7 @@ use crate::view_models::flow_columns::Columns;
 
 pub use otaq_core::board::stack::{Chain, chain};
 
-/// One arrow of a chain, parent → child.
+/// One arrow, parent → child.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ChainEdge")]
 pub struct Edge {
@@ -22,44 +23,59 @@ pub struct Edge {
     pub child: String,
 }
 
-/// A card's chain as the Tauri board draws it while the card is hovered or selected (T-0229). Sent with the board
-/// for every linked card up front, so a hover never waits on a round trip (UIT-04).
+/// What waits for a card, as the board draws it while the card is hovered or selected. Sent with the board for every
+/// card others wait for up front, so a hover never waits on a round trip.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ChainView")]
 pub struct View {
     /// The hovered or selected card.
     pub key: String,
-    /// The card itself, its parents and its children, transitively, in board key order.
+    /// The card itself and every ticket waiting for it, directly or through others, in key order.
     pub members: Vec<String>,
     pub edges: Vec<Edge>,
-    /// The tooltip under the hovered card (DPV-02); `null` when its links are all merged.
+    /// A tooltip under the hovered card; none: the card's own line says what waits for it.
     pub tip: Option<Tip>,
 }
 
-/// The chain of every linked ticket in `tickets` (unlinked ones have none: nothing to highlight), its tooltip
-/// naming where each linked ticket is in `columns`.
-pub fn views(columns: &Columns, tickets: &[Ticket]) -> Vec<View> {
+/// What waits for each ticket in `tickets` that others wait for (the rest light nothing).
+pub fn views(_columns: &Columns, tickets: &[Ticket]) -> Vec<View> {
     tickets
         .iter()
-        .filter_map(|t| {
-            let chain = chain(&t.key, tickets)?;
-            let mut members: Vec<&TicketKey> = chain.members.iter().collect();
-            members.sort();
-            Some(View {
-                key: t.key.to_string(),
-                members: members.iter().map(ToString::to_string).collect(),
-                edges: chain
-                    .edges
-                    .iter()
-                    .map(|(parent, child)| Edge {
-                        parent: parent.to_string(),
-                        child: child.to_string(),
-                    })
-                    .collect(),
-                tip: dependencies::tip(columns, t, tickets),
-            })
-        })
+        .filter_map(|t| waiting_on(t, tickets))
         .collect()
+}
+
+/// `ticket` and the open tickets waiting for it, transitively, with the links between them; `None` when nothing
+/// waits for it.
+fn waiting_on(ticket: &Ticket, tickets: &[Ticket]) -> Option<View> {
+    let mut members: Vec<&TicketKey> = vec![&ticket.key];
+    let mut seen: HashSet<&TicketKey> = HashSet::from([&ticket.key]);
+    let mut stack = vec![ticket];
+    let mut edges = Vec::new();
+    while let Some(at) = stack.pop() {
+        for child in dependencies::waiting_children(at, tickets) {
+            edges.push(Edge {
+                parent: at.key.to_string(),
+                child: child.key.to_string(),
+            });
+            if seen.insert(&child.key) {
+                members.push(&child.key);
+                stack.push(child);
+            }
+        }
+    }
+    if members.len() < 2 {
+        return None;
+    }
+    members.sort();
+    edges.sort_by(|a, b| (&a.parent, &a.child).cmp(&(&b.parent, &b.child)));
+    edges.dedup();
+    Some(View {
+        key: ticket.key.to_string(),
+        members: members.iter().map(ToString::to_string).collect(),
+        edges,
+        tip: None,
+    })
 }
 
 #[cfg(test)]
@@ -137,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn every_linked_card_gets_its_chain_up_front() {
+    fn hovering_a_card_lights_only_what_waits_for_it() {
         let views = views(
             &Columns::of(&otaq_core::flow::default_file().flow),
             &sample(),
@@ -145,35 +161,29 @@ mod tests {
         let keys: Vec<&str> = views.iter().map(|v| v.key.as_str()).collect();
         assert_eq!(
             keys,
+            ["SHOP-17", "SHOP-18", "SHOP-19", "SHOP-20"],
+            "only cards others wait for light anything"
+        );
+        let shop_18 = &views[1];
+        assert_eq!(shop_18.members, ["SHOP-18", "SHOP-20", "SHOP-21"]);
+        assert_eq!(
+            shop_18.edges,
             [
-                "SHOP-17", "SHOP-18", "SHOP-19", "SHOP-20", "SHOP-21", "SHOP-23"
-            ],
-            "SHOP-22 has no links"
+                Edge {
+                    parent: "SHOP-18".into(),
+                    child: "SHOP-20".into()
+                },
+                Edge {
+                    parent: "SHOP-20".into(),
+                    child: "SHOP-21".into()
+                }
+            ]
         );
-        let shop_20 = &views[3];
+        assert_eq!(shop_18.tip, None, "the card's own line says it");
+        let shop_19 = &views[2];
         assert_eq!(
-            shop_20.members,
-            ["SHOP-17", "SHOP-18", "SHOP-19", "SHOP-20", "SHOP-21"]
+            shop_19.members,
+            ["SHOP-19", "SHOP-20", "SHOP-21", "SHOP-23"]
         );
-        assert_eq!(
-            shop_20.edges[1],
-            Edge {
-                parent: "SHOP-18".into(),
-                child: "SHOP-20".into()
-            }
-        );
-        // Every ticket of the sample is in Backlog: SHOP-20 waits for both parents (DPV-02's tooltip).
-        assert_eq!(
-            shop_20
-                .tip
-                .as_ref()
-                .map(|t| (t.title.as_str(), t.detail.as_str())),
-            Some((
-                "SHOP-20 is blocked",
-                "by SHOP-18 (Backlog) and SHOP-19 (Backlog)"
-            ))
-        );
-        let json = serde_json::to_value(shop_20).unwrap();
-        assert_eq!(json["edges"][0]["parent"], "SHOP-17");
     }
 }

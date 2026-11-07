@@ -56,9 +56,9 @@ pub fn short(priority: Priority) -> String {
     format!("P{}", priority.number())
 }
 
-/// The chip a card shows after its key: P1, P2 and P4; nothing for Normal.
+/// The chip a card shows after its key: P1 and P2 only; Normal and Low show nothing.
 pub fn on_card(priority: Priority) -> Option<Priority> {
-    (priority != Priority::Normal).then_some(priority)
+    matches!(priority, Priority::Urgent | Priority::High).then_some(priority)
 }
 
 /// A priority as the page draws it: the chip (icon, "P2", ink) and the word next to it ("High"); `label` is
@@ -122,9 +122,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cards_hide_normal_only() {
+    fn cards_show_only_urgent_and_high() {
         let shown: Vec<_> = Priority::ALL.into_iter().filter_map(on_card).collect();
-        assert_eq!(shown, [Priority::Urgent, Priority::High, Priority::Low]);
+        assert_eq!(shown, [Priority::Urgent, Priority::High]);
         assert_eq!(on_card(Priority::Normal), None);
     }
 

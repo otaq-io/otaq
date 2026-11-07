@@ -7,7 +7,7 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { ChainView } from "../../generated/ChainView";
 import type { TicketCardView } from "../../generated/TicketCardView";
 import { activeChain, arrow, chainStateOf, inView, membersIn } from "./chain";
-import { arrowsOf, quietLinks } from "./ChainLayer";
+import { arrowsOf } from "./ChainLayer";
 import { Column, type ColumnProps } from "./Column";
 
 /** *03 → Chain highlight · hover or select SHOP-20*. */
@@ -24,8 +24,8 @@ const SHOP_20: ChainView = {
 };
 const SHOP_21: ChainView = { ...SHOP_20, key: "SHOP-21" };
 
-describe("Dependencies: Always (DPV-02)", () => {
-  it("draws every link whose two cards are in view, except those the chain shown draws in accent", () => {
+describe("what waits for a hovered card", () => {
+  it("draws an arrow only where both cards are in view", () => {
     const links = [
       { parent: "SHOP-18", child: "SHOP-20" },
       { parent: "SHOP-29", child: "SHOP-20" },
@@ -38,8 +38,6 @@ describe("Dependencies: Always (DPV-02)", () => {
       ["SHOP-29", box(600)],
     ]);
     expect(arrowsOf(links, boxes)).toHaveLength(2);
-    expect(quietLinks(links, null)).toEqual(links);
-    expect(quietLinks(links, SHOP_20)).toEqual(links.slice(1));
   });
 });
 
@@ -97,15 +95,13 @@ const card = (key: string): BoardCard => {
     time: null,
     edge: null,
     action: null,
-    origin: null,
+    note: null,
+    opens: null,
     hover: { status: "Waiting to start", details: [] },
     faded: null,
     fresh: false,
     open_sheet: "Open panel",
     open_sheet_keys: "↵",
-    skill_warning: null,
-    plan: null,
-    pieces: null,
     open_terminal: "Open terminal",
   };
   return { kind: "ticket", card: view, needs_you: false };
@@ -119,6 +115,7 @@ const column = (over: Partial<BoardColumn>): BoardColumn => ({
   count: "2",
   quiet_icon: false,
   tooltip: null,
+  who_acts: "",
   empty_hint: "",
   collapsed: false,
   rail: null,

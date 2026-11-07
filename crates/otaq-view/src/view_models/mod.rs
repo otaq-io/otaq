@@ -27,6 +27,7 @@ mod board_parity;
 pub mod build_aside;
 pub mod card;
 pub mod card_fixtures;
+pub mod card_line;
 pub mod card_menu;
 pub mod card_page;
 pub mod chain;
@@ -78,6 +79,7 @@ pub mod move_app;
 pub mod needs_you_strip;
 pub mod newer_database;
 pub mod no_tray;
+pub mod ordinary_day;
 pub mod view_prefs;
 
 pub mod onboarding;

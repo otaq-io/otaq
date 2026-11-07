@@ -175,6 +175,12 @@ pub struct AgentFacts {
     pub starts: Option<CardStart>,
     /// The agent whose model the tool refused (Open agent…).
     pub refused_agent: Option<String>,
+    /// The agent of the stage the ticket is in or waits before, and that stage's own agent when the ticket chose
+    /// `stage_agent` instead.
+    pub stage_agent: Option<String>,
+    pub instead_of: Option<String>,
+    /// The stages the user chose to skip for the ticket, by name.
+    pub skips: Vec<String>,
 }
 
 impl AgentFacts {
@@ -189,6 +195,9 @@ impl AgentFacts {
             validator_on: card.running_validator_on.clone(),
             starts: card.starts.clone(),
             refused_agent: card.refused_agent.clone(),
+            stage_agent: card.stage_agent.clone(),
+            instead_of: card.instead_of.clone(),
+            skips: card.skips.clone(),
         }
     }
 
@@ -612,6 +621,8 @@ pub struct OneLine {
     pub blocked: Option<String>,
     /// What waits for it (DPV-01).
     pub blocks: Option<crate::view_models::dependencies::Blocks>,
+    /// The muted line under the status line, only when set ([`crate::view_models::card_line::note`]).
+    pub note: Option<crate::view_models::card_line::Note>,
 }
 
 /// "setup command failed" → "Setup command failed".
@@ -1722,13 +1733,8 @@ impl CardViewModel {
             footer,
             hover,
             outline,
-            faded: match status {
-                // "Delivered without all checks" is said at full strength (`s03-48`).
-                Status::Merged if flags.delivered_without_checks => None,
-                Status::Merged => Some(0.55),
-                Status::ClosedNotMerged => Some(0.8),
-                _ => None,
-            },
+            // Finished cards keep full strength: their line says how they ended.
+            faded: None,
             options,
             fresh: crate::view_models::agent_activity::fresh_from_project_agent(ticket, now_ms),
             one_line: Box::new(OneLine {
@@ -1741,7 +1747,47 @@ impl CardViewModel {
             pieces: None,
         }
         .with_one_line(ticket, kept.is_some(), paused)
+        .with_plain_words(ticket, x, now_ms, kept.is_some(), paused)
         .with_pieces(ticket, x)
+    }
+
+    /// The board's plain words over the line the parts built ([`crate::view_models::card_line`]): the status line
+    /// and its edge, the one action's label, the muted note, and when a finished card finished. A finished card names
+    /// nobody.
+    fn with_plain_words(
+        mut self,
+        ticket: &Ticket,
+        x: &CardExtras,
+        now_ms: i64,
+        kept: bool,
+        paused: bool,
+    ) -> Self {
+        use crate::view_models::card_line;
+        let status = status::shown(ticket);
+        let one = &mut self.one_line;
+        // A question a pause interrupted keeps its words; one a restart ended says answering resumes it.
+        let shown = match kept {
+            true => ticket.interrupted_from.unwrap_or(status),
+            false => status,
+        };
+        let words = (!kept || x.paused)
+            .then(|| card_line::words(ticket, shown, x, paused))
+            .flatten();
+        if let Some(words) = words {
+            one.line = Some(words.line);
+            one.edge = words.edge;
+        }
+        if !kept {
+            one.action = card_line::action(status, ticket, one.action.take());
+        }
+        one.note = card_line::note(ticket, x);
+        if ticket.place.is_done() || status == Status::MergedInto {
+            one.who = None;
+            one.time = card_line::finished(ticket, now_ms);
+        } else if !paused {
+            one.time = card_line::how_long(ticket, status, now_ms, one.time.take());
+        }
+        self
     }
 
     /// A ticket whose build stage split its work among helpers (d0133, `s30-02`…`s30-04`): the piece rows, "Working · 2
@@ -4563,17 +4609,18 @@ mod tests {
         );
     }
 
-    /// *04 → Row · priority & waiting to begin*: P1, P2 and P4 sit after the key; Normal shows nothing; the priority
-    /// never takes the flag.
+    /// P1 and P2 sit after the key; P3 and P4 show nothing; the priority never takes the flag.
     #[test]
     fn priority_chip_per_priority() {
         let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
         assert_eq!(card(&t).priority, None, "P3 Normal is hidden on cards");
-        for p in [Priority::Urgent, Priority::High, Priority::Low] {
+        for p in [Priority::Urgent, Priority::High] {
             t.priority = p;
             assert_eq!(card(&t).priority, Some(p));
             assert_eq!(card(&t).flag, None);
         }
+        t.priority = Priority::Low;
+        assert_eq!(card(&t).priority, None, "P4 Low is hidden on cards");
     }
 
     /// M19-e and DEC-03: the schema overlap (with its files on hover) and the open decisions join the line.
@@ -4699,9 +4746,10 @@ mod tests {
     }
 
     #[test]
-    fn done_cards_fade() {
-        assert_eq!(variant("Merged").1.faded, Some(0.55));
-        assert_eq!(variant("Closed · not merged (0033)").1.faded, Some(0.8));
+    fn done_cards_keep_full_strength() {
+        // Their line says how they ended ("Merged into main", "Done · not merged").
+        assert_eq!(variant("Merged").1.faded, None);
+        assert_eq!(variant("Closed · not merged (0033)").1.faded, None);
         assert_eq!(
             variant("Merged automatically (0064)").1.hover.details,
             ["Validated · round 1"]
@@ -5570,6 +5618,8 @@ mod tests {
             starts: None,
             refused_agent: None,
             stage_agent: None,
+            instead_of: None,
+            skips: Vec::new(),
         };
         let board = |connected: Vec<Tool>| BoardAgents {
             agent_count: 3,

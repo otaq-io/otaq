@@ -197,6 +197,13 @@ pub struct CardAgents {
     /// chose one, else the stage's. `None` in Backlog, Done and a stage that runs no agent. The search's `by:` reads it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage_agent: Option<String>,
+    /// The stage's own agent, by name, when the ticket chose another one for that stage ([`Self::stage_agent`]): the
+    /// card's "Dev: Light instead of Strong".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instead_of: Option<String>,
+    /// The stages the user chose to skip for this ticket, by name, in flow order: the card's "Skips Product spec".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skips: Vec<String>,
 }
 
 /// Where a waiting ticket starts: the stage, the agent it runs there, and that agent's model now.
@@ -384,6 +391,18 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
             Some(start) => Some(start.agent.clone()),
             None => stage_agent_of(board, &ticket, &flow).await?,
         };
+        let instead_of = own_agent_if_chosen(board, &ticket, &flow).await?;
+        let skips = match ticket.place {
+            Place::Done => Vec::new(),
+            _ => {
+                let ids = board.ticket_skips(&ticket, &flow).await?;
+                flow.stages
+                    .iter()
+                    .filter(|s| ids.contains(&s.id))
+                    .map(|s| s.name.clone())
+                    .collect()
+            }
+        };
         cards.push(CardAgents {
             running_developer: name_of(SessionRole::Developer),
             running_validator: name_of(SessionRole::Validator),
@@ -400,6 +419,8 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
             starts,
             refused_agent,
             stage_agent,
+            instead_of,
+            skips,
             key: ticket.key,
         });
     }
@@ -431,6 +452,29 @@ async fn stage_agent_of(
             .ok()
             .map(|a| a.name),
     })
+}
+
+/// The own agent of the stage `ticket` is in or waits before, when the ticket chose another agent there.
+async fn own_agent_if_chosen(
+    board: &Board,
+    ticket: &Ticket,
+    flow: &Flow,
+) -> Result<Option<String>, BoardError> {
+    let stage = match &ticket.place {
+        Place::InStage(id) | Place::Waiting(Some(id)) => flow.stage(id),
+        Place::Waiting(None) => flow.first_agent_stage(),
+        Place::Backlog | Place::Done => None,
+    };
+    let Some(stage) = stage.filter(|s| s.has_agent()) else {
+        return Ok(None);
+    };
+    if board.chosen_agent(ticket, stage).await?.is_none() {
+        return Ok(None);
+    }
+    Ok(resolve::stage_agent(board, stage)
+        .await
+        .ok()
+        .map(|a| a.name))
 }
 
 /// Where a waiting `ticket` starts ([`CardStart`]): the Agent stage it waits before (its first on the flow, past the

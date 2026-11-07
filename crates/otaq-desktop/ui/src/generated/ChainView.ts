@@ -3,8 +3,8 @@ import type { ChainEdge } from "./ChainEdge";
 import type { ChainTip } from "./ChainTip";
 
 /**
- * A card's chain as the Tauri board draws it while the card is hovered or selected (T-0229). Sent with the board
- * for every linked card up front, so a hover never waits on a round trip (UIT-04).
+ * What waits for a card, as the board draws it while the card is hovered or selected. Sent with the board for every
+ * card others wait for up front, so a hover never waits on a round trip.
  */
 export type ChainView = { 
 /**
@@ -12,10 +12,10 @@ export type ChainView = {
  */
 key: string, 
 /**
- * The card itself, its parents and its children, transitively, in board key order.
+ * The card itself and every ticket waiting for it, directly or through others, in key order.
  */
 members: Array<string>, edges: Array<ChainEdge>, 
 /**
- * The tooltip under the hovered card (DPV-02); `null` when its links are all merged.
+ * A tooltip under the hovered card; none: the card's own line says what waits for it.
  */
 tip: ChainTip | null, };
