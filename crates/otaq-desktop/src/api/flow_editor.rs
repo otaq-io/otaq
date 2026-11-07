@@ -173,12 +173,12 @@ pub struct SendParams {
     pub text: String,
 }
 
-/// An Ask under Made for <project>, the chooser's tool, or "Ask Claude Code".
+/// An Ask under Made for <project>, the chooser's tool, or "Ask Claude Code" (onboarding's Flow step and the Flow setup
+/// page).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorAskParams")]
 pub struct AskParams {
     pub project: String,
-    pub from: Opened,
     #[ts(type = "string")]
     pub tool: Tool,
 }
@@ -530,60 +530,22 @@ async fn send(app: &App, params: SendParams) -> Result<Started, RequestError> {
     Ok(Started { agent })
 }
 
-/// What a Made for Ask asks in the project (Q-A): the same look as Flow setup's, landing in the draft.
-pub fn make_one_message(project_name: &str, tool: Tool) -> String {
-    flow_message(&format!(
-        "Make a flow for {project_name}. Look at how I work with {tool}: your own history on this Mac (find it \
-         yourself; read only what I typed, never login or credential data) and this repo. Then propose a whole flow.",
-        tool = tool.display_name(),
-    ))
-}
-
-/// Ask <Tool>: in onboarding the tool's flow agent (`onboarding.ask`, its proposal its own Made for entry); in the
-/// project a Project agent on an agent that runs on that tool (the agent Noyan uses when it does), whose
-/// proposal lands in the draft.
+/// Ask <Tool> (onboarding's Flow step and a later project's Flow setup page): the tool's flow agent
+/// (`onboarding.ask`), its proposal its own Made for entry. A project's own flow is edited on its board, where Suggest a
+/// flow asks Noyan's agent (`flow_board.suggest`).
 async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
-    if params.from == Opened::Onboarding {
-        let request = Request::OnboardingAsk(OnboardingAskParams {
-            project: params.project,
-            tool: params.tool,
-        });
-        return match app.service.send(request).await {
-            Ok(Reply::ProjectAgent(agent)) => Ok(Started { agent: agent.id }),
-            Ok(other) => Err(unexpected("onboarding.ask", &other)),
-            Err(e) => {
-                toast_error(app, "The tool wasn\u{2019}t asked", &e);
-                Err(e)
-            }
-        };
-    }
-    let tools = super::agent_panel::tools(app).await;
-    let default = tools.default_model.as_ref();
-    let runs_on = |a: &Agent| a.model.on(default).is_some_and(|on| on.tool == params.tool);
-    let role = super::agent_panel::project_agent(app).await?;
-    let agents = super::settings::agent_list(app).await?.agents;
-    let on = match role.filter(|a| runs_on(a)) {
-        Some(_) => None,
-        None => Some(agents.iter().find(|a| runs_on(a)).ok_or_else(|| {
-            let e = RequestError::plain(format!(
-                "No agent runs on {}: add one in Settings \u{2192} Agents",
-                params.tool.display_name()
-            ));
+    let request = Request::OnboardingAsk(OnboardingAskParams {
+        project: params.project,
+        tool: params.tool,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::ProjectAgent(agent)) => Ok(Started { agent: agent.id }),
+        Ok(other) => Err(unexpected("onboarding.ask", &other)),
+        Err(e) => {
             toast_error(app, "The tool wasn\u{2019}t asked", &e);
-            e
-        })?),
-    };
-    let name = setup(app, &params.project).await?.project_name;
-    let agent = super::agent_panel::send(
-        app,
-        super::agent_panel::SendParams {
-            project: params.project,
-            message: make_one_message(&name, params.tool),
-            agent: on.map(|a| a.id.clone()),
-        },
-    )
-    .await?;
-    Ok(Started { agent })
+            Err(e)
+        }
+    }
 }
 
 /// The user's send from the box Ask the agent to write it (or the Write the skill chip) prefilled (FED-06, Q441): the
@@ -744,7 +706,7 @@ mod tests {
     fn the_first_message_runs_the_flow_skill() {
         assert_eq!(flow_message("  What\u{2019}s Validate? "), "/flow What\u{2019}s Validate?");
         assert_eq!(
-            otaq_core::project_agents::first_skill(&make_one_message("shop-web", Tool::ALL[0])).0,
+            otaq_core::project_agents::first_skill(&flow_message("Suggest a flow for shop-web.")).0,
             "flow"
         );
     }

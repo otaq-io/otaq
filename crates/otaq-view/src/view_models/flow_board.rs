@@ -572,7 +572,7 @@ fn columns(f: &Facts) -> Vec<Column> {
         mark: None,
         warning: None,
         problem: None,
-        selected: f.selected == Some(DONE),
+        selected: done_selected(f),
         movable: false,
         index: None,
         add: None,
@@ -1137,6 +1137,12 @@ fn saved(f: &Facts) -> Saved {
     }
 }
 
+/// Done is selected: How work leaves the flow shows. The delivery's old step id (a toast's "use your own Open PR
+/// skill") opens it too.
+fn done_selected(f: &Facts) -> bool {
+    matches!(f.selected, Some(id) if id == DONE || id == editor::DELIVERY_ID)
+}
+
 /// Everything the board's editor draws: `selected` is a stage's id, or `done` for How work leaves the flow.
 pub fn view(f: &Facts, b: &BoardFacts) -> View {
     let selected = f.selected.and_then(|id| f.file.flow.stage(id));
@@ -1147,7 +1153,7 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         bar: bar(f),
         columns: columns(f),
         details: selected.map(|s| details(f, s)),
-        delivery: (f.selected == Some(DONE)).then(|| delivery_panel(f, b.base_branch)),
+        delivery: done_selected(f).then(|| delivery_panel(f, b.base_branch)),
         palette: palette(f),
         start_from: start_from(f, b),
         more: more(f, b),

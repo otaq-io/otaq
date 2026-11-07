@@ -125,6 +125,7 @@ const column = (over: Partial<BoardColumn>): BoardColumn => ({
   cards: [card("SHOP-20"), card("SHOP-28")],
   dev: null,
   add: null,
+  changing: null,
   ...over,
 });
 

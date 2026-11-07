@@ -14,7 +14,7 @@ import type { PaletteView } from "../../generated/PaletteView";
 import type { PauseRunParams } from "../../generated/PauseRunParams";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { changeFlowOpen, openFlowEditor } from "../flow_editor/logic";
+import { openFlowBoard } from "../flow_board/logic";
 import { openOf } from "../strip/logic";
 import { ACTIONS_PREFIX, firstPickable, joinQuery, paletteKey, splitQuery } from "./logic";
 
@@ -248,7 +248,7 @@ export function Palette({ params, close }: OverlayProps<"command_palette">) {
         return;
       case "edit_flow":
         close();
-        openFlowEditor(changeFlowOpen(item.project));
+        openFlowBoard({ project: item.project });
         return;
       case "pause": {
         // At once, no confirmation (d0112); the title bar and the banner follow the service's events.

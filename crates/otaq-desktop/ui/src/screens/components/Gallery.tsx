@@ -1822,9 +1822,6 @@ function BoardViewSection() {
             onNewTicket={() => {
               setPicked("new ticket");
             }}
-            onEditFlow={() => {
-              setPicked("edit flow");
-            }}
           />
         </div>
       ))}

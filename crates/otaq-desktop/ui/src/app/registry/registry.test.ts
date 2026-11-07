@@ -74,7 +74,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(37);
+    expect(OVERLAY_IDS).toHaveLength(36);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual(["quick_switcher", "command_palette", "processes", "terminals", "activity"]);
   });
@@ -135,7 +135,6 @@ describe("the fixed ids", () => {
         case "gallery":
         case "onboarding":
         case "full_view":
-        case "flow_editor":
           return "page";
       }
     };

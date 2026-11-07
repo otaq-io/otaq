@@ -58,4 +58,8 @@ cards: Array<BoardCard>, dev: BoardDevSections | null,
 /**
  * Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
  */
-add: string | null, };
+add: string | null, 
+/**
+ * "changing": a saved flow change waits for the tickets in this stage ([`mark_changing`]).
+ */
+changing: string | null, };

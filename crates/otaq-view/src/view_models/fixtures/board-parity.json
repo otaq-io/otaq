@@ -1564,6 +1564,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "2",
             "dev": null,
@@ -1620,6 +1621,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "15",
             "dev": {
@@ -2156,6 +2158,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "4",
             "dev": {
@@ -2547,6 +2550,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "4",
             "dev": null,
@@ -2712,6 +2716,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": true,
             "count": "2",
             "dev": null,
@@ -2775,6 +2780,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": null,
         "folded_width": 52.0,
@@ -2803,7 +2809,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -2953,6 +2958,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "2",
             "dev": null,
@@ -3009,6 +3015,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "15",
             "dev": {
@@ -3545,6 +3552,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "4",
             "dev": {
@@ -3936,6 +3944,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "4",
             "dev": null,
@@ -4101,6 +4110,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": true,
             "count": "2",
             "dev": null,
@@ -4164,6 +4174,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": null,
         "folded_width": 52.0,
@@ -4192,7 +4203,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -4342,6 +4352,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "2",
             "dev": null,
@@ -4398,6 +4409,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "15",
             "dev": {
@@ -4934,6 +4946,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "4",
             "dev": {
@@ -5325,6 +5338,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "4",
             "dev": null,
@@ -5490,6 +5504,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": true,
             "count": "2",
             "dev": null,
@@ -5553,6 +5568,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": {
           "chips": [
@@ -5592,7 +5608,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -5720,6 +5735,7 @@
           {
             "add": "Add ticket",
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": null,
@@ -5776,6 +5792,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "1",
             "dev": {
@@ -5915,6 +5932,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": null,
@@ -6015,6 +6033,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": true,
             "count": "0",
             "dev": null,
@@ -6078,6 +6097,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": null,
         "folded_width": 52.0,
@@ -6106,7 +6126,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6181,6 +6200,7 @@
           {
             "add": "Add ticket",
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": null,
@@ -6237,6 +6257,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "1",
             "dev": {
@@ -6376,6 +6397,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": null,
@@ -6476,6 +6498,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": true,
             "count": "0",
             "dev": null,
@@ -6539,6 +6562,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": null,
         "folded_width": 52.0,
@@ -6567,7 +6591,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6642,6 +6665,7 @@
           {
             "add": "Add ticket",
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": null,
@@ -6698,6 +6722,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "1",
             "dev": {
@@ -6837,6 +6862,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": null,
@@ -6937,6 +6963,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": true,
             "count": "0",
             "dev": null,
@@ -7000,6 +7027,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": {
           "chips": [
@@ -7039,7 +7067,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -7590,6 +7617,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "2",
             "dev": null,
@@ -7646,6 +7674,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "3",
             "dev": {
@@ -7850,6 +7879,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": {
@@ -7998,6 +8028,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "1",
             "dev": null,
@@ -8131,6 +8162,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": true,
             "count": "1",
             "dev": null,
@@ -8194,6 +8226,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": null,
         "folded_width": 52.0,
@@ -8222,7 +8255,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -8387,6 +8419,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "2",
             "dev": null,
@@ -8443,6 +8476,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "3",
             "dev": {
@@ -8647,6 +8681,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": {
@@ -8795,6 +8830,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "1",
             "dev": null,
@@ -8928,6 +8964,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": true,
             "count": "1",
             "dev": null,
@@ -8991,6 +9028,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": null,
         "folded_width": 52.0,
@@ -9019,7 +9057,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -9184,6 +9221,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "2",
             "dev": null,
@@ -9240,6 +9278,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "3",
             "dev": {
@@ -9444,6 +9483,7 @@
           {
             "add": null,
             "cards": [],
+            "changing": null,
             "collapsed": false,
             "count": "0",
             "dev": {
@@ -9592,6 +9632,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": false,
             "count": "1",
             "dev": null,
@@ -9725,6 +9766,7 @@
                 "needs_you": false
               }
             ],
+            "changing": null,
             "collapsed": true,
             "count": "1",
             "dev": null,
@@ -9788,6 +9830,7 @@
             "kind": "fold_column"
           }
         },
+        "edit_flow": "Edit flow",
         "empty": null,
         "filter_strip": {
           "chips": [
@@ -9827,7 +9870,6 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "edit_flow": "Edit flow",
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",

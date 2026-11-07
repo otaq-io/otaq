@@ -59,4 +59,9 @@ toolbar: BoardToolbar,
 /**
  * The List view (LST-01, T-0461); `null` on the Board.
  */
-list: ListView | null, };
+list: ListView | null, 
+/**
+ * "Edit flow", at the end of the Board's columns: the board turns into the flow's editor in place. `null` on
+ * the other views.
+ */
+edit_flow: string | null, };

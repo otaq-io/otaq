@@ -1,27 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStore } from "../../app/store";
-import { overlays } from "../../app/overlays";
 import type { FlowEditorView } from "../../generated/FlowEditorView";
 import {
-  addOnOpening,
   applyDraft,
   askEach,
   askToWrite,
-  changeFlowOpen,
   chipPressed,
-  columnEditorOpen,
   dropIndex,
   editStage,
   importChoice,
   keyMove,
   NO_CHOICES,
   nextTile,
-  openFlowEditor,
-  openStageSkill,
   sendFirst,
   skillButton,
-  stageSkillOpen,
   typedItem,
   withClash,
   withModel,
@@ -57,19 +50,14 @@ describe("the flow editor's calls", () => {
   it("a chip sends its words, opens the chooser, or asks the one tool", async () => {
     const agents = createStore<Readonly<Record<string, string>>>({});
     const chooser = vi.fn();
-    await chipPressed("SHOP", "onboarding", { kind: "choose_tool" }, chooser, vi.fn(), ask, agents);
+    await chipPressed("SHOP", { kind: "choose_tool" }, chooser, vi.fn(), ask, agents);
     expect(chooser).toHaveBeenCalledTimes(1);
     expect(ask).not.toHaveBeenCalled();
     ask.mockResolvedValue({ agent: "a-cc" });
-    await chipPressed("SHOP", "onboarding", { kind: "ask", tool: "claude" }, chooser, vi.fn(), ask, agents);
-    expect(ask).toHaveBeenCalledWith("flow_editor.ask", {
-      project: "SHOP",
-      from: "onboarding",
-      tool: "claude",
-    });
+    await chipPressed("SHOP", { kind: "ask", tool: "claude" }, chooser, vi.fn(), ask, agents);
+    expect(ask).toHaveBeenCalledWith("flow_editor.ask", { project: "SHOP", tool: "claude" });
     await chipPressed(
       "SHOP",
-      "project",
       { kind: "send", message: "Why is Security here?" },
       chooser,
       vi.fn(),
@@ -104,7 +92,6 @@ describe("the flow editor's calls", () => {
     const write = vi.fn();
     await chipPressed(
       "SHOP",
-      "project",
       { kind: "write_skill", stage: "plan", prefill: "Write a skill for the Plan stage: " },
       vi.fn(),
       write,
@@ -165,7 +152,7 @@ describe("the flow editor's calls", () => {
 
   it("Both, and compare asks each tool", async () => {
     ask.mockResolvedValue({ agent: "x" });
-    await askEach("SHOP", "onboarding", ["claude", "opencode"], ask, createStore({}));
+    await askEach("SHOP", ["claude", "opencode"], ask, createStore({}));
     expect(ask.mock.calls.map((c) => (c[1] as { tool: string }).tool)).toEqual(["claude", "opencode"]);
   });
 
@@ -207,61 +194,5 @@ describe("moving a step", () => {
     expect(nextTile(0, 5)).toBe(1);
     expect(nextTile(4, 5)).toBe(0);
     expect(nextTile(0, 0)).toBe(0);
-  });
-});
-
-describe("where the editor opens (FED-09, BRD-04)", () => {
-  it("a column's ⋯: Edit <stage>… selects it; Add a stage after <stage> adds one there; Change the whole flow…", () => {
-    expect(columnEditorOpen("SHOP", { open: "stage", stage: "product-spec" })).toEqual({
-      project: "SHOP",
-      from: "project",
-      select_stage: "product-spec",
-    });
-    expect(columnEditorOpen("SHOP", { open: "add_after", after: "product-spec" })).toEqual({
-      project: "SHOP",
-      from: "project",
-      add_after: "product-spec",
-    });
-    // Backlog's: first, right after it.
-    expect(columnEditorOpen("SHOP", { open: "add_after", after: null })).toEqual({
-      project: "SHOP",
-      from: "project",
-      add_after: null,
-    });
-    expect(columnEditorOpen("SHOP", { open: "flow" })).toEqual(changeFlowOpen("SHOP"));
-    expect(changeFlowOpen("SHOP")).toEqual({ project: "SHOP", from: "project" });
-  });
-
-  it("use your own Open PR skill: Settings closes and the editor opens on the Delivery stage's Skill field", () => {
-    expect(stageSkillOpen("SHOP", "done")).toEqual({
-      project: "SHOP",
-      from: "project",
-      select_stage: "done",
-      focus_skill: true,
-    });
-    const calls: string[] = [];
-    const routes = {
-      closeSettings: () => calls.push("close settings"),
-      open: (o: unknown) => calls.push(JSON.stringify(o)),
-    };
-    openStageSkill("SHOP", "done", routes);
-    expect(calls).toEqual(["close settings", JSON.stringify(stageSkillOpen("SHOP", "done"))]);
-    // The Delivery stage not known: the whole flow.
-    calls.length = 0;
-    openStageSkill("SHOP", null, routes);
-    expect(calls).toEqual(["close settings", JSON.stringify(changeFlowOpen("SHOP"))]);
-  });
-
-  it("the stage a column asked for is added on opening, after its stage or first", () => {
-    expect(addOnOpening("product-spec")).toEqual({ edit: "add", after: "product-spec" });
-    expect(addOnOpening(null)).toEqual({ edit: "add" });
-  });
-
-  it("opens over the window as the flow_editor overlay", () => {
-    openFlowEditor({ project: "SHOP", from: "project", select_stage: "dev" });
-    expect(overlays.store.get()).toEqual([
-      { id: "flow_editor", params: { project: "SHOP", from: "project", select_stage: "dev" } },
-    ]);
-    overlays.store.set([]);
   });
 });

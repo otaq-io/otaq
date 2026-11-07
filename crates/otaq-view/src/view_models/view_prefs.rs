@@ -225,8 +225,6 @@ pub struct ToolbarGroup {
 pub struct Toolbar {
     /// Board · List · Files · Settings (BRD-01, FIL-01): Settings is the project's settings page, in the main area.
     pub views: ToolbarGroup,
-    /// "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
-    pub edit_flow: Option<String>,
     /// Files: "What the base branch looks like, and which agents are changing which files", after a divider.
     pub subtitle: Option<String>,
     /// Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
@@ -241,7 +239,6 @@ pub struct Toolbar {
 }
 
 pub const ALL_TICKETS: &str = "All tickets";
-pub const EDIT_FLOW: &str = "Edit flow";
 pub const NEW_TICKET: &str = "New ticket";
 /// The Files view's toolbar subtitle (`s28-03`).
 pub const FILES_SUBTITLE: &str =
@@ -308,7 +305,6 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                 ),
             ],
         },
-        edit_flow: (view == ViewKind::Board).then(|| EDIT_FLOW.to_owned()),
         subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
         live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
         switch: match view {
@@ -429,12 +425,11 @@ mod tests {
         assert!(settings.views.options[3].selected);
         assert_eq!(
             (
-                settings.edit_flow.as_ref(),
                 settings.switch.as_ref(),
                 settings.all_tickets.as_ref(),
                 settings.new_ticket.as_ref()
             ),
-            (None, None, None, None)
+            (None, None, None)
         );
         assert_eq!(board.views.options[1].tooltip.as_deref(), Some("List view"));
         assert_eq!(board.views.options[1].keys.as_deref(), Some("g l"));

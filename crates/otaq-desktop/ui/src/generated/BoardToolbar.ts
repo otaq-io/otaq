@@ -11,10 +11,6 @@ export type BoardToolbar = {
  */
 views: ToolbarGroup, 
 /**
- * "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
- */
-edit_flow: string | null, 
-/**
  * Files: "What the base branch looks like, and which agents are changing which files", after a divider.
  */
 subtitle: string | null, 

@@ -39,6 +39,7 @@ pub mod comment_limits;
 pub mod comments;
 pub mod connection;
 pub mod created_summary;
+pub mod decide_menu;
 pub mod decision_change;
 pub mod decision_item;
 pub mod delete;

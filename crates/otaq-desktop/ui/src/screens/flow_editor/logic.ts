@@ -6,14 +6,11 @@
 // Nothing here starts an agent without the user's words, a chip or an Ask (d0087); Ask the agent to write it only
 // prefills the agent's box (Q441). The picks a problem needs (Q426) stay here until Apply sends them, as the preview's
 // did.
-import { closeOverlay, openOverlay } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
-import type { BoardColumnEditor } from "../../generated/BoardColumnEditor";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
 import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
 import type { FlowEditorClashPick } from "../../generated/FlowEditorClashPick";
 import type { FlowEditorEdited } from "../../generated/FlowEditorEdited";
-import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
 import type { FlowEditorStarted } from "../../generated/FlowEditorStarted";
@@ -23,80 +20,6 @@ import { request } from "../../tauri";
 
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
-
-/**
- * Where the editor opens over the board (FED-09): the project, where it opened, and optionally a stage to select
- * (Edit <stage>…) or one to add a new stage after (Add a stage after <stage>, the new one selected with its details
- * open; `null`: first, after Backlog). Onboarding's Flow step and the Flow setup page draw it in place instead.
- */
-export interface FlowEditorOpen {
-  project: string;
-  from: FlowEditorFrom;
-  select_stage?: string;
-  /** Opened on `select_stage`'s Skill field, which gets the keyboard. */
-  focus_skill?: boolean;
-  add_after?: string | null;
-}
-
-/** Opens the editor over the window. */
-export function openFlowEditor(open: FlowEditorOpen): void {
-  openOverlay("flow_editor", open);
-}
-
-/** The project menu's Change flow…, Settings → Flow's Change flow… and a column's Change the whole flow…. */
-export function changeFlowOpen(project: string): FlowEditorOpen {
-  return { project, from: "project" };
-}
-
-/** How a column's ⋯ item (BRD-04) opens the editor on its project: that stage selected, a new stage after it, or the
- * whole flow. */
-export function columnEditorOpen(project: string, editor: BoardColumnEditor): FlowEditorOpen {
-  switch (editor.open) {
-    case "stage":
-      return { project, from: "project", select_stage: editor.stage };
-    case "add_after":
-      return { project, from: "project", add_after: editor.after };
-    case "flow":
-      return changeFlowOpen(project);
-  }
-}
-
-/**
- * "Use your own Open PR skill" (the PR provider row's link, the refused Open PR toast's): the editor on the Delivery
- * stage, its Skill field focused, where the user's own Open PR skill goes.
- */
-export function stageSkillOpen(project: string, stage: string): FlowEditorOpen {
-  return { project, from: "project", select_stage: stage, focus_skill: true };
-}
-
-/** Where "use your own Open PR skill" goes: Settings closes, so the editor over the board shows. */
-export interface StageSkillRoutes {
-  closeSettings: () => void;
-  open: (open: FlowEditorOpen) => void;
-}
-
-export const STAGE_SKILL_ROUTES: StageSkillRoutes = {
-  closeSettings: () => {
-    closeOverlay("settings");
-  },
-  open: openFlowEditor,
-};
-
-/** "Use your own Open PR skill": the editor on the Delivery stage's Skill field (the whole flow when the Delivery
- * stage isn't known). */
-export function openStageSkill(
-  project: string,
-  stage: string | null,
-  routes: StageSkillRoutes = STAGE_SKILL_ROUTES,
-): void {
-  routes.closeSettings();
-  routes.open(stage === null ? changeFlowOpen(project) : stageSkillOpen(project, stage));
-}
-
-/** The edit that adds the stage a column's Add a stage after <stage> asked for, on opening. */
-export function addOnOpening(after: string | null): FlowEditorStageEdit {
-  return after === null ? { edit: "add" } : { edit: "add", after };
-}
 
 /** The agent each project's editor panel shows, once one was asked (the page's own state, like the agent panel's). */
 export const editorAgents: Store<Readonly<Record<string, string>>> = createStore<
@@ -260,12 +183,11 @@ export async function sendFirst(
 /** Ask <Tool> (Made for, the chooser, "Ask Claude Code"); the panel shows the agent that looks. */
 export async function askTool(
   project: string,
-  from: FlowEditorFrom,
   tool: string,
   ask: Ask = request,
   agents: Store<Readonly<Record<string, string>>> = editorAgents,
 ): Promise<string> {
-  const started = (await ask("flow_editor.ask", { project, from, tool })) as FlowEditorStarted;
+  const started = (await ask("flow_editor.ask", { project, tool })) as FlowEditorStarted;
   showEditorAgent(project, started.agent, agents);
   return started.agent;
 }
@@ -273,12 +195,11 @@ export async function askTool(
 /** "Both, and compare": asks each tool in turn (each proposal becomes its own Made for entry). */
 export async function askEach(
   project: string,
-  from: FlowEditorFrom,
   tools: readonly string[],
   ask: Ask = request,
   agents: Store<Readonly<Record<string, string>>> = editorAgents,
 ): Promise<void> {
-  for (const tool of tools) await askTool(project, from, tool, ask, agents);
+  for (const tool of tools) await askTool(project, tool, ask, agents);
 }
 
 /**
@@ -345,7 +266,6 @@ export function skillButton(
  */
 export function chipPressed(
   project: string,
-  from: FlowEditorFrom,
   action: FlowEditorChipAction,
   chooser: () => void,
   write: (stage: string, prefill: string) => void,
@@ -359,7 +279,7 @@ export function chipPressed(
       chooser();
       return Promise.resolve(null);
     case "ask":
-      return askTool(project, from, action.tool, ask, agents);
+      return askTool(project, action.tool, ask, agents);
     case "write_skill":
       write(action.stage, action.prefill);
       return Promise.resolve(null);

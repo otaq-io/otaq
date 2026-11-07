@@ -1097,7 +1097,7 @@ mod tests {
         n.set_project(Some("SHOP".into()));
         let view = n.view();
         assert_eq!(view.banners[0].kind, SituationKind::FlowWaiting);
-        assert_eq!(view.banners[0].title, "Flow change waiting");
+        assert_eq!(view.banners[0].title, "Saved \u{b7} waiting");
         assert!(
             view.banners[0]
                 .text

@@ -563,7 +563,7 @@ fn row(situation: &Situation) -> BannerRow {
             (
                 FLOW_CHANGE_WAITING.to_owned(),
                 flow_waiting_text(summary, *count),
-                (*count > 0).then_some(APPLY_NOW),
+                (*count > 0).then_some(APPLY_NOW_ASKS),
             )
         }
         Situation::ServiceUpdateReady { working, waiting } => (
@@ -595,7 +595,7 @@ fn row(situation: &Situation) -> BannerRow {
 }
 
 /// The flow change banner's title (FLW-06).
-pub const FLOW_CHANGE_WAITING: &str = "Flow change waiting";
+pub const FLOW_CHANGE_WAITING: &str = "Saved \u{b7} waiting";
 /// Drops the waiting change, with no question (FLW-06): the banner's and Settings → Flow's.
 pub const CANCEL_CHANGE: &str = "Cancel change";
 
@@ -622,9 +622,9 @@ pub fn flow_waiting_text(summary: &str, count: usize) -> String {
     }
 }
 
-/// Opens the Apply now window (APN-01); not offered while the change waits for no ticket (it applies at the
-/// scheduler's next pass).
-pub const APPLY_NOW: &str = crate::view_models::apply_now::APPLY_NOW;
+/// The banner's button, which opens the Apply now window (APN-01): it asks where each affected ticket goes before
+/// anything applies. Not offered while the change waits for no ticket (it applies at the scheduler's next pass).
+pub const APPLY_NOW_ASKS: &str = "Apply now\u{2026}";
 
 /// Otaq's ask before macOS's own question (ATT-13, d0090).
 pub fn notifications_ask() -> String {
@@ -709,7 +709,7 @@ mod tests {
         );
         let view = m.rows()[1].view(false);
         assert_eq!(view.tone, BannerTone::Warning);
-        assert_eq!(view.title, "Flow change waiting");
+        assert_eq!(view.title, "Saved \u{b7} waiting");
         assert_eq!(
             view.text,
             "QA after Security \u{b7} 8 tickets still working. It applies when they\u{2019}re through; until then no \
@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(
             buttons,
             [
-                (BannerButtonId::Action, "Apply now"),
+                (BannerButtonId::Action, "Apply now\u{2026}"),
                 (BannerButtonId::Secondary, "Cancel change")
             ]
         );
@@ -741,7 +741,7 @@ mod tests {
         assert!(view.text.starts_with(
             "QA after Security \u{b7} Review can be skipped \u{b7} 1 ticket still working."
         ));
-        assert_eq!(view.buttons[0].label, "Apply now");
+        assert_eq!(view.buttons[0].label, "Apply now\u{2026}");
         m.raise(Situation::FlowWaiting {
             summary: "QA after Security".into(),
             count: 0,

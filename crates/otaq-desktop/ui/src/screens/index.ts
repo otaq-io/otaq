@@ -8,7 +8,6 @@ export { components } from "./components";
 export { dependencies } from "./dependencies";
 export { editor } from "./editor";
 export { files } from "./files";
-export { flowEditor } from "./flow_editor";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { overview } from "./overview";
