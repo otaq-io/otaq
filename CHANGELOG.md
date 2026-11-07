@@ -5,6 +5,10 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Search lists the tickets it finds.** Typing in the board's search (`/`) still filters the board, and the list
+  under the field now also shows the matching tickets with their column and status, Done ones included; ↵ or a
+  click opens one. Two new filters: `in:<stage>` keeps one column's tickets (`in:review`, `in:backlog`, `in:done`;
+  the stage's name or id, any case) and `by:<agent>` the tickets whose current stage that agent works (`by:strong`).
 - **Starting a ticket puts it into the first stage.** The Ready for Dev column is gone. Every Backlog card has
   **Start** (a drag into the first stage and ⌘D do the same). A ticket that can't begin yet waits at the top of that
   column and says why: "Waits for SHOP-12 to merge", "Waits for a free agent · 2nd in line", "Waiting for the flow

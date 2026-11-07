@@ -193,6 +193,10 @@ pub struct CardAgents {
     /// Open agent….
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refused_agent: Option<String>,
+    /// The agent of the stage the ticket is in or waits before, by name: the ticket's own agent for that stage if it
+    /// chose one, else the stage's. `None` in Backlog, Done and a stage that runs no agent. The search's `by:` reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage_agent: Option<String>,
 }
 
 /// Where a waiting ticket starts: the stage, the agent it runs there, and that agent's model now.
@@ -376,6 +380,10 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
                 .and_then(|s| s.agent_id),
             None => None,
         };
+        let stage_agent = match &starts {
+            Some(start) => Some(start.agent.clone()),
+            None => stage_agent_of(board, &ticket, &flow).await?,
+        };
         cards.push(CardAgents {
             running_developer: name_of(SessionRole::Developer),
             running_validator: name_of(SessionRole::Validator),
@@ -391,6 +399,7 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
                 .collect(),
             starts,
             refused_agent,
+            stage_agent,
             key: ticket.key,
         });
     }
@@ -398,6 +407,29 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
         agent_count: agents.len(),
         cards,
         connected: Vec::new(),
+    })
+}
+
+/// The agent of the stage `ticket` is in ([`CardAgents::stage_agent`]): its own choice there, else the stage's.
+async fn stage_agent_of(
+    board: &Board,
+    ticket: &Ticket,
+    flow: &Flow,
+) -> Result<Option<String>, BoardError> {
+    let stage = match &ticket.place {
+        Place::InStage(id) | Place::Waiting(Some(id)) => flow.stage(id),
+        Place::Waiting(None) => flow.first_agent_stage(),
+        Place::Backlog | Place::Done => None,
+    };
+    let Some(stage) = stage.filter(|s| s.has_agent()) else {
+        return Ok(None);
+    };
+    Ok(match board.chosen_agent(ticket, stage).await? {
+        Some(chosen) => Some(chosen.name),
+        None => resolve::stage_agent(board, stage)
+            .await
+            .ok()
+            .map(|a| a.name),
     })
 }
 

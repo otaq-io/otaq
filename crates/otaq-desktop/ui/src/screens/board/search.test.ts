@@ -24,7 +24,7 @@ import {
   searchFocusRequests,
   setFilter,
 } from "./filter";
-import { SearchBox, stepSuggestion } from "./Search";
+import { enterAction, rowCount, SearchBox, stepSuggestion } from "./Search";
 import { board } from ".";
 
 afterEach(() => {
@@ -46,8 +46,24 @@ const VIEW: SearchView = {
     { token: "is:working", description: "agent running now", count: "3" },
     { token: "dep:SHOP-18", description: "in SHOP-18’s chain", count: "3" },
   ],
+  tickets_header: "TICKETS",
+  tickets: [
+    {
+      key: "SHOP-18",
+      title: "Checkout API",
+      column: "Review",
+      status: { palette: "review", icon: "eye", label: "Ready for review" },
+    },
+    {
+      key: "SHOP-9",
+      title: "Checkout copy",
+      column: "Done",
+      status: { palette: "done", icon: "check", label: "Merged" },
+    },
+  ],
   enter_adds: null,
   enter_opens_cleanup: false,
+  enter_opens: "SHOP-18",
 };
 
 describe("the filter is kept per project while the app runs", () => {
@@ -97,6 +113,7 @@ describe("the search field", () => {
         onType: () => undefined,
         onRemove: () => undefined,
         onPick: () => undefined,
+        onOpen: () => undefined,
         onKeyDown: () => undefined,
         onFocusChange: () => undefined,
         ...over,
@@ -111,6 +128,35 @@ describe("the search field", () => {
     expect(html).toContain('value="checkout"');
     expect(html).toContain("4 results");
     expect(html).not.toContain('placeholder="Search');
+  });
+
+  it("lists the matching tickets under the filters, Done included, with their column and status", () => {
+    const html = box({ focused: true, highlighted: 3 });
+    expect(html).toContain("FILTERS");
+    expect(html).toContain("TICKETS");
+    expect(html).toContain("Checkout API");
+    expect(html).toContain("Review");
+    expect(html).toContain("Ready for review");
+    expect(html).toContain("SHOP-9");
+    expect(html).toContain("Merged");
+    // The highlighted row is the second ticket: two suggestions come first.
+    expect(html).toMatch(
+      /aria-selected="true"[^>]*board-search-ticket[^>]*data-highlighted[^>]*>.{0,200}SHOP-9/s,
+    );
+  });
+
+  it("↵ adds a highlighted filter, opens a highlighted ticket, else the first ticket listed", () => {
+    expect(rowCount(VIEW)).toBe(4);
+    expect(enterAction(VIEW, 0)).toEqual({ kind: "add", token: "is:working" });
+    expect(enterAction(VIEW, 3)).toEqual({ kind: "open", key: "SHOP-9" });
+    expect(enterAction(VIEW, null)).toEqual({ kind: "open", key: "SHOP-18" });
+    expect(enterAction({ ...VIEW, enter_adds: "is:working" }, null)).toEqual({
+      kind: "add",
+      token: "is:working",
+    });
+    expect(enterAction({ ...VIEW, enter_opens_cleanup: true }, 3)).toEqual({ kind: "cleanup" });
+    expect(enterAction({ ...VIEW, enter_opens: null }, null)).toBeNull();
+    expect(enterAction(undefined, null)).toBeNull();
   });
 
   it("shows the placeholder and the filter key while no filter is active", () => {
