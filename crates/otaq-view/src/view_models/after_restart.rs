@@ -880,6 +880,7 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let tickets = vec![checking, asked];
         let mut r = report(&["SHOP-15", "SHOP-22"], &[]);

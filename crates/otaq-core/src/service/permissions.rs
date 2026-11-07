@@ -325,6 +325,10 @@ async fn action_for(
         R::TicketAskHuman(p) if matches!(caller, Caller::Helper { .. }) => {
             Action::AskInCharge(facts(board, &p.key).await?)
         }
+        // Asking to send it back to an earlier stage: its work agent or its checker.
+        R::TicketAskHuman(p) if p.send_back.is_some() => {
+            Action::AskSendBack(facts(board, &p.key).await?)
+        }
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),

@@ -1310,6 +1310,10 @@ pub struct AskHumanParams {
     /// The recommended option, 1-based.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
+    /// An earlier stage of the ticket's flow (its name or id) the agent asks the user to send the ticket back to,
+    /// the question being its reason (`ask human --send-back "Product spec"`); such a question takes no options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_back: Option<String>,
 }
 
 /// `{"key": "SHOP-23", "question": "…", "built": "…", "other_options": ["…"], "why": "…"}` (DEC-02).

@@ -894,6 +894,10 @@
         "recommended": {
           "ty": "Option<u32>",
           "omittable": true
+        },
+        "send_back": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -4338,6 +4342,10 @@
         },
         "recommended": {
           "ty": "Option<u32>",
+          "omittable": true
+        },
+        "send_back": {
+          "ty": "Option<SendBackTo>",
           "omittable": true
         },
         "text": {
@@ -9202,6 +9210,19 @@
         }
       }
     },
+    "SendBackTo": {
+      "kind": "struct",
+      "fields": {
+        "stage": {
+          "ty": "String",
+          "required": true
+        },
+        "stage_id": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "SentBack": {
       "kind": "struct",
       "fields": {
@@ -12254,7 +12275,8 @@
         },
         "other": {
           "newtype": "String"
-        }
+        },
+        "send_back": {}
       }
     },
     "crate::board::stage_choices::Choice": {

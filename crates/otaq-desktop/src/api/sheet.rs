@@ -2269,6 +2269,7 @@ mod tests {
             recommended: Some(1),
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
         let answer = view.answer.unwrap();

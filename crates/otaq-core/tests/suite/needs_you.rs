@@ -80,6 +80,7 @@ fn shop_web() -> Vec<Ticket> {
         recommended: None,
         notes: Vec::new(),
         asked_at: NOW - 6 * MIN,
+        send_back: None,
     });
     let mut start = t("SHOP-28", "Cart badge count", Status::StartInterrupted, 20);
     start.start_problem = Some(StartProblem {

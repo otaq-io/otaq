@@ -33,6 +33,7 @@ pub mod remote;
 pub mod reports;
 pub mod review;
 pub mod send_back;
+pub mod send_back_question;
 pub mod settings;
 pub mod skill_tools;
 pub mod snapshot;

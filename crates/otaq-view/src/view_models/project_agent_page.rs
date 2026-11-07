@@ -273,6 +273,7 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let p = state_pill(&a);
         assert_eq!(
