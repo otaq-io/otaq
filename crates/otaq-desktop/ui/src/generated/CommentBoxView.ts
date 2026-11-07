@@ -29,11 +29,6 @@ footer_icon: IconName,
  */
 pasted: string, 
 /**
- * The line while a file waits in the box: only the New ticket form's box of one report, whose report still
- * needs its own line (RPT-03). Every other box sends attachments with no text (tuq 007).
- */
-file_line: string | null, 
-/**
  * The file chip's ✕, for screen readers.
  */
 remove_file: string, open: string, 
@@ -42,10 +37,9 @@ remove_file: string, open: string,
  */
 remove: string, 
 /**
- * The Attach button by the box (tuq 003): the system picker, several files at once. `None` for a box that holds
- * one report, where a new file replaces the last (the New ticket form's, RPT-03, with its own Add).
+ * The Attach button by the box (tuq 003): the system picker, several files at once.
  */
-attach: string | null, 
+attach: string, 
 /**
  * The picker's title.
  */

@@ -5,9 +5,8 @@
 // (a screenshot becomes an image, files copied in Finder keep their names, text over the limit becomes "Pasted text ·
 // 48 KB", never text), files dropped on the box, and Attach (the system picker, several at once). An image's chip shows
 // a thumbnail (tuq 002); other files show name and size. A file over 20 MB is refused when it is added, by name, and
-// the rest of the box stays (tuq 005; `attachmentAdding.ts`). With only pasted text the button stays off and the hint
-// asks for a line; with a file the line "A comment always has its own line; the file goes with it." shows; typing
-// past the limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
+// the rest of the box stays (tuq 005; `attachmentAdding.ts`). Attachments alone may be sent (tuq 007); typing past the
+// limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
 // limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it as a Comment. While
 // the ticket's agent or check runs, the thread's box has a second button, "Tell Strong now" (`CommentBoxView.tell_agent`):
 // it posts the comment with `tell_agent`, so the running agent also gets it when idle; Comment never does. Editing a posted comment uses this box
@@ -196,8 +195,6 @@ export function CommentBox({
 }: CommentBoxProps) {
   const id = useId();
   const state = boxState(value, view.limits, view.optional);
-  // A box of one report (the New ticket form's): a file added replaces the last; its form takes drops itself.
-  const one = view.attach === null;
   // Files arrive after a moment (a request, a picker): they join what the box holds then, not when they were added.
   const latest = useRef(value);
   useLayoutEffect(() => {
@@ -214,10 +211,10 @@ export function CommentBox({
   const [refused, setRefused] = useState<readonly string[]>([]);
   const take = useCallback(
     ({ added, refused: why }: Added) => {
-      change(withAdded(latest.current, added, one));
+      change(withAdded(latest.current, added));
       setRefused(why);
     },
-    [change, one],
+    [change],
   );
   const addPathsToBox = useCallback(
     (paths: readonly string[]) => {
@@ -230,13 +227,13 @@ export function CommentBox({
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = root.current;
-    if (!el || one) return;
+    if (!el) return;
     return dropTargets.register(el, {
       takesTyping: () => false,
       paste: () => undefined,
       takeFiles: addPathsToBox,
     });
-  }, [one, addPathsToBox]);
+  }, [addPathsToBox]);
 
   // Each image's thumbnail, read once from its file.
   const drawing = useRef(new Set<number>());
@@ -268,7 +265,7 @@ export function CommentBox({
     if (pasteAction(text, view.limits) !== "chip") return;
     // Over the limit: the report chip, never text (d0109).
     e.preventDefault();
-    change(withPasted(value, text, one));
+    change(withPasted(value, text));
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape" && onCancel) {
@@ -326,22 +323,15 @@ export function CommentBox({
         </div>
       )}
       <div className="comment-box-actions">
-        {view.attach !== null && (
-          <Button
-            variant="ghost"
-            compact
-            icon="paperclip"
-            label={view.attach}
-            onClick={() => {
-              pickAttachmentFiles(view.attach_title).then(addPathsToBox, () => undefined);
-            }}
-          />
-        )}
-        {state.fileLine && view.file_line !== null && (
-          <span className="comment-box-hint" role="status">
-            {view.file_line}
-          </span>
-        )}
+        <Button
+          variant="ghost"
+          compact
+          icon="paperclip"
+          label={view.attach}
+          onClick={() => {
+            pickAttachmentFiles(view.attach_title).then(addPathsToBox, () => undefined);
+          }}
+        />
         {state.counter !== null && (
           <span className="comment-box-counter" role="status">
             {state.counter}

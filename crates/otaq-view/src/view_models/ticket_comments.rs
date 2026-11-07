@@ -34,9 +34,6 @@ pub const HINT: &str = "Every stage\u{2019}s agent reads them before it starts";
 pub const PLACEHOLDER: &str = "Add a comment for the next stage\u{2026}";
 pub const SUBMIT: &str = "Comment";
 pub const PASTED: &str = "Pasted text";
-/// The New ticket form's line while its report waits in the box (RPT-03): that form's first comment still needs its own
-/// line; every other box sends attachments alone (tuq 007).
-pub const FILE_LINE: &str = "A comment always has its own line; the file goes with it.";
 pub const OPEN: &str = "Open";
 /// The button by the box that opens the system picker (tuq 003), and the picker's title.
 pub const ATTACH: &str = "Attach";
@@ -205,17 +202,13 @@ pub struct CommentBoxView {
     pub footer_icon: IconName,
     /// The pasted chip's label: "Pasted text".
     pub pasted: String,
-    /// The line while a file waits in the box: only the New ticket form's box of one report, whose report still
-    /// needs its own line (RPT-03). Every other box sends attachments with no text (tuq 007).
-    pub file_line: Option<String>,
     /// The file chip's ✕, for screen readers.
     pub remove_file: String,
     pub open: String,
     /// The chip's ✕, for screen readers.
     pub remove: String,
-    /// The Attach button by the box (tuq 003): the system picker, several files at once. `None` for a box that holds
-    /// one report, where a new file replaces the last (the New ticket form's, RPT-03, with its own Add).
-    pub attach: Option<String>,
+    /// The Attach button by the box (tuq 003): the system picker, several files at once.
+    pub attach: String,
     /// The picker's title.
     pub attach_title: String,
     /// An empty box is fine (a dialog's optional comment); the thread's box needs text.
@@ -243,11 +236,10 @@ impl CommentBoxView {
             submit,
             footer,
             pasted: PASTED.to_owned(),
-            file_line: None,
             remove_file: "Remove the file".to_owned(),
             open: OPEN.to_owned(),
             remove: "Remove the pasted text".to_owned(),
-            attach: Some(ATTACH.to_owned()),
+            attach: ATTACH.to_owned(),
             attach_title: ATTACH_TITLE.to_owned(),
             optional,
             limits: CommentLimits::current(),
@@ -275,17 +267,9 @@ impl CommentBoxView {
         Self::new(Some(label.into()), None, Some(footer.into()), optional)
     }
 
-    /// No label over the box (the New ticket form's report has its own field label).
+    /// No label over the box (the new-ticket form's attachments have their own field label).
     pub fn without_label(mut self) -> Self {
         self.label = None;
-        self
-    }
-
-    /// A box that holds one report (the New ticket form's, RPT-03): no Attach button, a file added replaces the last,
-    /// and the report waits for its line ([`FILE_LINE`]).
-    pub fn one_report(mut self) -> Self {
-        self.attach = None;
-        self.file_line = Some(FILE_LINE.to_owned());
         self
     }
 
@@ -914,8 +898,7 @@ mod tests {
     }
 
     /// `s05-43`'s writing states rest on the box's words and limits: the paste chip ("Pasted text · 48 KB") and the
-    /// counter against the limit (the page counts; the view gives the limit). A chip alone needs no line (tuq 007):
-    /// only the New ticket form's box asks for one.
+    /// counter against the limit (the page counts; the view gives the limit). A chip alone needs no line (tuq 007).
     #[test]
     fn the_writing_states_words() {
         let b = CommentBoxView::thread(None);
@@ -926,12 +909,10 @@ mod tests {
         );
         assert_eq!(b.footer, None, "nor its line");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
-        assert_eq!(b.file_line, None, "attachments alone are sent (tuq 007)");
         assert_eq!(b.limits.chars, 2000);
         assert_eq!(b.open, "Open");
         assert_eq!(
-            b.attach.as_deref(),
-            Some("Attach"),
+            b.attach, "Attach",
             "every comment box takes files (tuq 003)"
         );
         // A dialog's box (T-0447): its label and line, no button of its own.
@@ -949,10 +930,6 @@ mod tests {
         assert!(d.optional);
         assert_eq!(d.limits, b.limits);
         assert_eq!(d.attach, b.attach);
-        assert_eq!(d.file_line, None);
-        let one = d.one_report();
-        assert_eq!(one.attach, None);
-        assert_eq!(one.file_line.as_deref(), Some(FILE_LINE));
     }
 
     /// `s05-41`'s card: "10,000 row limit isn't enforced · see comment".
