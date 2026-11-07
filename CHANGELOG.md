@@ -33,7 +33,6 @@ before Publish (`scripts/README.md`, "Making a release").
 - **Ask Noyan about a ticket from its ⋯ menu.** **Ask Noyan about this** opens Noyan's panel on a new conversation
   addressed to the ticket; it starts when you send. The menu no longer has Copy attach command (it's on Session's
   strip), and Edit ticket… says over the form that the working agent reads your edit the next time it's idle.
-
 - **One box for new work.** "New ticket, or ask Noyan…" sits at the bottom of the board and the List; ⌘N, a click
   or the toolbar's New ticket opens it. The first line is the title and the rest the description. **↵** creates the
   ticket in Backlog exactly as typed, with no agent and no cost; **⌘↵** creates and starts it; **⇧↵** (Ask Noyan to
