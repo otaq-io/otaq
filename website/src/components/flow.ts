@@ -9,7 +9,7 @@ export interface Lane {
 }
 
 export const LANES: readonly Lane[] = [
-  { title: "Ready for Dev", color: "var(--st-queued)" },
+  { title: "Backlog", color: "var(--st-queued)" },
   { title: "Dev", color: "var(--st-working)" },
   { title: "Security", color: "var(--st-investigate)" },
   { title: "Review", color: "var(--st-review)" },
@@ -29,7 +29,7 @@ interface Beat {
   attn?: boolean;
   /** The bubble: initials (av-<initials>), who, what. */
   bub?: [string, string, string];
-  /** SHOP-20, the ghost card, is working in Dev (it waited for SHOP-29). */
+  /** SHOP-20, the ghost card, waits at the top of Dev for SHOP-29, then works. */
   g?: boolean;
 }
 
@@ -38,15 +38,15 @@ const BEATS: readonly Beat[] = [
     lane: 0,
     label: "Filed",
     title: "Noyan, your planning agent, files it",
-    text: "You said “add a coupon field at checkout”. Noyan read the code and filed SHOP-29 with what it found. It starts in priority order, once an agent is free.",
-    pill: ["p-q", "activity", "Ready for Dev"],
+    text: "You said “add a coupon field at checkout”. Noyan read the code and filed SHOP-29 in Backlog with what it found. Nothing runs until you press Start.",
+    pill: ["p-q", "activity", "Not started"],
     meta: "filed by Noyan · P2",
     tool: "CC",
   },
   {
     lane: 1,
     label: "Started",
-    title: "An agent starts, in its own worktree",
+    title: "You press Start. An agent starts, in its own worktree",
     text: "Otaq makes a worktree for the ticket, runs your setup command, and starts Rust developer in Claude Code on the Dev stage’s skill. Other agents never touch this checkout.",
     pill: ["p-w", "loader", "Working", "spin"],
     meta: "otaq/SHOP-29 · 1m",
@@ -78,11 +78,11 @@ const BEATS: readonly Beat[] = [
     label: "Review",
     title: "You review the diff and approve",
     text: "The diff, the Security report, the recorded decision, and two manual checks the agents couldn’t do. You run it, read it, and approve.",
-    pill: ["p-r", "eye", "Your check"],
+    pill: ["p-r", "eye", "Ready for you"],
     meta: "+184 −22 · 1 report",
     tool: "CC",
     attn: true,
-    bub: ["U", "You", "approved · Local merge"],
+    bub: ["U", "You", "Approve & merge into main"],
   },
   {
     lane: 4,
@@ -170,10 +170,10 @@ export function beatView(beat: number): BeatView {
       meta: b.meta,
     },
     ghost: {
-      left: laneLeft(g ? 1 : 0),
+      left: laneLeft(1),
       pillClass: g ? "p-w" : "p-q",
       icon: g ? "loader" : "hourglass",
-      label: g ? "Working" : "waits for SHOP-29",
+      label: g ? "Working" : "Waits for SHOP-29 to merge",
       spin: g,
     },
     bubble: b.bub

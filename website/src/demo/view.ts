@@ -1,22 +1,20 @@
-// What the demo shows, worked out from its state (the canvas's `renderVals` in Demo3.dc.html): plain functions, so
-// React only draws their result and calls the store's methods.
+// What the demo shows, worked out from its state (the canvas's `renderVals` in Demo3.dc.html, with the app's own
+// names): plain functions, so React only draws their result and calls the store's methods.
 
 import {
   type Answer,
   type CheckResult,
   type Column,
+  COLUMN_LINE,
   type DiffFile,
   FLOWS,
   type Flow,
   type FlowId,
   type HistoryEntry,
-  KIND,
   KIND_COLOR,
-  KIND_LONG,
   L,
   type Line,
   MODELS,
-  type NoyanMsg,
   type Piece,
   PRESET_IDS,
   type Priority,
@@ -24,17 +22,14 @@ import {
   type Project,
   PROJECTS,
   type ProjectKey,
-  type StageId,
   type StageKind,
   type Ticket,
   type TicketStatus,
   TOOL_NAMES,
   type ToolId,
+  WHAT_HAPPENS,
 } from "./data";
 import type { Comment, DemoState, PaneTab, SessionPart } from "./state";
-
-/** The demo board's width: click-placed menus are clamped inside it. */
-export const DEMO_WIDTH = 1280;
 
 /** A project's flow in `s`. */
 export function flowOf(s: DemoState, p: ProjectKey): Flow {
@@ -55,6 +50,8 @@ const running = (t: Ticket) =>
   t.st === "checking" ||
   t.st === "checking2" ||
   t.st === "helpers";
+/** Started, but waiting at the top of its first stage for what it waits for or a free agent. */
+const waitingToStart = (t: Ticket) => t.st === "queued" && t.col !== "backlog";
 
 // --- Needs you -----------------------------------------------------------------------------------------------------
 
@@ -62,13 +59,17 @@ export interface NeedItem {
   k: string;
   p: ProjectKey;
   why: string;
+  /** In the strip's Your review part: a ticket ready for you. */
+  review: boolean;
 }
 
-/** What needs you in project `p`, in the strip's order: questions and decisions first, then your checks. */
+/** What needs you in project `p`, in the strip's order: questions and decisions first, then Your review. */
 export function needsOf(tickets: readonly Ticket[], p: ProjectKey): NeedItem[] {
   const items: NeedItem[] = [];
-  for (const t of tickets) if (t.p === p && t.ask && asking(t)) items.push({ k: t.k, p, why: t.ask.short });
-  for (const t of tickets) if (t.p === p && t.st === "review") items.push({ k: t.k, p, why: "your check" });
+  for (const t of tickets)
+    if (t.p === p && t.ask && asking(t)) items.push({ k: t.k, p, why: t.ask.short, review: false });
+  for (const t of tickets)
+    if (t.p === p && t.st === "review") items.push({ k: t.k, p, why: "ready", review: true });
   return items;
 }
 
@@ -90,18 +91,10 @@ export function status(t: Ticket): Status {
   const st: TicketStatus = t.st;
   switch (st) {
     case "queued":
-      return {
-        cls: "",
-        icon: "activity",
-        label:
-          t.col === "backlog"
-            ? t.prio === 1
-              ? "P1 · not started"
-              : "not started"
-            : t.waits.length
-              ? "waits for " + t.waits.join(", ") + " to merge"
-              : "starts in priority order",
-      };
+      if (t.col === "backlog") return { cls: "", icon: "activity", label: "Not started" };
+      return t.waits.length
+        ? { cls: "", icon: "hourglass", label: "Waits for " + t.waits.join(", ") + " to merge" }
+        : { cls: "", icon: "hourglass", label: "Waits for a free agent · 1st in line" };
     case "working":
       return { cls: "w", icon: "loader", label: "Working" };
     case "working2":
@@ -120,13 +113,13 @@ export function status(t: Ticket): Status {
     case "checking2":
       return { cls: "i", icon: "shield-check", label: "Checking · round 2 · back from Dev" };
     case "failed":
-      return { cls: "a", icon: "circle-alert", label: "Failed 3 times: decide" };
+      return { cls: "a", icon: "circle-alert", label: "Security failed 3 times · decide" };
     case "review":
       return {
         cls: "r",
         icon: "eye",
         label:
-          "Your check · passed " + ((t.checks ?? []).length === 2 ? "Security and Validate" : "Validate"),
+          "Ready for you · passed " + ((t.checks ?? []).length === 2 ? "Security and Validate" : "Validate"),
       };
     case "merging":
       return { cls: "ok", icon: "loader", label: "Merge check · pnpm test…" };
@@ -134,10 +127,10 @@ export function status(t: Ticket): Status {
       return {
         cls: "ok",
         icon: "git-pr",
-        label: (t.k === "SHOP-26" ? "PR #481" : "PR #492") + " open · mark merged when it lands",
+        label: "PR open · " + (t.k === "SHOP-26" ? "#481" : "#492") + " · Mark merged when it lands",
       };
     case "done":
-      return { cls: "", icon: "git-merge", label: "Merged" };
+      return { cls: "", icon: "git-merge", label: "Merged into main" };
   }
 }
 
@@ -166,37 +159,49 @@ export interface CardView {
   status: Status;
   /** `attn`, `sel` and `drag`, as drawn. */
   cls: string;
-  /** Only Backlog and Ready cards can be dragged. */
+  /** Backlog cards, and those still waiting at the top of their first stage, can be dragged. */
   drag: boolean;
   pieces: readonly Piece[];
   /** Up to three pieces not merged yet, for the card. */
   piecesShort: readonly Piece[];
   pieceSum: string;
-  /** The card's button: Review, Decide, Answer or Reply; null when there's nothing to do. */
+  /** The card's button: Start, Review, Decide, Answer or Reply; null when there's nothing to do. */
   act: string | null;
+}
+
+/** A column header in Edit flow: its stage, as the app's flow editor shows it. */
+export interface StageHead {
+  what: string;
+  who: string;
+  skill: string;
+  /** "3 rounds · fails go to Dev", "Fails go to Dev", or Done's delivery. */
+  line: string;
+  sel: boolean;
+  fixed: boolean;
 }
 
 export interface ColumnView {
   id: Column;
   title: string;
-  kind: string;
   color: string;
   sub: string;
   cards: CardView[];
   emptyText: string;
   /** While dragging: `drop` on the column under the card, `nodrop` on the ones it can't go to. */
   cls: string;
+  /** In Edit flow, the stage the header stands for. */
+  head: StageHead | null;
 }
 
 export interface ProjectTab {
   key: ProjectKey;
   name: string;
   on: boolean;
-  /** How many questions and decisions wait in it; your checks aren't counted. */
+  /** How many questions and decisions wait in it; tickets ready for review aren't counted. */
   badge: number;
 }
 
-export interface ActivityTool {
+export interface RunningTool {
   id: ToolId;
   name: string;
   running: string;
@@ -210,14 +215,19 @@ export interface ActivityTool {
 
 export interface BoardView {
   proj: Project;
-  flowLabel: string;
-  runningLabel: string;
+  /** "3 running": the header's Running button, shown only while agents run. */
+  runningLabel: string | null;
   hintText: string;
   projects: ProjectTab[];
+  /** Questions and decisions: the strip's Needs you. */
   needs: NeedItem[];
+  /** Tickets ready for you: the strip's Your review. */
+  reviews: NeedItem[];
   columns: ColumnView[];
   doneCount: number;
-  actTools: ActivityTool[];
+  /** Done's line: how work leaves the flow. */
+  delivery: string;
+  runningTools: RunningTool[];
   pause: { label: string; icon: string; cls: string; scope: string; menuTitle: string };
 }
 
@@ -235,20 +245,22 @@ function card(s: DemoState, t: Ticket): CardView {
     cls: [asking(t) ? "attn" : "", s.openKey === t.k ? "sel" : "", s.dragKey === t.k ? "drag" : ""]
       .filter(Boolean)
       .join(" "),
-    drag: t.col === "backlog" || t.col === "ready",
+    drag: t.col === "backlog" || waitingToStart(t),
     pieces,
     piecesShort: pieces.filter((pc) => pc.s !== "merged").slice(0, 3),
     pieceSum: String(pieces.filter((pc) => pc.s === "merged").length) + " merged",
     act:
-      t.st === "review"
-        ? "Review"
-        : t.st === "failed"
-          ? "Decide"
-          : t.ask
-            ? t.ask.kind === "perm"
-              ? "Answer"
-              : "Reply"
-            : null,
+      t.col === "backlog"
+        ? "Start"
+        : t.st === "review"
+          ? "Review"
+          : t.st === "failed"
+            ? "Decide"
+            : t.ask
+              ? t.ask.kind === "perm"
+                ? "Answer"
+                : "Reply"
+              : null,
   };
 }
 
@@ -259,49 +271,72 @@ function shown(s: DemoState): Ticket[] {
   return q ? mine.filter((t) => (t.k + " " + t.title).toLowerCase().includes(q)) : mine;
 }
 
-/** The board's columns: Backlog, the project's flow, then Done once it's unfolded. */
+/** The flow the board shows: the project's, or the draft while Edit flow is open. */
+function boardFlow(s: DemoState): Flow {
+  return s.flowOpen && s.flowDraftId ? FLOWS[s.flowDraftId] : flowOf(s, s.project);
+}
+
+const failLine = (kind: StageKind, fail: string) =>
+  kind === "check" ? "3 rounds · fails go to " + fail : kind === "you" ? "Fails go to " + fail : "";
+
+/** The board's columns: Backlog, the project's flow, then Done once it's unfolded (always in Edit flow). */
 export function columnsOf(s: DemoState): ColumnView[] {
   const mine = shown(s);
-  const defs: { id: Column; name: string; kind: StageKind; sub: string }[] = [
-    {
-      id: "backlog",
-      name: "Backlog",
-      kind: "wait",
-      sub: "Noyan’s tickets and yours · drag to Ready, or Start",
-    },
-    ...flowOf(s, s.project).stages.map((st) => ({
-      id: st.id,
-      name: st.name,
-      kind: st.kind,
-      sub: st.kind === "wait" ? "Starts in priority order" : st.who,
-    })),
-  ];
-  if (s.doneOpen) defs.push({ id: "done", name: "Done", kind: "delivery", sub: "Merged" });
-  const weight = (t: Ticket) => (asking(t) ? 0 : 1);
+  const flow = boardFlow(s);
+  const first = flow.stages[0]?.id;
+  const defs: { id: Column; name: string; kind: StageKind; head: Omit<StageHead, "sel" | "fixed"> | null }[] =
+    [
+      { id: "backlog", name: "Backlog", kind: "wait", head: null },
+      ...flow.stages.map((st) => ({
+        id: st.id,
+        name: st.name,
+        kind: st.kind,
+        head: { what: WHAT_HAPPENS[st.kind], who: st.who, skill: st.skill, line: failLine(st.kind, st.fail) },
+      })),
+    ];
+  if (s.doneOpen || s.flowOpen) defs.push({ id: "done", name: "Done", kind: "delivery", head: null });
+  // Tickets waiting to start sit at the top of their column, then the ones that need you, then by priority.
+  const weight = (t: Ticket) => (waitingToStart(t) ? 0 : asking(t) ? 1 : 2);
   return defs.map((c) => {
-    const droppable = c.id === "backlog" || c.id === "ready";
+    const droppable = c.id === "backlog" || c.id === first;
+    const fixed = c.id === "backlog" || c.id === "done";
     return {
       id: c.id,
       title: c.name,
-      kind: KIND[c.kind],
       color: KIND_COLOR[c.kind],
-      sub: c.sub,
+      sub: c.id === "done" ? flow.delivery : COLUMN_LINE[c.kind],
       cards: mine
         .filter((t) => t.col === c.id)
         .sort((a, b) => weight(a) - weight(b) || a.prio - b.prio)
         .map((t) => card(s, t)),
       emptyText:
         c.kind === "wait"
-          ? "Drop a ticket here to start it when it’s ready"
+          ? "New tickets wait here until you start them"
           : c.kind === "you"
-            ? "Nothing to check"
-            : "Nothing here",
+            ? "Agents move their ticket here when they submit it for your review"
+            : c.kind === "check"
+              ? "An agent checks each ticket here before it moves on"
+              : c.kind === "agent"
+                ? "Tickets move here when their agent starts"
+                : "Nothing here",
       cls: s.dragKey ? (s.dropCol === c.id ? "drop" : droppable ? "" : "nodrop") : "",
+      head: s.flowOpen
+        ? {
+            ...(c.head ?? {
+              what: WHAT_HAPPENS[c.kind],
+              who: "",
+              skill: "",
+              line: c.id === "done" ? flow.delivery : "",
+            }),
+            sel: s.flowSel === c.id,
+            fixed,
+          }
+        : null,
     };
   });
 }
 
-function activityTools(s: DemoState): ActivityTool[] {
+function runningTools(s: DemoState): RunningTool[] {
   const byTool: Record<ToolId, number> = { CC: 0, CX: 0, CP: 0, OC: 0 };
   for (const t of s.tickets) if (running(t)) byTool[t.tool] += 1;
   if (s.tickets.some((t) => t.st === "checking")) byTool.CX += 1;
@@ -352,25 +387,28 @@ function activityTools(s: DemoState): ActivityTool[] {
 
 export function boardView(s: DemoState): BoardView {
   const proj = project(s.project);
-  const flow = flowOf(s, s.project);
+  const n = s.tickets.filter(running).length;
+  const all = needsOf(s.tickets, s.project);
   return {
     proj,
-    flowLabel: flow.name.replace("’s flow", "") + " · " + String(flow.stages.length) + " stages",
-    runningLabel: String(s.tickets.filter(running).length) + " working",
+    runningLabel: n > 0 ? String(n) + " running" : null,
     hintText:
       s.view === "board"
-        ? "Drag a Backlog card to Ready to start it · click a card to open it"
-        : "Grouped by stage, in flow order",
+        ? "Start a Backlog card, or drag it into " +
+          (flowOf(s, s.project).stages[0]?.name ?? "the first stage")
+        : "The board’s tickets, as a list",
     projects: PROJECTS.map((p) => ({
       key: p.key,
       name: p.name,
       on: p.key === s.project,
-      badge: needsOf(s.tickets, p.key).filter((n) => n.why !== "your check").length,
+      badge: needsOf(s.tickets, p.key).filter((x) => !x.review).length,
     })),
-    needs: needsOf(s.tickets, s.project),
+    needs: all.filter((x) => !x.review),
+    reviews: all.filter((x) => x.review),
     columns: columnsOf(s),
     doneCount: shown(s).filter((x) => x.col === "done").length,
-    actTools: activityTools(s),
+    delivery: flowOf(s, s.project).delivery,
+    runningTools: runningTools(s),
     pause: {
       label: s.paused ? "Resume" : "Pause",
       icon: s.paused ? "play" : "pause",
@@ -381,20 +419,14 @@ export function boardView(s: DemoState): BoardView {
   };
 }
 
-/** Where a column's stage menu opens, from its button's box in the demo's own coordinates (already divided by the
- * frame's scale): under the button, 180 px to its left, kept inside the board. */
-export function stageMenuAt(btn: { bottom: number; left: number }): { top: number; left: number } {
-  return { top: btn.bottom + 4, left: Math.max(70, Math.min(btn.left - 180, DEMO_WIDTH - 240)) };
-}
-
 // --- the ticket sheet ----------------------------------------------------------------------------------------------
 
 /** The sheet's tabs: id, label, icon and key. */
 export const PANE_TABS: readonly (readonly [PaneTab, string, string, string])[] = [
   ["overview", "Overview", "file-text", "1"],
   ["session", "Session", "terminal", "2"],
-  ["files", "Files", "file-diff", "3"],
-  ["activity", "Activity", "history", "4"],
+  ["changes", "Changes", "file-diff", "3"],
+  ["history", "History", "history", "4"],
 ];
 
 export interface StepView {
@@ -447,6 +479,8 @@ export interface TicketView {
   stateLabel: string;
   stateValue: string;
   canApprove: boolean;
+  /** Approve & open PR is offered: the flow delivers by pull request, or either way. */
+  canPR: boolean;
   canDecide: boolean;
   canStart: boolean;
   isRunning: boolean;
@@ -461,8 +495,9 @@ export interface TicketView {
   before: { head: string; sum: string; checks: CheckView[] } | null;
   decision: { t: string; s: string } | null;
   manual: ManualView[];
-  blockedBy: string;
-  blocks: string;
+  /** Dependencies: what it waits for, and what waits for it. */
+  waitsFor: string;
+  waitingForIt: string;
   startNote: string;
   comments: Comment[];
   atts: Attachment[];
@@ -476,7 +511,7 @@ export interface TicketView {
   hist: readonly HistoryEntry[];
   port: number;
   rbarNote: string;
-  /** The tabs' live dot (Session) and count (Files). */
+  /** The tabs' live dot (Session) and count (Changes). */
   liveSession: boolean;
   fileCount: number;
 }
@@ -495,18 +530,25 @@ export function ticketView(s: DemoState): TicketView | null {
   const pieces = ot.pieces ?? [];
   const beforeHead = checks.length === 2 ? "Security and Validate" : "Validate";
 
-  const stepsAll: { name: string; id: Column }[] = [
-    { name: "Backlog", id: "backlog" },
+  // The path, as the app's sheet draws it: the flow's stages, then Delivery.
+  const path: { name: string; id: Column | "delivery" }[] = [
     ...flow.stages.map((x) => ({ name: x.name, id: x.id })),
-    { name: "Done", id: "done" },
+    { name: "Delivery", id: "delivery" },
   ];
-  const cur = stepsAll.findIndex((x) => x.id === ot.col);
+  const cur =
+    ot.col === "done"
+      ? path.length
+      : ot.col === "backlog"
+        ? -1
+        : ot.st === "pr" || ot.st === "merging"
+          ? path.length - 1
+          : path.findIndex((x) => x.id === ot.col);
 
   const unmet = ot.waits.filter((w) => {
     const x = s.tickets.find((y) => y.k === w);
     return x !== undefined && x.col !== "done";
   });
-  const blocks = s.tickets.filter((x) => x.waits.includes(ot.k)).map((x) => x.k);
+  const waitingForIt = s.tickets.filter((x) => x.waits.includes(ot.k)).map((x) => x.k);
 
   const comments: Comment[] = [...(s.comments[ot.k] ?? [])];
   if (ot.by === "Noyan" || ot.k === "SHOP-29")
@@ -557,21 +599,24 @@ export function ticketView(s: DemoState): TicketView | null {
       line: "Unescaped SQL in lib/address.ts, line 41.",
     });
 
+  // Session's switch names each side by what it is: Agent, the check's stage, Run and Terminal.
   const checking = ot.st === "checking" || ot.st === "checking2";
+  const checkStage =
+    ot.col === "validate" ? "Validate" : ot.st === "failed" || checking ? "Security" : "Validate";
   const partDefs: { id: SessionPart; label: string; dot: string | null }[] = [
     {
       id: "agent",
-      label: ot.agent,
+      label: "Agent",
       dot: runningT && !checking ? "var(--ok)" : curAttn && ot.st !== "failed" ? "var(--attn)" : null,
     },
   ];
   if (checks.length || checking || ot.st === "failed")
     partDefs.push({
       id: "check",
-      label: ot.st === "failed" || checking ? "Security reviewer" : "Validator",
+      label: checkStage,
       dot: checking ? "var(--ok)" : ot.st === "failed" ? "var(--attn)" : null,
     });
-  partDefs.push({ id: "run", label: "Run", dot: null }, { id: "shell", label: "Shell", dot: null });
+  partDefs.push({ id: "run", label: "Run", dot: null }, { id: "terminal", label: "Terminal", dot: null });
 
   const tokensSuffix = ot.tokens ? " · " + ot.tokens + " tokens" : "";
   const askIcon = ot.ask?.kind === "perm" ? "hand" : ot.ask?.kind === "decide" ? "circle-alert" : "message-q";
@@ -590,11 +635,11 @@ export function ticketView(s: DemoState): TicketView | null {
       : ot.st === "attn"
         ? "Waiting"
         : ot.st === "review"
-          ? "Your check"
+          ? "Ready for you"
           : ot.st === "done"
             ? "Merged"
             : ot.st === "pr"
-              ? "PR"
+              ? "PR open"
               : "Status",
     stateValue: runningT
       ? (ot.ago || "now") + tokensSuffix
@@ -604,8 +649,9 @@ export function ticketView(s: DemoState): TicketView | null {
           ? ot.tokens + " tokens"
           : "—",
     canApprove: ot.st === "review",
+    canPR: flow.pr,
     canDecide: ot.st === "failed",
-    canStart: ot.col === "backlog" || ot.col === "ready",
+    canStart: ot.col === "backlog",
     isRunning: runningT && ot.st !== "helpers",
     isPR: ot.st === "pr",
     ask:
@@ -642,16 +688,20 @@ export function ticketView(s: DemoState): TicketView | null {
       on: !!s.manualDone[ot.k + ":" + String(i)],
       src: i === 0 ? "Validator" : "Security reviewer",
     })),
-    blockedBy: ot.waits.length
-      ? ot.waits.join(", ") + (unmet.length ? " · waits for " + unmet.join(", ") + " to merge" : " · merged")
-      : "Nothing",
-    blocks: blocks.length ? blocks.join(", ") : "Nothing",
+    waitsFor: ot.waits.length
+      ? ot.waits.join(", ") + (unmet.length ? " · not merged yet" : " · merged")
+      : ot.k + " waits for nothing.",
+    waitingForIt: waitingForIt.length ? waitingForIt.join(", ") : "Nothing waits for " + ot.k + ".",
     startNote: unmet.length
-      ? "waits for " + unmet.join(", ") + " to merge, then starts on its own"
-      : "or drag the card to Ready for Dev",
+      ? "Start puts it at the top of " +
+        (flow.stages[0]?.name ?? "the first stage") +
+        ", where it waits for " +
+        unmet.join(", ") +
+        " to merge"
+      : "or drag the card into " + (flow.stages[0]?.name ?? "the first stage"),
     comments,
     atts,
-    steps: stepsAll.map((x, i) => {
+    steps: path.map((x, i) => {
       const state = i < cur ? "done" : i === cur ? "current" : "to";
       return { name: x.name, state, attn: state === "current" && curAttn };
     }),
@@ -661,13 +711,13 @@ export function ticketView(s: DemoState): TicketView | null {
       ot.st === "failed"
         ? [
             L("d", "Security reviewer · Claude Code · round 3 of 3"),
-            L("tool", "/security-review"),
+            L("tool", "/security-check"),
             L("e", "Failed: lib/address.ts:41 concatenates the query parameter into SQL."),
           ]
         : ot.st === "checking2"
           ? [
               L("d", "Security reviewer · Claude Code · round 2 of 3"),
-              L("tool", "/security-review"),
+              L("tool", "/security-check"),
               L("a", "Round 1 found unescaped SQL. Reading the fix in lib/coupon.ts."),
             ]
           : [
@@ -679,89 +729,81 @@ export function ticketView(s: DemoState): TicketView | null {
     dels: ot.dels ?? 0,
     files: ot.files ?? [],
     hist: ot.hist.length
-      ? ot.hist
+      ? [...ot.hist].reverse()
       : [
-          { at: "yesterday", t: "Filed by " + (ot.by ?? "you") },
           { at: "today", t: "In " + stageName(s, ot) },
+          { at: "yesterday", t: "Filed by " + (ot.by ?? "you") },
         ],
     port: 4000 + (parseInt(ot.k.replace(/\D/g, ""), 10) || 0),
-    rbarNote: "Passed " + beforeHead + ". Approve merges it the way Ship says; Send back goes to Dev.",
+    rbarNote: "Passed " + beforeHead + ". Send back goes to Dev with your notes.",
     liveSession: runningT,
     fileCount: (ot.files ?? []).length,
   };
 }
 
-// --- the flow editor -----------------------------------------------------------------------------------------------
+// --- Edit flow -----------------------------------------------------------------------------------------------------
 
-export interface PresetView {
+export interface StartFromItem {
   id: FlowId;
   name: string;
   desc: string;
   on: boolean;
 }
 
-export interface DraftStage {
-  id: StageId;
+/** A clicked column header's details: Name, What happens, Agent, Skill, Fails go to; or Done's delivery. */
+export interface StageDetails {
   name: string;
-  kind: string;
-  kindLong: string;
-  who: string;
-  skill: string;
-  fail: string;
-  color: string;
-  /** The drawn pop-in's stagger. */
-  delay: string;
-  sel: boolean;
+  rows: readonly (readonly [label: string, value: string])[];
 }
 
-export interface FlowEditorView {
-  presets: PresetView[];
-  draftName: string;
-  draftCount: number;
-  /** " · in use", or which preset the draft starts from. */
-  draftInUse: string;
-  stages: DraftStage[];
-  msgs: readonly NoyanMsg[];
-  applyNote: string;
+export interface EditFlowView {
+  /** "Editing shop-web's flow". */
+  title: string;
+  /** "Drag to reorder · click a stage for details · + to add", or what the draft starts from. */
+  hint: string;
+  startFrom: StartFromItem[];
+  /** The picked stage's details, Done's delivery, or null. */
+  details: StageDetails | null;
+  changed: boolean;
 }
 
-export function flowEditorView(s: DemoState): FlowEditorView {
+export function editFlowView(s: DemoState): EditFlowView {
+  const proj = project(s.project);
   const inUseId = s.flows[s.project];
   const draftId = s.flowDraftId ?? inUseId;
   const draft = FLOWS[draftId];
-  const inUse = draftId === inUseId;
-  const inFlight = s.tickets.filter(
-    (x) => x.p === s.project && x.col !== "backlog" && x.col !== "done" && x.col !== "ready",
-  ).length;
+  const sel = draft.stages.find((x) => x.id === s.flowSel);
   return {
-    presets: PRESET_IDS.filter((id) => id !== "shop" || s.project === "SHOP").map((id) => ({
+    title: "Editing " + proj.name + "’s flow",
+    hint:
+      draftId === inUseId
+        ? "Drag to reorder · click a stage for details · + to add"
+        : "Starting from " + draft.name + " · nothing changes until you save",
+    startFrom: PRESET_IDS.filter((id) => id !== "shop" || s.project === "SHOP").map((id) => ({
       id,
       name: FLOWS[id].name,
-      desc: id === inUseId ? "In use · the board’s columns" : FLOWS[id].desc,
+      desc: id === inUseId ? "In use" : FLOWS[id].desc,
       on: draftId === id,
     })),
-    draftName: draft.name,
-    draftCount: draft.stages.length,
-    draftInUse: inUse ? " · in use" : " · starting from " + draft.name,
-    stages: draft.stages.map((st, i) => ({
-      id: st.id,
-      name: st.name,
-      kind: KIND[st.kind],
-      kindLong: KIND_LONG[st.kind],
-      who: st.who,
-      skill: st.skill,
-      fail: st.fail,
-      color: KIND_COLOR[st.kind],
-      delay: String(i * 50) + "ms",
-      sel: s.flowSel === st.id,
-    })),
-    msgs: s.flowMsgs,
-    applyNote: inUse
-      ? "No changes."
-      : inFlight
-        ? "Swapping flows waits until the board is quiet: " +
-          String(inFlight) +
-          " tickets are mid-flow. Tickets in Backlog and Ready follow the new flow at once."
-        : "Applies at once.",
+    details: sel
+      ? {
+          name: sel.name,
+          rows: [
+            ["What happens", WHAT_HAPPENS[sel.kind]],
+            ["Agent", sel.who],
+            ["Skill", sel.skill],
+            ["Fails go to", sel.fail],
+          ],
+        }
+      : s.flowSel === "done"
+        ? {
+            name: "Done · how work leaves the flow",
+            rows: [
+              ["Deliver as", draft.delivery.split(" · ")[0] ?? ""],
+              ["When", draft.delivery.split(" · ")[1] ?? ""],
+            ],
+          }
+        : null,
+    changed: draftId !== inUseId,
   };
 }

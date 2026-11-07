@@ -34,6 +34,8 @@ if ! curl -s -o /dev/null http://localhost:5199/; then
 fi
 nohup env -i HOME=$HOME USER=$USER PATH=$PATH LANG=en_US.UTF-8 OTAQ_HOME=$OTAQ_HOME \
   $REPO/target/debug/otaq-app > $DEMO/app.log 2>&1 &
+# Only the demo app's window counts: an installed Otaq that is open too is also named otaq-app.
+export OTAQ_APP_PID=$!
 
 HERE=${0:A:h}
 mkdir -p $DEMO/bin

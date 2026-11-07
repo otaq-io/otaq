@@ -19,14 +19,14 @@ import Icon from "./Icon.astro";
           <span class="ti">Checkout API</span>
           <span class="pill p-r">
             <Icon icon="eye" />
-            Your check
+            Ready for you
           </span>
         </div>
         <div class="rv-tabs">
           <span class="on">Overview</span>
-          <span>Files · 9</span>
           <span>Session</span>
-          <span>Activity</span>
+          <span>Changes · 9</span>
+          <span>History</span>
         </div>
         <div class="rv-b">
           <span class="slab">Checks</span>
@@ -83,21 +83,26 @@ import Icon from "./Icon.astro";
           </span>
           <span class="btn btn-p btn-sm">
             <Icon icon="check" class="s13" />
-            Approve
+            Approve & merge into main
+            <Icon icon="chevron-down" class="s13" />
           </span>
         </div>
         <div class="menu">
           <div class="i on">
             <Icon icon="git-merge" class="s13" />
-            Local merge<span>squash into main</span>
+            Approve & merge into main<span>squash</span>
           </div>
           <div class="i">
             <Icon icon="git-pr" class="s13" />
-            Open PR<span>gh · GitHub</span>
+            Approve & open PR<span>gh · GitHub</span>
+          </div>
+          <div class="i">
+            <Icon icon="check" class="s13" />
+            Done, nothing to merge
           </div>
         </div>
         <p>
-          On Local merge, if main moved since the checks ran, the <b>merge check</b> runs your command,{" "}
+          On Approve & merge, if main moved since the checks ran, the <b>merge check</b> runs your command,{" "}
           <span class="mono">pnpm test</span>, on the combined result first. If it fails, the work goes back
           to the agent. A conflict found during Review goes back the same way, with no click needed.
         </p>

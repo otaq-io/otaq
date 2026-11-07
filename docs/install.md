@@ -71,16 +71,21 @@ source**: it never checks for updates, a release never replaces it, and Settings
 
 ## Your first project
 
-1. Open Otaq and **add a project**: any folder that is a git repository. Otaq suggests a short key (`SHOP`) used in
-   ticket names (`SHOP-12`) and picks your base branch from the remote. Adding a project also lets your connected
-   agent tools work in that folder (it records the folder as trusted in each one, as accepting the tool's own trust
-   prompt would, so the project's hooks and settings run).
-2. Optional: make a few named agents in Settings → Agents ([named agents](how-it-works.md#agents-any-tool-any-model)), and set the defaults. In the project's settings: a
-   **setup** command run in every new worktree (`pnpm install`), a **run** command for the Run tab
-   (`pnpm dev --port $PORT`, or **Add app** for each app of a monorepo), environment variables, and Agent
-   instructions (for example "run `cargo test` before you submit"). Leave the run command empty and an agent that
-   needs the app can add it.
-3. **Create a ticket**, pick its agent or leave the project default, drag it to **Dev**, and watch the agent start.
+1. Open Otaq. **Welcome** shows your board's columns as your process; **Tools** finds your agent tools and git
+   (Install and Sign in… run in a terminal under the row); **Project** adds one: any folder that is a git
+   repository. Otaq suggests a short key (`SHOP`) used in ticket names (`SHOP-12`) and picks your base branch from
+   the remote. Adding a project also lets your connected agent tools work in that folder (it records the folder as
+   trusted in each one, as accepting the tool's own trust prompt would, so the project's hooks and settings run).
+   The project starts on its board, on the Otaq default flow.
+2. **Your first ticket** waits in Backlog, "Tidy the README", editable in place. **Create & start** starts it (on
+   macOS it first asks for notifications, with one line on why); **Not now** leaves an empty Backlog. After that,
+   new tickets start from the box at the bottom of the board ("New ticket, or ask Noyan…").
+3. Optional: make a few named agents in Settings → Agents (the gear at the foot of the rail;
+   [named agents](how-it-works.md#agents-any-tool-any-model)). The project's own **Settings** (next to Board and
+   Files) has its flow, Repository (base branch, delivery, merge check), a **run** command for Session's Run
+   (`pnpm dev --port $PORT`, or **Add app** for each app of a monorepo), Workspace (a **setup** command run in every
+   new worktree, such as `pnpm install`, and your variables) and Notes for agents (for example "run `cargo test`
+   before you submit"). Leave the run command empty and an agent that needs the app can add it.
 
 Agents use your own permission or approval mode for each tool; Otaq never changes it. In a mode that asks before
 edits, they will stop on permission prompts and show up as "Needs you"; auto-accept modes let them run unattended.
@@ -116,8 +121,8 @@ update** (when an update is ready: only the app restarts, working agents continu
 
 ## Anonymous usage data
 
-When first run ends, Otaq asks once: **"Help improve Otaq"**. Nothing is sent unless you press *Send anonymous data*;
-*No thanks* (or Esc) means nothing is ever sent, and Otaq works the same either way. Change it anytime in
+After you approve your first ticket, a quiet banner asks once: **"Help improve Otaq?"**. Nothing is sent unless you
+press *Share*; *No thanks* means nothing is ever sent, and Otaq works the same either way. Change it anytime in
 Settings → Data → *Send anonymous usage data*.
 
 If you agree, Otaq sends to [Aptabase](https://aptabase.com) (EU region) which features are used and how often, with

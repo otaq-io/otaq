@@ -6,7 +6,7 @@
 
 The socket is $OTAQ_HOME/otaq.sock (default /tmp/otaqdemo/home). Exits 1 on an error reply, 2 on a timeout.
 Methods worth knowing: project.add {"path","key"}, ticket.move {"key","target","confirmed":true}
-(targets: backlog, ready_for_dev, dev, ready_for_review, approved, done),
+(targets: backlog, dev (Start: into the first stage), ready_for_review, done),
 ticket.merge_proposal {"key"}, ticket.local_merge {"key","message"}, ticket.start_from_scratch {"key","confirm":true},
 ticket.pin {"key"}, settings.get, settings.set <whole settings object>.
 """
@@ -56,7 +56,11 @@ def main():
     try:
         if sys.argv[1] == "theme":
             settings = call(sock, 1, "settings.get")["reply"]["global_settings"]["settings"]
-            settings["theme"] = sys.argv[2]
+            # The theme setting is a mode with one light and one dark theme: show the named one always, in its mode.
+            key = sys.argv[2]
+            light = key in ("otaq-light", "catppuccin-latte", "daylight", "solarized-light", "rose-pine-dawn")
+            settings["theme"] = {**settings["theme"], "mode": "light" if light else "dark",
+                                 ("light" if light else "dark"): key}
             msg = call(sock, 2, "settings.set", settings)
         else:
             params = json.loads(sys.argv[2]) if len(sys.argv) > 2 else None

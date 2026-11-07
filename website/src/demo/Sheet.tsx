@@ -138,7 +138,7 @@ export function Sheet({ s, store, t, b }: SheetProps) {
               {id === "session" && t.liveSession && (
                 <span className="dot" style={{ background: "var(--ok)" }}></span>
               )}
-              {id === "files" && t.adds > 0 && <span className="cnt">{t.fileCount}</span>}
+              {id === "changes" && t.adds > 0 && <span className="cnt">{t.fileCount} files</span>}
               <span className="kbd" style={{ marginLeft: 4 }}>
                 {key}
               </span>
@@ -148,8 +148,8 @@ export function Sheet({ s, store, t, b }: SheetProps) {
         <div className="ts-body">
           {s.ptab === "overview" && <Overview s={s} store={store} t={t} />}
           {s.ptab === "session" && <Session s={s} store={store} t={t} b={b} />}
-          {s.ptab === "files" && <Files t={t} />}
-          {s.ptab === "activity" &&
+          {s.ptab === "changes" && <Changes t={t} />}
+          {s.ptab === "history" &&
             t.hist.map((h) => (
               <div key={h.at + h.t} className="hist">
                 <span className="t">{h.at}</span>
@@ -159,12 +159,6 @@ export function Sheet({ s, store, t, b }: SheetProps) {
         </div>
         {t.canApprove && (
           <div className="rbar">
-            <span className="pill pl-r">
-              <Ic name="eye" />
-              Your check
-            </span>
-            <span className="cnt">{t.rbarNote}</span>
-            <span style={{ flex: 1 }}></span>
             <button
               className="btn btn-s btn-sm"
               type="button"
@@ -172,23 +166,47 @@ export function Sheet({ s, store, t, b }: SheetProps) {
                 store.sendBack(t.k);
               }}
             >
-              Send back…
+              <Ic name="undo" cls="s12" />
+              Send back · to Dev…
             </button>
-            <button
-              className="btn btn-p btn-sm"
-              type="button"
-              data-menu
-              onClick={() => {
-                store.toggleMenu("approve");
-              }}
-              aria-haspopup="menu"
-            >
-              Approve
-            </button>
+            <span className="cnt">{t.rbarNote}</span>
+            <span style={{ flex: 1 }}></span>
+            <ApproveButton store={store} t={t} small />
           </div>
         )}
       </section>
     </>
+  );
+}
+
+/** Approve, named by what it does, and beside it the other ways to finish. */
+function ApproveButton({ store, t, small = false }: Pick<SheetProps, "store" | "t"> & { small?: boolean }) {
+  const sm = small ? " btn-sm" : "";
+  return (
+    <span className="split">
+      <button
+        className={"btn btn-p" + sm}
+        type="button"
+        onClick={() => {
+          store.approve(t.k, "merge");
+        }}
+      >
+        <Ic name="check" cls="s12" />
+        Approve & merge into main
+      </button>
+      <button
+        className={"btn btn-p" + sm}
+        type="button"
+        data-menu
+        onClick={() => {
+          store.toggleMenu("approve");
+        }}
+        aria-haspopup="menu"
+        aria-label="Other ways to finish"
+      >
+        <Ic name="chevron-down" cls="s12" />
+      </button>
+    </span>
   );
 }
 
@@ -302,22 +320,7 @@ function Overview({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
               </section>
             )}
             <div className="actbar">
-              <button
-                className="btn btn-p"
-                type="button"
-                data-menu
-                onClick={() => {
-                  store.toggleMenu("approve");
-                }}
-                aria-haspopup="menu"
-              >
-                <Ic name="check" />
-                Approve
-                <span className="kbd" style={{ marginLeft: 4 }}>
-                  ⌘↵
-                </span>
-                <Ic name="chevron-down" cls="s12" />
-              </button>
+              <ApproveButton store={store} t={t} />
               <button
                 className="btn btn-s"
                 type="button"
@@ -346,7 +349,7 @@ function Overview({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
             <div className="callout attn">
               <Ic name="circle-alert" />
               <div>
-                <b>Security failed 3 times</b>
+                <b>Security failed 3 times · decide</b>
                 <span>
                   Unescaped SQL in lib/address.ts, the same finding each round. Decide what happens next.
                 </span>
@@ -360,7 +363,7 @@ function Overview({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
                   store.answer("r32");
                 }}
               >
-                Give it another round
+                Allow 1 more round
               </button>
               <button
                 className="btn btn-s"
@@ -369,16 +372,16 @@ function Overview({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
                   store.answer("m32");
                 }}
               >
-                Move on anyway
+                Send it on to Validate
               </button>
               <button
                 className="btn btn-s"
                 type="button"
                 onClick={() => {
-                  store.showSession();
+                  store.tip("stopHere");
                 }}
               >
-                Open terminal
+                Stop here
               </button>
             </div>
           </>
@@ -491,12 +494,12 @@ function Overview({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
           <span className="sname">Dependencies</span>
           <div className="deps">
             <div className="dep">
-              <span className="cnt">Blocked by</span>
-              <span>{t.blockedBy}</span>
+              <span className="cnt">Waits for</span>
+              <span>{t.waitsFor}</span>
             </div>
             <div className="dep">
-              <span className="cnt">Blocks</span>
-              <span>{t.blocks}</span>
+              <span className="cnt">Waiting for it</span>
+              <span>{t.waitingForIt}</span>
             </div>
           </div>
         </section>
@@ -559,6 +562,7 @@ function Comments({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
               <b>{cm.who}</b>
               <span className="cnt">
                 {cm.at} · {cm.stage}
+                {cm.told && " · " + cm.told}
               </span>
             </div>
             <p>{cm.t}</p>
@@ -581,16 +585,33 @@ function Comments({ s, store, t }: Pick<SheetProps, "s" | "store" | "t">) {
             }
           }}
         />
-        <label className="cnt" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input
-            type="checkbox"
-            checked={s.tellNow}
-            onChange={() => {
-              store.toggleTell();
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            className="btn btn-s btn-sm"
+            type="button"
+            onClick={() => {
+              store.addComment();
             }}
-          />
-          Also tell the agent now
-        </label>
+          >
+            Comment
+          </button>
+          {t.isRunning && (
+            <button
+              className="btn btn-s btn-sm"
+              type="button"
+              onClick={() => {
+                store.addComment(true);
+              }}
+            >
+              Tell {t.agent} now
+            </button>
+          )}
+          <span className="cnt">
+            {t.isRunning
+              ? "Comment: the next stage reads it · Tell " + t.agent + " now: it also gets it, once it’s idle"
+              : "The next stage’s agent reads it"}
+          </span>
+        </div>
       </div>
     </section>
   );
@@ -631,7 +652,7 @@ function Session({ s, store, t, b }: SheetProps) {
       </div>
       {t.pieces.length > 0 && (
         <>
-          <span className="sname">Sessions · 1 in charge · {t.helperCount} helpers</span>
+          <span className="sname">1 in charge · {t.helperCount} helpers</span>
           <div className="sess on">
             <span className="av av-CC">CC</span>Rust developer · in charge<span className="m">working</span>
           </div>
@@ -714,7 +735,7 @@ function Session({ s, store, t, b }: SheetProps) {
           </div>
         </>
       )}
-      {s.part === "shell" && (
+      {s.part === "terminal" && (
         <div className="tterm">
           <div className="tl d">
             ~/.otaq/wt/{b.proj.name}/{t.k}
@@ -723,7 +744,11 @@ function Session({ s, store, t, b }: SheetProps) {
           <div className="tl o">{"M  src/cli.js"}</div>
           <div className="tprompt">
             <span>$</span>
-            <input type="text" placeholder="A plain shell in the ticket’s worktree" aria-label="Shell" />
+            <input
+              type="text"
+              placeholder="A plain terminal in the ticket’s worktree"
+              aria-label="Terminal"
+            />
           </div>
         </div>
       )}
@@ -731,11 +756,11 @@ function Session({ s, store, t, b }: SheetProps) {
   );
 }
 
-function Files({ t }: Pick<SheetProps, "t">) {
+function Changes({ t }: Pick<SheetProps, "t">) {
   if (t.files.length === 0)
     return (
       <div className="ph" style={{ padding: 28 }}>
-        No changes yet. Files shows the diff once the agent commits.
+        No changes yet. Changes shows the diff once the agent commits.
       </div>
     );
   return (
