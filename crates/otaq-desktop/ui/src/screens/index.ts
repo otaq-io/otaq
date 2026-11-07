@@ -16,6 +16,7 @@ export { palette } from "./palette";
 export { agentPanel } from "./agent_panel";
 export { pause } from "./pause";
 export { pr } from "./pr";
+export { projectSettings } from "./project_settings";
 export { recovery } from "./recovery";
 export { review } from "./review";
 export { sections } from "./sections";

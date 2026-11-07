@@ -5,7 +5,7 @@ import type { FlowSettingsWaiting } from "./FlowSettingsWaiting";
 import type { MenuItem } from "./MenuItem";
 
 /**
- * Settings → Flow as drawn (`settings.flow`).
+ * The project's Flow card as drawn (`settings.flow`).
  */
 export type FlowSettings = { project: string, title: string, 
 /**
@@ -13,23 +13,31 @@ export type FlowSettings = { project: string, title: string,
  */
 changed: string, intro: string, waiting: FlowSettingsWaiting | null, 
 /**
- * STAGE · AGENT · MODEL · OPTIONS A TICKET CAN PICK.
+ * The strip's fixed ends: "Backlog" first, "Done" last.
  */
-columns: Array<string>, 
+first: string, last: string, 
 /**
- * "Backlog → … → Done: always first and last".
+ * The stages between them, in order.
  */
-ends: string, rows: Array<FlowSettingsStage>, 
+rows: Array<FlowSettingsStage>, 
 /**
- * The applied flow doesn't read (never stored so; a guard): shown in place of the table.
+ * The applied flow doesn't read (never stored so; a guard): shown in place of the strip.
  */
 problem: string | null, 
 /**
- * Change flow…: opens the flow editor on the project's flow.
+ * Edit flow: opens the flow editor on the project's flow.
  */
-change: FlowSettingsButton, preset: FlowSettingsButton, copy: FlowSettingsButton, 
+change: FlowSettingsButton, 
 /**
- * The ⋯ button's name, and its menu: Import flow… · Export flow… · Back to the previous flow · Reset to the
+ * Export: the flow's file, through the save dialog.
+ */
+export: FlowSettingsButton, 
+/**
+ * "Go back to the previous flow"; none on the first flow the project had.
+ */
+back: string | null, 
+/**
+ * The ⋯ button's name, and its menu: Use a preset… · Copy from another project… · Import flow… · Reset to the
  * default flow.
  */
 menu_label: string, menu: Array<MenuItem>, 

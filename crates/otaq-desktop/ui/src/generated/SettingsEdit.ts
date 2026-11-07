@@ -2,6 +2,6 @@
 import type { SettingsValue } from "./SettingsValue";
 
 /**
- * One edit: `project` names the project page it was made on (none: the global page).
+ * One edit of an app setting.
  */
-export type SettingsEdit = { project: string | null, field: string, value: SettingsValue, };
+export type SettingsEdit = { field: string, value: SettingsValue, };

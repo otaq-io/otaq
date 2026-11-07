@@ -7,19 +7,15 @@ import type { ToolbarOption } from "./ToolbarOption";
  */
 export type BoardToolbar = { 
 /**
- * Board · Files (BRD-01, FIL-01): Board is chosen in either layout, and from Files it goes back to the layout
- * last shown.
+ * Board · Files · Settings (BRD-01, FIL-01; Settings is the project's settings page, in the main area): Board is
+ * chosen in either layout, and from Files or Settings it goes back to the layout last shown.
  */
 views: ToolbarGroup, 
 /**
- * The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files.
+ * The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files and
+ * Settings.
  */
 layouts: ToolbarGroup | null, 
-/**
- * "Settings", after the views: the project's settings (they open over the board until they are a view of
- * their own).
- */
-settings: string, 
 /**
  * "Edit flow" on the board, in either layout: the project's flow, changed from the board (it opens the flow
  * editor).

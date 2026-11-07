@@ -56,7 +56,6 @@ export function fieldId(field: string): string {
 
 /** The open global topic's nav row: the one holding `topic` (any of its sections), else the first. */
 export function topicRow(rows: readonly SettingsNavRow[], topic: string | null): SettingsNavRow | undefined {
-  const sections = (row: SettingsNavRow): readonly string[] =>
-    row.target.page === "global" ? row.target.sections : [];
+  const sections = (row: SettingsNavRow): readonly string[] => row.target.sections;
   return rows.find((r) => topic !== null && sections(r).includes(topic)) ?? rows[0];
 }

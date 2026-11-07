@@ -34,8 +34,8 @@ describe("the rail's project menu (#11)", () => {
     for (const id of ["project_settings", "rename_project", "remove_project", "unknown"])
       railMenuChoice("SHOP", id, open);
     expect(opened).toEqual([
-      { project: "SHOP" },
-      { project: "SHOP", section: "general" },
+      { project: "SHOP", section: null },
+      { project: "SHOP", section: "repository" },
       { project: "SHOP", section: "remove_project" },
     ]);
   });

@@ -720,7 +720,7 @@ impl Default for ViewPrefs {
     }
 }
 
-/// The project's three views (BRD-01, FIL-01): Board, List and the project Files view.
+/// The project's views (BRD-01, FIL-01): Board, List, the project Files view and the project's Settings page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BoardView {
@@ -728,6 +728,8 @@ pub enum BoardView {
     Board,
     List,
     Files,
+    /// The project's settings, one page in the project's main area.
+    Settings,
 }
 
 /// The List's old grouping: stored, never read ([`ViewPrefs::group_by`]).

@@ -1,11 +1,11 @@
-// The board's toolbar, in every view (BRD-01, FIL-01; `s28-03`): the views Board · Files first and Settings after them
-// (the project's settings, which open over the board until they are a view of their own); while the board shows, its
+// The board's toolbar, in every view (BRD-01, FIL-01; `s28-03`): the views Board · Files · Settings first (Settings is
+// the project's settings page); while the board shows, its
 // layout switch beside them, two icons (columns `g b`, list `g l`: Board and List are layouts of the same board), and
 // on the right Edit flow (the flow editor), its one option Fold empty columns, All tickets and New ticket. On Files:
 // its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
 // and the board asks for its view again.
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent } from "react";
 
 import { mainWidth } from "../../app/layout";
 import { useStore } from "../../app/store";
@@ -21,8 +21,6 @@ export interface ToolbarProps {
   onView: (change: ViewChange) => void;
   onAllTickets: () => void;
   onNewTicket: () => void;
-  /** Settings after the views: the project's settings. */
-  onSettings: () => void;
   /** Edit flow on the Board: the project's flow editor. */
   onEditFlow: () => void;
 }
@@ -64,13 +62,10 @@ function Segments({
   group,
   name,
   onView,
-  after,
 }: {
   group: ToolbarGroup;
   name: string;
   onView: ToolbarProps["onView"];
-  /** Drawn at the group's end, in its look (Settings after the views). */
-  after?: ReactNode;
 }) {
   const selected = Math.max(
     0,
@@ -101,7 +96,6 @@ function Segments({
         {group.options.map((option) => (
           <Segment key={option.label} option={option} onView={onView} />
         ))}
-        {after}
       </div>
     </>
   );
@@ -169,14 +163,7 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
 /** The toolbar's 16 px sides: it is 760 px or less (`s28-08`) in a main area this wide or less. */
 const NARROW_MAIN = 760 + 2 * 16;
 
-export function Toolbar({
-  toolbar,
-  onView,
-  onAllTickets,
-  onNewTicket,
-  onSettings,
-  onEditFlow,
-}: ToolbarProps) {
+export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket, onEditFlow }: ToolbarProps) {
   const main = useStore(mainWidth);
   return (
     <div
@@ -185,17 +172,7 @@ export function Toolbar({
       aria-label="Board"
       data-narrow={(main > 0 && main <= NARROW_MAIN) || undefined}
     >
-      <Segments
-        group={toolbar.views}
-        name="View"
-        onView={onView}
-        after={
-          <button type="button" className="board-segment" onClick={onSettings}>
-            <Icon name="settings" size={14} />
-            <span>{toolbar.settings}</span>
-          </button>
-        }
-      />
+      <Segments group={toolbar.views} name="View" onView={onView} />
       {toolbar.layouts !== null && <Layouts group={toolbar.layouts} onView={onView} />}
       {toolbar.subtitle !== null && (
         <>

@@ -96,6 +96,7 @@ pub mod priority;
 pub mod processes;
 pub mod project_agent_page;
 pub mod project_menu;
+pub mod project_settings;
 pub mod project_terminal;
 pub mod queue;
 pub mod quit;

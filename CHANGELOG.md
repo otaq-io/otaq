@@ -5,6 +5,16 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **A project's settings are its own page.** The view switch's **Settings** (after Board, List and Files) shows the
+  project's settings in its main area, one page with a section list on the left: **Flow** (its stages from Backlog to
+  Done, who works in each, **Export** and **Edit flow**), **Repository** (name, base branch, how work is delivered,
+  which pull request provider the repository uses, merge check), **Run**, **Workspace** (setup command, your
+  variables, files to copy, ticket resources, warm build), **Notes for agents** and **Remove project**. Projects are
+  no longer listed in the app's Settings (⌘,), which keeps what's about you and your machine.
+- **Delivery is changed where you see it.** The Repository card's **Delivery** (Merge into main · Pull request ·
+  Either; On Approve · Automatically) is the flow's own setting: changing it there saves a new version of the flow,
+  as Edit flow does. Its line "Pull requests through: GitHub · owner/repo" says which provider the repository uses
+  and, when it isn't ready on this computer, offers **Set up…**.
 - **The command palette starts with what needs you.** Opened empty (⌘K), its first row is **Next that needs you**
   with the ticket it goes to: the same one ⌘J opens, in the Needs you strip's order. Below it: New ticket, Edit flow,
   Ask Noyan, Pause this project, Settings and Open a terminal, then your recent items.

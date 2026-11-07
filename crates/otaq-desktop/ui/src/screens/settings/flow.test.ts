@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-// Settings → Flow (T-0422; FLW-06…FLW-11): the section draws Rust's table and waiting line; every action but Export
-// puts its flow in the draft, closes Settings and opens the flow editor on it (FED-09); Export and Import go through
-// the system's dialogs and a cancelled dialog does nothing; Change flow… opens the editor and starts nothing; a
-// preset card proposes its file. (The flow banner's Apply now and Cancel change: `notices/applyNow.test.ts`.)
+// The project's Flow card (FLW-06…FLW-11): it draws Rust's strip and waiting line; every action but Export puts its
+// flow in the draft and opens the flow editor on it (FED-09); Export and Import go through the system's dialogs and a
+// cancelled dialog does nothing; Edit flow opens the editor and starts nothing; a preset card proposes its file. (The
+// flow banner's Apply now and Cancel change: `notices/applyNow.test.ts`.)
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,35 +48,43 @@ const SECTION: FlowSettings = {
   project: "SHOP",
   title: "Flow",
   changed: "Changed by Noyan · yesterday",
-  intro:
-    "The project’s columns and who works in each. Change it in the flow editor; nothing reaches the board until you apply.",
+  intro: "The stages every ticket goes through, and who works in each. Backlog and Done are fixed.",
   waiting: {
     text: "A flow change is waiting: QA after Security. 8 tickets are still working, and no new ticket starts until they’re done.",
     cancel_label: "Cancel change",
   },
-  columns: ["Stage", "Agent · model", "Options a ticket can pick"],
-  ends: "Backlog → … → Done: always first and last",
+  first: "Backlog",
+  last: "Done",
   rows: [
     {
       icon: "bot",
       name: "Dev",
+      caption: "An agent does the work",
       kind: "Agent",
       agent: "Rust developer",
       model: "Claude Code · sonnet",
       options: "Quick developer",
     },
-    { icon: "user-check", name: "Review", kind: "Check · you", agent: "You", model: null, options: "skip" },
+    {
+      icon: "user-check",
+      name: "Review",
+      caption: "You check it",
+      kind: "Check · you",
+      agent: "You",
+      model: null,
+      options: "skip",
+    },
   ],
   problem: null,
-  change: { label: "Change flow…", icon: "workflow", disabled: false, hint: null },
-  preset: { label: "Use a preset…", icon: null, disabled: false, hint: null },
-  copy: { label: "Copy from another project…", icon: null, disabled: false, hint: null },
+  change: { label: "Edit flow", icon: "pencil", disabled: false, hint: null },
+  export: { label: "Export", icon: "upload", disabled: false, hint: null },
+  back: "Go back to the previous flow",
   menu_label: "More flow actions",
   menu: [
+    item("preset", "Use a preset…"),
+    item("copy", "Copy from another project…"),
     item("import", "Import flow…"),
-    item("export", "Export flow…"),
-    item("back", "Back to the previous flow", { separated: true }),
-    item("reset", "Reset to the default flow"),
+    item("reset", "Reset to the default flow", { separated: true }),
   ],
   export_title: "Export shop-web’s flow",
   export_file: "shop-web-flow.yaml",
@@ -87,14 +95,10 @@ const ask = vi.mocked(request);
 let box: HTMLElement;
 let root: Root;
 
-function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { closed: () => number; editors: string[] } {
-  let closed = 0;
+function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { editors: string[] } {
   const editors: string[] = [];
   return {
     ask,
-    closeSettings: () => {
-      closed += 1;
-    },
     openEditor: (project) => {
       editors.push(project);
     },
@@ -107,7 +111,6 @@ function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { closed: () => nu
       shown: createStore<Record<string, string | null>>({}),
       focus: createStore<AgentPanelFocusRequest | null>(null),
     },
-    closed: () => closed,
     ...over,
   };
 }
@@ -131,14 +134,18 @@ afterEach(() => {
 });
 
 describe("the Flow section", () => {
-  it("draws who changed it, the waiting line, the table and the actions", () => {
+  it("draws who changed it, the waiting line, the strip and the actions", () => {
     const cancel = vi.fn();
+    const back = vi.fn();
+    const exported = vi.fn();
     act(() => {
       root.render(
         createElement(FlowSectionBody, {
           section: SECTION,
           onCancelChange: cancel,
           onChange: vi.fn(),
+          onExport: exported,
+          onBack: back,
           onPreset: vi.fn(),
           onCopy: vi.fn(),
           onMenu: vi.fn(),
@@ -149,33 +156,44 @@ describe("the Flow section", () => {
     for (const words of [
       "Changed by Noyan · yesterday",
       "A flow change is waiting: QA after Security.",
-      "Backlog → … → Done: always first and last",
       "Rust developer",
-      "Claude Code · sonnet",
-      "Quick developer",
-      "Check · you",
-      "Change flow…",
-      "Use a preset…",
-      "Copy from another project…",
+      "An agent does the work",
+      "You check it",
+      "Edit flow",
+      "Export",
+      "Go back to the previous flow",
     ])
       expect(text).toContain(words);
-    expect(box.querySelectorAll(".settings-flow-row:not(.settings-flow-head)")).toHaveLength(2);
-    const button = [...box.querySelectorAll("button")].find((b) => b.textContent === "Cancel change");
-    act(() => {
-      button?.click();
-    });
+    const steps = [...box.querySelectorAll(".settings-flow-step .settings-flow-name")].map(
+      (s) => s.textContent,
+    );
+    expect(steps).toEqual(["Backlog", "Dev", "Review", "Done"]);
+    const click = (label: string) => {
+      const button = [...box.querySelectorAll("button")].find((b) => b.textContent === label);
+      act(() => {
+        button?.click();
+      });
+    };
+    click("Cancel change");
     expect(cancel).toHaveBeenCalledOnce();
+    click("Go back to the previous flow");
+    expect(back).toHaveBeenCalledOnce();
+    click("Export");
+    expect(exported).toHaveBeenCalledOnce();
   });
 
-  it("opens the ⋯ menu with Import, Export, Back and Reset", () => {
+  it("opens the ⋯ menu with Use a preset, Copy, Import and Reset", () => {
     const onMenu = vi.fn();
+    const onPreset = vi.fn();
     act(() => {
       root.render(
         createElement(FlowSectionBody, {
           section: SECTION,
           onCancelChange: vi.fn(),
           onChange: vi.fn(),
-          onPreset: vi.fn(),
+          onExport: vi.fn(),
+          onBack: vi.fn(),
+          onPreset,
           onCopy: vi.fn(),
           onMenu,
         }),
@@ -187,11 +205,16 @@ describe("the Flow section", () => {
     });
     const rows = [...document.querySelectorAll('[role="menuitem"]')].map((r) => r.textContent);
     expect(rows).toEqual([
+      "Use a preset…",
+      "Copy from another project…",
       "Import flow…",
-      "Export flow…",
-      "Back to the previous flow",
       "Reset to the default flow",
     ]);
+    act(() => {
+      document.querySelector<HTMLElement>('[role="menuitem"]')?.click();
+    });
+    expect(onPreset).toHaveBeenCalledOnce();
+    expect(onMenu).not.toHaveBeenCalled();
   });
 
   it("a preset card proposes its file", () => {
@@ -227,22 +250,21 @@ describe("the Flow section", () => {
 });
 
 describe("the Flow actions", () => {
-  it("an action's flow lands in the draft and the editor opens on it; a refusal keeps Settings open", async () => {
+  it("an action's flow lands in the draft and the editor opens on it; a refusal opens nothing", async () => {
     const r = routes();
     await proposeFrom("SHOP", { from: "preset", file: "spec-first.yaml" }, r);
     expect(ask).toHaveBeenCalledWith("settings.flow_propose", {
       project: "SHOP",
       source: { from: "preset", file: "spec-first.yaml" },
     });
-    expect(r.closed()).toBe(1);
     expect(r.editors).toEqual(["SHOP"]);
     ask.mockRejectedValueOnce({ message: "SHOP has no previous flow" });
-    await expect(menuChoice(SECTION, "back", r)).rejects.toBeTruthy();
+    await expect(proposeFrom("SHOP", { from: "previous" }, r)).rejects.toBeTruthy();
     expect(ask).toHaveBeenLastCalledWith("settings.flow_propose", {
       project: "SHOP",
       source: { from: "previous" },
     });
-    expect(r.closed()).toBe(1);
+    expect(r.editors).toEqual(["SHOP"]);
     await menuChoice(SECTION, "reset", r);
     expect(ask).toHaveBeenLastCalledWith("settings.flow_propose", {
       project: "SHOP",
@@ -258,11 +280,10 @@ describe("the Flow actions", () => {
     await importFlow(SECTION, picked);
     expect(picked.pickFile).toHaveBeenCalledWith("Import a flow");
     expect(ask).toHaveBeenCalledWith("settings.flow_import", { project: "SHOP", path: "/tmp/flow.yaml" });
-    expect(picked.closed()).toBe(1);
     expect(picked.editors).toEqual(["SHOP"]);
   });
 
-  it("Export saves where the dialog said and keeps Settings open", async () => {
+  it("Export saves the flow's file where the dialog said and opens nothing", async () => {
     const r = routes({ saveFile: vi.fn(() => Promise.resolve("/tmp/shop-web-flow.yaml")) });
     expect(await exportFlow(SECTION, r)).toBe(true);
     expect(r.saveFile).toHaveBeenCalledWith("Export shop-web’s flow", "shop-web-flow.yaml");
@@ -270,15 +291,13 @@ describe("the Flow actions", () => {
       project: "SHOP",
       path: "/tmp/shop-web-flow.yaml",
     });
-    expect(r.closed()).toBe(0);
     expect(r.editors).toEqual([]);
     expect(await exportFlow(SECTION, routes())).toBe(false);
   });
 
-  it("Change flow… opens the flow editor on the project and starts nothing", () => {
+  it("Edit flow opens the flow editor on the project and starts nothing", () => {
     const r = routes();
     changeFlow(SECTION, r);
-    expect(r.closed()).toBe(1);
     expect(r.editors).toEqual(["SHOP"]);
     expect(r.agentPanel.selection.get().project).toBe("SHOP");
     expect(ask).not.toHaveBeenCalled();

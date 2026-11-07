@@ -14,7 +14,8 @@ use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
 
-/// The board in its columns or as a list, or the project Files view (BRD-01, FIL-01). `BoardViewKind` on the page.
+/// The board in its columns or as a list, the project Files view (BRD-01, FIL-01) or the project's Settings page.
+/// `BoardViewKind` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BoardViewKind")]
@@ -22,6 +23,7 @@ pub enum ViewKind {
     Board,
     List,
     Files,
+    Settings,
 }
 
 /// When dependencies are drawn (DPV-02). `DependenciesMode` on the page.
@@ -39,6 +41,7 @@ impl From<core::BoardView> for ViewKind {
             core::BoardView::Board => Self::Board,
             core::BoardView::List => Self::List,
             core::BoardView::Files => Self::Files,
+            core::BoardView::Settings => Self::Settings,
         }
     }
 }
@@ -49,6 +52,7 @@ impl From<ViewKind> for core::BoardView {
             ViewKind::Board => Self::Board,
             ViewKind::List => Self::List,
             ViewKind::Files => Self::Files,
+            ViewKind::Settings => Self::Settings,
         }
     }
 }
@@ -143,7 +147,7 @@ pub fn apply(prefs: &mut ViewPrefs, change: &Change) {
             match view {
                 ViewKind::Board => prefs.list_layout = false,
                 ViewKind::List => prefs.list_layout = true,
-                ViewKind::Files => {}
+                ViewKind::Files | ViewKind::Settings => {}
             }
         }
         Change::FoldEmptyColumns { on } => prefs.fold_empty_columns = *on,
@@ -186,14 +190,12 @@ pub struct ToolbarGroup {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardToolbar")]
 pub struct Toolbar {
-    /// Board · Files (BRD-01, FIL-01): Board is chosen in either layout, and from Files it goes back to the layout
-    /// last shown.
+    /// Board · Files · Settings (BRD-01, FIL-01; Settings is the project's settings page, in the main area): Board is
+    /// chosen in either layout, and from Files or Settings it goes back to the layout last shown.
     pub views: ToolbarGroup,
-    /// The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files.
+    /// The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files and
+    /// Settings.
     pub layouts: Option<ToolbarGroup>,
-    /// "Settings", after the views: the project's settings (they open over the board until they are a view of
-    /// their own).
-    pub settings: String,
     /// "Edit flow" on the board, in either layout: the project's flow, changed from the board (it opens the flow
     /// editor).
     pub edit_flow: Option<String>,
@@ -219,6 +221,7 @@ pub const LIST_LAYOUT: &str = "List";
 pub const FOLD_EMPTY_COLUMNS: &str = "Fold empty columns";
 pub const ALL_TICKETS: &str = "All tickets";
 pub const SETTINGS: &str = "Settings";
+pub const SETTINGS_TOOLTIP: &str = "The project\u{2019}s settings";
 pub const EDIT_FLOW: &str = "Edit flow";
 pub const NEW_TICKET: &str = "New ticket";
 /// The Files view's toolbar subtitle (`s28-03`).
@@ -229,9 +232,9 @@ pub const LIVE: &str = "Live";
 /// The toolbar for `prefs`, with the user's keys in the tooltips.
 pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
     let view: ViewKind = prefs.view.into();
-    let board = view != ViewKind::Files;
-    // The layout the board shows, or would show again on leaving Files.
-    let layout = if view == ViewKind::List || (view == ViewKind::Files && prefs.list_layout) {
+    let board = matches!(view, ViewKind::Board | ViewKind::List);
+    // The layout the board shows, or would show again on leaving Files or Settings.
+    let layout = if view == ViewKind::List || (!board && prefs.list_layout) {
         ViewKind::List
     } else {
         ViewKind::Board
@@ -269,9 +272,20 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                     ..option(
                         FILES,
                         None,
-                        !board,
+                        view == ViewKind::Files,
                         Change::View {
                             view: ViewKind::Files,
+                        },
+                    )
+                },
+                ToolbarOption {
+                    tooltip: Some(SETTINGS_TOOLTIP.to_owned()),
+                    ..option(
+                        SETTINGS,
+                        None,
+                        view == ViewKind::Settings,
+                        Change::View {
+                            view: ViewKind::Settings,
                         },
                     )
                 },
@@ -295,10 +309,9 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                 ),
             ],
         }),
-        settings: SETTINGS.to_owned(),
         edit_flow: board.then(|| EDIT_FLOW.to_owned()),
-        subtitle: (!board).then(|| FILES_SUBTITLE.to_owned()),
-        live: (!board).then(|| LIVE.to_owned()),
+        subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
+        live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
         switch: board.then(|| {
             option(
                 FOLD_EMPTY_COLUMNS,
@@ -381,7 +394,31 @@ mod tests {
         // The views are Board · Files; List is a layout of the board beside them.
         assert_eq!(
             labels(&board.views),
-            [("Board".to_owned(), true), ("Files".to_owned(), false)]
+            [
+                ("Board".to_owned(), true),
+                ("Files".to_owned(), false),
+                ("Settings".to_owned(), false)
+            ]
+        );
+        // Settings is the project's settings page, a view of its own: it carries no board tools.
+        let mut on_settings = ViewPrefs::default();
+        apply(
+            &mut on_settings,
+            &Change::View {
+                view: ViewKind::Settings,
+            },
+        );
+        let settings = toolbar(&on_settings, &keys);
+        assert!(settings.views.options[2].selected && !settings.views.options[0].selected);
+        assert_eq!(
+            (
+                settings.layouts.as_ref(),
+                settings.edit_flow.as_ref(),
+                settings.switch.as_ref(),
+                settings.all_tickets.as_ref(),
+                settings.new_ticket.as_ref()
+            ),
+            (None, None, None, None, None)
         );
         let layouts = board.layouts.as_ref().unwrap();
         assert_eq!(
@@ -427,7 +464,11 @@ mod tests {
         );
         assert_eq!(
             labels(&list.views),
-            [("Board".to_owned(), true), ("Files".to_owned(), false)]
+            [
+                ("Board".to_owned(), true),
+                ("Files".to_owned(), false),
+                ("Settings".to_owned(), false)
+            ]
         );
         assert_eq!(
             labels(list.layouts.as_ref().unwrap()),
@@ -445,7 +486,7 @@ mod tests {
         );
     }
 
-    /// Board and List are layouts of one board: from Files, Board goes back to the layout last shown.
+    /// Board and List are layouts of one board: from Files or Settings, Board goes back to the layout last shown.
     #[test]
     fn board_goes_back_to_the_last_layout() {
         let keys = KeyLabels::default();
@@ -461,7 +502,7 @@ mod tests {
                 view: ViewKind::List
             }
         );
-        for view in [ViewKind::Board, ViewKind::Files] {
+        for view in [ViewKind::Board, ViewKind::Settings] {
             apply(&mut prefs, &Change::View { view });
         }
         assert_eq!(
