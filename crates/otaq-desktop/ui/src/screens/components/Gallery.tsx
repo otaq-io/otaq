@@ -1692,23 +1692,12 @@ function BoardReviewSection() {
             <strong>
               {cell.column.title} · {cell.column.count}
             </strong>
-            {cell.column.sections.map((section) => (
-              <div key={section.id} className="gallery-stack-tight">
-                <Caption>
-                  {section.title} {section.count}
-                </Caption>
-                {section.cards.map((card) => (
-                  <span key={card.card.key}>
-                    {card.card.key} · {card.card.title}
-                  </span>
-                ))}
-                {section.cards.length === 0 && <Caption>{section.empty}</Caption>}
-                {section.note && <Caption>{section.note.text}</Caption>}
-                {section.drag_hint !== null && section.cards.length === 0 && (
-                  <Caption>While dragging: {section.drag_hint}</Caption>
-                )}
-              </div>
+            {cell.column.cards.map((card) => (
+              <span key={card.card.key}>
+                {card.card.key} · {card.card.title}
+              </span>
             ))}
+            {cell.column.cards.length === 0 && <Caption>{cell.column.empty_hint}</Caption>}
           </div>
         ))}
       </div>
@@ -1756,38 +1745,16 @@ const NO_CARD_HANDLERS: ColumnProps["handlers"] = {
   hover: () => undefined,
 };
 
-/** *03 → Row · Review column (0086 · V)* (`pheSu`, Dark `SDm9C`; T-0328, d0087): the board's own Review column from
- * the T-0324 fixtures: both sections, an empty Approved, Approved as the drop target of a dragged Ready for Review
- * card (its verdict from the fixtures' drag answer), Approved empty while that card is dragged elsewhere, a folded
- * section, and the empty column. Nothing is sent; the labels fold nothing here. */
+/** The board's own Review column from the gallery's fixtures, in each of their states: the cards waiting for you and
+ * those being delivered (To deliver, PR open) in one list, with no sections, and the empty column. Nothing is sent. */
 function ReviewColumnSection() {
   const { view, error } = useServiceView(loadBoardReview, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
-  const [both, emptyApproved, emptyReady, empty] = view.review;
-  const rfr = view.drags.find((d) =>
-    d.answer.targets.some((t) => t.target === "approved" && t.verdict.kind === "allowed"),
-  );
-  const verdict = rfr?.answer.targets.find((t) => t.target === "approved")?.verdict;
-  const cells: { name: string; column: BoardColumn | undefined; props?: Partial<ColumnProps> }[] = [
-    { name: "sections", column: both?.column },
-    { name: "empty section", column: emptyApproved?.column },
-    {
-      name: "drop target",
-      column: both?.column,
-      props: { dragging: true, lifted: rfr?.answer.key ?? null, approved: { verdict, over: true } },
-    },
-    {
-      name: "dragging, Approved empty",
-      column: emptyApproved?.column,
-      props: { dragging: true, lifted: rfr?.answer.key ?? null, approved: { verdict, over: false } },
-    },
-    { name: "folded", column: both?.column, props: { foldedSections: ["ready_for_review"] } },
-    { name: "Ready for Review empty", column: emptyReady?.column },
-    { name: "empty", column: empty?.column },
-  ];
+  const cells: { name: string; column: BoardColumn | undefined; props?: Partial<ColumnProps> }[] =
+    view.review.map((cell) => ({ name: cell.name, column: cell.column }));
   return (
-    <Section title="03 · Review column: sections, empty, drop target, folded (T-0328)">
+    <Section title="03 · Review column: its cards and empty (T-0328)">
       <div className="gallery-wrap">
         {cells.map(
           (cell) =>

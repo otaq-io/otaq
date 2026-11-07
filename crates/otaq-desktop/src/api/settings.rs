@@ -49,7 +49,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         })),
         "settings.provider" => {
             let p: SettingsProject = parse(params)?;
-            let delivery = super::board::delivery_stage(app, &p.project).await;
+            // The delivery is no stage: the provider row links to no stage's Skill field.
+            let delivery: Option<String> = None;
             let request = Request::ProjectPrProvider(ProjectParams { project: p.project });
             match app.service.send(request).await? {
                 Reply::PrProvider(provider) => {

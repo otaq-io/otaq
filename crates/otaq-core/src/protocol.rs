@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;

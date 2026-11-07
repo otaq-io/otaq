@@ -28,7 +28,7 @@ fn unknown(stage: &Stage, name: &str) -> BoardError {
     )
 }
 
-/// The stage's agent (AGM-05): the agent `stage` names (an Agent stage's, an agent check's, a Delivery's). Refused
+/// The stage's agent (AGM-05): the agent `stage` names (an Agent stage's, an agent check's). Refused
 /// for a stage that runs no agent, or names one that isn't there.
 pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardError> {
     let Some(name) = stage.agent.as_ref() else {
@@ -141,14 +141,29 @@ pub async fn session_agent(
     running_agent(board, ticket, &stage.id.clone()).await
 }
 
-/// The Delivery stage's agent of a project (the PR path, AGM-05), else the first Agent stage's.
+/// The agent that opens a project's PRs (the PR path, AGM-05): the one its flow's delivery names, else the first
+/// Agent stage's.
 pub async fn delivery_agent(board: &Board, project: &str) -> Result<Agent, BoardError> {
     let flow = board.effective_flow(project).await?;
+    if let Some(name) = flow.delivery.agent.as_deref() {
+        return named(board.store(), name).await?.ok_or_else(|| {
+            BoardError::refused(
+                Refusal::UnknownAgent,
+                format!("The delivery names the agent {name}, which isn't one of your agents"),
+            )
+        });
+    }
     let stage = flow
-        .stages
-        .iter()
-        .find(|s| s.is_delivery() && s.has_agent())
-        .or_else(|| flow.first_agent_stage())
+        .first_agent_stage()
         .ok_or_else(|| BoardError::NotFound(format!("{project}'s flow has no agent to deliver")))?;
     stage_agent(board, stage).await
+}
+
+/// Whether the flow's delivery names `agent` as the one that opens its PRs, by name ignoring case as [`named`] looks
+/// it up.
+pub fn delivery_names(flow: &Flow, agent: &Agent) -> bool {
+    flow.delivery
+        .agent
+        .as_deref()
+        .is_some_and(|name| name.trim().to_lowercase() == agent.name.to_lowercase())
 }

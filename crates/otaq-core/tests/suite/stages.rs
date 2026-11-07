@@ -13,7 +13,7 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::moves::{DropOn, DropTarget, MoveAction, MoveCheck};
 use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
-use otaq_core::flow::default::{DELIVER, DEV, REVIEW, VALIDATE};
+use otaq_core::flow::default::{DEV, REVIEW, VALIDATE};
 use otaq_core::flow::engine::{self, At, Counters, Move, RunResult, Step};
 use otaq_core::flow::{Delivers, DeliveryMode, Flow, default_flow, yaml};
 use otaq_core::git::testing::commit;
@@ -298,8 +298,8 @@ fn from_validating() {
 }
 
 /// Ready for Review → Dev (Send back: the same session, every counter at 0); Approve offers Local merge or Open PR
-/// (one click: the Delivery's own); Local merge → Done · Merged; Open PR → Approved · PR open; Push to PR from
-/// Review; PR rework back to Review; Mark merged; Mark closed and Close ticket; Reopen.
+/// (the flow's delivery, `either`); Local merge → Done · Merged; Open PR → PR open, still in Review (the delivery is
+/// no stage); Push to PR from there; Mark merged; Mark closed and Close ticket; Reopen.
 #[test]
 fn review_and_delivery() {
     let flow = default_flow();
@@ -331,44 +331,27 @@ fn review_and_delivery() {
         ),
         "Approve asks Local merge or Open PR; nothing moves yet"
     );
-    assert_eq!(
-        engine::drag(&flow, &review, Status::WaitingForYou, DropTarget::Approved),
-        MoveCheck::Choose {
-            action: MoveAction::Approve
-        }
-    );
     let merged = go(&flow, &review, Status::WaitingForYou, Move::Delivered);
     assert_eq!(
         (merged.place, merged.status, merged.ended),
         (Place::Done, Status::Merged, Some(RunResult::Passed))
     );
-    let through: Vec<_> = merged
-        .passed_through
-        .iter()
-        .map(|(s, r)| (s.id.as_str(), *r))
-        .collect();
-    assert_eq!(through, [(DELIVER, RunResult::Done)]);
+    assert!(merged.passed_through.is_empty(), "the delivery has no run");
     let pr = go(&flow, &review, Status::WaitingForYou, Move::PrOpened);
     assert_eq!(
         (pr.place, pr.status, pr.ended),
-        (stage(DELIVER), Status::PrOpen, Some(RunResult::Passed))
+        (stage(REVIEW), Status::PrOpen, Some(RunResult::Passed))
     );
-    let deliver = stage(DELIVER);
+    let deliver = stage(REVIEW);
     let pushed = go(&flow, &deliver, Status::PrOpen, Move::PrOpened);
     assert_eq!(
         (pushed.place.clone(), pushed.ended),
         (deliver.clone(), None)
     );
-    let rework = go(&flow, &deliver, Status::PrOpen, Move::PrRework);
-    assert_eq!(
-        (rework.place, rework.status),
-        (stage(REVIEW), Status::WaitingForYou)
-    );
+    // No Approved section: dropped on Review, where it is, nothing changes.
     assert_eq!(
         engine::drag(&flow, &deliver, Status::PrOpen, DropTarget::ReadyForReview),
-        MoveCheck::Allowed {
-            action: MoveAction::PrRework
-        }
+        MoveCheck::Unchanged
     );
     let marked = go(&flow, &deliver, Status::PrOpen, Move::Delivered);
     assert_eq!(
@@ -448,7 +431,7 @@ fn drags_on_the_default_flow() {
         (stage(REVIEW), Status::WaitingForYou),
         (stage(VALIDATE), Status::Checking),
         (stage(VALIDATE), Status::CheckFailed),
-        (stage(DELIVER), Status::PrOpen),
+        (stage(REVIEW), Status::PrOpen),
     ] {
         assert_eq!(
             drag(&place, status, DropTarget::Dev.into()),
@@ -465,7 +448,11 @@ fn drags_on_the_default_flow() {
         MoveCheck::Unchanged
     );
     assert_eq!(
-        drag(&stage(DELIVER), Status::PrOpen, DropTarget::Approved.into()),
+        drag(
+            &stage(REVIEW),
+            Status::PrOpen,
+            DropTarget::ReadyForReview.into()
+        ),
         MoveCheck::Unchanged
     );
 }
@@ -666,7 +653,11 @@ fn a_skipped_stage_gets_a_skipped_run() {
     both.apply(Move::NextStage);
     both.apply(Move::Pass);
     let into_ship = both.apply(Move::Pass);
-    assert_eq!(both.at(), Some("ship"), "QA skipped");
+    assert_eq!(
+        both.at(),
+        Some("qa"),
+        "QA skipped: delivered from the last stage"
+    );
     assert_eq!(
         both.runs.last().map(|(s, r)| (s.as_str(), *r)),
         Some(("qa", RunResult::Skipped))
@@ -677,8 +668,8 @@ fn a_skipped_stage_gets_a_skipped_run() {
     );
 }
 
-/// QA (a human check) passes into the automatic PR Delivery: the card enters it. With the Delivery in click mode
-/// QA's Pass offers the Delivery's choice instead and the card stays in QA until the user picks.
+/// QA (a human check, the last stage) passes into the automatic PR delivery: the card stays in QA, To deliver. With
+/// the delivery in click mode QA's Pass offers the delivery's choice instead and the card waits in QA for the pick.
 #[test]
 fn a_human_check_before_a_click_delivery_offers_its_choices() {
     let flow = every_kind();
@@ -686,21 +677,17 @@ fn a_human_check_before_a_click_delivery_offers_its_choices() {
     let pass = go(&flow, &qa, Status::WaitingForYou, Move::HumanPass);
     assert_eq!(
         (pass.place, pass.status, pass.choose, pass.automatic),
-        (stage("ship"), Status::ToDeliver, None, true)
+        (stage("qa"), Status::ToDeliver, None, true)
     );
     let mut click = flow.clone();
-    let ship = click.stages.iter_mut().find(|s| s.id == "ship").unwrap();
-    ship.delivery.as_mut().unwrap().mode = DeliveryMode::Click;
+    click.delivery.mode = DeliveryMode::Click;
     let pass = go(&click, &qa, Status::WaitingForYou, Move::HumanPass);
     assert_eq!(
         (pass.place, pass.status, pass.choose),
         (qa.clone(), Status::WaitingForYou, Some(Delivers::Pr))
     );
     let opened = go(&click, &qa, Status::WaitingForYou, Move::PrOpened);
-    assert_eq!(
-        (opened.place, opened.status),
-        (stage("ship"), Status::PrOpen)
-    );
+    assert_eq!((opened.place, opened.status), (stage("qa"), Status::PrOpen));
     // A human check not right before the Delivery passes on to the next stage (Review in a custom flow, say).
     let pass = go(&flow, &stage("security"), Status::Checking, Move::Pass);
     assert_eq!((pass.place, pass.status), (qa, Status::WaitingForYou));
@@ -876,7 +863,6 @@ async fn a_full_run_records_every_stage() {
                 Some(RunResult::Passed)
             ),
             (REVIEW, "you", None, None, Some(RunResult::Passed)),
-            (DELIVER, "delivery", None, None, Some(RunResult::Done)),
         ]
     );
     for (run, session) in [(&runs[0], &agent.id), (&runs[1], &validator.id)] {

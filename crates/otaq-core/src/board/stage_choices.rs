@@ -1035,13 +1035,11 @@ mod tests {
                 Some(_) => StageKind::Agent,
                 None => StageKind::Check { by: CheckBy::You },
             },
-            column: Default::default(),
             agent: agent.map(Into::into),
             skill: None,
             options: skippable.then_some(StageOption::Skip).into_iter().collect(),
             rounds: None,
             fail_to: None,
-            delivery: None,
             description: None,
         }
     }

@@ -106,10 +106,10 @@ impl Typing {
 }
 
 /// Open PR refused because the built-in skill can't open a PR on this remote: the user's own Open PR skill goes in the
-/// Delivery stage's Skill field of the flow editor (the desktop's toast links there), never in an agent's skills.
+/// flow's delivery (its `skill:`), never in an agent's skills.
 pub fn own_open_pr_skill(why: &str) -> String {
     format!(
-        "{why}: use your own Open PR skill (name it as the Delivery stage\u{2019}s skill in the flow editor)"
+        "{why}: use your own Open PR skill (name it as the delivery\u{2019}s `skill:` in the flow file)"
     )
 }
 
@@ -1064,12 +1064,12 @@ mod tests {
 
     /// "Use your own Open PR skill" points at the Delivery stage's Skill field, never at the agent's skills.
     #[test]
-    fn own_open_pr_skill_names_the_delivery_stage() {
+    fn own_open_pr_skill_names_the_flows_delivery() {
         let text = own_open_pr_skill("PR provider not detected");
         assert_eq!(
             text,
-            "PR provider not detected: use your own Open PR skill (name it as the Delivery stage\u{2019}s skill in \
-             the flow editor)"
+            "PR provider not detected: use your own Open PR skill (name it as the delivery\u{2019}s `skill:` in \
+             the flow file)"
         );
         assert!(!text.contains("Settings"));
         assert!(!text.contains("agent's skills") && !text.contains("agent\u{2019}s skills"));

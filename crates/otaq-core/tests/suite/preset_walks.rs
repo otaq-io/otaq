@@ -450,7 +450,6 @@ async fn solo_autopilot_merges_a_ticket_that_skips_validate_automatically() {
         [
             run("dev", RunResult::Done),
             run("validate", RunResult::Skipped),
-            run("deliver", RunResult::Done),
         ]
     );
     assert_eq!(
@@ -509,7 +508,7 @@ async fn team_pr_to_a_pr_opened_with_gh() {
     let delivering = dev_and_validate(&w, &t, "login.ts").await;
     assert_eq!(
         (delivering.status, &delivering.place),
-        (Status::ToDeliver, &Place::stage_of("deliver"))
+        (Status::ToDeliver, &Place::stage_of("validate"))
     );
     assert!(delivering.flags.delivering_automatically);
     let shipper = session(&w, &t, SessionKind::Delivery).await;
@@ -555,7 +554,7 @@ async fn team_pr_to_a_pr_opened_with_gh() {
     let open = w.prs.opened(&key, url.trim(), &as_agent).await.unwrap();
     assert_eq!(
         (open.status, &open.place),
-        (Status::PrOpen, &Place::stage_of("deliver"))
+        (Status::PrOpen, &Place::stage_of("validate"))
     );
     assert_eq!(open.flags.pr_number, Some(12));
     assert!(!open.flags.delivered_without_checks);

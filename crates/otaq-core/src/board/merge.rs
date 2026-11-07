@@ -1,16 +1,17 @@
-//! The Delivery's board side (GIT-03, EPC-03, FLW-15, FLW-17; d0015, d0038, d0059, d0108): where a ticket merges, the
-//! squash message the confirmation proposes, the bookkeeping once it merged, and the Delivery's mode and conflicts.
-//! The git work is [`crate::git::merge`]; the click is [`crate::review::Review::local_merge`], the automatic
-//! Delivery [`crate::review::delivery`].
+//! The delivery's board side (GIT-03, EPC-03, FLW-15, FLW-17; d0015, d0038, d0059, d0108): where a ticket merges, the
+//! squash message the confirmation proposes, the bookkeeping once it merged, and the delivery's mode and conflicts.
+//! The delivery is a setting of the flow (`delivery:`), not a stage: a ticket being delivered stays in the flow's
+//! last stage. The git work is [`crate::git::merge`]; the click is [`crate::review::Review::local_merge`], the
+//! automatic delivery [`crate::review::delivery`].
 //!
-//! - **Click or automatic** ([`delivery_is_automatic`]): the Delivery does what the flow says. A stage with
-//!   `mode: automatic` delivers with no click whatever happened to the checks before it: a check the ticket skips by
-//!   its choice (agent or human), or one the user moved it past (Move on anyway, Skip this check, Move to next stage
-//!   or a drag past it), never turns it into a click. When a check before it didn't pass in its latest run (skipped,
-//!   moved past, or none at all), the automatic Delivery records "Delivered without all checks" ([`without_checks`]) for
-//!   the card, Review and History.
+//! - **Click or automatic** ([`crate::flow::Delivery::is_automatic`]): the delivery does what the flow says. With
+//!   `mode: automatic` the work is delivered with no click once the ticket passed its last stage, whatever happened
+//!   to the checks before: a check the ticket skips by its choice (agent or human), or one the user moved it past
+//!   (Move on anyway, Skip this check, Move to next stage or a drag past it), never turns it into a click. When a
+//!   check didn't pass in its latest run (skipped, moved past, or none at all), the automatic delivery records
+//!   "Delivered without all checks" ([`without_checks`]) for the card, Review and History.
 //! - **Conflicts** (FLW-17, d0108 smaller rule 1): the rebase onto the target conflicted, in either mode. The ticket
-//!   goes to its nearest earlier Agent stage, whose session fixes it with `restack` with no click ("Merge conflict ·
+//!   goes to the last Agent stage it runs, whose session fixes it with `restack` with no click ("Merge conflict ·
 //!   fixing"); the conflicts count in a row and the third stops it there, turquoise ("Keeps conflicting with
 //!   `main`"). A merge resets the count.
 
@@ -27,26 +28,18 @@ use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, AutoMergeStop, Outcome, Place, Status, TicketKey};
 use crate::flow::engine::{self, Move, RunResult};
-use crate::flow::{Delivers, Delivery, DeliveryMode, Flow, Stage};
+use crate::flow::{Delivery, DeliveryMode, Flow, Stage};
 use crate::store::tickets::set_state_since;
 use crate::store::{new_id, now_ms};
 
 /// Delivery conflicts in a row before the ticket stops for the user (d0108 smaller rule 1, as 0064 did).
 pub const DELIVERY_CONFLICT_LIMIT: u32 = 3;
 
-/// Whether a Delivery delivers with no click: its mode is automatic (and it delivers `local` or `pr`; `either` is
-/// click only). Only the flow decides: skipped checks and checks the user moved the ticket past don't change it.
-pub fn delivery_is_automatic(delivery: &Stage) -> bool {
-    delivery
-        .delivery
-        .is_some_and(|d| d.mode == DeliveryMode::Automatic && d.delivers != Delivers::Either)
-}
-
-/// Whether the ticket reaches the Delivery without all its checks: a check before it didn't pass in its latest run
+/// Whether the ticket reaches the delivery without all its checks: a check of the flow didn't pass in its latest run
 /// (`runs`, oldest first): the ticket skipped it, the user moved it past it, or the flow has no check at all. An
-/// automatic Delivery then says "Delivered without all checks".
-pub fn without_checks(flow: &Flow, delivery: &Stage, runs: &[StageRun]) -> bool {
-    let mut checks = checks_before(flow, delivery).peekable();
+/// automatic delivery then says "Delivered without all checks".
+pub fn without_checks(flow: &Flow, runs: &[StageRun]) -> bool {
+    let mut checks = checks_of(flow).peekable();
     checks.peek().is_none() || checks.any(|check| !passed_latest(runs, &check.id))
 }
 
@@ -57,10 +50,9 @@ pub fn passed_latest(runs: &[StageRun], stage: &str) -> bool {
     latest_run(runs, stage) == Some(RunResult::Passed)
 }
 
-/// The check stages before `delivery`, in order.
-fn checks_before<'f>(flow: &'f Flow, delivery: &Stage) -> impl Iterator<Item = &'f Stage> {
-    let end = flow.position(&delivery.id).unwrap_or(flow.stages.len());
-    flow.stages[..end]
+/// The flow's check stages, in order: all of them come before the delivery.
+fn checks_of(flow: &Flow) -> impl Iterator<Item = &Stage> {
+    flow.stages
         .iter()
         .filter(|s| s.is_agent_check() || s.is_human_check())
 }
@@ -73,14 +65,14 @@ fn latest_run(runs: &[StageRun], stage: &str) -> Option<RunResult> {
         .and_then(|r| r.result)
 }
 
-/// A ticket's Delivery as it stands now.
+/// A ticket's delivery as it stands now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryNow {
-    /// The Delivery stage of the ticket's flow.
+    /// The flow's last stage, which the ticket stays in while it is delivered.
     pub stage: Stage,
     /// What it delivers.
     pub delivery: Delivery,
-    /// It delivers with no click: [`delivery_is_automatic`], as the flow says.
+    /// It delivers with no click ([`Delivery::is_automatic`]), as the flow says.
     pub automatic: bool,
     /// A check before it didn't pass ([`without_checks`]).
     pub without_checks: bool,
@@ -339,28 +331,25 @@ impl Board {
 }
 
 impl Board {
-    /// The ticket's Delivery now: its stage, what it delivers, and whether it runs with no click.
+    /// The ticket's delivery now: the last stage it waits in, what it delivers, and whether it runs with no click.
+    /// `None` only for a flow with no stages.
     pub async fn delivery_now(&self, ticket: &Ticket) -> Result<Option<DeliveryNow>, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let Some((stage, delivery)) = flow
-            .stages
-            .iter()
-            .find_map(|s| Some((s.clone(), s.delivery?)))
-        else {
+        let Some(stage) = flow.last_stage().cloned() else {
             return Ok(None);
         };
         let runs = self.stage_runs(&ticket.key.to_string()).await?;
         Ok(Some(DeliveryNow {
-            automatic: delivery_is_automatic(&stage),
-            without_checks: without_checks(&flow, &stage, &runs),
+            automatic: flow.delivery.is_automatic(),
+            without_checks: without_checks(&flow, &runs),
             stage,
-            delivery,
+            delivery: flow.delivery.clone(),
         }))
     }
 
-    /// Whose session runs the ticket's Delivery (d0108 second gap review rule 6): the Dev stage's (an agent
-    /// session) when the Delivery's agent is the agent that ran it, else a delivery session of the Delivery's own
-    /// agent. A flow whose agents can't be read keeps the ticket's agent.
+    /// Whose session opens the ticket's PR (d0108 second gap review rule 6): the Dev stage's (an agent session) when
+    /// the delivery's agent is the agent that ran it, else a delivery session of the delivery's own agent. A flow
+    /// whose agents can't be read keeps the ticket's agent.
     pub async fn delivery_session_kind(&self, ticket: &Ticket) -> crate::session::SessionKind {
         use crate::session::SessionKind;
         match self.delivery_agent_is_devs(ticket).await {
@@ -373,18 +362,13 @@ impl Board {
         }
     }
 
-    /// Whether the Delivery's agent is the agent that ran the ticket's nearest Agent stage before the Delivery (its
-    /// choice for that stage, else the stage's agent).
+    /// Whether the delivery's agent is the agent that ran the ticket's last Agent stage (its choice for that stage,
+    /// else the stage's agent).
     async fn delivery_agent_is_devs(&self, ticket: &Ticket) -> Result<bool, BoardError> {
         use crate::agents::resolve;
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let skips = self.ticket_skips(ticket, &flow).await?;
-        let Some(dev) = flow
-            .stages
-            .iter()
-            .find(|s| s.is_delivery())
-            .and_then(|d| engine::back_to(&flow, &d.id, &skips))
-        else {
+        let Some(dev) = engine::back_from_delivery(&flow, &skips) else {
             return Ok(false);
         };
         let delivery = resolve::delivery_agent(self, ticket.key.project.as_str()).await?;
@@ -458,10 +442,9 @@ impl Board {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let stage = match ticket.place.stage() {
             Some(id) if ticket.status.at_work() => Some(id.to_owned()),
-            Some(id) => engine::back_to(&flow, id, &[]).map(|s| s.id.clone()),
-            None => None,
-        }
-        .or_else(|| flow.first_agent_stage().map(|s| s.id.clone()));
+            _ => engine::back_for_conflict(&flow, &ticket.place, ticket.status, &[])
+                .map(|s| s.id.clone()),
+        };
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
@@ -493,7 +476,8 @@ impl Board {
         Ok(())
     }
 
-    /// A Delivery's conflict, or its failed Merge check (d0120), goes to the nearest earlier Agent stage (FLW-17):
+    /// A delivery's conflict, or its failed Merge check (d0120), goes back to an Agent stage (FLW-17,
+    /// [`engine::back_for_conflict`]):
     /// Working there (its live session gets `restack`), or Queued before it with the skill still to run. The conflict
     /// stays on the ticket until the agent moves on again. A failed check's comment (`hand_over`, with the output as
     /// its report) is posted first, in the same change (CMT-05).
@@ -508,11 +492,7 @@ impl Board {
     ) -> Result<(), BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let skips = self.ticket_skips(ticket, &flow).await?;
-        let stage = ticket
-            .place
-            .stage()
-            .and_then(|id| engine::back_to(&flow, id, &skips))
-            .or_else(|| flow.first_agent_stage())
+        let stage = engine::back_for_conflict(&flow, &ticket.place, ticket.status, &skips)
             .map(|s| s.id.clone());
         let stage = match to.is_queued() {
             true => stage.and_then(|id| super::send_back::waits_before(&flow, &id)),
@@ -537,9 +517,9 @@ impl Board {
         Ok(())
     }
 
-    /// From a stopped Delivery (Retry merge, Move to Review): back to where the Delivery is offered. A click Delivery
-    /// right after a human check waits in that check (the default flow's Review, Approve ▾); otherwise the ticket
-    /// waits in its Delivery stage. The stop and its count clear. Returns where it went.
+    /// From a stopped delivery (Retry merge, Move to Review): back to where the delivery is offered, the flow's last
+    /// stage. A check by you there with a click delivery waits for its Approve (the default flow's Review, Approve
+    /// ▾); otherwise the ticket waits To deliver. The stop and its count clear. Returns where it went.
     pub(crate) async fn back_to_delivery(
         &self,
         ticket: &Ticket,
@@ -564,22 +544,18 @@ impl Board {
         ticket: &Ticket,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
-        let now_delivery = self.delivery_now(ticket).await?.ok_or_else(|| {
-            BoardError::refused(Refusal::MoveRefused, "The flow has no Delivery stage")
-        })?;
-        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let before = flow
-            .position(&now_delivery.stage.id)
-            .and_then(|i| i.checked_sub(1))
-            .and_then(|i| flow.stages.get(i));
-        let (place, to) = match before {
-            Some(check)
-                if check.is_human_check() && now_delivery.delivery.mode == DeliveryMode::Click =>
-            {
-                (Place::stage_of(&check.id), Status::WaitingForYou)
-            }
-            _ => (Place::stage_of(&now_delivery.stage.id), Status::ToDeliver),
+        let now_delivery = self
+            .delivery_now(ticket)
+            .await?
+            .ok_or_else(|| BoardError::refused(Refusal::MoveRefused, "The flow has no stages"))?;
+        // The last stage either way: waiting for the Approve when it is a check by you and the delivery waits for a
+        // click, else To deliver.
+        let last = &now_delivery.stage;
+        let to = match last.is_human_check() && now_delivery.delivery.mode == DeliveryMode::Click {
+            true => Status::WaitingForYou,
+            false => Status::ToDeliver,
         };
+        let place = Place::stage_of(&last.id);
         // The last check's head is the reviewed head, as when it entered the check (REV-06).
         let head: Option<Option<String>> = sqlx::query_scalar(
             "SELECT head_sha FROM validations WHERE ticket_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
@@ -624,18 +600,14 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flow::StageOption;
-    use crate::flow::default::{DELIVER, REVIEW, VALIDATE};
+    use crate::flow::default::{REVIEW, VALIDATE};
+    use crate::flow::{Delivers, StageOption};
 
-    /// The default flow with an automatic Delivery (`delivers`), Review kept.
+    /// The default flow delivering automatically (`delivers`), Review kept.
     fn automatic(delivers: Delivers) -> Flow {
         let mut flow = crate::flow::default_flow();
-        for stage in flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-            stage.delivery = Some(Delivery {
-                mode: DeliveryMode::Automatic,
-                delivers,
-            });
-        }
+        flow.delivery.mode = DeliveryMode::Automatic;
+        flow.delivery.delivers = delivers;
         flow
     }
 
@@ -655,15 +627,14 @@ mod tests {
     }
 
     fn is_automatic(flow: &Flow) -> bool {
-        delivery_is_automatic(flow.stages.iter().find(|s| s.is_delivery()).unwrap())
+        flow.delivery.is_automatic()
     }
 
     fn is_without_checks(flow: &Flow, runs: &[StageRun]) -> bool {
-        let delivery = flow.stages.iter().find(|s| s.is_delivery()).unwrap();
-        without_checks(flow, delivery, runs)
+        without_checks(flow, runs)
     }
 
-    /// FLW-15: the Delivery does what the flow says. Automatic (`local` or `pr`) delivers with no click; click mode
+    /// FLW-15: the delivery does what the flow says. Automatic (`local` or `pr`) delivers with no click; click mode
     /// and `either` wait for the user.
     #[test]
     fn only_the_flow_decides_click_or_automatic() {
@@ -679,7 +650,7 @@ mod tests {
     #[test]
     fn without_checks_when_a_check_didnt_pass() {
         let mut flow = automatic(Delivers::Local);
-        for stage in flow.stages.iter_mut().filter(|s| s.id != DELIVER) {
+        for stage in &mut flow.stages {
             stage.options.push(StageOption::Skip);
         }
         let passed = [

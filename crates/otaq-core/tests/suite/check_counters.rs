@@ -367,7 +367,8 @@ async fn move_on_anyway_from_failed_three_times_at_security() {
     let moved = action(&w, &t, ValidationAction::MoveOnAnyway)
         .await
         .unwrap();
-    assert_eq!(at(&moved), (Some("ship"), Status::ToDeliver));
+    // Security is the last stage now: the ticket is delivered from it.
+    assert_eq!(at(&moved), (Some("security"), Status::ToDeliver));
     assert_eq!(moved.flags.moved_past_check.as_deref(), Some(reason));
     let delivery = w.board.delivery_now(&moved).await.unwrap().unwrap();
     assert!(delivery.automatic, "no forced click");

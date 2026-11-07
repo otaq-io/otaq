@@ -16,7 +16,6 @@ import {
 } from "react";
 
 import { keepSheetWidth, layoutView, mainWidth, shellLayout, toggleExpanded } from "../../app/layout";
-import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
 import { closeTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
@@ -123,10 +122,7 @@ function MoveButton({ view }: { view: SheetView }) {
           width={240}
           onChoose={(target) => {
             setItems(null);
-            // The Approve choice a drop on Approved asks for opens as the sheet's ▾ did.
-            void dropCard(key, target, () => {
-              openOverlay("local_merge", { ticket: key, menu: true });
-            });
+            void dropCard(key, target);
           }}
           onClose={() => {
             setItems(null);

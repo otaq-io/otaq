@@ -1,7 +1,0 @@
-flow:
-  - id: dev
-    name: Dev
-    kind: agent
-    column: own
-    agent: Developer
-    skill: work-ticket

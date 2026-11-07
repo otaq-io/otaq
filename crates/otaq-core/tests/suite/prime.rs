@@ -165,7 +165,6 @@ code needs it.
 anyone reviews it.
 - Review: The user reads the change and passes it, or sends it back with what to fix: their say before it is \
 delivered.
-- Done
 ";
 
 #[tokio::test(flavor = "multi_thread")]
@@ -451,7 +450,7 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
     // The test flow's file describes no stage: the flow still loads, and prime lists its stages by name.
     assert!(
         text.contains(
-            "\n- Product spec\n- Dev (your stage)\n- Validate\n- Security\n- QA\n- Done\n\n## Earlier stages\n"
+            "\n- Product spec\n- Dev (your stage)\n- Validate\n- Security\n- QA\n\n## Earlier stages\n"
         ),
         "{text}"
     );
@@ -833,9 +832,9 @@ async fn prime_prints_the_examples_four_comments() {
         ),
         "{text}"
     );
-    // The flow's stages (its last is Done), then the earlier stages and the comments.
+    // The flow's stages (its last is QA: the delivery is no stage), then the earlier stages and the comments.
     let expected = format!(
-        "\n- Done\n\
+        "\n- QA\n\
          \n## Earlier stages\n\n- Product spec · Spec writer · finished\n- Validate · Validator · round 2 · failed\n{}\
          \n{}\n",
         example_comments(&key),

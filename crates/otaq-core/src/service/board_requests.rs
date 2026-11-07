@@ -1932,7 +1932,7 @@ async fn terminal(
 
 /// `--stage <name>` on `otaq show --terminal` and `otaq attach` (FLW-20, d0108): the stage `name` names in the
 /// ticket's flow (its id, or its name ignoring case) and the kind of the session its agent runs in: an Agent stage's
-/// or a Delivery's is the ticket's agent session, an agent check's is the check's.
+/// is the ticket's agent session, an agent check's is the check's.
 /// Refused unless the ticket is in that stage; a check by you has no agent.
 pub(super) async fn stage_session(
     board: &Board,
@@ -1971,7 +1971,7 @@ pub(super) async fn stage_session(
             ));
         }
         crate::flow::StageKind::Check { .. } => SessionKind::Validator,
-        crate::flow::StageKind::Agent | crate::flow::StageKind::Delivery => SessionKind::Agent,
+        crate::flow::StageKind::Agent => SessionKind::Agent,
     };
     Ok((kind, stage.clone()))
 }

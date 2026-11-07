@@ -18,12 +18,7 @@ impl Board {
     /// by PR, which needs the remote anyway.
     pub async fn goes_on_without_remote(&self, ticket: &Ticket) -> Result<bool, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let delivers = flow
-            .stages
-            .iter()
-            .find_map(|s| s.delivery)
-            .map(|d| d.delivers);
-        Ok(delivers != Some(Delivers::Pr))
+        Ok(flow.delivery.delivers != Delivers::Pr)
     }
 
     /// The ticket went on without its remote: the warning is kept on it and History logs it.

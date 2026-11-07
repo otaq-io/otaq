@@ -339,7 +339,6 @@ mod tests {
             stage_id: id.into(),
             stage: id.into(),
             kind: PathKind::Agent,
-            shown_in: None,
             rounds: None,
             delivery: None,
             agent: None,

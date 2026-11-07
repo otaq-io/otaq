@@ -321,10 +321,9 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
 }
 
 /// T-0144 (REV-14, d0041): PR rework and Push to PR. Only the commits not on the PR's branch are proposed and
-/// reworded; the pushed ones keep their IDs; the branch stays locked; the ticket returns to Approved · PR open.
+/// reworded; the pushed ones keep their IDs; the branch stays locked; the ticket returns to PR open, in Review.
 #[tokio::test(flavor = "multi_thread")]
 async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
-    use otaq_core::board::moves::DropTarget;
     let s = setup().await;
     let w = &s.w;
     // Open the PR (the skill's steps through the CLI, the push by hand).
@@ -352,16 +351,12 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
         .unwrap();
     let pushed = commits(&s.repo, "main..feature/SHOP-1-login");
 
-    // PR rework: Approved → Ready for Review keeps the PR; then the agent adds two commits and resubmits.
-    let ticket = w
-        .board
-        .move_ticket("SHOP-1", DropTarget::ReadyForReview, false, &me())
-        .await
-        .unwrap();
-    assert_eq!(ticket.status, Status::WaitingForYou);
+    // Back to the agent with the PR still open, in Review (the delivery is no stage): it adds two commits and
+    // resubmits.
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.place, otaq_core::domain::Place::stage_of("review"));
     assert_eq!(ticket.flags.pr_number, Some(7));
-    assert!(ticket.flags.pr_rework, "back for rework");
-    w.force_status(&ticket, Status::Working).await;
+    w.force_stage(&ticket, "dev", Status::Working).await;
     commit(&s.worktree, "deep.ts", "deep links\n");
     commit(&s.worktree, "deep.test.ts", "test\n");
     w.board

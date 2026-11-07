@@ -6,7 +6,7 @@ import type { PresetColumn } from "./PresetColumn";
  */
 export type PresetCard = { name: string, 
 /**
- * "Done · click", "Done · Local merge, automatic".
+ * "Local merge or PR · click", "Local merge · automatic".
  */
 delivers: string, line: string, columns: Array<PresetColumn>, 
 /**

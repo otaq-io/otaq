@@ -185,6 +185,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
             &all,
             provider.as_ref(),
             Some(proposal.commits),
+            super::board::flow(app, &project).await.delivery.delivers,
         ),
         merge_check: merge_check.as_deref(),
         // Unread, the dialog says nothing about them (d0125: they never block).

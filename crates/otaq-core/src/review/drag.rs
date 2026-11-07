@@ -128,7 +128,7 @@ impl Review {
             MoveCheck::Refused { reason } => {
                 return Err(BoardError::refused(Refusal::MoveRefused, reason.clone()));
             }
-            MoveCheck::Confirm { .. } | MoveCheck::Choose { .. } if !answers.confirmed => {
+            MoveCheck::Confirm { .. } if !answers.confirmed => {
                 return Err(BoardError::refused(
                     Refusal::NeedsConfirmation,
                     "This move needs your confirmation",

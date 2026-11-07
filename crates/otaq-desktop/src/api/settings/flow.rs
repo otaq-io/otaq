@@ -311,7 +311,7 @@ mod tests {
             .iter()
             .map(|r| r["name"].as_str().unwrap())
             .collect();
-        assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+        assert_eq!(stages, ["Dev", "Validate", "Review", "Delivery"]);
         assert_eq!(section["waiting"], Value::Null);
         assert_eq!(section["copy"]["disabled"], true, "no other project yet");
         assert_eq!(section["menu"][2]["disabled"], true, "no previous flow");

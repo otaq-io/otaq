@@ -3,7 +3,8 @@ import type { ApproveChoice } from "./ApproveChoice";
 import type { ApproveItem } from "./ApproveItem";
 
 /**
- * *03 → Approve choice on drop*: a drop on Approved never approves by itself; it asks how (UI-02, T-0095).
+ * The Approve menu of a ticket waiting for the user's Approve (UI-02, T-0095): what the flow's delivery allows,
+ * named by its action, and the other ways to finish it.
  */
 export type ApproveMenu = { key: string, title: string, items: Array<ApproveItem>, note: string, 
 /**

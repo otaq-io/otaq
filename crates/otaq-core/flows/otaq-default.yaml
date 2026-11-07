@@ -7,7 +7,6 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    column: own
     agent: Developer
     skill: work-ticket
     description: "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
@@ -15,7 +14,6 @@ flow:
     name: Validate
     kind: check
     by: agent
-    column: own
     agent: Validator
     skill: validate
     rounds: 3
@@ -24,13 +22,9 @@ flow:
     name: Review
     kind: check
     by: you
-    column: own
     description: "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
-  - id: deliver
-    name: Done
-    kind: delivery
-    column: with-previous
-    agent: Developer
-    skill: open-pr
-    mode: click
-    delivers: either
+delivery:
+  delivers: either
+  mode: click
+  agent: Developer
+  skill: open-pr

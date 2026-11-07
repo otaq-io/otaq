@@ -70,7 +70,7 @@ and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`,
 from a request, with notes for the next stage). They come with Otaq's plugin for each tool, the same one that carries
 its hooks: `--plugin-dir` for Claude Code and Copilot, the `otaq@otaq-local` plugin for Codex, and a `skills` entry in
 OpenCode's config. So every session has all of them from its start. To run a skill of your own instead, name it on the
-flow stage (your own Validate skill on the Validate stage, your own Open PR skill on the Delivery stage); see
+flow (your own Validate skill on the Validate stage, your own Open PR skill as the `skill:` of the flow's `delivery:`); see
 [Skills](how-it-works.md#skills). The hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are
 unaffected.
 

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use otaq_core::flow::{
-    self, CheckBy, Column, Delivers, Delivery, DeliveryMode, Rule, StageKind, check, yaml,
+    self, CheckBy, Delivers, Delivery, DeliveryMode, Rule, StageKind, check, yaml,
 };
 use otaq_core::naming;
 
@@ -68,69 +68,43 @@ fn an_old_files_agent_role_reads_and_is_dropped() {
 }
 
 #[test]
-fn the_default_flow_is_dev_validate_review_done() {
+fn the_default_flow_is_dev_validate_review_then_delivered() {
     let flow = flow::default_flow();
     let ids: Vec<&str> = flow.stages.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(ids, ["dev", "validate", "review", "deliver"]);
-    let [dev, validate, review, deliver] = &flow.stages[..] else {
+    assert_eq!(ids, ["dev", "validate", "review"]);
+    let [dev, validate, review] = &flow.stages[..] else {
         unreachable!()
     };
     assert_eq!(
-        (
-            dev.kind,
-            dev.column,
-            dev.agent.as_deref(),
-            dev.skill.as_deref()
-        ),
-        (
-            StageKind::Agent,
-            Column::Own,
-            Some("Developer"),
-            Some("work-ticket")
-        )
+        (dev.kind, dev.agent.as_deref(), dev.skill.as_deref()),
+        (StageKind::Agent, Some("Developer"), Some("work-ticket"))
     );
     assert_eq!(
         (
             validate.kind,
-            validate.column,
             validate.agent.as_deref(),
             validate.skill.as_deref(),
             validate.rounds
         ),
         (
             StageKind::Check { by: CheckBy::Agent },
-            Column::Own,
             Some("Validator"),
             Some("validate"),
             Some(3)
         )
     );
-    assert!(
-        review.is_human_check()
-            && !review.has_agent()
-            && review.fail_to.is_none()
-            && review.column == Column::Own
-    );
+    assert!(review.is_human_check() && !review.has_agent() && review.fail_to.is_none());
+    // Delivered on Review's Approve, by a local merge or a PR: a setting of the flow, not a stage.
     assert_eq!(
-        (
-            deliver.name.as_str(),
-            deliver.column,
-            deliver.agent.as_deref(),
-            deliver.delivery
-        ),
-        (
-            "Done",
-            Column::WithPrevious,
-            Some("Developer"),
-            Some(Delivery {
-                mode: DeliveryMode::Click,
-                delivers: Delivers::Either
-            })
-        )
+        flow.delivery,
+        Delivery {
+            mode: DeliveryMode::Click,
+            delivers: Delivers::Either,
+            agent: Some("Developer".to_owned()),
+            skill: Some("open-pr".to_owned()),
+        }
     );
-    // Validate has its own column (FLW-01), Done shows in Review's (its Approved section).
-    assert_eq!(flow.column_owner(1), Some(1));
-    assert_eq!(flow.column_owner(3), Some(2));
+    assert_eq!(flow.approve_stage().map(|s| s.id.as_str()), Some("review"));
     assert_eq!(flow.first_agent_stage().map(|s| s.id.as_str()), Some("dev"));
 }
 
@@ -141,49 +115,66 @@ fn the_default_and_the_test_flow_pass_the_checks() {
     assert_eq!(check(&every.flow), Ok(()));
     assert!(every.flow.stage("dev").unwrap().options.is_empty());
     assert!(every.flow.stage("product-spec").unwrap().can_skip());
-    // Validate shows in Dev's column; Security has its own.
-    assert_eq!(every.flow.column_owner(2), Some(1));
-    assert_eq!(every.flow.column_owner(3), Some(3));
+    assert_eq!(every.flow.delivery.delivers, Delivers::Pr);
+}
+
+/// An older file still loads: its Delivery stage becomes the flow's `delivery:` setting and its `column:` is
+/// ignored (every stage is its own column); written again, it is in today's form, and reads back the same.
+#[test]
+fn an_old_file_with_a_delivery_stage_and_with_previous_loads() {
+    let old = "flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: with-previous
+    agent: Validator
+    skill: validate
+    rounds: 3
+  - id: review
+    name: Review
+    kind: check
+    by: you
+    column: own
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: with-previous
+    agent: Developer
+    skill: open-pr
+    mode: click
+    delivers: either
+";
+    let read = yaml::read(old).unwrap();
+    let ids: Vec<&str> = read.flow.stages.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, ["dev", "validate", "review"]);
+    assert_eq!(read.flow.delivery, flow::default_flow().delivery);
+    let upgraded = yaml::upgraded(old).expect("an old form");
+    assert!(!upgraded.contains("column") && !upgraded.contains("kind: delivery"));
+    assert!(upgraded.contains("delivery:\n  delivers: either\n  mode: click\n"));
+    assert_eq!(yaml::read(&upgraded).unwrap(), read);
+    assert_eq!(yaml::upgraded(&upgraded), None, "already today's form");
+
+    // A file with no delivery at all doesn't read; one with two doesn't either.
+    let no_delivery = "flow:\n  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}\n";
+    assert!(refused(no_delivery).contains("doesn't say how its work is delivered"));
+    let both = format!("{old}delivery:\n  delivers: local\n  mode: click\n");
+    assert!(refused(&both).contains("Done is a Delivery stage and the flow has `delivery:` too"));
 }
 
 /// A problem as a test expects it: the rule, the stage's id and the message.
 type Expected<'a> = (Rule, Option<&'a str>, &'a str);
 
-/// Each broken file breaks one rule (two-deliveries breaks both halves of the first) and says so.
+/// Each broken file breaks one rule and says so.
 #[test]
 fn each_rule_refuses_its_broken_file() {
     let cases: &[(&str, &[Expected])] = &[
-        (
-            "no-delivery",
-            &[(
-                Rule::OneDelivery,
-                None,
-                "The flow has no Delivery stage: it must end in one that merges or opens a PR",
-            )],
-        ),
-        (
-            "two-deliveries",
-            &[
-                (
-                    Rule::OneDelivery,
-                    Some("deliver"),
-                    "Merge and Done are both Delivery stages: a flow has exactly one",
-                ),
-                (
-                    Rule::DeliveryLast,
-                    Some("merge"),
-                    "Merge is the Delivery stage but isn't last: the flow ends with it",
-                ),
-            ],
-        ),
-        (
-            "delivery-not-last",
-            &[(
-                Rule::DeliveryLast,
-                Some("deliver"),
-                "Done is the Delivery stage but isn't last: the flow ends with it",
-            )],
-        ),
         (
             "no-agent-stage",
             &[(
@@ -201,27 +192,11 @@ fn each_rule_refuses_its_broken_file() {
             )],
         ),
         (
-            "fold-first",
-            &[(
-                Rule::FoldFirst,
-                Some("dev"),
-                "Dev is the first stage: it can't share the previous column, since Ready for Dev comes before it",
-            )],
-        ),
-        (
-            "fold-into-human-check",
-            &[(
-                Rule::FoldIntoHumanCheck,
-                Some("notes"),
-                "Release notes can't share Review's column: that column belongs to a check by you",
-            )],
-        ),
-        (
             "either-automatic",
             &[(
                 Rule::EitherClickOnly,
-                Some("deliver"),
-                "Done delivers `either` automatically: choosing between a Local merge and a PR needs your click, \
+                None,
+                "The delivery is `either` automatically: choosing between a Local merge and a PR needs your click, \
                  so use click mode or deliver `local` or `pr`",
             )],
         ),
@@ -231,14 +206,6 @@ fn each_rule_refuses_its_broken_file() {
                 Rule::Rounds,
                 Some("validate"),
                 "Validate has 7 rounds: use 1 to 5",
-            )],
-        ),
-        (
-            "skip-delivery",
-            &[(
-                Rule::SkipDelivery,
-                Some("deliver"),
-                "Done is the Delivery stage: it can't be skipped",
             )],
         ),
         (
@@ -378,23 +345,17 @@ fn every_skip_combination_is_walked() {
 }
 
 #[test]
-fn folding_follows_the_chain_to_its_owner() {
-    // Polish folds into Review through nothing in between: refused; the Delivery after it may fold (as the default
-    // flow's Done does).
+fn an_old_with_previous_stage_is_its_own_column_and_passes() {
+    // Polish once folded into Review's column, which was refused; every stage is its own column now, so it passes.
     let text = "flow:
   - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}
   - {name: Review, kind: check, by: you}
   - {name: Polish, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 1}
   - {name: Done, kind: delivery, column: with-previous, mode: click, delivers: local}
 ";
-    let problems = check(&yaml::read(text).unwrap().flow).unwrap_err();
-    assert_eq!(
-        problems
-            .iter()
-            .map(|p| (p.rule, p.stage.as_deref()))
-            .collect::<Vec<_>>(),
-        [(Rule::FoldIntoHumanCheck, Some("polish"))]
-    );
+    let read = yaml::read(text).unwrap();
+    assert_eq!(check(&read.flow), Ok(()));
+    assert_eq!(read.flow.stages.len(), 3);
 }
 
 #[test]
@@ -406,7 +367,7 @@ fn the_format_refuses_what_isnt_a_flow() {
     );
     assert_eq!(
         refused("flows: []\n"),
-        "line 1 column 1: unknown field `flows`, expected one of agents, flow"
+        "line 1 column 1: unknown field `flows`, expected one of agents, flow, delivery"
     );
 
     let cases = [
@@ -463,20 +424,20 @@ fn the_format_refuses_what_isnt_a_flow() {
         ),
         (
             "{name: Review, kind: check, by: you, mode: click}",
-            "Review is a check by you: `mode` belongs to the Delivery stage",
+            "Review is a check by you: `mode` belongs to the flow's `delivery:`",
         ),
         (
             "{name: Done, kind: delivery, mode: click}",
-            "Done is the Delivery stage: set its `mode` (click or automatic) and what it `delivers` (local, pr or \
+            "Done needs its `mode` (click or automatic) and what it `delivers` (local, pr or \
              either)",
         ),
         (
             "{name: Done, kind: delivery, mode: click, delivers: local, agent: Developer}",
-            "Done is a Local merge, which runs no agent: `agent` belongs to a stage an agent runs",
+            "Done is a Local merge, which runs no agent: `agent` belongs to a delivery that opens a PR",
         ),
         (
             "{name: Done, kind: delivery, mode: click, delivers: pr}",
-            "Done is a Delivery stage: name the agent that runs it with `agent:`",
+            "Done can open a PR: name the agent that opens it with `agent:`",
         ),
         (
             "{name: ' ', kind: agent, agent: D, skill: s}",
@@ -521,7 +482,7 @@ fn ids_are_kept_as_written_and_given_when_left_out() {
 ";
     let read = yaml::read(text).unwrap();
     let ids: Vec<&str> = read.flow.stages.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(ids, ["build", "code-review", "code-review-2", "done"]);
+    assert_eq!(ids, ["build", "code-review", "code-review-2"]);
     // Written back, the ids are in the file and read back the same.
     let written = yaml::write(&read);
     assert_eq!(yaml::read(&written).unwrap(), read);
@@ -536,20 +497,17 @@ fn a_check_agent_and_fails_go_to_round_trip() {
   - id: plan
     name: Product spec
     kind: agent
-    column: own
     agent: Developer
     skill: work-ticket
   - id: dev
     name: Dev
     kind: agent
-    column: own
     agent: Developer
     skill: work-ticket
   - id: checks
     name: Checks
     kind: check
     by: agent
-    column: with-previous
     agent: Security reviewer
     skill: validate
     options: [skip]
@@ -559,14 +517,10 @@ fn a_check_agent_and_fails_go_to_round_trip() {
     name: Review
     kind: check
     by: you
-    column: own
     fail_to: dev
-  - id: deliver
-    name: Done
-    kind: delivery
-    column: own
-    mode: click
-    delivers: local
+delivery:
+  delivers: local
+  mode: click
 ";
     let read = yaml::read(text).unwrap();
     let checks = read.flow.stage("checks").unwrap();
@@ -620,7 +574,7 @@ fn a_check_reads_its_one_agent_from_the_old_list_form() {
 
 /// An older flow whose check lists several agents (`tests/flows/several-check-agents.yaml`: Security runs Security
 /// reviewer and Validator) reads as one check stage per agent, in order: the first keeps the id and name, the other
-/// is `security-validator`, "Security · Validator", in Security's column, with its skill, rounds and fails go to.
+/// is `security-validator`, "Security · Validator", its own column, with its skill, rounds and fails go to.
 /// Every read gives the same split; the document written from it holds the split and reads back the same, with no
 /// split left. A name or id the flow already has gets " 2" or "-2".
 #[test]
@@ -631,7 +585,6 @@ fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
         (
             s.id.clone(),
             s.name.clone(),
-            s.column,
             s.agent.clone().unwrap_or_default(),
         )
     };
@@ -648,13 +601,11 @@ fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
             (
                 "security".to_owned(),
                 "Security".to_owned(),
-                Column::Own,
                 "Security reviewer".to_owned()
             ),
             (
                 "security-validator".to_owned(),
                 "Security · Validator".to_owned(),
-                Column::WithPrevious,
                 "Validator".to_owned()
             ),
         ]
@@ -668,8 +619,7 @@ fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
             "validate",
             "security",
             "security-validator",
-            "qa",
-            "ship"
+            "qa"
         ]
     );
     assert_eq!(

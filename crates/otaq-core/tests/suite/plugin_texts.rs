@@ -489,7 +489,6 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
         "name",
         "kind",
         "by",
-        "column",
         "agent",
         "skill",
         "options",
@@ -642,7 +641,7 @@ fn flow_reads_its_own_history_and_the_repo_for_a_first_flow() {
         "\"From 41 /security-review runs in billing-api\n(Claude Code)\"".to_owned(),
         "\"No evidence found\"".to_owned(),
         "`skip` options".to_owned(),
-        "an automatic Delivery with no check before it".to_owned(),
+        "an automatic delivery with no check before it".to_owned(),
         format!("{cmd} flow propose --stdin"),
         "**end your turn**".to_owned(),
     ] {

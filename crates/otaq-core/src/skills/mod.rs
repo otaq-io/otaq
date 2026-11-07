@@ -30,7 +30,7 @@ pub const SHIPPED_FOLDER: &str = "skills";
 
 impl Board {
     /// The skill the PR path runs for `step` (Open PR, Push), by its own name: for Open PR the skill the flow's
-    /// Delivery stage names (`skill: my-pr`, Q296), else Otaq's (`open-pr`, `push`). The Open PR flow's lines and
+    /// delivery names (`skill: my-pr`, Q296), else Otaq's (`open-pr`, `push`). The Open PR flow's lines and
     /// REV-11's "use your own Open PR skill" name it (WSK-08).
     pub async fn delivery_skill(
         &self,
@@ -40,7 +40,7 @@ impl Board {
         self.delivery_skill_name(project, step).await
     }
 
-    /// The skill name the PR path runs for `step`: for Open PR the one the flow's Delivery stage names (Q296), else
+    /// The skill name the PR path runs for `step`: for Open PR the one the flow's delivery names (Q296), else
     /// the step's own (`open-pr`, `push`).
     pub async fn delivery_skill_name(
         &self,
@@ -48,13 +48,9 @@ impl Board {
         step: crate::board::settings::WorkflowStep,
     ) -> Result<String, crate::board::BoardError> {
         let named = match step {
-            crate::board::settings::WorkflowStep::OpenPr => self
-                .effective_flow(project)
-                .await?
-                .stages
-                .iter()
-                .find(|s| s.is_delivery())
-                .and_then(|s| s.skill.clone()),
+            crate::board::settings::WorkflowStep::OpenPr => {
+                self.effective_flow(project).await?.delivery.skill
+            }
             _ => None,
         };
         Ok(named.unwrap_or_else(|| step.own_skill().to_owned()))

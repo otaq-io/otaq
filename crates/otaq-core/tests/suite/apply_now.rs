@@ -17,7 +17,7 @@ use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Actor, Place, Status};
 use otaq_core::flow::apply_now::{
-    ApplyNowAnswer, ApplyNowParams, ApplyNowPlan, FORWARD_HINT, Pick, PlannedMove, Refreshed, Way,
+    ApplyNowAnswer, ApplyNowParams, ApplyNowPlan, Pick, PlannedMove, Refreshed, Way,
 };
 use otaq_core::flow::engine::RunResult;
 use otaq_core::flow::proposal::{ApplyChoices, NewProposal, ProposedBy, Source};
@@ -227,10 +227,10 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
             ("Dev".to_owned(), Way::Back),
             ("Validate".to_owned(), Way::Back),
             ("Security".to_owned(), Way::Back),
-            ("Done".to_owned(), Way::Next),
         ]
     );
-    assert_eq!(m.default, DropOn::stage("ship"));
+    // QA was the last stage: nothing comes after it but the delivery, so it goes back to the nearest stage.
+    assert_eq!(m.default, DropOn::stage("security"));
     let hint = |stage: &str| m.choice(&DropOn::stage(stage)).unwrap().hint.clone();
     assert_eq!(
         hint("dev").as_deref(),
@@ -244,7 +244,6 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
         hint("security").as_deref(),
         Some("Security runs again on SHOP-1")
     );
-    assert_eq!(hint("ship"), None);
     assert_eq!(plan.keep.len(), 1);
     let kept = &plan.keep[0];
     assert_eq!(
@@ -311,7 +310,6 @@ async fn the_plan_for_four_tickets_in_two_removed_stages() {
             ("Dev".to_owned(), Way::Next),
             ("Validate".to_owned(), Way::Forward),
             ("QA".to_owned(), Way::Forward),
-            ("Done".to_owned(), Way::Forward),
         ]
     );
     let in_security = move_of(&plan, "SHOP-2");
@@ -322,16 +320,7 @@ async fn the_plan_for_four_tickets_in_two_removed_stages() {
             ("Dev".to_owned(), Way::Back),
             ("Validate".to_owned(), Way::Back),
             ("QA".to_owned(), Way::Next),
-            ("Done".to_owned(), Way::Forward),
         ]
-    );
-    assert_eq!(
-        in_security
-            .choice(&DropOn::stage("ship"))
-            .unwrap()
-            .hint
-            .as_deref(),
-        Some(FORWARD_HINT)
     );
     let kept: Vec<(String, &str, bool)> = plan
         .keep

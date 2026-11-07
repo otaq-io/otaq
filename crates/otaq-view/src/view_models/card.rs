@@ -1165,9 +1165,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         ),
         Status::WaitingForYou if !x.custom_flow => return review_part(ticket),
         Status::WaitingForYou => return your_check_part(ticket, x),
-        Status::ToDeliver if !x.custom_flow => return None,
         Status::ToDeliver => return delivery_part(ticket, x),
-        // Stays in its Delivery stage until marked merged (FLW-16, `s03-46`): "PR #481 open · Opened by Shipper · 2 h
+        // Stays in the last stage until marked merged (FLW-16, `s03-46`): "PR #481 open · Opened by Shipper · 2 h
         // ago".
         Status::PrOpen => {
             let n = flags.pr_number?;
@@ -2695,8 +2694,9 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         // Your check (FLW-14): Pass, then Fail ([`second_action`]).
         Status::WaitingForYou if x.custom_flow => a(CardActionKind::Pass, PASS, None, true),
         Status::WaitingForYou => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
-        // To deliver (FLW-15): the click the Delivery waits for; nothing while an automatic one runs.
-        Status::ToDeliver if ticket.flags.delivering_automatically || !x.custom_flow => None,
+        // To deliver (FLW-15): the click the delivery waits for, on any flow (a ticket waits To deliver in its last
+        // stage, Review on the default flow); nothing while an automatic one runs.
+        Status::ToDeliver if ticket.flags.delivering_automatically => None,
         Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
             a(CardActionKind::OpenPr, "Open PR", None, true)
         }

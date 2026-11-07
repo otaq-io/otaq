@@ -1,15 +1,14 @@
 //! The board as the Tauri page draws it (T-0220, T-0324, T-0404; UI-02, SHL-06, SHL-01, TKT-06, CLS-03, CLS-06,
 //! REV-14, STG-08; d0087, d0108): [`board::build`]'s columns of the project's flow (on the default flow today's
-//! five) turned into plain, serialized shapes with every text already worded (counts, hints, the Review column's two
-//! sections and the Approved note, the Dev section and fold, the folded columns' rails and Done's line, the empty
-//! board, the "Created or changed by" chip, the toolbar and the view preferences of SHB-05), each with its kind and
-//! each section's own drop target, so the page draws any flow without naming a column. The drag is the UIT-04 way: [`drag_answer_in`] gives every drop target's verdict for one ticket at once
-//! (every column, with the Review column split into its body, which means Ready for Review, and its Approved
-//! section), from the core's `check_move_in` on the project's flow ([`drag::feedback_in`], [`drag::drop_hint_in`]),
-//! so the page draws the whole drag without asking again; a drop then asks once more what happens
-//! ([`drop_step_in`]): a move, the Park confirmation ([`ParkDialog`]), the approve choice ([`ApproveMenu`]) or, back
-//! to an earlier Agent stage or agent check, the drag-back dialog ([`DragBackDialog`], FLW-18). Every stage is a drop
-//! target.
+//! six) turned into plain, serialized shapes with every text already worded (counts, hints, the Dev section and
+//! fold, the folded columns' rails and Done's line, the empty board, the "Created or changed by" chip, the toolbar
+//! and the view preferences of SHB-05), each with its kind, so the page draws any flow without naming a column.
+//! Every stage is its own column and its own drop target; the delivery is no column (a ticket being delivered is in
+//! the last stage's). The drag is the UIT-04 way: [`drag_answer_in`] gives every drop target's verdict for one
+//! ticket at once, from the core's `check_move_in` on the project's flow ([`drag::feedback_in`],
+//! [`drag::drop_hint_in`]), so the page draws the whole drag without asking again; a drop then asks once more what
+//! happens ([`drop_step_in`]): a move, the Park confirmation ([`ParkDialog`]) or, back to an earlier Agent stage or
+//! agent check, the drag-back dialog ([`DragBackDialog`], FLW-18).
 
 use std::borrow::Cow;
 
@@ -28,7 +27,7 @@ use crate::key_labels::KeyLabels;
 use crate::keymap::Platform;
 use crate::view_models::approve::{self, ApproveChoice};
 use crate::view_models::board::{
-    self, BoardInput, CardEntry, ColumnView, DevSections, HeaderTooltip, SectionView,
+    self, BoardInput, CardEntry, ColumnView, DevSections, HeaderTooltip,
 };
 use crate::view_models::card_page::TicketCardView;
 use crate::view_models::chain;
@@ -76,10 +75,7 @@ impl PartialEq<str> for ColumnId {
     }
 }
 
-/// Where a card can be dropped (d0087, UIT-04, STG-08): a column, or a section of a human check's column after
-/// its own. On the default flow `"review"` is the Review column outside its Approved section, which means Ready
-/// for Review (only PR rework, from Approved, is allowed there); `"approved"` is the Approved section (from Ready
-/// for Review it opens the Approve choice).
+/// Where a card can be dropped (d0087, UIT-04, STG-08): a column. On the default flow `"review"` is Review.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(rename = "BoardDropTarget")]
 pub struct DropTargetId(#[ts(type = "string")] pub Cow<'static, str>);
@@ -89,7 +85,6 @@ impl DropTargetId {
     pub const READY_FOR_DEV: Self = Self::fixed(flow_columns::READY_FOR_DEV);
     pub const DEV: Self = Self::fixed(otaq_core::flow::default::DEV);
     pub const REVIEW: Self = Self::fixed(otaq_core::flow::default::REVIEW);
-    pub const APPROVED: Self = Self::fixed(flow_columns::APPROVED);
     pub const DONE: Self = Self::fixed(flow_columns::DONE);
 
     const fn fixed(id: &'static str) -> Self {
@@ -114,16 +109,6 @@ impl DropTargetId {
     }
 }
 
-/// A section of a human check's column (STG-08): on the default flow `"ready_for_review"` or `"approved"`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[ts(rename = "BoardReviewSectionId")]
-pub struct ReviewSectionId(#[ts(type = "string")] pub Cow<'static, str>);
-
-impl ReviewSectionId {
-    pub const READY_FOR_REVIEW: Self = Self(Cow::Borrowed(flow_columns::READY_FOR_REVIEW));
-    pub const APPROVED: Self = Self(Cow::Borrowed(flow_columns::APPROVED));
-}
-
 /// A card on the board. `needs_you` feeds the "7 above · 6 need you" chip of a scrolled column.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -143,15 +128,6 @@ impl BoardCard {
     }
 }
 
-/// A quiet line under a column's title with its icon (Approved: "Otaq doesn’t watch PRs. Mark it when it
-/// lands.").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardNote")]
-pub struct Note {
-    pub icon: IconName,
-    pub text: String,
-}
-
 /// Dev's parts: the floated cards (pins and needs-you), then the working cards and the fold.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "BoardDevSections")]
@@ -163,41 +139,6 @@ pub struct DevPage {
     pub fold: Option<String>,
     /// The keys behind the fold: the fold chip turns accent when one of them is in the highlighted chain (T-0229).
     pub folded: Vec<String>,
-}
-
-/// A section of the Review column (*Row · Review column (0086 · V)*): its header ("READY FOR REVIEW 2"), its cards
-/// in that state's order, and a quiet line when empty. Whether it is folded is the page's own; the count stays.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "BoardReviewSection")]
-pub struct SectionPage {
-    pub id: ReviewSectionId,
-    /// The drop target it is, apart from its column (Approved: `"approved"`); `null` for the column's own section.
-    pub target: Option<DropTargetId>,
-    /// "READY FOR REVIEW", "APPROVED".
-    pub title: String,
-    /// "2", "1/2" under a filter.
-    pub count: String,
-    pub cards: Vec<BoardCard>,
-    /// "1 hidden by filter".
-    pub hidden: Option<String>,
-    /// Shown when the section has no card: "Nothing to review", "Nothing approved".
-    pub empty: String,
-    /// Approved, while a card in it has an open PR: "Otaq doesn’t watch PRs. Mark it when it lands."
-    pub note: Option<Note>,
-    /// Approved only: shown in place of `empty` while a Ready for Review card is dragged.
-    pub drag_hint: Option<String>,
-    /// The header's tooltip: "Fold Approved" / "Unfold Approved" (the page picks by its own fold state).
-    pub fold: String,
-    pub unfold: String,
-}
-
-/// A stage folded into an agent column, after its count in the header (FLW-12, Q270): "· Validating 1".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardFoldedStage")]
-pub struct FoldedStage {
-    /// "Validating".
-    pub tag: String,
-    pub count: String,
 }
 
 /// Who runs a column's stages, on hovering its title (FLW-12): a bold first line and detail lines.
@@ -304,15 +245,12 @@ pub struct ColumnPage {
     /// The icon in the muted colour (a flow that isn't the default's shape, FLW-12); else in its kind's status
     /// colour.
     pub quiet_icon: bool,
-    /// Review: both sections together. An agent column with a folded stage: its own stage's cards.
     pub count: String,
-    /// An agent column's folded stages, after its count: "· Validating 1".
-    pub folded: Vec<FoldedStage>,
     /// Who runs it, on hovering the title; `None` for Backlog, Ready for Dev and Done.
     pub tooltip: Option<ColumnTooltip>,
     /// Under the title: Ready for Dev's "Starts when ready, in priority order".
     pub hint: Option<String>,
-    /// Shown when the column has no card (Review's sections have their own lines).
+    /// Shown when the column has no card.
     pub empty_hint: String,
     /// Folded (BRD-02): a stage's rail ([`ColumnRail`]); Done's is the board's "Done 4 →" line ([`DoneLine`]).
     pub collapsed: bool,
@@ -324,10 +262,8 @@ pub struct ColumnPage {
     pub menu_label: String,
     /// "6 hidden by filter".
     pub hidden: Option<String>,
-    /// Every column but Dev and Review.
+    /// Every column but the agent columns.
     pub cards: Vec<BoardCard>,
-    /// Review only: Ready for Review, then Approved.
-    pub sections: Vec<SectionPage>,
     pub dev: Option<DevPage>,
     /// Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
     pub add: Option<String>,
@@ -472,9 +408,6 @@ pub struct ProjectFacts<'a> {
     pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
-pub const APPROVED_NOTE: &str =
-    "doesn\u{2019}t watch PRs. Mark it once it\u{2019}s merged on GitHub.";
-
 fn card(entry: CardEntry, tickets: &[Ticket]) -> Option<BoardCard> {
     let CardEntry::Ticket(vm) = entry;
     let ticket = tickets.iter().find(|t| t.key == vm.key)?;
@@ -493,32 +426,6 @@ fn cards(entries: Vec<CardEntry>, tickets: &[Ticket]) -> Vec<BoardCard> {
 
 fn hidden_text(n: usize) -> Option<String> {
     (n > 0).then(|| format!("{n} hidden by filter"))
-}
-
-fn section_page(view: SectionView, tickets: &[Ticket]) -> SectionPage {
-    let approved = view.delivery;
-    let pr_open = view.cards.iter().any(|CardEntry::Ticket(vm)| {
-        tickets
-            .iter()
-            .any(|t| t.key == vm.key && t.status == Status::PrOpen)
-    });
-    let name = view.name;
-    SectionPage {
-        id: view.id,
-        target: view.target,
-        title: view.title.to_owned(),
-        count: view.count,
-        hidden: hidden_text(view.hidden),
-        empty: view.empty.to_owned(),
-        note: (approved && pr_open).then(|| Note {
-            icon: IconName::Info,
-            text: format!("{} {APPROVED_NOTE}", otaq_core::naming::PRODUCT_NAME),
-        }),
-        drag_hint: view.drag_hint.map(str::to_owned),
-        fold: format!("Fold {name}"),
-        unfold: format!("Unfold {name}"),
-        cards: cards(view.cards, tickets),
-    }
 }
 
 pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
@@ -547,17 +454,6 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         icon: view.icon,
         quiet_icon: view.quiet_icon,
         count: view.count,
-        folded: match kind {
-            ColumnKind::Agent => view
-                .folded
-                .into_iter()
-                .map(|f| FoldedStage {
-                    tag: f.tag,
-                    count: f.count,
-                })
-                .collect(),
-            _ => Vec::new(),
-        },
         tooltip: view.tooltip.map(ColumnTooltip::from),
         hint: view.hint.map(str::to_owned),
         empty_hint: view.empty_hint.to_owned(),
@@ -567,11 +463,6 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         menu_label: COLUMN_MENU.to_owned(),
         hidden: hidden_text(view.hidden),
         cards: cards(view.cards, tickets),
-        sections: view
-            .sections
-            .into_iter()
-            .map(|s| section_page(s, tickets))
-            .collect(),
         dev,
         add: (kind == ColumnKind::Backlog).then(|| "Add ticket".to_owned()),
     }
@@ -586,28 +477,22 @@ pub fn rail_tooltip(title: &str, tickets: usize, needs_you: usize) -> String {
     }
 }
 
-/// A column's ⋯ menu (BRD-04, FED-09; `s26-08`), on every column but Backlog: **Edit <stage>…** (a stage's own
-/// column), **Add a stage after <stage>** (not after the Delivery, which nothing follows), **Fold this column**, then
-/// **Change the whole flow…**. `title` is the column's ("Done · PR" names its stage "Done").
+/// A column's ⋯ menu (BRD-04, FED-09; `s26-08`), on every column but Backlog: **Edit <stage>…** (a stage's
+/// column), **Add a stage after <stage>**, **Fold this column**, then **Change the whole flow…**. `title` is the
+/// column's, its stage's name.
 pub fn column_menu(id: &ColumnId, kind: ColumnKind, title: &str) -> Vec<ColumnMenuItem> {
     use crate::view_models::menu::MenuItem;
     if kind == ColumnKind::Backlog {
         return Vec::new();
     }
-    let stage = match kind {
-        ColumnKind::Delivery => title.split(" \u{b7} ").next().unwrap_or(title),
-        _ => title,
-    };
+    let stage = title;
     let opens = |item: MenuItem, editor: OpenEditor| ColumnMenuItem {
         item,
         change: None,
         editor: Some(editor),
     };
     let mut menu = Vec::new();
-    if matches!(
-        kind,
-        ColumnKind::Agent | ColumnKind::HumanCheck | ColumnKind::Delivery
-    ) {
+    if matches!(kind, ColumnKind::Agent | ColumnKind::HumanCheck) {
         menu.push(opens(
             MenuItem::new("edit_stage", format!("Edit {stage}\u{2026}"))
                 .icon(IconName::Pencil)
@@ -879,7 +764,8 @@ pub struct ApproveItem {
     pub enabled: bool,
 }
 
-/// *03 → Approve choice on drop*: a drop on Approved never approves by itself; it asks how (UI-02, T-0095).
+/// The Approve menu of a ticket waiting for the user's Approve (UI-02, T-0095): what the flow's delivery allows,
+/// named by its action, and the other ways to finish it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ApproveMenu")]
 pub struct ApproveMenu {
@@ -903,15 +789,17 @@ fn choice_icon(choice: ApproveChoice) -> IconName {
     }
 }
 
-/// `commits`: the commits on the branch beyond its base, `None` when unknown ([`approve::options`]).
+/// `commits`: the commits on the branch beyond its base, `None` when unknown; `delivers`: what the flow's delivery
+/// allows ([`approve::options`]).
 pub fn approve_menu(
     ticket: &Ticket,
     target: &str,
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
     commits: Option<u32>,
+    delivers: otaq_core::flow::Delivers,
 ) -> ApproveMenu {
-    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr, commits)
+    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr, commits, delivers)
         .into_iter()
         .zip(1..)
         .map(|(o, number)| ApproveItem {
@@ -955,9 +843,6 @@ pub enum DropStep {
     Move,
     /// Dev → Backlog: the Park confirmation first.
     Park,
-    /// Ready for Review → the Approved section: the Approve choice (Local merge · Open PR); nothing moves until one
-    /// is picked, and Esc or Cancel leaves the card where it was (d0087).
-    Approve,
     /// Back to an earlier Agent stage or agent check (FLW-18): the drag-back dialog first ([`drag_back_dialog`]);
     /// Cancel leaves the card where it was.
     DragBack,
@@ -1005,7 +890,6 @@ pub fn drop_step_in(
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
         DropAction::AskPark => DropStep::Park,
-        DropAction::ChooseApprove => DropStep::Approve,
         DropAction::AskDragBack => DropStep::DragBack,
         DropAction::NotYet(message) => DropStep::NotYet(message),
     }
@@ -1169,8 +1053,6 @@ pub enum DropOutcome {
     Moved,
     /// The page shows the confirmation, then sends `board.park`.
     Park { dialog: ParkDialog },
-    /// The page shows the popover; a choice opens its dialog.
-    Approve { menu: ApproveMenu },
     /// The page shows the drag-back dialog; its confirm sends `board.drag_back` (FLW-18).
     DragBack { dialog: Box<DragBackDialog> },
     /// Allowed by the rules, but not built yet: shown as a toast.
@@ -1181,19 +1063,12 @@ pub enum DropOutcome {
     },
 }
 
-/// Where a card is, as today's board names it: its section in a human check's column ("Ready for Review",
-/// "Approved"), else its column ("Dev").
+/// Where a card is, as the board names it: its column ("Dev", "Review").
 pub fn place_label(columns: &Columns, ticket: &Ticket) -> String {
     let spot = columns.spot(ticket);
-    match (columns.get(spot.column), spot.part) {
-        (Some(column), Some(part)) if column.has_sections() => match part {
-            flow_columns::APPROVED => "Approved".to_owned(),
-            flow_columns::READY_FOR_REVIEW => "Ready for Review".to_owned(),
-            _ => column.title.clone(),
-        },
-        (Some(column), _) => column.title.clone(),
-        (None, _) => spot.column.to_owned(),
-    }
+    columns
+        .get(spot)
+        .map_or_else(|| spot.to_owned(), |column| column.title.clone())
 }
 
 /// One Review column state in the gallery.
@@ -1445,9 +1320,9 @@ mod tests {
                 "ready_for_dev",
                 "product-spec",
                 "dev",
+                "validate",
                 "security",
                 "qa",
-                "ship",
                 "done"
             ]
         );
@@ -1473,10 +1348,7 @@ mod tests {
             hint("security"),
             "Drop to run Security again \u{b7} asks first"
         );
-        // QA's next stage is the Delivery: the Approve drop, as on today's board.
-        assert!(hint("ship").starts_with("Drop to approve SHOP-19"));
-
-        // Forward from Dev between turns: Validate (folded into Dev) is the next stage; Security skips it.
+        // Forward from Dev between turns: Validate is the next stage; Security skips it.
         let dev = on_test_flow("SHOP-23", "dev", Status::Idle);
         let answer = drag_answer_in(&flow, &dev, &[], None);
         assert_eq!(
@@ -1490,10 +1362,10 @@ mod tests {
         assert!(
             matches!(verdict_of(&answer, "qa"), Verdict::Allowed { hint, .. } if hint == "Drop to skip Validate, Security")
         );
-        // Back onto a human check: no dialog.
-        let ship = on_test_flow("SHOP-26", "ship", Status::ToDeliver);
+        // A ticket being delivered stays in QA, the last stage: dropped there, nothing happens; back is a drag back.
+        let ship = on_test_flow("SHOP-26", "qa", Status::ToDeliver);
         let answer = drag_answer_in(&flow, &ship, &[], None);
-        assert!(matches!(verdict_of(&answer, "qa"), Verdict::Allowed { .. }));
+        assert_eq!(verdict_of(&answer, "qa"), Verdict::Home);
         assert_eq!(
             drop_step_in(&flow, &ship, &[], &DropTargetId::new("product-spec")),
             DropStep::DragBack
@@ -1550,7 +1422,7 @@ mod tests {
         assert_eq!(dialog.stops, None);
         assert_eq!(
             dialog.then.as_deref(),
-            Some("Then it goes on to Validate, Security, QA and Done as usual.")
+            Some("Then it goes on to Validate, Security and QA as usual.")
         );
         assert_eq!(
             (dialog.cancel.as_str(), dialog.confirm.as_str()),
@@ -1607,7 +1479,7 @@ mod tests {
         );
         assert_eq!(
             dialog.then.as_deref(),
-            Some("Then it goes on to Validate, Security and Done as usual.")
+            Some("Then it goes on to Validate and Security as usual.")
         );
         // On the default flow: Review → Dev.
         let review = ticket("NOTE-1", "Sort notes by date", Status::WaitingForYou);
@@ -1620,11 +1492,11 @@ mod tests {
         );
         assert_eq!(
             dialog.then.as_deref(),
-            Some("Then it goes on to Validate, Review and Done as usual.")
+            Some("Then it goes on to Validate and Review as usual.")
         );
         // A drop that asks nothing has no dialog.
         assert_eq!(
-            drag_back_dialog(&flow, &review, &DropTargetId::APPROVED, &[]),
+            drag_back_dialog(&flow, &review, &DropTargetId::REVIEW, &[]),
             None
         );
     }
@@ -1738,49 +1610,10 @@ mod tests {
             }
         ));
         let review = &page.columns[4];
-        assert_eq!(review.count, "2", "both sections");
-        assert!(review.cards.is_empty(), "the cards are in the sections");
-        let [ready, approved] = review.sections.as_slice() else {
-            panic!("two sections: {:?}", review.sections)
-        };
-        assert_eq!(
-            (ready.id.clone(), ready.title.as_str(), ready.count.as_str()),
-            (ReviewSectionId::READY_FOR_REVIEW, "READY FOR REVIEW", "1")
-        );
-        assert_eq!(
-            (
-                approved.id.clone(),
-                approved.title.as_str(),
-                approved.count.as_str()
-            ),
-            (ReviewSectionId::APPROVED, "APPROVED", "1")
-        );
-        assert_eq!(
-            ready.cards.iter().map(BoardCard::key).collect::<Vec<_>>(),
-            ["SHOP-18"]
-        );
-        assert_eq!(
-            approved
-                .cards
-                .iter()
-                .map(BoardCard::key)
-                .collect::<Vec<_>>(),
-            ["SHOP-26"]
-        );
-        assert_eq!(
-            approved.note.as_ref().unwrap().text,
-            format!(
-                "{} doesn’t watch PRs. Mark it once it’s merged on GitHub.",
-                otaq_core::naming::PRODUCT_NAME
-            )
-        );
-        assert_eq!(ready.note, None);
-        assert_eq!(
-            (ready.drag_hint.as_deref(), approved.drag_hint.is_some()),
-            (None, true)
-        );
-        assert_eq!(approved.fold, "Fold Approved");
-        assert_eq!(ready.unfold, "Unfold Ready for Review");
+        assert_eq!(review.count, "2");
+        // No sections: the PR open card is in Review with the one waiting for you, after it.
+        let cards: Vec<&str> = review.cards.iter().map(BoardCard::key).collect();
+        assert_eq!(cards, ["SHOP-18", "SHOP-26"]);
         let done = &page.columns[5];
         assert!(!done.collapsed, "Done opened");
         let labels = |c: &ColumnPage| -> Vec<String> {
@@ -1917,11 +1750,6 @@ mod tests {
         assert_eq!(ready[0].editor, Some(OpenEditor::AddAfter { after: None }));
         assert_eq!(ready.len(), 3, "no Edit: Ready for Dev isn't a stage");
 
-        let pr = column_menu(&ColumnId::new("pr"), ColumnKind::Delivery, "Done \u{b7} PR");
-        let ids: Vec<&str> = pr.iter().map(|m| m.item.id.as_str()).collect();
-        assert_eq!(ids, ["edit_stage", "fold", "change_flow"]);
-        assert_eq!(pr[0].item.label, "Edit Done\u{2026}");
-
         let done = column_menu(&ColumnId::DONE, ColumnKind::Done, "Done");
         let ids: Vec<&str> = done.iter().map(|m| m.item.id.as_str()).collect();
         assert_eq!(ids, ["fold", "change_flow"]);
@@ -1995,10 +1823,10 @@ mod tests {
         assert!(filtered.columns[0].cards.is_empty());
         assert_eq!(filtered.columns[4].count, "1/2");
         assert_eq!(
-            filtered.columns[4].sections[1].hidden.as_deref(),
+            filtered.columns[4].hidden.as_deref(),
             Some("1 hidden by filter")
         );
-        let review: Vec<&str> = filtered.columns[4].sections[0]
+        let review: Vec<&str> = filtered.columns[4]
             .cards
             .iter()
             .map(BoardCard::key)
@@ -2033,24 +1861,10 @@ mod tests {
         assert_eq!(labels, ["New ticket"], "no Noyan or terminal button");
         assert_eq!(page.columns.len(), 6);
         let review = &page.columns[4];
-        let empties: Vec<(&str, &str)> = review
-            .sections
-            .iter()
-            .map(|s| (s.title.as_str(), s.empty.as_str()))
-            .collect();
+        assert!(review.cards.is_empty());
         assert_eq!(
-            empties,
-            [
-                ("READY FOR REVIEW", "Nothing to review"),
-                ("APPROVED", "Nothing approved")
-            ]
-        );
-        assert!(
-            review.sections[1]
-                .drag_hint
-                .as_deref()
-                .unwrap()
-                .starts_with("Drag a ticket here from Ready for Review")
+            review.empty_hint,
+            "Agents move their ticket here when they submit it for your review."
         );
     }
 
@@ -2058,7 +1872,7 @@ mod tests {
     fn a_drag_answers_every_column_at_once() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
         let answer = drag_answer(&backlog, &[]);
-        assert_eq!(answer.targets.len(), 7);
+        assert_eq!(answer.targets.len(), 6);
         let verdict = |id: DropTargetId| {
             answer
                 .targets
@@ -2087,7 +1901,7 @@ mod tests {
         );
         let json = serde_json::to_value(drag_answer(&backlog, &[])).unwrap();
         assert_eq!(json["targets"][0]["verdict"]["kind"], "home");
-        assert_eq!(json["targets"][5]["target"], "approved");
+        assert_eq!(json["targets"][5]["target"], "done");
     }
 
     /// The verdict of `ticket` over `target`.
@@ -2100,10 +1914,10 @@ mod tests {
             .verdict
     }
 
-    /// d0087, §7.4: every source column over the Review column (outside Approved: Ready for Review) and over the
-    /// Approved section, answered up front.
+    /// §7.4: every source column over the Review column, answered up front. A ticket being delivered (PR open) is in
+    /// Review already: dropped there, nothing happens.
     #[test]
-    fn review_and_approved_verdicts_for_every_source() {
+    fn review_verdicts_for_every_source() {
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let sources = [
@@ -2120,45 +1934,29 @@ mod tests {
             Verdict::Allowed { hint, .. } => format!("allowed: {hint}"),
             Verdict::Forbidden { title, .. } => format!("forbidden: {title}"),
         };
-        let rows: Vec<(String, String, String)> = sources
+        let rows: Vec<(String, String)> = sources
             .iter()
             .map(|t| {
                 (
                     t.key.to_string(),
                     kind(&verdict_on(t, DropTargetId::REVIEW)),
-                    kind(&verdict_on(t, DropTargetId::APPROVED)),
                 )
             })
             .collect();
         let only_agents = "forbidden: Only agents move tickets to Ready for Review";
-        let approve_first = "forbidden: Approve a ticket from Ready for Review";
         let mid_turn = "forbidden: SHOP-25 can't move to the next stage now: its agent is in the middle of a turn";
-        let row = |key: &str, review: &str, approved: &str| {
-            (key.to_owned(), review.to_owned(), approved.to_owned())
-        };
+        let row = |key: &str, review: &str| (key.to_owned(), review.to_owned());
         assert_eq!(
             rows,
             [
-                row("SHOP-24", only_agents, approve_first),
-                row("SHOP-21", only_agents, approve_first),
+                row("SHOP-24", only_agents),
+                row("SHOP-21", only_agents),
                 // A forward drag is Move to next stage's (FLW-18): not while the agent is mid-turn.
-                row("SHOP-25", mid_turn, mid_turn),
-                row(
-                    "SHOP-18",
-                    "home",
-                    "allowed: Drop to approve SHOP-18 → choose Local merge or Open PR"
-                ),
-                row("SHOP-26", "allowed: Drop to rework · PR #481 stays", "home"),
-                row(
-                    "SHOP-30",
-                    only_agents,
-                    "forbidden: Drag it to Backlog to reopen it first"
-                ),
-                row(
-                    "SHOP-17",
-                    "forbidden: Merged tickets are locked",
-                    "forbidden: Merged tickets are locked"
-                ),
+                row("SHOP-25", mid_turn),
+                row("SHOP-18", "home"),
+                row("SHOP-26", "home"),
+                row("SHOP-30", only_agents),
+                row("SHOP-17", "forbidden: Merged tickets are locked"),
             ]
         );
         // Dev → Review between turns: past Validate, which is skipped by you (FLW-18).
@@ -2173,16 +1971,11 @@ mod tests {
         );
     }
 
-    /// d0087: Ready for Review → the Approved section opens the Approve choice and moves nothing by itself; Approved
-    /// → the Review column is PR rework; a Ready for Review card dropped on its own column does nothing.
+    /// Approving is the card's Approve, never a drop: the board has no Approved section, and a card dropped on the
+    /// column it is in (Review, also for a PR open card) does nothing.
     #[test]
-    fn approve_choice_and_pr_rework_on_drop() {
+    fn no_approve_on_drop_and_no_approved_target() {
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        assert_eq!(
-            drop_step(&review, &[], DropTargetId::APPROVED),
-            DropStep::Approve,
-            "the choice, never a Move"
-        );
         assert_eq!(
             drop_step(&review, &[], DropTargetId::REVIEW),
             DropStep::Nothing,
@@ -2190,19 +1983,12 @@ mod tests {
         );
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
+        assert_eq!(drop_step(&pr, &[], DropTargetId::REVIEW), DropStep::Nothing);
+        let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
         assert_eq!(
-            drop_step(&pr, &[], DropTargetId::REVIEW),
-            DropStep::Move,
-            "PR rework"
-        );
-        assert_eq!(
-            drop_step(&pr, &[], DropTargetId::APPROVED),
+            drop_step(&working, &[], DropTargetId::REVIEW),
             DropStep::Nothing
         );
-        let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
-        for target in [DropTargetId::REVIEW, DropTargetId::APPROVED] {
-            assert_eq!(drop_step(&working, &[], target), DropStep::Nothing);
-        }
         let targets: Vec<DropTargetId> = drag_answer(&review, &[])
             .targets
             .iter()
@@ -2216,20 +2002,12 @@ mod tests {
                 DropTargetId::DEV,
                 DropTargetId::new("validate"),
                 DropTargetId::REVIEW,
-                DropTargetId::APPROVED,
                 DropTargetId::DONE
             ],
-            "both sections answered up front"
+            "one target per column, no Approved"
         );
         let flow = otaq_core::flow::default_flow();
         let columns = Columns::of(&flow);
-        assert!(
-            columns
-                .get("review")
-                .unwrap()
-                .targets()
-                .contains(&"approved".to_owned())
-        );
         assert_eq!(
             columns.drop_target("review"),
             Some(otaq_core::board::moves::DropTarget::ReadyForReview.into())
@@ -2239,25 +2017,8 @@ mod tests {
     #[test]
     fn the_gallery_has_every_review_state() {
         let g = gallery();
-        let counts: Vec<(&str, Vec<&str>)> = g
-            .review
-            .iter()
-            .map(|c| {
-                (
-                    c.column.count.as_str(),
-                    c.column.sections.iter().map(|s| s.count.as_str()).collect(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            counts,
-            [
-                ("3", vec!["2", "1"]),
-                ("1", vec!["1", "0"]),
-                ("1", vec!["0", "1"]),
-                ("0", vec!["0", "0"])
-            ]
-        );
+        let counts: Vec<&str> = g.review.iter().map(|c| c.column.count.as_str()).collect();
+        assert_eq!(counts, ["3", "1", "1", "0"]);
         assert_eq!(g.drags.len(), 5);
         assert_eq!(g.drags[1].from, "SHOP-25 · Dev");
         assert!(g.empty.text.starts_with("Tell Noyan"));
@@ -2303,8 +2064,7 @@ mod tests {
                 .iter()
                 .flat_map(|c| {
                     let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
-                    let sections = c.sections.iter().flat_map(|s| &s.cards);
-                    c.cards.iter().chain(dev).chain(sections)
+                    c.cards.iter().chain(dev)
                 })
                 .map(|c| c.key().to_owned())
                 .collect();
@@ -2373,6 +2133,7 @@ mod tests {
             std::slice::from_ref(&review),
             Some(&no_provider),
             None,
+            otaq_core::flow::Delivers::Either,
         );
         assert_eq!(menu.items.len(), 3);
         assert!(!menu.items[1].enabled);
@@ -2385,6 +2146,7 @@ mod tests {
             std::slice::from_ref(&review),
             Some(&no_provider),
             Some(1),
+            otaq_core::flow::Delivers::Either,
         );
         assert_eq!(menu.items.len(), 4);
         assert_eq!(menu.items[3].choice, ApproveChoice::DoneNotMerged);
@@ -2399,6 +2161,7 @@ mod tests {
             std::slice::from_ref(&pushed),
             None,
             Some(1),
+            otaq_core::flow::Delivers::Either,
         );
         assert_eq!(menu.direct, Some(ApproveChoice::PushToPr));
     }
@@ -2414,6 +2177,7 @@ mod tests {
             std::slice::from_ref(&review),
             None,
             Some(0),
+            otaq_core::flow::Delivers::Either,
         );
         let items: Vec<_> = menu
             .items
@@ -2446,16 +2210,13 @@ mod tests {
         assert!(park.message.contains("will be stopped"), "{}", park.message);
         assert_eq!(park.kept.len(), 3);
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        assert_eq!(
-            drop_step(&review, &[], DropTargetId::APPROVED),
-            DropStep::Approve
-        );
         let menu = approve_menu(
             &review,
             "main",
             std::slice::from_ref(&review),
             None,
             Some(1),
+            otaq_core::flow::Delivers::Either,
         );
         assert_eq!(menu.title, "Approve SHOP-18 Checkout API");
         assert_eq!(menu.items[0].choice, ApproveChoice::LocalMerge);
@@ -2463,15 +2224,15 @@ mod tests {
         assert_eq!(menu.items[1].icon, IconName::GitPullRequest);
         assert_eq!(
             menu.note,
-            "Both open a confirmation step before anything runs."
+            "Each opens a confirmation step before anything runs."
         );
         assert_eq!(menu.direct, None, "two ways to deliver: the choice shows");
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
             drop_step(&pr, &[], DropTargetId::REVIEW),
-            DropStep::Move,
-            "PR rework"
+            DropStep::Nothing,
+            "a PR open card is in Review already"
         );
         let closed = ticket("SHOP-30", "Order history", Status::ClosedNotMerged);
         assert_eq!(
@@ -2522,8 +2283,7 @@ mod tests {
             .iter()
             .flat_map(|c| {
                 let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
-                let sections = c.sections.iter().flat_map(|s| &s.cards);
-                c.cards.iter().chain(dev).chain(sections)
+                c.cards.iter().chain(dev)
             })
             .find(|c| c.key() == key)
             .map(|c| serde_json::to_string(c).unwrap())
@@ -2709,16 +2469,16 @@ mod tests {
 flow:
   - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
   - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: pr, name: PR open, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
+delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
 
-    /// A 12-stage flow (`s24-04`): Product spec, Plan, Dev, Validate, Tests, Security, Perf, A11y, QA, Review, PR,
-    /// Deploy.
+    /// A 12-stage flow (`s24-04`): Product spec, Plan, Dev, Validate, Tests, Security, Perf, A11y, QA, Review, Release
+    /// notes, Deploy.
     fn twelve_stages() -> Flow {
         let yaml = "\
 flow:
@@ -2732,8 +2492,9 @@ flow:
   - {id: a11y, name: A11y, kind: check, by: agent, agent: A11y reviewer, skill: a11y, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: pr, name: PR, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
+  - {id: notes, name: Release notes, kind: agent, agent: Doc writer, skill: docs}
   - {id: deploy, name: Deploy, kind: agent, agent: Deployer, skill: deploy}
+delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
@@ -2878,8 +2639,7 @@ flow:
 
     fn cards_in(c: &ColumnPage) -> Vec<&BoardCard> {
         let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
-        let sections = c.sections.iter().flat_map(|s| &s.cards);
-        c.cards.iter().chain(dev).chain(sections).collect()
+        c.cards.iter().chain(dev).collect()
     }
 
     /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no agent panel) the seven columns keep their
@@ -2913,9 +2673,9 @@ flow:
                 "Ready",
                 "Product spec",
                 "Dev",
+                "Validate",
                 "Security",
-                "Review",
-                "PR open \u{b7} PR"
+                "Review"
             ]
         );
         assert_eq!(

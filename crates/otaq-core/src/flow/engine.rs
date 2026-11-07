@@ -3,11 +3,14 @@
 //! the result out (`board/validation.rs::transition`, `board/moves.rs::check_move` and the review moves).
 //!
 //! - [`step`]: what a [`Move`] does where a ticket stands: the agent's "next stage", an agent check's verdict, a
-//!   human check's Pass or Fail, a Delivery finishing, and the user's shortcuts (Skip this check, Move on anyway…).
-//!   A Fail returns the card to the check's fails-go-to stage ([`fail_to`], d0131; the nearest earlier Agent stage the
-//!   ticket runs when it skips that one), which resumes its session; from there it walks every later stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets
-//!   them all. A human check directly followed by a click Delivery offers the delivery choices as its Pass.
+//!   human check's Pass or Fail, the delivery finishing, and the user's shortcuts (Skip this check, Move on
+//!   anyway…). A Fail returns the card to the check's fails-go-to stage ([`fail_to`], d0131; the nearest earlier
+//!   Agent stage the ticket runs when it skips that one), which resumes its session; from there it walks every later
+//!   stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets them all.
 //!   Moving on into an Agent stage waits before it (STG-07): only the scheduler's [`Move::Begin`] enters it.
+//! - The delivery is not a stage: moving on past the last stage leaves the ticket in that stage to be delivered as
+//!   the flow's `delivery:` says (To deliver, then Done, PR open or Merged into). When the last stage is a check by
+//!   you and the delivery waits for a click, its Pass is the Approve that delivers ([`Step::choose`]).
 //! - [`drag`]: a drag's verdict (§7.4, FLW-18): today's drag rules and a drop on any stage, by stage kind.
 //! - [`default_stage`]: the default flow's stage for a status, for the writes that don't know the flow yet (until
 //!   T-0401–T-0403 move them onto stages).
@@ -15,7 +18,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::default::{DEV, REVIEW, VALIDATE};
-use super::model::{CheckBy, Column, Delivers, DeliveryMode, Flow, Stage, StageKind};
+use super::model::{CheckBy, Delivers, Flow, Stage, StageKind};
 use crate::board::moves::{
     DropOn, DropTarget, MERGED_INTO_WAITS, MERGED_LOCKED, MoveAction, MoveCheck,
     ONLY_AGENT_SUBMITS, QUEUE_FIRST, STARTS_BY_ITSELF,
@@ -29,7 +32,7 @@ stored_enum! {
         Passed = "passed",
         /// A check failed it.
         Failed = "failed",
-        /// An Agent stage or a Delivery finished.
+        /// An Agent stage finished (older rows: a Delivery stage too).
         Done = "done",
         /// The ticket skipped the stage, or the user skipped the running check.
         Skipped = "skipped",
@@ -40,19 +43,18 @@ stored_enum! {
     }
 }
 
-/// What a stage run's kind is stored as (`stage_runs.kind`).
+/// What a stage run's kind is stored as (`stage_runs.kind`; older rows also hold `delivery`, a Delivery stage's).
 pub fn run_kind(kind: StageKind) -> &'static str {
     match kind {
         StageKind::Agent => "agent",
         StageKind::Check { by: CheckBy::Agent } => "check",
         StageKind::Check { by: CheckBy::You } => "you",
-        StageKind::Delivery => "delivery",
     }
 }
 
 /// The default flow's stage for a status written without a stage: the validation statuses (and an Interrupted or
 /// limit-held validation, `interrupted_from`) are Validate's, the other Agent stage statuses Dev's, Ready for
-/// Review is Review's, the Delivery statuses Done's. `None` for Backlog, waiting and Done.
+/// Review and the delivery's statuses Review's (its last stage). `None` for Backlog, waiting and Done.
 pub fn default_stage(status: Status, interrupted_from: Option<Status>) -> Option<&'static str> {
     let check = |s: Status| s.set() == StatusSet::AgentCheck;
     match status.set() {
@@ -60,8 +62,7 @@ pub fn default_stage(status: Status, interrupted_from: Option<Status>) -> Option
         StatusSet::AgentCheck => Some(VALIDATE),
         StatusSet::AgentStage if interrupted_from.is_some_and(check) => Some(VALIDATE),
         StatusSet::AgentStage => Some(DEV),
-        StatusSet::HumanCheck => Some(REVIEW),
-        StatusSet::Delivery => Some(super::default::DELIVER),
+        StatusSet::HumanCheck | StatusSet::Delivery => Some(REVIEW),
     }
 }
 
@@ -71,17 +72,16 @@ pub fn entry_status(stage: &Stage) -> Status {
         StageKind::Agent => Status::Working,
         StageKind::Check { by: CheckBy::Agent } => Status::Checking,
         StageKind::Check { by: CheckBy::You } => Status::WaitingForYou,
-        StageKind::Delivery => Status::ToDeliver,
     }
 }
 
-/// The set of statuses a stage of this kind allows (STG-04).
+/// The set of statuses a stage of this kind allows (STG-04). The flow's last stage also holds the delivery's
+/// ([`StatusSet::Delivery`]).
 pub fn status_set(kind: StageKind) -> StatusSet {
     match kind {
         StageKind::Agent => StatusSet::AgentStage,
         StageKind::Check { by: CheckBy::Agent } => StatusSet::AgentCheck,
         StageKind::Check { by: CheckBy::You } => StatusSet::HumanCheck,
-        StageKind::Delivery => StatusSet::Delivery,
     }
 }
 
@@ -129,19 +129,17 @@ pub enum Move {
     Delivered,
     /// The PR was opened (or pushed again).
     PrOpened,
-    /// PR rework: back from the open PR to the human check before the Delivery (d0041).
-    PrRework,
-    /// Send back with PR comments (FLW-16): from the open PR to the nearest earlier Agent stage, whose session
-    /// resumes; every later stage runs again and the Delivery pushes to the same PR.
+    /// Send back with PR comments (FLW-16): from the open PR to the flow's last Agent stage the ticket runs, whose
+    /// session resumes; every later stage runs again and the delivery pushes to the same PR.
     PrComments,
-    /// The user merged the ticket into another ticket's branch: from the human check whose Pass offers the Delivery,
-    /// or from the Delivery, it waits in the Delivery as Merged into until that ticket lands.
+    /// The user merged the ticket into another ticket's branch: from the check by you whose Pass delivers, or from
+    /// To deliver, it waits in the last stage as Merged into until that ticket lands.
     MergedInto,
-    /// Another ticket was merged into this one's branch: back to the human check before the Delivery from the
-    /// Delivery (To deliver, PR open); a ticket waiting in a human check stays there.
+    /// Another ticket was merged into this one's branch: back to the flow's last check by you from the delivery (To
+    /// deliver, PR open); a ticket waiting in a check by you stays there.
     MergedIn,
-    /// The ticket this one was merged into was closed without landing: from Merged into back to the human check
-    /// before the Delivery, on its own branch. With no such check it waits at the Delivery to be delivered.
+    /// The ticket this one was merged into was closed without landing: from Merged into back to the flow's last
+    /// check by you, on its own branch. With no such check it waits to be delivered (To deliver).
     HostClosed,
     /// Mark closed, or Close ticket.
     Close,
@@ -196,7 +194,18 @@ impl<'f, 'a> At<'f, 'a> {
 
 /// Whether the ticket skips `stage` (it can, and chose to).
 fn skips(stage: &Stage, skips: &[String]) -> bool {
-    stage.can_skip() && !stage.is_delivery() && skips.contains(&stage.id)
+    stage.can_skip() && skips.contains(&stage.id)
+}
+
+/// The ticket's work is being delivered (To deliver, PR open, Merged into): it stays in the flow's last stage, the
+/// delivery coming after it.
+fn delivering(status: Status) -> bool {
+    status.set() == StatusSet::Delivery
+}
+
+/// The ticket is in the flow's last stage, after which the work is delivered.
+fn in_last_stage(at: &At<'_, '_>) -> bool {
+    at.place.stage().is_some_and(|id| at.flow.is_last(id))
 }
 
 /// The Agent stages before the stage at `index` when the ticket runs none of them: it skips each by its
@@ -237,22 +246,22 @@ pub enum Counters {
 pub struct Step<'f> {
     pub place: Place,
     pub status: Status,
-    /// The stage the ticket is in afterwards, if any.
+    /// The stage the ticket runs afterwards, if any: `None` in Backlog, waiting, Done and while it is delivered.
     pub stage: Option<&'f Stage>,
     /// How the run of the stage the ticket was in ends; `None` when that run goes on.
     pub ended: Option<RunResult>,
     /// Runs that start and end at once: stages walked over because the ticket skips them (or `SubmitByUser`
-    /// walked past them), and a Delivery finished as soon as it was entered.
+    /// walked past them).
     pub passed_through: Vec<(&'f Stage, RunResult)>,
     pub counters: Counters,
     /// A fresh checker starts (an agent check was entered, or Retry).
     pub start_check: bool,
     /// An Agent stage that ran before takes the ticket back: its session resumes, with the findings or comments.
     pub resume: bool,
-    /// A human check's Pass offers these delivery choices (Local merge, Open PR or both); the ticket stays put
-    /// until the user picks one.
+    /// The Pass of the last stage, a check by you, is the Approve that delivers: these delivery choices (merge into
+    /// main, open a PR, or either); the ticket stays put until the user picks one.
     pub choose: Option<Delivers>,
-    /// The ticket entered an automatic Delivery stage: it delivers with no click.
+    /// The ticket moved on past the last stage and the flow delivers automatically: it delivers with no click.
     pub automatic: bool,
 }
 
@@ -297,7 +306,7 @@ impl<'f> Step<'f> {
 pub struct NotNow(pub String);
 
 /// The stages after `from` (an index; `None` = before the first stage) up to the first one the ticket runs:
-/// those it skips, then the one it enters. `None` when nothing follows (after the Delivery comes Done).
+/// those it skips, then the one it enters. `None` when nothing follows: the work is delivered next.
 fn walk<'f>(
     flow: &'f Flow,
     skipping: &[String],
@@ -307,7 +316,7 @@ fn walk<'f>(
     let start = from.map_or(0, |i| i + 1);
     let mut skipped = Vec::new();
     for stage in &flow.stages[start.min(flow.stages.len())..] {
-        if skips(stage, skipping) || (also_skip(stage) && !stage.is_delivery()) {
+        if skips(stage, skipping) || also_skip(stage) {
             skipped.push(stage);
         } else {
             return (skipped, Some(stage));
@@ -316,14 +325,40 @@ fn walk<'f>(
     (skipped, None)
 }
 
-/// The nearest earlier Agent stage the ticket runs: where a drag back's nearest stage, Give it another round, Answer
-/// the agent, a Delivery's conflict, a failed Merge check and PR comments send it (d0108 smaller rule 1).
+/// The nearest earlier Agent stage the ticket runs: where a drag back's nearest stage, Give it another round and
+/// Answer the agent send it (d0108 smaller rule 1).
 pub fn back_to<'f>(flow: &'f Flow, from: &str, skips: &[String]) -> Option<&'f Stage> {
     let index = flow.position(from)?;
     flow.stages[..index]
         .iter()
         .rev()
         .find(|s| s.is_agent_stage() && !self::skips(s, skips))
+}
+
+/// The Agent stage the delivery's problems go back to: the nearest one before the delivery, so the flow's last Agent
+/// stage the ticket runs. A conflict, a failed Merge check, an early conflict and PR comments send the ticket there,
+/// whose session fixes it with no click (d0108 smaller rule 1).
+pub fn back_from_delivery<'f>(flow: &'f Flow, skips: &[String]) -> Option<&'f Stage> {
+    flow.stages
+        .iter()
+        .rev()
+        .find(|s| s.is_agent_stage() && !self::skips(s, skips))
+}
+
+/// Where a conflict or a failed Merge check sends a ticket (FLW-17, an early conflict too): from the delivery (To
+/// deliver, PR open) the last Agent stage it runs ([`back_from_delivery`]), else the nearest Agent stage before the
+/// stage it waits in ([`back_to`]); the flow's first Agent stage when neither has one.
+pub fn back_for_conflict<'f>(
+    flow: &'f Flow,
+    place: &Place,
+    status: Status,
+    skips: &[String],
+) -> Option<&'f Stage> {
+    match delivering(status) {
+        true => back_from_delivery(flow, skips),
+        false => place.stage().and_then(|id| back_to(flow, id, skips)),
+    }
+    .or_else(|| flow.first_agent_stage())
 }
 
 /// Where a Fail at the check `check` sends this ticket (d0131): the check's fails-go-to stage ([`Flow::fail_to_of`]:
@@ -365,14 +400,10 @@ pub fn stage_for<'f>(flow: &'f Flow, place: &Place, status: Status) -> Option<&'
     }
 }
 
-/// The nearest human check before the Delivery: the review a ticket goes back to when another ticket is merged into
-/// its branch. `None` when the flow has none.
+/// The flow's last check by you, the nearest one before the delivery: the review a ticket goes back to when another
+/// ticket is merged into its branch. `None` when the flow has none.
 pub fn human_check_before_delivery(flow: &Flow) -> Option<&Stage> {
-    let delivery = flow.stages.iter().position(Stage::is_delivery)?;
-    flow.stages[..delivery]
-        .iter()
-        .rev()
-        .find(|s| s.is_human_check())
+    flow.stages.iter().rev().find(|s| s.is_human_check())
 }
 
 /// The first human check after `from`: where Move on anyway takes a card.
@@ -381,18 +412,11 @@ pub fn next_human_check<'f>(flow: &'f Flow, from: &str) -> Option<&'f Stage> {
     flow.stages[index + 1..].iter().find(|s| s.is_human_check())
 }
 
-/// The stage whose column a stage shows in ([`Flow::column_owner`]).
-fn owner<'f>(flow: &'f Flow, stage: &Stage) -> Option<&'f Stage> {
-    flow.position(&stage.id)
-        .and_then(|i| flow.column_owner(i))
-        .map(|i| &flow.stages[i])
-}
-
-/// Entering `stage` from where `at` stands, after walking over `skipped`.
+/// Entering `stage` from where `at` stands, after walking over `skipped`; `None` is past the last stage: the ticket
+/// stays in the last stage, To deliver.
 fn enter<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>) -> Step<'f> {
-    let mut step = match stage {
-        None => Step::to(at, Place::Done, Status::Merged, None),
-        Some(stage) => {
+    let mut step = match (stage, at.flow.last_stage()) {
+        (Some(stage), _) => {
             let mut step = Step::to(
                 at,
                 Place::stage_of(&stage.id),
@@ -400,12 +424,15 @@ fn enter<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>)
                 Some(stage),
             );
             step.start_check = stage.is_agent_check();
-            // The Delivery does what the flow says: a skipped check never turns it into a click.
-            step.automatic = stage
-                .delivery
-                .is_some_and(|d| d.mode == DeliveryMode::Automatic);
             step
         }
+        (None, Some(last)) => {
+            let mut step = Step::to(at, Place::stage_of(&last.id), Status::ToDeliver, None);
+            // The delivery does what the flow says: a skipped check never turns it into a click.
+            step.automatic = at.flow.delivery.is_automatic();
+            step
+        }
+        (None, None) => Step::to(at, Place::Done, Status::Merged, None),
     };
     step.passed_through = skipped
         .into_iter()
@@ -441,7 +468,7 @@ fn move_on<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage
 enum Back {
     /// The check's fails-go-to stage ([`fail_to`]): an agent check's Fail and a human check's Fail (d0131).
     FailTo,
-    /// The nearest earlier one ([`back_to`]): everything else that goes back (d0108 smaller rule 1).
+    /// The nearest earlier one ([`back_to`]): everything else that goes back from a stage (d0108 smaller rule 1).
     Nearest,
 }
 
@@ -457,9 +484,14 @@ fn back<'f>(at: &At<'f, '_>, from: &Stage, rule: Back) -> Result<Step<'f>, NotNo
             from.name
         ))
     })?;
+    Ok(resumed_in(at, to))
+}
+
+/// Back in the Agent stage `to`, Working: its session resumes.
+fn resumed_in<'f>(at: &At<'f, '_>, to: &'f Stage) -> Step<'f> {
     let mut step = Step::to(at, Place::stage_of(&to.id), Status::Working, Some(to));
     step.resume = true;
-    Ok(step)
+    step
 }
 
 fn agent_works(status: Status) -> bool {
@@ -581,12 +613,11 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             back(&at, current.expect("in a check"), Back::Nearest)?.counters(Counters::ResetThis)
         }
         Move::HumanPass if human_check && at.status == Status::WaitingForYou => {
-            let index = at.index().expect("in a check");
-            match at.flow.stages.get(index + 1) {
-                // The Delivery's own click is the Pass's (today's Approve → Local merge / Open PR).
-                Some(next) if next.delivery.is_some_and(|d| d.mode == DeliveryMode::Click) => {
+            match at.flow.approve_stage() {
+                // The last stage's Pass is the Approve that delivers: merge into main, open a PR, or either.
+                Some(last) if current.is_some_and(|s| s.id == last.id) => {
                     let mut step = Step::stay(&at, at.status);
-                    step.choose = next.delivery.map(|d| d.delivers);
+                    step.choose = Some(at.flow.delivery.delivers);
                     step
                 }
                 _ => forward(&|_| false).ended(RunResult::Passed),
@@ -597,84 +628,41 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
                 .ended(RunResult::Failed)
                 .counters(Counters::ResetAll)
         }
-        // From the human check whose Pass offered the choice, or from the Delivery stage itself.
+        // Approved in the last stage, a check by you: merged (Done), or its PR opened (it stays there, PR open).
         Move::Delivered | Move::PrOpened
-            if human_check
-                && at.status == Status::WaitingForYou
-                && at
-                    .index()
-                    .and_then(|i| at.flow.stages.get(i + 1))
-                    .is_some_and(Stage::is_delivery) =>
+            if human_check && at.status == Status::WaitingForYou && in_last_stage(&at) =>
         {
-            let delivery = &at.flow.stages[at.index().expect("in a check") + 1];
             if mv == Move::Delivered {
-                let mut step =
-                    Step::to(&at, Place::Done, Status::Merged, None).ended(RunResult::Passed);
-                step.passed_through = vec![(delivery, RunResult::Done)];
-                step
+                Step::to(&at, Place::Done, Status::Merged, None).ended(RunResult::Passed)
             } else {
-                Step::to(
-                    &at,
-                    Place::stage_of(&delivery.id),
-                    Status::PrOpen,
-                    Some(delivery),
-                )
-                .ended(RunResult::Passed)
+                Step::stay(&at, Status::PrOpen).ended(RunResult::Passed)
             }
         }
-        Move::Delivered if is(StageKind::Delivery) => {
+        Move::Delivered if delivering(at.status) => {
             Step::to(&at, Place::Done, Status::Merged, None).ended(RunResult::Done)
         }
-        Move::PrOpened if is(StageKind::Delivery) => Step::stay(&at, Status::PrOpen),
-        Move::PrRework if is(StageKind::Delivery) && at.status == Status::PrOpen => {
-            let index = at.index().expect("in a stage");
-            let check = at.flow.stages[..index]
-                .iter()
-                .rev()
-                .find(|s| s.is_human_check())
-                .ok_or_else(|| NotNow("No human check before the Delivery".to_owned()))?;
-            Step::to(
-                &at,
-                Place::stage_of(&check.id),
-                Status::WaitingForYou,
-                Some(check),
-            )
-            .ended(RunResult::Cancelled)
-        }
-        Move::PrComments if is(StageKind::Delivery) && at.status == Status::PrOpen => {
-            back(&at, current.expect("in a stage"), Back::Nearest)?
+        Move::PrOpened if delivering(at.status) => Step::stay(&at, Status::PrOpen),
+        // From the open PR to the last Agent stage the ticket runs, the nearest one before the delivery.
+        Move::PrComments if at.status == Status::PrOpen => {
+            let to = back_from_delivery(at.flow, at.skips).ok_or_else(|| {
+                NotNow("The flow has no Agent stage to send the ticket back to".to_owned())
+            })?;
+            resumed_in(&at, to)
                 .ended(RunResult::Cancelled)
                 .counters(Counters::ResetAll)
         }
         Move::MergedInto
-            if human_check
-                && at.status == Status::WaitingForYou
-                && at
-                    .index()
-                    .and_then(|i| at.flow.stages.get(i + 1))
-                    .is_some_and(Stage::is_delivery) =>
+            if human_check && at.status == Status::WaitingForYou && in_last_stage(&at) =>
         {
-            let delivery = &at.flow.stages[at.index().expect("in a check") + 1];
-            Step::to(
-                &at,
-                Place::stage_of(&delivery.id),
-                Status::MergedInto,
-                Some(delivery),
-            )
-            .ended(RunResult::Passed)
+            Step::stay(&at, Status::MergedInto).ended(RunResult::Passed)
         }
-        Move::MergedInto if is(StageKind::Delivery) && at.status == Status::ToDeliver => {
-            Step::stay(&at, Status::MergedInto)
-        }
+        Move::MergedInto if at.status == Status::ToDeliver => Step::stay(&at, Status::MergedInto),
         Move::MergedIn if human_check && at.status == Status::WaitingForYou => {
             Step::stay(&at, Status::WaitingForYou)
         }
-        Move::MergedIn
-            if is(StageKind::Delivery)
-                && matches!(at.status, Status::ToDeliver | Status::PrOpen) =>
-        {
+        Move::MergedIn if matches!(at.status, Status::ToDeliver | Status::PrOpen) => {
             let check = human_check_before_delivery(at.flow)
-                .ok_or_else(|| NotNow("No human check before the Delivery".to_owned()))?;
+                .ok_or_else(|| NotNow("The flow has no check by you to go back to".to_owned()))?;
             Step::to(
                 &at,
                 Place::stage_of(&check.id),
@@ -683,7 +671,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             )
             .ended(RunResult::Cancelled)
         }
-        Move::HostClosed if is(StageKind::Delivery) && at.status == Status::MergedInto => {
+        Move::HostClosed if at.status == Status::MergedInto => {
             match human_check_before_delivery(at.flow) {
                 Some(check) => Step::to(
                     &at,
@@ -714,21 +702,13 @@ pub enum Target<'f> {
 
 impl DropTarget {
     /// The place this board target means in `flow`: Dev is the first Agent stage's column, Ready for Review the
-    /// human check before the Delivery, Approved the Delivery (the default flow's Review column and its Approved
-    /// section). `None` when the flow has no such stage.
+    /// flow's last check by you. `None` when the flow has no such stage.
     pub fn in_flow(self, flow: &Flow) -> Option<Target<'_>> {
-        let delivery = flow.stages.iter().position(Stage::is_delivery);
         Some(match self {
             Self::Backlog => Target::Backlog,
             Self::ReadyForDev => Target::Waiting,
             Self::Dev => Target::Stage(flow.first_agent_stage()?),
-            Self::ReadyForReview => Target::Stage(
-                flow.stages[..delivery.unwrap_or(flow.stages.len())]
-                    .iter()
-                    .rev()
-                    .find(|s| s.is_human_check())?,
-            ),
-            Self::Approved => Target::Stage(&flow.stages[delivery?]),
+            Self::ReadyForReview => Target::Stage(human_check_before_delivery(flow)?),
             Self::Done => Target::Done,
         })
     }
@@ -768,7 +748,7 @@ pub fn skipped_by_drag<'f>(
 /// Where a drag the board carries out by itself takes the ticket (FLW-18): back onto a human check (no dialog; the run
 /// it leaves ends cancelled), or forward to `to` past the stages between, which get skipped runs. The run it leaves
 /// ends skipped when it was a check (you skipped it), done when it was an Agent stage (as Move to next stage). Forward
-/// into an Agent stage waits before it (STG-07); a Delivery entered this way never delivers by itself.
+/// into an Agent stage waits before it (STG-07).
 pub fn dragged<'f>(at: At<'f, '_>, to: &'f Stage) -> Step<'f> {
     let flow = at.flow;
     let target = flow.position(&to.id).unwrap_or(flow.stages.len());
@@ -794,14 +774,14 @@ pub fn dragged<'f>(at: At<'f, '_>, to: &'f Stage) -> Step<'f> {
 }
 
 /// Whether a card can be dragged forward to a later stage of `flow` (d0108 "Other drags"): on every flow, the
-/// default one included, where Dev → Review skips Validate and Dev → Approved skips Review too (T-0421's parity
-/// question to the user; `false` here would keep today's refusals for those drops).
+/// default one included, where Dev → Review skips Validate (T-0421's parity question to the user; `false` here
+/// would keep today's refusals for those drops).
 fn forward_drags(_flow: &Flow) -> bool {
     true
 }
 
 /// A drag's verdict (§7.4, FLW-18), by the kinds of the stages it leaves and enters. On top of today's rules (Start,
-/// Unqueue, Park, Approve, PR rework, Reopen), any stage takes a drop (d0108 "Dragging a card back", "Other drags"):
+/// Unqueue, Park, Reopen), any stage takes a drop (d0108 "Dragging a card back", "Other drags"):
 /// back to an earlier Agent stage asks for its agent's instructions ([`MoveAction::SendBack`]), back to an agent check
 /// asks for a note ([`MoveAction::RunCheckAgain`]), back onto a human check needs nothing ([`MoveAction::MoveBack`]);
 /// forward, the very next stage is Move to next stage (or a human check's Pass) and anything further skips the stages
@@ -833,13 +813,13 @@ pub fn drag_with(
         Place::Done => Target::Done,
         Place::InStage(id) => match flow.stage(id) {
             Some(stage) => Target::Stage(stage),
-            // A stage the flow no longer has (Validation turned off while it validated): where its kind shows.
+            // A stage the flow no longer has (Validation turned off while it validated): where its kind shows, the
+            // delivery's in the last stage.
             None => match status.set() {
-                StatusSet::HumanCheck => DropTarget::ReadyForReview,
-                StatusSet::Delivery => DropTarget::Approved,
-                _ => DropTarget::Dev,
+                StatusSet::HumanCheck => DropTarget::ReadyForReview.in_flow(flow),
+                StatusSet::Delivery => flow.last_stage().map(Target::Stage),
+                _ => DropTarget::Dev.in_flow(flow),
             }
-            .in_flow(flow)
             .unwrap_or(Target::Backlog),
         },
     };
@@ -852,14 +832,7 @@ pub fn drag_with(
     }
     let at_work = |s: &Stage| s.is_agent_stage() || s.is_agent_check();
     let index = |s: &Stage| flow.position(&s.id).unwrap_or(usize::MAX);
-    let right_after = |a: &Stage, b: &Stage| index(b) == index(a).wrapping_add(1);
     match (from, to) {
-        // Dropped on the column it shows in: an agent check folded into its Agent stage's column.
-        (Target::Stage(a), Target::Stage(b))
-            if at_work(a) && a.column == Column::WithPrevious && owner(flow, a) == Some(b) =>
-        {
-            MoveCheck::Unchanged
-        }
         // The go-ahead; on an Agent stage it waits until it can start (d0066). A parked card goes back to the stage
         // it left wherever it is dropped (d0052, FLW-18).
         (Target::Backlog, Target::Waiting) => MoveCheck::Allowed {
@@ -880,20 +853,6 @@ pub fn drag_with(
         (Target::Stage(a), Target::Backlog) if at_work(a) => MoveCheck::Confirm {
             action: MoveAction::Park,
         },
-        (Target::Stage(a), Target::Stage(b))
-            if a.is_human_check() && b.is_delivery() && right_after(a, b) =>
-        {
-            MoveCheck::Choose {
-                action: MoveAction::Approve,
-            }
-        }
-        (Target::Stage(a), Target::Stage(b))
-            if a.is_delivery() && b.is_human_check() && right_after(b, a) =>
-        {
-            MoveCheck::Allowed {
-                action: MoveAction::PrRework,
-            }
-        }
         // Back to an earlier stage (d0108 "Dragging a card back").
         (Target::Stage(a), Target::Stage(b)) if index(b) < index(a) => {
             if b.is_agent_stage() {
@@ -927,18 +886,10 @@ pub fn drag_with(
         (_, Target::Stage(b)) if b.is_human_check() => refused(ONLY_AGENT_SUBMITS),
         (Target::Done, _) => refused("Drag it to Backlog to reopen it first"),
         (Target::Backlog, Target::Stage(b)) if b.is_agent_check() => refused(QUEUE_FIRST),
-        (Target::Stage(a), Target::Waiting | Target::Stage(_))
-            if a.is_human_check() && !matches!(to, Target::Stage(b) if b.is_delivery()) =>
-        {
+        (Target::Stage(a), Target::Waiting | Target::Stage(_)) if a.is_human_check() => {
             refused("Use Send back to return it to Dev with your comments")
         }
-        (_, Target::Waiting) => {
-            refused("Drag it back through Ready for Review: Approved tickets return with PR rework")
-        }
-        (_, Target::Stage(b)) if at_work(b) => {
-            refused("Drag it back through Ready for Review: Approved tickets return with PR rework")
-        }
-        (_, Target::Stage(_)) => refused("Approve a ticket from Ready for Review"),
+        (_, Target::Waiting | Target::Stage(_)) => refused(ONLY_AGENT_SUBMITS),
         (_, Target::Done) => refused("Use Close ticket, Approve or Mark merged to finish a ticket"),
         (_, Target::Backlog) => {
             refused("Only Ready for Dev, Dev and Closed tickets go back to Backlog")
@@ -949,7 +900,7 @@ pub fn drag_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flow::default::{DELIVER, default_flow};
+    use crate::flow::default::default_flow;
 
     #[test]
     fn default_stages_of_every_status() {
@@ -958,7 +909,7 @@ mod tests {
             assert_eq!(stage.is_some(), status.set().in_stage(), "{status}");
             assert!(stage.is_none_or(|id| default_flow().stage(id).is_some()));
         }
-        assert_eq!(default_stage(Status::PrOpen, None), Some(DELIVER));
+        assert_eq!(default_stage(Status::PrOpen, None), Some(REVIEW));
         assert_eq!(
             default_stage(Status::WaitingForLimitReset, Some(Status::Checking)),
             Some(VALIDATE)
@@ -1056,7 +1007,8 @@ mod tests {
                 "dev"
             );
         }
-        let place = Place::stage_of("ship");
+        // An open PR waits in the last stage, QA; its comments go to the last Agent stage, Dev.
+        let place = Place::stage_of("qa");
         let pr = At::new(&flow, &place, Status::PrOpen);
         assert_eq!(
             step(pr, Move::PrComments).unwrap().place,
@@ -1073,6 +1025,80 @@ mod tests {
         let at = At::new(&flow, &place, Status::WaitingForYou);
         let dev = flow.stage("dev").unwrap();
         assert_eq!(dragged(at, dev).place, Place::stage_of("dev"));
+    }
+
+    /// The delivery is no stage: Review's Approve offers what the flow delivers and the ticket stays in Review; a PR
+    /// opened there is "PR open" in Review; passing the last stage of a flow without a click delivery leaves the
+    /// ticket in that stage, To deliver.
+    #[test]
+    fn the_delivery_happens_in_the_last_stage() {
+        let mut flow = default_flow();
+        let review = Place::stage_of(REVIEW);
+        for delivers in [Delivers::Local, Delivers::Pr, Delivers::Either] {
+            flow.delivery.delivers = delivers;
+            let pass = step(
+                At::new(&flow, &review, Status::WaitingForYou),
+                Move::HumanPass,
+            )
+            .unwrap();
+            assert_eq!(
+                (pass.place.clone(), pass.choose),
+                (review.clone(), Some(delivers))
+            );
+        }
+        let opened = step(
+            At::new(&flow, &review, Status::WaitingForYou),
+            Move::PrOpened,
+        )
+        .unwrap();
+        assert_eq!(
+            (opened.place, opened.status),
+            (review.clone(), Status::PrOpen)
+        );
+        let merged = step(At::new(&flow, &review, Status::PrOpen), Move::Delivered).unwrap();
+        assert_eq!((merged.place, merged.status), (Place::Done, Status::Merged));
+
+        flow.delivery.mode = crate::flow::DeliveryMode::Automatic;
+        flow.delivery.delivers = Delivers::Local;
+        let pass = step(
+            At::new(&flow, &review, Status::WaitingForYou),
+            Move::HumanPass,
+        )
+        .unwrap();
+        assert_eq!(
+            (pass.place, pass.status, pass.automatic, pass.choose),
+            (review.clone(), Status::ToDeliver, true, None)
+        );
+
+        // No Review: Validate's pass delivers; the ticket waits in Validate.
+        flow.stages.retain(|s| s.id != REVIEW);
+        let validate = Place::stage_of(VALIDATE);
+        let pass = step(At::new(&flow, &validate, Status::Checking), Move::Pass).unwrap();
+        assert_eq!(
+            (pass.place, pass.status, pass.automatic),
+            (validate, Status::ToDeliver, true)
+        );
+    }
+
+    /// A conflict goes back to the last Agent stage the ticket runs from the delivery, and to the nearest one before
+    /// a check by you it waits in; a flow ending in an Agent stage sends it back there.
+    #[test]
+    fn conflicts_go_back_to_an_agent_stage() {
+        let flow = default_flow();
+        let review = Place::stage_of(REVIEW);
+        for status in [Status::ToDeliver, Status::WaitingForYou] {
+            assert_eq!(
+                back_for_conflict(&flow, &review, status, &[]).map(|s| s.id.as_str()),
+                Some(DEV)
+            );
+        }
+        let mut only_dev = default_flow();
+        only_dev.stages.retain(|s| s.id == DEV);
+        assert_eq!(
+            back_for_conflict(&only_dev, &Place::stage_of(DEV), Status::ToDeliver, &[])
+                .map(|s| s.id.as_str()),
+            Some(DEV)
+        );
     }
 
     #[test]

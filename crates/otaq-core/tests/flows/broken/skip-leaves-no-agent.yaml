@@ -2,20 +2,15 @@ flow:
   - id: product-spec
     name: Product spec
     kind: agent
-    column: own
     agent: Spec writer
     skill: product-spec
     options: [skip]
   - id: dev
     name: Dev
     kind: agent
-    column: own
     agent: Developer
     skill: work-ticket
     options: [skip]
-  - id: deliver
-    name: Done
-    kind: delivery
-    column: own
-    mode: click
-    delivers: local
+delivery:
+  delivers: local
+  mode: click

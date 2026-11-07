@@ -407,7 +407,7 @@ pub struct PathView {
 /// The lock's tooltip on a stage that ran.
 pub const RAN_LOCKED: &str = "Locked: it ran on this model";
 
-/// A path stage's own words before it runs: "Validator · shown in Dev · up to 3 rounds", "Shipper · PR, automatic",
+/// A path stage's own words before it runs: "Validator · up to 3 rounds", "Shipper · PR, automatic",
 /// "your check".
 fn delivery_words(stage: &PathStage) -> String {
     let Some(d) = &stage.delivery else {
@@ -676,11 +676,6 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
     let ran_before = |id: &str| t.runs.iter().any(|r| r.stage == id);
     let mut summary_rest = Vec::new();
     for stage in stages.iter().skip(to_come_from) {
-        let shown_in = stage
-            .shown_in
-            .as_deref()
-            .map(|s| format!(" \u{b7} shown in {s}"))
-            .unwrap_or_default();
         let fails = failed_rounds(&stage.stage_id);
         let (state, detail, part) = if stage.skipped {
             (
@@ -703,18 +698,16 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
                         format!("{} (round {} of {of})", stage.stage, fails + 1),
                     )
                 }
-                PathKind::AgentCheck | PathKind::Agent if ran_before(&stage.stage_id) => (
-                    PathState::ToCome,
-                    format!("again{shown_in}"),
-                    stage.stage.clone(),
-                ),
+                PathKind::AgentCheck | PathKind::Agent if ran_before(&stage.stage_id) => {
+                    (PathState::ToCome, "again".to_owned(), stage.stage.clone())
+                }
                 PathKind::AgentCheck => (
                     PathState::ToCome,
                     match stage.rounds {
                         Some(n) => {
-                            format!("{}{shown_in} \u{b7} up to {n} rounds", agent_name(stage))
+                            format!("{} \u{b7} up to {n} rounds", agent_name(stage))
                         }
-                        None => format!("{}{shown_in}", agent_name(stage)),
+                        None => agent_name(stage),
                     },
                     stage.stage.clone(),
                 ),
@@ -728,11 +721,7 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
                     delivery_words(stage),
                     stage.stage.clone(),
                 ),
-                PathKind::Agent => (
-                    PathState::ToCome,
-                    format!("{}{shown_in}", agent_name(stage)),
-                    stage.stage.clone(),
-                ),
+                PathKind::Agent => (PathState::ToCome, agent_name(stage), stage.stage.clone()),
             }
         };
         summary_rest.push(part);
@@ -1306,7 +1295,6 @@ pub mod fixtures {
             stage_id: id.into(),
             stage: name.into(),
             kind,
-            shown_in: None,
             rounds: None,
             delivery: None,
             agent,
@@ -1326,7 +1314,6 @@ pub mod fixtures {
             ),
             stage("dev", "Dev", PathKind::Agent, find(&a, dev)),
             PathStage {
-                shown_in: Some("Dev".into()),
                 rounds: Some(3),
                 ..stage(
                     "validate",
@@ -1350,7 +1337,12 @@ pub mod fixtures {
                     automatic: true,
                     delivers: "pr".into(),
                 }),
-                ..stage("ship", "Done", PathKind::Delivery, find(&a, "shipper"))
+                ..stage(
+                    "delivery",
+                    "Delivery",
+                    PathKind::Delivery,
+                    find(&a, "shipper"),
+                )
             },
         ]
     }
@@ -1708,7 +1700,6 @@ pub mod fixtures {
         vec![
             stage("dev", "Dev", PathKind::Agent, Some(developer.clone())),
             PathStage {
-                shown_in: Some("Dev".into()),
                 rounds: Some(2),
                 ..stage(
                     "validate",
@@ -1719,12 +1710,11 @@ pub mod fixtures {
             },
             stage("review", "Review", PathKind::HumanCheck, None),
             PathStage {
-                shown_in: Some("Review".into()),
                 delivery: Some(PathDelivery {
                     automatic: false,
                     delivers: "either".into(),
                 }),
-                ..stage("deliver", "Done", PathKind::Delivery, Some(developer))
+                ..stage("delivery", "Delivery", PathKind::Delivery, Some(developer))
             },
         ]
     }
@@ -1968,7 +1958,7 @@ mod tests {
             p.summary,
             "Product spec \u{b7} Spec writer \u{b7} sonnet \u{b7} Dev \u{b7} Rust developer \u{b7} sonnet \u{b7} Validate \
              \u{b7} Validator \u{b7} gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review \
-             \u{b7} Done \u{b7} Shipper \u{b7} haiku"
+             \u{b7} Delivery \u{b7} Shipper \u{b7} haiku"
         );
         assert_eq!(
             texts(&p),
@@ -1977,7 +1967,7 @@ mod tests {
                 row("Dev", "Rust developer \u{b7} working", "sonnet", false),
                 row(
                     "Validate",
-                    "Validator \u{b7} shown in Dev \u{b7} up to 3 rounds",
+                    "Validator \u{b7} up to 3 rounds",
                     "gpt-5.5",
                     false
                 ),
@@ -1988,7 +1978,7 @@ mod tests {
                     false
                 ),
                 row("Review", "your check", "\u{2014}", false),
-                row("Done", "Shipper \u{b7} PR, automatic", "haiku", false),
+                row("Delivery", "Shipper \u{b7} PR, automatic", "haiku", false),
             ]
         );
         let states: Vec<_> = p.rows.iter().map(|r| (r.state, r.current)).collect();
@@ -2013,7 +2003,7 @@ mod tests {
         assert_eq!(
             p.summary,
             "Back in Dev after Security failed \u{b7} then Validate \u{b7} Security (round 2 of 3) \u{b7} Review \
-             \u{b7} Done"
+             \u{b7} Delivery"
         );
         assert_eq!(
             texts(&p),
@@ -2043,10 +2033,10 @@ mod tests {
                     "sonnet",
                     false
                 ),
-                row("Validate", "again \u{b7} shown in Dev", "gpt-5.5", false),
+                row("Validate", "again", "gpt-5.5", false),
                 row("Security", "round 2 of 3", "opus \u{b7} effort high", false),
                 row("Review", "your check", "\u{2014}", false),
-                row("Done", "Shipper \u{b7} PR, automatic", "haiku", false),
+                row("Delivery", "Shipper \u{b7} PR, automatic", "haiku", false),
             ]
         );
         assert_eq!(p.rows[3].state, PathState::Failed);
@@ -2079,7 +2069,7 @@ mod tests {
         assert_eq!(
             p.summary,
             "Product spec skipped \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \u{b7} Validator \u{b7} \
-             gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review skipped \u{b7} Done \u{b7} \
+             gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review skipped \u{b7} Delivery \u{b7} \
              Shipper \u{b7} haiku"
         );
         assert_eq!(
@@ -2110,7 +2100,6 @@ mod tests {
                     "\u{2014}",
                     false
                 ),
-                row("Done", "Shipper \u{b7} delivered", "claude-haiku-5-5", true),
             ]
         );
         assert!(p.rows.iter().all(|r| !r.current));
@@ -2147,7 +2136,7 @@ mod tests {
             p.summary,
             "Product spec \u{b7} Spec writer \u{b7} sonnet \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \
              \u{b7} Validator \u{b7} gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review \
-             \u{b7} Done \u{b7} Shipper \u{b7} haiku"
+             \u{b7} Delivery \u{b7} Shipper \u{b7} haiku"
         );
         assert!(p.rows.iter().all(|r| r.state != PathState::Running));
     }
@@ -2165,20 +2154,20 @@ mod tests {
         let p = path(&t, &tools()).expect("path");
         assert_eq!(
             p.summary,
-            "Dev \u{b7} Developer \u{b7} haiku \u{b7} Validate \u{b7} Validator \u{b7} opus \u{b7} Review \u{b7} Done"
+            "Dev \u{b7} Developer \u{b7} haiku \u{b7} Validate \u{b7} Validator \u{b7} opus \u{b7} Review \u{b7} Delivery"
         );
         assert_eq!(
             texts(&p),
             [
                 row("Dev", "Developer", "haiku", false),
+                row("Validate", "Validator \u{b7} up to 2 rounds", "opus", false),
+                row("Review", "your check", "\u{2014}", false),
                 row(
-                    "Validate",
-                    "Validator \u{b7} shown in Dev \u{b7} up to 2 rounds",
-                    "opus",
+                    "Delivery",
+                    "Local merge or PR, your click",
+                    "\u{2014}",
                     false
                 ),
-                row("Review", "your check", "\u{2014}", false),
-                row("Done", "Local merge or PR, your click", "\u{2014}", false),
             ]
         );
     }

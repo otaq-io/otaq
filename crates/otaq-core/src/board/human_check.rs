@@ -269,9 +269,16 @@ impl Board {
             .map(|s| format!("'{s}'"))
             .collect::<Vec<_>>()
             .join(", ");
-        type Row = (String, Option<String>, String, Option<i64>, Option<String>);
+        type Row = (
+            String,
+            Option<String>,
+            String,
+            String,
+            Option<i64>,
+            Option<String>,
+        );
         let sql = format!(
-            "SELECT t.id, t.stage_id, r.stage_id, r.round, r.result
+            "SELECT t.id, t.stage_id, t.state, r.stage_id, r.round, r.result
              FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
              WHERE t.project_id = ? AND t.state IN ({states})
              ORDER BY t.id, r.rowid"
@@ -288,10 +295,14 @@ impl Board {
         .bind(project_id)
         .fetch_all(self.store.pool())
         .await?;
-        let mut runs: HashMap<String, (Option<String>, Vec<StageRun>)> = HashMap::new();
-        for (id, here, stage, round, result) in rows {
-            let entry = runs.entry(id).or_insert_with(|| (here, Vec::new()));
-            entry.1.push(StageRun {
+        type Runs = (Option<String>, bool, Vec<StageRun>);
+        let mut runs: HashMap<String, Runs> = HashMap::new();
+        for (id, here, state, stage, round, result) in rows {
+            let delivering = state == Status::ToDeliver.as_str();
+            let entry = runs
+                .entry(id)
+                .or_insert_with(|| (here, delivering, Vec::new()));
+            entry.2.push(StageRun {
                 stage,
                 kind: String::new(),
                 session: None,
@@ -305,12 +316,17 @@ impl Board {
             });
         }
         let mut arrivals = HashMap::new();
-        for (id, (here, runs)) in runs {
+        for (id, (here, delivering, runs)) in runs {
             let Some(here) = here else { continue };
-            let Some(at) = runs.iter().rposition(|r| r.stage == here) else {
-                continue;
+            // To deliver: it got here by passing its last stage, whose run is the latest (the delivery has none).
+            let before = match delivering {
+                true => runs.last(),
+                false => runs
+                    .iter()
+                    .rposition(|r| r.stage == here)
+                    .and_then(|at| runs[..at].last()),
             };
-            let Some(before) = runs[..at].last() else {
+            let Some(before) = before else {
                 continue;
             };
             let skipped_by: Vec<(String, String)> = choices
@@ -413,7 +429,12 @@ mod tests {
             "Failed Security 2 times \u{b7} moved by you"
         );
         assert_eq!(
-            label(run("ship", RunResult::Cancelled, None)),
+            arrival_from(
+                &flow,
+                "validate",
+                &run("security", RunResult::Cancelled, None)
+            )
+            .label(),
             "Moved back by you"
         );
         assert_eq!(label(run("dev", RunResult::Done, None)), "Finished Dev");
