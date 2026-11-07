@@ -15,4 +15,12 @@ opened: string | null,
 /**
  * "feature/SHOP-26-add-sitemap → main"
  */
-branch: string, note: string, };
+branch: string, note: string, 
+/**
+ * The two marks, the user's: Otaq never watches the PR.
+ */
+mark_merged: string, mark_closed: string, 
+/**
+ * Mark closed asks first: "Mark PR #481 as closed?" and what it does.
+ */
+close_title: string, close_body: string, };

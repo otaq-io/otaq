@@ -80,8 +80,9 @@ export function Proposed({
   const hint = view.branch_hint;
   return (
     <>
-      <p className="pr-muted">{view.proposed_by}</p>
-      {view.provider !== null && (
+      {view.set_up !== null && <SetUp setUp={view.set_up} />}
+      {view.proposed_by !== "" && <p className="pr-muted">{view.proposed_by}</p>}
+      {view.push && view.provider !== null && (
         <div className="pr-provider">
           <Icon name="git-pull-request" size={12} />
           <span>{view.provider}</span>
@@ -119,18 +120,23 @@ export function Proposed({
         {!view.branch_locked && <Icon name={hint.error ? "circle-x" : "circle-check"} size={12} />}
         {hint.text}
       </span>
-      <span className="pr-label">{view.commits_label}</span>
-      {fields.commits.map((message, i) => (
-        <TextInput
-          key={view.commits[i]?.sha ?? i}
-          mono
-          label={view.commits[i]?.sha ?? view.commits_label}
-          value={message}
-          onChange={(v) => {
-            onEdit("commit", v, i);
-          }}
-        />
-      ))}
+      {/* A Push rewords its new commits; an Open PR keeps them as they are (`ticket-05`). */}
+      {view.push && (
+        <>
+          <span className="pr-label">{view.commits_label}</span>
+          {fields.commits.map((message, i) => (
+            <TextInput
+              key={view.commits[i]?.sha ?? i}
+              mono
+              label={view.commits[i]?.sha ?? view.commits_label}
+              value={message}
+              onChange={(v) => {
+                onEdit("commit", v, i);
+              }}
+            />
+          ))}
+        </>
+      )}
       {!view.push && (
         <>
           <Field label={view.title_label}>
@@ -156,6 +162,14 @@ export function Proposed({
               />
             )}
           </Field>
+          {view.writing !== null ? (
+            <p className="pr-muted pr-writing">
+              <Icon name="loader-circle" size={12} />
+              <span>{view.writing}</span>
+            </p>
+          ) : (
+            view.prepared !== null && <p className="pr-muted">{view.prepared}</p>
+          )}
         </>
       )}
       <span className="pr-target">
@@ -164,6 +178,33 @@ export function Proposed({
       </span>
     </>
   );
+}
+
+/** "GitHub isn't set up on this Mac": Set up GitHub… opens app Settings where providers are set up. */
+function SetUp({ setUp }: { setUp: NonNullable<PrDialogView["set_up"]> }) {
+  return (
+    <div className="pr-set-up" role="status">
+      <Icon name="circle-alert" size={14} />
+      <div>
+        <span className="pr-set-up-title">{setUp.title}</span>
+        <p className="pr-muted">{setUp.text}</p>
+        <Button
+          compact
+          variant="secondary"
+          label={setUp.button}
+          onClick={() => {
+            openProviderSettings();
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** App Settings where PR providers are set up. Their own page, "Git & pull requests" (topic `git`), is another piece's:
+ * until it lands this opens Tools, where git and the provider tools are found today. */
+export function openProviderSettings(): void {
+  openOverlay("settings", { section: "tools" });
 }
 
 export function Intro({
@@ -483,6 +524,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
       const confirm = () => {
         if (view.can_confirm) run("pr.confirm", "confirm");
       };
+      const mergeInstead = view.merge_instead;
       return (
         <Dialog
           title={view.heading}
@@ -492,6 +534,21 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
           onCancel={cancel}
           footer={
             <>
+              {mergeInstead !== null && (
+                <>
+                  <Button
+                    variant="ghost"
+                    icon="git-merge"
+                    label={mergeInstead}
+                    onClick={() => {
+                      request("pr.cancel", { key }).catch(ignore);
+                      close();
+                      openOverlay("local_merge", { ticket: key, choice: "local_merge" });
+                    }}
+                  />
+                  <span className="pr-spacer" />
+                </>
+              )}
               <Button variant="ghost" label={view.cancel} onClick={cancel} />
               <Button
                 icon="upload"
@@ -539,11 +596,33 @@ export function PrOpenSection({ ticket }: TicketProps) {
       onOpen={() => {
         request("sheet.action", { key: ticket, action: "open_pr_in_browser" }).catch(ignore);
       }}
+      onMerged={() => {
+        request("sheet.action", { key: ticket, action: "mark_merged" }).catch(ignore);
+      }}
+      onClosed={() => {
+        openOverlay("confirm", {
+          title: view.close_title,
+          body: view.close_body,
+          confirmLabel: view.mark_closed,
+          destructive: true,
+          onConfirm: () => request("sheet.mark_closed", { key: ticket }),
+        });
+      }}
     />
   );
 }
 
-export function OpenBox({ view, onOpen }: { view: PrOpenBox; onOpen: () => void }) {
+export function OpenBox({
+  view,
+  onOpen,
+  onMerged,
+  onClosed,
+}: {
+  view: PrOpenBox;
+  onOpen: () => void;
+  onMerged?: () => void;
+  onClosed?: () => void;
+}) {
   return (
     <section className="pr-open">
       <div className="pr-open-head">
@@ -563,6 +642,12 @@ export function OpenBox({ view, onOpen }: { view: PrOpenBox; onOpen: () => void 
         <Icon name="info" size={12} />
         <span>{view.note}</span>
       </div>
+      {onMerged && onClosed && (
+        <div className="pr-open-marks">
+          <Button compact variant="secondary" label={view.mark_closed} onClick={onClosed} />
+          <Button compact icon="git-merge" label={view.mark_merged} onClick={onMerged} />
+        </div>
+      )}
     </section>
   );
 }
