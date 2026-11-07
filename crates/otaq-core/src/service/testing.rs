@@ -189,8 +189,8 @@ impl TestService {
         }
     }
 
-    /// Names `skill` on the stage of every project's flow that runs `step` (Validate, or the Delivery for Open PR);
-    /// `None` puts the stage back on Otaq's skill.
+    /// Names `skill` on what runs `step` in every project's flow (the Validate stage, or the delivery for Open PR);
+    /// `None` puts it back on Otaq's skill.
     pub async fn name_stage_skill(
         &self,
         step: crate::board::settings::WorkflowStep,
@@ -200,10 +200,12 @@ impl TestService {
         for project in self.board.store().projects().await.expect("projects") {
             self.board
                 .edit_flow_for_tests(&project.key, |file| {
+                    if step == WorkflowStep::OpenPr {
+                        file.flow.delivery.skill = skill.map(str::to_owned);
+                    }
                     for stage in &mut file.flow.stages {
                         let runs = match step {
                             WorkflowStep::Validate => stage.id == crate::flow::default::VALIDATE,
-                            WorkflowStep::OpenPr => stage.is_delivery(),
                             _ => false,
                         };
                         if runs {

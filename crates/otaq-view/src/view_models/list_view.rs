@@ -17,7 +17,7 @@ use otaq_core::board::needs_you::{group_of, waits_for_click};
 use otaq_core::board::settings::ViewPrefs;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status, TicketKey};
-use otaq_core::flow::{Delivers, Stage};
+use otaq_core::flow::Stage;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -247,33 +247,15 @@ impl<'t> Bucket<'t> {
     }
 }
 
-/// The icon of a stage's group: what it is (an agent, an agent's check, your check, a delivery).
+/// The icon of a stage's group: what it is (an agent, an agent's check, your check).
 fn stage_icon(stage: &Stage) -> IconName {
     if stage.is_agent_check() {
         IconName::ShieldCheck
     } else if stage.is_human_check() {
         IconName::UserCheck
-    } else if stage.is_delivery() {
-        match stage.delivery.map(|d| d.delivers) {
-            Some(Delivers::Pr) => IconName::GitPullRequest,
-            _ => IconName::GitMerge,
-        }
     } else {
         IconName::Bot
     }
-}
-
-/// The board drop target a stage stands for: its column when it has one, a section of a human check's column; none
-/// for a stage folded into an agent column (Validate in Dev).
-fn stage_target(columns: &Columns, stage: &Stage) -> Option<DropTargetId> {
-    columns.iter().find_map(|c| {
-        let index = c.parts.iter().position(|p| p.stage.id == stage.id)?;
-        match index {
-            0 => Some(DropTargetId::new(c.id.clone())),
-            _ if c.has_sections() => Some(DropTargetId::new(c.parts[index].id.clone())),
-            _ => None,
-        }
-    })
 }
 
 /// Whether the ticket waits for the user as the Needs you strip counts it (NYS-01, d0114): its question, a stop, your
@@ -339,9 +321,9 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
     let group_by: GroupBy = prefs.group_by.into();
     // Group by Stage, in flow order and in each group the board's order; the other groupings re-sort these rows.
     let keys: Vec<&TicketKey> = all.iter().filter(|t| listed(t)).map(|t| &t.key).collect();
-    let bucket_of = |mut bucket: Bucket<'a>, column: &str, part: Option<&str>| -> Bucket<'a> {
+    let bucket_of = |mut bucket: Bucket<'a>, column: &str| -> Bucket<'a> {
         bucket.rows = columns
-            .order(column, part, &keys, all)
+            .order(column, &keys, all)
             .iter()
             .filter_map(|k| all.iter().find(|t| &t.key == k))
             .map(|t| Listed {
@@ -360,7 +342,6 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
             ..Bucket::new(flow_columns::BACKLOG, BACKLOG, IconName::CircleDashed)
         },
         flow_columns::BACKLOG,
-        None,
     ));
     stages.push(bucket_of(
         Bucket {
@@ -369,24 +350,19 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
             ..Bucket::new(flow_columns::READY_FOR_DEV, READY, IconName::Hourglass)
         },
         flow_columns::READY_FOR_DEV,
-        None,
     ));
     for column in columns.iter() {
-        for part in &column.parts {
-            stages.push(bucket_of(
-                Bucket {
-                    target: stage_target(&columns, part.stage),
-                    stage: true,
-                    ..Bucket::new(
-                        part.stage.id.clone(),
-                        part.stage.name.clone(),
-                        stage_icon(part.stage),
-                    )
-                },
-                &column.id,
-                Some(&part.id),
-            ));
-        }
+        let Some(stage) = column.stage else {
+            continue;
+        };
+        stages.push(bucket_of(
+            Bucket {
+                target: Some(DropTargetId::new(column.id.clone())),
+                stage: true,
+                ..Bucket::new(stage.id.clone(), stage.name.clone(), stage_icon(stage))
+            },
+            &column.id,
+        ));
     }
     stages.push(bucket_of(
         Bucket {
@@ -395,7 +371,6 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
             ..Bucket::new(flow_columns::DONE, FINISHED, IconName::CircleCheck)
         },
         flow_columns::DONE,
-        None,
     ));
     let buckets = match group_by {
         GroupBy::Stage => stages,
@@ -626,16 +601,16 @@ pub mod samples {
     use crate::view_models::board::BoardInput;
     use crate::view_models::card_fixtures::{NOW, ticket};
 
-    /// The example's shop-web flow (`s24-03`): Product spec, Dev with Validate shown in it, Security, Review, PR.
+    /// The example's shop-web flow (`s24-03`): Product spec, Dev, Validate, Security, Review, then a PR.
     pub fn shop_web() -> Flow {
         let yaml = "\
 flow:
   - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
   - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: pr, name: PR open, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
+delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
@@ -703,7 +678,7 @@ flow:
             "SHOP-26",
             "Add sitemap",
             Status::PrOpen,
-            Place::stage_of("pr"),
+            Place::stage_of("review"),
         );
         pr.flags.pr_number = Some(481);
         let mut tickets = vec![
@@ -891,8 +866,12 @@ mod tests {
                     None,
                     keys(&["SHOP-32", "SHOP-19"])
                 ),
-                ("Review".into(), "1".into(), None, keys(&["SHOP-18"])),
-                ("PR open".into(), "1".into(), None, keys(&["SHOP-26"])),
+                (
+                    "Review".into(),
+                    "2".into(),
+                    None,
+                    keys(&["SHOP-18", "SHOP-26"])
+                ),
                 (
                     "Finished".into(),
                     "4".into(),
@@ -910,7 +889,7 @@ mod tests {
                 folded: false
             })
         );
-        // Drop targets (LST-02): Ready queues; Validate, shown in Dev's column on the Board, takes no drop.
+        // Drop targets (LST-02): Ready queues; every stage is a column on the Board, so every stage takes a drop.
         let target = |title: &str| {
             list.groups
                 .iter()
@@ -922,9 +901,8 @@ mod tests {
         };
         assert_eq!(target("Ready"), s("ready_for_dev"));
         assert_eq!(target("Dev"), s("dev"));
-        assert_eq!(target("Validate"), None);
+        assert_eq!(target("Validate"), s("validate"));
         assert_eq!(target("Review"), s("review"));
-        assert_eq!(target("PR open"), s("pr"));
 
         // The rows say what the cards say (BRD-03).
         let line = |key: &str| {
@@ -1011,7 +989,7 @@ mod tests {
                 .collect()
         };
         let by_stage = titles(G::Stage);
-        assert_eq!(by_stage.iter().filter(|t| *t == "Done").count(), 1);
+        assert_eq!(by_stage.iter().filter(|t| *t == "Done").count(), 0);
         assert_eq!(by_stage.last().map(String::as_str), Some(FINISHED));
         let by_status = titles(G::Status);
         assert_eq!(
@@ -1133,8 +1111,7 @@ mod tests {
                 ("Rust developer".into(), "3".into()),
                 ("Validator".into(), "1".into()),
                 ("Security reviewer".into(), "2".into()),
-                ("Shipper".into(), "1".into()),
-                ("You".into(), "1".into()),
+                ("You".into(), "2".into()),
                 ("Finished this week".into(), "4".into()),
             ]
         );
@@ -1161,23 +1138,20 @@ mod tests {
         let a = Some(Palette::Approved);
         assert_eq!(
             fills("SHOP-22"),
-            (
-                vec![a, Some(Palette::Attn), None, None, None, None],
-                "Dev".into()
-            )
+            (vec![a, Some(Palette::Attn), None, None, None], "Dev".into())
         );
         assert_eq!(
             fills("SHOP-30"),
             (
-                vec![a, a, Some(Palette::Working), None, None, None],
+                vec![a, a, Some(Palette::Working), None, None],
                 "Validate".into()
             )
         );
         assert_eq!(fills("SHOP-32").0[3], Some(Palette::Attn));
         assert_eq!(fills("SHOP-18").0[4], Some(Palette::Review));
-        assert_eq!(fills("SHOP-31"), (vec![None; 6], "\u{2014}".into()));
-        assert_eq!(fills("SHOP-35"), (vec![None; 6], "Ready".into()));
-        assert_eq!(fills("SHOP-1"), (vec![a; 6], "Done".into()));
+        assert_eq!(fills("SHOP-31"), (vec![None; 5], "\u{2014}".into()));
+        assert_eq!(fills("SHOP-35"), (vec![None; 5], "Ready".into()));
+        assert_eq!(fills("SHOP-1"), (vec![a; 5], "Done".into()));
         let names: Vec<&str> = row(&list, "SHOP-22")
             .track
             .steps
@@ -1186,14 +1160,7 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            [
-                "Product spec",
-                "Dev",
-                "Validate",
-                "Security",
-                "Review",
-                "PR open"
-            ]
+            ["Product spec", "Dev", "Validate", "Security", "Review"]
         );
     }
 

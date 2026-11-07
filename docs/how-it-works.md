@@ -139,7 +139,7 @@ skill tool and follow it. If you don't have a skill with that name, say so and s
 **A flow stage names the skill it runs.** Agents have no skill list; the stage's Skill field is the one place a skill
 is picked. **Pick a skill…** lists the skills Otaq finds in your tools' folders and in the project, plus Otaq's own,
 and you can also type a name. A stage that names no skill runs Otaq's own skill for it (`validate` on Validate,
-`open-pr` on the Delivery stage). A stage that names a skill you don't have still applies, with the warning
+`open-pr` for the flow's delivery, which names its own with `skill:` under `delivery:`). A stage that names a skill you don't have still applies, with the warning
 "You don't have the skill `<name>`". A stage can't name a tool's built-in command, such as Claude Code's
 `/security-review`, as its skill unless you have a skill of that name: the flow is refused, so write a small skill
 that runs the command and name that skill instead.

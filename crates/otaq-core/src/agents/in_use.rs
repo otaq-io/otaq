@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Agent, resolve};
 use crate::board::{Board, BoardError};
-use crate::flow::Stage;
+use crate::flow::Flow;
 
 /// One stage that names the agent as its agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,25 +85,37 @@ fn join(items: &[String]) -> String {
     }
 }
 
-/// The uses of `agent` in a flow's stages.
+/// The uses of `agent` in a flow: its stages, and its delivery when the agent opens its PRs ("Delivery").
 async fn uses_in(
     board: &Board,
     agent: &Agent,
-    stages: &[Stage],
+    flow: &Flow,
     project: Option<&str>,
 ) -> Result<Vec<StageUse>, BoardError> {
-    let mut uses = Vec::new();
-    for stage in stages {
+    let mut named: Vec<(String, String)> = Vec::new();
+    for stage in &flow.stages {
         for name in stage.named_agents() {
-            if resolve::named(board.store(), name)
-                .await?
-                .is_some_and(|a| a.id == agent.id)
-            {
-                uses.push(StageUse {
-                    project: project.map(str::to_owned),
-                    stage: stage.name.clone(),
-                });
-            }
+            named.push((stage.name.clone(), name.clone()));
+        }
+    }
+    if let Some(name) = flow
+        .delivery
+        .agent
+        .as_ref()
+        .filter(|_| flow.delivery.can_open_pr())
+    {
+        named.push((crate::agents::facts::DELIVERY_STEP.to_owned(), name.clone()));
+    }
+    let mut uses = Vec::new();
+    for (stage, name) in named {
+        if resolve::named(board.store(), &name)
+            .await?
+            .is_some_and(|a| a.id == agent.id)
+        {
+            uses.push(StageUse {
+                project: project.map(str::to_owned),
+                stage,
+            });
         }
     }
     Ok(uses)
@@ -114,11 +126,11 @@ pub async fn in_use(board: &Board, agent: &Agent) -> Result<InUse, BoardError> {
     let mut stages = Vec::new();
     for project in board.projects().await? {
         let flow = board.effective_flow(&project.key).await?;
-        stages.extend(uses_in(board, agent, &flow.stages, Some(&project.name)).await?);
+        stages.extend(uses_in(board, agent, &flow, Some(&project.name)).await?);
     }
     if stages.is_empty() {
         let default = crate::flow::default_flow();
-        stages = uses_in(board, agent, &default.stages, None).await?;
+        stages = uses_in(board, agent, &default, None).await?;
     }
     Ok(InUse {
         agent: agent.name.clone(),

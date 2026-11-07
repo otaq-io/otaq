@@ -1,12 +1,14 @@
 //! Approve ▾ and Local merge (GIT-03, REV-08, UI-02; d0015, d0038, d0050, d0058; *07 → Local merge · confirm,
-//! success, rebasing, conflict, refused*; *03 → Approve choice on drop*): the choice (Local merge, Open PR from
-//! M10 on delivery units only), the confirmation's texts, and one state per Local merge result. Nothing here
-//! pushes, and no state offers to stash or discard.
+//! success, rebasing, conflict, refused*): the choice, the confirmation's texts, and one state per Local merge
+//! result. Approve offers exactly what the flow's delivery allows, named by what it does ("Approve & merge into
+//! main", "Approve & open PR"; both when the flow delivers either), then the other ways to finish the ticket. Nothing
+//! here pushes, and no state offers to stash or discard.
 
 use otaq_core::board::merge_into::{can_be_merged_in, can_take};
 use otaq_core::board::review::{ApproveCheck, changed_message};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::flow::Delivers;
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::review::merge_into::{MergeIntoOutcome, conflict_message};
@@ -56,9 +58,17 @@ pub fn menu_note(ticket: &Ticket) -> String {
             otaq_core::naming::PRODUCT_NAME
         )
     } else {
-        "Both open a confirmation step before anything runs.".to_owned()
+        "Each opens a confirmation step before anything runs.".to_owned()
     }
 }
+
+/// The Approve choice that merges locally: "Approve & merge into main".
+pub fn approve_and_merge(target: &str) -> String {
+    format!("Approve & merge into {target}")
+}
+
+/// The Approve choice that opens a PR.
+pub const APPROVE_AND_OPEN_PR: &str = "Approve & open PR";
 
 /// The choice that leads the menu when the branch has no commits beyond its base.
 pub const DONE_NOTHING_TO_MERGE: &str = "Done, nothing to merge";
@@ -143,19 +153,22 @@ fn keys(keys: &[TicketKey]) -> String {
         .join(", ")
 }
 
-/// The menu: Local merge always; Open PR (d0059). With the built-in Open PR skill and no detected provider, Open PR is disabled with "PR provider
-/// not detected" (REV-11). A ticket with an open PR offers only Push to PR #N (REV-14, d0041).
+/// The menu: what the flow's delivery allows (`delivers`), named by what it does: "Approve & merge into main" for a
+/// local merge, "Approve & open PR" for a PR (d0059), both for `either`; then Merge into another ticket…. With the
+/// built-in Open PR skill and no detected provider, the PR choice is disabled with "PR provider not detected"
+/// (REV-11). A ticket with an open PR offers only Push to PR #N (REV-14, d0041).
 ///
 /// `commits` are the commits on the branch beyond its base (`None`: unknown). With none, the menu leads with "Done,
-/// nothing to merge", and Local merge and Open PR stay listed, disabled, with "No changes in the repo": the diff
-/// decides, no ticket field or flow setting does. With some, "Done, don't merge" comes last, after every way to
-/// deliver them (its confirmation says what won't land).
+/// nothing to merge", and the delivery's choices stay listed, disabled, with "No changes in the repo": the diff
+/// decides, no ticket field does. With some, "Done, don't merge" comes last, after every way to deliver them (its
+/// confirmation says what won't land).
 pub fn options(
     ticket: &Ticket,
     target: &str,
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
     commits: Option<u32>,
+    delivers: Delivers,
 ) -> Vec<ApproveOption> {
     if let Some(n) = ticket.flags.pr_number {
         let provider = pr
@@ -174,30 +187,38 @@ pub fn options(
             enabled: true,
         }];
     }
-    let title = "Local merge".to_owned();
-    let mut detail = format!("Squash into {target}");
-    if let Some((key, _, others)) = still_waiting(ticket, tickets).first() {
-        detail.push_str(&format!(" \u{b7} {key} still waits for {}", keys(others)));
+    let mut out = Vec::new();
+    if delivers != Delivers::Pr {
+        let mut detail = format!("Squash into {target}");
+        if let Some((key, _, others)) = still_waiting(ticket, tickets).first() {
+            detail.push_str(&format!(" \u{b7} {key} still waits for {}", keys(others)));
+        }
+        out.push(ApproveOption {
+            choice: ApproveChoice::LocalMerge,
+            title: approve_and_merge(target),
+            detail,
+            enabled: true,
+        });
     }
-    let mut out = vec![ApproveOption {
-        choice: ApproveChoice::LocalMerge,
-        title,
-        detail,
-        enabled: true,
-    }];
-    let blocked = pr.and_then(PrProvider::open_pr_blocked);
-    let detail = match blocked {
-        Some(why) => why.to_owned(),
-        None => format!(
-            "The Open PR skill proposes; you confirm before anything is pushed \u{b7} into {target}"
-        ),
-    };
-    out.push(ApproveOption {
-        choice: ApproveChoice::OpenPr,
-        title: open_pr_title(pr),
-        detail,
-        enabled: blocked.is_none(),
-    });
+    if delivers != Delivers::Local {
+        let blocked = pr.and_then(PrProvider::open_pr_blocked);
+        let on = pr
+            .and_then(|p| p.provider)
+            .map(|p| format!(" on {}", p.name()))
+            .unwrap_or_default();
+        let detail = match blocked {
+            Some(why) => why.to_owned(),
+            None => format!(
+                "The Open PR skill proposes{on}; you confirm before anything is pushed \u{b7} into {target}"
+            ),
+        };
+        out.push(ApproveOption {
+            choice: ApproveChoice::OpenPr,
+            title: APPROVE_AND_OPEN_PR.to_owned(),
+            detail,
+            enabled: blocked.is_none(),
+        });
+    }
     out.push(merge_into_option(ticket, tickets));
     if commits == Some(0) {
         for option in &mut out {
@@ -252,7 +273,7 @@ pub const MERGE_INTO: &str = "Merge into another ticket\u{2026}";
 
 /// Why nothing can take the ticket's branch: the choice's detail, and the empty picker's line.
 pub const NO_HOST: &str =
-    "No other ticket of this base waits in review, at its Delivery or with a PR open";
+    "No other ticket of this base waits in review, to be delivered or with a PR open";
 
 /// One ticket the picker offers: "SHOP-18 Checkout API · Ready for Review".
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
@@ -562,7 +583,14 @@ mod tests {
             branch: Some("feature/SHOP-26-add-sitemap".into()),
             ..Default::default()
         });
-        let only = options(&t, "main", &[], None, Some(2));
+        let only = options(
+            &t,
+            "main",
+            &[],
+            None,
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        );
         assert_eq!(only.len(), 1, "Local merge and Open PR are hidden");
         assert_eq!(only[0].choice, ApproveChoice::PushToPr);
         assert_eq!(only[0].title, "Push to PR #481");
@@ -582,13 +610,28 @@ mod tests {
             cli_found: false,
             open_pr_skill: "open-pr".to_owned(),
         };
-        let open = &options(&shop18, "main", &tickets, Some(&pr), Some(2))[1];
-        assert_eq!(open.title, "Open PR");
+        let open = &options(
+            &shop18,
+            "main",
+            &tickets,
+            Some(&pr),
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        )[1];
+        assert_eq!(open.title, "Approve & open PR");
         assert_eq!(open.detail, "PR provider not detected");
         assert!(!open.enabled);
         pr.provider = Some(Provider::GitHub);
-        let open = &options(&shop18, "main", &tickets, Some(&pr), Some(2))[1];
-        assert_eq!(open.title, "Open PR on GitHub");
+        let open = &options(
+            &shop18,
+            "main",
+            &tickets,
+            Some(&pr),
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        )[1];
+        assert_eq!(open.title, "Approve & open PR");
+        assert!(open.detail.contains("on GitHub"), "{}", open.detail);
         assert_ne!(open.detail, "PR provider not detected");
     }
 
@@ -607,7 +650,14 @@ mod tests {
         let shop18 = with_branch("SHOP-18", "Checkout API", Status::WaitingForYou);
         let shop19 = with_branch("SHOP-19", "Price table", Status::Working);
         let all = [shop18.clone(), shop19, shop20.clone()];
-        let menu = options(&shop20, "main", &all, None, Some(2));
+        let menu = options(
+            &shop20,
+            "main",
+            &all,
+            None,
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        );
         let merge = &menu[2];
         assert_eq!(merge.choice, ApproveChoice::MergeInto);
         assert_eq!(merge.title, "Merge into another ticket\u{2026}");
@@ -618,6 +668,7 @@ mod tests {
             std::slice::from_ref(&shop20),
             None,
             Some(2),
+            otaq_core::flow::Delivers::Either,
         );
         assert!(!alone[2].enabled, "nothing can take it");
         assert_eq!(alone[2].detail, NO_HOST);
@@ -653,7 +704,14 @@ mod tests {
     #[test]
     fn the_menu_offers_local_merge_and_open_pr() {
         let (shop18, tickets) = sample();
-        let options = options(&shop18, "main", &tickets, None, Some(2));
+        let options = options(
+            &shop18,
+            "main",
+            &tickets,
+            None,
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        );
         assert_eq!(menu_title(&shop18), "Approve SHOP-18 Checkout API");
         assert_eq!(options[0].choice, ApproveChoice::LocalMerge);
         assert_eq!(
@@ -665,12 +723,46 @@ mod tests {
         assert!(options[1].enabled, "Open PR works from M10");
     }
 
+    /// Approve offers exactly what the flow's delivery allows, named by what it does: both for `either`, one for
+    /// `local` or `pr`; the other ways to finish stay in the menu.
+    #[test]
+    fn approve_offers_what_the_flows_delivery_allows() {
+        use otaq_core::flow::Delivers;
+        let (shop18, tickets) = sample();
+        let menu = |delivers| -> Vec<(ApproveChoice, String)> {
+            options(&shop18, "main", &tickets, None, Some(2), delivers)
+                .into_iter()
+                .map(|o| (o.choice, o.title))
+                .collect()
+        };
+        let merge = (
+            ApproveChoice::LocalMerge,
+            "Approve & merge into main".to_owned(),
+        );
+        let pr = (ApproveChoice::OpenPr, "Approve & open PR".to_owned());
+        let into = (ApproveChoice::MergeInto, MERGE_INTO.to_owned());
+        let dont = (ApproveChoice::DoneNotMerged, DONE_DONT_MERGE.to_owned());
+        assert_eq!(
+            menu(Delivers::Either),
+            [merge.clone(), pr.clone(), into.clone(), dont.clone()]
+        );
+        assert_eq!(menu(Delivers::Local), [merge, into.clone(), dont.clone()]);
+        assert_eq!(menu(Delivers::Pr), [pr, into, dont]);
+    }
+
     /// A branch with no commits beyond its base: "Done, nothing to merge" leads; Local merge and Open PR stay listed,
     /// disabled, with "No changes in the repo".
     #[test]
     fn nothing_to_merge_leads_with_done_and_disables_the_others() {
         let (shop18, tickets) = sample();
-        let menu = options(&shop18, "main", &tickets, None, Some(0));
+        let menu = options(
+            &shop18,
+            "main",
+            &tickets,
+            None,
+            Some(0),
+            otaq_core::flow::Delivers::Either,
+        );
         let choices: Vec<_> = menu.iter().map(|o| (o.choice, o.enabled)).collect();
         assert_eq!(
             choices,
@@ -691,7 +783,14 @@ mod tests {
         }
         // Commits, or a count nobody could read: the menu as before.
         for commits in [Some(1), None] {
-            let menu = options(&shop18, "main", &tickets, None, commits);
+            let menu = options(
+                &shop18,
+                "main",
+                &tickets,
+                None,
+                commits,
+                otaq_core::flow::Delivers::Either,
+            );
             assert_eq!(menu[0].choice, ApproveChoice::LocalMerge);
             assert!(menu.iter().all(|o| o.choice != ApproveChoice::Done));
         }
@@ -702,7 +801,14 @@ mod tests {
     #[test]
     fn done_not_merged_comes_last_and_names_what_wont_land() {
         let (shop18, tickets) = sample();
-        let menu = options(&shop18, "main", &tickets, None, Some(2));
+        let menu = options(
+            &shop18,
+            "main",
+            &tickets,
+            None,
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        );
         let choices: Vec<_> = menu.iter().map(|o| o.choice).collect();
         assert_eq!(
             choices,
@@ -721,16 +827,30 @@ mod tests {
         );
         assert!(last.enabled);
         assert!(
-            options(&shop18, "main", &tickets, None, None)
-                .iter()
-                .all(|o| o.choice != ApproveChoice::DoneNotMerged)
+            options(
+                &shop18,
+                "main",
+                &tickets,
+                None,
+                None,
+                otaq_core::flow::Delivers::Either
+            )
+            .iter()
+            .all(|o| o.choice != ApproveChoice::DoneNotMerged)
         );
         let mut pr = shop18.clone();
         pr.flags.pr_number = Some(481);
         assert!(
-            options(&pr, "main", &tickets, None, Some(2))
-                .iter()
-                .all(|o| o.choice != ApproveChoice::DoneNotMerged),
+            options(
+                &pr,
+                "main",
+                &tickets,
+                None,
+                Some(2),
+                otaq_core::flow::Delivers::Either
+            )
+            .iter()
+            .all(|o| o.choice != ApproveChoice::DoneNotMerged),
             "the menu stays Push to PR #N"
         );
 

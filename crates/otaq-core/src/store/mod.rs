@@ -26,6 +26,10 @@ pub use versions::NewerDatabase;
 
 pub(crate) static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
+/// The migration that makes a flow's delivery its setting (`0085_delivery_setting.sql`); its stored flows are
+/// rewritten right after it ([`Store::move_deliveries_into_flows`]).
+const DELIVERY_SETTING: i64 = 85;
+
 /// An open database with every migration applied.
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -45,8 +49,13 @@ impl Store {
     /// [`StoreError::NewerDatabase`], unchanged.
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
         let pool = Self::connect(path, true).await?;
+        let deliveries_pending = !versions::applied(&pool, DELIVERY_SETTING).await;
         migrate(&pool, path, &MIGRATOR, versions::RUNNING_VERSION).await?;
         let store = Self { pool };
+        // The rest of migration 0085, which SQL can't write: the flows' Delivery stages become their setting.
+        if deliveries_pending {
+            store.move_deliveries_into_flows().await?;
+        }
         // The first start: the shipped agents applied, once (AGM-02).
         crate::agents::shipped::apply_on_first_start(&store).await?;
         Ok(store)

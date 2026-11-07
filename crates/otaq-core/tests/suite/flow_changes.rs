@@ -199,7 +199,7 @@ async fn each_refusal_names_its_stage_or_agent() {
         .map(|e| e.unwrap().path())
         .collect();
     broken.sort();
-    assert_eq!(broken.len(), 22);
+    assert_eq!(broken.len(), 16);
     for path in broken {
         let text = std::fs::read_to_string(&path).unwrap();
         let message = refusal(propose_as(&w, &key, &text, planner()).await);
@@ -630,7 +630,7 @@ async fn a_removal_waits_for_its_span() {
     assert!(w.board.waiting_change(&key).await.unwrap().is_none());
     let flow = w.board.effective_flow(&key).await.unwrap();
     let ids: Vec<&str> = flow.stages.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(ids, ["dev", "review", "deliver"]);
+    assert_eq!(ids, ["dev", "review"]);
     assert!(flow.stage("review").unwrap().can_skip());
     let current = w.board.current_flow(&key).await.unwrap();
     assert_eq!(
@@ -642,7 +642,6 @@ async fn a_removal_waits_for_its_span() {
     w.force_stage(&api1, "dev", Status::Working).await;
     let mut removing = w.board.current_flow_file(&key).await.unwrap();
     removing.flow.stages.retain(|s| s.id != "review");
-    removing.flow.stages.last_mut().unwrap().column = otaq_core::flow::Column::Own;
     let proposal = propose_as(&w, &key, &stages_only(&removing), planner())
         .await
         .unwrap();
@@ -653,9 +652,9 @@ async fn a_removal_waits_for_its_span() {
     assert!(would_start(&w, &key).await.is_empty());
     assert!(w.board.cancel_waiting(&key).await.unwrap());
     assert_eq!(would_start(&w, &key).await, [api2.key.to_string()]);
-    // Done's own column applied at once (an edit); Review's removal is gone.
+    // Review's removal is gone, and nothing else applied.
     let current = w.board.current_flow(&key).await.unwrap();
-    assert_eq!(current.version, 3);
+    assert_eq!(current.version, 2);
     assert!(current.file().unwrap().flow.stage("review").is_some());
     w.stop().await;
 }

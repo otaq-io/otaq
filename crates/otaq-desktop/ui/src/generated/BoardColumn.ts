@@ -6,8 +6,6 @@ import type { BoardColumnMenuItem } from "./BoardColumnMenuItem";
 import type { BoardColumnRail } from "./BoardColumnRail";
 import type { BoardColumnTooltip } from "./BoardColumnTooltip";
 import type { BoardDevSections } from "./BoardDevSections";
-import type { BoardFoldedStage } from "./BoardFoldedStage";
-import type { BoardReviewSection } from "./BoardReviewSection";
 import type { IconName } from "./IconName";
 
 export type BoardColumn = { id: BoardColumnId, 
@@ -20,15 +18,7 @@ kind: BoardColumnKind, title: string, icon: IconName,
  * The icon in the muted colour (a flow that isn't the default's shape, FLW-12); else in its kind's status
  * colour.
  */
-quiet_icon: boolean, 
-/**
- * Review: both sections together. An agent column with a folded stage: its own stage's cards.
- */
-count: string, 
-/**
- * An agent column's folded stages, after its count: "· Validating 1".
- */
-folded: Array<BoardFoldedStage>, 
+quiet_icon: boolean, count: string, 
 /**
  * Who runs it, on hovering the title; `None` for Backlog, Ready for Dev and Done.
  */
@@ -38,7 +28,7 @@ tooltip: BoardColumnTooltip | null,
  */
 hint: string | null, 
 /**
- * Shown when the column has no card (Review's sections have their own lines).
+ * Shown when the column has no card.
  */
 empty_hint: string, 
 /**
@@ -62,13 +52,9 @@ menu_label: string,
  */
 hidden: string | null, 
 /**
- * Every column but Dev and Review.
+ * Every column but the agent columns.
  */
-cards: Array<BoardCard>, 
-/**
- * Review only: Ready for Review, then Approved.
- */
-sections: Array<BoardReviewSection>, dev: BoardDevSections | null, 
+cards: Array<BoardCard>, dev: BoardDevSections | null, 
 /**
  * Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
  */

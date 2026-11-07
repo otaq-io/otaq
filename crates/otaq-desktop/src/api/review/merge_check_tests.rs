@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use otaq_core::domain::{MergeCheckState, Status};
-use otaq_core::flow::default::{DELIVER, REVIEW, VALIDATE};
+use otaq_core::flow::default::{REVIEW, VALIDATE};
 use otaq_core::flow::model::{Delivers, Delivery, DeliveryMode, FlowFile};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::service::testing::TestService;
@@ -177,17 +177,15 @@ async fn a_running_merge_check_leaves_the_app_free_and_stop_merges_nothing() {
     w.stop().await;
 }
 
-/// Dev → Review → Done, the Delivery merging locally with no click after Review's Pass (FLW-14, FLW-15).
+/// Dev → Review, the delivery merging locally with no click after Review's Pass (FLW-14, FLW-15).
 fn review_then_automatic_merge(file: &mut FlowFile) {
     file.flow.stages.retain(|s| s.id != VALIDATE);
-    for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-        stage.agent = None;
-        stage.skill = None;
-        stage.delivery = Some(Delivery {
-            mode: DeliveryMode::Automatic,
-            delivers: Delivers::Local,
-        });
-    }
+    file.flow.delivery = Delivery {
+        mode: DeliveryMode::Automatic,
+        delivers: Delivers::Local,
+        agent: None,
+        skill: None,
+    };
 }
 
 /// Pass into an automatic Delivery runs the merge inside its click: while the Merge check runs, the board still gets

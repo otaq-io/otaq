@@ -290,7 +290,7 @@ async fn the_example_applies_now_through_the_window() {
     );
     let flow = w.board.effective_flow("NOTE").await.unwrap();
     let names: Vec<&str> = flow.stages.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["Dev", "Review", "Done"]);
+    assert_eq!(names, ["Dev", "Review"]);
 
     // Product spec's agent and Security's checker stopped; NOTE-3's agent didn't.
     let ended = |id: &str| w.sessions.info(id).map_or(true, |s| !s.is_running());

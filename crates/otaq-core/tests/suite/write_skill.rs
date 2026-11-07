@@ -33,13 +33,11 @@ async fn with_plan(w: &TestService, key: &str) -> FlowFile {
             id: "plan".into(),
             name: "Plan".into(),
             kind: StageKind::Agent,
-            column: Default::default(),
             agent: Some("Developer".into()),
             skill: None,
             options: Vec::new(),
             rounds: None,
             fail_to: None,
-            delivery: None,
             description: None,
         },
     );

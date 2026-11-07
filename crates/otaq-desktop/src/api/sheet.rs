@@ -2098,7 +2098,6 @@ mod tests {
                 stage_id: "validate".into(),
                 stage: "Validate".into(),
                 kind: PathKind::AgentCheck,
-                shown_in: None,
                 rounds: Some(1),
                 delivery: None,
                 agent: None,

@@ -17,9 +17,7 @@ use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::engine::RunResult;
-use otaq_core::flow::{
-    CheckBy, Column, Delivers, Delivery, DeliveryMode, FlowFile, Stage, StageKind, yaml,
-};
+use otaq_core::flow::{CheckBy, Delivers, DeliveryMode, FlowFile, Stage, StageKind, yaml};
 use otaq_core::git::testing::commit;
 use otaq_core::review::ReturnOutcome;
 use otaq_core::review::drag::DragAnswers;
@@ -60,29 +58,23 @@ fn every_kind() -> FlowFile {
 /// The test flow with a Review human check between QA and the Delivery, which delivers a PR on a click.
 fn with_review() -> FlowFile {
     let mut file = every_kind();
-    let at = file.flow.position("ship").unwrap();
+    let at = file.flow.stages.len();
     file.flow.stages.insert(
         at,
         Stage {
             id: "review".into(),
             name: "Review".into(),
             kind: StageKind::Check { by: CheckBy::You },
-            column: Column::Own,
             agent: None,
             skill: None,
             options: Vec::new(),
             rounds: None,
             fail_to: None,
-            delivery: None,
             description: None,
         },
     );
-    for stage in file.flow.stages.iter_mut().filter(|s| s.is_delivery()) {
-        stage.delivery = Some(Delivery {
-            mode: DeliveryMode::Click,
-            delivers: Delivers::Pr,
-        });
-    }
+    file.flow.delivery.mode = DeliveryMode::Click;
+    file.flow.delivery.delivers = Delivers::Pr;
     file
 }
 
@@ -424,23 +416,6 @@ async fn forward_past_checks_marks_them_and_delivers_as_the_flow_says() {
         serde_json::json!(["Validate", "Security"])
     );
 
-    // Straight to the automatic Delivery, past QA too: it stays automatic, without those checks.
-    ran_dev_then(&w, "Wishlist sort", "dev", Status::Idle).await;
-    drag(&w, "SHOP-2", DropOn::stage("ship"), "").await.unwrap();
-    let delivered = w.board.ticket("SHOP-2").await.unwrap();
-    assert_eq!(delivered.place, Place::stage_of("ship"));
-    assert!(
-        delivered
-            .flags
-            .moved_past_check
-            .as_deref()
-            .is_some_and(|r| r.contains("Skipped QA")),
-    );
-    let delivery = w.board.delivery_now(&delivered).await.unwrap().unwrap();
-    assert!(
-        delivery.automatic && delivery.without_checks,
-        "no forced click after a forward drag"
-    );
     w.stop().await;
 }
 

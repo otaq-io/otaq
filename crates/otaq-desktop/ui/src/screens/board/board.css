@@ -162,25 +162,6 @@
   min-width: 0;
 }
 
-/* "· Validating 1": a stage folded into the column (FLW-12, Q270). It shrinks with the title, so neither name is
-   squeezed to a letter while the other keeps its whole width; each shortens with an ellipsis only when the header
-   has no room left. */
-.board-column-folded {
-  display: flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.board-column-folded-tag {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: 500 12px/normal var(--font-ui);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .board-spacer {
   flex: 1;
 }
@@ -218,76 +199,6 @@
   padding: 0 4px;
   color: var(--text-muted);
   font: 400 11px/1.35 var(--font-ui);
-}
-
-/*
- * The Review column's two sections (*Row · Review column (0086 · V)*): a mono label with its count that folds the
- * section, the cards, and a quiet outlined line when empty. Approved under a Ready for Review card is the drop
- * target: accent-soft with an accent edge and the hint in accent.
- */
-.board-review-section {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 6px;
-  border-radius: var(--r-lg);
-}
-
-.board-review-section[data-verdict] {
-  margin: 0 -2px;
-  padding: 6px 2px 8px;
-}
-
-.board-review-section[data-verdict="allowed"] {
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-}
-
-.board-review-section[data-verdict="forbidden"] {
-  box-shadow: inset 0 0 0 1.5px var(--st-error);
-}
-
-.board-review-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 4px 0;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  font: 400 10px/normal var(--font-mono);
-  letter-spacing: 0.8px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.board-review-label:hover {
-  color: var(--text-secondary);
-}
-
-.board-review-label:focus-visible {
-  border-radius: var(--r-sm);
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.board-review-section[data-verdict="allowed"] > .board-review-label {
-  color: var(--accent);
-}
-
-.board-review-hint {
-  padding: 0 6px;
-  color: var(--accent);
-  font: 400 11.5px/1.4 var(--font-ui);
-}
-
-.board-review-empty {
-  padding: 10px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  color: var(--text-muted);
-  font: 400 11.5px/1.4 var(--font-ui);
-  text-align: center;
 }
 
 .board-column-cards {
@@ -785,84 +696,6 @@
 .board-not-allowed-detail {
   color: var(--text-secondary);
   font: 400 11px/1.45 var(--font-ui);
-}
-
-/* The approve choice (*Approve choice on drop*). */
-.board-approve {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 360px;
-}
-
-.board-approve-title {
-  padding: 0 4px 6px;
-  color: var(--text-primary);
-  font: 600 13px/normal var(--font-ui);
-}
-
-.board-approve-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
-  border: none;
-  border-radius: var(--r-md);
-  background: none;
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.board-approve-item:hover,
-.board-approve-item:focus-visible {
-  outline: none;
-  background: var(--accent-soft);
-}
-
-.board-approve-item:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.board-approve-icon {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-md);
-  background: var(--bg-column);
-  color: var(--text-secondary);
-}
-
-.board-approve-item:first-of-type .board-approve-icon {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-.board-approve-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.board-approve-name {
-  font: 500 13px/normal var(--font-ui);
-}
-
-.board-approve-detail {
-  color: var(--text-secondary);
-  font: 400 11px/1.4 var(--font-ui);
-}
-
-.board-approve-note {
-  padding: 6px 4px 0;
-  color: var(--text-muted);
-  font: var(--text-meta);
 }
 
 /* The empty board (*14 → 4 · Done · empty board*): a card centred over the empty columns. */

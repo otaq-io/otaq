@@ -150,7 +150,7 @@ async fn a_stage_agent_reads_what_prime_gives() {
         parts,
         [
             (&RunsAs::Stage("Dev".into()), "work-ticket"),
-            (&RunsAs::Stage("Done".into()), "open-pr")
+            (&RunsAs::Stage("Delivery".into()), "open-pr")
         ]
     );
     let others: Vec<(&str, Option<SkillMark>)> = r

@@ -137,7 +137,50 @@ impl Store {
         rows.into_iter().map(version_of).collect()
     }
 
-    /// Stores `new` as the project's next version and makes it the current one. Its number.
+    /// Migration 0085's rows that SQL can't write (a flow's delivery is a setting, not a stage): every stored flow
+    /// version with a Delivery stage or a stage's `column:` is rewritten in today's form ([`yaml::upgraded`]), and
+    /// every ticket being delivered (To deliver, PR open, Merged into) moves into its project's current flow's last
+    /// stage, where a ticket being delivered stays. A ticket in the Delivery stage or Review's Approved section is
+    /// then in Review. Runs once, right after the migration ([`Store::open`]).
+    pub(crate) async fn move_deliveries_into_flows(&self) -> Result<(), StoreError> {
+        let mut tx = self.begin_write().await?;
+        let rows: Vec<(String, i64, String, bool)> =
+            sqlx::query_as("SELECT project_id, version, yaml, current FROM project_flows")
+                .fetch_all(&mut *tx)
+                .await?;
+        for (project_id, version, text, current) in rows {
+            if current
+                && let Ok(file) = yaml::read(&text)
+                && let Some(last) = file.flow.last_stage()
+            {
+                sqlx::query(
+                    "UPDATE tickets SET stage_id = ?
+                     WHERE project_id = ? AND state IN ('to_deliver', 'pr_open', 'merged_into')
+                       AND stage_id IS NOT ?",
+                )
+                .bind(&last.id)
+                .bind(&project_id)
+                .bind(&last.id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            if let Some(upgraded) = yaml::upgraded(&text) {
+                sqlx::query(
+                    "UPDATE project_flows SET yaml = ? WHERE project_id = ? AND version = ?",
+                )
+                .bind(upgraded)
+                .bind(&project_id)
+                .bind(version)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Stores `new` as the project's next version and makes it the current one; the project's tickets being delivered
+    /// move into its last stage. Its number.
     pub(crate) async fn insert_flow_version_in(
         tx: &mut Transaction<'_, Sqlite>,
         project_id: &str,
@@ -168,6 +211,21 @@ impl Store {
         .execute(&mut **tx)
         .await?;
         carry_splits_in(tx, project_id, version, &new.yaml).await?;
+        // A ticket being delivered stays in the flow's last stage: the new flow's.
+        if let Ok(file) = yaml::read(&new.yaml)
+            && let Some(last) = file.flow.last_stage()
+        {
+            sqlx::query(
+                "UPDATE tickets SET stage_id = ?
+                 WHERE project_id = ? AND state IN ('to_deliver', 'pr_open', 'merged_into')
+                   AND stage_id IS NOT ?",
+            )
+            .bind(&last.id)
+            .bind(project_id)
+            .bind(&last.id)
+            .execute(&mut **tx)
+            .await?;
+        }
         Ok(u32::try_from(version).unwrap_or(0))
     }
 }

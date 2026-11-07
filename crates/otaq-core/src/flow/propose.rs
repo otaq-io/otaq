@@ -1,7 +1,8 @@
 //! `otaq flow show`, `otaq flow propose` and the answer to a proposal (FLW-02, FLW-03; d0108 "The CLI proposes a
 //! whole document", second gap review rule 10).
 //!
-//! **The document** ([`Board::flow_document`]): the project's applied stages and the agents they name, as stored now,
+//! **The document** ([`Board::flow_document`]): the project's applied stages, its delivery (`delivery:`) and the
+//! agents they name, as stored now,
 //! written in the format `propose` reads, so `flow show | flow propose --stdin` is "the same as your current flow".
 //!
 //! **A proposal from the CLI** ([`Board::propose`]): a document (`-f`, `--stdin`) or another project's stages
@@ -165,18 +166,24 @@ impl Board {
             agents: Vec::new(),
             flow: applied.flow,
         };
-        for stage in &file.flow.stages {
-            for name in stage.every_agent() {
-                if file
-                    .agents
-                    .iter()
-                    .any(|a| a.name.eq_ignore_ascii_case(name))
-                {
-                    continue;
-                }
-                if let Some(agent) = stored.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
-                    file.agents.push(flow_agent_of(agent));
-                }
+        // Every agent a stage names, then the delivery's (the one that opens its PRs).
+        let names: Vec<String> = file
+            .flow
+            .stages
+            .iter()
+            .flat_map(|s| s.every_agent().cloned())
+            .chain(file.flow.delivery.agent.clone())
+            .collect();
+        for name in &names {
+            if file
+                .agents
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case(name))
+            {
+                continue;
+            }
+            if let Some(agent) = stored.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
+                file.agents.push(flow_agent_of(agent));
             }
         }
         let text = yaml::write(&file);

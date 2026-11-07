@@ -3,13 +3,9 @@ flow:
     name: Validate
     kind: check
     by: agent
-    column: own
     agent: Validator
     skill: validate
     rounds: 3
-  - id: deliver
-    name: Done
-    kind: delivery
-    column: own
-    mode: click
-    delivers: local
+delivery:
+  delivers: local
+  mode: click

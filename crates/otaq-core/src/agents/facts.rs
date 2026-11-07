@@ -23,10 +23,8 @@ pub struct StageAgent {
     pub stage_id: String,
     /// The stage's name ("Dev").
     pub stage: String,
-    /// Which session runs it: an Agent stage's (and a Delivery's) the Developer, an agent check's the Validator.
+    /// Which session runs it: an Agent stage's the Developer, an agent check's the Validator.
     pub role: SessionRole,
-    /// The Delivery stage (its agent opens the PR).
-    pub delivery: bool,
     /// `None` when the stage names an agent that isn't there.
     pub agent: Option<Agent>,
 }
@@ -65,31 +63,33 @@ pub struct TicketAgents {
     pub choices: Vec<StageOptions>,
 }
 
-/// What kind of stage a path stage is.
+/// What kind of step a path stage is: a stage of the flow, or its delivery after the last one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PathKind {
     Agent,
     AgentCheck,
     HumanCheck,
+    /// The flow's delivery, the path's last step: not a stage.
     Delivery,
 }
 
-/// One stage of a ticket's path (AGM-09): the stage, how it shows on the board, and the agent it runs for this
-/// ticket (its choice, else the stage's agent; none for a human check or a Delivery without one).
+/// The path step that stands for the flow's delivery ([`PathKind::Delivery`]): its id and name.
+pub const DELIVERY_STEP_ID: &str = "delivery";
+pub const DELIVERY_STEP: &str = "Delivery";
+
+/// One step of a ticket's path (AGM-09): a stage, and the agent it runs for this ticket (its choice, else the stage's
+/// agent; none for a human check), or the flow's delivery, last, with the agent that opens its PR.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathStage {
     pub stage_id: String,
     /// "Dev".
     pub stage: String,
     pub kind: PathKind,
-    /// The stage it shows inside (`column: with-previous`): "Dev" for Validate.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shown_in: Option<String>,
     /// An agent check's rounds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rounds: Option<u32>,
-    /// A Delivery: automatic (else click), and what it delivers (`local`, `pr`, `either`).
+    /// The delivery: automatic (else click), and what it delivers (`local`, `pr`, `either`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<PathDelivery>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,8 +112,8 @@ async fn path_of(
     flow: &Flow,
     skips: &[String],
 ) -> Result<Vec<PathStage>, BoardError> {
-    let mut path = Vec::with_capacity(flow.stages.len());
-    for (index, stage) in flow.stages.iter().enumerate() {
+    let mut path = Vec::with_capacity(flow.stages.len() + 1);
+    for stage in &flow.stages {
         // T-0527: every check agent (one agent per stage here: an agent check's first).
         let agent = match stage.has_agent() {
             true => match board.chosen_agent(ticket, stage).await? {
@@ -129,23 +129,32 @@ async fn path_of(
                 StageKind::Agent => PathKind::Agent,
                 StageKind::Check { .. } if stage.is_agent_check() => PathKind::AgentCheck,
                 StageKind::Check { .. } => PathKind::HumanCheck,
-                StageKind::Delivery => PathKind::Delivery,
             },
-            // A stage whose column is another's (`column: with-previous`) shows inside it.
-            shown_in: flow
-                .column_owner(index)
-                .filter(|&owner| owner != index)
-                .and_then(|owner| flow.stages.get(owner))
-                .map(|owner| owner.name.clone()),
             rounds: stage.rounds,
-            delivery: stage.delivery.map(|d| PathDelivery {
-                automatic: d.mode == crate::flow::DeliveryMode::Automatic,
-                delivers: d.delivers.as_str().to_owned(),
-            }),
+            delivery: None,
             agent,
             skipped: skips.contains(&stage.id),
         });
     }
+    let delivery = &flow.delivery;
+    let agent = match delivery.can_open_pr() {
+        true => resolve::delivery_agent(board, ticket.key.project.as_str())
+            .await
+            .ok(),
+        false => None,
+    };
+    path.push(PathStage {
+        stage_id: DELIVERY_STEP_ID.to_owned(),
+        stage: DELIVERY_STEP.to_owned(),
+        kind: PathKind::Delivery,
+        rounds: None,
+        delivery: Some(PathDelivery {
+            automatic: delivery.mode == crate::flow::DeliveryMode::Automatic,
+            delivers: delivery.delivers.as_str().to_owned(),
+        }),
+        agent,
+        skipped: false,
+    });
     Ok(path)
 }
 
@@ -263,7 +272,6 @@ async fn stage_agents(board: &Board, project: &str) -> Result<Vec<StageAgent>, B
                 true => SessionRole::Validator,
                 false => SessionRole::Developer,
             },
-            delivery: stage.is_delivery(),
             agent: resolve::stage_agent(board, stage).await.ok(),
         });
     }

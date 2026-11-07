@@ -306,10 +306,7 @@ async fn the_flow_agent_proposes_and_the_second_proposal_applies() {
         ]
     );
     // Nothing applies until the user says so.
-    assert_eq!(
-        stage_names(&w, &shop).await,
-        ["Dev", "Validate", "Review", "Done"]
-    );
+    assert_eq!(stage_names(&w, &shop).await, ["Dev", "Validate", "Review"]);
 
     // Ask for more changes reaches the agent as its next message; it proposes again.
     let changes = "Leave out Product spec: I write my own tickets";
@@ -352,10 +349,7 @@ async fn the_flow_agent_proposes_and_the_second_proposal_applies() {
         panic!("{reply:?}")
     };
     assert!(applied.waiting.is_none(), "a quiet board applies at once");
-    assert_eq!(
-        stage_names(&w, &shop).await,
-        ["Dev", "Security", "Review", "Done"]
-    );
+    assert_eq!(stage_names(&w, &shop).await, ["Dev", "Security", "Review"]);
     let file = otaq_core::flow::yaml::read(SECOND).unwrap();
     let applied_flow = w.board.effective_flow(&shop).await.unwrap();
     let security = applied_flow

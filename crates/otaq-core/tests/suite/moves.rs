@@ -88,18 +88,9 @@ fn allowed_drags() {
                 action: MoveAction::Park,
             },
         ),
-        (
-            Status::WaitingForYou,
-            T::Approved,
-            MoveCheck::Choose {
-                action: MoveAction::Approve,
-            },
-        ),
-        (
-            Status::PrOpen,
-            T::ReadyForReview,
-            allowed(MoveAction::PrRework),
-        ),
+        // A ticket being delivered is in Review, the last stage: dropped there, nothing changes (no Approved section).
+        (Status::PrOpen, T::ReadyForReview, MoveCheck::Unchanged),
+        (Status::ToDeliver, T::ReadyForReview, MoveCheck::Unchanged),
         (
             Status::ClosedNotMerged,
             T::Backlog,
@@ -142,7 +133,7 @@ fn refused_drags_carry_a_reason() {
         reason(&check_move(&t(Status::Working), T::ReadyForReview)),
         "SHOP-18 can't move to the next stage now: its agent is in the middle of a turn"
     );
-    for target in [T::Backlog, T::ReadyForDev, T::ReadyForReview, T::Approved] {
+    for target in [T::Backlog, T::ReadyForDev, T::ReadyForReview] {
         assert_eq!(
             reason(&check_move(&t(Status::Merged), target)),
             "Merged tickets are locked"
@@ -158,9 +149,7 @@ fn refused_drags_carry_a_reason() {
         "Drag it to Backlog to park it"
     );
     for (status, target) in [
-        (Status::Backlog, T::Approved),
         (Status::Backlog, T::Done),
-        (Status::Working, T::Approved),
         (Status::Working, T::Done),
         (Status::WaitingForYou, T::ReadyForDev),
         (Status::WaitingForYou, T::Backlog),
@@ -169,21 +158,19 @@ fn refused_drags_carry_a_reason() {
         (Status::PrOpen, T::Backlog),
         (Status::PrOpen, T::Done),
         (Status::ClosedNotMerged, T::ReadyForDev),
-        (Status::ClosedNotMerged, T::Approved),
     ] {
         let check = check_move(&t(status), target);
         assert!(!reason(&check).is_empty(), "{status} → {target}");
     }
 }
 
-/// The board group a drop target is on (the default flow's columns; Approved is the Delivery's section).
+/// The board group a drop target is on (the default flow's columns).
 fn group(target: DropTarget) -> StatusSet {
     match target {
         DropTarget::Backlog => StatusSet::Backlog,
         DropTarget::ReadyForDev => StatusSet::Waiting,
         DropTarget::Dev => StatusSet::AgentStage,
         DropTarget::ReadyForReview => StatusSet::HumanCheck,
-        DropTarget::Approved => StatusSet::Delivery,
         DropTarget::Done => StatusSet::Done,
     }
 }
@@ -195,7 +182,12 @@ fn same_column_is_unchanged_and_every_pair_is_decided() {
             let check = check_move(&ticket(*status), *target);
             // Validate has its own column (FLW-01): a card in it dropped on Dev goes back (FLW-18).
             let check_on_dev = status.set() == StatusSet::AgentCheck && *target == DropTarget::Dev;
-            if status.set().board_group() == group(*target) && !check_on_dev {
+            // A ticket being delivered is in Review's column.
+            let group_of = match status.set().board_group() {
+                StatusSet::Delivery => StatusSet::HumanCheck,
+                other => other,
+            };
+            if group_of == group(*target) && !check_on_dev {
                 assert_eq!(check, MoveCheck::Unchanged, "{status} → {target}");
             }
             if *status == Status::Merged && group(*target) != StatusSet::Done {

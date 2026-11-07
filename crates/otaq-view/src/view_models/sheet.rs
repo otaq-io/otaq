@@ -541,8 +541,18 @@ pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
         return Vec::new();
     };
     let index = |id: &str| agents.path.iter().position(|s| s.stage_id == id);
+    // A ticket being delivered (To deliver, PR open) has passed every stage: the delivery step is current.
+    let delivering = (ticket.status.set() == otaq_core::domain::StatusSet::Delivery)
+        .then(|| {
+            agents
+                .path
+                .iter()
+                .position(|s| s.kind == PathKind::Delivery)
+        })
+        .flatten();
     // Stages before `done_before` are done; `current` is the one it is in.
     let (done_before, current) = match &ticket.place {
+        Place::InStage(_) if delivering.is_some() => (delivering.unwrap_or(0), delivering),
         Place::InStage(id) => index(id).map_or((0, None), |i| (i, Some(i))),
         Place::Waiting(Some(id)) => (index(id).unwrap_or(0), None),
         Place::Done => (agents.path.len(), None),
@@ -578,19 +588,8 @@ pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
 pub fn move_menu(columns: &Columns, answer: &DragAnswer) -> Vec<MenuItem> {
     let title = |target: &str| {
         columns
-            .iter()
-            .find_map(|c| {
-                if c.id == target {
-                    Some(c.title.clone())
-                } else {
-                    c.parts
-                        .iter()
-                        .skip(1)
-                        .find(|p| c.has_sections() && p.id == target)
-                        .map(|p| p.stage.name.clone())
-                }
-            })
-            .unwrap_or_else(|| target.to_owned())
+            .get(target)
+            .map_or_else(|| target.to_owned(), |c| c.title.clone())
     };
     answer
         .targets
@@ -937,7 +936,7 @@ mod tests {
                 ("Validate", StepState::ToCome, false),
                 ("Security", StepState::ToCome, false),
                 ("Review", StepState::ToCome, false),
-                ("Done", StepState::ToCome, false),
+                ("Delivery", StepState::ToCome, false),
             ]
         );
         let backlog = ticket("SHOP-41", "Fix README typo", Status::Backlog);
@@ -956,8 +955,9 @@ mod tests {
     fn stages_gone_past_without_doing_them_are_skipped() {
         use crate::view_models::stage_choices::fixtures::{round, run};
         use otaq_core::flow::engine::RunResult;
-        let mut t = ticket("SHOP-30", "Saved carts", Status::Working);
-        t.place = Place::InStage("ship".into());
+        // To deliver in Review, the last stage: every stage is behind it, the delivery is current.
+        let mut t = ticket("SHOP-30", "Saved carts", Status::ToDeliver);
+        t.place = Place::InStage("review".into());
         let check = |stage: &str, n: u32, result: RunResult| {
             round(run(stage, None, None, None, Some(result)), n, None)
         };
@@ -990,7 +990,7 @@ mod tests {
                 ("Validate", StepState::Skipped),
                 ("Security", StepState::Skipped),
                 ("Review", StepState::Done),
-                ("Done", StepState::Current),
+                ("Delivery", StepState::Current),
             ]
         );
     }

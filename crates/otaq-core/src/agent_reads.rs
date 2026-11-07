@@ -21,8 +21,10 @@ use serde::{Deserialize, Serialize};
 use crate::agent_tools::{PROJECT_AGENT_SKILL, Tool};
 use crate::board::settings::WorkflowStep;
 use crate::board::{Board, BoardError};
-use crate::flow::Stage;
 use crate::skills::found::FoundSkill;
+
+/// Where the delivery's PR skill runs, as a skill part says it ("in Delivery"): the delivery isn't a stage.
+pub const DELIVERY: &str = "Delivery";
 
 /// `agents.reads`: the agent (its id) and the project (its key).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,13 +120,20 @@ impl Board {
         let tool = agent.model.on(default.as_ref()).map(|m| m.tool);
         let mut found: Option<Vec<FoundSkill>> = None;
         let flow = self.effective_flow(&info.key).await?;
-        // Every stage naming it, an agent check's check agents each (d0130).
-        for stage in &flow.stages {
-            if !crate::agents::resolve::stage_names(stage, &agent) {
-                continue;
-            }
-            let name = self.stage_skill(&info.key, stage).await?;
-            let runs = RunsAs::Stage(stage.name.clone());
+        // Every stage naming it, an agent check's check agents each (d0130), and the delivery when it opens the PRs.
+        let mut runs_in: Vec<(String, RunsAs)> = flow
+            .stages
+            .iter()
+            .filter(|s| crate::agents::resolve::stage_names(s, &agent))
+            .filter_map(|s| Some((s.skill.clone()?, RunsAs::Stage(s.name.clone()))))
+            .collect();
+        if crate::agents::resolve::delivery_names(&flow, &agent) {
+            let skill = self
+                .delivery_skill_name(&info.key, WorkflowStep::OpenPr)
+                .await?;
+            runs_in.push((skill, RunsAs::Stage(DELIVERY.to_owned())));
+        }
+        for (name, runs) in runs_in {
             if crate::agent_tools::is_own_skill(&name) {
                 skills.push(part(shipped, name, runs));
             } else {
@@ -150,18 +159,6 @@ impl Board {
             skills,
             others,
         })
-    }
-
-    /// The skill a session in `stage` runs first, by the flow's name for it: an Agent stage's and an agent check's
-    /// own (the flow file requires one), a Delivery's Open PR skill.
-    async fn stage_skill(&self, project: &str, stage: &Stage) -> Result<String, BoardError> {
-        match &stage.skill {
-            Some(skill) if !stage.is_delivery() => Ok(skill.clone()),
-            _ => {
-                self.delivery_skill_name(project, WorkflowStep::OpenPr)
-                    .await
-            }
-        }
     }
 }
 

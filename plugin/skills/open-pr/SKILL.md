@@ -1,12 +1,12 @@
 ---
 name: open-pr
-description: Otaq's Open PR skill for a ticket's Delivery stage - get the context with `otaq prime`, propose the branch name, commit messages, PR title and description with `otaq pr propose --stdin`, and only once Otaq says it is confirmed push the branch and open the PR with `gh` or `az`, then report it with `otaq pr opened <url>`. In click mode the user confirms in a dialog; in automatic mode Otaq confirms at once, with no dialog.
+description: Otaq's Open PR skill for a ticket's delivery as a pull request - get the context with `otaq prime`, propose the branch name, commit messages, PR title and description with `otaq pr propose --stdin`, and only once Otaq says it is confirmed push the branch and open the PR with `gh` or `az`, then report it with `otaq pr opened <url>`. In click mode the user confirms in a dialog; in automatic mode Otaq confirms at once, with no dialog.
 disable-model-invocation: true
 ---
 
 # Open a pull request for your Otaq ticket
 
-Your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-18`) reached its **Delivery stage**, and that stage
+Your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-18`) passed its last stage, and its flow
 delivers it as a pull request. You prepare the pull request, then push it and open it. This happens in two turns:
 
 - **Turn 1 — propose.** You look at the work and propose a branch name, a message for each commit, a PR title and a
@@ -44,7 +44,7 @@ Otaq's `push` skill, not this one.
    `gh`); `dev.azure.com` or `*.visualstudio.com` is **Azure DevOps** (you will use `az repos`). For any other remote,
    **stop**: propose nothing, push nothing, and tell the user with `otaq ask human --stdin`: "This remote isn't GitHub
    or Azure DevOps, so the built-in Open PR skill can't open the PR. Use your own Open PR skill (name it as the
-   Delivery stage's skill in the flow editor)." Then end your turn.
+   delivery's `skill:` in the flow file)." Then end your turn.
 4. **Write the proposal.**
    - **Branch name:** follow the user's rules if the Agent instructions give any (for example
      `bugfix/SHOP-18-login-redirect`). Otherwise use

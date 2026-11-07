@@ -57,9 +57,9 @@ use otaq_core::agents::{Agent, AgentModel, shipped};
 use otaq_core::flow::check::{VALIDATION_ROUNDS, fail_to_message};
 use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark, WrittenSkill};
 use otaq_core::flow::model::{
-    CheckBy, Column, Delivers, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption,
+    CheckBy, Delivers, Delivery, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption,
 };
-use otaq_core::flow::presets::{SPEC_FIRST_FILE, preset, presets};
+use otaq_core::flow::presets::{SPEC_FIRST_FILE, TEAM_PR_FILE, preset, presets};
 use otaq_core::flow::proposal::{
     About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
     ProposalProblem, Source, missing_skill_text, unknown_skill_text,
@@ -249,7 +249,7 @@ impl Template {
     }
 
     /// The shipped preset and stage a preset template copies: Product spec, Tech spec and Milestone plan from Spec
-    /// first, Validate and Review from Otaq default, the PR delivery from Team PR.
+    /// first, Validate and Review from Otaq default. PR delivery is Team PR's delivery, no stage ([`edited`]).
     fn preset_source(self) -> Option<(&'static str, &'static str)> {
         Some(match self {
             Self::ProductSpec => (SPEC_FIRST_FILE, "product-spec"),
@@ -257,7 +257,6 @@ impl Template {
             Self::MilestonePlan => (SPEC_FIRST_FILE, "milestone-plan"),
             Self::Validate => (otaq_core::naming::DEFAULT_FLOW_FILE, "validate"),
             Self::Review => (otaq_core::naming::DEFAULT_FLOW_FILE, "review"),
-            Self::PrDelivery => ("team-pr.yaml", "deliver"),
             _ => return None,
         })
     }
@@ -394,6 +393,8 @@ pub const NEW_STAGE: &str = "New stage";
 
 /// The id a step row of Ready for Dev carries (it isn't a stage).
 pub const READY_ID: &str = "ready";
+/// The id the delivery's step row carries, last: a setting of the flow, not a stage.
+pub const DELIVERY_ID: &str = otaq_core::agents::facts::DELIVERY_STEP_ID;
 
 /// The panel's line before anything was asked.
 pub const STARTS_WHEN_YOU_ASK: &str = "\u{b7} starts when you ask";
@@ -968,9 +969,9 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-/// The step count Start from and the summary show: the stages and Ready for Dev.
+/// The step count Start from and the summary show: Ready for Dev, the stages and the delivery.
 fn steps(file: &FlowFile) -> usize {
-    file.flow.stages.len() + 1
+    file.flow.stages.len() + 2
 }
 
 fn kind_icon(stage: &Stage) -> IconName {
@@ -978,10 +979,14 @@ fn kind_icon(stage: &Stage) -> IconName {
         StageKind::Agent => IconName::Bot,
         StageKind::Check { by: CheckBy::Agent } => IconName::ShieldCheck,
         StageKind::Check { by: CheckBy::You } => IconName::UserCheck,
-        StageKind::Delivery => match stage.delivery.map(|d| d.delivers) {
-            Some(Delivers::Pr) => IconName::GitPullRequest,
-            _ => IconName::GitMerge,
-        },
+    }
+}
+
+/// The delivery's icon: a PR, or a merge.
+fn delivery_icon(delivery: &Delivery) -> IconName {
+    match delivery.delivers {
+        Delivers::Pr => IconName::GitPullRequest,
+        _ => IconName::GitMerge,
     }
 }
 
@@ -990,7 +995,6 @@ fn editor_kind(stage: &Stage) -> Option<EditorKind> {
         StageKind::Agent => Some(EditorKind::Works),
         StageKind::Check { by: CheckBy::Agent } => Some(EditorKind::AgentChecks),
         StageKind::Check { by: CheckBy::You } => Some(EditorKind::YouCheck),
-        StageKind::Delivery => None,
     }
 }
 
@@ -1002,45 +1006,45 @@ fn kind_label(kind: EditorKind) -> &'static str {
     }
 }
 
-/// "PR" or "merge": what the Delivery does.
-fn delivers_word(stage: &Stage) -> &'static str {
-    match stage.delivery.map(|d| d.delivers) {
-        Some(Delivers::Pr) => "PR",
-        _ => "merge",
+/// "PR", "merge" or "merge or PR": what the delivery does.
+fn delivers_word(delivery: &Delivery) -> &'static str {
+    match delivery.delivers {
+        Delivers::Pr => "PR",
+        Delivers::Local => "merge",
+        Delivers::Either => "merge or PR",
     }
 }
 
-/// The list's kind word: "Agent works", "Agent checks", "You check", "Delivery · PR".
+/// The list's kind word: "Agent works", "Agent checks", "You check".
 fn list_kind(stage: &Stage) -> String {
     match stage.kind {
         StageKind::Agent => "Agent works".to_owned(),
         StageKind::Check { by: CheckBy::Agent } => "Agent checks".to_owned(),
         StageKind::Check { by: CheckBy::You } => "You check".to_owned(),
-        StageKind::Delivery => format!("Delivery \u{b7} {}", delivers_word(stage)),
     }
 }
 
-/// The caption title's kind: "an agent works", "you check", "delivery".
+/// The caption title's kind: "an agent works", "you check".
 fn caption_kind(stage: &Stage) -> &'static str {
     match stage.kind {
         StageKind::Agent => "an agent works",
         StageKind::Check { by: CheckBy::Agent } => "an agent checks",
         StageKind::Check { by: CheckBy::You } => "you check",
-        StageKind::Delivery => "delivery",
     }
 }
 
-/// A step's caption (d0115): its skill's description, Otaq's fixed caption for a check by you and the Delivery.
+/// The delivery's caption: Otaq's fixed one for a merge or a PR.
+fn delivery_caption(delivery: &Delivery) -> &'static str {
+    match delivery.delivers {
+        Delivers::Pr => PR_CAPTION,
+        _ => MERGE_CAPTION,
+    }
+}
+
+/// A step's caption (d0115): its skill's description, Otaq's fixed caption for a check by you.
 fn caption(file: &FlowFile, stage: &Stage, skills: &[FoundSkill]) -> Option<String> {
     match stage.kind {
         StageKind::Check { by: CheckBy::You } => Some(YOU_CHECK_CAPTION.to_owned()),
-        StageKind::Delivery => Some(
-            match stage.delivery.map(|d| d.delivers) {
-                Some(Delivers::Pr) => PR_CAPTION,
-                _ => MERGE_CAPTION,
-            }
-            .to_owned(),
-        ),
         _ => {
             let skill = stage.skill.as_deref()?;
             // A name that matches one of Otaq's own skills always means Otaq's skill: Otaq's own words for it.
@@ -1103,8 +1107,7 @@ fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
         .find(|m| m.stage_id == id && m.mark != Mark::Removed)
 }
 
-/// The stage's one agent: an Agent stage's, an agent check's or a Delivery's (a kind change keeps it; its options
-/// replace it).
+/// The stage's one agent: an Agent stage's or an agent check's (a kind change keeps it).
 fn the_agent(stage: &Stage) -> Option<&String> {
     stage.agent.as_ref()
 }
@@ -1398,14 +1401,6 @@ fn ticket_state(stage: &Stage, long: bool) -> (String, PillView) {
             },
             PillView::legend(Legend::ReadyForReview, None),
         ),
-        StageKind::Delivery => (
-            match stage.delivery.map(|d| d.delivers) {
-                Some(Delivers::Pr) => "PR open",
-                _ => "Merged",
-            }
-            .to_owned(),
-            PillView::legend(Legend::Approved, None),
-        ),
     }
 }
 
@@ -1418,7 +1413,6 @@ fn tile_kind(stage: &Stage, long: bool) -> String {
         (StageKind::Check { by: CheckBy::Agent }, false) => "Check",
         (StageKind::Check { by: CheckBy::You }, true) => "You check",
         (StageKind::Check { by: CheckBy::You }, false) => "You",
-        (StageKind::Delivery, _) => "Delivery",
     }
     .to_owned()
 }
@@ -1452,10 +1446,34 @@ fn tiles(f: &Facts) -> Vec<Tile> {
             caption: caption(f.file, stage, f.skills),
         }
     });
-    std::iter::once(ready).chain(stages).collect()
+    // The delivery, last: how the work leaves the flow ("Merged", "PR open").
+    let delivery = &f.file.flow.delivery;
+    let delivered = Tile {
+        id: DELIVERY_ID.to_owned(),
+        name: DELIVERY_NAME.to_owned(),
+        icon: delivery_icon(delivery),
+        kind: DELIVERY_NAME.to_owned(),
+        ticket: match delivery.delivers {
+            Delivers::Pr => "PR open",
+            _ => "Merged",
+        }
+        .to_owned(),
+        tone: PillView::legend(Legend::Approved, None),
+        caption_title: format!("{DELIVERY_NAME} \u{b7} {}", delivery.line()),
+        caption_mark: None,
+        caption: Some(delivery_caption(delivery).to_owned()),
+    };
+    std::iter::once(ready)
+        .chain(stages)
+        .chain(std::iter::once(delivered))
+        .collect()
 }
 
-/// Where **+** after the step at `index` (of the stages) adds, and whether it can: never after the Delivery.
+/// The delivery's name as its step and tile show it.
+pub const DELIVERY_NAME: &str = "Delivery";
+
+/// The steps: Ready for Dev, the stages (**+** after each adds a stage there), then the delivery, a setting of the
+/// flow rather than a stage: it can't be selected, moved or removed, and nothing is added after it.
 fn steps_list(f: &Facts) -> Vec<StepRow> {
     let stages = &f.file.flow.stages;
     let ready = StepRow {
@@ -1476,12 +1494,11 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
         selectable: false,
         caption: Some(READY_CAPTION.to_owned()),
         add_after: None,
-        can_add_after: !stages.first().is_some_and(Stage::is_delivery),
+        can_add_after: true,
     };
     let rows = stages.iter().map(|stage| {
         let (avatar, who) = match stage.kind {
             StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned())),
-            StageKind::Delivery => (None, Some(delivers_word(stage).to_owned())),
             // "needs a skill" takes the agent's place (`s27-05`).
             _ if stage.needs_skill() => (None, None),
             _ => match the_agent(stage) {
@@ -1505,14 +1522,40 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             problem,
             warning: unknown_skill(f, stage).or_else(|| missing_skill(f, stage)),
             selected: f.selected == Some(stage.id.as_str()),
-            draggable: !stage.is_delivery(),
+            draggable: true,
             selectable: true,
             caption: caption(f.file, stage, f.skills),
             add_after: Some(stage.id.clone()),
-            can_add_after: !stage.is_delivery(),
+            can_add_after: true,
         }
     });
-    std::iter::once(ready).chain(rows).collect()
+    let delivery = &f.file.flow.delivery;
+    // The agent that opens the PR, when it can open one; a Local merge runs no agent.
+    let opener = delivery.agent.as_ref().filter(|_| delivery.can_open_pr());
+    let delivered = StepRow {
+        id: DELIVERY_ID.to_owned(),
+        name: DELIVERY_NAME.to_owned(),
+        icon: delivery_icon(delivery),
+        kind: delivery.line(),
+        avatar: opener.and_then(|name| agent_on(name, f).0),
+        who: Some(opener.map_or_else(|| delivers_word(delivery).to_owned(), Clone::clone)),
+        mark: None,
+        added: false,
+        written: None,
+        fails_to: None,
+        problem: None,
+        warning: None,
+        selected: false,
+        draggable: false,
+        selectable: false,
+        caption: Some(delivery_caption(delivery).to_owned()),
+        add_after: None,
+        can_add_after: false,
+    };
+    std::iter::once(ready)
+        .chain(rows)
+        .chain(std::iter::once(delivered))
+        .collect()
 }
 
 fn legend() -> Vec<LegendRow> {
@@ -1650,17 +1693,15 @@ fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
 /// ticket may pick any agent whose tool has the stage's skill.
 fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
     let mut rows = Vec::new();
-    if !stage.is_delivery() {
-        let on = stage.options.contains(&StageOption::Skip);
-        let check = stage.is_agent_check() || stage.is_human_check();
-        rows.push(CanRow {
-            option: StageOption::SKIP.to_owned(),
-            label: "skip it".to_owned(),
-            on,
-            enabled: true,
-            note: (on && check).then_some(DELIVERED_WITHOUT_THIS_CHECK),
-        });
-    }
+    let on = stage.options.contains(&StageOption::Skip);
+    let check = stage.is_agent_check() || stage.is_human_check();
+    rows.push(CanRow {
+        option: StageOption::SKIP.to_owned(),
+        label: "skip it".to_owned(),
+        on,
+        enabled: true,
+        note: (on && check).then_some(DELIVERED_WITHOUT_THIS_CHECK),
+    });
     if stage.is_agent_stage() {
         let later = f.file.flow.position(&stage.id).map_or(0, |p| p + 1);
         let back = f.file.flow.stages[later.min(f.file.flow.stages.len())..]
@@ -1909,12 +1950,11 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
 }
 
 /// A new stage's Start from (FED-05): for a stage the user added in this draft (not in the flow in use, not the
-/// agent's, not a swap), but the Delivery.
+/// agent's, not a swap).
 fn templates(f: &Facts, stage: &Stage) -> Option<Templates> {
     let added = f.in_use.flow.stage(&stage.id).is_none()
         && !f.swap
-        && mark_of(f.marks, &stage.id).is_none()
-        && !stage.is_delivery();
+        && mark_of(f.marks, &stage.id).is_none();
     if !added {
         return None;
     }
@@ -1970,13 +2010,13 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         stage: stage.id.clone(),
         title: stage.name.clone(),
         icon: kind_icon(stage),
-        remove: (!stage.is_delivery()).then_some("Remove stage"),
+        remove: Some("Remove stage"),
         name_label: "Name",
         name: stage.name.clone(),
         kind_label: "Kind",
         kinds,
         kind,
-        fixed_kind: stage.is_delivery().then_some("Delivery"),
+        fixed_kind: None,
         templates: templates(f, stage),
         agent: agent_field(f, stage),
         skill: skill_field(f, stage),
@@ -2049,9 +2089,7 @@ fn shape_words(f: &Facts) -> String {
         match &change.change {
             Change::Moved { .. } => {
                 let at = f.file.flow.position(&change.stage_id);
-                let next = at
-                    .and_then(|i| stages.get(i + 1))
-                    .filter(|s| !s.is_delivery());
+                let next = at.and_then(|i| stages.get(i + 1));
                 let prev = at
                     .and_then(|i| i.checked_sub(1))
                     .and_then(|i| stages.get(i));
@@ -2157,11 +2195,7 @@ fn flow_fixes(f: &Facts) -> Vec<FixRow> {
 fn flow_part(f: &Facts) -> FlowPart {
     let selected = f.selected.and_then(|id| f.file.flow.stage(id));
     let stages = &f.file.flow.stages;
-    let before_delivery = stages
-        .iter()
-        .rev()
-        .find(|s| !s.is_delivery())
-        .map(|s| s.id.clone());
+    let before_delivery = stages.last().map(|s| s.id.clone());
     FlowPart {
         title: format!("{}\u{2019}s flow", f.project_name),
         summary: summary(f),
@@ -2733,13 +2767,11 @@ fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stag
             EditorKind::AgentChecks => StageKind::Check { by: CheckBy::Agent },
             EditorKind::YouCheck => StageKind::Check { by: CheckBy::You },
         },
-        column: Column::Own,
         agent: None,
         skill: None,
         options: Vec::new(),
         rounds,
         fail_to: None,
-        delivery: None,
         description: None,
     };
     set_agent(&mut stage, agent.map(str::to_owned));
@@ -2749,7 +2781,17 @@ fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stag
 /// The agents `stage` names that neither the document nor `stored` has, from `brought` (a preset's): they come with
 /// it, created on Apply.
 fn bring_agents(out: &mut FlowFile, stage: &Stage, brought: &[FlowAgent], stored: &[Agent]) {
-    for name in stage.every_agent() {
+    bring_named(out, stage.every_agent(), brought, stored);
+}
+
+/// [`bring_agents`] for the agents `names`.
+fn bring_named<'n>(
+    out: &mut FlowFile,
+    names: impl Iterator<Item = &'n String>,
+    brought: &[FlowAgent],
+    stored: &[Agent],
+) {
+    for name in names {
         let known = out.agents.iter().any(|a| a.name.eq_ignore_ascii_case(name))
             || stored_agent(stored, name).is_some();
         if let Some(agent) = brought
@@ -2763,8 +2805,8 @@ fn bring_agents(out: &mut FlowFile, stage: &Stage, brought: &[FlowAgent], stored
 }
 
 /// The draft's document after `edit`, and the stage to select after it (a new one). Refused with why when the edit
-/// doesn't fit the flow (a stage that isn't there, the Delivery moved or removed). `stored` are the user's agents: a
-/// picked skill's stage agent, and a preset template's agents the user doesn't have.
+/// doesn't fit the flow (a stage that isn't there). `stored` are the user's agents: a picked skill's stage agent, and
+/// a preset template's agents the user doesn't have.
 pub fn edited(
     file: &FlowFile,
     edit: &StageEdit,
@@ -2785,9 +2827,6 @@ pub fn edited(
         }
         StageEdit::Kind { stage, kind } => {
             let i = at(stage)?;
-            if out.flow.stages[i].is_delivery() {
-                return Err("The Delivery stage stays the last one".to_owned());
-            }
             out.flow.stages[i] = with_kind(&out.flow.stages[i], *kind);
         }
         StageEdit::Agent { stage, agent } => {
@@ -2815,45 +2854,29 @@ pub fn edited(
         }
         StageEdit::Move { stage, to } => {
             let i = at(stage)?;
-            if out.flow.stages[i].is_delivery() {
-                return Err("The Delivery stage stays the last one".to_owned());
-            }
             let moved = out.flow.stages.remove(i);
-            let delivery = out
-                .flow
-                .stages
-                .iter()
-                .position(Stage::is_delivery)
-                .unwrap_or(out.flow.stages.len());
-            out.flow.stages.insert((*to).min(delivery), moved);
+            let end = out.flow.stages.len();
+            out.flow.stages.insert((*to).min(end), moved);
         }
         StageEdit::Add { after } => {
             let index = match after {
                 Some(id) => at(id)? + 1,
                 None => 0,
             };
-            let delivery = out
-                .flow
-                .stages
-                .iter()
-                .position(Stage::is_delivery)
-                .unwrap_or(out.flow.stages.len());
             let name = fresh_name(&out);
             let id = fresh_id(&out, &name);
             out.flow.stages.insert(
-                index.min(delivery),
+                index.min(out.flow.stages.len()),
                 Stage {
                     id: id.clone(),
                     name,
                     kind: StageKind::Agent,
-                    column: Column::Own,
                     agent: Some(WORKS_AGENT.to_owned()),
                     // Blank: the user picks the skill or has it written (FED-05, FED-06).
                     skill: None,
                     options: Vec::new(),
                     rounds: None,
                     fail_to: None,
-                    delivery: None,
                     description: None,
                 },
             );
@@ -2861,9 +2884,6 @@ pub fn edited(
         }
         StageEdit::Remove { stage } => {
             let i = at(stage)?;
-            if out.flow.stages[i].is_delivery() {
-                return Err("The Delivery stage stays: a flow ends with one".to_owned());
-            }
             let gone = out.flow.stages.remove(i);
             // A check whose fails went there sends them to the nearest Agent stage again (d0131).
             for s in &mut out.flow.stages {
@@ -2925,35 +2945,31 @@ pub fn edited(
             };
             out.flow.stages[i].fail_to = to;
         }
+        // PR delivery isn't a stage: it sets the flow's delivery to Team PR's, and the new stage goes.
+        StageEdit::Template {
+            stage,
+            template: Template::PrDelivery,
+        } => {
+            let i = at(stage)?;
+            let team = preset(TEAM_PR_FILE)
+                .ok_or_else(|| "No preset has PR delivery".to_owned())?
+                .read();
+            out.flow.delivery = team.flow.delivery.clone();
+            bring_named(
+                &mut out,
+                team.flow.delivery.agent.iter(),
+                &team.agents,
+                stored,
+            );
+            out.flow.stages.remove(i);
+        }
         StageEdit::Template { stage, template } => {
             let i = at(stage)?;
-            if out.flow.stages[i].is_delivery() {
-                return Err("The Delivery stage stays the last one".to_owned());
-            }
             match (template.shape(), template.preset_stage()) {
                 (Some((name, kind)), _) => {
                     let new = plain_stage(&out, i, name, kind);
                     select = Some(new.id.clone());
                     out.flow.stages[i] = new;
-                }
-                (None, Some((from, agents))) if from.is_delivery() => {
-                    // The flow has one Delivery: PR delivery replaces it, and the new stage goes.
-                    let d = out
-                        .flow
-                        .stages
-                        .iter()
-                        .position(Stage::is_delivery)
-                        .ok_or_else(|| "The flow has no Delivery stage".to_owned())?;
-                    let new = Stage {
-                        id: out.flow.stages[d].id.clone(),
-                        name: out.flow.stages[d].name.clone(),
-                        description: None,
-                        ..from
-                    };
-                    bring_agents(&mut out, &new, &agents, stored);
-                    select = Some(new.id.clone());
-                    out.flow.stages[d] = new;
-                    out.flow.stages.remove(i);
                 }
                 (None, Some((from, agents))) => {
                     let name = unique_name(&out, &from.name, i);
@@ -3564,7 +3580,7 @@ mod tests {
         let v = render(&e, Opened::Onboarding, &d, &file, &file, None, None);
         assert_eq!(
             names(&v),
-            ["Ready for Dev", "Dev", "Validate", "Review", "Done"]
+            ["Ready for Dev", "Dev", "Validate", "Review", "Delivery"]
         );
         assert_eq!(v.flow.title, "shop-web\u{2019}s flow");
         let default = format!("{} default", otaq_core::naming::PRODUCT_NAME);
@@ -3619,7 +3635,7 @@ mod tests {
                 ("Dev", "An agent works", "Working \u{b7} Developer"),
                 ("Validate", "An agent checks", "Checking \u{b7} Validator"),
                 ("Review", "You check", "Your check \u{b7} You"),
-                ("Done", "Delivery", "Merged")
+                ("Delivery", "Delivery", "Merged")
             ]
         );
         assert_eq!(v.flow.tiles[0].caption.as_deref(), Some(READY_CAPTION));
@@ -3653,7 +3669,7 @@ mod tests {
                 "Validate",
                 "Security",
                 "Review",
-                "Done"
+                "Delivery"
             ]
         );
         assert_eq!(v.flow.summary, "7 steps \u{b7} in use");
@@ -3684,11 +3700,15 @@ mod tests {
                 "Agent checks",
                 "Agent checks",
                 "You check",
-                "Delivery \u{b7} PR"
+                "PR \u{b7} click"
             ]
         );
         assert_eq!(v.flow.steps[2].who.as_deref(), Some("Rust developer"));
-        assert_eq!(v.flow.steps[6].who.as_deref(), Some("PR"));
+        assert_eq!(
+            v.flow.steps[6].who.as_deref(),
+            Some("Rust developer"),
+            "the agent that opens the PR"
+        );
         assert!(!v.flow.steps[0].draggable && !v.flow.steps[6].draggable);
         assert!(!v.flow.steps[6].can_add_after);
         assert_eq!(v.flow.add_stage_after.as_deref(), Some("review"));
@@ -3798,11 +3818,20 @@ mod tests {
         // The chip asks about the selected step's skill.
         assert_eq!(v.agent.chips[0].label, "What does work-ticket do?");
 
-        // The Delivery: its kind is fixed and it can't be removed; Review has no agent.
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("deliver"), None);
-        let details = v.flow.details.expect("Done's details");
-        assert_eq!(details.fixed_kind, Some("Delivery"));
-        assert!(details.kinds.is_empty() && details.remove.is_none());
+        // The delivery is the last step but no stage: it can't be selected, moved or added after.
+        let delivery = v.flow.steps.last().unwrap();
+        assert_eq!(delivery.id, DELIVERY_ID);
+        assert!(!delivery.selectable && !delivery.draggable && !delivery.can_add_after);
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &file,
+            &file,
+            Some(DELIVERY_ID),
+            None,
+        );
+        assert!(v.flow.details.is_none(), "no details: not a stage");
         let v = render(&e, Opened::Project, &d, &file, &file, Some("review"), None);
         let details = v.flow.details.expect("Review's details");
         assert!(details.agent.is_none() && details.skill.is_none());
@@ -3924,31 +3953,15 @@ mod tests {
         file.flow.stages[0].id = "product-spec".into();
         file.flow.stages[0].skill = Some("product-spec".into());
         file.flow.stages[0].agent = Some("Spec writer".into());
-        file.flow
-            .stages
-            .last_mut()
-            .unwrap()
-            .delivery
-            .as_mut()
-            .unwrap()
-            .delivers = Delivers::Pr;
+        file.flow.delivery.delivers = Delivers::Pr;
         let mut d = draft(&file, false);
-        d.marks = vec![
-            StageMark {
-                stage_id: "product-spec".into(),
-                stage: "Product spec".into(),
-                mark: Mark::Added,
-                by: "Claude Code".into(),
-                why: Some("From 12 /interview-me runs".into()),
-            },
-            StageMark {
-                stage_id: "deliver".into(),
-                stage: "Done".into(),
-                mark: Mark::Changed,
-                by: "Claude Code".into(),
-                why: None,
-            },
-        ];
+        d.marks = vec![StageMark {
+            stage_id: "product-spec".into(),
+            stage: "Product spec".into(),
+            mark: Mark::Added,
+            by: "Claude Code".into(),
+            why: Some("From 12 /interview-me runs".into()),
+        }];
         d.undo = true;
         let v = render(&e, Opened::Onboarding, &d, &file, &base, None, None);
         let product_spec = &v.flow.steps[1];
@@ -3960,8 +3973,9 @@ mod tests {
         );
         assert_eq!(mark.undo, "Undo");
         assert_eq!(
-            v.flow.steps.last().unwrap().mark.as_ref().map(|m| m.label),
-            Some("Changed")
+            v.flow.steps.last().unwrap().mark,
+            None,
+            "the delivery, no stage, has no mark"
         );
         assert!(v.flow.steps[2].mark.is_none());
         assert_eq!(v.flow.tiles[1].caption_mark, Some("New step \u{b7}"));
@@ -4352,14 +4366,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             ids(&moved),
-            [
-                "dev",
-                "validate",
-                "security",
-                "review",
-                "product-spec",
-                "deliver"
-            ]
+            ["dev", "validate", "security", "review", "product-spec"]
         );
         assert!(
             edited(
@@ -4986,16 +4993,13 @@ mod tests {
         assert_eq!((s.skill.as_deref(), s.rounds), (Some("validate"), Some(3)));
         // PR delivery: the flow's Delivery becomes Team PR's (its id kept), the new stage goes, Shipper comes along.
         let (pr, id) = template(Template::PrDelivery);
-        assert_eq!(id.as_deref(), Some("deliver"));
+        // PR delivery is no stage: the flow's delivery becomes Team PR's, and the new stage goes.
+        assert_eq!(id, None);
         assert!(pr.flow.stage(&new).is_none());
-        let d = pr.flow.stage("deliver").unwrap();
+        let d = &pr.flow.delivery;
         assert_eq!(
-            (
-                d.agent.as_deref(),
-                d.skill.as_deref(),
-                d.delivery.map(|x| x.delivers)
-            ),
-            (Some("Shipper"), Some("open-pr"), Some(Delivers::Pr))
+            (d.agent.as_deref(), d.skill.as_deref(), d.delivers),
+            (Some("Shipper"), Some("open-pr"), Delivers::Pr)
         );
         assert!(pr.agents.iter().any(|a| a.name == "Shipper"));
         assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&pr)).is_ok());
@@ -5162,7 +5166,7 @@ mod tests {
                     Some("fails go to Product spec"),
                     Some("You")
                 ),
-                ("Done", "Delivery \u{b7} PR", None, Some("PR")),
+                ("Delivery", "PR \u{b7} click", None, Some("Rust developer")),
             ]
         );
         assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));

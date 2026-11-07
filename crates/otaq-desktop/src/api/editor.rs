@@ -1472,14 +1472,14 @@ mod tests {
         assert_ne!(load["view"]["choices"], Value::Null);
         let summary = load["view"]["path"]["summary"].as_str().unwrap();
         assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
-        assert!(summary.ends_with("\u{b7} Review \u{b7} Done"), "{summary}");
+        assert!(summary.ends_with("\u{b7} Review \u{b7} Delivery"), "{summary}");
         let stages: Vec<&str> = load["view"]["path"]["rows"]
             .as_array()
             .unwrap()
             .iter()
             .map(|r| r["stage"].as_str().unwrap())
             .collect();
-        assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+        assert_eq!(stages, ["Dev", "Validate", "Review", "Delivery"]);
         assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
         // The sheet's pick of another agent for Dev is taken; a skip of Dev is refused.
         table(

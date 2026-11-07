@@ -1,5 +1,5 @@
 {
-  "protocol_version": 10,
+  "protocol_version": 11,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -2469,7 +2469,6 @@
     "DropTarget": {
       "kind": "strings",
       "values": [
-        "approved",
         "backlog",
         "dev",
         "done",
@@ -5763,10 +5762,6 @@
         },
         "rounds": {
           "ty": "Option<u32>",
-          "omittable": true
-        },
-        "shown_in": {
-          "ty": "Option<String>",
           "omittable": true
         },
         "skipped": {
@@ -9911,10 +9906,6 @@
       "fields": {
         "agent": {
           "ty": "Option<Agent>"
-        },
-        "delivery": {
-          "ty": "bool",
-          "required": true
         },
         "role": {
           "ty": "SessionRole",

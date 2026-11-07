@@ -44,13 +44,9 @@ export function columnAt(spans: readonly ColumnSpan[], x: number, y = 0): BoardD
   return part?.id ?? spans.find((s) => s.top === undefined && inside(s))?.id ?? null;
 }
 
-/** The drop targets in board order, for ←/→ while a card is lifted: a column, then its sections with a target of
- * their own (Review's Approved section follows Review). */
-export function targetOrder(columns: readonly Pick<BoardColumn, "id" | "sections">[]): BoardDropTarget[] {
-  return columns.flatMap((c): BoardDropTarget[] => [
-    c.id,
-    ...c.sections.flatMap((s) => (s.target === null ? [] : [s.target])),
-  ]);
+/** The drop targets in board order, for ←/→ while a card is lifted: every column. */
+export function targetOrder(columns: readonly Pick<BoardColumn, "id">[]): BoardDropTarget[] {
+  return columns.map((c) => c.id);
 }
 
 /** How `target` looks for the dragged card; `undefined` until Rust's answer is in, or over no target. */

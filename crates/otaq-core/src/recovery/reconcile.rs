@@ -8,8 +8,8 @@
 //! | Agent stage · turquoise (Asks you, Needs you, Idle) | reattach silently | **Interrupted, keeping the label and question** |
 //! | Agent check · Checking, Needs you · validator, waiting for limit reset (**the checker's** session) | reattach silently | **Interrupted** from Checking: Resume starts a fresh check (d0063) |
 //! | Agent check · Asks you (**the checker's** session) | reattach silently | **Interrupted, keeping the label and question**; Resume starts a fresh check |
-//! | Human check (Ready for Review), click Delivery (to deliver, PR open) | reattach silently | **not** Interrupted; History notes "session ended (restart)" |
-//! | Automatic PR Delivery · to deliver (its delivery session) | reattach silently | **Interrupted in the Agent stage that runs it** |
+//! | Human check (Ready for Review), a click delivery (to deliver, PR open) | reattach silently | **not** Interrupted; History notes "session ended (restart)" |
+//! | Automatic PR delivery · to deliver (its delivery session) | reattach silently | **Interrupted in the last Agent stage**, which runs it |
 //! | anything else | — | unchanged |
 //!
 //! The check and Auto-merge stops wait for the user's click and need no session: a restart leaves them as they are.
@@ -18,7 +18,7 @@
 //! ([`crate::session::END_STOPPED_BY_RESTART`]). **Nothing resumes automatically.**
 
 use crate::domain::{Place, Status, StatusSet};
-use crate::flow::engine::back_to;
+use crate::flow::engine::back_from_delivery;
 use crate::flow::{Delivers, DeliveryMode, Flow, Stage, StageKind};
 
 /// What reconcile does with a ticket.
@@ -41,13 +41,14 @@ pub enum Outcome {
     InterruptIn { stage: String },
 }
 
-/// The kind of the stage a ticket is in, as recovery and Resume need it.
+/// The kind of the stage a ticket is in, as recovery and Resume need it, or its delivery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageAt {
     Agent,
     AgentCheck,
     HumanCheck,
-    /// `runs_agent`: an automatic PR Delivery, whose session pushes and opens the PR with no click.
+    /// Being delivered (To deliver, PR open) in the flow's last stage. `runs_agent`: an automatic PR delivery,
+    /// whose session pushes and opens the PR with no click.
     Delivery {
         runs_agent: bool,
     },
@@ -59,17 +60,21 @@ impl StageAt {
             StageKind::Agent => Self::Agent,
             StageKind::Check { .. } if stage.is_agent_check() => Self::AgentCheck,
             StageKind::Check { .. } => Self::HumanCheck,
-            StageKind::Delivery => Self::Delivery {
-                runs_agent: stage.delivery.is_some_and(|d| {
-                    d.mode == DeliveryMode::Automatic && d.delivers == Delivers::Pr
-                }),
-            },
         }
     }
 
-    /// The stage a ticket in `place` with `status` is in: the flow's, or (a stage the flow doesn't have, a row
-    /// from another flow) what its status's set says, a check's waits included (`interrupted_from`). `None`
-    /// outside a stage.
+    /// The delivery of `flow`.
+    pub fn delivery(flow: &Flow) -> Self {
+        let delivery = &flow.delivery;
+        Self::Delivery {
+            runs_agent: delivery.mode == DeliveryMode::Automatic
+                && delivery.delivers == Delivers::Pr,
+        }
+    }
+
+    /// The stage a ticket in `place` with `status` is in: its delivery when its status is the delivery's, else the
+    /// flow's stage, or (a stage the flow doesn't have, a row from another flow) what its status's set says, a
+    /// check's waits included (`interrupted_from`). `None` outside a stage.
     pub fn find(
         flow: &Flow,
         place: &Place,
@@ -77,6 +82,9 @@ impl StageAt {
         interrupted_from: Option<Status>,
     ) -> Option<Self> {
         let id = place.stage()?;
+        if status.set() == StatusSet::Delivery {
+            return Some(Self::delivery(flow));
+        }
         if let Some(stage) = flow.stage(id) {
             return Some(Self::of(stage));
         }
@@ -89,7 +97,7 @@ impl StageAt {
             }
             StatusSet::AgentStage => Self::Agent,
             StatusSet::HumanCheck => Self::HumanCheck,
-            StatusSet::Delivery => Self::Delivery { runs_agent: false },
+            StatusSet::Delivery => Self::delivery(flow),
             StatusSet::Backlog | StatusSet::Waiting | StatusSet::Done => return None,
         })
     }
@@ -156,11 +164,7 @@ pub fn reconcile(
         StageAt::AgentCheck if before == Status::AsksYou => Outcome::InterruptAsking,
         StageAt::HumanCheck if before == Status::WaitingForYou => Outcome::NoteSessionEnded,
         StageAt::Delivery { runs_agent: true } if before == Status::ToDeliver => {
-            match place
-                .stage()
-                .and_then(|id| back_to(flow, id, &[]))
-                .map(|s| s.id.clone())
-            {
+            match back_from_delivery(flow, &[]).map(|s| s.id.clone()) {
                 Some(stage) => Outcome::InterruptIn { stage },
                 None => Outcome::Unchanged,
             }
@@ -196,7 +200,7 @@ pub fn resume_as(flow: &Flow, place: &Place, interrupted_from: Option<Status>) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flow::default::{DELIVER, DEV, REVIEW, VALIDATE};
+    use crate::flow::default::{DEV, REVIEW, VALIDATE};
     use crate::flow::default_flow;
 
     fn in_stage(status: Status) -> Place {
@@ -321,7 +325,6 @@ mod tests {
             (DEV, StageAt::Agent),
             (VALIDATE, StageAt::AgentCheck),
             (REVIEW, StageAt::HumanCheck),
-            (DELIVER, StageAt::Delivery { runs_agent: false }),
         ] {
             assert_eq!(StageAt::of(flow.stage(id).unwrap()), at, "{id}");
         }

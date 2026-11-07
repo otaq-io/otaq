@@ -1040,7 +1040,8 @@ async fn every_state_moves_to_its_place_and_stage() {
             "ready_for_review",
             Some("review"),
         ),
-        ("pr_open", None, "approved", "pr_open", Some("deliver")),
+        // Migration 0085: a PR open ticket is in Review, the flow's last stage (no Delivery stage).
+        ("pr_open", None, "approved", "pr_open", Some("review")),
         ("merged", None, "done", "merged", None),
         ("closed_not_merged", None, "done", "closed_not_merged", None),
         (
@@ -1197,7 +1198,7 @@ async fn every_state_moves_to_its_place_and_stage() {
     );
     assert_eq!(
         place("pr_open", 24),
-        (Place::stage_of("deliver"), Status::PrOpen)
+        (Place::stage_of("review"), Status::PrOpen)
     );
     assert_eq!(place("merged", 25), (Place::Done, Status::Merged));
     assert_eq!(
@@ -1464,7 +1465,7 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
             (flow.version, flow.yaml.as_str(), flow.preset.as_deref()),
             (
                 1,
-                default_as_0050_stored().as_str(),
+                default_as_0085_upgraded().as_str(),
                 Some("otaq-default.yaml")
             ),
             "{key}"
@@ -1482,24 +1483,53 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
 /// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525), and with its agents' skill
 /// lists, which a stored flow keeps and Otaq now reads and ignores (T6), and before its stages had descriptions.
 fn default_as_0050_stored() -> String {
-    let undescribed: String = naming::DEFAULT_FLOW_YAML
-        .lines()
-        .filter(|l| !l.starts_with("    description: "))
-        .map(|l| format!("{l}\n"))
-        .collect();
-    let stored = undescribed
-        .replace(
-            "  - name: Developer\n    model: default",
-            "  - name: Developer\n    skills: [work-ticket, commit]\n    model: default",
-        )
-        .replace(
-            "  - name: Validator\n    model: default",
-            "  - name: Validator\n    skills: [validate]\n    model: default",
-        )
-        .replace("    skill: open-pr\n    mode: click", "    mode: click")
-        .replace("    agents: [Validator]\n", "    agent: Validator\n");
-    assert_ne!(stored, naming::DEFAULT_FLOW_YAML);
-    stored
+    "agents:
+  - name: Developer
+    skills: [work-ticket, commit]
+    model: default
+  - name: Validator
+    skills: [validate]
+    model: default
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: own
+    agent: Validator
+    skill: validate
+    rounds: 3
+  - id: review
+    name: Review
+    kind: check
+    by: you
+    column: own
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: with-previous
+    agent: Developer
+    mode: click
+    delivers: either
+"
+    .to_owned()
+}
+
+/// [`default_as_0050_stored`] as migration 0085 rewrote it: its Delivery stage is the flow's `delivery:` setting, the
+/// columns gone (and the agents' skill lists, which nothing reads).
+fn default_as_0085_upgraded() -> String {
+    let upgraded = otaq_core::flow::yaml::upgraded(&default_as_0050_stored()).expect("an old form");
+    assert!(
+        upgraded.contains("delivery:\n  delivers: either\n  mode: click\n  agent: Developer\n")
+    );
+    assert!(!upgraded.contains("kind: delivery") && !upgraded.contains("column:"));
+    upgraded
 }
 
 /// T-0412 (FLW-01, Q296): 0050 drops what M32's move-over and the old settings kept: the Validation, Validation
@@ -1564,7 +1594,7 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     store.agent("v").await.unwrap().expect("kept");
     let versions = store.flow_versions("NOTE").await.unwrap();
     assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].yaml, default_as_0050_stored());
+    assert_eq!(versions[0].yaml, default_as_0085_upgraded());
     assert_eq!(versions[0].applied_by, otaq_core::flow::AppliedBy::Shipped);
     assert!(versions[0].current);
 }
@@ -2859,6 +2889,99 @@ async fn migration_0091_drops_the_external_id_and_its_history() {
             ),
             ("e6".to_owned(), json!({"field": "external_id"})),
         ]
+    );
+}
+
+/// Migration 0085: a flow's delivery is a setting of the flow, not a stage. Every stored flow version with a
+/// Delivery stage is rewritten with its `delivery:`; a ticket that was in the Delivery stage (Review's Approved
+/// section on the default flow) is in Review, its status kept (To deliver, PR open), its Delivery run ended; a
+/// ticket elsewhere is left where it is.
+#[tokio::test]
+async fn migration_0085_makes_the_delivery_a_setting_and_puts_approved_tickets_in_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 84).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO project_flows (project_id, version, yaml, applied_by, applied_at, current)
+         VALUES ('p', 1, ?, 'shipped', 1, TRUE)",
+    )
+    .bind(default_as_0050_stored())
+    .execute(&pool)
+    .await
+    .unwrap();
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, stage_id, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Approved, to deliver', 'deliver', 'to_deliver', 'me', 0, 0),
+                ('t2', 'p', 2, 'PR open', 'deliver', 'pr_open', 'me', 0, 0),
+                ('t3', 'p', 3, 'Waiting for review', 'review', 'ready_for_review', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at, ended_at)
+         VALUES ('r1', 't1', 'review', 'you', 'passed', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at)
+         VALUES ('r2', 't1', 'deliver', 'delivery', NULL, 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let tickets: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT id, state, stage_id FROM tickets ORDER BY number")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    let row = |id: &str, state: &str, stage: &str| (id.into(), state.into(), Some(stage.into()));
+    assert_eq!(
+        tickets,
+        [
+            row("t1", "to_deliver", "review"),
+            row("t2", "pr_open", "review"),
+            row("t3", "ready_for_review", "review"),
+        ]
+    );
+    let runs: Vec<(String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT stage_id, result, ended_at IS NOT NULL FROM stage_runs WHERE ticket_id = 't1' ORDER BY rowid",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runs,
+        [
+            ("review".into(), Some("passed".into()), true),
+            ("deliver".into(), Some("done".into()), true),
+        ],
+        "the Delivery run ended; being delivered in Review opens no run"
+    );
+    let flow = store.current_flow("SHOP").await.unwrap().unwrap();
+    assert_eq!(flow.yaml, default_as_0085_upgraded());
+    let file = flow.file().unwrap();
+    assert_eq!(file.flow.stages.len(), 3);
+    assert_eq!(
+        file.flow.delivery.delivers,
+        otaq_core::flow::Delivers::Either
+    );
+    store.close().await;
+
+    // Opened again, nothing changes: the rewrite ran once, with the migration.
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(
+        store.current_flow("SHOP").await.unwrap().unwrap().yaml,
+        default_as_0085_upgraded()
     );
 }
 

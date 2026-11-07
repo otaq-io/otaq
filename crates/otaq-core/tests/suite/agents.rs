@@ -180,7 +180,7 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
         refusal(agents.delete(&developer.id).await),
         (
             Refusal::AgentInUse,
-            "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Done. Change those stages first."
+            "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Delivery. Change those stages first."
                 .into()
         )
     );
@@ -698,7 +698,7 @@ async fn the_requests_are_the_users() {
     assert_eq!(refused.data.as_ref().unwrap()["refusal"], "agent_in_use");
     assert_eq!(
         refused.message,
-        "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Done. Change those stages first."
+        "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Delivery. Change those stages first."
     );
     let Reply::Agents(changed) = ask(&client, "agents.noyan", json!({"agent": strong.id}))
         .await

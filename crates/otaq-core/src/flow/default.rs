@@ -1,6 +1,6 @@
-//! The default flow (STG-03, FLW-01, d0108, d0004): Dev → Validate → Review → Done, Validate in its own column and
-//! Done in Review's (its Approved section). Otaq ships it as a file, embedded at build time; every project gets it as
-//! its first flow version ([`super::store`]).
+//! The default flow (STG-03, FLW-01, d0108, d0004): Dev → Validate → Review, each in its own column, delivered on
+//! Review's Approve by a local merge or a PR (`delivers: either`, `mode: click`). Otaq ships it as a file, embedded
+//! at build time; every project gets it as its first flow version ([`super::store`]).
 
 use std::sync::LazyLock;
 
@@ -12,7 +12,6 @@ use crate::naming;
 pub const DEV: &str = "dev";
 pub const VALIDATE: &str = "validate";
 pub const REVIEW: &str = "review";
-pub const DELIVER: &str = "deliver";
 
 static DEFAULT: LazyLock<FlowFile> = LazyLock::new(|| {
     yaml::read(naming::DEFAULT_FLOW_YAML).expect("the shipped default flow reads (tested)")
@@ -23,7 +22,7 @@ pub fn default_file() -> &'static FlowFile {
     &DEFAULT
 }
 
-/// The shipped default flow: Dev → Validate → Review → Done.
+/// The shipped default flow: Dev → Validate → Review, then delivered.
 pub fn default_flow() -> Flow {
     DEFAULT.flow.clone()
 }
@@ -32,8 +31,8 @@ pub fn default_flow() -> Flow {
 /// [`crate::board::Board::edit_flow_for_tests`].
 #[doc(hidden)]
 pub mod testing {
-    use super::super::model::{Delivers, Delivery, DeliveryMode, FlowFile, StageOption};
-    use super::{DELIVER, REVIEW, VALIDATE};
+    use super::super::model::{Delivers, DeliveryMode, FlowFile, StageOption};
+    use super::{REVIEW, VALIDATE};
 
     /// No Validate stage: a submit goes straight to Review.
     pub fn without_validate(file: &mut FlowFile) {
@@ -58,41 +57,36 @@ pub mod testing {
         }
     }
 
-    /// Dev → Validate → Done, the Delivery merging locally with no click (`mode: automatic`, `delivers: local`) right
-    /// after Validate's pass: what Auto-merge's "All tickets" was (d0108). No Review.
+    /// Dev → Validate, then a local merge with no click (`mode: automatic`, `delivers: local`) right after
+    /// Validate's pass: what Auto-merge's "All tickets" was (d0108). No Review.
     pub fn automatic_local_delivery(file: &mut FlowFile) {
         file.flow.stages.retain(|s| s.id != REVIEW);
-        for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-            // A Local merge runs no agent.
-            stage.agent = None;
-            stage.skill = None;
-            stage.delivery = Some(Delivery {
-                mode: DeliveryMode::Automatic,
-                delivers: Delivers::Local,
-            });
-        }
+        let delivery = &mut file.flow.delivery;
+        delivery.mode = DeliveryMode::Automatic;
+        delivery.delivers = Delivers::Local;
+        // A Local merge runs no agent.
+        delivery.agent = None;
+        delivery.skill = None;
     }
 
-    /// The Delivery delivers by `delivers`, in its mode (d0121's tests: a PR flow still needs the remote).
+    /// The flow delivers by `delivers`, in its mode (d0121's tests: a PR flow still needs the remote).
     pub fn delivering(delivers: Delivers) -> impl FnOnce(&mut FlowFile) {
         move |file| {
-            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-                if let Some(delivery) = stage.delivery.as_mut() {
-                    delivery.delivers = delivers;
-                }
+            let delivery = &mut file.flow.delivery;
+            delivery.delivers = delivers;
+            if delivers == Delivers::Local {
+                delivery.agent = None;
+                delivery.skill = None;
             }
         }
     }
 
-    /// Dev → Validate → Done, the Delivery opening a PR with no click and no dialog (`mode: automatic`, `delivers:
-    /// pr`) on the Developer, Dev's agent, so it resumes Dev's session.
+    /// Dev → Validate, then a PR opened with no click and no dialog (`mode: automatic`, `delivers: pr`) by the
+    /// Developer, Dev's agent, so it resumes Dev's session.
     pub fn automatic_pr_delivery(file: &mut FlowFile) {
         file.flow.stages.retain(|s| s.id != REVIEW);
-        for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-            stage.delivery = Some(Delivery {
-                mode: DeliveryMode::Automatic,
-                delivers: Delivers::Pr,
-            });
-        }
+        let delivery = &mut file.flow.delivery;
+        delivery.mode = DeliveryMode::Automatic;
+        delivery.delivers = Delivers::Pr;
     }
 }

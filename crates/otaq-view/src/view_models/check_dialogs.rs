@@ -5,7 +5,7 @@
 //! `ticket.send_back_pr`. A human check's Send back is `send_back.rs`'s dialog (d0093).
 
 use otaq_core::board::tickets::Ticket;
-use otaq_core::flow::engine::back_to;
+use otaq_core::flow::engine::back_from_delivery;
 use otaq_core::flow::{Flow, Stage};
 use serde::Serialize;
 use ts_rs::TS;
@@ -43,12 +43,11 @@ pub struct SendBackPrView {
     pub hint: &'static str,
 }
 
-/// The dialog of `ticket`, whose PR is open in `flow`'s Delivery stage. `None` without a PR or an Agent stage before
-/// the Delivery.
+/// The dialog of `ticket`, whose PR is open. `None` without a PR or an Agent stage in `flow` (the comments go to the
+/// last one, the nearest before the delivery).
 pub fn send_back_pr_view(ticket: &Ticket, flow: &Flow) -> Option<SendBackPrView> {
     let n = ticket.flags.pr_number?;
-    let delivery = flow.stages.iter().find(|s| s.is_delivery())?;
-    let to = back_to(flow, &delivery.id, &[])?;
+    let to = back_from_delivery(flow, &[])?;
     Some(SendBackPrView {
         title: format!("Send {} back with PR comments?", ticket.key),
         text: format!(

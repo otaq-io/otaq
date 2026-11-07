@@ -151,7 +151,7 @@ fn snapshot() -> Value {
     })
 }
 
-/// The fields T-0404 added for the page to draw any flow (a column's `kind`, a section's own drop `target`); the
+/// The field T-0404 added for the page to draw any flow (a column's `kind`); the
 /// snapshot was taken before them.
 fn without_new_fields(mut snapshot: Value) -> Value {
     for project in snapshot
@@ -162,9 +162,6 @@ fn without_new_fields(mut snapshot: Value) -> Value {
         for page in project["pages"].as_array_mut().into_iter().flatten() {
             for column in page["columns"].as_array_mut().into_iter().flatten() {
                 column.as_object_mut().map(|c| c.remove("kind"));
-                for section in column["sections"].as_array_mut().into_iter().flatten() {
-                    section.as_object_mut().map(|s| s.remove("target"));
-                }
             }
         }
     }
@@ -210,9 +207,9 @@ fn the_default_flow_draws_todays_board() {
     );
 }
 
-/// The new fields on the default flow: the columns' kinds, and Approved the one section with a target of its own.
+/// The new fields on the default flow: the columns' kinds; no column has sections (no Approved section).
 #[test]
-fn the_default_flow_names_its_kinds_and_the_approved_target() {
+fn the_default_flow_names_its_kinds_and_has_no_approved_section() {
     let page = &snapshot()["pocket-notes"]["pages"][0];
     let kinds: Vec<&str> = page["columns"]
         .as_array()
@@ -231,11 +228,11 @@ fn the_default_flow_names_its_kinds_and_the_approved_target() {
             "done"
         ]
     );
-    let targets: Vec<&Value> = page["columns"][4]["sections"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| &s["target"])
-        .collect();
-    assert_eq!(targets, [&Value::Null, &json!("approved")]);
+    assert!(
+        page["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c.get("sections").is_none())
+    );
 }

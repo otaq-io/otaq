@@ -153,7 +153,8 @@ mod tests {
         let board = crate::api::request(&h.app, "gallery.board_review", Value::Null)
             .await
             .unwrap();
-        assert_eq!(board["review"][0]["column"]["sections"][1]["id"], "approved");
+        // No Approved section: the Review column lists its cards.
+        assert!(board["review"][0]["column"]["sections"].is_null());
         let choices = crate::api::request(&h.app, "gallery.stage_choices", Value::Null)
             .await
             .unwrap();

@@ -5,7 +5,7 @@
 
 use std::sync::LazyLock;
 
-use super::model::{Column, Delivers, DeliveryMode, FlowFile, Stage};
+use super::model::FlowFile;
 use super::yaml;
 use crate::naming;
 
@@ -28,46 +28,21 @@ impl Preset {
         yaml::read(self.yaml).expect("a shipped preset reads (tested)")
     }
 
-    /// The small diagram's columns: the waiting column ("Ready" when Dev isn't first), each stage with its own column but the Delivery, and Done
+    /// The small diagram's columns: the waiting column ("Ready" when Dev isn't first), every stage, and Done
     /// (`s14-18`: "Ready for Dev · Dev · Validate · Review · Done").
     pub fn columns(&self) -> Vec<String> {
         let file = self.read();
-        let stages = file
-            .flow
-            .stages
-            .iter()
-            .filter(|s| s.column == Column::Own && !s.is_delivery())
-            .map(|s| s.name.clone());
+        let stages = file.flow.stages.iter().map(|s| s.name.clone());
         std::iter::once(file.flow.waiting_name().to_owned())
             .chain(stages)
             .chain(std::iter::once("Done".to_owned()))
             .collect()
     }
 
-    /// How it delivers, under its name: "Done · click", "Done · Local merge, automatic", "Done · PR, automatic".
+    /// How it delivers, under its name ([`super::model::Delivery::line`]): "Local merge or PR · click", "Local merge · automatic".
     pub fn delivers(&self) -> String {
-        let file = self.read();
-        let Some((stage, delivery)) = file
-            .flow
-            .stages
-            .iter()
-            .find_map(|s| s.delivery.map(|d| (s, d)))
-        else {
-            return String::new();
-        };
-        delivery_line(stage, delivery.mode, delivery.delivers)
+        self.read().flow.delivery.line()
     }
-}
-
-fn delivery_line(stage: &Stage, mode: DeliveryMode, delivers: Delivers) -> String {
-    let how = match (mode, delivers) {
-        (DeliveryMode::Click, _) => "click",
-        (DeliveryMode::Automatic, Delivers::Local) => "Local merge, automatic",
-        (DeliveryMode::Automatic, Delivers::Pr) => "PR, automatic",
-        // Refused by the checks (`either` is click only).
-        (DeliveryMode::Automatic, Delivers::Either) => "automatic",
-    };
-    format!("{} \u{b7} {how}", stage.name)
 }
 
 pub const SOLO_AUTOPILOT_FILE: &str = "solo-autopilot.yaml";

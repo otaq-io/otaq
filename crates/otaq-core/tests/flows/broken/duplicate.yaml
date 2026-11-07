@@ -2,18 +2,13 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    column: own
     agent: Developer
     skill: work-ticket
   - id: dev
     name: Dev
     kind: agent
-    column: own
     agent: Quick developer
     skill: work-ticket
-  - id: deliver
-    name: Done
-    kind: delivery
-    column: own
-    mode: click
-    delivers: local
+delivery:
+  delivers: local
+  mode: click
