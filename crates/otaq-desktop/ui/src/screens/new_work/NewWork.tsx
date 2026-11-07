@@ -5,13 +5,13 @@
 // opens the full form with what was typed, and the box keeps it until the form creates the ticket (a Cancel hands it
 // back). Esc or a click outside closes it and keeps what was typed. It isn't there in Files or the project's Settings,
 // while Noyan's panel is open, or when `new_work.view` says it isn't shown.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { shellLayout } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Button, Kbd, PLAIN_TEXT } from "../../components";
+import { Button, Kbd, OneTimeHint, PLAIN_TEXT } from "../../components";
 import type { NewWorkView } from "../../generated/NewWorkView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -31,8 +31,9 @@ import {
   type Typed,
 } from "./logic";
 
-/** The service events that change what the box says (the user's ⌘N). */
-export const NEW_WORK_EVENTS = ["settings_changed"] as const;
+/** The service events that change what the box says (the user's ⌘N) or whether it shows (it appears once the first
+ * ticket was approved, a ticket change). */
+export const NEW_WORK_EVENTS = ["settings_changed", "ticket_changed"] as const;
 
 const ignore = () => undefined;
 
@@ -50,6 +51,8 @@ export interface NewWorkBodyProps {
   scrim?: boolean;
   /** Changes with each ask to open the box: the title line takes the keyboard again. */
   focusKey?: number;
+  /** The closed box's element, for a hint next to it. */
+  closedRef?: RefObject<HTMLButtonElement | null>;
   onTyped?: (typed: Typed) => void;
   onOpen?: () => void;
   onClose?: () => void;
@@ -68,6 +71,7 @@ export function NewWorkBody({
   sending = null,
   scrim = true,
   focusKey = 0,
+  closedRef,
   onTyped,
   onOpen,
   onClose,
@@ -130,7 +134,7 @@ export function NewWorkBody({
 
   if (!open)
     return (
-      <button type="button" className="new-work-closed" onClick={onOpen}>
+      <button ref={closedRef} type="button" className="new-work-closed" onClick={onOpen}>
         <Icon name="plus" size={15} />
         <span className="new-work-closed-text" data-typed={typed.title !== "" || undefined}>
           {typed.title === "" ? view.placeholder : typed.title}
@@ -278,6 +282,8 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
       boxOnScreen.set(false);
     };
   }, []);
+  // The box's one-time hint, the first time it appears (after the first approve), next to the closed box.
+  const closed = useRef<HTMLButtonElement | null>(null);
 
   const close = () => {
     setOpen(false);
@@ -299,52 +305,56 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
       });
   };
   return (
-    <NewWorkBody
-      view={view}
-      typed={typed}
-      open={open}
-      note={note}
-      sending={sending}
-      focusKey={asks}
-      onTyped={(next) => {
-        setTyped(next);
-        setNote(null);
-      }}
-      onOpen={() => {
-        setOpen(true);
-      }}
-      onClose={close}
-      onCreate={() => {
-        create(false);
-      }}
-      onStart={() => {
-        create(true);
-      }}
-      onAsk={() => {
-        if (sending !== null || !hasWords(typed)) return;
-        setSending("ask");
-        askNoyan(project, typed)
-          .then((sent) => {
-            if (!sent) return;
-            setTyped(EMPTY);
-            setOpen(false);
-            setNote(null);
-          }, ignore)
-          .finally(() => {
-            setSending(null);
+    <>
+      <NewWorkBody
+        view={view}
+        typed={typed}
+        open={open}
+        closedRef={closed}
+        note={note}
+        sending={sending}
+        focusKey={asks}
+        onTyped={(next) => {
+          setTyped(next);
+          setNote(null);
+        }}
+        onOpen={() => {
+          setOpen(true);
+        }}
+        onClose={close}
+        onCreate={() => {
+          create(false);
+        }}
+        onStart={() => {
+          create(true);
+        }}
+        onAsk={() => {
+          if (sending !== null || !hasWords(typed)) return;
+          setSending("ask");
+          askNoyan(project, typed)
+            .then((sent) => {
+              if (!sent) return;
+              setTyped(EMPTY);
+              setOpen(false);
+              setNote(null);
+            }, ignore)
+            .finally(() => {
+              setSending(null);
+            });
+        }}
+        onMore={() => {
+          const form = formOf(typed);
+          // The box keeps what was typed until the form creates the ticket: a Cancel there hands it back.
+          close();
+          openOverlay("new_ticket", {
+            ...(form.title !== "" && { title: form.title }),
+            ...(form.body !== "" && { body: form.body }),
+            fromBox: true,
           });
-      }}
-      onMore={() => {
-        const form = formOf(typed);
-        // The box keeps what was typed until the form creates the ticket: a Cancel there hands it back.
-        close();
-        openOverlay("new_ticket", {
-          ...(form.title !== "" && { title: form.title }),
-          ...(form.body !== "" && { body: form.body }),
-          fromBox: true,
-        });
-      }}
-    />
+        }}
+      />
+      {!open && <OneTimeHint hint="new_work" anchor={closed} align="end" />}
+    </>
   );
 }
 

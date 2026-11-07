@@ -1,11 +1,10 @@
-// The tools step (*2 · Tool checklist · everything installed*, *gh and az missing · non-blocking*; d0021, d0011, d0086;
-// *14* `y2FCwP` / `vnBdi`, `z8OVF` / `rZRuR`): the agent tools first ("AGENT TOOLS · AT LEAST ONE", how many are
-// connected, the blocking line while none is, and the same rows as Settings → Agent tools in their compact form:
-// Sign in…, Install, Show, the install command, "Otaq can see", the tool's own warning, the … menu without
-// Disconnect…), then git, gh and az with their version or why they are missing, the command to copy and its Install /
-// Sign in… button; each button runs its command in a short terminal under the row (`RowTerminal`); the old Claude Code warning
-// when the service gives one, Re-check, and Continue (off while no agent tool is connected, with the reason beside
-// it), and under the list the starter agent's line (*14* `ODRG2`, M22). All of it is `OnboardingTools`'.
+// The Tools step: connect an agent tool, only what's needed to start (d0021, d0011, d0086). The agent tools first
+// ("AGENT TOOLS", how many are ready, the blocking line said once at the top while none is, and the same rows as
+// Settings → Agent tools in their compact form: Sign in…, Install, Show, the install command, "Otaq can see", the
+// tool's own warning, the … menu without Disconnect…), then git ("ALSO NEEDED") with its version or why it is
+// missing, its command and Install button; each button runs its command in a short terminal under the row
+// (`RowTerminal`); Check again, Continue (off while no agent tool is ready), and where more tools are added later. All
+// of it is `OnboardingTools`'.
 import { Button, IconButton, ToolAvatar } from "../../components";
 import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { OnboardingAgentTools } from "../../generated/OnboardingAgentTools";
@@ -188,9 +187,6 @@ function Row({
 export interface ToolsListProps {
   tools: OnboardingTools;
   checking: boolean;
-  /** The permission-mode warning shows (and wasn't closed). */
-  warning: boolean;
-  onDismiss: () => void;
   onRecheck: () => void;
   onContinue: () => void;
   /** A click on an agent tool's row (Sign in…, Install, Show, its … menu). */
@@ -202,8 +198,6 @@ export interface ToolsListProps {
 export function ToolsList({
   tools,
   checking,
-  warning,
-  onDismiss,
   onRecheck,
   onContinue,
   onAgentAction,
@@ -213,28 +207,6 @@ export function ToolsList({
     <>
       <h1 className="onboarding-title">{tools.title}</h1>
       <p className="onboarding-text">{tools.text}</p>
-      {warning && tools.warning && (
-        <div className="tool-warning" role="note">
-          <Icon name="shield-alert" size={15} />
-          <span className="tool-warning-text">
-            <span className="tool-warning-title">{tools.warning.title}</span>
-            <span>
-              {tools.warning.before}
-              <button
-                type="button"
-                className="tool-warning-link"
-                onClick={() => {
-                  request("notices.open_docs").catch(() => undefined);
-                }}
-              >
-                {tools.warning.link}
-              </button>
-              {tools.warning.after}
-            </span>
-          </span>
-          <IconButton icon="x" label={tools.warning.close} onClick={onDismiss} />
-        </div>
-      )}
       {tools.waiting === null && (
         <AgentToolsBlock
           block={tools.agent_tools}

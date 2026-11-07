@@ -2,6 +2,6 @@
 
 export type AddProjectKey = { label: string, note: string, value: string, placeholder: string, 
 /**
- * "Used in ticket IDs like SHOP-18. Can’t be changed later." while the key is fine.
+ * "SHOP-1, SHOP-2, … Can’t be changed later." while the key is fine.
  */
 hint: string | null, error: string | null, };

@@ -929,31 +929,3 @@ button.rail-bottom:hover {
 .activity-gallery-popover {
   position: static;
 }
-
-/* A project in Flow setup (ASK-04, T-0436; `s14-18`): its tile dashed, and "Flow setup" under its name. */
-.rail-item[data-flow-setup] .rail-tile {
-  border-style: dashed;
-}
-
-.rail-flow-setup {
-  box-sizing: border-box;
-  max-width: 100%;
-  margin-top: -4px;
-  padding: 0 2px;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: 500 9px/11px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The header's "· Flow setup" after the project's name (`s14-18`, the title bar). */
-.header-flow-setup-dot {
-  color: var(--text-muted);
-}
-
-.header-flow-setup {
-  flex: none;
-  color: var(--text-secondary);
-  font: 400 13px/17px var(--font-ui);
-}

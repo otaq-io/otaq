@@ -2,6 +2,6 @@
 import type { HintId } from "./HintId";
 
 /**
- * What the popover shows: the one sentence and its one button.
+ * What the popover shows: its title (when it has one), its text and its one button.
  */
-export type HintView = { id: HintId, text: string, button: string, };
+export type HintView = { id: HintId, title: string | null, text: string, button: string, };

@@ -209,15 +209,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   // words (nothing is sent before), the other buttons go to the draft.
   const skillActions = useMemo<EditorActions>(
     () => ({
-      select: setSelected,
       edit,
-      pick,
-      undo: ignore,
-      importChoice: ignore,
-      ask: ignore,
-      askBoth: ignore,
-      chip: ignore,
-      send: ignore,
       write: (stage, prefill) => {
         setWriting({ stage, text: prefill });
       },
@@ -225,10 +217,8 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         skillButton(project, stage, button).catch(ignore);
       },
       fix: setChoices,
-      apply: ignore,
-      cancel: ignore,
     }),
-    [edit, pick, project],
+    [edit, project],
   );
 
   // Drag a stage's header to reorder: the column under the pointer on release is where it goes.

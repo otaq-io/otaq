@@ -76,7 +76,6 @@ pub use notices::{DismissBanner, HoldToast, NoticesProject, NotificationOpen, To
 #[cfg(test)]
 pub use noyan_button::export_types as export_noyan_button_types;
 #[cfg(test)]
-pub use onboarding::export_flow_setup_page_types;
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,

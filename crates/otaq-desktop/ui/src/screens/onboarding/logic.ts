@@ -1,28 +1,23 @@
 // Onboarding's moment of interaction, without the DOM: which step shows, what the Add project form holds, and what
-// ending onboarding asks of the app. Every word and rule is Rust's (`onboarding_page.rs`, `onboarding.rs`,
-// `add_project.rs`); this file only moves between them. The Flow step is the flow editor (FED-09, `flow_editor/`).
+// adding a project asks of the app. Every word and rule is Rust's (`onboarding_page.rs`, `onboarding.rs`,
+// `add_project.rs`); this file only moves between them.
 import { selectProject } from "../../app/selection";
+import type { AddProjectFlowPick } from "../../generated/AddProjectFlowPick";
 import type { AddProjectParams } from "../../generated/AddProjectParams";
 import type { AddProjectView } from "../../generated/AddProjectView";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
-import { AGENT_PANEL_ROUTES, type AgentPanelRoutes, showAgent, showAgentPanel } from "../agent_panel/logic";
+import { AGENT_PANEL_ROUTES, type AgentPanelRoutes } from "../agent_panel/logic";
+import { openFlowBoard, suggest } from "../flow_board/logic";
 
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
 
-/** The steps in order; the empty board follows Flow and is not a step (ONB-10). */
-export const STEP_ORDER: readonly OnboardingStepId[] = ["welcome", "theme", "tools", "project", "flow"];
+/** The steps in order; the board after Project is not a step (ONB-10). */
+export const STEP_ORDER: readonly OnboardingStepId[] = ["welcome", "tools", "project"];
 
-/**
- * Where Continue on the tools step goes: back to the Flow step when first run's project is still in Flow setup (Back
- * to Tools), else the project step, or the end for a user who has projects already.
- */
-export function afterTools(
-  tools: OnboardingTools,
-  flowProject: string | null = null,
-): "project" | "flow" | "done" {
-  if (flowProject !== null) return "flow";
+/** Where Continue on the Tools step goes: the Project step, or the end for a user who has projects already. */
+export function afterTools(tools: OnboardingTools): "project" | "done" {
   return tools.has_projects ? "done" : "project";
 }
 
@@ -42,6 +37,22 @@ export function typeBase(form: AddProjectParams, base: string): AddProjectParams
 
 export function pickFolder(form: AddProjectParams, folder: string): AddProjectParams {
   return { ...form, folder };
+}
+
+/** The dialog's Flow choice. */
+export function pickFlow(form: AddProjectParams, flow: AddProjectFlowPick): AddProjectParams {
+  return { ...form, flow };
+}
+
+/** The Flow option picked: Otaq default until the user picks another. */
+export function flowPicked(form: AddProjectParams): AddProjectFlowPick {
+  return form.flow ?? { kind: "default" };
+}
+
+/** Whether two Flow picks are the same option. */
+export function sameFlowPick(a: AddProjectFlowPick, b: AddProjectFlowPick): boolean {
+  if (a.kind === "same_as" && b.kind === "same_as") return a.project === b.project;
+  return a.kind === b.kind;
 }
 
 /** The key field's text: the user's once they typed, else Rust's suggestion. */
@@ -73,33 +84,40 @@ export function baseLabel(form: AddProjectParams, view: AddProjectView | undefin
   return view?.base?.items.find((i) => !i.header && i.id === id)?.label ?? id;
 }
 
-/**
- * Ending onboarding: the permission-mode banner when the warning was shown and not closed (T-0231's
- * `notices.permission_warning`). Returns whether it was raised.
- */
-export async function finishOnboarding(warningShown: boolean, ask: Ask): Promise<boolean> {
-  if (!warningShown) return false;
-  await ask("notices.permission_warning");
-  return true;
+/** Where a project just added goes: its board, and for "Suggest one", Edit flow with Noyan's agent drafting. */
+export interface AddedRoutes {
+  select: (project: string) => void;
+  editFlow: (project: string) => void;
+  suggest: (project: string) => Promise<unknown>;
 }
 
-/** A project added later (Add project): it is selected, so its Flow setup page (the flow editor) shows. */
+export const ADDED_ROUTES: AddedRoutes = {
+  select: (project) => {
+    selectProject(project, AGENT_PANEL_ROUTES.selection);
+  },
+  editFlow: (project) => {
+    openFlowBoard({ project });
+  },
+  suggest: (project) => suggest(project),
+};
+
+/**
+ * A project was added (onboarding's Project step or the dialog): its board shows, on Otaq default or the flow it
+ * copied. "Suggest one" opens Edit flow on it while Noyan's agent drafts a suggestion; the board stays on the default
+ * until the user saves one.
+ */
+export function added(
+  project: string,
+  flow: AddProjectFlowPick = { kind: "default" },
+  routes: AddedRoutes = ADDED_ROUTES,
+): void {
+  routes.select(project);
+  if (flow.kind !== "suggest") return;
+  routes.editFlow(project);
+  routes.suggest(project).catch(() => undefined);
+}
+
+/** Kept for callers that only select: a project added later is selected, so its board shows. */
 export function addedLater(project: string, routes: AgentPanelRoutes = AGENT_PANEL_ROUTES): void {
   selectProject(project, routes.selection);
-}
-
-/**
- * The Flow step is over (Use this flow, Skip, use the default): the project's board shows, with the agent the editor's
- * panel showed (the flow agent whose flow was used stays) open in the Project agent panel.
- */
-export function afterFlowStep(
-  project: string,
-  agent: string | null,
-  routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
-): void {
-  selectProject(project, routes.selection);
-  if (agent !== null) {
-    showAgent(project, agent, routes.shown);
-    showAgentPanel(routes);
-  }
 }

@@ -2487,6 +2487,10 @@ pub struct OnboardingState {
     /// leaves the list when a later startup records its trust.
     #[serde(default)]
     pub trust_failed: Vec<crate::agent_tools::setup::TrustFailure>,
+    /// A ticket was approved and reached Done (`first_run.first_approve`): the box for new work shows, and the hints
+    /// that close a new user's first run follow.
+    #[serde(default)]
+    pub first_approve: bool,
 }
 
 /// The service's answer to `service.status`. Version-independent: fields may be added (with defaults), never
@@ -2927,6 +2931,7 @@ mod tests {
                         tool: crate::agent_tools::Tool::Claude,
                         reason: "Claude Code's config file couldn't be written".into(),
                     }],
+                    first_approve: false,
                 }),
             ),
             Message::reply(1, Reply::Pong),

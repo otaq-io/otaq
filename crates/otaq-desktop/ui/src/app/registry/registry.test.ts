@@ -74,7 +74,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(36);
+    expect(OVERLAY_IDS).toHaveLength(35);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual(["quick_switcher", "command_palette", "processes", "terminals", "activity"]);
   });
@@ -126,7 +126,6 @@ describe("the fixed ids", () => {
         case "confirm":
         case "restart_service":
         case "resume_all":
-        case "usage_data":
         case "shortcuts":
         case "apply_now":
         case "report":
@@ -140,7 +139,7 @@ describe("the fixed ids", () => {
     };
     const contents: SheetContent[] = ["overview", "agent", "check", "run", "shell", "files", "activity"];
     expect(contents.map(tabIcon)).toHaveLength(7);
-    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(28);
+    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(27);
   });
 });
 

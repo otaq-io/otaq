@@ -1,10 +1,10 @@
-//! `usage.*`: the "Help improve Otaq" dialog (d0085). `usage.dialog` says whether it shows (the user hasn't answered
-//! yet) with its words; `usage.choose` stores the answer. Settings → Data's switch edits the same setting through
+//! `usage.*`: the "Help improve Otaq?" banner (d0085). `usage.dialog` says whether it shows (a ticket was approved and
+//! the user hasn't answered yet) with its words; `usage.choose` stores the answer. Settings → Data's switch edits the same setting through
 //! `settings.edit`. After either, [`sync`] makes the sender follow the stored answer.
 
 use otaq_core::board::settings::{GlobalSettings, UsageData};
 use otaq_core::protocol::{Reply, Request};
-use otaq_view::view_models::usage_data::{self, Dialog};
+use otaq_view::view_models::usage_data::{self, Banner};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -25,12 +25,12 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     }
 }
 
-/// The answer to `usage.dialog`: whether the dialog opens, and its words.
+/// The answer to `usage.dialog`: whether the banner shows, and its words.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "UsageDataAsk")]
 pub struct Ask {
     pub show: bool,
-    pub dialog: Dialog,
+    pub banner: Banner,
 }
 
 /// What `usage.choose` takes: the button pressed (Esc counts as No thanks).
@@ -50,9 +50,14 @@ async fn settings(app: &App) -> Result<GlobalSettings, RequestError> {
 
 async fn dialog(app: &App) -> Result<Ask, RequestError> {
     Ok(Ask {
-        show: settings(app).await?.usage_data == UsageData::NotAsked,
-        dialog: usage_data::dialog(),
+        show: settings(app).await?.usage_data == UsageData::NotAsked && first_approve(app).await,
+        banner: usage_data::banner(),
     })
+}
+
+/// A ticket was approved and reached Done: the banner waits for that (false when the service can't say).
+async fn first_approve(app: &App) -> bool {
+    super::onboarding::first_approve(app).await
 }
 
 async fn choose(app: &App, on: bool) -> Result<(), RequestError> {
@@ -82,8 +87,12 @@ mod tests {
         h.wait_for("connected", connected).await;
 
         let ask = request(&h.app, "usage.dialog", Value::Null).await.unwrap();
+        assert_eq!(ask["show"], false, "not before the first approve");
+        h.set_setting(otaq_core::store::settings::FIRST_APPROVE, "true")
+            .await;
+        let ask = request(&h.app, "usage.dialog", Value::Null).await.unwrap();
         assert_eq!(ask["show"], true, "not asked yet");
-        assert_eq!(ask["dialog"]["accept_label"], "Send anonymous data");
+        assert_eq!(ask["banner"]["accept_label"], "Share");
         assert!(!h.app.usage.is_on());
 
         request(&h.app, "usage.choose", json!({ "on": false })).await.unwrap();

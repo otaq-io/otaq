@@ -113,14 +113,14 @@ impl AddProjectModel {
         self.key_server_error.clone()
     }
 
-    /// "Used in ticket IDs like SHOP-18. Can’t be changed later."
+    /// "SHOP-1, SHOP-2, … Can’t be changed later."
     pub fn key_hint(&self) -> String {
         let key = if self.key.is_empty() {
             "SHOP"
         } else {
             &self.key
         };
-        format!("Used in ticket IDs like {key}-18. Can’t be changed later.")
+        format!("{key}-1, {key}-2, \u{2026} Can\u{2019}t be changed later.")
     }
 
     pub fn can_add(&self, projects: &[ProjectInfo]) -> bool {
@@ -138,17 +138,21 @@ impl AddProjectModel {
         self.trust_failed = failed;
     }
 
-    /// The line under the folder: which tools adding the project lets work in it (PRJ-07, d0086). One tool keeps
-    /// today's wording; none (no connected tool keeps folder trust) leaves the line out.
+    /// The line under the folder: which tools will run their hooks and settings in it once the project is added
+    /// (PRJ-07, d0086); none (no connected tool keeps folder trust) leaves the line out.
     pub fn trust_line(&self) -> Option<String> {
-        let names: Vec<&str> = self.trust_tools.iter().map(|t| t.display_name()).collect();
+        let names: Vec<&str> = self
+            .trust_tools
+            .iter()
+            .map(|t| super::tool_problems::tool_word(*t))
+            .collect();
         match names.as_slice() {
             [] => None,
             [one] => Some(format!(
-                "Adding a project also lets {one} work in this folder (its hooks and settings will run)."
+                "{one} will run its hooks and settings in this folder."
             )),
             several => Some(format!(
-                "Adding a project also lets {} work in this folder (their hooks and settings will run).",
+                "{} will run their hooks and settings in this folder.",
                 and_list(several)
             )),
         }
@@ -276,7 +280,7 @@ mod tests {
         assert!(m.can_add(&projects()));
         assert_eq!(
             m.key_hint(),
-            "Used in ticket IDs like NEW-18. Can’t be changed later."
+            "NEW-1, NEW-2, \u{2026} Can\u{2019}t be changed later."
         );
         m.set_base("release/2.3");
         assert_eq!(m.base_branch, "release/2.3");

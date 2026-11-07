@@ -30,7 +30,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                     )));
                 }
             };
-            reply(&vm::shown(hint, &seen))
+            reply(&vm::shown(hint, &seen, &super::keymap::labels(app).await))
         }
         "hints.dismiss" => {
             app.service

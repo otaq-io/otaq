@@ -8,23 +8,24 @@ import type { AddProjectView } from "../../generated/AddProjectView";
 import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { ServiceConnection } from "../../generated/ServiceConnection";
-import type { UsageDataDialog } from "../../generated/UsageDataDialog";
 import { droppedFolder, folderDropped } from "./drops";
 import { onboarding, openOnboardingWhenNeeded } from ".";
 import {
+  added,
   adoptKey,
   afterTools,
   baseLabel,
   baseText,
-  finishOnboarding,
+  flowPicked,
   keyText,
   newForm,
+  pickFlow,
+  sameFlowPick,
   typeBase,
   typeKey,
 } from "./logic";
 import { AddButton, AddProjectFields, staticAddProject } from "./AddProjectForm";
 import { ToolsList } from "./Tools";
-import { askUsageDataWhenNeeded } from "./UsageData";
 
 afterEach(() => {
   overlays.store.set([]);
@@ -35,16 +36,15 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const TOOLS: OnboardingTools = {
   title: "Tools",
-  text: "Otaq uses the tools already on your machine.",
-  warning: null,
+  text: "Otaq runs the coding agents you already use.",
   agent_tools: {
-    heading: "AGENT TOOLS · AT LEAST ONE",
-    count: "none connected",
+    heading: "AGENT TOOLS",
+    count: "none ready",
     rows: [],
     blocked: null,
     menu_label: "More actions",
   },
-  other_heading: "OTHER TOOLS",
+  other_heading: "ALSO NEEDED",
   rows: [
     {
       tool: "git",
@@ -61,7 +61,7 @@ const TOOLS: OnboardingTools = {
   ],
   waiting: null,
   error: null,
-  recheck: "Re-check",
+  recheck: "Check again",
   continue_label: "Continue",
   continue_enabled: false,
   continue_reason: "Install claude to continue",
@@ -79,9 +79,9 @@ const TOOLS: OnboardingTools = {
 };
 
 describe("the onboarding screen", () => {
-  it("registers onboarding, Add project and Help improve Otaq", () => {
+  it("registers onboarding and Add project", () => {
     const app = registerScreens({ onboarding });
-    expect(app.overlays.ids().toSorted()).toEqual(["add_project", "onboarding", "usage_data"]);
+    expect(app.overlays.ids().toSorted()).toEqual(["add_project", "onboarding"]);
   });
 
   it("opens once, after the first connection, when no project is stored", async () => {
@@ -111,20 +111,6 @@ describe("the onboarding screen", () => {
     expect(overlays.store.get()).toEqual([{ id: "onboarding", params: undefined }]);
   });
 
-  it("quitting during the Flow step reopens it: onboarding opens on that project's Flow step (ASK-04)", async () => {
-    let push: (c: ServiceConnection) => void = () => undefined;
-    openOnboardingWhenNeeded(
-      () => Promise.resolve({ show: true, step: "flow", project: "SHOP" }),
-      (onChange) => {
-        push = onChange;
-        return () => undefined;
-      },
-    );
-    push({ state: "connected" } as ServiceConnection);
-    await flush();
-    expect(overlays.store.get()).toEqual([{ id: "onboarding", params: { step: "flow", project: "SHOP" } }]);
-  });
-
   it("stays closed when a project exists", async () => {
     let push: (c: ServiceConnection) => void = () => undefined;
     openOnboardingWhenNeeded(
@@ -137,37 +123,6 @@ describe("the onboarding screen", () => {
     push({ state: "connected" } as ServiceConnection);
     await flush();
     expect(overlays.store.get()).toEqual([]);
-  });
-
-  it("asks about usage data once a user with projects starts, until answered (d0085)", async () => {
-    const dialog = { title: "Help improve Otaq" } as UsageDataDialog;
-    let push: (c: ServiceConnection) => void = () => undefined;
-    const asked: string[] = [];
-    openOnboardingWhenNeeded(
-      (method) => {
-        asked.push(method);
-        return Promise.resolve(method === "usage.dialog" ? { show: true, dialog } : { show: false });
-      },
-      (onChange) => {
-        push = onChange;
-        return () => undefined;
-      },
-    );
-    push({ state: "connected" } as ServiceConnection);
-    await flush();
-    await flush();
-    expect(asked).toEqual(["onboarding.start", "usage.dialog"]);
-    expect(overlays.store.get()).toEqual([{ id: "usage_data", params: dialog }]);
-
-    // Answered: it doesn't open again.
-    overlays.store.set([]);
-    const opened = await askUsageDataWhenNeeded(
-      () => Promise.resolve({ show: false, dialog }),
-      () => {
-        throw new Error("must not open");
-      },
-    );
-    expect(opened).toBe(false);
   });
 
   it("a dropped folder opens Add project, or goes to onboarding's project step", () => {
@@ -185,20 +140,36 @@ describe("the steps", () => {
   it("Continue goes to the project step, or ends for a user with projects", () => {
     expect(afterTools(TOOLS)).toBe("project");
     expect(afterTools({ ...TOOLS, has_projects: true })).toBe("done");
-    // Back to Tools from the Flow step: Continue returns to it, the project still in Flow setup.
-    expect(afterTools({ ...TOOLS, has_projects: true }, "SHOP")).toBe("flow");
   });
 
-  it("ending raises the permission banner only when the warning showed", async () => {
-    const asked: string[] = [];
-    const ask = (method: string) => {
-      asked.push(method);
-      return Promise.resolve(null);
+  it("a project added goes to its board; Suggest one opens Edit flow while the agent drafts", async () => {
+    const went: string[] = [];
+    const routes = {
+      select: (p: string) => went.push(`select ${p}`),
+      editFlow: (p: string) => went.push(`edit flow ${p}`),
+      suggest: (p: string) => {
+        went.push(`suggest ${p}`);
+        return Promise.resolve();
+      },
     };
-    expect(await finishOnboarding(false, ask)).toBe(false);
-    expect(asked).toEqual([]);
-    expect(await finishOnboarding(true, ask)).toBe(true);
-    expect(asked).toEqual(["notices.permission_warning"]);
+    added("SHOP", undefined, routes);
+    expect(went).toEqual(["select SHOP"]);
+    went.length = 0;
+    added("BILL", { kind: "same_as", project: "SHOP" }, routes);
+    expect(went).toEqual(["select BILL"]);
+    went.length = 0;
+    added("BILL", { kind: "suggest" }, routes);
+    await flush();
+    expect(went).toEqual(["select BILL", "edit flow BILL", "suggest BILL"]);
+  });
+
+  it("the Flow choice starts on Otaq default and keeps the pick", () => {
+    const form = newForm(false);
+    expect(flowPicked(form)).toEqual({ kind: "default" });
+    const same = pickFlow(form, { kind: "same_as", project: "SHOP" });
+    expect(sameFlowPick(flowPicked(same), { kind: "same_as", project: "SHOP" })).toBe(true);
+    expect(sameFlowPick(flowPicked(same), { kind: "same_as", project: "BILL" })).toBe(false);
+    expect(sameFlowPick(flowPicked(same), { kind: "default" })).toBe(false);
   });
 
   it("a missing claude blocks Continue, with the reason and the copyable command", () => {
@@ -206,8 +177,6 @@ describe("the steps", () => {
       createElement(ToolsList, {
         tools: TOOLS,
         checking: false,
-        warning: false,
-        onDismiss: () => undefined,
         onRecheck: () => undefined,
         onContinue: () => undefined,
         onAgentAction: () => undefined,
@@ -248,8 +217,6 @@ describe("the agent tools on the Tools step", () => {
       createElement(ToolsList, {
         tools,
         checking: false,
-        warning: false,
-        onDismiss: () => undefined,
         onRecheck: () => undefined,
         onContinue: () => undefined,
         onAgentAction: () => undefined,
@@ -274,12 +241,12 @@ describe("the agent tools on the Tools step", () => {
       },
     });
     expect(html).toContain('class="agent-tools-blocked" role="alert"');
-    expect(html).toContain("none connected");
+    expect(html).toContain("none ready");
     expect(html).toContain('data-mark="missing"');
     expect(html).toContain("brew install codex");
     expect(html).toContain("Connect one agent tool to continue");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*Continue/);
-    expect(html).toContain("OTHER TOOLS");
+    expect(html).toContain("ALSO NEEDED");
   });
 
   it("one connected: Continue on; a signed-out tool offers Sign in…, a hidden one Show", () => {
@@ -290,7 +257,7 @@ describe("the agent tools on the Tools step", () => {
       continue_reason: null,
       agent_tools: {
         ...TOOLS.agent_tools,
-        count: "1 connected · 1 hidden",
+        count: "1 ready · 1 hidden",
         rows: [
           agentRow("claude", "Claude Code", {
             detail: "v2.1.301 · signed in",
@@ -302,7 +269,7 @@ describe("the agent tools on the Tools step", () => {
       },
     });
     expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>.*Continue/);
-    expect(html).toContain("1 connected · 1 hidden");
+    expect(html).toContain("1 ready · 1 hidden");
     expect(html.match(/data-mark="([a-z]+)"/g)).toEqual([
       'data-mark="connected"',
       'data-mark="attention"',
@@ -359,11 +326,10 @@ describe("the Add project form", () => {
 });
 
 describe("the folder trust in the Add project form", () => {
-  const LINE =
-    "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
+  const LINE = "Claude Code will run its hooks and settings in this folder.";
   const FORM: AddProjectView = {
     first_run: false,
-    title: "Add project",
+    title: "Add a project",
     text: null,
     folder: "~/code/pocket-notes",
     folder_look: "valid",
@@ -384,6 +350,7 @@ describe("the folder trust in the Add project form", () => {
     trust_line: LINE,
     trust_error: null,
     continue_label: "Continue",
+    flow: null,
   };
   const draw = (view: AddProjectView) => {
     const state = staticAddProject(view);

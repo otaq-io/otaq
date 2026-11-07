@@ -15,7 +15,6 @@ use ts_rs::TS;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
 use crate::shell::tilde;
-use crate::view_models::flow_setup_page;
 
 /// How long a project's tile rings after it newly needs you.
 pub const RING: Duration = Duration::from_secs(10);
@@ -73,9 +72,6 @@ pub struct RailItem {
     pub detail: Vec<String>,
     /// The tooltip's last line: "⌘2 to switch".
     pub note: Option<String>,
-    /// "Flow setup" under the name while the project's flow isn't settled (ASK-04): selecting it opens its Flow setup
-    /// page, not its board.
-    pub flow_setup: Option<String>,
     /// While the project is paused (PAU-08, `s24-08`): how many agents Resume resumes, the tile's working badge in
     /// amber.
     pub paused: Option<u32>,
@@ -206,8 +202,7 @@ impl SwitcherModel {
                 let shortcut = (i < 9)
                     .then(|| self.keys.label(KeyAction::Project(i as u8 + 1)))
                     .flatten();
-                let flow_setup = flow_setup_page::rail_mark(p);
-                let mut detail: Vec<String> = flow_setup.iter().cloned().collect();
+                let mut detail: Vec<String> = Vec::new();
                 if p.needs_you > 0 {
                     detail.push(format!("{} needs you", p.needs_you));
                 }
@@ -244,7 +239,6 @@ impl SwitcherModel {
                     note: shortcut.as_ref().map(|k| format!("{k} to switch")),
                     shortcut,
                     detail,
-                    flow_setup,
                     paused,
                 }
             })
@@ -359,26 +353,6 @@ mod tests {
         assert_eq!((rail[1].paused, rail[1].idle), (Some(0), false));
         assert_eq!(rail[1].detail, ["paused"]);
         assert_eq!((rail[2].paused, rail[2].idle), (None, true));
-    }
-
-    #[test]
-    fn a_project_in_flow_setup_is_marked_flow_setup() {
-        let mut m = model();
-        let mut bill = project("BILL", "billing-api", 0, 0);
-        bill.flow_setup_since = Some(1);
-        m.set_projects(
-            vec![project("SHOP", "shop-web", 0, 0), bill],
-            Instant::now(),
-        );
-        let rail = m.rail(Instant::now());
-        assert_eq!(rail[0].flow_setup, None);
-        assert_eq!(rail[0].detail, vec!["idle"]);
-        assert_eq!(rail[1].flow_setup.as_deref(), Some("Flow setup"));
-        assert_eq!(
-            rail[1].detail,
-            vec!["Flow setup"],
-            "its tooltip says so in place of idle"
-        );
     }
 
     #[test]

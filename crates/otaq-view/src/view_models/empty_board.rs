@@ -1,205 +1,129 @@
-//! The empty board of a project with no tickets yet (UI-08, SHL-06; *14 · First run → 4 · Done · empty board*,
-//! *03 → Empty column & empty board*): when it shows, its button and what it asks of the shell. Since d0087 the
-//! Project agent panel is always beside the board, so the card points at it (and at ⌘L) instead of offering a button.
+//! A project's board with no tickets yet: its columns, as on any day. A new user's first project also shows "Your
+//! first ticket" waiting in Backlog: a tiny task that works on any repository and is safe to merge, prefilled and
+//! editable in place, with the time and whose plan it uses said plainly. Create & start creates and starts it (and asks
+//! for notifications, once); Not now leaves an empty Backlog with its plain Add ticket row. Either answer is for good:
+//! the card is the one-time [`Hint::FirstTicket`]. A project added later, or after Not now, is just its columns.
 
+use otaq_core::agent_tools::Tool;
+use otaq_core::agents::{AgentList, AgentModel};
+use otaq_core::flow::Flow;
+use otaq_core::store::settings::Hint;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::icons::IconName;
-use crate::key_labels::KeyLabels;
-use crate::keymap::KeyAction;
-use crate::shell::ShellRequest;
+use super::tool_problems::tool_word;
 
-/// Whether the project's empty board shows instead of the board. New ticket's title field sits at the top of
-/// Backlog (*08 · Ticket editor → Quick-create*), so the board shows while it is open; Esc with no ticket brings
-/// the empty board back.
-pub fn shows(tickets: usize, quick_creating: bool) -> bool {
-    tickets == 0 && !quick_creating
-}
+/// The first ticket's title, as prefilled.
+pub const TITLE: &str = "Tidy the README";
 
-/// The empty board's button.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Action {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub icon: IconName,
-    pub primary: bool,
-    pub request: ShellRequest,
-}
+/// The first ticket's description, as prefilled.
+pub const BODY: &str = "Fix typos and broken links. Change nothing else.";
 
-/// "New ticket" (⌘N): the same request as the header's button.
-pub fn actions() -> [Action; 1] {
-    [Action {
-        id: "empty-new-ticket",
-        label: "New ticket",
-        icon: IconName::Plus,
-        primary: true,
-        request: ShellRequest::NewTicket,
-    }]
-}
+/// The line under the fields.
+pub const TIP: &str = "Small, clear tasks work best.";
 
-/// A button of the empty board as the page draws it: its shortcut action is what a click runs, so the button and
-/// the key do the same thing.
+/// "Your first ticket" in Backlog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EmptyBoardButton")]
-pub struct Button {
-    pub label: &'static str,
-    pub icon: IconName,
-    pub primary: bool,
-    pub action: KeyAction,
-}
-
-/// "⌘N new ticket" under the button: a button too, running the action its key runs (d0126: a hint that looked like a
-/// link but wasn't one left the keyboard on the board, finding 5 of the 2026-10-24 dogfood report).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EmptyBoardHint")]
-pub struct Hint {
-    pub keys: Option<String>,
-    pub label: &'static str,
-    pub action: KeyAction,
-}
-
-/// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket, the
-/// text and a hint pointing at the agent panel's Project agent (d0068, d0087).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EmptyBoardView")]
-pub struct View {
+#[ts(rename = "FirstTicketView")]
+pub struct FirstTicket {
+    /// "Your first ticket", the card's label.
+    pub label: String,
+    /// "Not started".
+    pub status: String,
+    /// The title as prefilled; the user edits it in place.
     pub title: String,
-    pub text: String,
-    pub buttons: Vec<Button>,
-    pub hints: Vec<Hint>,
+    pub title_label: String,
+    /// The description as prefilled.
+    pub body: String,
+    pub body_label: String,
+    /// "Small, clear tasks work best."
+    pub tip: String,
+    /// "Takes about 5 minutes and uses your Claude Code plan."
+    pub cost: String,
+    /// Create & start, the primary button.
+    pub start: String,
+    pub starting: String,
+    pub not_now: String,
+    /// A title is needed: what Create & start says without one.
+    pub no_title: String,
 }
 
-/// "shop-web is ready" for the project `name`. The hints name the user's keys; a hint whose action has no key is left
-/// out (KEY-08).
-pub fn view(name: &str, keys: &KeyLabels) -> View {
-    View {
-        title: format!("{name} is ready"),
-        text: "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
-            .to_owned(),
-        buttons: actions()
-            .iter()
-            .map(|a| Button {
-                label: a.label,
-                icon: a.icon,
-                primary: a.primary,
-                action: KeyAction::NewTicket,
-            })
-            .collect(),
-        hints: [
-            (KeyAction::NewTicket, "new ticket"),
-            (KeyAction::FocusAgentPanel, "ask Noyan"),
-        ]
-        .into_iter()
-        .filter_map(|(action, label)| {
-            keys.label(action).map(|keys| Hint {
-                keys: Some(keys),
-                label,
-                action,
-            })
-        })
-        .collect(),
+/// Whether the first ticket shows: the project has no tickets and the user never answered the card.
+pub fn shows(tickets: usize, seen: &[Hint]) -> bool {
+    tickets == 0 && !seen.contains(&Hint::FirstTicket)
+}
+
+/// The tool of the flow's first Agent stage: its agent's own, else the default model's. `None` when neither is known.
+pub fn first_stage_tool(flow: &Flow, agents: Option<&AgentList>) -> Option<Tool> {
+    let agents = agents?;
+    let name = flow.first_agent_stage()?.named_agents().next()?;
+    let agent = agents
+        .agents
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(name))?;
+    match &agent.model {
+        AgentModel::Tool { tool, .. } => Some(*tool),
+        AgentModel::Default => agents.default_model.as_ref().map(|m| m.tool),
+    }
+}
+
+/// The card, saying whose plan it uses: the first stage's `tool`.
+pub fn first_ticket(tool: Option<Tool>) -> FirstTicket {
+    let plan = tool.map_or_else(
+        || "your agent tool\u{2019}s plan".to_owned(),
+        |t| format!("your {} plan", tool_word(t)),
+    );
+    FirstTicket {
+        label: "Your first ticket".to_owned(),
+        status: "Not started".to_owned(),
+        title: TITLE.to_owned(),
+        title_label: "Title".to_owned(),
+        body: BODY.to_owned(),
+        body_label: "Description".to_owned(),
+        tip: TIP.to_owned(),
+        cost: format!("Takes about 5 minutes and uses {plan}."),
+        start: "Create & start".to_owned(),
+        starting: "Starting\u{2026}".to_owned(),
+        not_now: "Not now".to_owned(),
+        no_title: "Give it a title first.".to_owned(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::key_labels::fixtures;
-    use crate::keymap::Platform;
 
     #[test]
-    fn new_ticket_leaves_the_empty_board_while_its_title_field_is_open() {
-        assert!(shows(0, false));
-        assert!(!shows(0, true), "the title field is on the board");
-        assert!(!shows(1, false));
-        assert!(!shows(1, true));
-    }
-
-    fn hints(keys: &KeyLabels) -> Vec<(String, &'static str)> {
-        view("shop-web", keys)
-            .hints
-            .into_iter()
-            .map(|h| (h.keys.unwrap(), h.label))
-            .collect()
-    }
-
-    /// *03 → Empty column & empty board* (`kItEl`), *14 → 4 · Done · empty board → Board empty* (`ugHTD`), d0087: the
-    /// text and the ⌘L hint point at the agent panel; New ticket is the only button.
-    #[test]
-    fn the_page_view_names_the_project_and_runs_the_shortcuts() {
-        let v = view("shop-web", &fixtures::base());
-        assert_eq!(v.title, "shop-web is ready");
-        assert_eq!(
-            v.text,
-            "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
-        );
-        let actions: Vec<KeyAction> = v.buttons.iter().map(|b| b.action).collect();
-        assert_eq!(actions, [KeyAction::NewTicket]);
-        let labels: Vec<&str> = v.buttons.iter().map(|b| b.label).collect();
-        assert_eq!(labels, ["New ticket"]);
-        assert!(v.buttons[0].primary);
-        assert_eq!(
-            hints(&fixtures::base()),
-            [
-                ("⌘N".to_owned(), "new ticket"),
-                ("⌘L".to_owned(), "ask Noyan")
-            ]
-        );
-    }
-
-    /// d0126: each hint is a button that runs its key's action (⌘L opens Noyan, focused).
-    #[test]
-    fn the_hints_run_their_keys_actions() {
-        let actions: Vec<KeyAction> = view("shop-web", &fixtures::base())
-            .hints
-            .iter()
-            .map(|h| h.action)
-            .collect();
-        assert_eq!(actions, [KeyAction::NewTicket, KeyAction::FocusAgentPanel]);
+    fn the_first_ticket_shows_on_an_empty_board_until_answered() {
+        assert!(shows(0, &[]));
+        assert!(!shows(1, &[]), "a project with tickets");
+        assert!(!shows(0, &[Hint::FirstTicket]), "answered: never again");
     }
 
     #[test]
-    fn the_hints_use_the_platforms_keys() {
+    fn the_card_is_prefilled_and_says_whose_plan_it_uses() {
+        let card = first_ticket(Some(Tool::Claude));
+        assert_eq!(card.title, "Tidy the README");
         assert_eq!(
-            hints(&KeyLabels::base(Platform::WinLinux)),
-            [
-                ("Ctrl+N".to_owned(), "new ticket"),
-                ("Ctrl+L".to_owned(), "ask Noyan")
-            ]
+            card.body,
+            "Fix typos and broken links. Change nothing else."
         );
-    }
-
-    /// KEY-08: the hints name the user's keys; New ticket's ⌘N removed leaves its `c`, and with letters off too the hint
-    /// goes.
-    #[test]
-    fn the_hints_use_the_users_keys() {
+        assert_eq!(card.tip, "Small, clear tasks work best.");
         assert_eq!(
-            hints(&fixtures::replaced("focus_agent_panel", None, 0, "⌥L")),
-            [
-                ("⌘N".to_owned(), "new ticket"),
-                ("⌥L".to_owned(), "ask Noyan")
-            ]
+            card.cost,
+            "Takes about 5 minutes and uses your Claude Code plan."
         );
         assert_eq!(
-            hints(&fixtures::removed("new_ticket", None, 0)),
-            [
-                ("c".to_owned(), "new ticket"),
-                ("⌘L".to_owned(), "ask Noyan")
-            ]
+            (card.start.as_str(), card.not_now.as_str()),
+            ("Create & start", "Not now")
         );
-        assert_eq!(hints(&fixtures::letters_off()), hints(&fixtures::base()));
-        let neither = fixtures::with(false, &[("new_ticket", None, 0, None)]);
-        assert_eq!(hints(&neither), [("⌘L".to_owned(), "ask Noyan")]);
         assert_eq!(
-            hints(&fixtures::removed("focus_agent_panel", None, 0)),
-            [("⌘N".to_owned(), "new ticket")]
+            first_ticket(Some(Tool::Copilot)).cost,
+            "Takes about 5 minutes and uses your Copilot plan."
         );
-    }
-
-    #[test]
-    fn the_button_asks_for_a_ticket() {
-        let requests: Vec<ShellRequest> = actions().into_iter().map(|a| a.request).collect();
-        assert_eq!(requests, [ShellRequest::NewTicket]);
+        assert_eq!(
+            first_ticket(None).cost,
+            "Takes about 5 minutes and uses your agent tool\u{2019}s plan."
+        );
     }
 }

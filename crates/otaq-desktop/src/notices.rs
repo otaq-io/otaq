@@ -1106,6 +1106,7 @@ mod tests {
                 .collect(),
             has_projects: true,
             permission_warning_dismissed: false,
+            first_approve: true,
         };
         n.on_trust(&state(true, &["NOTE"]));
         let kinds: Vec<SituationKind> = n.view().banners.iter().map(|b| b.kind).collect();

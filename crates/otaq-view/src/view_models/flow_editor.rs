@@ -1,54 +1,35 @@
-//! The flow editor (T-0471; FED-01, FED-03, FED-04, FED-07; d0115 "One flow editor", d0108, d0087, d0086; *27 → Row ·
-//! One component* `s27-02`, *Row · In onboarding* `s27-03`, *Row · The agent changes it* `s27-04`, *Row · In the
-//! project* `s27-05`, *Row · Changes that wait* `s27-07`): one component for onboarding's Flow step and for changing a
-//! project's flow, in three parts.
-//!
-//! - **Start from** (left): the flow in use (in the project), the four presets, **Made for <project>** (an Ask per
-//!   connected tool, each finished proposal its own entry, never a session count) and **Import a flow…** (a file, or
-//!   another project's flow). Picking one copies it into the draft ([`Pick`]).
-//! - **The flow** (middle): the animation of exactly what is in the draft ("Watch it", folded while a step's details
-//!   are open), the steps as a list (drag to reorder, **+** between them on hover, **Add a stage**), the selected
-//!   step's [`Details`] (Name, Kind, agent, Skill, "A ticket can", Remove stage…) and the legend of the four kinds.
-//!   A step the Project agent changed is tinted with its mark and an Undo (the draft's marks, T-0470); problems from
-//!   the draft's check show on their step and keep Apply off with the reason. The change line says when the draft
-//!   would reach tickets ([`DraftApplies`], FED-08).
-//! - **The Project agent** (right, [`AgentPanel`]): before anything is asked, "Not started", "<tool> · <model> ·
-//!   starts when you ask", Otaq's own hint and fixed chips. **Nothing starts until the user types or clicks a chip**
-//!   (d0087); then it is the project's Project agent on the `flow` skill: its state, tokens and terminal.
+//! The flow editor's parts (T-0471; FED-01, FED-03…FED-07; d0115, d0108, d0087, d0086) that Edit flow on the board
+//! ([`super::flow_board`]) draws a project's draft with: a stage's agent, skill and Fails go to fields ([`Details`]),
+//! the stage's problems and their fixes, the change line and the footer, and every edit the user makes to the draft.
 //!
 //! Every user edit is a [`StageEdit`] the desktop applies to the draft's document with [`edited`] and sends whole as
 //! `flow.draft_update`; Start from, Undo and Undo all are the draft's own edits.
 //!
-//! **Captions** (d0115 "No description field"): a step's caption is its skill's description; Backlog (the fixed
-//! start of every flow), a check by you and Delivery have Otaq's fixed caption for their kind. Otaq's shipped skills are written for agents, so
-//! their captions are Otaq's own words ([`shipped_caption`], Q-B).
+//! **Captions** (d0115 "No description field"): Otaq's shipped skills are written for agents, so their captions are
+//! Otaq's own words ([`shipped_caption`], Q-B).
 //!
-//! **Templates and skills** (T-0472; FED-05, FED-06; d0115 "Stage templates fill the shape, the user supplies the
-//! skill"; `s26-09`, `s27-05`, `s27-06`): a stage the user added has **Start from** templates in its details
-//! ([`Templates`]): Plan, Security check, Visual check, Docs and Blank fill only the name and the kind; Product
-//! spec, Tech spec, Milestone plan, Validate, Review and PR delivery come from Otaq's presets complete, skill included.
-//! An agent stage with no skill offers **Pick a skill…** (the skills the user already has and Otaq's own, from
-//! `skills.list`, searchable, or a name typed by hand) and **Ask the agent to write it** (the Project agent writes it
-//! into the project's checkout, which Otaq doesn't commit); while it writes the field says so with Stop, then shows
-//! the skill tinted, where it was saved, with Open and Undo ([`SkillState`]). A stage whose skill nobody has shows
-//! "You don't have the skill `<name>`" as a warning (the draft's), on its step and in its Skill field; it never keeps
-//! Apply off. A stage's Agent field offers only the agents whose tool has the stage's skill (every agent for one of
-//! Otaq's own); a stage whose agent's tool lacks it shows "GitHub Copilot doesn’t have the skill `/<name>`" on its
-//! step and in its Agent field, only a warning too. Apply stays off while an agent stage has no skill ("Plan needs a
-//! skill"). **Ask the agent to write it** sends nothing (Q441): it puts "Write a skill for the Plan stage: " in the panel's box ([`write_skill_prefill`])
-//! for the user to finish and send.
+//! **Skills** (T-0472; FED-05, FED-06): a stage added from the palette of ready stages ([`StageEdit::AddTemplate`])
+//! comes with its agent and skill, or none for a Blank stage. An agent stage with no skill offers **Pick a skill…**
+//! (the skills the user already has and Otaq's own, from `skills.list`, searchable, or a name typed by hand) and **Ask
+//! the agent to write it** (Noyan's agent writes it into the project's checkout, which Otaq doesn't commit); while it
+//! writes the field says so with Stop, then shows the skill tinted, where it was saved, with Open and Undo
+//! ([`SkillState`]). A stage whose skill nobody has shows "You don't have the skill `<name>`" as a warning (the
+//! draft's); it never keeps Save off. A stage's Agent field offers only the agents whose tool has the stage's skill
+//! (every agent for one of Otaq's own); a stage whose agent's tool lacks it shows "GitHub Copilot doesn’t have the
+//! skill `/<name>`", only a warning too. Save stays off while an agent stage has no skill ("Plan needs a skill"). **Ask
+//! the agent to write it** sends nothing (Q441): it puts "Write a skill for the Plan stage: " in the agent's box
+//! ([`write_skill_prefill`]) for the user to finish and send.
 //!
-//! **Problems that need a pick** (Q426; FED-04, FLW-04's controls): a step whose problem has a fix shows it in its
+//! **Problems that need a pick** (Q426; FED-04, FLW-04's controls): a stage whose problem has a fix shows it in its
 //! details ([`FixRow`]): an import clash's Keep mine (the default) · Take theirs · Add as "<name> (<file>)", the model
-//! menu for an agent whose model isn't listed or whose tool isn't connected. The page keeps the picks ([`Choices`]) until Apply sends them, as the preview did; a picked problem no
-//! longer marks its step, and Apply turns on once none is left.
+//! menu for an agent whose model isn't listed or whose tool isn't connected. The page keeps the picks ([`Choices`])
+//! until Save sends them; a picked problem no longer marks its stage, and Save turns on once none is left.
 //!
-//! **Checks** (T-0529; d0131; `s29-04` "Fails go to"): every check in the steps list says where its fails go ("fails
-//! go to Dev"). A check's details have **Fails go to** ([`FailToField`]): the Agent stages before it, the nearest
-//! marked and picked by default (the flow file leaves `fail_to` out for it). An agent check has one agent, like an
-//! Agent stage: its details have the one **Agent** field ([`AgentField`]) and one **Rounds** limit for the stage
-//! ([`RoundsField`]); two checks are two stages. A `fail_to` that no longer fits, and an agent check with no agent,
-//! are the check's problems: they show in the step's details and keep Apply off until fixed.
+//! **Checks** (T-0529; d0131): a check's details have **Fails go to** ([`FailToField`]): the Agent stages before it,
+//! the nearest marked and picked by default (the flow file leaves `fail_to` out for it). An agent check has one agent,
+//! like an Agent stage: its details have the one **Agent** field ([`AgentField`]); two checks are two stages. A
+//! `fail_to` that no longer fits, and an agent check with no agent, are the check's problems: they show in the stage's
+//! details and keep Save off until fixed.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -56,43 +37,24 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::agents::{Agent, AgentModel, shipped};
 use otaq_core::flow::check::{VALIDATION_ROUNDS, fail_to_message};
 use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark, WrittenSkill};
-use otaq_core::flow::model::{
-    CheckBy, Delivers, Delivery, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption,
-};
-use otaq_core::flow::presets::{SPEC_FIRST_FILE, TEAM_PR_FILE, preset, presets};
+use otaq_core::flow::model::{CheckBy, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use otaq_core::flow::proposal::{
     About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
     ProposalProblem, Source, missing_skill_text, unknown_skill_text,
 };
 use otaq_core::flow::write_skill::saved_text;
-use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow};
-use otaq_core::project_agents::{AgentState, ProjectAgent};
+use otaq_core::project_agents::ProjectAgent;
 use otaq_core::skills::found::{FoundSkill, SkillScope};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::key_labels::KeyLabels;
-use crate::keymap::KeyAction;
-use crate::theme::Status as Legend;
 use crate::view_models::agent_page::{Choice, DEFAULT_MODEL};
 use crate::view_models::agents::{DEFAULT, ListState};
-use crate::view_models::card::tokens_label;
 use crate::view_models::menu::{MenuItem, MenuSearch};
 use crate::view_models::model_picker::{self, Picker};
-use crate::view_models::status::PillView;
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools;
-
-/// Where the editor opened: onboarding's Flow step (Use this flow · Skip, use the default) or the project (Cancel ·
-/// Apply). `FlowEditorFrom` on the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "FlowEditorFrom")]
-pub enum Opened {
-    Onboarding,
-    Project,
-}
 
 /// The editor's three kinds a step can be switched between (Delivery stays the last step's).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -135,12 +97,6 @@ pub enum StageEdit {
         stage: String,
         to: usize,
     },
-    /// **+** after a step, or Add a stage: a new stage after `after` (`None`: first, right after Backlog).
-    Add {
-        #[serde(default)]
-        #[ts(optional)]
-        after: Option<String>,
-    },
     /// Remove stage….
     Remove {
         stage: String,
@@ -149,11 +105,6 @@ pub enum StageEdit {
     Skill {
         stage: String,
         skill: String,
-    },
-    /// A template picked in a new stage's details (FED-05).
-    Template {
-        stage: String,
-        template: Template,
     },
     /// An agent check's Rounds (1–5, d0063).
     Rounds {
@@ -186,107 +137,6 @@ pub enum StageEdit {
         after: Option<String>,
         template: String,
     },
-}
-
-/// The templates of a new stage's details (FED-05, `s26-09`, `s27-05`). `FlowEditorTemplate` on the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "FlowEditorTemplate")]
-pub enum Template {
-    Plan,
-    Security,
-    Visual,
-    Docs,
-    Blank,
-    ProductSpec,
-    TechSpec,
-    MilestonePlan,
-    Validate,
-    Review,
-    PrDelivery,
-}
-
-impl Template {
-    /// "name and kind; no skill".
-    pub const PLAIN: [Self; 5] = [
-        Self::Plan,
-        Self::Security,
-        Self::Visual,
-        Self::Docs,
-        Self::Blank,
-    ];
-    /// "From Otaq's presets · complete, skill included".
-    pub const FROM_PRESETS: [Self; 6] = [
-        Self::ProductSpec,
-        Self::TechSpec,
-        Self::MilestonePlan,
-        Self::Validate,
-        Self::Review,
-        Self::PrDelivery,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Plan => "Plan",
-            Self::Security => "Security check",
-            Self::Visual => "Visual check",
-            Self::Docs => "Docs",
-            Self::Blank => "Blank",
-            Self::ProductSpec => "Product spec",
-            Self::TechSpec => "Tech spec",
-            Self::MilestonePlan => "Milestone plan",
-            Self::Validate => "Validate",
-            Self::Review => "Review",
-            Self::PrDelivery => "PR delivery",
-        }
-    }
-
-    pub fn icon(self) -> IconName {
-        match self {
-            Self::Plan => IconName::ListChecks,
-            Self::Security | Self::Validate => IconName::ShieldCheck,
-            Self::Visual => IconName::ScanEye,
-            Self::Docs => IconName::BookOpen,
-            Self::Blank => IconName::SquareDashed,
-            Self::ProductSpec | Self::TechSpec | Self::MilestonePlan => IconName::Bot,
-            Self::Review => IconName::UserCheck,
-            Self::PrDelivery => IconName::GitPullRequest,
-        }
-    }
-
-    /// A plain template's stage name and kind (Q-A: the label is the name; Security and Visual check are agent
-    /// checks); `None` for one from the presets.
-    fn shape(self) -> Option<(&'static str, EditorKind)> {
-        Some(match self {
-            Self::Plan => ("Plan", EditorKind::Works),
-            Self::Security => ("Security check", EditorKind::AgentChecks),
-            Self::Visual => ("Visual check", EditorKind::AgentChecks),
-            Self::Docs => ("Docs", EditorKind::Works),
-            Self::Blank => (NEW_STAGE, EditorKind::Works),
-            _ => return None,
-        })
-    }
-
-    /// The shipped preset and stage a preset template copies: Product spec, Tech spec and Milestone plan from Spec
-    /// first, Validate and Review from Otaq default. PR delivery is Team PR's delivery, no stage ([`edited`]).
-    fn preset_source(self) -> Option<(&'static str, &'static str)> {
-        Some(match self {
-            Self::ProductSpec => (SPEC_FIRST_FILE, "product-spec"),
-            Self::TechSpec => (SPEC_FIRST_FILE, "tech-spec"),
-            Self::MilestonePlan => (SPEC_FIRST_FILE, "milestone-plan"),
-            Self::Validate => (otaq_core::naming::DEFAULT_FLOW_FILE, "validate"),
-            Self::Review => (otaq_core::naming::DEFAULT_FLOW_FILE, "review"),
-            _ => return None,
-        })
-    }
-
-    /// The preset's stage and the preset's own agents (to bring the ones the user doesn't have).
-    fn preset_stage(self) -> Option<(Stage, Vec<FlowAgent>)> {
-        let (file, id) = self.preset_source()?;
-        let read = preset(file)?.read();
-        let stage = read.flow.stage(id)?.clone();
-        Some((stage, read.agents))
-    }
 }
 
 /// What picking a Start from entry copies into the draft. `FlowEditorPick` on the page.
@@ -410,25 +260,14 @@ pub const CHECKS_SKILL: &str = "validate";
 pub const CHECK_ROUNDS: u32 = 3;
 pub const NEW_STAGE: &str = "New stage";
 
-/// The id the Backlog step row carries: the fixed start of every flow, not a stage.
-pub const READY_ID: &str = "ready";
 /// The fixed start of every flow, as its step reads.
 pub const BACKLOG: &str = "Backlog";
 /// The id the delivery's step row carries, last: a setting of the flow, not a stage.
 pub const DELIVERY_ID: &str = otaq_core::agents::facts::DELIVERY_STEP_ID;
 
-/// The panel's line before anything was asked.
-pub const STARTS_WHEN_YOU_ASK: &str = "\u{b7} starts when you ask";
-pub const PANEL_TITLE: &str = "Noyan \u{b7} the flow";
-pub const NOT_STARTED: &str = "Not started";
-pub const TYPING_GOES: &str = "Typing goes to the agent";
-
 /// The step's fixed captions (`s27-03`, `s27-05`).
 pub const READY_CAPTION: &str =
     "Every flow starts here. Start a ticket and it goes into the first stage.";
-pub const YOU_CHECK_CAPTION: &str =
-    "You look at the change and approve it, or send it back with a note.";
-pub const MERGE_CAPTION: &str = "Approved work is merged into main. The ticket is done.";
 pub const PR_CAPTION: &str = "A pull request opens on GitHub; your team reviews it there.";
 
 /// Shipped skills' captions in Otaq's words (Q-B): their SKILL.md descriptions are written for the agent.
@@ -459,91 +298,6 @@ pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
     })
 }
 
-/// A preset's line in Start from (`s27-03`), by its file.
-fn preset_line(file: &str) -> &'static str {
-    match file {
-        "solo-autopilot.yaml" => "No review; merges when checks pass",
-        "spec-first.yaml" => "Plan on the board, then build",
-        "team-pr.yaml" => "Your team reviews the PR",
-        _ => "Agents build and check; you review",
-    }
-}
-
-/// A badge beside an entry's name: "In use" (approved colours) or "New" (a tool's proposal).
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorBadge")]
-pub struct Badge {
-    pub label: &'static str,
-    pub pill: PillView,
-}
-
-/// One entry of Start from. `FlowEditorEntry` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorEntry")]
-pub struct Entry {
-    /// The React key: `in-use`, the preset's file, `proposal-3`.
-    pub key: String,
-    /// "shop-web’s flow", "Otaq default", "By Claude Code".
-    pub name: String,
-    pub badge: Option<Badge>,
-    /// Its steps, Backlog counted.
-    pub count: usize,
-    pub line: String,
-    /// What the draft holds now: outlined.
-    pub chosen: bool,
-    pub avatar: Option<ToolAvatarView>,
-    pub pick: Pick,
-}
-
-/// A connected tool's row under Made for <project>. `FlowEditorToolRow` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorToolRow")]
-pub struct ToolRow {
-    #[ts(type = "string")]
-    pub tool: Tool,
-    pub avatar: ToolAvatarView,
-    pub name: &'static str,
-    /// "Connected", "Connected · not asked", "Working", "Plan limit", "Not signed in", "Ended without a proposal".
-    pub status: String,
-    /// "Ask"; `None` while it works or can't be asked.
-    pub ask: Option<&'static str>,
-}
-
-/// Made for <project> (FED-03). `FlowEditorMadeFor` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorMadeFor")]
-pub struct MadeFor {
-    /// "MADE FOR SHOP-WEB".
-    pub title: String,
-    pub text: &'static str,
-    /// Each finished proposal: "By Claude Code · From your Claude Code sessions".
-    pub entries: Vec<Entry>,
-    pub tools: Vec<ToolRow>,
-}
-
-/// Import a flow…: a file, or another project's flow. `FlowEditorImport` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorImport")]
-pub struct Import {
-    pub label: &'static str,
-    /// `file`, then a header and `project:<KEY>` per other project.
-    pub menu: Vec<MenuItem>,
-    /// The open dialog's title.
-    pub file_title: &'static str,
-}
-
-/// Start from (left). `FlowEditorStartFrom` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorStartFrom")]
-pub struct StartFrom {
-    pub title: &'static str,
-    /// The flow in use (in the project), then the presets.
-    pub entries: Vec<Entry>,
-    pub made_for: MadeFor,
-    pub import: Import,
-    pub note: &'static str,
-}
-
 /// A step's mark from the Project agent: "Added", "New", "Changed", "Moved", with its why line and Undo.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorMark")]
@@ -552,80 +306,6 @@ pub struct MarkView {
     /// "Changed by Checkout slowness: From 41 /security-review runs in shop-web" (hover).
     pub why: String,
     pub undo: &'static str,
-}
-
-/// One tile of the animation and its caption. `FlowEditorTile` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorTile")]
-pub struct Tile {
-    pub id: String,
-    pub name: String,
-    pub icon: IconName,
-    /// "Waits", "Agent", "Check", "You", "Delivery" (long flows); "An agent works"… (five steps or fewer).
-    pub kind: String,
-    /// What the walking ticket says there: "Waiting", "Working · Developer", "Your check", "PR open".
-    pub ticket: String,
-    pub tone: PillView,
-    /// "Dev · an agent works".
-    pub caption_title: String,
-    /// "New step" for a step the agent added.
-    pub caption_mark: Option<&'static str>,
-    pub caption: Option<String>,
-}
-
-/// One step of the list. `FlowEditorStep` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorStep")]
-pub struct StepRow {
-    /// The stage's id; [`READY_ID`] for Backlog.
-    pub id: String,
-    pub name: String,
-    pub icon: IconName,
-    /// "Waits", "Agent works", "Agent checks", "You check", "Delivery · PR".
-    pub kind: String,
-    /// The agent's avatar and name, "You" for a check by you, "PR" / "merge" for the Delivery.
-    pub avatar: Option<ToolAvatarView>,
-    pub who: Option<String>,
-    pub mark: Option<MarkView>,
-    /// A stage the flow in use doesn't have, added in the editor (a column's Add a stage after <stage>, **+**, Add a
-    /// stage): drawn dashed until it applies (FED-09, `s27-05`). A stage the agent added has its mark instead.
-    pub added: bool,
-    /// Its skill the Project agent wrote: "New", tinted, with Undo (FED-06, `s27-06`).
-    pub written: Option<MarkView>,
-    /// A check's "fails go to Dev" under its kind (d0131).
-    pub fails_to: Option<String>,
-    /// Its problem from the check, in the error colour ("needs a skill").
-    pub problem: Option<String>,
-    /// "You don't have the skill `team-validate`", amber: only a warning, Apply still works.
-    pub warning: Option<String>,
-    pub selected: bool,
-    /// Backlog and the Delivery stay where they are.
-    pub draggable: bool,
-    /// Backlog isn't a stage: no details.
-    pub selectable: bool,
-    /// The caption on hover.
-    pub caption: Option<String>,
-    /// What **+** below this step sends as `add`'s `after` (`None` for Backlog: first). `None` after the
-    /// Delivery, which nothing follows ([`StepRow::can_add_after`] false).
-    pub add_after: Option<String>,
-    pub can_add_after: bool,
-}
-
-/// One kind of the legend: "An agent works · writes code, asks you questions".
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorLegendRow")]
-pub struct LegendRow {
-    pub icon: IconName,
-    pub name: &'static str,
-    pub text: &'static str,
-}
-
-/// A segment of the Kind control.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorKindOption")]
-pub struct KindOption {
-    pub kind: EditorKind,
-    pub label: &'static str,
 }
 
 /// The agent field: who runs it, the picker, and the hint.
@@ -644,17 +324,6 @@ pub struct AgentField {
     /// a warning, Apply still works.
     pub warning: Option<String>,
     pub hint: &'static str,
-}
-
-/// An agent check's Rounds: one limit for the stage. `FlowEditorRounds` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorRounds")]
-pub struct RoundsField {
-    pub label: &'static str,
-    pub value: String,
-    /// 1–5, the current one checked; the id is the number.
-    pub items: Vec<MenuItem>,
-    pub note: &'static str,
 }
 
 /// A check's Fails go to (d0131): the Agent stages before it under a header, "nearest" on the nearest, the stage its
@@ -736,77 +405,14 @@ pub struct SkillField {
     pub picker: SkillPicker,
 }
 
-/// One template of a new stage's Start from. `FlowEditorTemplateChip` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorTemplateChip")]
-pub struct TemplateChip {
-    pub template: Template,
-    pub icon: IconName,
-    pub label: &'static str,
-    pub chosen: bool,
-}
-
-/// A new stage's Start from (FED-05, `s27-05`): "New stage after Product spec", the plain templates and the presets'
-/// ones. `FlowEditorTemplates` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorTemplates")]
-pub struct Templates {
-    /// "New stage after Product spec".
-    pub title: String,
-    pub label: &'static str,
-    /// "name and kind; no skill".
-    pub plain_note: &'static str,
-    pub plain: Vec<TemplateChip>,
-    /// "From Otaq’s presets".
-    pub presets_label: String,
-    /// "complete, skill included".
-    pub presets_note: &'static str,
-    pub presets: Vec<TemplateChip>,
-}
-
-/// One line of "A ticket can".
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorCanRow")]
-pub struct CanRow {
-    /// `skip`, an agent's name, or `back` (fixed: the flow sends failed checks here).
-    pub option: String,
-    pub label: String,
-    pub on: bool,
-    pub enabled: bool,
-    /// Said next to the mark: on a check's skip, once it is on, [`DELIVERED_WITHOUT_THIS_CHECK`].
-    pub note: Option<&'static str>,
-}
-
-/// Next to a check's skip mark: the Delivery does what the flow says (an automatic one stays automatic), so a ticket
-/// skipping the check, or moved past it, is delivered without it.
-pub const DELIVERED_WITHOUT_THIS_CHECK: &str =
-    "A ticket that skips it, or is moved past it, is delivered without this check.";
-
-/// The selected step's details (FED-04). `FlowEditorDetails` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorDetails")]
+/// The parts of a stage's details (FED-04) the board's editor takes over: its agent, skill and fails go to fields, its
+/// problem, the picks it needs and its mark.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Details {
-    pub stage: String,
-    /// "Dev".
-    pub title: String,
-    pub icon: IconName,
-    pub remove: Option<&'static str>,
-    pub name_label: &'static str,
-    pub name: String,
-    pub kind_label: &'static str,
-    /// The three kinds; empty for the Delivery (its kind is fixed, [`Details::fixed_kind`]).
-    pub kinds: Vec<KindOption>,
-    pub kind: Option<EditorKind>,
-    pub fixed_kind: Option<&'static str>,
-    /// A stage the user added: its templates (FED-05).
-    pub templates: Option<Templates>,
-    /// The agent that runs the stage (an Agent stage's, an agent check's, a Delivery's that can open a PR).
+    /// The agent that runs the stage (an Agent stage's, an agent check's).
     pub agent: Option<AgentField>,
     pub skill: Option<SkillField>,
-    pub rounds: Option<RoundsField>,
     pub fail_to: Option<FailToField>,
-    pub can_label: &'static str,
-    pub can: Vec<CanRow>,
     /// Its problem that no pick fixes (a problem with a fix shows in [`Details::fixes`]).
     pub problem: Option<String>,
     /// The picks its problems and its agents' import clashes need (Q426).
@@ -814,185 +420,47 @@ pub struct Details {
     pub mark: Option<MarkView>,
 }
 
-/// The flow (middle). `FlowEditorFlow` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorFlow")]
-pub struct FlowPart {
-    /// "shop-web’s flow".
-    pub title: String,
-    /// "7 steps · in use", "8 steps · 1 change, not applied", "5 steps · starting from Otaq default".
-    pub summary: String,
-    pub watch: &'static str,
-    /// A step's details are open: the animation folds to one line.
-    pub folded: bool,
-    pub fold_note: &'static str,
-    /// The walking ticket's key, from the project's own key: "SHOP-1", "DEMO-1".
-    pub ticket_key: String,
-    pub tiles: Vec<Tile>,
-    pub steps: Vec<StepRow>,
-    pub add_stage: &'static str,
-    /// What Add a stage sends as `after`: the stage before the Delivery.
-    pub add_stage_after: Option<String>,
-    pub hint: &'static str,
-    pub legend_title: &'static str,
-    pub legend: Vec<LegendRow>,
-    pub details: Option<Details>,
-    /// Problems about the whole flow or an agent no step runs (a stage's, and its agents', show on it).
-    pub problems: Vec<String>,
-    /// The picks of those (an agent no step runs: its clash, its model, its skill's folder).
-    pub fixes: Vec<FixRow>,
-    /// When the draft would reach tickets (FED-08); `None` with nothing to apply and in onboarding.
-    pub change_line: Option<String>,
-    /// "Undo all" while the agent's changes can be taken back.
-    pub undo_all: Option<&'static str>,
-}
-
-/// A fixed chip in the agent panel: the words it sends, or the tool picker. `FlowEditorChipAction` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(rename = "FlowEditorChipAction")]
-pub enum ChipAction {
-    /// The chip's words are the first message (asking).
-    Send { message: String },
-    /// "Make one for shop-web…": which tool should look.
-    ChooseTool,
-    /// "Ask Claude Code": the only connected tool.
-    Ask {
-        #[ts(type = "string")]
-        tool: Tool,
-    },
-    /// "Write the skill": as the stage's Ask the agent to write it (FED-06): `prefill` goes in the box, nothing is sent
-    /// (Q441).
-    WriteSkill { stage: String, prefill: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorChip")]
-pub struct Chip {
-    pub label: String,
-    pub action: ChipAction,
-}
-
-/// "Which tool should read how you work?" (`s27-03`). `FlowEditorChooser` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorChooser")]
-pub struct Chooser {
-    pub title: &'static str,
-    pub text: &'static str,
-    pub tools: Vec<ChooserTool>,
-    /// "Both, and compare · Two flows under Made for shop-web"; `None` in the project (Q-A).
-    pub both: Option<(String, String)>,
-    pub foot: &'static str,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorChooserTool")]
-pub struct ChooserTool {
-    #[ts(type = "string")]
-    pub tool: Tool,
-    pub avatar: ToolAvatarView,
-    pub name: &'static str,
-    pub detail: &'static str,
-}
-
-/// The agent panel (FED-07). `FlowEditorAgent` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorAgent")]
-pub struct AgentPanel {
-    pub title: &'static str,
-    pub pill: PillView,
-    pub avatar: Option<ToolAvatarView>,
-    /// "Claude Code · sonnet".
-    pub line: String,
-    /// "· starts when you ask", "· 12k".
-    pub note: String,
-    /// The running agent's id; `None` before anything was asked.
-    pub agent: Option<String>,
-    /// Its session, which the terminal attaches to.
-    pub session: Option<String>,
-    /// Otaq's own hint (paragraphs), before anything is asked.
-    pub hint: Vec<String>,
-    pub chips: Vec<Chip>,
-    pub chooser: Option<Chooser>,
-    pub foot: &'static str,
-    pub keys: Option<String>,
-    pub keys_label: &'static str,
-}
-
 /// The editor's buttons. `FlowEditorFooter` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorFooter")]
 pub struct Footer {
-    /// "Cancel" (drops the draft), "Skip, use the default" (onboarding).
+    /// "Cancel": drops the draft.
     pub cancel: &'static str,
-    /// "No changes", "Apply to shop-web", "Use this flow".
+    /// "No changes", "Apply to shop-web".
     pub apply: String,
     pub apply_enabled: bool,
     /// Why Apply is off: the first problem.
     pub reason: Option<String>,
 }
 
-/// Everything the editor draws. `FlowEditorView` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorView")]
-pub struct View {
-    pub project: String,
-    pub from: Opened,
-    /// The draft's proposal (Apply takes it); `0` while it is the flow as it will be.
-    pub proposal: u32,
-    pub start_from: StartFrom,
-    pub flow: FlowPart,
-    pub agent: AgentPanel,
-    pub footer: Footer,
-    /// The picks as Apply sends them: every clash with its pick (Keep mine by default), only the models
-    /// still asked for.
-    pub choices: Choices,
-}
-
-/// What [`view`] reads.
+/// What the board's editor reads of a project's draft ([`super::flow_board`]).
 pub struct Facts<'a> {
     pub project: &'a str,
     pub project_name: &'a str,
-    pub opened: Opened,
     /// The draft (`flow.draft`).
     pub proposal: &'a Proposal,
     pub marks: &'a [StageMark],
-    pub can_undo_all: bool,
     pub swap: bool,
     pub applies: &'a DraftApplies,
     /// The draft's document, read.
     pub file: &'a FlowFile,
-    /// The flow as it will be (the In use entry's count).
+    /// The flow in use.
     pub in_use: &'a FlowFile,
     /// Every stored agent.
     pub stored: &'a [Agent],
     pub tools: &'a Tools,
-    /// The project's tools and open proposals (`onboarding.flow_setup`).
-    pub setup: &'a FlowSetup,
-    /// The other projects (key, name), for Import a flow… → from a project.
-    pub projects: &'a [(String, String)],
     /// The skills the user already has and Otaq's own (`skills.list` for the project): Pick a skill… and captions.
     pub skills: &'a [FoundSkill],
     /// The stages whose skill the Project agent is writing, and the skills it wrote (the draft's).
     pub writing: &'a [SkillWriting],
     pub written: &'a [WrittenSkill],
     pub selected: Option<&'a str>,
-    /// The panel's agent, once one was asked.
+    /// The agent drafting a suggestion, once one was asked.
     pub agent: Option<&'a ProjectAgent>,
-    /// The agent Noyan uses: what the first message starts.
+    /// The agent Noyan uses.
     pub new_agent: Option<&'a Agent>,
-    pub keys: &'a KeyLabels,
     /// The user's picks so far (the page's, until Apply).
     pub choices: &'a Choices,
-}
-
-fn plural(n: usize, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
-}
-
-/// The step count Start from and the summary show: Backlog, the stages and the delivery.
-fn steps(file: &FlowFile) -> usize {
-    file.flow.stages.len() + 2
 }
 
 pub(crate) fn kind_icon(stage: &Stage) -> IconName {
@@ -1003,81 +471,11 @@ pub(crate) fn kind_icon(stage: &Stage) -> IconName {
     }
 }
 
-/// The delivery's icon: a PR, or a merge.
-fn delivery_icon(delivery: &Delivery) -> IconName {
-    match delivery.delivers {
-        Delivers::Pr => IconName::GitPullRequest,
-        _ => IconName::GitMerge,
-    }
-}
-
 pub(crate) fn editor_kind(stage: &Stage) -> Option<EditorKind> {
     match stage.kind {
         StageKind::Agent => Some(EditorKind::Works),
         StageKind::Check { by: CheckBy::Agent } => Some(EditorKind::AgentChecks),
         StageKind::Check { by: CheckBy::You } => Some(EditorKind::YouCheck),
-    }
-}
-
-fn kind_label(kind: EditorKind) -> &'static str {
-    match kind {
-        EditorKind::Works => "An agent works",
-        EditorKind::AgentChecks => "An agent checks",
-        EditorKind::YouCheck => "You check",
-    }
-}
-
-/// "PR", "merge" or "merge or PR": what the delivery does.
-fn delivers_word(delivery: &Delivery) -> &'static str {
-    match delivery.delivers {
-        Delivers::Pr => "PR",
-        Delivers::Local => "merge",
-        Delivers::Either => "merge or PR",
-    }
-}
-
-/// The list's kind word: "Agent works", "Agent checks", "You check".
-fn list_kind(stage: &Stage) -> String {
-    match stage.kind {
-        StageKind::Agent => "Agent works".to_owned(),
-        StageKind::Check { by: CheckBy::Agent } => "Agent checks".to_owned(),
-        StageKind::Check { by: CheckBy::You } => "You check".to_owned(),
-    }
-}
-
-/// The caption title's kind: "an agent works", "you check".
-fn caption_kind(stage: &Stage) -> &'static str {
-    match stage.kind {
-        StageKind::Agent => "an agent works",
-        StageKind::Check { by: CheckBy::Agent } => "an agent checks",
-        StageKind::Check { by: CheckBy::You } => "you check",
-    }
-}
-
-/// The delivery's caption: Otaq's fixed one for a merge or a PR.
-fn delivery_caption(delivery: &Delivery) -> &'static str {
-    match delivery.delivers {
-        Delivers::Pr => PR_CAPTION,
-        _ => MERGE_CAPTION,
-    }
-}
-
-/// A step's caption (d0115): its skill's description, Otaq's fixed caption for a check by you.
-fn caption(file: &FlowFile, stage: &Stage, skills: &[FoundSkill]) -> Option<String> {
-    match stage.kind {
-        StageKind::Check { by: CheckBy::You } => Some(YOU_CHECK_CAPTION.to_owned()),
-        _ => {
-            let skill = stage.skill.as_deref()?;
-            // A name that matches one of Otaq's own skills always means Otaq's skill: Otaq's own words for it.
-            skills
-                .iter()
-                .find(|s| !s.otaq && s.name == skill)
-                .and_then(|s| s.description.clone())
-                .or_else(|| {
-                    let back = file.flow.fail_to_of(stage).map(|s| s.name.as_str());
-                    shipped_caption(skill, back)
-                })
-        }
     }
 }
 
@@ -1133,11 +531,6 @@ pub(crate) fn the_agent(stage: &Stage) -> Option<&String> {
     stage.agent.as_ref()
 }
 
-/// "Security reviewer": who runs the stage.
-fn who_runs(stage: &Stage) -> Option<String> {
-    the_agent(stage).cloned()
-}
-
 /// Sets the agent [`the_agent`] reads.
 fn set_agent(stage: &mut Stage, agent: Option<String>) {
     stage.agent = agent;
@@ -1156,15 +549,6 @@ fn shows_on(file: &FlowFile, problem: &ProposalProblem, stage: &Stage) -> bool {
     match &problem.about {
         About::Stage { id, .. } => *id == stage.id,
         About::Agent { name } => agent_stages(file, name).any(|s| s.id == stage.id),
-        About::Flow => false,
-    }
-}
-
-/// A problem shows on a step (else under the flow).
-fn on_a_step(file: &FlowFile, problem: &ProposalProblem) -> bool {
-    match &problem.about {
-        About::Stage { .. } => true,
-        About::Agent { name } => agent_stages(file, name).next().is_some(),
         About::Flow => false,
     }
 }
@@ -1398,217 +782,6 @@ pub(crate) fn choices_kept(f: &Facts) -> Choices {
     kept
 }
 
-/// What the walking ticket says in a stage, and its colour.
-fn ticket_state(stage: &Stage, long: bool) -> (String, PillView) {
-    let who = |word: &str| match (long, who_runs(stage)) {
-        (true, Some(agent)) => format!("{word} \u{b7} {agent}"),
-        _ => word.to_owned(),
-    };
-    match stage.kind {
-        StageKind::Agent if stage.skill.as_deref() == Some("product-spec") => (
-            "Asks you a question".to_owned(),
-            PillView::legend(Legend::AsksYou, None),
-        ),
-        StageKind::Agent => (who("Working"), PillView::legend(Legend::AgentWorking, None)),
-        StageKind::Check { by: CheckBy::Agent } => (
-            who("Checking"),
-            PillView::legend(Legend::AgentWorking, None),
-        ),
-        StageKind::Check { by: CheckBy::You } => (
-            if long {
-                "Your check \u{b7} You".to_owned()
-            } else {
-                "Your check".to_owned()
-            },
-            PillView::legend(Legend::ReadyForReview, None),
-        ),
-    }
-}
-
-/// The animation's tile kind: long words while the flow has five steps or fewer (`s27-03`), short ones beyond.
-fn tile_kind(stage: &Stage, long: bool) -> String {
-    match (stage.kind, long) {
-        (StageKind::Agent, true) => "An agent works",
-        (StageKind::Agent, false) => "Agent",
-        (StageKind::Check { by: CheckBy::Agent }, true) => "An agent checks",
-        (StageKind::Check { by: CheckBy::Agent }, false) => "Check",
-        (StageKind::Check { by: CheckBy::You }, true) => "You check",
-        (StageKind::Check { by: CheckBy::You }, false) => "You",
-    }
-    .to_owned()
-}
-
-fn tiles(f: &Facts) -> Vec<Tile> {
-    let long = steps(f.file) <= 5;
-    let ready = Tile {
-        id: READY_ID.to_owned(),
-        name: BACKLOG.to_owned(),
-        icon: IconName::CircleDashed,
-        kind: if long {
-            "Every flow starts here"
-        } else {
-            "Start"
-        }
-        .to_owned(),
-        ticket: "Not started".to_owned(),
-        tone: PillView::legend(Legend::Queued, None),
-        caption_title: "Backlog \u{b7} every flow starts here".to_owned(),
-        caption_mark: None,
-        caption: Some(READY_CAPTION.to_owned()),
-    };
-    let stages = f.file.flow.stages.iter().map(|stage| {
-        let (ticket, tone) = ticket_state(stage, long);
-        let added =
-            mark_of(f.marks, &stage.id).is_some_and(|m| matches!(m.mark, Mark::Added | Mark::New));
-        Tile {
-            id: stage.id.clone(),
-            name: stage.name.clone(),
-            icon: kind_icon(stage),
-            kind: tile_kind(stage, long),
-            ticket,
-            tone,
-            caption_title: format!("{} \u{b7} {}", stage.name, caption_kind(stage)),
-            caption_mark: added.then_some("New step \u{b7}"),
-            caption: caption(f.file, stage, f.skills),
-        }
-    });
-    // The delivery, last: how the work leaves the flow ("Merged", "PR open").
-    let delivery = &f.file.flow.delivery;
-    let delivered = Tile {
-        id: DELIVERY_ID.to_owned(),
-        name: DELIVERY_NAME.to_owned(),
-        icon: delivery_icon(delivery),
-        kind: DELIVERY_NAME.to_owned(),
-        ticket: match delivery.delivers {
-            Delivers::Pr => "PR open",
-            _ => "Merged",
-        }
-        .to_owned(),
-        tone: PillView::legend(Legend::Approved, None),
-        caption_title: format!("{DELIVERY_NAME} \u{b7} {}", delivery.line()),
-        caption_mark: None,
-        caption: Some(delivery_caption(delivery).to_owned()),
-    };
-    std::iter::once(ready)
-        .chain(stages)
-        .chain(std::iter::once(delivered))
-        .collect()
-}
-
-/// The delivery's name as its step and tile show it.
-pub const DELIVERY_NAME: &str = "Delivery";
-
-/// The steps: Backlog, the stages (**+** after each adds a stage there), then the delivery, a setting of the
-/// flow rather than a stage: it can't be selected, moved or removed, and nothing is added after it.
-fn steps_list(f: &Facts) -> Vec<StepRow> {
-    let stages = &f.file.flow.stages;
-    let ready = StepRow {
-        id: READY_ID.to_owned(),
-        name: BACKLOG.to_owned(),
-        icon: IconName::CircleDashed,
-        kind: "Start".to_owned(),
-        avatar: None,
-        who: None,
-        mark: None,
-        added: false,
-        written: None,
-        fails_to: None,
-        problem: None,
-        warning: None,
-        selected: false,
-        draggable: false,
-        selectable: false,
-        caption: Some(READY_CAPTION.to_owned()),
-        add_after: None,
-        can_add_after: true,
-    };
-    let rows = stages.iter().map(|stage| {
-        let (avatar, who) = match stage.kind {
-            StageKind::Check { by: CheckBy::You } => (None, Some("You".to_owned())),
-            // "needs a skill" takes the agent's place (`s27-05`).
-            _ if stage.needs_skill() => (None, None),
-            _ => match the_agent(stage) {
-                Some(name) => (agent_on(name, f).0, Some(name.clone())),
-                None => (None, None),
-            },
-        };
-        let problem = step_problem(f, stage);
-        StepRow {
-            id: stage.id.clone(),
-            name: stage.name.clone(),
-            icon: kind_icon(stage),
-            kind: list_kind(stage),
-            avatar,
-            who,
-            mark: mark_of(f.marks, &stage.id).map(mark_view),
-            added: mark_of(f.marks, &stage.id).is_none()
-                && f.in_use.flow.stage(&stage.id).is_none(),
-            written: written_of(f, stage).map(written_view),
-            fails_to: fails_to(&f.file.flow, stage).map(|t| format!("fails go to {}", t.name)),
-            problem,
-            warning: unknown_skill(f, stage).or_else(|| missing_skill(f, stage)),
-            selected: f.selected == Some(stage.id.as_str()),
-            draggable: true,
-            selectable: true,
-            caption: caption(f.file, stage, f.skills),
-            add_after: Some(stage.id.clone()),
-            can_add_after: true,
-        }
-    });
-    let delivery = &f.file.flow.delivery;
-    // The delivery's agent (it writes the message in Review and opens the PR); a Local merge may name none.
-    let opener = delivery.agent.as_ref();
-    let delivered = StepRow {
-        id: DELIVERY_ID.to_owned(),
-        name: DELIVERY_NAME.to_owned(),
-        icon: delivery_icon(delivery),
-        kind: delivery.line(),
-        avatar: opener.and_then(|name| agent_on(name, f).0),
-        who: Some(opener.map_or_else(|| delivers_word(delivery).to_owned(), Clone::clone)),
-        mark: None,
-        added: false,
-        written: None,
-        fails_to: None,
-        problem: None,
-        warning: None,
-        selected: false,
-        draggable: false,
-        selectable: false,
-        caption: Some(delivery_caption(delivery).to_owned()),
-        add_after: None,
-        can_add_after: false,
-    };
-    std::iter::once(ready)
-        .chain(rows)
-        .chain(std::iter::once(delivered))
-        .collect()
-}
-
-fn legend() -> Vec<LegendRow> {
-    vec![
-        LegendRow {
-            icon: IconName::Bot,
-            name: "An agent works",
-            text: "writes code, asks you questions",
-        },
-        LegendRow {
-            icon: IconName::ShieldCheck,
-            name: "An agent checks",
-            text: "tests, security; sends it back",
-        },
-        LegendRow {
-            icon: IconName::UserCheck,
-            name: "You check",
-            text: "approve or send back",
-        },
-        LegendRow {
-            icon: IconName::GitMerge,
-            name: "Delivery",
-            text: "merge, or open a PR",
-        },
-    ]
-}
-
 /// The agents the field offers: the stored ones, then the ones only the draft brings ("new"), each only when its tool
 /// has the stage's skill ([`offers`]). The current agent stays listed, checked, even when its tool doesn't have it:
 /// the field and the step say so ([`missing_skill`]).
@@ -1715,38 +888,6 @@ pub(crate) fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
     })
 }
 
-/// "A ticket can": skipping it, and (fixed) coming back here when a later check fails. A stage lists no agents: a
-/// ticket may pick any agent whose tool has the stage's skill.
-fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
-    let mut rows = Vec::new();
-    let on = stage.options.contains(&StageOption::Skip);
-    let check = stage.is_agent_check() || stage.is_human_check();
-    rows.push(CanRow {
-        option: StageOption::SKIP.to_owned(),
-        label: "skip it".to_owned(),
-        on,
-        enabled: true,
-        note: (on && check).then_some(DELIVERED_WITHOUT_THIS_CHECK),
-    });
-    if stage.is_agent_stage() {
-        let later = f.file.flow.position(&stage.id).map_or(0, |p| p + 1);
-        let back = f.file.flow.stages[later.min(f.file.flow.stages.len())..]
-            .iter()
-            .filter(|s| matches!(s.kind, StageKind::Check { .. }))
-            .any(|s| f.file.flow.fail_to_of(s).is_some_and(|b| b.id == stage.id));
-        if back {
-            rows.push(CanRow {
-                option: "back".to_owned(),
-                label: "come back here when a later check fails".to_owned(),
-                on: true,
-                enabled: false,
-                note: None,
-            });
-        }
-    }
-    rows
-}
-
 /// Where a check's fails go, as the step and its field show it (d0131): the stage its `fail_to` names (even one that
 /// doesn't fit: its problem says why), else the nearest Agent stage before it. `None` for a stage that isn't a check.
 pub(crate) fn fails_to<'a>(flow: &'a Flow, stage: &Stage) -> Option<&'a Stage> {
@@ -1798,22 +939,6 @@ pub(crate) fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
     })
 }
 
-/// An agent check's Rounds (d0063).
-fn rounds_field(stage: &Stage) -> Option<RoundsField> {
-    if !stage.is_agent_check() {
-        return None;
-    }
-    let rounds = stage.rounds.unwrap_or(CHECK_ROUNDS);
-    Some(RoundsField {
-        label: "Rounds",
-        value: rounds.to_string(),
-        items: VALIDATION_ROUNDS
-            .map(|n| MenuItem::new(n.to_string(), n.to_string()).checked(n == rounds))
-            .collect(),
-        note: "for the stage, whichever fails",
-    })
-}
-
 /// A step's "needs a skill" (`s27-05`).
 pub const NEEDS_A_SKILL: &str = "needs a skill";
 
@@ -1827,14 +952,6 @@ pub(crate) fn written_of<'f>(f: &'f Facts, stage: &Stage) -> Option<&'f WrittenS
     f.written
         .iter()
         .find(|w| w.stage_id == stage.id && stage.skill.as_deref() == Some(w.skill.as_str()))
-}
-
-pub(crate) fn written_view(written: &WrittenSkill) -> MarkView {
-    MarkView {
-        label: "New",
-        why: format!("Skill written by {}", written.by),
-        undo: "Undo",
-    }
 }
 
 /// What Ask the agent to write it and the Write the skill chip put in the agent's box (FED-06, Q441): "Write a skill
@@ -1975,78 +1092,11 @@ pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
     })
 }
 
-/// A new stage's Start from (FED-05): for a stage the user added in this draft (not in the flow in use, not the
-/// agent's, not a swap).
-fn templates(f: &Facts, stage: &Stage) -> Option<Templates> {
-    let added = f.in_use.flow.stage(&stage.id).is_none()
-        && !f.swap
-        && mark_of(f.marks, &stage.id).is_none();
-    if !added {
-        return None;
-    }
-    let at = f.file.flow.position(&stage.id)?;
-    let after = at
-        .checked_sub(1)
-        .map_or(BACKLOG, |i| f.file.flow.stages[i].name.as_str());
-    let kind = editor_kind(stage);
-    let chosen = |template: Template| match template.shape() {
-        Some(_) if template == Template::Blank => stage.name.starts_with(NEW_STAGE),
-        Some((name, k)) => stage.name == name && kind == Some(k),
-        None => template.preset_stage().is_some_and(|(p, _)| {
-            stage.name.eq_ignore_ascii_case(&p.name)
-                && stage.kind == p.kind
-                && stage.skill == p.skill
-        }),
-    };
-    let chip = |template: Template| TemplateChip {
-        template,
-        icon: template.icon(),
-        label: template.label(),
-        chosen: chosen(template),
-    };
-    Some(Templates {
-        title: format!("New stage after {after}"),
-        label: "Start from",
-        plain_note: "name and kind; no skill",
-        plain: Template::PLAIN.into_iter().map(chip).collect(),
-        presets_label: format!("From {}\u{2019}s presets", otaq_core::naming::PRODUCT_NAME),
-        presets_note: "complete, skill included",
-        presets: Template::FROM_PRESETS.into_iter().map(chip).collect(),
-    })
-}
-
 pub(crate) fn details(f: &Facts, stage: &Stage) -> Details {
-    let kind = editor_kind(stage);
-    let kinds = match kind {
-        Some(_) => [
-            EditorKind::Works,
-            EditorKind::AgentChecks,
-            EditorKind::YouCheck,
-        ]
-        .into_iter()
-        .map(|k| KindOption {
-            kind: k,
-            label: kind_label(k),
-        })
-        .collect(),
-        None => Vec::new(),
-    };
     let fail_to = fail_to_field(f, stage);
     Details {
-        stage: stage.id.clone(),
-        title: stage.name.clone(),
-        icon: kind_icon(stage),
-        remove: Some("Remove stage"),
-        name_label: "Name",
-        name: stage.name.clone(),
-        kind_label: "Kind",
-        kinds,
-        kind,
-        fixed_kind: None,
-        templates: templates(f, stage),
         agent: agent_field(f, stage),
         skill: skill_field(f, stage),
-        rounds: rounds_field(stage),
         problem: f
             .proposal
             .problems
@@ -2056,26 +1106,8 @@ pub(crate) fn details(f: &Facts, stage: &Stage) -> Details {
             .find(|p| fail_to.as_ref().and_then(|t| t.problem.as_ref()) != Some(&p.message))
             .map(|p| p.message.clone()),
         fail_to,
-        can_label: "A ticket can",
-        can: can_rows(f, stage),
         fixes: stage_fixes(f, stage),
         mark: mark_of(f.marks, &stage.id).map(mark_view),
-    }
-}
-
-/// The source's name in onboarding's summary: "Otaq default", "Spec first", "By Claude Code".
-fn source_name(f: &Facts) -> String {
-    if let Some(tool) = f.proposal.proposed_by.tool().filter(|_| f.swap) {
-        return format!("By {}", tool.display_name());
-    }
-    match &f.proposal.source {
-        Source::Preset { file } => presets()
-            .iter()
-            .find(|p| p.file == file)
-            .map_or_else(|| file.clone(), |p| p.name.clone()),
-        Source::Project { name, .. } => format!("{name}\u{2019}s flow"),
-        Source::Document { file: Some(file) } => file.clone(),
-        _ => presets()[0].name.clone(),
     }
 }
 
@@ -2090,21 +1122,6 @@ pub(crate) fn changed_stages(proposal: &Proposal) -> usize {
     ids.sort_unstable();
     ids.dedup();
     ids.len().max(usize::from(!proposal.diff.same))
-}
-
-fn summary(f: &Facts) -> String {
-    let count = plural(steps(f.file), "step", "steps");
-    match f.opened {
-        Opened::Onboarding => match f.marks.first() {
-            Some(mark) => format!("{count} \u{b7} {}, changed by {}", source_name(f), mark.by),
-            None => format!("{count} \u{b7} starting from {}", source_name(f)),
-        },
-        Opened::Project if f.proposal.diff.same => format!("{count} \u{b7} in use"),
-        Opened::Project => format!(
-            "{count} \u{b7} {}, not applied",
-            plural(changed_stages(f.proposal), "change", "changes")
-        ),
-    }
 }
 
 /// "Security moved before Validate.", "Docs removed.": what a reorder or removal does, for the change line.
@@ -2150,9 +1167,6 @@ fn inside_words(inside: &[Inside]) -> String {
 
 /// The change line (FED-08; `s27-07`): which part waits, how many tickets are in it, and that Apply now is there.
 pub(crate) fn change_line(f: &Facts) -> Option<String> {
-    if f.opened == Opened::Onboarding {
-        return None;
-    }
     Some(match f.applies {
         DraftApplies::Nothing => return None,
         DraftApplies::AtOnce => {
@@ -2199,470 +1213,26 @@ pub(crate) fn change_line(f: &Facts) -> Option<String> {
     })
 }
 
-/// The problems no step shows: about the whole flow, or an agent no step runs or offers.
-fn problems(f: &Facts) -> Vec<String> {
-    f.proposal
-        .problems
-        .iter()
-        .filter(|p| p.fix.is_none() && !on_a_step(f.file, p))
-        .map(|p| p.message.clone())
-        .collect()
-}
-
-/// The fixes no step shows (an agent no step runs or offers).
-fn flow_fixes(f: &Facts) -> Vec<FixRow> {
-    fix_rows(
-        f,
-        f.proposal.problems.iter().filter(|p| !on_a_step(f.file, p)),
-        clashes(f).filter(|a| agent_stages(f.file, &a.name).next().is_none()),
-    )
-}
-
-fn flow_part(f: &Facts) -> FlowPart {
-    let selected = f.selected.and_then(|id| f.file.flow.stage(id));
-    let stages = &f.file.flow.stages;
-    let before_delivery = stages.last().map(|s| s.id.clone());
-    FlowPart {
-        title: format!("{}\u{2019}s flow", f.project_name),
-        summary: summary(f),
-        watch: "Watch it",
-        folded: selected.is_some(),
-        fold_note: "The animation folds while you edit a stage",
-        ticket_key: format!("{}-1", f.project),
-        tiles: tiles(f),
-        steps: steps_list(f),
-        add_stage: "Add a stage",
-        add_stage_after: before_delivery,
-        hint: "Click a step to edit it, drag to reorder, or ask the agent.",
-        legend_title: "Every step is one of four kinds:",
-        legend: legend(),
-        details: selected.map(|s| details(f, s)),
-        problems: problems(f),
-        fixes: flow_fixes(f),
-        change_line: change_line(f),
-        undo_all: f.can_undo_all.then_some("Undo all"),
-    }
-}
-
-fn in_use_badge() -> Badge {
-    Badge {
-        label: "In use",
-        pill: PillView::legend(Legend::Approved, Some("In use")),
-    }
-}
-
-fn new_badge() -> Badge {
-    Badge {
-        label: "New",
-        pill: PillView::legend(Legend::ReadyForReview, Some("New")),
-    }
-}
-
-/// Which entry the draft holds: a preset copied in, a tool's proposal, else (unchanged or edited) the flow in use
-/// (the default in onboarding).
-fn chosen(f: &Facts, pick: &Pick) -> bool {
-    let tool = f.proposal.proposed_by.tool().filter(|_| f.swap);
-    match (pick, &f.proposal.source) {
-        (Pick::Entry { .. }, _) => false,
-        (_, _) if tool.is_some() => false,
-        (Pick::Preset { file }, Source::Preset { file: from }) if f.swap => file == from,
-        (Pick::FlowInUse, _) => !f.swap,
-        (Pick::Preset { file }, _) => {
-            f.opened == Opened::Onboarding && !f.swap && *file == presets()[0].file
-        }
-        _ => false,
-    }
-}
-
-fn start_from(f: &Facts) -> StartFrom {
-    let mut entries = Vec::new();
-    if f.opened == Opened::Project {
-        let pick = Pick::FlowInUse;
-        entries.push(Entry {
-            key: "in-use".to_owned(),
-            name: format!("{}\u{2019}s flow", f.project_name),
-            badge: Some(in_use_badge()),
-            count: steps(f.in_use),
-            line: "In use \u{b7} the board\u{2019}s columns".to_owned(),
-            chosen: chosen(f, &pick),
-            avatar: None,
-            pick,
-        });
-    }
-    for preset in presets() {
-        let pick = Pick::Preset {
-            file: preset.file.to_owned(),
-        };
-        entries.push(Entry {
-            key: preset.file.to_owned(),
-            name: preset.name.clone(),
-            badge: None,
-            count: steps(&preset.read()),
-            line: preset_line(preset.file).to_owned(),
-            chosen: chosen(f, &pick),
-            avatar: None,
-            pick,
-        });
-    }
-    let mut menu = vec![MenuItem::new("file", "A file\u{2026}").icon(IconName::Upload)];
-    if !f.projects.is_empty() {
-        menu.push(MenuItem::header("FROM A PROJECT").separated());
-        menu.extend(f.projects.iter().map(|(key, name)| {
-            MenuItem::new(format!("project:{key}"), format!("{name}\u{2019}s flow"))
-        }));
-    }
-    StartFrom {
-        title: "START FROM",
-        entries,
-        made_for: made_for(f),
-        import: Import {
-            label: "Import a flow\u{2026}",
-            menu,
-            file_title: "Import a flow",
-        },
-        note: "Starting from one copies it here; nothing changes until you use it.",
-    }
-}
-
-fn made_for(f: &Facts) -> MadeFor {
-    let draft_tool = f.proposal.proposed_by.tool().filter(|_| f.swap);
-    let entries: Vec<Entry> = f
-        .setup
-        .proposals
-        .iter()
-        .filter(|p| p.id != f.proposal.id)
-        .filter_map(|p| Some((p, p.proposed_by.tool()?)))
-        .map(|(p, tool)| {
-            let pick = Pick::Entry { proposal: p.id };
-            let count = otaq_core::flow::yaml::read(&p.yaml).map_or(0, |file| steps(&file));
-            Entry {
-                key: format!("proposal-{}", p.id),
-                name: format!("By {}", tool.display_name()),
-                badge: Some(new_badge()),
-                count,
-                line: format!("From your {} sessions", tool.display_name()),
-                chosen: draft_tool == Some(tool),
-                avatar: Some(ToolAvatarView::of(tool, None)),
-                pick,
-            }
-        })
-        .collect();
-    let any_proposed = !entries.is_empty();
-    let working = f
-        .agent
-        .filter(|a| a.state == AgentState::Running && a.mid_turn)
-        .map(|a| a.tool);
-    let tools = f
-        .setup
-        .tools
-        .iter()
-        .filter(|t| !matches!(t.row, FlowSetupRow::Proposed { .. }))
-        .map(|t| {
-            let (status, ask) = match &t.row {
-                FlowSetupRow::Working { .. } => ("Working".to_owned(), None),
-                _ if f.opened == Opened::Project && working == Some(t.tool) => {
-                    ("Working".to_owned(), None)
-                }
-                FlowSetupRow::PlanLimit { .. } => ("Plan limit".to_owned(), None),
-                FlowSetupRow::NotSignedIn => ("Not signed in".to_owned(), None),
-                FlowSetupRow::Ended { .. } => ("Ended without a proposal".to_owned(), Some("Ask")),
-                _ if any_proposed => ("Connected \u{b7} not asked".to_owned(), Some("Ask")),
-                _ => ("Connected".to_owned(), Some("Ask")),
-            };
-            ToolRow {
-                tool: t.tool,
-                avatar: ToolAvatarView::of(t.tool, None),
-                name: t.tool.display_name(),
-                status,
-                ask,
-            }
-        })
-        .collect();
-    MadeFor {
-        title: format!("MADE FOR {}", f.project_name.to_uppercase()),
-        text: "Ask a connected tool; it reads how you use it.",
-        entries,
-        tools,
-    }
-}
-
-/// The connected tools the chooser and the chips offer.
-fn askable(f: &Facts) -> Vec<Tool> {
-    f.setup
-        .tools
-        .iter()
-        .filter(|t| !matches!(t.row, FlowSetupRow::NotSignedIn))
-        .map(|t| t.tool)
-        .collect()
-}
-
-fn chooser(f: &Facts, tools: &[Tool]) -> Option<Chooser> {
-    (tools.len() > 1).then(|| Chooser {
-        title: "Which tool should read how you work?",
-        text: "Each reads only its own history on this Mac, and this repo.",
-        tools: tools
-            .iter()
-            .map(|&tool| ChooserTool {
-                tool,
-                avatar: ToolAvatarView::of(tool, None),
-                name: tool.display_name(),
-                detail: "Reads its own history on this Mac",
-            })
-            .collect(),
-        both: (f.opened == Opened::Onboarding).then(|| {
-            (
-                "Both, and compare".to_owned(),
-                format!("Two flows under Made for {}", f.project_name),
-            )
-        }),
-        foot: "Uses tokens \u{b7} read by that tool\u{2019}s provider",
-    })
-}
-
-/// The fixed chips (d0115: "fixed text written by Otaq"): about the selected step, else about the flow.
-fn chips(f: &Facts, tools: &[Tool]) -> Vec<Chip> {
-    let stages = &f.file.flow.stages;
-    let send = |label: String| Chip {
-        action: ChipAction::Send {
-            message: label.clone(),
-        },
-        label,
-    };
-    let mut chips = Vec::new();
-    let selected = f.selected.and_then(|id| f.file.flow.stage(id));
-    if let Some(skill) = selected.and_then(|s| s.skill.as_deref()) {
-        chips.push(send(format!("What does {skill} do?")));
-    }
-    match f.opened {
-        Opened::Onboarding => {
-            match tools {
-                [] => {}
-                [tool] => chips.push(Chip {
-                    label: format!("Ask {}", tool.display_name()),
-                    action: ChipAction::Ask { tool: *tool },
-                }),
-                _ => chips.push(Chip {
-                    label: format!("Make one for {}\u{2026}", f.project_name),
-                    action: ChipAction::ChooseTool,
-                }),
-            }
-            let check = stages
-                .iter()
-                .find(|s| s.is_agent_check())
-                .or_else(|| stages.first());
-            if let (Some(check), None) = (check, selected) {
-                chips.push(send(format!("What\u{2019}s {}?", check.name)));
-            }
-        }
-        Opened::Project => {
-            let why = stages
-                .iter()
-                .rev()
-                .find(|s| s.is_agent_check())
-                .or_else(|| stages.iter().find(|s| s.is_agent_stage()));
-            if let (Some(why), None) = (why, selected) {
-                chips.push(send(format!("Why is {} here?", why.name)));
-            }
-            if let Some(review) = stages
-                .iter()
-                .find(|s| s.is_human_check() && !s.options.contains(&StageOption::Skip))
-            {
-                chips.push(send(format!("Make {} optional", review.name)));
-            }
-        }
-    }
-    chips
-}
-
-/// "Claude Code · sonnet": what the first message starts on (the agent Noyan uses).
-fn starts_on(f: &Facts) -> (Option<ToolAvatarView>, String) {
-    let on = f
-        .new_agent
-        .and_then(|a| a.model.on(f.tools.default_model.as_ref()));
-    match on {
-        Some(on) => {
-            let model = on
-                .model
-                .clone()
-                .unwrap_or_else(|| "tool default".to_owned());
-            (
-                Some(ToolAvatarView::of(on.tool, on.model.as_deref())),
-                format!("{} \u{b7} {model}", on.tool.display_name()),
-            )
-        }
-        None => {
-            let tool = Tool::ALL[0];
-            (
-                Some(ToolAvatarView::of(tool, None)),
-                tool.display_name().to_owned(),
-            )
-        }
-    }
-}
-
-fn panel_pill(agent: &ProjectAgent) -> PillView {
-    let pill = |legend: Legend, icon: IconName, label: &str| PillView {
-        icon,
-        label: label.to_owned(),
-        ..PillView::legend(legend, None)
-    };
-    match agent.state {
-        AgentState::Running if agent.mid_turn && agent.needs_you.is_none() => {
-            pill(Legend::AgentWorking, IconName::Activity, "Working")
-        }
-        AgentState::Running if agent.needs_you.is_some() => {
-            pill(Legend::NeedsYou, IconName::Hand, "Waiting for you")
-        }
-        AgentState::Running => pill(
-            Legend::AsksYou,
-            IconName::MessageCircleQuestionMark,
-            "Waiting for you",
-        ),
-        AgentState::Paused => pill(Legend::Queued, IconName::CirclePause, "Paused"),
-        _ => pill(Legend::Queued, IconName::CircleStop, "Ended"),
-    }
-}
-
-fn agent_panel(f: &Facts) -> AgentPanel {
-    let keys = f.keys.label(KeyAction::FocusAgentPanel);
-    // An agent that ended leaves the panel as before anything was asked: the next words start a new one.
-    let running = f.agent.filter(|a| a.state == AgentState::Running);
-    if let Some(agent) = running {
-        let model = agent
-            .model
-            .clone()
-            .unwrap_or_else(|| "tool default".to_owned());
-        return AgentPanel {
-            title: PANEL_TITLE,
-            pill: panel_pill(agent),
-            avatar: Some(ToolAvatarView::of(agent.tool, agent.model.as_deref())),
-            line: format!("{} \u{b7} {model}", agent.tool.display_name()),
-            note: format!("\u{b7} {}", tokens_label(agent.tokens.shown())),
-            agent: Some(agent.id.clone()),
-            session: agent.session.as_ref().map(|s| s.id.clone()),
-            hint: Vec::new(),
-            chips: Vec::new(),
-            chooser: None,
-            foot: TYPING_GOES,
-            keys,
-            keys_label: "focus",
-        };
-    }
-    let tools = askable(f);
-    let (avatar, line) = starts_on(f);
-    let needs = f
-        .selected
-        .and_then(|id| f.file.flow.stage(id))
-        .filter(|s| s.needs_skill() && !writing(f, &s.id));
-    let hint = match f.opened {
-        // The selected stage needs a skill (`s27-05`): the panel offers to write it.
-        _ if needs.is_some() => vec![format!(
-            "{} needs a skill. Ask here to have one written (it reads this repo and your other skills, and uses \
-             tokens), or pick one of yours in the stage.",
-            needs.map_or("", |s| s.name.as_str())
-        )],
-        Opened::Onboarding => {
-            let check = f
-                .file
-                .flow
-                .stages
-                .iter()
-                .find(|s| s.is_agent_check())
-                .map_or("Validate", |s| s.name.as_str());
-            vec![
-                format!(
-                    "Ask about the flow, or to change it: \u{201c}what does {check} do?\u{201d}, \u{201c}add a \
-                     security check\u{201d}."
-                ),
-                format!(
-                    "To have one made for {}, ask a connected tool in Start from. Nothing runs, and no tokens are \
-                     used, until you ask.",
-                    f.project_name
-                ),
-            ]
-        }
-        Opened::Project => vec![format!(
-            "Ask about {}\u{2019}s flow, or to change it. Nothing on the board changes until you apply, and \
-             nothing runs until you ask.",
-            f.project_name
-        )],
-    };
-    AgentPanel {
-        title: PANEL_TITLE,
-        pill: PillView {
-            icon: IconName::CircleDashed,
-            label: NOT_STARTED.to_owned(),
-            ..PillView::legend(Legend::Queued, None)
-        },
-        avatar,
-        line,
-        note: STARTS_WHEN_YOU_ASK.to_owned(),
-        agent: None,
-        session: None,
-        hint,
-        chips: match needs {
-            Some(stage) => vec![
-                Chip {
-                    label: "Write the skill".to_owned(),
-                    action: ChipAction::WriteSkill {
-                        stage: stage.id.clone(),
-                        prefill: write_skill_prefill(f.file, &stage.id),
-                    },
-                },
-                Chip {
-                    label: format!("What should {} do?", stage.name),
-                    action: ChipAction::Send {
-                        message: format!("What should {} do?", stage.name),
-                    },
-                },
-            ],
-            None => chips(f, &tools),
-        },
-        chooser: chooser(f, &tools),
-        foot: TYPING_GOES,
-        keys,
-        keys_label: "focus",
-    }
-}
-
 pub(crate) fn footer(f: &Facts) -> Footer {
     // "Plan needs a skill · being written" while the agent writes it (`s27-06`).
     let reason = left(f).map(|p| match &p.about {
         About::Stage { id, .. } if writing(f, id) => format!("{} \u{b7} being written", p.message),
         _ => problem_text(f, p),
     });
-    match f.opened {
-        Opened::Onboarding => Footer {
-            cancel: "Skip, use the default",
-            apply: "Use this flow".to_owned(),
-            apply_enabled: reason.is_none(),
-            reason,
-        },
-        Opened::Project if f.proposal.diff.same => Footer {
+    if f.proposal.diff.same {
+        Footer {
             cancel: "Cancel",
             apply: "No changes".to_owned(),
             apply_enabled: false,
             reason: None,
-        },
-        Opened::Project => Footer {
+        }
+    } else {
+        Footer {
             cancel: "Cancel",
             apply: format!("Apply to {}", f.project_name),
             apply_enabled: reason.is_none(),
             reason,
-        },
-    }
-}
-
-pub fn view(f: &Facts) -> View {
-    View {
-        project: f.project.to_owned(),
-        from: f.opened,
-        proposal: f.proposal.id,
-        start_from: start_from(f),
-        flow: flow_part(f),
-        agent: agent_panel(f),
-        footer: footer(f),
-        choices: choices_kept(f),
+        }
     }
 }
 
@@ -2774,36 +1344,6 @@ fn unique_name(file: &FlowFile, name: &str, but: usize) -> String {
     out
 }
 
-/// A plain template (FED-05): `stage` with its name and kind, the kind's agent, no skill, no options; a new id from
-/// the name (the stage is new).
-fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stage {
-    let name = unique_name(file, name, at);
-    let mut others = file.clone();
-    others.flow.stages.remove(at);
-    let (agent, rounds) = match kind {
-        EditorKind::Works => (Some(WORKS_AGENT), None),
-        EditorKind::AgentChecks => (Some(CHECKS_AGENT), Some(CHECK_ROUNDS)),
-        EditorKind::YouCheck => (None, None),
-    };
-    let mut stage = Stage {
-        id: fresh_id(&others, &name),
-        name,
-        kind: match kind {
-            EditorKind::Works => StageKind::Agent,
-            EditorKind::AgentChecks => StageKind::Check { by: CheckBy::Agent },
-            EditorKind::YouCheck => StageKind::Check { by: CheckBy::You },
-        },
-        agent: None,
-        skill: None,
-        options: Vec::new(),
-        rounds,
-        fail_to: None,
-        description: None,
-    };
-    set_agent(&mut stage, agent.map(str::to_owned));
-    stage
-}
-
 /// The agents `stage` names that neither the document nor `stored` has, from `brought` (a preset's): they come with
 /// it, created on Apply.
 fn bring_agents(out: &mut FlowFile, stage: &Stage, brought: &[FlowAgent], stored: &[Agent]) {
@@ -2883,30 +1423,6 @@ pub fn edited(
             let moved = out.flow.stages.remove(i);
             let end = out.flow.stages.len();
             out.flow.stages.insert((*to).min(end), moved);
-        }
-        StageEdit::Add { after } => {
-            let index = match after {
-                Some(id) => at(id)? + 1,
-                None => 0,
-            };
-            let name = fresh_name(&out);
-            let id = fresh_id(&out, &name);
-            out.flow.stages.insert(
-                index.min(out.flow.stages.len()),
-                Stage {
-                    id: id.clone(),
-                    name,
-                    kind: StageKind::Agent,
-                    agent: Some(WORKS_AGENT.to_owned()),
-                    // Blank: the user picks the skill or has it written (FED-05, FED-06).
-                    skill: None,
-                    options: Vec::new(),
-                    rounds: None,
-                    fail_to: None,
-                    description: None,
-                },
-            );
-            select = Some(id);
         }
         StageEdit::Remove { stage } => {
             let i = at(stage)?;
@@ -3006,249 +1522,24 @@ pub fn edited(
                 .stages
                 .insert(index.min(out.flow.stages.len()), stage);
         }
-        // PR delivery isn't a stage: it sets the flow's delivery to Team PR's, and the new stage goes.
-        StageEdit::Template {
-            stage,
-            template: Template::PrDelivery,
-        } => {
-            let i = at(stage)?;
-            let team = preset(TEAM_PR_FILE)
-                .ok_or_else(|| "No preset has PR delivery".to_owned())?
-                .read();
-            out.flow.delivery = team.flow.delivery.clone();
-            bring_named(
-                &mut out,
-                team.flow.delivery.agent.iter(),
-                &team.agents,
-                stored,
-            );
-            out.flow.stages.remove(i);
-        }
-        StageEdit::Template { stage, template } => {
-            let i = at(stage)?;
-            match (template.shape(), template.preset_stage()) {
-                (Some((name, kind)), _) => {
-                    let new = plain_stage(&out, i, name, kind);
-                    select = Some(new.id.clone());
-                    out.flow.stages[i] = new;
-                }
-                (None, Some((from, agents))) => {
-                    let name = unique_name(&out, &from.name, i);
-                    let mut others = out.clone();
-                    others.flow.stages.remove(i);
-                    let new = Stage {
-                        id: fresh_id(&others, &name),
-                        name,
-                        description: None,
-                        ..from
-                    };
-                    bring_agents(&mut out, &new, &agents, stored);
-                    select = Some(new.id.clone());
-                    out.flow.stages[i] = new;
-                }
-                (None, None) => return Err(format!("No preset has {}", template.label())),
-            }
-        }
     }
     Ok((out, select))
 }
 
-/// The gallery's editors: shop-web's flow in the project, Otaq default in onboarding with two tools.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorGallery")]
-pub struct Gallery {
-    pub cells: Vec<(String, View)>,
-}
-
-pub fn gallery() -> Gallery {
-    use fixtures::*;
-    let tools = crate::view_models::flow_setup_page::fixtures::tools();
-    let setup = crate::view_models::flow_setup_page::fixtures::setup(
-        FlowSetupRow::NotAsked,
-        FlowSetupRow::NotAsked,
-    );
-    let keys = KeyLabels::default();
-    let skills = found_skills();
-    let otaqs = otaq_skills();
-    let shop = shop_web();
-    let default = otaq_default();
-    let stored = stored();
-    let none = DraftApplies::Nothing;
-    let in_project = proposal(&shop, true);
-    let in_onboarding = proposal(&default, true);
-    let at_once = DraftApplies::AtOnce;
-    let (needs, needs_proposal) = plan_draft(None);
-    let (wrote, wrote_proposal) = plan_draft(Some("plan-ticket"));
-    let writing = [SkillWriting {
-        stage_id: "plan".into(),
-        agent: None,
-        folder: None,
-        made: Vec::new(),
-    }];
-    let written = [written_plan()];
-    let no_choices = Choices::default();
-    let imported_proposal = imported(&shop);
-    let review_to_product_spec = checks(
-        &shop,
-        &[StageEdit::FailTo {
-            stage: "review".into(),
-            to: Some("product-spec".into()),
-        }],
-    );
-    let check = |(file, proposal): &'_ (FlowFile, Proposal), selected: &'_ str| -> View {
-        view(&Facts {
-            project: "SHOP",
-            project_name: "shop-web",
-            opened: Opened::Project,
-            proposal,
-            marks: &[],
-            can_undo_all: false,
-            swap: false,
-            applies: &at_once,
-            file,
-            in_use: &shop,
-            stored: &stored,
-            tools: &tools,
-            setup: &setup,
-            projects: &[],
-            skills: &skills,
-            writing: &[],
-            written: &[],
-            selected: Some(selected),
-            agent: None,
-            new_agent: None,
-            keys: &keys,
-            choices: &no_choices,
-        })
-    };
-    let plan = |proposal: &'_ Proposal,
-                file: &'_ FlowFile,
-                writing: &'_ [SkillWriting],
-                written: &'_ [WrittenSkill]|
-     -> View {
-        view(&Facts {
-            project: "SHOP",
-            project_name: "shop-web",
-            opened: Opened::Project,
-            proposal,
-            marks: &[],
-            can_undo_all: false,
-            swap: false,
-            applies: &at_once,
-            file,
-            in_use: &shop,
-            stored: &stored,
-            tools: &tools,
-            setup: &setup,
-            projects: &[],
-            skills: &skills,
-            writing,
-            written,
-            selected: Some("plan"),
-            agent: None,
-            new_agent: None,
-            keys: &keys,
-            choices: &no_choices,
-        })
-    };
-    let facts = |opened, proposal: &'_ Proposal, file: &'_ FlowFile| -> View {
-        view(&Facts {
-            project: "SHOP",
-            project_name: "shop-web",
-            opened,
-            proposal,
-            marks: &[],
-            can_undo_all: false,
-            swap: false,
-            applies: &none,
-            file,
-            in_use: file,
-            stored: &stored,
-            tools: &tools,
-            setup: &setup,
-            projects: &[],
-            skills: &skills,
-            writing: &[],
-            written: &[],
-            selected: None,
-            agent: None,
-            new_agent: None,
-            keys: &keys,
-            choices: &no_choices,
-        })
-    };
-    Gallery {
-        cells: vec![
-            (
-                "In the project".to_owned(),
-                facts(Opened::Project, &in_project, &shop),
-            ),
-            (
-                "In onboarding".to_owned(),
-                facts(Opened::Onboarding, &in_onboarding, &default),
-            ),
-            (
-                "A new stage: Plan picked".to_owned(),
-                plan(&needs_proposal, &needs, &[], &[]),
-            ),
-            (
-                "Its skill being written".to_owned(),
-                plan(&needs_proposal, &needs, &writing, &[]),
-            ),
-            (
-                "Its skill written".to_owned(),
-                plan(&wrote_proposal, &wrote, &[], &written),
-            ),
-            (
-                "An imported file: a skill nobody has, a clash".to_owned(),
-                view(&Facts {
-                    project: "SHOP",
-                    project_name: "shop-web",
-                    opened: Opened::Project,
-                    proposal: &imported_proposal,
-                    marks: &[],
-                    can_undo_all: false,
-                    swap: false,
-                    applies: &at_once,
-                    file: &shop,
-                    in_use: &default,
-                    stored: &stored,
-                    tools: &tools,
-                    setup: &setup,
-                    projects: &[],
-                    // The file's Security runs security-review, which nobody here has.
-                    skills: &otaqs,
-                    writing: &[],
-                    written: &[],
-                    selected: Some("security"),
-                    agent: None,
-                    new_agent: None,
-                    keys: &keys,
-                    choices: &no_choices,
-                }),
-            ),
-            (
-                "Fails go to on a check by you".to_owned(),
-                check(&review_to_product_spec, "review"),
-            ),
-        ],
-    }
-}
-
-/// shop-web's flow and the draft around it, for the tests and the gallery.
-pub mod fixtures {
+/// shop-web's flow and the draft around it, for the tests.
+#[cfg(test)]
+pub(crate) mod fixtures {
     use otaq_core::agents::{Agent, AgentModel, CameFrom};
     use otaq_core::flow::draft::WrittenSkill;
     use otaq_core::flow::model::FlowFile;
     use otaq_core::flow::proposal::{
-        About, AgentChange, AgentChangeKind, AgentField, Clash, FlowDiff, Level, Proposal,
-        ProposalProblem, ProposedBy, Source, Warning, unknown_skill_text,
+        About, FlowDiff, Proposal, ProposalProblem, ProposedBy, Source,
     };
 
     use otaq_core::agent_tools::Tool;
     use otaq_core::skills::found::{self, FoundSkill, Homes, SkillPlace, SkillScope};
 
-    use super::{StageEdit, Template, edited};
+    use super::{StageEdit, edited};
 
     /// Otaq's own skills only: what `skills.list` finds for a user with none of their own.
     pub fn otaq_skills() -> Vec<FoundSkill> {
@@ -3323,15 +1614,6 @@ pub mod fixtures {
                 .collect();
         }
         draft
-    }
-
-    /// `file` after `edits`, and its draft's proposal against `file` ([`checked_proposal`]).
-    pub fn checks(file: &FlowFile, edits: &[StageEdit]) -> (FlowFile, Proposal) {
-        let new = edits.iter().fold(file.clone(), |f, edit| {
-            edited(&f, edit, &stored()).expect("the edit applies").0
-        });
-        let draft = checked_proposal(file, &new);
-        (new, draft)
     }
 
     /// shop-web with Product spec before Dev and a Security check (the ticket file's example): 7 steps.
@@ -3425,28 +1707,28 @@ flow:
         ]
     }
 
-    /// shop-web with Plan picked after Product spec (`s27-05`), its skill `skill` (none: "Plan needs a skill"), and the
+    /// shop-web with a Blank stage named Plan after Product spec, its skill `skill` (none: "Plan needs a skill"), and the
     /// draft's proposal.
     pub fn plan_draft(skill: Option<&str>) -> (FlowFile, Proposal) {
-        let (added, new) = edited(
+        let (mut file, new) = edited(
             &shop_web(),
-            &StageEdit::Add {
+            &StageEdit::AddTemplate {
                 after: Some("product-spec".into()),
+                template: "new-stage".into(),
             },
             &stored(),
         )
         .expect("a stage is added");
-        let (mut file, _) = edited(
-            &added,
-            &StageEdit::Template {
-                stage: new.expect("the new stage"),
-                template: Template::Plan,
-            },
-            &stored(),
-        )
-        .expect("Plan fills it");
-        let plan = file.flow.stages.iter_mut().find(|s| s.id == "plan");
-        plan.expect("Plan").skill = skill.map(str::to_owned);
+        let new = new.expect("the new stage");
+        let plan = file
+            .flow
+            .stages
+            .iter_mut()
+            .find(|s| s.id == new)
+            .expect("Plan");
+        plan.id = "plan".into();
+        plan.name = "Plan".into();
+        plan.skill = skill.map(str::to_owned);
         let mut draft = proposal(&file, false);
         if skill.is_none() {
             draft.problems.push(ProposalProblem {
@@ -3496,54 +1778,23 @@ flow:
             created_at: 0,
         }
     }
-
-    /// shop-web's flow imported from team.yaml (Q426): the user doesn't have Security's skill (a warning only), and
-    /// the file's Security reviewer clashes with the user's.
-    pub fn imported(file: &FlowFile) -> Proposal {
-        let mut proposal = proposal(file, false);
-        proposal.source = Source::Document {
-            file: Some("team.yaml".into()),
-        };
-        proposal.diff.warnings = vec![Warning {
-            level: Level::Amber,
-            stage: Some("Security".into()),
-            text: unknown_skill_text("security-review"),
-        }];
-        proposal.diff.agents = vec![AgentChange {
-            name: "Security reviewer".into(),
-            change: AgentChangeKind::Changed,
-            fields: vec![AgentField {
-                field: "instructions".into(),
-                from: String::new(),
-                to: "Look for risky code.".into(),
-            }],
-            used_in: Vec::new(),
-            clash: Some(Clash {
-                add_as: Some("Security reviewer (team.yaml)".into()),
-            }),
-        }];
-        proposal
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use otaq_core::agent_tools::connected::AgentToolState;
     use otaq_core::flow::apply::Span;
-    use otaq_core::flow::proposal::{
-        Applies, Level, ProposalProblem, ProposedBy, StageChange, Warning,
-    };
-    use otaq_core::project_agents::first_flow::FlowSetupTool;
+    use otaq_core::flow::proposal::{Applies, Level, ProposalProblem, StageChange, Warning};
 
     use super::fixtures::*;
     use super::*;
-    use crate::view_models::flow_setup_page::fixtures as setup;
+    use crate::view_models::tool_problems::fixtures::{connected, status};
 
     struct Draft {
         proposal: Proposal,
         marks: Vec<StageMark>,
         applies: DraftApplies,
         swap: bool,
-        undo: bool,
     }
 
     fn draft(file: &FlowFile, same: bool) -> Draft {
@@ -3556,27 +1807,32 @@ mod tests {
                 DraftApplies::AtOnce
             },
             swap: false,
-            undo: false,
         }
     }
 
     struct Env {
         stored: Vec<Agent>,
         tools: Tools,
-        setup: FlowSetup,
-        keys: KeyLabels,
         skills: Vec<FoundSkill>,
         writing: Vec<SkillWriting>,
         written: Vec<WrittenSkill>,
         choices: Choices,
     }
 
-    fn env(setup: FlowSetup) -> Env {
+    /// Claude Code and OpenCode connected.
+    fn tools() -> Tools {
+        Tools::from_statuses(vec![
+            connected(Tool::ALL[0]),
+            status(Tool::ALL[1], AgentToolState::NotInstalled),
+            status(Tool::ALL[2], AgentToolState::NotInstalled),
+            connected(Tool::ALL[3]),
+        ])
+    }
+
+    fn env() -> Env {
         Env {
             stored: stored(),
-            tools: setup::tools(),
-            setup,
-            keys: KeyLabels::default(),
+            tools: tools(),
             skills: found_skills(),
             writing: Vec::new(),
             written: Vec::new(),
@@ -3589,219 +1845,111 @@ mod tests {
         super::edited(file, edit, &stored())
     }
 
-    fn not_asked() -> FlowSetup {
-        setup::setup(FlowSetupRow::NotAsked, FlowSetupRow::NotAsked)
+    /// A Blank stage from the palette after `after` (`None`: first).
+    fn add_blank(after: Option<&str>) -> StageEdit {
+        StageEdit::AddTemplate {
+            after: after.map(str::to_owned),
+            template: "new-stage".into(),
+        }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// What the board's editor takes from these parts: the selected stage's details, the footer, the change line and
+    /// the picks Save sends.
+    struct Rendered {
+        details: Option<Details>,
+        footer: Footer,
+        change_line: Option<String>,
+        choices: Choices,
+        /// Each stage's problem, as its column shows it.
+        problems: Vec<(String, Option<String>)>,
+        /// Each stage's skill warning, as its column shows it.
+        warnings: Vec<(String, Option<String>)>,
+    }
+
+    impl Rendered {
+        fn problem(&self, id: &str) -> Option<String> {
+            self.problems
+                .iter()
+                .find(|(s, _)| s == id)
+                .and_then(|(_, p)| p.clone())
+        }
+
+        fn warning(&self, id: &str) -> Option<String> {
+            self.warnings
+                .iter()
+                .find(|(s, _)| s == id)
+                .and_then(|(_, w)| w.clone())
+        }
+    }
+
     fn render(
         e: &Env,
-        opened: Opened,
         d: &Draft,
         file: &FlowFile,
         in_use: &FlowFile,
         selected: Option<&str>,
-        agent: Option<&ProjectAgent>,
-    ) -> View {
-        view(&Facts {
+    ) -> Rendered {
+        let f = Facts {
             project: "SHOP",
             project_name: "shop-web",
-            opened,
             proposal: &d.proposal,
             marks: &d.marks,
-            can_undo_all: d.undo,
             swap: d.swap,
             applies: &d.applies,
             file,
             in_use,
             stored: &e.stored,
             tools: &e.tools,
-            setup: &e.setup,
-            projects: &[("BILL".to_owned(), "billing-api".to_owned())],
             skills: &e.skills,
             writing: &e.writing,
             written: &e.written,
             selected,
-            agent,
+            agent: None,
             new_agent: None,
-            keys: &e.keys,
             choices: &e.choices,
-        })
-    }
-
-    fn names(v: &View) -> Vec<&str> {
-        v.flow.steps.iter().map(|s| s.name.as_str()).collect()
-    }
-
-    #[test]
-    fn the_editor_from_otaq_default_in_onboarding() {
-        let e = env(not_asked());
-        let file = otaq_default();
-        let d = draft(&file, true);
-        let v = render(&e, Opened::Onboarding, &d, &file, &file, None, None);
-        assert_eq!(
-            names(&v),
-            ["Backlog", "Dev", "Validate", "Review", "Delivery"]
-        );
-        assert_eq!(v.flow.title, "shop-web\u{2019}s flow");
-        let default = format!("{} default", otaq_core::naming::PRODUCT_NAME);
-        assert_eq!(
-            v.flow.summary,
-            format!("5 steps \u{b7} starting from {default}")
-        );
-        let entries: Vec<(&str, usize, bool)> = v
-            .start_from
-            .entries
-            .iter()
-            .map(|e| (e.name.as_str(), e.count, e.chosen))
-            .collect();
-        assert_eq!(
-            entries,
-            [
-                (default.as_str(), 5, true),
-                ("Solo autopilot", 4, false),
-                ("Spec first", 9, false),
-                ("Team PR", 4, false)
-            ]
-        );
-        // Start from reads the shipped list, in its order, with no names of its own.
-        let listed: Vec<(&str, &str)> = presets()
-            .iter()
-            .map(|p| (p.name.as_str(), p.file))
-            .collect();
-        let shown: Vec<(&str, &str)> = v
-            .start_from
-            .entries
-            .iter()
-            .map(|e| (e.name.as_str(), e.key.as_str()))
-            .collect();
-        assert_eq!(shown, listed);
-        assert_eq!(
-            v.start_from.entries[0].line,
-            "Agents build and check; you review"
-        );
-        // The animation: the project's own key, long words for five steps, fixed captions for Ready, You check and
-        // Delivery.
-        assert_eq!(v.flow.ticket_key, "SHOP-1");
-        let tiles: Vec<(&str, &str, &str)> = v
-            .flow
-            .tiles
-            .iter()
-            .map(|t| (t.name.as_str(), t.kind.as_str(), t.ticket.as_str()))
-            .collect();
-        assert_eq!(
-            tiles,
-            [
-                ("Backlog", "Every flow starts here", "Not started"),
-                ("Dev", "An agent works", "Working \u{b7} Developer"),
-                ("Validate", "An agent checks", "Checking \u{b7} Checker"),
-                ("Review", "You check", "Your check \u{b7} You"),
-                ("Delivery", "Delivery", "Merged")
-            ]
-        );
-        assert_eq!(v.flow.tiles[0].caption.as_deref(), Some(READY_CAPTION));
-        assert_eq!(
-            v.flow.tiles[2].caption.as_deref(),
-            Some(
-                "A checking agent runs the tests and lint. If something fails, the ticket goes back to Dev."
-            )
-        );
-        assert_eq!(v.flow.tiles[3].caption.as_deref(), Some(YOU_CHECK_CAPTION));
-        assert_eq!(v.flow.tiles[4].caption.as_deref(), Some(MERGE_CAPTION));
-        assert_eq!(v.flow.change_line, None);
-        assert_eq!(v.footer.cancel, "Skip, use the default");
-        assert_eq!(v.footer.apply, "Use this flow");
-        assert!(v.footer.apply_enabled);
-        assert!(v.flow.details.is_none() && !v.flow.folded);
-    }
-
-    #[test]
-    fn the_editor_from_shop_webs_flow_in_the_project() {
-        let e = env(not_asked());
-        let file = shop_web();
-        let d = draft(&file, true);
-        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
-        assert_eq!(
-            names(&v),
-            [
-                "Backlog",
-                "Product spec",
-                "Dev",
-                "Validate",
-                "Security",
-                "Review",
-                "Delivery"
-            ]
-        );
-        assert_eq!(v.flow.summary, "7 steps \u{b7} in use");
-        let in_use = &v.start_from.entries[0];
-        assert_eq!(
-            (
-                in_use.name.as_str(),
-                in_use.count,
-                in_use.chosen,
-                in_use.line.as_str()
-            ),
-            (
-                "shop-web\u{2019}s flow",
-                7,
-                true,
-                "In use \u{b7} the board\u{2019}s columns"
-            )
-        );
-        assert_eq!(in_use.badge.as_ref().map(|b| b.label), Some("In use"));
-        assert!(v.start_from.entries[1..].iter().all(|e| !e.chosen));
-        let kinds: Vec<&str> = v.flow.steps.iter().map(|s| s.kind.as_str()).collect();
-        assert_eq!(
-            kinds,
-            [
-                "Start",
-                "Agent works",
-                "Agent works",
-                "Agent checks",
-                "Agent checks",
-                "You check",
-                "PR \u{b7} click"
-            ]
-        );
-        assert_eq!(v.flow.steps[2].who.as_deref(), Some("Rust developer"));
-        assert_eq!(
-            v.flow.steps[6].who.as_deref(),
-            Some("Rust developer"),
-            "the agent that opens the PR"
-        );
-        assert!(!v.flow.steps[0].draggable && !v.flow.steps[6].draggable);
-        assert!(!v.flow.steps[6].can_add_after);
-        assert_eq!(v.flow.add_stage_after.as_deref(), Some("review"));
-        // Short tile words past five steps; the Security caption is the user's own skill's description.
-        assert_eq!(v.flow.tiles[1].ticket, "Asks you a question");
-        assert_eq!(v.flow.tiles[4].kind, "Check");
-        assert_eq!(
-            v.flow.tiles[4].caption.as_deref(),
-            Some("A security agent reviews the change for risky code.")
-        );
-        assert_eq!(v.flow.tiles[6].caption.as_deref(), Some(PR_CAPTION));
-        assert_eq!(v.flow.tiles[6].ticket, "PR open");
-        assert_eq!(v.footer.apply, "No changes");
-        assert!(!v.footer.apply_enabled);
-        assert_eq!(v.footer.cancel, "Cancel");
-        let chips: Vec<&str> = v.agent.chips.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(chips, ["Why is Security here?", "Make Review optional"]);
-        assert_eq!(
-            v.start_from
-                .import
-                .menu
+        };
+        Rendered {
+            details: selected
+                .and_then(|id| file.flow.stage(id))
+                .map(|stage| details(&f, stage)),
+            footer: footer(&f),
+            change_line: change_line(&f),
+            choices: choices_kept(&f),
+            problems: file
+                .flow
+                .stages
                 .iter()
-                .map(|m| m.label.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "A file\u{2026}",
-                "FROM A PROJECT",
-                "billing-api\u{2019}s flow"
-            ]
-        );
+                .map(|s| (s.id.clone(), step_problem(&f, s)))
+                .collect(),
+            warnings: file
+                .flow
+                .stages
+                .iter()
+                .map(|s| {
+                    (
+                        s.id.clone(),
+                        unknown_skill(&f, s).or_else(|| missing_skill(&f, s)),
+                    )
+                })
+                .collect(),
+        }
     }
 
+    #[test]
+    fn the_footer_says_whether_there_is_anything_to_save() {
+        let e = env();
+        let file = shop_web();
+        let v = render(&e, &draft(&file, true), &file, &file, None);
+        assert_eq!(
+            (v.footer.cancel, v.footer.apply.as_str()),
+            ("Cancel", "No changes")
+        );
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(v.change_line, None);
+        let v = render(&e, &draft(&file, false), &file, &file, None);
+        assert_eq!(v.footer.apply, "Apply to shop-web");
+        assert!(v.footer.apply_enabled);
+    }
     /// d0115, d0129: Spec first's planning skills show Otaq's own captions, not their agent-facing descriptions.
     #[test]
     fn the_planning_skills_show_otaqs_own_captions() {
@@ -3829,21 +1977,12 @@ mod tests {
     }
 
     #[test]
-    fn a_steps_details() {
-        let e = env(not_asked());
+    fn a_stages_details() {
+        let e = env();
         let file = shop_web();
         let d = draft(&file, true);
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
-        assert!(v.flow.folded);
-        assert!(v.flow.steps[2].selected);
-        let details = v.flow.details.expect("Dev's details");
-        assert_eq!(details.title, "Dev");
-        assert_eq!(details.name, "Dev");
-        assert_eq!(details.kind, Some(EditorKind::Works));
-        assert_eq!(
-            details.kinds.iter().map(|k| k.label).collect::<Vec<_>>(),
-            ["An agent works", "An agent checks", "You check"]
-        );
+        let v = render(&e, &d, &file, &file, Some("dev"));
+        let details = v.details.expect("Dev's details");
         let agent = details.agent.expect("an agent");
         assert_eq!(agent.name, "Rust developer");
         assert_eq!(
@@ -3863,158 +2002,22 @@ mod tests {
                 warning: None,
             })
         );
-        let can: Vec<(&str, bool, bool)> = details
-            .can
-            .iter()
-            .map(|c| (c.label.as_str(), c.on, c.enabled))
-            .collect();
-        assert_eq!(
-            can,
-            [
-                ("skip it", false, true),
-                ("come back here when a later check fails", true, false)
-            ]
-        );
-        assert_eq!(details.remove, Some("Remove stage"));
-        // The chip asks about the selected step's skill.
-        assert_eq!(v.agent.chips[0].label, "What does work-ticket do?");
-
-        // The delivery is the last step but no stage: it can't be selected, moved or added after.
-        let delivery = v.flow.steps.last().unwrap();
-        assert_eq!(delivery.id, DELIVERY_ID);
-        assert!(!delivery.selectable && !delivery.draggable && !delivery.can_add_after);
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &file,
-            Some(DELIVERY_ID),
-            None,
-        );
-        assert!(v.flow.details.is_none(), "no details: not a stage");
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("review"), None);
-        let details = v.flow.details.expect("Review's details");
+        let v = render(&e, &d, &file, &file, Some("review"));
+        let details = v.details.expect("Review's details");
         assert!(details.agent.is_none() && details.skill.is_none());
-        assert_eq!(details.kind, Some(EditorKind::YouCheck));
-    }
-
-    #[test]
-    fn which_tool_with_two_tools_and_with_one() {
-        let e = env(not_asked());
-        let file = otaq_default();
-        let d = draft(&file, true);
-        let v = render(&e, Opened::Onboarding, &d, &file, &file, None, None);
-        let tools: Vec<(&str, &str, Option<&str>)> = v
-            .start_from
-            .made_for
-            .tools
-            .iter()
-            .map(|t| (t.name, t.status.as_str(), t.ask))
-            .collect();
-        assert_eq!(
-            tools,
-            [
-                ("Claude Code", "Connected", Some("Ask")),
-                ("OpenCode", "Connected", Some("Ask"))
-            ]
-        );
-        assert_eq!(v.start_from.made_for.title, "MADE FOR SHOP-WEB");
-        assert_eq!(v.agent.chips[0].label, "Make one for shop-web\u{2026}");
-        assert_eq!(v.agent.chips[0].action, ChipAction::ChooseTool);
-        let chooser = v.agent.chooser.as_ref().expect("the chooser");
-        assert_eq!(chooser.title, "Which tool should read how you work?");
-        assert_eq!(
-            chooser.tools.iter().map(|t| t.name).collect::<Vec<_>>(),
-            ["Claude Code", "OpenCode"]
-        );
-        assert_eq!(
-            chooser.both,
-            Some((
-                "Both, and compare".to_owned(),
-                "Two flows under Made for shop-web".to_owned()
-            ))
-        );
-        assert_eq!(
-            chooser.foot,
-            "Uses tokens \u{b7} read by that tool\u{2019}s provider"
-        );
-        // No session counts or "most used" anywhere: tools by name only.
-        let text = serde_json::to_string(&v.start_from.made_for).unwrap()
-            + &serde_json::to_string(&v.agent).unwrap();
-        assert!(!text.to_lowercase().contains("most used"));
-        assert!(
-            !text.contains("sessions"),
-            "no session counts before a proposal"
-        );
-
-        // One tool: "Ask Claude Code", no chooser.
-        let mut one = not_asked();
-        one.tools.truncate(1);
-        let e = env(one);
-        let v = render(&e, Opened::Onboarding, &d, &file, &file, None, None);
-        assert_eq!(v.agent.chips[0].label, "Ask Claude Code");
-        assert!(v.agent.chooser.is_none());
-
-        // A proposal from Claude Code is its own entry; OpenCode can still be asked.
-        let mut asked = setup::setup(
-            FlowSetupRow::Proposed {
-                agent: setup::CC.into(),
-                proposal: 4,
-            },
-            FlowSetupRow::NotAsked,
-        );
-        let mut entry = proposal(&shop_web(), false);
-        entry.id = 4;
-        entry.proposed_by = ProposedBy::ProjectAgent {
-            agent: setup::CC.into(),
-            session: "s".into(),
-            name: "Flow setup \u{b7} Claude Code".into(),
-            tool: setup::CLAUDE,
-        };
-        asked.proposals.push(entry);
-        let e = env(asked);
-        let v = render(&e, Opened::Onboarding, &d, &file, &file, None, None);
-        let made = &v.start_from.made_for;
-        assert_eq!(made.entries.len(), 1);
-        assert_eq!(
-            (
-                made.entries[0].name.as_str(),
-                made.entries[0].line.as_str(),
-                made.entries[0].count
-            ),
-            ("By Claude Code", "From your Claude Code sessions", 7)
-        );
-        assert_eq!(made.entries[0].pick, Pick::Entry { proposal: 4 });
-        assert_eq!(
-            made.tools
-                .iter()
-                .map(|t| (t.name, t.status.as_str()))
-                .collect::<Vec<_>>(),
-            [("OpenCode", "Connected \u{b7} not asked")]
-        );
-        // In the project there is no Both (Q-A).
-        let e = env(not_asked());
-        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
-        assert!(v.agent.chooser.is_some_and(|c| c.both.is_none()));
-        let _ = FlowSetupTool {
-            tool: setup::CLAUDE,
-            row: FlowSetupRow::NotAsked,
-        };
     }
 
     #[test]
     fn a_proposal_tinted_with_undo() {
-        let e = env(not_asked());
+        let e = env();
         let base = otaq_default();
         let mut file = base.clone();
-        let (with_product_spec, _) = edited(&file, &StageEdit::Add { after: None }).unwrap();
+        let (with_product_spec, _) = edited(&file, &add_blank(None)).unwrap();
         file = with_product_spec;
         file.flow.stages[0].name = "Product spec".into();
         file.flow.stages[0].id = "product-spec".into();
         file.flow.stages[0].skill = Some("product-spec".into());
         file.flow.stages[0].agent = Some("Spec writer".into());
-        file.flow.delivery.delivers = Delivers::Pr;
         let mut d = draft(&file, false);
         d.marks = vec![StageMark {
             stage_id: "product-spec".into(),
@@ -4023,103 +2026,21 @@ mod tests {
             by: "Claude Code".into(),
             why: Some("From 12 /interview-me runs".into()),
         }];
-        d.undo = true;
-        let v = render(&e, Opened::Onboarding, &d, &file, &base, None, None);
-        let product_spec = &v.flow.steps[1];
-        let mark = product_spec.mark.as_ref().expect("Product spec is tinted");
+        let v = render(&e, &d, &file, &base, Some("product-spec"));
+        let mark = v.details.unwrap().mark.expect("Product spec is tinted");
         assert_eq!(mark.label, "Added");
         assert_eq!(
             mark.why,
             "Changed by Claude Code: From 12 /interview-me runs"
         );
         assert_eq!(mark.undo, "Undo");
-        assert_eq!(
-            v.flow.steps.last().unwrap().mark,
-            None,
-            "the delivery, no stage, has no mark"
-        );
-        assert!(v.flow.steps[2].mark.is_none());
-        assert_eq!(v.flow.tiles[1].caption_mark, Some("New step \u{b7}"));
-        assert_eq!(v.flow.undo_all, Some("Undo all"));
-        assert_eq!(
-            v.flow.summary,
-            format!(
-                "6 steps \u{b7} {} default, changed by Claude Code",
-                otaq_core::naming::PRODUCT_NAME
-            )
-        );
-    }
-
-    #[test]
-    fn the_idle_agent_panel_starts_nothing() {
-        let e = env(not_asked());
-        let file = shop_web();
-        let d = draft(&file, true);
-        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
-        let panel = &v.agent;
-        assert_eq!(panel.title, "Noyan \u{b7} the flow");
-        assert_eq!(panel.pill.label, "Not started");
-        assert_eq!(panel.note, "\u{b7} starts when you ask");
-        assert!(panel.agent.is_none() && panel.session.is_none());
-        assert_eq!(
-            panel.hint,
-            [
-                "Ask about shop-web\u{2019}s flow, or to change it. Nothing on the board changes until you apply, and \
-              nothing runs until you ask."
-            ]
-        );
-        assert_eq!(panel.foot, "Typing goes to the agent");
-        // The chips' words are fixed: each sends itself as the first message.
-        assert!(
-            panel
-                .chips
-                .iter()
-                .all(|c| matches!(&c.action, ChipAction::Send { message } if *message == c.label))
-        );
-
-        // Once asked: its state, tokens and terminal; the chips go.
-        let agent = ProjectAgent {
-            id: "pa-1".into(),
-            project: "SHOP".into(),
-            name: "Flow".into(),
-            name_source: None,
-            state: AgentState::Running,
-            tool: setup::CLAUDE,
-            tool_session_id: None,
-            model: Some("sonnet".into()),
-            got_request: true,
-            mid_turn: true,
-            limit_stopped: false,
-            created_at: 0,
-            ended_at: None,
-            closed: false,
-            question: None,
-            needs_you: None,
-            focused: false,
-            tokens: otaq_core::usage::Tokens {
-                input: 12_000,
-                ..Default::default()
-            },
-            session: None,
-            turn_ended_at: None,
-        };
-        let v = render(&e, Opened::Project, &d, &file, &file, None, Some(&agent));
-        assert_eq!(v.agent.pill.label, "Working");
-        assert_eq!(v.agent.line, "Claude Code \u{b7} sonnet");
-        assert_eq!(v.agent.note, "\u{b7} 12k");
-        assert_eq!(v.agent.agent.as_deref(), Some("pa-1"));
-        assert!(v.agent.chips.is_empty());
-        let waiting = ProjectAgent {
-            mid_turn: false,
-            ..agent
-        };
-        let v = render(&e, Opened::Project, &d, &file, &file, None, Some(&waiting));
-        assert_eq!(v.agent.pill.label, "Waiting for you");
+        let v = render(&e, &d, &file, &base, Some("dev"));
+        assert!(v.details.unwrap().mark.is_none());
     }
 
     #[test]
     fn the_change_line_names_the_span_and_the_tickets_in_it() {
-        let e = env(not_asked());
+        let e = env();
         let in_use = shop_web();
         let (file, _) = edited(
             &in_use,
@@ -4167,23 +2088,22 @@ mod tests {
                 inside("SHOP-32", "Security"),
             ],
         };
-        let v = render(&e, Opened::Project, &d, &file, &in_use, None, None);
+        let v = render(&e, &d, &file, &in_use, None);
         assert_eq!(
-            v.flow.change_line.as_deref(),
+            v.change_line.as_deref(),
             Some(
                 "Security moved before Validate. This waits until no ticket is between Dev and Review: the 6 there \
                  now (4 in Dev, 2 in Security) finish on the current order, and until then no ticket enters Dev to \
                  Review. Tickets before Dev keep moving. The banner offers Apply now."
             )
         );
-        assert_eq!(v.flow.summary, "7 steps \u{b7} 1 change, not applied");
         assert_eq!(v.footer.apply, "Apply to shop-web");
         assert!(v.footer.apply_enabled);
     }
 
     #[test]
-    fn problems_show_on_their_step_and_keep_apply_off() {
-        let e = env(not_asked());
+    fn problems_show_on_their_stage_and_keep_apply_off() {
+        let e = env();
         let file = shop_web();
         let mut d = draft(&file, false);
         d.proposal.problems.push(ProposalProblem {
@@ -4195,23 +2115,23 @@ mod tests {
                 .into(),
             fix: None,
         });
-        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
+        let v = render(&e, &d, &file, &file, None);
         assert_eq!(
-            v.flow.steps[4].problem.as_deref(),
+            v.problem("security").as_deref(),
             Some("Security names the agent Security reviewer, which isn't one of your agents")
         );
         assert!(!v.footer.apply_enabled);
-        assert_eq!(v.footer.reason, v.flow.steps[4].problem);
+        assert_eq!(v.footer.reason, v.problem("security"));
     }
 
-    /// Q426 (FED-04, FLW-04's controls): each problem that needs a pick marks its step and shows its fix in the step's
-    /// details (a model not listed or a tool not connected: the model menu); an
-    /// import clash shows Keep mine (the default) · Take theirs · Add as. Each pick clears its problem; Apply turns on
-    /// after the last, and sends the picks.
+    /// Q426 (FED-04, FLW-04's controls): each problem that needs a pick marks its stage and shows its fix in the
+    /// stage's details (a model not listed or a tool not connected: the model menu); an import clash shows Keep mine
+    /// (the default) · Take theirs · Add as. Each pick clears its problem; Apply turns on after the last, and sends the
+    /// picks.
     #[test]
-    fn problems_that_need_a_pick_show_their_fix_on_the_step() {
+    fn problems_that_need_a_pick_show_their_fix_on_the_stage() {
         use otaq_core::flow::proposal::{AgentField as Field, Clash};
-        let mut e = env(not_asked());
+        let mut e = env();
         let mut file = shop_web();
         file.agents[1].model = "claude:opus-9".into();
         file.agents[3].model = format!("{}:gpt-5.5", Tool::ALL[1].as_str());
@@ -4248,40 +2168,24 @@ mod tests {
             format!("Rust developer: opus-9 isn\u{2019}t in {claude}\u{2019}s model list");
         let not_connected = format!("Security reviewer: {codex} isn\u{2019}t connected");
 
-        // Each step with a problem is marked; Apply is off with the first.
-        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
-        let problem = |v: &View, id: &str| {
-            v.flow
-                .steps
-                .iter()
-                .find(|s| s.id == id)
-                .and_then(|s| s.problem.clone())
-        };
-        assert_eq!(problem(&v, "dev"), Some(not_listed.clone()));
-        assert_eq!(problem(&v, "security"), Some(not_connected.clone()));
-        assert_eq!(problem(&v, "validate"), None, "a clash keeps Apply on");
-        assert!(v.flow.problems.is_empty() && v.flow.fixes.is_empty());
+        // Each stage with a problem is marked; Apply is off with the first.
+        let v = render(&e, &d, &file, &file, None);
+        assert_eq!(v.problem("dev"), Some(not_listed.clone()));
+        assert_eq!(v.problem("security"), Some(not_connected.clone()));
+        assert_eq!(v.problem("validate"), None, "a clash keeps Apply on");
         assert!(!v.footer.apply_enabled);
         assert_eq!(v.footer.reason, Some(not_listed.clone()));
 
         // Security: its agent's model.
-        let fixes = |v: &View| v.flow.details.as_ref().unwrap().fixes.clone();
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &file,
-            Some("security"),
-            None,
-        );
+        let fixes = |v: &Rendered| v.details.as_ref().unwrap().fixes.clone();
+        let v = render(&e, &d, &file, &file, Some("security"));
         let security = fixes(&v);
         assert_eq!(security[0].text, not_connected);
         assert_eq!(security.len(), 1);
-        assert_eq!(v.flow.details.as_ref().unwrap().problem, None);
+        assert_eq!(v.details.as_ref().unwrap().problem, None);
 
         // Dev: the model menu, the default model and the connected tools.
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
+        let v = render(&e, &d, &file, &file, Some("dev"));
         let [dev] = fixes(&v).try_into().unwrap();
         assert_eq!((dev.text.as_str(), dev.fixed), (not_listed.as_str(), false));
         let FixControl::Model { fix } = &dev.control else {
@@ -4303,15 +2207,7 @@ mod tests {
         assert_eq!(fix.picker, None);
 
         // Validate: the clash, Keep mine picked.
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &file,
-            Some("validate"),
-            None,
-        );
+        let v = render(&e, &d, &file, &file, Some("validate"));
         let [clash] = fixes(&v).try_into().unwrap();
         assert_eq!(
             clash.text,
@@ -4340,25 +2236,17 @@ mod tests {
         );
         assert_eq!(v.choices.clashes.get("Checker"), Some(&ClashPick::KeepMine));
 
-        // A tool picked: that problem is gone from its step.
+        // A tool picked: that problem is gone from its stage.
         e.choices
             .models
             .insert("Rust developer".into(), Tool::ALL[0].as_str().into());
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &file,
-            Some("security"),
-            None,
-        );
-        assert_eq!(problem(&v, "dev"), None);
-        assert_eq!(problem(&v, "security"), Some(not_connected.clone()));
+        let v = render(&e, &d, &file, &file, Some("security"));
+        assert_eq!(v.problem("dev"), None);
+        assert_eq!(v.problem("security"), Some(not_connected.clone()));
         assert_eq!(v.footer.reason, Some(not_connected.clone()));
         let security = fixes(&v);
         assert!(!security[0].fixed);
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
+        let v = render(&e, &d, &file, &file, Some("dev"));
         let [dev] = fixes(&v).try_into().unwrap();
         let FixControl::Model { fix } = &dev.control else {
             panic!("the model menu: {dev:?}");
@@ -4372,8 +2260,8 @@ mod tests {
             .models
             .insert("Security reviewer".into(), DEFAULT.into());
         e.choices.clashes.insert("Checker".into(), ClashPick::AddAs);
-        let v = render(&e, Opened::Project, &d, &file, &file, None, None);
-        assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));
+        let v = render(&e, &d, &file, &file, None);
+        assert!(v.problems.iter().all(|(_, p)| p.is_none()));
         assert!(v.footer.apply_enabled);
         assert_eq!(v.footer.reason, None);
         let sent = v.choices.apply_choices();
@@ -4392,13 +2280,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Add after Product spec: a new agent stage with the kind's default agent and no skill (Blank), selected.
-        let (added, select) = edited(
-            &file,
-            &StageEdit::Add {
-                after: Some("product-spec".into()),
-            },
-        )
-        .unwrap();
+        let (added, select) = edited(&file, &add_blank(Some("product-spec"))).unwrap();
         assert_eq!(select.as_deref(), Some("new-stage"));
         assert_eq!(ids(&added)[..3], ["product-spec", "new-stage", "dev"]);
         let new = added.flow.stage("new-stage").unwrap();
@@ -4406,7 +2288,7 @@ mod tests {
             (new.agent.as_deref(), new.skill.as_deref()),
             (Some("Developer"), None)
         );
-        let (again, select) = edited(&added, &StageEdit::Add { after: None }).unwrap();
+        let (again, select) = edited(&added, &add_blank(None)).unwrap();
         assert_eq!(select.as_deref(), Some("new-stage-2"));
         assert_eq!(again.flow.stages[0].name, "New stage 2");
         // The document reads back.
@@ -4547,106 +2429,23 @@ mod tests {
         );
     }
 
-    /// Next to a check's skip mark, once it is on, the editor says a ticket skipping it or moved past it is delivered
-    /// without that check (the Delivery does what the flow says): on an agent check and a check by you alike, never on
-    /// an Agent stage, and not while the mark is off.
-    #[test]
-    fn a_checks_skip_mark_says_it_is_delivered_without_it() {
-        let e = env(not_asked());
-        let file = shop_web();
-        let skip_note = |file: &FlowFile, stage: &str| {
-            let d = draft(file, true);
-            let v = render(&e, Opened::Project, &d, file, file, Some(stage), None);
-            let details = v.flow.details.expect("the step's details");
-            let skip = details.can.iter().find(|c| c.option == "skip").unwrap();
-            (skip.on, skip.note)
-        };
-        assert_eq!(skip_note(&file, "validate"), (false, None), "mark off");
-        let mut skippable = file.clone();
-        for id in ["product-spec", "validate", "review"] {
-            let edit = StageEdit::Option {
-                stage: id.into(),
-                option: "skip".into(),
-                on: true,
-            };
-            skippable = edited(&skippable, &edit).unwrap().0;
-        }
-        for check in ["validate", "review"] {
-            assert_eq!(
-                skip_note(&skippable, check),
-                (true, Some(DELIVERED_WITHOUT_THIS_CHECK)),
-                "{check}"
-            );
-        }
-        assert_eq!(
-            DELIVERED_WITHOUT_THIS_CHECK,
-            "A ticket that skips it, or is moved past it, is delivered without this check."
-        );
-        assert_eq!(
-            skip_note(&skippable, "product-spec"),
-            (true, None),
-            "an Agent stage"
-        );
+    fn plan_details(v: &Rendered) -> &Details {
+        v.details.as_ref().expect("Plan's details")
     }
 
+    /// FED-05, FED-06 (`s27-05`): a new stage with no skill has an empty Skill field with both options; its column
+    /// says it needs a skill; Apply is off with the reason.
     #[test]
-    fn the_gallery_builds() {
-        assert_eq!(gallery().cells.len(), 7);
-    }
-
-    fn plan_details(v: &View) -> &Details {
-        v.flow.details.as_ref().expect("Plan's details")
-    }
-
-    /// FED-05, FED-06 (`s27-05`): Plan picked in a new stage after Product spec fills the name and kind; the skill is
-    /// empty with both options; the step says it needs a skill; Apply is off with the reason; the panel offers to
-    /// write it.
-    #[test]
-    fn plan_picked_has_an_empty_skill_with_both_options() {
-        let e = env(not_asked());
+    fn a_stage_without_a_skill_has_an_empty_skill_with_both_options() {
+        let e = env();
         let shop = shop_web();
         let (file, d) = plan_draft(None);
         let d = Draft {
             proposal: d,
             ..draft(&file, false)
         };
-        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let v = render(&e, &d, &file, &shop, Some("plan"));
         let details = plan_details(&v);
-        let t = details.templates.as_ref().expect("a new stage's templates");
-        assert_eq!(t.title, "New stage after Product spec");
-        assert_eq!(
-            (t.label, t.plain_note),
-            ("Start from", "name and kind; no skill")
-        );
-        let plain: Vec<(&str, bool)> = t.plain.iter().map(|c| (c.label, c.chosen)).collect();
-        assert_eq!(
-            plain,
-            [
-                ("Plan", true),
-                ("Security check", false),
-                ("Visual check", false),
-                ("Docs", false),
-                ("Blank", false)
-            ]
-        );
-        assert_eq!(
-            t.presets_label,
-            format!("From {}\u{2019}s presets", otaq_core::naming::PRODUCT_NAME)
-        );
-        assert_eq!(t.presets_note, "complete, skill included");
-        let presets: Vec<&str> = t.presets.iter().map(|c| c.label).collect();
-        assert_eq!(
-            presets,
-            [
-                "Product spec",
-                "Tech spec",
-                "Milestone plan",
-                "Validate",
-                "Review",
-                "PR delivery"
-            ]
-        );
-        assert_eq!(details.kind, Some(EditorKind::Works));
         let agent = details.agent.as_ref().unwrap();
         assert_eq!(
             (agent.name.as_str(), agent.note.as_deref()),
@@ -4666,69 +2465,30 @@ mod tests {
         // Pick a skill…: the user's own first, nothing checked yet.
         assert_eq!(skill.picker.items[0].id, "security-review");
         assert!(!skill.picker.items.iter().any(|i| i.checked));
-        // The step: "needs a skill" in the agent's place.
-        let step = &v.flow.steps[2];
-        assert_eq!(step.name, "Plan");
-        assert_eq!(step.problem.as_deref(), Some("needs a skill"));
-        assert_eq!(step.who, None);
-        assert_eq!(v.flow.summary, "8 steps \u{b7} 1 change, not applied");
+        // The column: "needs a skill".
+        assert_eq!(v.problem("plan").as_deref(), Some("needs a skill"));
         // Apply is off with the reason.
         assert!(!v.footer.apply_enabled);
         assert_eq!(v.footer.reason.as_deref(), Some("Plan needs a skill"));
-        // The panel offers to write it; the chip does what the button does.
-        assert_eq!(
-            v.agent.hint,
-            [
-                "Plan needs a skill. Ask here to have one written (it reads this repo and your other skills, and uses \
-              tokens), or pick one of yours in the stage."
-            ]
-        );
-        let chips: Vec<(&str, &ChipAction)> = v
-            .agent
-            .chips
-            .iter()
-            .map(|c| (c.label.as_str(), &c.action))
-            .collect();
-        assert_eq!(
-            chips,
-            [
-                (
-                    "Write the skill",
-                    &ChipAction::WriteSkill {
-                        stage: "plan".into(),
-                        prefill: "Write a skill for the Plan stage: ".into(),
-                    }
-                ),
-                (
-                    "What should Plan do?",
-                    &ChipAction::Send {
-                        message: "What should Plan do?".into()
-                    }
-                )
-            ]
-        );
         // Q441: the request is only prefilled, the caret after it; the user finishes it and sends.
         assert_eq!(
             write_skill_prefill(&file, "plan"),
             "Write a skill for the Plan stage: "
         );
-        // A stage of the flow in use has no templates.
-        let v = render(&e, Opened::Project, &d, &file, &shop, Some("dev"), None);
-        assert!(plan_details(&v).templates.is_none());
     }
 
     /// Pick a skill… lists the skills the user already has, personal ones then the project's, then Otaq's own,
     /// labelled as Otaq's; each second line says where it lives and what it does. A typed name is its last item.
     #[test]
     fn pick_a_skill_lists_personal_then_project_then_otaqs_own() {
-        let e = env(not_asked());
+        let e = env();
         let shop = shop_web();
         let (file, d) = plan_draft(None);
         let d = Draft {
             proposal: d,
             ..draft(&file, false)
         };
-        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let v = render(&e, &d, &file, &shop, Some("plan"));
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
         let items: Vec<(&str, Option<&str>)> = picker
             .items
@@ -4747,7 +2507,8 @@ mod tests {
                 (
                     "release-notes",
                     Some(
-                        "This project \u{b7} Claude Code, GitHub Copilot, OpenCode \u{b7} Writes the release notes from the merged tickets."
+                        "This project \u{b7} Claude Code, GitHub Copilot, OpenCode \u{b7} Writes the release notes \
+                         from the merged tickets."
                     )
                 ),
             ]
@@ -4765,18 +2526,18 @@ mod tests {
         // With none of the user's own, Otaq's own still show: the list is never empty.
         let mut e = e;
         e.skills = otaq_skills();
-        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let v = render(&e, &d, &file, &shop, Some("plan"));
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
         assert_eq!(picker.items.len(), shipped::SKILLS.len());
         assert!(picker.items.iter().all(|i| !i.disabled && !i.id.is_empty()));
     }
 
     /// A name typed by hand is the stage's skill as it is, with nothing imported or copied; a skill nobody has shows
-    /// "You don't have the skill `<name>`" (the draft's warning) in its Skill field and on its step, amber, and Apply
+    /// "You don't have the skill `<name>`" (the draft's warning) in its Skill field and on its column, amber, and Apply
     /// still works. Otaq's own skills never warn.
     #[test]
     fn a_typed_name_works_and_a_skill_nobody_has_warns() {
-        let e = env(not_asked());
+        let e = env();
         let shop = shop_web();
         let (typed, _) = edited(
             &shop,
@@ -4796,16 +2557,8 @@ mod tests {
             stage: Some("Validate".into()),
             text: "You don't have the skill `team-validate`".into(),
         }];
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &typed,
-            &shop,
-            Some("validate"),
-            None,
-        );
-        let field = v.flow.details.as_ref().unwrap().skill.as_ref().unwrap();
+        let v = render(&e, &d, &typed, &shop, Some("validate"));
+        let field = v.details.as_ref().unwrap().skill.as_ref().unwrap();
         assert_eq!(
             field.state,
             SkillState::Set {
@@ -4813,19 +2566,17 @@ mod tests {
                 warning: Some("You don't have the skill `team-validate`".into()),
             }
         );
-        let step = v.flow.steps.iter().find(|s| s.id == "validate").unwrap();
         assert_eq!(
-            step.warning.as_deref(),
+            v.warning("validate").as_deref(),
             Some("You don't have the skill `team-validate`")
         );
-        assert_eq!(step.problem, None);
+        assert_eq!(v.problem("validate"), None);
         assert!(v.footer.apply_enabled, "only a warning");
         assert!(
-            v.flow
-                .steps
+            v.warnings
                 .iter()
-                .filter(|s| s.id != "validate")
-                .all(|s| s.warning.is_none())
+                .filter(|(id, _)| id != "validate")
+                .all(|(_, w)| w.is_none())
         );
 
         // `validate` is Otaq's own: no warning, even one the draft says.
@@ -4835,37 +2586,22 @@ mod tests {
             stage: Some("Validate".into()),
             text: "You don't have the skill `validate`".into(),
         }];
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &shop,
-            &shop,
-            Some("validate"),
-            None,
-        );
+        let v = render(&e, &d, &shop, &shop, Some("validate"));
         assert_eq!(
-            v.flow
-                .details
-                .as_ref()
-                .unwrap()
-                .skill
-                .as_ref()
-                .unwrap()
-                .state,
+            v.details.as_ref().unwrap().skill.as_ref().unwrap().state,
             SkillState::Set {
                 skill: "validate".into(),
                 warning: None,
             }
         );
-        assert!(v.flow.steps.iter().all(|s| s.warning.is_none()));
+        assert!(v.warnings.iter().all(|(_, w)| w.is_none()));
     }
 
     /// FED-06 (`s27-06`): while the agent writes it the field says so with Stop, and Apply's reason says it too;
-    /// once written, the skill is tinted with Open and Undo, the step is marked New, and Apply is on.
+    /// once written, the skill is tinted with Open and Undo, and Apply is on.
     #[test]
     fn the_skill_being_written_then_written() {
-        let mut e = env(not_asked());
+        let mut e = env();
         let shop = shop_web();
         let (file, d) = plan_draft(None);
         let d = Draft {
@@ -4878,7 +2614,7 @@ mod tests {
             agent: Some("pa-1".into()),
             made: Vec::new(),
         }];
-        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let v = render(&e, &d, &file, &shop, Some("plan"));
         assert_eq!(
             plan_details(&v).skill.as_ref().unwrap().state,
             SkillState::Writing {
@@ -4891,10 +2627,6 @@ mod tests {
             Some("Plan needs a skill \u{b7} being written")
         );
         assert!(!v.footer.apply_enabled);
-        assert!(
-            !v.agent.chips.iter().any(|c| c.label == "Write the skill"),
-            "it is being written already"
-        );
 
         let (file, d) = plan_draft(Some("plan-ticket"));
         let d = Draft {
@@ -4903,7 +2635,7 @@ mod tests {
         };
         e.writing.clear();
         e.written = vec![written_plan()];
-        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let v = render(&e, &d, &file, &shop, Some("plan"));
         assert_eq!(
             plan_details(&v).skill.as_ref().unwrap().state,
             SkillState::Written {
@@ -4919,26 +2651,21 @@ mod tests {
                 undo: "Undo",
             }
         );
+        assert_eq!(v.problem("plan"), None);
+        assert!(v.footer.apply_enabled);
+        assert_eq!(v.footer.reason, None);
         // One an older Otaq wrote has no folder in the project: no saved line, and no Open.
         let mut old = e.written.clone();
         old[0].folder.clear();
         let e_old = Env {
             written: old,
-            ..env(not_asked())
+            ..env()
         };
-        let state = plan_details(&render(
-            &e_old,
-            Opened::Project,
-            &d,
-            &file,
-            &shop,
-            Some("plan"),
-            None,
-        ))
-        .skill
-        .clone()
-        .unwrap()
-        .state;
+        let state = plan_details(&render(&e_old, &d, &file, &shop, Some("plan")))
+            .skill
+            .clone()
+            .unwrap()
+            .state;
         assert!(matches!(
             state,
             SkillState::Written {
@@ -4947,16 +2674,10 @@ mod tests {
                 ..
             }
         ));
-        let step = &v.flow.steps[2];
-        assert_eq!(step.written.as_ref().map(|m| m.label), Some("New"));
-        assert_eq!(step.problem, None);
-        assert_eq!(step.who.as_deref(), Some("Developer"));
-        assert!(v.footer.apply_enabled);
-        assert_eq!(v.footer.reason, None);
         // Another skill picked over it: the field shows that one, untinted.
         let mut picked = file.clone();
         picked.flow.stages[1].skill = Some("security-review".into());
-        let v = render(&e, Opened::Project, &d, &picked, &shop, Some("plan"), None);
+        let v = render(&e, &d, &picked, &shop, Some("plan"));
         assert_eq!(
             plan_details(&v).skill.as_ref().unwrap().state,
             SkillState::Set {
@@ -4966,101 +2687,52 @@ mod tests {
         );
     }
 
-    /// FED-05: the plain templates fill the name and the kind (no skill); the presets' come complete, bringing an
-    /// agent the user doesn't have; PR delivery becomes the flow's Delivery. A kind switch keeps an empty skill empty.
-    /// Pick a skill… gives the stage's agent the skill.
+    /// A ready stage from the palette comes with its description, agent and skill, bringing an agent the user doesn't
+    /// have; Blank takes the next free "New stage" name and no skill. A kind switch keeps an empty skill empty. Pick a
+    /// skill… gives the stage's agent the skill.
     #[test]
-    fn templates_and_a_picked_skill_change_the_document() {
-        let (added, new) = edited(
-            &shop_web(),
-            &StageEdit::Add {
-                after: Some("product-spec".into()),
-            },
-        )
-        .unwrap();
-        let new = new.unwrap();
-        let template = |t: Template| {
+    fn ready_stages_and_a_picked_skill_change_the_document() {
+        let ready = |template: &str| {
             edited(
-                &added,
-                &StageEdit::Template {
-                    stage: new.clone(),
-                    template: t,
+                &shop_web(),
+                &StageEdit::AddTemplate {
+                    after: Some("dev".into()),
+                    template: template.into(),
                 },
             )
             .unwrap()
         };
-        let (security, id) = template(Template::Security);
-        assert_eq!(id.as_deref(), Some("security-check"));
-        let s = security.flow.stage("security-check").unwrap();
-        assert_eq!(
-            (
-                s.name.as_str(),
-                s.kind,
-                the_agent(s).map(String::as_str),
-                s.skill.as_deref(),
-                s.rounds
-            ),
-            (
-                "Security check",
-                StageKind::Check { by: CheckBy::Agent },
-                Some("Checker"),
-                None,
-                Some(3)
-            )
-        );
-        let (blank, id) = template(Template::Blank);
-        let s = blank.flow.stage(id.as_deref().unwrap()).unwrap();
-        assert_eq!((s.name.as_str(), s.skill.as_deref()), ("New stage", None));
-        // From the presets: Product spec complete (named Product spec 2 beside shop-web's own), its agent kept; Tech
-        // spec and Milestone plan complete too (d0115, d0129), skippable, bringing Spec first's agents.
-        let (product_spec, id) = template(Template::ProductSpec);
-        let s = product_spec.flow.stage(id.as_deref().unwrap()).unwrap();
+        let (tech, id) = ready("tech-spec");
+        let s = tech.flow.stage(id.as_deref().unwrap()).unwrap();
         assert_eq!(
             (s.name.as_str(), s.agent.as_deref(), s.skill.as_deref()),
-            ("Product spec 2", Some("Spec writer"), Some("product-spec"))
+            ("Tech spec", Some("Architect"), Some("tech-spec"))
         );
-        assert!(s.kind == StageKind::Agent && s.can_skip());
-        for (t, name, agent, skill) in [
-            (Template::TechSpec, "Tech spec", "Architect", "tech-spec"),
-            (
-                Template::MilestonePlan,
-                "Milestone plan",
-                "Milestone planner",
-                "milestone-plan",
-            ),
-        ] {
-            let (planning, id) = template(t);
-            let s = planning.flow.stage(id.as_deref().unwrap()).unwrap();
-            assert_eq!(
-                (
-                    s.name.as_str(),
-                    s.kind,
-                    s.agent.as_deref(),
-                    s.skill.as_deref(),
-                    s.can_skip()
-                ),
-                (name, StageKind::Agent, Some(agent), Some(skill), true)
-            );
-            assert!(planning.agents.iter().any(|a| a.name == agent));
-            assert!(!shop_web().agents.iter().any(|a| a.name == agent));
-        }
-        let (validate, id) = template(Template::Validate);
-        let s = validate.flow.stage(id.as_deref().unwrap()).unwrap();
-        assert_eq!((s.skill.as_deref(), s.rounds), (Some("validate"), Some(3)));
-        // PR delivery: the flow's Delivery becomes Team PR's (its id kept), the new stage goes, Shipper comes along.
-        let (pr, id) = template(Template::PrDelivery);
-        // PR delivery is no stage: the flow's delivery becomes Team PR's, and the new stage goes.
-        assert_eq!(id, None);
-        assert!(pr.flow.stage(&new).is_none());
-        let d = &pr.flow.delivery;
+        assert!(s.description.is_some());
+        assert!(tech.agents.iter().any(|a| a.name == "Architect"));
+        assert!(!shop_web().agents.iter().any(|a| a.name == "Architect"));
+        // shop-web has a Product spec already: the ready one is numbered.
+        let (spec, id) = ready("product-spec");
         assert_eq!(
-            (d.agent.as_deref(), d.skill.as_deref(), d.delivers),
-            (Some("Shipper"), Some("open-pr"), Delivers::Pr)
+            spec.flow.stage(id.as_deref().unwrap()).unwrap().name,
+            "Product spec 2"
         );
-        assert!(pr.agents.iter().any(|a| a.name == "Shipper"));
-        assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&pr)).is_ok());
+        let (blank, id) = ready("new-stage");
+        let s = blank.flow.stage(id.as_deref().unwrap()).unwrap();
+        assert_eq!((s.name.as_str(), s.skill.as_deref()), ("New stage", None));
+        assert!(
+            edited(
+                &shop_web(),
+                &StageEdit::AddTemplate {
+                    after: None,
+                    template: "nope".into()
+                }
+            )
+            .is_err()
+        );
+
         // A kind switch keeps Plan's empty skill empty.
-        let (plan, _) = template(Template::Plan);
+        let (plan, _) = plan_draft(None);
         let (checks, _) = edited(
             &plan,
             &StageEdit::Kind {
@@ -5078,7 +2750,7 @@ mod tests {
         let again = otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&plan)).unwrap();
         let problems = otaq_core::flow::check(&again.flow).unwrap_err();
         assert_eq!(problems[0].message, "Plan needs a skill");
-        // Pick a skill…: Plan runs security-review; its agent gets no skill list (an agent has none, T6).
+        // Pick a skill…: Plan runs security-review.
         let (picked, _) = edited(
             &plan,
             &StageEdit::Skill {
@@ -5104,57 +2776,6 @@ mod tests {
         );
     }
 
-    /// FED-09 (`s26-08`, `s27-05`): each column ⋯ entry opens the editor over shop-web's flow in use. Edit Product
-    /// spec… selects Product spec with its details; Add a stage after Product spec puts a new stage right after it,
-    /// selected, dashed, its details open, Apply on; Change the whole flow… opens on the legend with nothing to apply.
-    #[test]
-    fn each_column_entry_opens_the_editor_in_its_state() {
-        let e = env(not_asked());
-        let file = shop_web();
-        let d = draft(&file, true);
-
-        let edit = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &file,
-            Some("product-spec"),
-            None,
-        );
-        assert!(edit.flow.steps[1].selected && !edit.flow.steps[1].added);
-        assert_eq!(
-            edit.flow.details.as_ref().map(|d| d.title.as_str()),
-            Some("Product spec")
-        );
-
-        let (added, select) = edited(
-            &file,
-            &StageEdit::Add {
-                after: Some("product-spec".into()),
-            },
-        )
-        .unwrap();
-        let select = select.expect("the new stage is selected");
-        let d = draft(&added, false);
-        let add = render(&e, Opened::Project, &d, &added, &file, Some(&select), None);
-        let new = &add.flow.steps[2];
-        assert_eq!(new.id, select);
-        assert!(
-            new.selected && new.added,
-            "the new stage is dashed and selected"
-        );
-        assert!(add.flow.steps.iter().filter(|s| s.added).count() == 1);
-        assert!(add.flow.details.is_some(), "its details open");
-        assert!(add.flow.folded);
-
-        let d = draft(&file, true);
-        let whole = render(&e, Opened::Project, &d, &file, &file, None, None);
-        assert!(whole.flow.details.is_none() && !whole.flow.folded);
-        assert!(whole.flow.steps.iter().all(|s| !s.selected && !s.added));
-        assert_eq!(whole.footer.apply, "No changes");
-    }
-
     /// The draft of `file` against shop-web, checked: the flow check's problems on their stages (as the core's
     /// proposal has them), the changes from shop-web.
     fn checked(file: &FlowFile) -> Draft {
@@ -5177,86 +2798,15 @@ mod tests {
         }
     }
 
-    /// T-0529 (d0131, `s29-04`): every check says where its fails go under its kind; an agent check names its one
-    /// agent, as an Agent stage does.
-    #[test]
-    fn the_steps_list_says_where_each_checks_fails_go() {
-        let e = env(not_asked());
-        let file = shop_with(&[fail_to("review", Some("product-spec"))]);
-        let d = checked(&file);
-        let v = render(&e, Opened::Project, &d, &file, &shop_web(), None, None);
-        let rows: Vec<(&str, &str, Option<&str>, Option<&str>)> = v
-            .flow
-            .steps
-            .iter()
-            .map(|s| {
-                (
-                    s.name.as_str(),
-                    s.kind.as_str(),
-                    s.fails_to.as_deref(),
-                    s.who.as_deref(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            rows,
-            [
-                ("Backlog", "Start", None, None),
-                ("Product spec", "Agent works", None, Some("Spec writer")),
-                ("Dev", "Agent works", None, Some("Rust developer")),
-                (
-                    "Validate",
-                    "Agent checks",
-                    Some("fails go to Dev"),
-                    Some("Checker")
-                ),
-                (
-                    "Security",
-                    "Agent checks",
-                    Some("fails go to Dev"),
-                    Some("Security reviewer")
-                ),
-                (
-                    "Review",
-                    "You check",
-                    Some("fails go to Product spec"),
-                    Some("You")
-                ),
-                ("Delivery", "PR \u{b7} click", None, Some("Rust developer")),
-            ]
-        );
-        assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));
-        // The walking ticket names them too; the caption and "come back here" follow fail_to.
-        assert_eq!(v.flow.tiles[3].ticket, "Checking");
-        let product_spec = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &shop_web(),
-            Some("product-spec"),
-            None,
-        );
-        let can = product_spec
-            .flow
-            .details
-            .expect("Product spec's details")
-            .can;
-        assert!(
-            can.iter().any(|c| c.option == "back"),
-            "Review's fails go to Product spec"
-        );
-    }
-
     /// d0131: Fails go to lists the Agent stages before the check, the nearest marked and picked by default; picking
     /// another sets `fail_to`, picking the nearest leaves it out; a stage that isn't one is refused.
     #[test]
     fn fails_go_to_offers_the_agent_stages_before_the_check() {
-        let e = env(not_asked());
+        let e = env();
         let file = shop_web();
         let d = draft(&file, true);
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("review"), None);
-        let details = v.flow.details.expect("Review's details");
+        let v = render(&e, &d, &file, &file, Some("review"));
+        let details = v.details.expect("Review's details");
         let field = details.fail_to.expect("a check's Fails go to");
         assert_eq!(field.label, "Fails go to");
         assert_eq!(field.value, "Dev");
@@ -5294,19 +2844,11 @@ mod tests {
              stage after it again. To send one card somewhere else, drag it back."
         );
         assert_eq!(field.problem, None);
-        // A check by you has no agent and no rounds; "A ticket can: skip it" stays.
-        assert!(details.agent.is_none() && details.rounds.is_none());
-        assert_eq!(
-            details
-                .can
-                .iter()
-                .map(|c| c.label.as_str())
-                .collect::<Vec<_>>(),
-            ["skip it"]
-        );
+        // A check by you has no agent.
+        assert!(details.agent.is_none());
         // An Agent stage has none.
-        let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
-        assert!(v.flow.details.expect("Dev's details").fail_to.is_none());
+        let v = render(&e, &d, &file, &file, Some("dev"));
+        assert!(v.details.expect("Dev's details").fail_to.is_none());
 
         // Picking Product spec sets it, and it shows; picking the nearest leaves it out again.
         let (to_product_spec, _) = edited(&file, &fail_to("review", Some("product-spec"))).unwrap();
@@ -5320,21 +2862,13 @@ mod tests {
             Some("product-spec")
         );
         let d = checked(&to_product_spec);
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &to_product_spec,
-            &file,
-            Some("review"),
-            None,
-        );
-        let field = v.flow.details.unwrap().fail_to.unwrap();
+        let v = render(&e, &d, &to_product_spec, &file, Some("review"));
+        let field = v.details.unwrap().fail_to.unwrap();
         assert_eq!(field.value, "Product spec");
         assert!(field.items[1].checked && !field.items[2].checked);
         assert!(v.footer.apply_enabled);
         assert_eq!(
-            v.flow.change_line.as_deref(),
+            v.change_line.as_deref(),
             Some(
                 "This applies at once: tickets that haven\u{2019}t reached a changed step follow it; tickets in it \
                  or past it finish as they are."
@@ -5378,15 +2912,11 @@ mod tests {
         assert_eq!(gone.flow.stage("review").unwrap().fail_to, None);
     }
 
-    /// A check has one agent, like an Agent stage: an agent check's details have the one Agent field (its default
-    /// noted), one Rounds limit for the stage and its Fails go to; there is no list of check agents. Picking another
-    /// agent writes `agent:`; a check left with no agent offers the field to pick one, shows the problem and keeps
-    /// Apply off.
     /// With `team-validate` only in `~/.claude/skills`, Validate's agent picker offers only the Claude Code agents
     /// (S5, S6); switching the skill back to Otaq's `validate` offers every agent.
     #[test]
     fn the_agent_picker_offers_only_agents_whose_tool_has_the_skill() {
-        let mut e = env(not_asked());
+        let mut e = env();
         let on = |tool| AgentModel::Tool { tool, model: None };
         for a in &mut e.stored {
             a.model = match a.name.as_str() {
@@ -5415,19 +2945,11 @@ mod tests {
         };
         let agents = |file: &FlowFile| {
             let d = checked(file);
-            let v = render(
-                &e,
-                Opened::Project,
-                &d,
-                file,
-                &shop_web(),
-                Some("validate"),
-                None,
-            );
-            let field = v.flow.details.unwrap().agent.unwrap();
-            let step = v.flow.steps.iter().find(|s| s.id == "validate").unwrap();
+            let v = render(&e, &d, file, &shop_web(), Some("validate"));
+            let warning = v.warning("validate");
+            let field = v.details.unwrap().agent.unwrap();
             let ids: Vec<String> = field.items.iter().map(|i| i.id.clone()).collect();
-            (ids, field.warning, step.warning.clone())
+            (ids, field.warning, warning)
         };
 
         let team = skill("team-validate");
@@ -5465,28 +2987,22 @@ mod tests {
         assert_eq!(step.as_deref(), Some(text));
         assert_eq!(text, missing_skill_text(Tool::Copilot, "team-validate"));
         let d = checked(&copilot);
-        let v = render(&e, Opened::Project, &d, &copilot, &shop_web(), None, None);
+        let v = render(&e, &d, &copilot, &shop_web(), None);
         assert!(v.footer.apply_enabled, "only a warning");
     }
 
+    /// A check has one agent, like an Agent stage: an agent check's details have the one Agent field (its default
+    /// noted) and its Fails go to. Picking another agent writes `agent:`; a check left with no agent offers the field to
+    /// pick one, shows the problem and keeps Apply off.
     #[test]
     fn an_agent_check_has_one_agent_field() {
-        let e = env(not_asked());
+        let e = env();
         let file = shop_web();
         let d = draft(&file, true);
         let details = |file: &FlowFile, d: &Draft| {
-            render(
-                &e,
-                Opened::Project,
-                d,
-                file,
-                &shop_web(),
-                Some("validate"),
-                None,
-            )
-            .flow
-            .details
-            .expect("Validate's details")
+            render(&e, d, file, &shop_web(), Some("validate"))
+                .details
+                .expect("Validate's details")
         };
         let one = details(&file, &d);
         let agent = one.agent.expect("an agent check's Agent field");
@@ -5495,11 +3011,6 @@ mod tests {
             ("Agent", "Checker", Some("default for An agent checks"))
         );
         assert!(agent.items.iter().any(|i| i.id == "Security reviewer"));
-        let rounds = one.rounds.expect("Rounds");
-        assert_eq!(
-            (rounds.label, rounds.value.as_str(), rounds.note),
-            ("Rounds", "3", "for the stage, whichever fails")
-        );
         assert_eq!(one.fail_to.map(|f| f.value), Some("Dev".to_owned()));
         assert!(one.skill.is_some());
 
@@ -5555,23 +3066,15 @@ mod tests {
             .unwrap()
             .agent = None;
         let d = checked(&none);
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &none,
-            &file,
-            Some("validate"),
-            None,
-        );
-        let details_none = v.flow.details.unwrap();
+        let v = render(&e, &d, &none, &file, Some("validate"));
         let message = "Validate is an agent check with no agent: name one";
+        assert_eq!(v.problem("validate").as_deref(), Some(message));
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(v.footer.reason.as_deref(), Some(message));
+        let details_none = v.details.unwrap();
         assert_eq!(details_none.problem.as_deref(), Some(message));
         assert_eq!(details_none.agent.map(|a| a.name), Some(String::new()));
         assert!(details_none.skill.is_some(), "its skill stays");
-        assert_eq!(v.flow.steps[3].problem.as_deref(), Some(message));
-        assert!(!v.footer.apply_enabled);
-        assert_eq!(v.footer.reason.as_deref(), Some(message));
         let (picked, _) = edited(
             &none,
             &StageEdit::Agent {
@@ -5590,7 +3093,7 @@ mod tests {
     /// its Fails go to, not twice, and keeps Apply off until another stage is picked.
     #[test]
     fn a_fail_to_problem_keeps_apply_off_until_fixed() {
-        let e = env(not_asked());
+        let e = env();
         let file = shop_with(&[
             fail_to("review", Some("product-spec")),
             StageEdit::Move {
@@ -5599,17 +3102,12 @@ mod tests {
             },
         ]);
         let d = checked(&file);
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &file,
-            &shop_web(),
-            Some("review"),
-            None,
-        );
+        let v = render(&e, &d, &file, &shop_web(), Some("review"));
         let message = "Review's fails go to Product spec, which isn't an Agent stage before it";
-        let details = v.flow.details.as_ref().unwrap();
+        assert_eq!(v.problem("review").as_deref(), Some(message));
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(v.footer.reason.as_deref(), Some(message));
+        let details = v.details.as_ref().unwrap();
         let field = details.fail_to.as_ref().unwrap();
         assert_eq!(field.value, "Product spec");
         assert_eq!(field.problem.as_deref(), Some(message));
@@ -5618,26 +3116,11 @@ mod tests {
             "Product spec isn't offered"
         );
         assert_eq!(details.problem, None, "shown once, on its field");
-        assert_eq!(v.flow.steps[4].problem.as_deref(), Some(message));
-        assert_eq!(
-            v.flow.steps[4].fails_to.as_deref(),
-            Some("fails go to Product spec")
-        );
-        assert!(!v.footer.apply_enabled);
-        assert_eq!(v.footer.reason.as_deref(), Some(message));
 
         let (fixed, _) = edited(&file, &fail_to("review", Some("dev"))).unwrap();
         let d = checked(&fixed);
-        let v = render(
-            &e,
-            Opened::Project,
-            &d,
-            &fixed,
-            &shop_web(),
-            Some("review"),
-            None,
-        );
-        assert_eq!(v.flow.details.unwrap().fail_to.unwrap().problem, None);
+        let v = render(&e, &d, &fixed, &shop_web(), Some("review"));
+        assert_eq!(v.details.unwrap().fail_to.unwrap().problem, None);
         assert!(v.footer.apply_enabled);
     }
 }

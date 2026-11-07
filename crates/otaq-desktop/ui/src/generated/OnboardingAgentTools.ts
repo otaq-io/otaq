@@ -2,20 +2,20 @@
 import type { AgentToolRow } from "./AgentToolRow";
 
 /**
- * The agent tools on the Tools step (*14* `y2FCwP`, `z8OVF`; SET-02 `[M23]`, d0086): the same rows as Settings →
- * Agent tools without Disconnect…, and the rule "at least one connected".
+ * The agent tools on the Tools step (SET-02 `[M23]`, d0086): the same rows as Settings → Agent tools without
+ * Disconnect…, and the rule "one tool is enough".
  */
 export type OnboardingAgentTools = { 
 /**
- * "AGENT TOOLS · AT LEAST ONE".
+ * "AGENT TOOLS".
  */
 heading: string, 
 /**
- * "3 connected", "none connected", "2 connected · 1 hidden".
+ * "1 ready", "none ready", "2 ready · 1 hidden".
  */
 count: string, rows: Array<AgentToolRow>, 
 /**
- * With none connected, above the list: "No agent tool is connected. …".
+ * With none ready, said once at the top: "No agent tool is ready yet. …".
  */
 blocked: string | null, 
 /**

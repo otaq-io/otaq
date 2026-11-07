@@ -1,15 +1,15 @@
-// Add project later (*14 → Adding a second project later*): from the rail's +, ⌘P → Add project, the empty
-// board's "Add project folder…" or a folder dropped on the window. Tools were checked already, so it is one dialog:
-// the folder, the key, the base branch; Esc or Cancel closes it. Adding selects the new project and closes the dialog
-// onto its Flow setup page, which is the flow editor from Otaq default (FED-09, d0115; `FlowSetupPage.tsx`).
+// Add project later: from the rail's +, ⌘P → Add project, the empty board's "Add project folder…" or a folder dropped
+// on the window. Tools were checked already, so it is one dialog: the folder, the key, the base branch and a light
+// Flow choice (Otaq default selected, Same as <project>, Suggest one); Esc or Cancel closes it. Adding selects the new
+// project and closes the dialog onto its board; "Suggest one" opens Edit flow there while Noyan's agent drafts a flow.
 import type { OverlayProps } from "../../app/registry";
 import { Button, Dialog } from "../../components";
 import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
-import { addedLater } from "./logic";
+import { added } from "./logic";
 
 function AddProjectBody({ folder, close }: { folder: string | null; close: () => void }) {
-  const state = useAddProject(false, folder, (key) => {
-    addedLater(key);
+  const state = useAddProject(false, folder, (key, flow) => {
+    added(key, flow);
     close();
   });
   const { view } = state;

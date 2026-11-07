@@ -133,7 +133,6 @@ export function RailTiles({ view, actions, agent, menu = null, onMenu, updateDot
             className="rail-item"
             data-selected={item.selected || undefined}
             data-idle={item.idle || undefined}
-            data-flow-setup={item.flow_setup !== null || undefined}
             aria-current={item.selected || undefined}
             aria-label={item.title}
             onClick={() => {
@@ -160,7 +159,6 @@ export function RailTiles({ view, actions, agent, menu = null, onMenu, updateDot
               )}
             </span>
             <span className="rail-name">{item.name}</span>
-            {item.flow_setup !== null && <span className="rail-flow-setup">{item.flow_setup}</span>}
           </button>
         </Tooltip>
       ))}

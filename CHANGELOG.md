@@ -5,6 +5,21 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **A shorter first run.** It is Welcome (your board's columns are your process, in one picture) → Tools (the agent
+  tools and git; Install and Sign in… still run in a terminal under the row) → Project → your board, on Otaq
+  default. The Theme and Flow steps are gone (the theme follows your system; Appearance changes it), and so is the
+  Flow setup page: every project starts on its board at once.
+- **Your first ticket.** A new user's board opens with "Your first ticket" in Backlog: "Tidy the README", editable
+  in place, with how long it takes and whose plan it uses. **Create & start** asks macOS for notifications first,
+  with one line on why; **Not now** leaves an empty Backlog.
+- **Hints when something first matters.** One short hint each, once: at the first agent question, the first
+  permission prompt (Claude Code's permission-mode warning moved here from the Tools step), the first time a checker
+  sends work back, the first ticket in Review, and after the first approve "That was your flow" with Edit flow. The
+  box for new work appears after that first approve, with its own hint, and so does a quiet "Help improve Otaq?"
+  banner (the switch stays in Settings → Data). If you already had projects, none of this shows and the box stays.
+- **Adding a project later** offers a light Flow choice: Otaq default, Same as <project>, or Suggest one (Noyan's
+  agent drafts a flow in Edit flow while the board runs on the default).
+- **Closing the window while agents work** says once: "Agents keep working. Otaq is in the menu bar."
 - **Edit flow on the board.** **Edit flow** at the end of the board turns the board into the flow's editor in place:
   each column header is its stage (what happens, its agent and skill, a check's rounds and where its fails go), the
   cards stay where they are, dimmed, and Backlog and Done are fixed at the ends. Drag a header to reorder it, × to

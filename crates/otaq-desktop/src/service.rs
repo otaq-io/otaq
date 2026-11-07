@@ -697,10 +697,6 @@ pub(crate) mod testing {
         pub bus: EventBus,
         pub sessions: Sessions,
         pub needs_you: otaq_core::attention::NeedsYouQueue,
-        /// For tests that feed an agent's hooks and limits as the service would (T-0430).
-        pub project_agents: otaq_core::project_agents::ProjectAgents,
-        pub signals: otaq_core::signals::Signals,
-        pub plan_limit: otaq_core::usage::limit::PlanLimit,
         stopper: Stopper,
         task: tokio::task::JoinHandle<()>,
     }
@@ -744,19 +740,11 @@ pub(crate) mod testing {
             let (bus, sessions, stopper) =
                 (service.events(), service.sessions(), service.stopper());
             let needs_you = service.needs_you();
-            let (project_agents, signals, plan_limit) = (
-                service.project_agents(),
-                service.signals(),
-                service.plan_limit(),
-            );
             let task = tokio::spawn(service.serve());
             self.started.lock().unwrap().push(Running {
                 bus,
                 sessions,
                 needs_you,
-                project_agents,
-                signals,
-                plan_limit,
                 stopper,
                 task,
             });
@@ -783,23 +771,6 @@ pub(crate) mod testing {
                 .expect("a running service")
                 .needs_you
                 .clone()
-        }
-
-        /// The Project agents, signals and plan limit of the service started last.
-        pub fn agents(
-            &self,
-        ) -> (
-            otaq_core::project_agents::ProjectAgents,
-            otaq_core::signals::Signals,
-            otaq_core::usage::limit::PlanLimit,
-        ) {
-            let started = self.started.lock().unwrap();
-            let last = started.last().expect("a running service");
-            (
-                last.project_agents.clone(),
-                last.signals.clone(),
-                last.plan_limit.clone(),
-            )
         }
 
         /// The service started last.
@@ -923,6 +894,15 @@ pub(crate) mod testing {
                 );
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
+        }
+
+        /// Stores a global setting in the harness's database, beside the running service (a first approve, say).
+        pub async fn set_setting(&self, key: &str, value_json: &str) {
+            let store = otaq_core::store::Store::open(&self.service.data.database_path())
+                .await
+                .unwrap();
+            store.set_setting(key, value_json).await.unwrap();
+            store.close().await;
         }
 
         /// Waits until a recorded page event matches.

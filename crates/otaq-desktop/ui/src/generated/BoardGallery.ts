@@ -4,13 +4,13 @@ import type { BoardDoneLine } from "./BoardDoneLine";
 import type { BoardGalleryColumn } from "./BoardGalleryColumn";
 import type { BoardGalleryDrag } from "./BoardGalleryDrag";
 import type { BoardGalleryToolbar } from "./BoardGalleryToolbar";
-import type { EmptyBoardView } from "./EmptyBoardView";
+import type { FirstTicketView } from "./FirstTicketView";
 
 /**
  * The gallery's board section (T-0324): the Review column in its states (*Row · Review column (0086 · V)*), the
  * drop verdicts of a card from each column, the empty board and the agent filter's chip.
  */
-export type BoardGallery = { review: Array<BoardGalleryColumn>, drags: Array<BoardGalleryDrag>, empty: EmptyBoardView, agent_chip: BoardAgentChip, 
+export type BoardGallery = { review: Array<BoardGalleryColumn>, drags: Array<BoardGalleryDrag>, first_ticket: FirstTicketView, agent_chip: BoardAgentChip, 
 /**
  * The toolbar on the Board (Fold empty columns on) and on the List (BRD-01, T-0460).
  */

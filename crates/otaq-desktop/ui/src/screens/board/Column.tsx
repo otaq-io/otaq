@@ -15,6 +15,7 @@ import {
   type KeyboardEvent,
   memo,
   type PointerEvent,
+  type ReactNode,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -190,8 +191,10 @@ export interface ColumnProps {
   chain?: ChainView | null;
   lifted: string | null;
   handlers: CardHandlers;
-  /** The column's own empty hint and "Add ticket" row; off while the empty board's card covers the board. */
+  /** The column's own empty hint and "Add ticket" row; off while the first ticket's card is in it. */
   showEmptyHint?: boolean;
+  /** Above the cards: Backlog's "Your first ticket" on a new user's first board. */
+  lead?: ReactNode;
   /** Where this column was scrolled when the project was last shown. */
   scrollTop: number;
   onScroll: (column: BoardColumnId, top: number) => void;
@@ -350,6 +353,7 @@ export function Column({
   lifted,
   handlers,
   showEmptyHint = true,
+  lead = null,
   scrollTop,
   onScroll,
   onView,
@@ -454,6 +458,7 @@ export function Column({
           measure();
         }}
       >
+        {lead}
         {column.dev ? (
           <>
             <CardList

@@ -54,7 +54,6 @@ const HEADER: HeaderView = {
       ],
       add: "Add project…",
     },
-    flow_setup: null,
   },
   search: hint("Search  ·  is:needs-you", "/"),
   activity: {
@@ -109,7 +108,6 @@ const item = (key: string, name: string, extra: Partial<RailItem> = {}): RailIte
   shortcut: null,
   detail: ["idle"],
   note: null,
-  flow_setup: null,
   paused: null,
   ...extra,
 });
@@ -253,57 +251,6 @@ describe("the rail's project menu (#11)", () => {
     for (const text of ["shop-web", "Project settings…", "Rename…", "Remove project…"])
       expect(out).toContain(text);
     expect(renderToStaticMarkup(createElement(RailTiles, { view: RAIL }))).not.toContain("Rename…");
-  });
-});
-
-describe("a project in Flow setup (T-0436, `s14-18`)", () => {
-  it("the rail marks it Flow setup under its name", () => {
-    const view: RailView = {
-      ...RAIL,
-      items: [
-        item("SHOP", "shop-web"),
-        item("BILL", "billing-api", { flow_setup: "Flow setup", detail: ["Flow setup"] }),
-      ],
-    };
-    const out = renderToStaticMarkup(createElement(RailTiles, { view }));
-    expect(out.match(/data-flow-setup="true"/g)).toHaveLength(1);
-    expect(out).toMatch(/data-flow-setup="true"[^>]*aria-label="billing-api · BILL"/);
-    expect(out).toContain(
-      '<span class="rail-name">billing-api</span><span class="rail-flow-setup">Flow setup</span>',
-    );
-  });
-
-  const inFlowSetup = (label: string | null): HeaderView => ({
-    ...HEADER,
-    project: {
-      ...(HEADER.project as NonNullable<HeaderView["project"]>),
-      key: "BILL",
-      name: "billing-api",
-      flow_setup: {
-        label: "Flow setup",
-        status: label === null ? null : { palette: "working", icon: "loader-circle", label },
-      },
-    },
-  });
-
-  it("the title bar reads billing-api · Flow setup · 2 agents at work, with no branch and no search", () => {
-    const out = renderToStaticMarkup(
-      createElement(HeaderBar, { view: inFlowSetup("2 agents at work"), onSearch: () => undefined }),
-    );
-    const order = ["billing-api", "·", "Flow setup", "2 agents at work"].map((text) => out.indexOf(text));
-    expect(order.every((at) => at >= 0)).toBe(true);
-    expect(order).toEqual(order.toSorted((a, b) => a - b));
-    expect(out).not.toContain("git-branch");
-    expect(out).not.toContain("header-search");
-    expect(out).toContain('aria-label="Running"');
-  });
-
-  it("nothing asked yet: Flow setup alone", () => {
-    const out = renderToStaticMarkup(
-      createElement(HeaderBar, { view: inFlowSetup(null), onSearch: () => undefined }),
-    );
-    expect(out).toContain("Flow setup");
-    expect(out).not.toContain("at work");
   });
 });
 

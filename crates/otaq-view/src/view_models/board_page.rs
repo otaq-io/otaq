@@ -37,6 +37,7 @@ use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
 use crate::view_models::filter::Scope;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
+use crate::view_models::hint;
 use crate::view_models::list_view;
 use crate::view_models::search_page::FilterState;
 use crate::view_models::ticket_comments::CommentBoxView;
@@ -287,7 +288,23 @@ pub fn mark_changing(page: &mut BoardPage, wait: &otaq_core::flow::apply::Wait) 
     }
 }
 
-/// The chip of a column scrolled down: `"{n} above"`, then `" · {n} need you"` when any of them need the user. The
+/// A new user's first run on this board: "Your first ticket" in Backlog while the project has no tickets and the
+/// card was never answered, and the one first-run hint whose moment is here now. Off on the List and while the board
+/// is filtered, where the cards a hint points at may be hidden.
+pub fn first_run(
+    page: &mut BoardPage,
+    facts: &hint::BoardFacts,
+    tool: Option<otaq_core::agent_tools::Tool>,
+) {
+    page.first_ticket = (empty_board::shows(facts.tickets.len(), facts.seen)
+        && page.list.is_none())
+    .then(|| empty_board::first_ticket(tool));
+    page.hint = (page.list.is_none() && page.filter_strip.is_none() && page.agent_filter.is_none())
+        .then(|| hint::board(facts))
+        .flatten();
+}
+
+/// The chip of a column scrolled down:`"{n} above"`, then `" · {n} need you"` when any of them need the user. The
 /// page counts the cards above its view and fills in `{n}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardScrollChip")]
@@ -304,8 +321,11 @@ pub const SCROLL_CHIP_NEED_YOU: &str = "{n} need you";
 #[ts(rename = "BoardView")]
 pub struct BoardPage {
     pub columns: Vec<ColumnPage>,
-    /// The centred card of a project with no tickets (the columns stay behind it).
-    pub empty: Option<empty_board::View>,
+    /// "Your first ticket" in Backlog: a new user's first project with no tickets ([`empty_board`]); set by
+    /// [`first_run`].
+    pub first_ticket: Option<empty_board::FirstTicket>,
+    /// The first-run hint whose moment is on this board now ([`hint::board`]); set by [`first_run`].
+    pub hint: Option<hint::BoardHint>,
     pub scroll_chip: ScrollChip,
     /// What waits for each card others wait for, lit while it is hovered or selected.
     pub chains: Vec<chain::View>,
@@ -620,8 +640,8 @@ pub fn page(
         });
     BoardPage {
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
-        empty: empty_board::shows(tickets.len(), false)
-            .then(|| empty_board::view(project.name, keys)),
+        first_ticket: None,
+        hint: None,
         scroll_chip: ScrollChip {
             above: SCROLL_CHIP_ABOVE.to_owned(),
             need_you: SCROLL_CHIP_NEED_YOU.to_owned(),
@@ -1193,7 +1213,7 @@ pub struct GalleryDrag {
 pub struct Gallery {
     pub review: Vec<GalleryColumn>,
     pub drags: Vec<GalleryDrag>,
-    pub empty: empty_board::View,
+    pub first_ticket: empty_board::FirstTicket,
     pub agent_chip: AgentChip,
     /// The toolbar on the Board (Fold empty columns on) and on the List (BRD-01, T-0460).
     pub toolbars: Vec<GalleryToolbar>,
@@ -1288,7 +1308,9 @@ pub fn gallery() -> Gallery {
         .iter()
         .map(drag_of)
         .collect(),
-        empty: empty_board::view("shop-web", &KeyLabels::base(Platform::Mac)),
+        first_ticket: empty_board::first_ticket(Some(
+            super::agent_tools_page::fixtures::tools()[0],
+        )),
         agent_chip: AgentFilter {
             agent: "a1".into(),
             name: "Checkout slowness".into(),
@@ -1674,7 +1696,7 @@ mod tests {
         assert_eq!(titles, ["Backlog", "Dev", "Validate", "Review", "Done"]);
         assert_eq!(page.min_column_width, 240.);
         assert_eq!(page.folded_width, 52.);
-        assert_eq!(page.empty, None);
+        assert_eq!(page.first_ticket, None);
         let backlog = &page.columns[0];
         assert_eq!(backlog.add.as_deref(), Some("Add ticket"));
         let dev = page.columns[1].dev.as_ref().unwrap();
@@ -1934,23 +1956,33 @@ mod tests {
         assert_eq!(unfiltered.columns[1].hidden, None);
     }
 
+    fn first_run_on(page: &mut BoardPage, facts: &hint::BoardFacts) {
+        first_run(page, facts, Some(otaq_core::agent_tools::Tool::Claude));
+    }
+
     #[test]
-    fn an_empty_project_shows_the_empty_board_over_its_columns() {
-        let page = page(
-            &[],
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
+    fn a_new_users_empty_project_shows_its_columns_with_the_first_ticket() {
+        let keys = KeyLabels::base(Platform::Mac);
+        let mut page = page(&[], &facts(), &params(1376.), NOW, &keys);
+        let flow = otaq_core::flow::default::default_flow();
+        let first_run = |seen: &'static [otaq_core::store::settings::Hint]| hint::BoardFacts {
+            tickets: &[],
+            flow: &flow,
+            seen,
+            first_approve: false,
+            keys: &keys,
+        };
+        first_run_on(&mut page, &first_run(&[]));
+        let card = page.first_ticket.clone().unwrap();
+        assert_eq!(card.title, "Tidy the README");
+        assert_eq!(page.hint, None);
+        // Answered (Create & start or Not now): an empty Backlog with its plain Add ticket row.
+        first_run_on(
+            &mut page,
+            &first_run(&[otaq_core::store::settings::Hint::FirstTicket]),
         );
-        let empty = page.empty.unwrap();
-        assert_eq!(empty.title, "shop-web is ready");
-        assert_eq!(
-            empty.text,
-            "Tell Noyan on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
-        );
-        let labels: Vec<&str> = empty.buttons.iter().map(|b| b.label).collect();
-        assert_eq!(labels, ["New ticket"], "no Noyan or terminal button");
+        assert_eq!(page.first_ticket, None);
+        assert_eq!(page.columns[0].add.as_deref(), Some("Add ticket"));
         assert_eq!(page.columns.len(), 5);
         let review = &page.columns[3];
         assert!(review.cards.is_empty());
@@ -2112,7 +2144,7 @@ mod tests {
         assert_eq!(counts, ["3", "1", "1", "0"]);
         assert_eq!(g.drags.len(), 5);
         assert_eq!(g.drags[1].from, "SHOP-25 · Dev");
-        assert!(g.empty.text.starts_with("Tell Noyan"));
+        assert_eq!(g.first_ticket.title, "Tidy the README");
     }
 
     /// d0087 (Q-G): the agent filter shows only the tickets the agent created or changed, combines with search,
