@@ -368,13 +368,13 @@ pub enum ProviderLook {
     NotDetected,
 }
 
-/// The Repository card's PR provider line (`settings.provider`): "GitHub · otaq-io/shop-web", with how its tool
+/// The Repository card's PR provider line (`settings.provider`): "GitHub · acme/shop-web", with how its tool
 /// stands on this computer and "Set up…" when it isn't ready here. Detected from the remote: a fact of the
 /// repository, not a setting and not the flow's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsProvider")]
 pub struct ProviderView {
-    /// "GitHub · otaq-io/shop-web"; "None detected" when no provider matches the remote.
+    /// "GitHub · acme/shop-web"; "None detected" when no provider matches the remote.
     pub line: String,
     /// "gh: signed in", "gh isn't installed", "origin is git.acme.internal/web/handbook".
     pub status: String,
@@ -439,7 +439,7 @@ pub fn provider(detected: Option<&PrProvider>) -> ProviderView {
     }
 }
 
-/// "otaq-io/shop-web" from "github.com/otaq-io/shop-web": the remote without its host.
+/// "acme/shop-web" from "github.com/acme/shop-web": the remote without its host.
 fn repository_path(remote: &str) -> String {
     remote
         .split_once('/')
@@ -629,14 +629,14 @@ mod tests {
     #[test]
     fn the_provider_line() {
         let mut p = PrProvider {
-            remote: Some("github.com/otaq-io/shop-web".into()),
+            remote: Some("github.com/acme/shop-web".into()),
             provider: Some(Provider::GitHub),
             logged_in: Some(true),
             cli_found: true,
             open_pr_skill: "open-pr".into(),
         };
         let v = provider(Some(&p));
-        assert_eq!(v.line, "GitHub \u{b7} otaq-io/shop-web");
+        assert_eq!(v.line, "GitHub \u{b7} acme/shop-web");
         assert_eq!(v.status, "gh: signed in");
         assert_eq!((v.look, v.set_up), (ProviderLook::Ready, None));
         // Not ready on this computer: Set up….
