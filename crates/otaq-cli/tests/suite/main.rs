@@ -13,6 +13,7 @@ mod comments;
 mod copilot_hooks;
 mod daemon;
 mod decision;
+mod delivery_message;
 mod deps;
 mod fixes;
 mod flow;

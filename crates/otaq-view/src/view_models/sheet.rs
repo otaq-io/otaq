@@ -135,14 +135,10 @@ pub fn numbered(shown: &[SheetTab], n: u8) -> Option<SheetTab> {
     shown.iter().copied().find(|t| t.number() == Some(n))
 }
 
-/// The tab the sheet opens on (SHT-02): Overview, and Files (on All changes) while the ticket waits in your check
-/// (SHT-06) and has the tab.
-pub fn opens_on(ticket: &Ticket) -> SheetTab {
-    if super::files_tab::waits_for_you(ticket) && tabs(ticket).contains(&SheetTab::Files) {
-        SheetTab::Files
-    } else {
-        SheetTab::Overview
-    }
+/// The tab the sheet opens on (SHT-02): Overview, in Review too, where it says what the agent did, what the checker
+/// found, the decisions it made and the ticket; the review bar is under every tab.
+pub fn opens_on(_ticket: &Ticket) -> SheetTab {
+    SheetTab::Overview
 }
 
 /// One crumb of the breadcrumb: the project, the key.
@@ -1022,10 +1018,10 @@ mod tests {
         assert_eq!(numbered(&shown, 4), Some(SheetTab::Activity));
         assert_eq!(numbered(&shown, 5), None);
         assert_eq!(opens_on(&t), SheetTab::Overview);
-        // In your check it opens on Files, where All changes and the review bar are (SHT-06).
+        // In Review too: Overview says what the agent did; the review bar is under every tab.
         assert_eq!(
             opens_on(&ticket("SHOP-18", "Checkout API", Status::WaitingForYou)),
-            SheetTab::Files
+            SheetTab::Overview
         );
         let labels: Vec<_> = shown.iter().map(|t| t.label()).collect();
         assert_eq!(labels, ["Overview", "Session", "Changes", "History"]);

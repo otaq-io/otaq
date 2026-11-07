@@ -88,7 +88,10 @@ const VIEW: ApproveView = {
   },
   push_to_pr: false,
   confirm: {
-    title: "Local merge SHOP-18 Checkout API",
+    title: "Merge SHOP-18 into main",
+    lead: "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean.",
+    prepared: null,
+    writing: null,
     into: "Into (SHOP-18’s base branch)",
     target: "main",
     repo: "~/code/shop-web",

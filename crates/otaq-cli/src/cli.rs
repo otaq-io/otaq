@@ -474,6 +474,13 @@ pub enum PrCommand {
         #[arg(long)]
         stdin: bool,
     },
+    /// Send the delivery's message for a ticket waiting in Review (JSON on stdin: title, description, branch); the
+    /// user sees it when they approve, and nothing is merged or pushed
+    Message {
+        /// Read the message from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
     /// Report the pull request the skill opened (or pushed to)
     Opened {
         /// The PR's URL, e.g. https://github.com/acme/shop-web/pull/481

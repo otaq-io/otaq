@@ -233,10 +233,24 @@ async fn open_pr_and_push_run_in_the_live_session() {
     in_review(&w, &t, "login.ts").await;
     let key = t.key.to_string();
 
+    // The dialog opens on the prepared text; the skill runs once the user confirms.
     let outcome = w.prs.open(&key, false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let proposal = w
+        .board
+        .pr_flow(&t.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .unwrap();
+    w.prs.confirm(&key, &proposal, false, &me()).await.unwrap();
     w.wait_for_output(&session.id, "RUNS my-pr").await;
-    w.prs.cancel(&key, &me()).await.unwrap();
+    sqlx::query("DELETE FROM pr_flows WHERE ticket_id = ?")
+        .bind(&t.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
 
     sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
         .bind(&t.id)

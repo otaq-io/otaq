@@ -945,13 +945,20 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
         .await;
     let outcome = w.prs.open(&key, true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
+    assert!(!flow.automatic, "the click's flow keeps its dialog");
+    // The dialog opened at once; the skill runs on the Delivery's agent once the user confirms.
+    let outcome = w
+        .prs
+        .confirm(&key, &flow.proposal.unwrap(), false, &me())
+        .await
+        .unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     assert!(
         w.sessions
             .running_of(&t.id, SessionKind::Delivery)
             .is_some()
     );
-    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
-    assert!(!flow.automatic, "the click's flow keeps its dialog");
     w.stop().await;
 }
 

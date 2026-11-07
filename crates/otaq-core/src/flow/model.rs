@@ -94,7 +94,9 @@ pub enum StageOption {
 pub struct Delivery {
     pub mode: DeliveryMode,
     pub delivers: Delivers,
-    /// The agent that opens the PR, when it can open one (`pr` or `either`); a local merge runs no agent.
+    /// The delivery's agent: when a ticket reaches Review it writes the message the delivery uses (the squash
+    /// commit's, and for a PR its branch, title and description), and it opens the PR. Required when the delivery can
+    /// open a PR (`pr` or `either`); a local merge may leave it out, and then its message is Otaq's plain one.
     pub agent: Option<String>,
     /// The skill it opens the PR with; Otaq's `open-pr` when none is named.
     pub skill: Option<String>,
@@ -158,7 +160,7 @@ pub enum DeliveryMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Delivers {
-    /// A Local merge; runs no agent.
+    /// A Local merge; its agent, when named, only writes the squash message.
     Local,
     Pr,
     /// The user's choice at the click (click mode only).

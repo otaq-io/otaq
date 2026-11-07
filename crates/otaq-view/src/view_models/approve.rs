@@ -188,11 +188,13 @@ pub fn options(
         }];
     }
     let mut out = Vec::new();
+    let key = &ticket.key;
     if delivers != Delivers::Pr {
-        let mut detail = format!("Squash into {target}");
+        let mut detail = format!("Squash-merges {key} into {target}");
         if let Some((key, _, others)) = still_waiting(ticket, tickets).first() {
-            detail.push_str(&format!(" \u{b7} {key} still waits for {}", keys(others)));
+            detail.push_str(&format!("; {key} still waits for {}", keys(others)));
         }
+        detail.push('.');
         out.push(ApproveOption {
             choice: ApproveChoice::LocalMerge,
             title: approve_and_merge(target),
@@ -206,11 +208,13 @@ pub fn options(
             .and_then(|p| p.provider)
             .map(|p| format!(" on {}", p.name()))
             .unwrap_or_default();
+        let instead = match delivers {
+            Delivers::Either => " instead",
+            _ => "",
+        };
         let detail = match blocked {
             Some(why) => why.to_owned(),
-            None => format!(
-                "The Open PR skill proposes{on}; you confirm before anything is pushed \u{b7} into {target}"
-            ),
+            None => format!("Pushes the branch and opens a pull request{on}{instead}."),
         };
         out.push(ApproveOption {
             choice: ApproveChoice::OpenPr,
@@ -219,7 +223,7 @@ pub fn options(
             enabled: blocked.is_none(),
         });
     }
-    out.push(merge_into_option(ticket, tickets));
+    out.push(merge_into_option(ticket, target, tickets));
     if commits == Some(0) {
         for option in &mut out {
             option.detail = NO_CHANGES_IN_THE_REPO.to_owned();
@@ -230,9 +234,7 @@ pub fn options(
             ApproveOption {
                 choice: ApproveChoice::Done,
                 title: DONE_NOTHING_TO_MERGE.to_owned(),
-                detail: format!(
-                    "Nothing to merge into {target} \u{b7} counts as merged; the branch is kept"
-                ),
+                detail: format!("The work needed no change, or it\u{2019}s already in {target}."),
                 enabled: true,
             },
         );
@@ -241,7 +243,7 @@ pub fn options(
             choice: ApproveChoice::DoneNotMerged,
             title: DONE_DONT_MERGE.to_owned(),
             detail: format!(
-                "Finish without merging {} \u{b7} counts as merged; the branch is kept",
+                "Close the ticket and keep {} out of {target}.",
                 match n {
                     1 => "its commit".to_owned(),
                     n => format!("its {n} commits"),
@@ -254,13 +256,13 @@ pub fn options(
 }
 
 /// "Merge into another ticket…": enabled when another ticket can take this one's branch (the picker lists them).
-fn merge_into_option(ticket: &Ticket, tickets: &[Ticket]) -> ApproveOption {
+fn merge_into_option(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> ApproveOption {
     let can = can_be_merged_in(ticket) && tickets.iter().any(|host| can_take(ticket, host));
     ApproveOption {
         choice: ApproveChoice::MergeInto,
         title: MERGE_INTO.to_owned(),
         detail: if can {
-            "Squash into another ticket\u{2019}s branch \u{b7} they land together".to_owned()
+            format!("Its work joins that ticket instead of {target}.")
         } else {
             NO_HOST.to_owned()
         },
@@ -631,7 +633,10 @@ mod tests {
             otaq_core::flow::Delivers::Either,
         )[1];
         assert_eq!(open.title, "Approve & open PR");
-        assert!(open.detail.contains("on GitHub"), "{}", open.detail);
+        assert_eq!(
+            open.detail,
+            "Pushes the branch and opens a pull request on GitHub instead."
+        );
         assert_ne!(open.detail, "PR provider not detected");
     }
 
@@ -716,7 +721,7 @@ mod tests {
         assert_eq!(options[0].choice, ApproveChoice::LocalMerge);
         assert_eq!(
             options[0].detail,
-            "Squash into main \u{b7} SHOP-20 still waits for SHOP-19"
+            "Squash-merges SHOP-18 into main; SHOP-20 still waits for SHOP-19."
         );
         assert!(options[0].enabled);
         assert_eq!(options[1].choice, ApproveChoice::OpenPr);
@@ -776,7 +781,7 @@ mod tests {
         assert_eq!(menu[0].title, "Done, nothing to merge");
         assert_eq!(
             menu[0].detail,
-            "Nothing to merge into main \u{b7} counts as merged; the branch is kept"
+            "The work needed no change, or it\u{2019}s already in main."
         );
         for other in &menu[1..] {
             assert_eq!(other.detail, "No changes in the repo");
@@ -823,7 +828,7 @@ mod tests {
         assert_eq!(last.title, "Done, don\u{2019}t merge");
         assert_eq!(
             last.detail,
-            "Finish without merging its 2 commits \u{b7} counts as merged; the branch is kept"
+            "Close the ticket and keep its 2 commits out of main."
         );
         assert!(last.enabled);
         assert!(

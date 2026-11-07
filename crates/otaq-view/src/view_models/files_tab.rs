@@ -1148,14 +1148,92 @@ pub struct BarButton {
 }
 
 /// The bar under every tab while the check is yours (SHT-06, `s25-09`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FilesReviewBar")]
 pub struct ReviewBar {
-    /// "Your check", or "1 line comment, 1 being written".
+    /// "Your check", or "1 line comment, 1 being written"; empty when the bar names Approve by its action.
     pub title: String,
     /// "· Security passed · comment on any line to send it back", "· they go to Dev with Send back".
     pub line: String,
     pub buttons: Vec<BarButton>,
+    /// "Goes back to Dev with your notes.", beside Send back… when Approve is named by its action.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_back_note: Option<String>,
+    /// "2 files · +9 −8", beside Approve.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changes: Option<String>,
+    /// Approve named by what it does ("Approve & merge into main"), with the other ways to finish in its menu: the
+    /// review that ends the flow. Its button replaces the plain Approve in `buttons`.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approve: Option<ApproveSplit>,
+}
+
+/// Approve and its menu (`s01` *The menu beside Approve*): the primary choice's label, and the others as rows with
+/// what each does.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FilesApproveSplit")]
+pub struct ApproveSplit {
+    /// "Approve & merge into main", "Approve & open PR", "Push to PR #481", "Done, nothing to merge".
+    pub label: String,
+    pub choice: crate::view_models::approve::ApproveChoice,
+    /// The other ways to finish; a row's id is its choice ("open_pr", "merge_into", "done_not_merged").
+    pub menu: Vec<crate::view_models::menu::MenuItem>,
+    /// The menu button's name for screen readers: "Other ways to finish".
+    pub menu_label: String,
+}
+
+/// The bar of a review that ends the flow: Approve named by its action (the menu's first enabled choice), the rest in
+/// its menu, the change's size beside it and what Send back does beside that; the plain Approve button goes.
+pub fn with_approve(
+    mut bar: ReviewBar,
+    menu: &crate::view_models::board_page::ApproveMenu,
+    back_to: &str,
+    files: Option<(usize, u32, u32)>,
+) -> ReviewBar {
+    let Some(primary) = menu.items.iter().find(|i| i.enabled) else {
+        return bar;
+    };
+    let id = |choice: crate::view_models::approve::ApproveChoice| {
+        serde_json::to_value(choice)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    };
+    let rows = menu
+        .items
+        .iter()
+        .filter(|i| i.choice != primary.choice)
+        .map(|i| {
+            crate::view_models::menu::MenuItem::new(id(i.choice), i.title.clone())
+                .icon(i.icon)
+                .hint(i.detail.clone())
+                .disabled(!i.enabled)
+        })
+        .collect();
+    bar.approve = Some(ApproveSplit {
+        label: primary.title.clone(),
+        choice: primary.choice,
+        menu: rows,
+        menu_label: "Other ways to finish".to_owned(),
+    });
+    bar.buttons.retain(|b| b.action != BarAction::Approve);
+    if bar.title == crate::view_models::card::YOUR_CHECK {
+        bar.title = String::new();
+        bar.line = String::new();
+        bar.send_back_note = bar
+            .buttons
+            .iter()
+            .any(|b| b.action == BarAction::SendBack)
+            .then(|| format!("Goes back to {back_to} with your notes."));
+    }
+    bar.changes = files.map(|(n, added, removed)| match counts(added, removed) {
+        Some(c) => format!("{} \u{b7} {c}", files_label(n)),
+        None => files_label(n),
+    });
+    bar
 }
 
 /// "1 line comment", "2 line comments, 1 being written", "1 line comment being written".
@@ -1197,6 +1275,9 @@ pub fn review_bar(
     };
     if send_back && (pending > 0 || writing) {
         return Some(ReviewBar {
+            send_back_note: None,
+            changes: None,
+            approve: None,
             title: comments_line(pending, writing),
             line: format!("\u{b7} they go to {back_to} with Send back"),
             buttons: vec![
@@ -1219,6 +1300,9 @@ pub fn review_bar(
         .chain(send_back.then(|| "comment on any line to send it back".to_owned()))
         .collect();
     Some(ReviewBar {
+        send_back_note: None,
+        changes: None,
+        approve: None,
         title: crate::view_models::card::YOUR_CHECK.to_owned(),
         line: line
             .iter()
@@ -1786,9 +1870,10 @@ mod tests {
     fn shop_18_opens_on_all_changes_with_the_bar() {
         let t = shop_18();
         assert_eq!(opens_on(&t), Filter::Changed);
+        // The sheet itself opens on Overview; Changes opens on All changes.
         assert_eq!(
             crate::view_models::sheet::opens_on(&t),
-            crate::view_models::sheet::SheetTab::Files
+            crate::view_models::sheet::SheetTab::Overview
         );
         let mut c = shop_22_changes();
         c.source = source("SHOP-18", FilesFrom::Worktree);
@@ -1830,6 +1915,53 @@ mod tests {
             crate::view_models::sheet::opens_on(&shop_22()),
             crate::view_models::sheet::SheetTab::Overview
         );
+    }
+
+    /// The review that ends the flow names Approve by what it does, with the other ways to finish in its menu; Send
+    /// back says where the work goes and the change's size sits beside Approve.
+    #[test]
+    fn approve_is_named_by_its_action_with_its_menu() {
+        let t = shop_18();
+        let bar = review_bar(&t, 0, false, "Dev", None, false).unwrap();
+        let menu = crate::view_models::board_page::approve_menu(
+            &t,
+            "main",
+            std::slice::from_ref(&t),
+            None,
+            Some(2),
+            otaq_core::flow::Delivers::Either,
+        );
+        let bar = with_approve(bar, &menu, "Dev", Some((2, 9, 8)));
+        let approve = bar.approve.as_ref().unwrap();
+        assert_eq!(approve.label, "Approve & merge into main");
+        assert_eq!(
+            approve.choice,
+            crate::view_models::approve::ApproveChoice::LocalMerge
+        );
+        let rows: Vec<(&str, &str, bool)> = approve
+            .menu
+            .iter()
+            .map(|r| (r.id.as_str(), r.label.as_str(), r.disabled))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("open_pr", "Approve & open PR", false),
+                ("merge_into", "Merge into another ticket\u{2026}", true),
+                ("done_not_merged", "Done, don\u{2019}t merge", false),
+            ]
+        );
+        assert_eq!(
+            approve.menu[0].hint.as_deref(),
+            Some("Pushes the branch and opens a pull request instead.")
+        );
+        assert!(bar.buttons.iter().all(|b| b.action != BarAction::Approve));
+        assert_eq!((bar.title.as_str(), bar.line.as_str()), ("", ""));
+        assert_eq!(
+            bar.send_back_note.as_deref(),
+            Some("Goes back to Dev with your notes.")
+        );
+        assert_eq!(bar.changes.as_deref(), Some("2 files \u{b7} +9 \u{2212}8"));
     }
 
     #[test]
@@ -1977,6 +2109,9 @@ mod tests {
             title: "Your check".into(),
             line: "\u{b7} Validate passed".into(),
             buttons: Vec::new(),
+            send_back_note: None,
+            changes: None,
+            approve: None,
         };
         assert_eq!(
             whole_ticket_bar(bar, 9, 312, 1).line,

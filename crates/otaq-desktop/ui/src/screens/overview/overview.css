@@ -610,3 +610,34 @@ button.overview-attachment:hover {
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* WHAT THE AGENT DID and CHECKER while the ticket waits in your check (`ticket-01`). */
+.in-review {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.in-review-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.in-review-text {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.in-review-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.in-review-spacer {
+  flex: 1;
+}

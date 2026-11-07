@@ -4,6 +4,7 @@
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
 
+import type { ApproveChoice } from "../../generated/ApproveChoice";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
@@ -85,8 +86,9 @@ export interface OverlayParams {
   send_back_pr: { ticket: string };
   /** Change… on a recorded decision (T-0288): Send back. */
   change_decision: { id: string };
-  /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
-  local_merge: { ticket: string; menu?: boolean };
+  /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵); `choice` goes straight to
+   * that choice's dialog (the review bar's Approve, named by its action, and the rows of its menu). */
+  local_merge: { ticket: string; menu?: boolean; choice?: ApproveChoice };
   /** Merge into another ticket…: the picker of tickets whose branch can take this one's (Approve ▾). */
   merge_into: { ticket: string };
   /** "Done, don't merge" (Approve ▾, a branch with commits): the confirmation naming what won't land. */

@@ -1010,6 +1010,13 @@ impl Service {
                         Ok(crate::review::delivery::Delivered::Merged { toast }) => {
                             events.publish(*toast)
                         }
+                        // On the user's click: the delivery's agent writes its message while the ticket waits, so
+                        // Approve's confirmation opens at once.
+                        Ok(crate::review::delivery::Delivered::NotAutomatic) => {
+                            if let Err(e) = prs.prepare_message(&id).await {
+                                tracing::warn!(ticket = id, error = %e, "the delivery's message wasn't asked for");
+                            }
+                        }
                         Ok(_) => {}
                         // A git step failed: the card says so, with Retry merge (d0121).
                         Err(crate::board::BoardError::Git(e)) => {

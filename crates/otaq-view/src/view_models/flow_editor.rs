@@ -1537,8 +1537,8 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
         }
     });
     let delivery = &f.file.flow.delivery;
-    // The agent that opens the PR, when it can open one; a Local merge runs no agent.
-    let opener = delivery.agent.as_ref().filter(|_| delivery.can_open_pr());
+    // The delivery's agent (it writes the message in Review and opens the PR); a Local merge may name none.
+    let opener = delivery.agent.as_ref();
     let delivered = StepRow {
         id: DELIVERY_ID.to_owned(),
         name: DELIVERY_NAME.to_owned(),
