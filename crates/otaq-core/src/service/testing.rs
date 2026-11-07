@@ -255,7 +255,7 @@ impl TestService {
 
     /// The sample board of `design-briefs/00-README.md`, as far as the CLI tests need it: project SHOP
     /// (`shop-web`), fillers SHOP-1…11 and 29…39 (Backlog), SHOP-12…SHOP-28 with the brief's titles, statuses and
-    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and SHOP-40 Wishlist (External ID PAY-123)
+    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and SHOP-40 Wishlist
     /// with SHOP-41 (Merged), SHOP-42 (Working, depends on SHOP-41) and SHOP-43 (Backlog).
     pub async fn shop_sample(&self) -> Project {
         let project = self.add_project("shop-web").await;
@@ -304,7 +304,6 @@ impl TestService {
                 &NewTicketInput {
                     project: "SHOP".into(),
                     title: "Wishlist".into(),
-                    external_id: Some("PAY-123".into()),
                     ..Default::default()
                 },
                 &me,

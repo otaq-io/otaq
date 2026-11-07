@@ -27,7 +27,6 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
-        external_id: None,
         depends_on: Vec::new(),
         flags: Flags::default(),
         created_by: Actor::User("me".into()),

@@ -203,7 +203,6 @@ mod tests {
                     plan: String::new(),
                     priority: None,
                     base_branch: None,
-                    external_id: None,
                     first_comment: None,
                 }),
             )

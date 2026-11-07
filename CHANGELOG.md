@@ -5,6 +5,8 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Tickets have no External ID.** The field is gone from New ticket, Edit ticket, the ticket's details line, the
+  PR dialog, `otaq show` and `prime`; History no longer lists changes to it. Your tickets keep everything else.
 - **Your skills stay where they are.** Otaq no longer copies or imports skills. Each tool loads your skills the
   way it always does, and Otaq's own skills come with its plugin. A stage runs only on a tool that has its skill:
   otherwise its card waits in Needs you with "<tool> doesn't have the skill `/<name>`", **Check again** and

@@ -919,9 +919,6 @@ fn render_pr(pr: &PrimePr) -> String {
             v.branch
         ));
     }
-    if let Some(id) = &v.external_id {
-        out.push_str(&format!("- External ID: {id}\n"));
-    }
     if let (Some(n), Some(url)) = (v.pr_number, &v.pr_url) {
         out.push_str(&format!("- PR: #{n} {url}\n"));
     }

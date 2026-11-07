@@ -22,7 +22,7 @@ heading: string, texts: EditorTexts, form: EditorForm, priorities: Array<EditorP
 /**
  * The priority shown while none is picked: Normal.
  */
-shown_priority: number, base: EditorBaseField, external_id_shown: boolean, 
+shown_priority: number, base: EditorBaseField, 
 /**
  * "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
  */

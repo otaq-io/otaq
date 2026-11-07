@@ -19,7 +19,6 @@ pub struct TicketRow {
     pub plan_at: Option<i64>,
     /// 1–4 (d0065).
     pub priority: i64,
-    pub external_id: Option<String>,
     pub state: String,
     pub outcome: Option<String>,
     pub pinned_at: Option<i64>,

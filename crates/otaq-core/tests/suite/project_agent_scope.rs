@@ -72,12 +72,12 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
     let (agent, shell) = open(&w).await;
     let me = format!("project-agent:{}", agent.id);
 
-    // Create (Backlog, with priority and External ID), then edit and link it.
+    // Create (Backlog, with priority), then edit and link it.
     let created = send(
         &w,
         &shell,
         "ticket.create",
-        json!({"project": "SHOP", "title": "Slow checkout query", "priority": 2, "external_id": "GH-212"}),
+        json!({"project": "SHOP", "title": "Slow checkout query", "priority": 2}),
     )
     .await;
     let ticket = &created["reply"]["ticket"];

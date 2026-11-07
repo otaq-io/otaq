@@ -92,7 +92,6 @@ pub struct EditorModel {
     /// "Start from and merge into".
     pub base_branch: Option<String>,
     pub base_locked: bool,
-    pub external_id: String,
     /// Create only: the report the form took and its one line (RPT-03).
     pub report: Option<NewReport>,
     pub report_line: String,
@@ -122,7 +121,6 @@ impl EditorModel {
             priority: None,
             base_branch: Some(base.to_owned()),
             base_locked: false,
-            external_id: String::new(),
             report: None,
             report_line: String::new(),
             dep_error: None,
@@ -144,7 +142,6 @@ impl EditorModel {
             priority: Some(ticket.priority),
             base_branch: Some(ticket.base.branch().to_owned()),
             base_locked: ticket.base_locked,
-            external_id: ticket.external_id.clone().unwrap_or_default(),
             report: None,
             report_line: String::new(),
             dep_error: None,
@@ -235,8 +232,6 @@ impl EditorModel {
             // Only when picked: the service makes the rest Normal.
             priority: self.priority,
             base_branch: self.base_branch.clone(),
-            external_id: (!self.external_id.trim().is_empty())
-                .then(|| self.external_id.trim().to_owned()),
             first_comment: self.first_comment(),
             // The editor's Plan comes with T-0540.
             plan: String::new(),
@@ -260,9 +255,6 @@ impl EditorModel {
             && new != original.base.branch()
         {
             update.base_branch = Some(new.clone());
-        }
-        if self.external_id.trim() != original.external_id.as_deref().unwrap_or_default() {
-            update.external_id = Some(self.external_id.trim().to_owned());
         }
         (update != TicketUpdate::default()).then_some(update)
     }
@@ -316,7 +308,6 @@ mod tests {
         assert_eq!(input.body, "Shows past orders");
         assert_eq!(input.project, "SHOP");
         assert_eq!(input.base_branch.as_deref(), Some("main"));
-        assert_eq!(input.external_id, None);
         assert!(m.update_input().is_none());
     }
 
@@ -508,23 +499,11 @@ mod tests {
     }
 
     #[test]
-    fn typed_external_id_is_sent() {
-        let mut m = EditorModel::create("SHOP", "Checkout page", "main");
-        m.external_id = "PAY-123".into();
-        assert_eq!(
-            m.create_input().unwrap().external_id.as_deref(),
-            Some("PAY-123")
-        );
-    }
-
-    #[test]
-    fn base_and_external_id_changes() {
+    fn a_base_change_is_sent() {
         let mut m = EditorModel::edit(&saved_ticket());
         m.base_branch = Some("release/2.3".into());
-        m.external_id = " PAY-123 ".into();
         let update = m.update_input().unwrap();
         assert_eq!(update.base_branch.as_deref(), Some("release/2.3"));
-        assert_eq!(update.external_id.as_deref(), Some("PAY-123"));
     }
 
     #[test]
@@ -539,6 +518,6 @@ mod tests {
         m.body = "Post the cart.\n\n## Done when\n- Works with an empty cart".into();
         let update = m.update_input().unwrap();
         assert_eq!(update.body.as_deref(), Some(m.body.as_str()));
-        assert_eq!((update.base_branch, update.external_id), (None, None));
+        assert_eq!(update.base_branch, None);
     }
 }

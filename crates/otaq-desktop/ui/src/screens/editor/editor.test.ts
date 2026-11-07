@@ -281,16 +281,10 @@ describe("the editor", () => {
       onSave: noop,
     };
     const out = html(createElement(EditorFields, props));
-    for (const text of [
-      "Title",
-      "Add a title",
-      "P3 Normal",
-      "What and why",
-      "Start from and merge into",
-      "External ID",
-    ]) {
+    for (const text of ["Title", "Add a title", "P3 Normal", "What and why", "Start from and merge into"]) {
       expect(out).toContain(text);
     }
+    expect(out).not.toContain("External ID");
     // Nobody has Depends on (the sheet's, DPV-04).
     expect(out).not.toContain("Depends on");
   });

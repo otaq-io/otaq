@@ -84,7 +84,6 @@ async fn update_fields() {
                 body: Some("Use the **new** API\n\n```ts\npay()\n```".into()),
                 priority: Some(Priority::High),
                 base_branch: Some("release/2.3".into()),
-                external_id: Some("PAY-123".into()),
                 ..Default::default()
             },
             &agent("SHOP-9"),
@@ -95,22 +94,7 @@ async fn update_fields() {
     assert!(updated.body.contains("```ts\npay()\n```"));
     assert_eq!(updated.priority, Priority::High);
     assert_eq!(updated.base, Base::Branch("release/2.3".into()));
-    assert_eq!(updated.external_id.as_deref(), Some("PAY-123"));
     assert_eq!(updated.updated_by, Some(agent("SHOP-9")));
-
-    let cleared = f
-        .board
-        .update_ticket(
-            &t.key.to_string(),
-            &TicketUpdate {
-                external_id: Some(String::new()),
-                ..Default::default()
-            },
-            &me(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(cleared.external_id, None);
 
     for bad in [TicketUpdate {
         title: Some("  ".into()),
@@ -139,9 +123,9 @@ async fn update_fields() {
 }
 
 #[tokio::test]
-async fn base_branch_and_external_id_rules() {
+async fn base_branch_rules() {
     let f = Fixture::shop().await;
-    // Every ticket has its own base and External ID (d0059, d0133).
+    // Every ticket has its own base (d0059, d0133).
     let plain = f.create("plain").await;
     let ticket = f
         .board
@@ -149,17 +133,13 @@ async fn base_branch_and_external_id_rules() {
             &plain.key.to_string(),
             &TicketUpdate {
                 base_branch: Some("develop".into()),
-                external_id: Some("PAY-123".into()),
                 ..Default::default()
             },
             &me(),
         )
         .await
         .unwrap();
-    assert_eq!(
-        (ticket.base.clone(), ticket.external_id.as_deref()),
-        (Base::Branch("develop".into()), Some("PAY-123"))
-    );
+    assert_eq!(ticket.base, Base::Branch("develop".into()));
 
     // Started tickets lock their base.
     sqlx::query("UPDATE tickets SET branch_locked = TRUE, started_at = 1 WHERE id = ?")

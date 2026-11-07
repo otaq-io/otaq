@@ -1,7 +1,6 @@
 // The editor's form (UI-05, TKT-03, TKT-09, DEP-02, DEP-04; d0019, d0051, d0065, d0067; *08 · Ticket editor → Full
 // form · filled, Validation · empty form, Row · base branch per ticket*): Title, Priority, What and why, Start from
-// and merge into, External ID. Dependencies are the
-// sheet's (DPV-04, `screens/dependencies`). Text fields are the webview's own (selection, IME,
+// and merge into. Dependencies are the sheet's (DPV-04, `screens/dependencies`). Text fields are the webview's own (selection, IME,
 // undo); What and why is the Markdown editor with its toolbar (TKT-10; d0078 D5; *08 → b · Filled · edit mode,
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -385,25 +384,6 @@ export function EditorFields({
         <BaseSelect view={view} form={form} onChange={onChange} />
         <RefusalBox refusal={refusalFor(refusal, "base")} />
       </div>
-      {view.external_id_shown && (
-        <div className="editor-field">
-          <div className="editor-label">
-            <span>{t.external_id}</span>
-            <span className="editor-hint">{t.external_id_hint}</span>
-          </div>
-          <input
-            {...PLAIN_TEXT}
-            className="text-input"
-            data-mono
-            value={form.external_id}
-            placeholder={t.external_id_placeholder}
-            aria-label={t.external_id}
-            onChange={(e) => {
-              onChange({ ...form, external_id: e.target.value });
-            }}
-          />
-        </div>
-      )}
       <RefusalBox refusal={refusalFor(refusal, "form")} />
     </div>
   );

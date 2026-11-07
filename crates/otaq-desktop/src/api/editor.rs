@@ -110,7 +110,6 @@ pub struct Form {
     /// 1–4 once picked; `null`: Normal for a new ticket.
     pub priority: Option<u8>,
     pub base_branch: Option<String>,
-    pub external_id: String,
     /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
     #[serde(default)]
     pub choices: Vec<FormChoice>,
@@ -170,9 +169,6 @@ pub struct Texts {
     pub base_hint: &'static str,
     /// The base dropdown's search field.
     pub base_search: MenuSearch,
-    pub external_id: &'static str,
-    pub external_id_hint: &'static str,
-    pub external_id_placeholder: &'static str,
     /// "⌘↵ create" / "save", "Esc discard" / "close".
     pub save_word: &'static str,
     pub discard_word: &'static str,
@@ -224,7 +220,6 @@ pub struct ReadView {
     pub priority_menu: Vec<MenuItem>,
     /// "main".
     pub base: String,
-    pub external_id: Option<String>,
     /// The fields an agent changed since the user last looked ("Updated by agent").
     pub marked: Vec<EditorField>,
 }
@@ -239,7 +234,6 @@ pub enum EditorField {
     Plan,
     Priority,
     BaseBranch,
-    ExternalId,
 }
 
 impl EditorField {
@@ -250,7 +244,6 @@ impl EditorField {
             Field::Plan => Self::Plan,
             Field::Priority => Self::Priority,
             Field::BaseBranch => Self::BaseBranch,
-            Field::ExternalId => Self::ExternalId,
         }
     }
 
@@ -261,7 +254,6 @@ impl EditorField {
             Self::Plan => Field::Plan,
             Self::Priority => Field::Priority,
             Self::BaseBranch => Field::BaseBranch,
-            Self::ExternalId => Field::ExternalId,
         }
     }
 }
@@ -291,7 +283,6 @@ pub struct View {
     /// The priority shown while none is picked: Normal.
     pub shown_priority: u8,
     pub base: BaseView,
-    pub external_id_shown: bool,
     /// "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
     pub save_hint: Option<String>,
     /// While it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told what changed."
@@ -321,9 +312,6 @@ fn texts(create: bool) -> Texts {
         base: "Start from and merge into",
         base_hint: "project default \u{b7} local and remote branches \u{b7} locked once the ticket starts",
         base_search: MenuSearch::branches(),
-        external_id: "External ID",
-        external_id_hint: "optional \u{b7} standalone tickets only \u{b7} used in the branch and PR title",
-        external_id_placeholder: "e.g. PAY-123",
         save_word: if create { "create" } else { "save" },
         discard_word: "discard",
         close_word: "close",
@@ -376,7 +364,6 @@ fn form_of(model: &EditorModel) -> Form {
         body: model.body.clone(),
         priority: model.priority.map(Priority::number),
         base_branch: model.base_branch.clone(),
-        external_id: model.external_id.clone(),
         choices: Vec::new(),
         report: None,
         report_line: None,
@@ -399,7 +386,6 @@ pub fn create_view(project: &ProjectInfo) -> View {
         priorities: priorities(),
         shown_priority: shown.number(),
         base: base_view(fields.base),
-        external_id_shown: fields.external_id,
         save_hint: None,
         save_warning: None,
         unsaved_warning: None,
@@ -426,7 +412,6 @@ pub fn edit_view(
         Field::Body,
         Field::Priority,
         Field::BaseBranch,
-        Field::ExternalId,
     ]
     .into_iter()
     .filter(|&f| changed(edits, f))
@@ -443,7 +428,6 @@ pub fn edit_view(
         priorities: priorities(),
         shown_priority: shown.number(),
         base: base_view(fields.base),
-        external_id_shown: fields.external_id,
         save_hint: agent_activity::save_hint(ticket, live_agent),
         save_warning: validation_texts::editor_warning(ticket),
         unsaved_warning: validation_texts::editor_warning(ticket)
@@ -457,7 +441,6 @@ pub fn edit_view(
             priority: priority::view(shown),
             priority_menu: priority::menu_items(shown),
             base: ticket.base.branch().to_owned(),
-            external_id: ticket.external_id.clone(),
             marked,
         }),
         source_mode: false,
@@ -683,7 +666,6 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
     model.priority = form
         .priority
         .and_then(|n| Priority::from_number(i64::from(n)));
-    model.external_id = form.external_id.clone();
     if model.is_create() {
         model.report = form.report.clone().map(|r| match r {
             FormReport::File { path } => NewReport::File(path),
@@ -1082,7 +1064,6 @@ mod tests {
             body: String::new(),
             priority: None,
             base_branch: None,
-            external_id: String::new(),
             choices: Vec::new(),
             report: None,
             report_line: None,
