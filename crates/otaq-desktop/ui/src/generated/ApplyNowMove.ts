@@ -15,6 +15,6 @@ line: string,
  */
 picked: string, picked_name: string, picked_icon: IconName, 
 /**
- * The picker's entries: Backlog, Ready for Dev, then the new flow's stages, the pick checked.
+ * The picker's entries: Backlog, Start again in the first stage, then the new flow's stages, the pick checked.
  */
 choices: Array<MenuItem>, };

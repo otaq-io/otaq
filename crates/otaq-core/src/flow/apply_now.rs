@@ -9,7 +9,7 @@
 //! board, FED-08: "keeps running" or "keeps its place"); and a **stamp** of the board the plan was made from.
 //!
 //! **The removed stage's place** in the new flow is just before the first surviving stage that followed it in the old
-//! flow ([`removed_place`]). A ticket's choices are Backlog, Ready for Dev and every stage of the new flow.
+//! flow ([`removed_place`]). A ticket's choices are Backlog, waiting to begin and every stage of the new flow.
 //! A stage before the place is **back**, the first one the ticket runs after it is the **next** (the default), any
 //! later one is **forward**. Each is decided as a drag from the place would be (FLW-18): the moves are computed by
 //! [`crate::flow::engine::dragged`] on the new flow with the removed stage standing at its place ([`with_removed`]).
@@ -124,7 +124,7 @@ pub struct PlannedMove {
     pub status: Status,
     /// Its state when one shows on the card ("failed ×3").
     pub state: Option<String>,
-    /// Where it can go, in board order: Backlog, Ready for Dev, then the new flow's stages.
+    /// Where it can go, in board order: Backlog, waiting to begin, then the new flow's stages.
     pub choices: Vec<MoveChoice>,
     /// The choice the picker starts on: the first stage it runs after the removed stage's place.
     pub default: DropOn,
@@ -142,7 +142,7 @@ impl PlannedMove {
 pub struct MoveChoice {
     /// `"backlog"`, `"ready_for_dev"` or `{"stage": "<id>"}`.
     pub to: DropOn,
-    /// "Backlog", "Ready for Dev" or the stage's name.
+    /// "Backlog", "waiting to begin" or the stage's name.
     pub name: String,
     pub way: Way,
     /// The hint line under the picker when it is chosen ("Dev resumes SHOP-19's earlier session").
@@ -379,6 +379,11 @@ pub fn plan(facts: &PlanFacts<'_>) -> ApplyNowPlan {
     }
 }
 
+/// The pick that walks the flow again from its first stage: "Start again in Dev".
+fn start_again(flow: &Flow) -> String {
+    format!("Start again in {}", flow.first_stage_name())
+}
+
 fn planned_move(facts: &PlanFacts<'_>, ticket: &Ticket, stage: &Stage) -> PlannedMove {
     let new = facts.new;
     let no_skips = Vec::new();
@@ -395,7 +400,7 @@ fn planned_move(facts: &PlanFacts<'_>, ticket: &Ticket, stage: &Stage) -> Planne
         },
         MoveChoice {
             to: DropTarget::ReadyForDev.into(),
-            name: new.waiting_name().to_owned(),
+            name: start_again(new),
             way: Way::ReadyForDev,
             hint: None,
         },
@@ -682,7 +687,7 @@ impl Board {
                 });
             }
             DropOn::Board(_) => {
-                // Ready for Dev: it walks the flow again from its first stage, in a new session there.
+                // Start again: it walks the flow again from its first stage, in a new session there.
                 return Ok(MoveWrite::Drag(DragWrite {
                     moved: Moved {
                         place: Place::Waiting(None),
@@ -697,7 +702,7 @@ impl Board {
                     marks: Vec::new(),
                     check_head: None,
                     hand_over: None,
-                    event: event(new.waiting_name(), None, true, &[]),
+                    event: event(&start_again(new), None, true, &[]),
                 }));
             }
             DropOn::Stage { stage } => stage,

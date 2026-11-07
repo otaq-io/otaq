@@ -7,8 +7,9 @@
 //! ([`crate::flow::engine::drag`], STG-06). [`Board::move_ticket`] carries out the bookkeeping moves: Start (a parked
 //! ticket returns to the stage it left), Unqueue and Reopen. Park and Approve have their own requests;
 //! the drags that stop or start sessions (back to any earlier stage, forward past stages) are
-//! [`crate::review::Review::drag`]'s. A ticket whose dependencies aren't merged can't be started past Ready for Dev,
-//! by a drag or by Start ([`blocks_start`], DPV-03, d0049): [`Board::check_drag`] refuses it ("SHOP-20 is blocked").
+//! [`crate::review::Review::drag`]'s. Starting a ticket (Start, ⌘D, a drag into the first stage) puts it into the
+//! first stage: when it can't begin yet (a dependency not merged, no free agent, a flow change waiting) it waits at the
+//! top of that stage's column, says why, and begins by itself when it can.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -17,8 +18,8 @@ use sqlx::{Sqlite, Transaction};
 use super::stage_runs::Moved;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, MovedPast, Place, Status, stored_enum};
-use crate::flow::engine::{self, Target};
+use crate::domain::{Actor, MovedPast, Status, stored_enum};
+use crate::flow::engine;
 use crate::flow::{Flow, Stage};
 use crate::store::now_ms;
 use crate::store::tickets::{TicketRow, set_state_since};
@@ -28,9 +29,9 @@ stored_enum! {
     /// says what each means in a flow.
     pub enum DropTarget ("drop target") {
         Backlog = "backlog",
-        /// The go-ahead: the ticket starts when it can (SCH-01).
+        /// The go-ahead (an older name kept for clients that send it): the same as a drop on the first stage.
         ReadyForDev = "ready_for_dev",
-        /// Also the go-ahead from Backlog: the ticket lands in Ready for Dev when it can't start yet.
+        /// The go-ahead from Backlog: the ticket goes into the first stage, waiting at its top until it can begin.
         Dev = "dev",
         ReadyForReview = "ready_for_review",
         Done = "done",
@@ -40,10 +41,10 @@ stored_enum! {
 stored_enum! {
     /// What an allowed move does.
     pub enum MoveAction ("move action") {
-        /// Backlog → Ready for Dev (or Dev): Queued, starts when possible. Resumes the conversation for a Parked
-        /// ticket (d0052).
+        /// Backlog → the first stage: Queued (waiting at the top of its column), begins when possible. Resumes the
+        /// conversation for a Parked ticket (d0052).
         Start = "start",
-        /// Ready for Dev → Backlog: out of the queue; nothing had started (d0066).
+        /// A ticket still waiting to begin → Backlog: out of the queue; nothing had started (d0066).
         Unqueue = "unqueue",
         /// Dev → Backlog: stop the agent and keep the work (d0052).
         Park = "park",
@@ -139,29 +140,12 @@ pub const MERGED_INTO_WAITS: &str =
     "It waits for the ticket it was merged into and moves when that ticket lands or is closed";
 /// The refusal of Reopen on a merged ticket (CLS-03).
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
-/// Ready for Dev → Dev: the scheduler starts it (SCH-01).
+/// A waiting ticket dropped on a later stage: the scheduler begins it (SCH-01).
 pub const STARTS_BY_ITSELF: &str = "It starts by itself when it can, in priority order";
 /// A Backlog ticket dropped on an agent check: it starts with its first Agent stage.
-pub const QUEUE_FIRST: &str = "Drag it to Ready for Dev to queue it";
+pub const QUEUE_FIRST: &str = "Start it first: it begins in the first stage";
 
-/// The refusal of a drag or Start past Ready for Dev for a ticket whose dependencies aren't all merged (DPV-03,
-/// d0049): "SHOP-20 is blocked". There is no way to start it anyway; a drop on Ready for Dev queues it as before.
-pub fn blocked_text(key: &crate::domain::TicketKey) -> String {
-    format!("{key} is blocked")
-}
-
-/// Whether dropping `ticket` on `target` would start it past Ready for Dev while a dependency isn't merged (DPV-03,
-/// d0049): a ticket that hasn't started yet (Backlog or Ready for Dev) dropped on any stage of `flow`, while
-/// [`readiness`](super::readiness::readiness) says it waits (or a parent closed, which never counts as merged).
-/// `tickets` are its project's.
-pub fn blocks_start(flow: &Flow, ticket: &Ticket, tickets: &[Ticket], target: &DropOn) -> bool {
-    !ticket.depends_on.is_empty()
-        && matches!(ticket.place, Place::Backlog | Place::Waiting(None))
-        && matches!(target.in_flow(flow), Some(Target::Stage(_)))
-        && !super::readiness::readiness(ticket, tickets).is_ready()
-}
-
-/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]) on the default flow.
+/// Decides a drag or a "Start" (⌘D, which is a drop on the first stage) on the default flow.
 pub fn check_move(ticket: &Ticket, target: impl Into<DropOn>) -> MoveCheck {
     check_move_in(&crate::flow::default_file().flow, ticket, target)
 }
@@ -250,21 +234,13 @@ impl Board {
         target: &DropOn,
     ) -> Result<MoveCheck, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        // A blocked ticket can't be started past Ready for Dev, by a drag or by Start (DPV-03): the scheduler would
-        // hold it anyway, and an agent started now would work without its parents' changes.
-        if !ticket.depends_on.is_empty() {
-            let tickets = self.tickets(ticket.key.project.as_str()).await?;
-            if blocks_start(&flow, ticket, &tickets, target) {
-                return Ok(MoveCheck::Refused {
-                    reason: blocked_text(&ticket.key),
-                });
-            }
-        }
+        // A ticket waiting for a dependency starts all the same: it waits at the top of the first stage, saying what
+        // it waits for, and the scheduler begins it once its parents are merged.
         let skips = self.ticket_skips(ticket, &flow).await?;
         Ok(check_with(&flow, ticket, &skips, target))
     }
 
-    /// Backlog → Ready for Dev (Queued).
+    /// Backlog → the first stage, waiting at its top (Queued) until the scheduler begins it.
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let returns_to = self.parked_return(ticket).await?;
         let mut tx = self.store.begin_write().await?;
@@ -274,8 +250,8 @@ impl Board {
     }
 
     /// Where a parked ticket waits when it is dragged out of Backlog (d0052, FLW-18 "Un-park"): before the Agent stage
-    /// it left (its latest Agent stage run), through the usual waiting; `None` (Ready for Dev) when that is the flow's
-    /// first Agent stage, as the default flow always queues, or for a ticket that isn't parked.
+    /// it left (its latest Agent stage run), through the usual waiting; `None` (waiting to begin the first stage) when
+    /// that is the flow's first Agent stage, as the default flow always queues, or for a ticket that isn't parked.
     pub(crate) async fn parked_return(
         &self,
         ticket: &Ticket,
@@ -296,7 +272,7 @@ impl Board {
             .and_then(|id| super::send_back::waits_before(&flow, &id)))
     }
 
-    /// Ready for Dev → Backlog (d0066): out of the queue. Nothing had started, so a ticket that never worked
+    /// A ticket waiting to begin → Backlog (d0066): out of the queue. Nothing had started, so a ticket that never worked
     /// (no branch or worktree yet, not parked or reopened) is also "never started" again: its first-start time
     /// and its base lock go, and it can be deleted as before (implementation choice). A parked ticket goes back to
     /// Parked.
@@ -384,7 +360,7 @@ impl Board {
     }
 }
 
-/// Backlog → Ready for Dev (Queued) inside a transaction. Records the first start and the queue time, and locks
+/// Backlog → waiting to begin the first stage (Queued) inside a transaction. Records the first start and the queue time, and locks
 /// the base (d0051). The scheduler starts it once its
 /// dependencies are merged (SCH-01) and fills in when it became ready. A parked ticket keeps its `parked` mark, so
 /// the start sequence resumes its conversation (d0052), and waits before the stage it left (`returns_to`,
@@ -422,7 +398,7 @@ pub(crate) async fn queue_in(
     record_event(tx, &ticket.id, EventKind::Moved, actor, payload).await
 }
 
-/// Ready for Dev → Backlog inside a transaction ([`Board::unqueue`]'s write; `row` is the ticket's stored row,
+/// Waiting to begin → Backlog inside a transaction ([`Board::unqueue`]'s write; `row` is the ticket's stored row,
 /// read before). `extra` joins the History payload.
 pub(crate) async fn unqueue_in(
     tx: &mut Transaction<'_, Sqlite>,

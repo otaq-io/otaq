@@ -227,7 +227,7 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
     let signals = hook(&w.w, &caller, "StopFailure", &refused_payload()).await;
     assert_eq!(signals, []);
 
-    // Back in Ready for Dev as Start failed, with the step `model` and the tool's message; not started.
+    // Back waiting to begin as Start failed, with the step `model` and the tool's message; not started.
     let after = w.w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
         (after.status, after.board_group()),

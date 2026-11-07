@@ -2,7 +2,7 @@
 //!
 //! Every column: pinned first, most recently pinned first. A card that needs the user floats to the top of Dev
 //! (d0047 changelog), so Dev reads: pinned → turquoise (Asks you / Needs you / Idle) → Interrupted / Resume failed →
-//! working (incl. in background, waiting for limit reset). **Ready for Dev** lists its needs-you cards (Start
+//! working (incl. in background, waiting for limit reset). **Waiting to begin** lists its needs-you cards (Start
 //! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): pinned (most
 //! recently pinned first) → priority 1→4 → ready the longest.
 //! Inside a group of the other columns, tickets that block more tickets come first (direct and indirect
@@ -101,7 +101,7 @@ pub fn ready_since(ticket: &Ticket, tickets: &[Ticket]) -> Option<i64> {
 }
 
 /// The start order (SCH-01, d0065): pinned (most recently pinned first) → priority 1→4 → ready the longest; ties go to the older ticket, then the lower key.
-/// Ready for Dev is sorted the same way.
+/// waiting to begin is sorted the same way.
 pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
     let ready = ticket
         .ready_since

@@ -291,6 +291,9 @@ export function useSheetActions(view: SheetView): SheetActions {
       case "open_agent":
         openOverlay("settings", agentSettings(view.open_agent));
         return;
+      case "start":
+        void startTicket(view.key);
+        return;
       case "none":
         return;
     }

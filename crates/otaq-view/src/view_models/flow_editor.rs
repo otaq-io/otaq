@@ -19,8 +19,8 @@
 //! Every user edit is a [`StageEdit`] the desktop applies to the draft's document with [`edited`] and sends whole as
 //! `flow.draft_update`; Start from, Undo and Undo all are the draft's own edits.
 //!
-//! **Captions** (d0115 "No description field"): a step's caption is its skill's description; Ready for Dev, a check
-//! by you and Delivery have Otaq's fixed caption for their kind. Otaq's shipped skills are written for agents, so
+//! **Captions** (d0115 "No description field"): a step's caption is its skill's description; Backlog (the fixed
+//! start of every flow), a check by you and Delivery have Otaq's fixed caption for their kind. Otaq's shipped skills are written for agents, so
 //! their captions are Otaq's own words ([`shipped_caption`], Q-B).
 //!
 //! **Templates and skills** (T-0472; FED-05, FED-06; d0115 "Stage templates fill the shape, the user supplies the
@@ -135,7 +135,7 @@ pub enum StageEdit {
         stage: String,
         to: usize,
     },
-    /// **+** after a step, or Add a stage: a new stage after `after` (`None`: first, right after Ready for Dev).
+    /// **+** after a step, or Add a stage: a new stage after `after` (`None`: first, right after Backlog).
     Add {
         #[serde(default)]
         #[ts(optional)]
@@ -391,8 +391,10 @@ pub const CHECKS_SKILL: &str = "validate";
 pub const CHECK_ROUNDS: u32 = 3;
 pub const NEW_STAGE: &str = "New stage";
 
-/// The id a step row of Ready for Dev carries (it isn't a stage).
+/// The id the Backlog step row carries: the fixed start of every flow, not a stage.
 pub const READY_ID: &str = "ready";
+/// The fixed start of every flow, as its step reads.
+pub const BACKLOG: &str = "Backlog";
 /// The id the delivery's step row carries, last: a setting of the flow, not a stage.
 pub const DELIVERY_ID: &str = otaq_core::agents::facts::DELIVERY_STEP_ID;
 
@@ -404,7 +406,7 @@ pub const TYPING_GOES: &str = "Typing goes to the agent";
 
 /// The step's fixed captions (`s27-03`, `s27-05`).
 pub const READY_CAPTION: &str =
-    "The ticket you wrote waits here until an agent is free. Tickets start in priority order.";
+    "Every flow starts here. Start a ticket and it goes into the first stage.";
 pub const YOU_CHECK_CAPTION: &str =
     "You look at the change and approve it, or send it back with a note.";
 pub const MERGE_CAPTION: &str = "Approved work is merged into main. The ticket is done.";
@@ -465,7 +467,7 @@ pub struct Entry {
     /// "shop-web’s flow", "Otaq default", "By Claude Code".
     pub name: String,
     pub badge: Option<Badge>,
-    /// Its steps, Ready for Dev counted.
+    /// Its steps, Backlog counted.
     pub count: usize,
     pub line: String,
     /// What the draft holds now: outlined.
@@ -556,7 +558,7 @@ pub struct Tile {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorStep")]
 pub struct StepRow {
-    /// The stage's id; [`READY_ID`] for Ready for Dev.
+    /// The stage's id; [`READY_ID`] for Backlog.
     pub id: String,
     pub name: String,
     pub icon: IconName,
@@ -578,13 +580,13 @@ pub struct StepRow {
     /// "You don't have the skill `team-validate`", amber: only a warning, Apply still works.
     pub warning: Option<String>,
     pub selected: bool,
-    /// Ready for Dev and the Delivery stay where they are.
+    /// Backlog and the Delivery stay where they are.
     pub draggable: bool,
-    /// Ready for Dev isn't a stage: no details.
+    /// Backlog isn't a stage: no details.
     pub selectable: bool,
     /// The caption on hover.
     pub caption: Option<String>,
-    /// What **+** below this step sends as `add`'s `after` (`None` for Ready for Dev: first). `None` after the
+    /// What **+** below this step sends as `add`'s `after` (`None` for Backlog: first). `None` after the
     /// Delivery, which nothing follows ([`StepRow::can_add_after`] false).
     pub add_after: Option<String>,
     pub can_add_after: bool,
@@ -969,7 +971,7 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-/// The step count Start from and the summary show: Ready for Dev, the stages and the delivery.
+/// The step count Start from and the summary show: Backlog, the stages and the delivery.
 fn steps(file: &FlowFile) -> usize {
     file.flow.stages.len() + 2
 }
@@ -1421,12 +1423,17 @@ fn tiles(f: &Facts) -> Vec<Tile> {
     let long = steps(f.file) <= 5;
     let ready = Tile {
         id: READY_ID.to_owned(),
-        name: if long { "Ready for Dev" } else { "Ready" }.to_owned(),
-        icon: IconName::Hourglass,
-        kind: "Waits".to_owned(),
-        ticket: "Waiting".to_owned(),
+        name: BACKLOG.to_owned(),
+        icon: IconName::CircleDashed,
+        kind: if long {
+            "Every flow starts here"
+        } else {
+            "Start"
+        }
+        .to_owned(),
+        ticket: "Not started".to_owned(),
         tone: PillView::legend(Legend::Queued, None),
-        caption_title: "Ready for Dev \u{b7} waits".to_owned(),
+        caption_title: "Backlog \u{b7} every flow starts here".to_owned(),
         caption_mark: None,
         caption: Some(READY_CAPTION.to_owned()),
     };
@@ -1472,15 +1479,15 @@ fn tiles(f: &Facts) -> Vec<Tile> {
 /// The delivery's name as its step and tile show it.
 pub const DELIVERY_NAME: &str = "Delivery";
 
-/// The steps: Ready for Dev, the stages (**+** after each adds a stage there), then the delivery, a setting of the
+/// The steps: Backlog, the stages (**+** after each adds a stage there), then the delivery, a setting of the
 /// flow rather than a stage: it can't be selected, moved or removed, and nothing is added after it.
 fn steps_list(f: &Facts) -> Vec<StepRow> {
     let stages = &f.file.flow.stages;
     let ready = StepRow {
         id: READY_ID.to_owned(),
-        name: "Ready for Dev".to_owned(),
-        icon: IconName::Hourglass,
-        kind: "Waits".to_owned(),
+        name: BACKLOG.to_owned(),
+        icon: IconName::CircleDashed,
+        kind: "Start".to_owned(),
         avatar: None,
         who: None,
         mark: None,
@@ -1961,7 +1968,7 @@ fn templates(f: &Facts, stage: &Stage) -> Option<Templates> {
     let at = f.file.flow.position(&stage.id)?;
     let after = at
         .checked_sub(1)
-        .map_or("Ready for Dev", |i| f.file.flow.stages[i].name.as_str());
+        .map_or(BACKLOG, |i| f.file.flow.stages[i].name.as_str());
     let kind = editor_kind(stage);
     let chosen = |template: Template| match template.shape() {
         Some(_) if template == Template::Blank => stage.name.starts_with(NEW_STAGE),
@@ -3580,7 +3587,7 @@ mod tests {
         let v = render(&e, Opened::Onboarding, &d, &file, &file, None, None);
         assert_eq!(
             names(&v),
-            ["Ready for Dev", "Dev", "Validate", "Review", "Delivery"]
+            ["Backlog", "Dev", "Validate", "Review", "Delivery"]
         );
         assert_eq!(v.flow.title, "shop-web\u{2019}s flow");
         let default = format!("{} default", otaq_core::naming::PRODUCT_NAME);
@@ -3631,7 +3638,7 @@ mod tests {
         assert_eq!(
             tiles,
             [
-                ("Ready for Dev", "Waits", "Waiting"),
+                ("Backlog", "Every flow starts here", "Not started"),
                 ("Dev", "An agent works", "Working \u{b7} Developer"),
                 ("Validate", "An agent checks", "Checking \u{b7} Checker"),
                 ("Review", "You check", "Your check \u{b7} You"),
@@ -3663,7 +3670,7 @@ mod tests {
         assert_eq!(
             names(&v),
             [
-                "Ready for Dev",
+                "Backlog",
                 "Product spec",
                 "Dev",
                 "Validate",
@@ -3694,7 +3701,7 @@ mod tests {
         assert_eq!(
             kinds,
             [
-                "Waits",
+                "Start",
                 "Agent works",
                 "Agent works",
                 "Agent checks",
@@ -5140,7 +5147,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("Ready for Dev", "Waits", None, None),
+                ("Backlog", "Start", None, None),
                 ("Product spec", "Agent works", None, Some("Spec writer")),
                 ("Dev", "Agent works", None, Some("Rust developer")),
                 (

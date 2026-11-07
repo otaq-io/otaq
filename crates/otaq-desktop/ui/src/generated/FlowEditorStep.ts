@@ -8,7 +8,7 @@ import type { ToolAvatarView } from "./ToolAvatarView";
  */
 export type FlowEditorStep = { 
 /**
- * The stage's id; [`READY_ID`] for Ready for Dev.
+ * The stage's id; [`READY_ID`] for Backlog.
  */
 id: string, name: string, icon: IconName, 
 /**
@@ -41,11 +41,11 @@ problem: string | null,
  */
 warning: string | null, selected: boolean, 
 /**
- * Ready for Dev and the Delivery stay where they are.
+ * Backlog and the Delivery stay where they are.
  */
 draggable: boolean, 
 /**
- * Ready for Dev isn't a stage: no details.
+ * Backlog isn't a stage: no details.
  */
 selectable: boolean, 
 /**
@@ -53,7 +53,7 @@ selectable: boolean,
  */
 caption: string | null, 
 /**
- * What **+** below this step sends as `add`'s `after` (`None` for Ready for Dev: first). `None` after the
+ * What **+** below this step sends as `add`'s `after` (`None` for Backlog: first). `None` after the
  * Delivery, which nothing follows ([`StepRow::can_add_after`] false).
  */
 add_after: string | null, can_add_after: boolean, };

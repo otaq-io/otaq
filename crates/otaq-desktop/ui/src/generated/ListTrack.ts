@@ -2,7 +2,7 @@
 import type { ListTrackStep } from "./ListTrackStep";
 
 /**
- * Where the ticket is in its flow: one step per stage, then the place's name ("Dev", "Ready", "—"). `ListTrack` on
+ * Where the ticket is in its flow: one step per stage, then the place's name ("Dev", "—"). `ListTrack` on
  * the page.
  */
 export type ListTrack = { steps: Array<ListTrackStep>, label: string, };

@@ -8,6 +8,6 @@ import type { SheetButtonLook } from "./SheetButtonLook";
  */
 export type SheetButton = { action: SheetAction, label: string, 
 /**
- * "Moves to Ready for Dev" on Start.
+ * "Moves it into the first stage" on Start.
  */
 tooltip: string | null, icon: IconName | null, look: SheetButtonLook, };

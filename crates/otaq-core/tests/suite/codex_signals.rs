@@ -95,7 +95,7 @@ fn append(file: &Path, text: &str) {
 }
 
 /// A service whose `codex` prints its arguments and waits, with Codex's home in a temporary folder, short watch
-/// times, and project SHOP with ticket SHOP-1 whose Developer agent runs on Codex, in Ready for Dev.
+/// times, and project SHOP with ticket SHOP-1 whose Developer agent runs on Codex, waiting to begin.
 async fn world() -> World {
     let bin = TempDir::new().unwrap();
     let codex = bin.path().join(Tool::Codex.command_name());

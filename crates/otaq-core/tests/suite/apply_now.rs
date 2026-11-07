@@ -221,8 +221,8 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
         choices(m),
         [
             ("Backlog".to_owned(), Way::Backlog),
-            // Product spec comes first: the waiting column is "Ready" (d0093, Q515).
-            ("Ready".to_owned(), Way::ReadyForDev),
+            // Walk the flow again from its first stage, Product spec.
+            ("Start again in Product spec".to_owned(), Way::ReadyForDev),
             ("Product spec".to_owned(), Way::Back),
             ("Dev".to_owned(), Way::Back),
             ("Validate".to_owned(), Way::Back),

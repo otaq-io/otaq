@@ -36,7 +36,7 @@ fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestErro
 /// The page's types (`generated.rs`).
 #[cfg(test)]
 pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
-    // The sheet's Start (`board.start`), which opens DPV-03's dialog for a blocked ticket.
+    // The sheet's and the Backlog card's Start (`board.start`).
     super::board::StartParams::export_all(cfg)?;
     ViewParams::export_all(cfg)?;
     Section::export_all(cfg)?;
@@ -45,7 +45,6 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     SearchRow::export_all(cfg)?;
     LinkParams::export_all(cfg)?;
     Linked::export_all(cfg)?;
-    otaq_view::view_models::dependencies::Dialog::export_all(cfg)?;
     otaq_view::view_models::dependencies::Blocks::export_all(cfg)?;
     otaq_view::view_models::dependencies::Gallery::export_all(cfg)
 }
@@ -269,7 +268,7 @@ mod tests {
         assert_eq!(view["waits_for"]["rows"][0]["key"], json!(api));
         assert_eq!(view["waits_for"]["rows"][0]["place"], "Backlog \u{b7} ready to start");
         assert_eq!(view["waits_for"]["note"], "starts when it merges");
-        // DPV-03: dropped on Dev, the blocked page goes to Ready for Dev and the dialog says why it waits.
+        // Dropped on Dev, the blocked page starts: it waits at the top of Dev until its parent merges.
         let dropped = table(
             &h.app,
             "board.drop",
@@ -277,9 +276,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(dropped["kind"], "blocked");
-        assert_eq!(dropped["dialog"]["title"], format!("{page} is blocked"));
-        assert_eq!(dropped["dialog"]["keep"], "Keep it waiting");
+        assert_eq!(dropped["kind"], "moved");
         let Reply::Ticket(queued) = send(
             &h,
             Request::TicketGet(otaq_core::protocol::KeyParams { key: page.clone() }),

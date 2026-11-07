@@ -276,7 +276,7 @@ pub struct EditedTicket {
 pub struct CreatedRow {
     pub key: String,
     pub title: String,
-    /// "Ready for Dev", "Backlog".
+    /// "Dev", "Backlog".
     pub place: &'static str,
     /// Created (square-plus) or changed (pencil).
     pub icon: IconName,
@@ -1401,7 +1401,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("NOTE-11", "Slow search query", "Ready for Dev", false, None),
+                ("NOTE-11", "Slow search query", "Dev", false, None),
                 (
                     "NOTE-12",
                     "Cache note previews",

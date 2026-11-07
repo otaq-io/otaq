@@ -190,7 +190,7 @@ pub struct Tokens {
 pub struct Button {
     pub action: Action,
     pub label: String,
-    /// "Moves to Ready for Dev" on Start.
+    /// "Moves it into the first stage" on Start.
     pub tooltip: Option<&'static str>,
     pub icon: Option<IconName>,
     pub look: Look,
@@ -2681,13 +2681,13 @@ mod tests {
         assert_eq!(load["view"]["buttons"][0]["action"], "start");
         assert_eq!(load["view"]["sheet"]["tabs"][0]["tab"], "overview");
         assert_eq!(load["view"]["sheet"]["opens_on"], "overview");
-        // Move… (SHT-01): the drag's columns, its own checked, Ready for Dev allowed.
+        // Move… (SHT-01): the drag's columns, its own checked, Dev (the start) allowed.
         let moves = table(&h.app, "sheet.move_menu", json!({ "key": key })).await.unwrap();
         let moves = moves.as_array().unwrap();
         assert_eq!(moves[0]["id"], "backlog");
         assert_eq!(moves[0]["checked"], true);
-        let ready = moves.iter().find(|m| m["id"] == "ready_for_dev").unwrap();
-        assert_eq!(ready["disabled"], false);
+        let dev = moves.iter().find(|m| m["id"] == "dev").unwrap();
+        assert_eq!(dev["disabled"], false);
 
         let item = load["view"]["priority_menu"][0]["id"].as_str().unwrap().to_owned();
         table(&h.app, "sheet.priority", json!({ "key": key, "item": item }))

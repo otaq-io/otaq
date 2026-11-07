@@ -119,7 +119,7 @@ pub struct OwnerTicket {
     pub key: TicketKey,
     pub title: String,
     pub status: Status,
-    /// The stage it is in or waits before ("Dev", "Security"); `None` in Backlog or Ready for Dev.
+    /// The stage it is in or waits before ("Dev", "Security"); `None` in Backlog or waiting to begin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
     /// Its worktree on disk, or its branch from git (the worktree is gone).
@@ -319,7 +319,7 @@ pub struct NoWorktree {
     pub key: TicketKey,
     pub title: String,
     pub status: Status,
-    /// The stage it is in or waits before; `None` in Backlog or Ready for Dev.
+    /// The stage it is in or waits before; `None` in Backlog or waiting to begin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
 }
@@ -1529,7 +1529,7 @@ async fn stamp(git: &Git, ticket: &Ticket, tips: &HashMap<String, String>) -> Op
     })
 }
 
-/// The stage a ticket is in or waits before, by name ("Dev"); `None` in Backlog, Ready for Dev or Done.
+/// The stage a ticket is in or waits before, by name ("Dev"); `None` in Backlog, waiting to begin or Done.
 fn stage_name(ticket: &Ticket, flow: &Flow) -> Option<String> {
     flow.stage(ticket.place.stage_id()?)
         .map(|stage| stage.name.clone())
@@ -1542,7 +1542,7 @@ pub(super) fn is_running(status: Status) -> bool {
         && !matches!(status, Status::Interrupted | Status::ResumeFailed)
 }
 
-/// Where a ticket is in its flow, left to right: Backlog, Ready for Dev, then each stage (waiting before it, in
+/// Where a ticket is in its flow, left to right: Backlog, waiting to begin, then each stage (waiting before it, in
 /// it), Done last.
 fn flow_rank(ticket: &Ticket, flow: &Flow) -> u32 {
     let at = |id: &str| {

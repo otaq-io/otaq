@@ -72,7 +72,7 @@ fn reason(check: &MoveCheck) -> &str {
 
 // ---- §7.3 on the default flow, row by row ----
 
-/// Backlog → Ready for Dev (Start, a drag on Ready for Dev or Dev); Ready for Dev → Backlog; a Parked ticket's drag
+/// Backlog → waiting to begin (Start, a drag on waiting to begin or Dev); waiting to begin → Backlog; a Parked ticket's drag
 /// to Dev; the scheduler's start into Dev.
 #[test]
 fn backlog_and_ready_for_dev() {
@@ -392,7 +392,7 @@ fn review_and_delivery() {
     );
 }
 
-/// The drags §7.4 still refuses (Dev → Ready for Dev), and FLW-18's drops on the default flow: forward from Dev
+/// The drags §7.4 still refuses (Dev → waiting to begin), and FLW-18's drops on the default flow: forward from Dev
 /// (Validate is the next stage, Review skips it), back from Review and Validate to Dev with the instructions dialog,
 /// Review → Validate runs it again with a note; a card dropped where it is stays.
 #[test]
@@ -939,7 +939,7 @@ async fn skipped_and_failed_runs() {
     );
     let back = w.board.ticket("NOTE-1").await.unwrap();
     assert!(
-        back.place.is_ready_for_dev() || back.place == Place::stage_of(DEV),
+        back.place.waits_to_begin() || back.place == Place::stage_of(DEV),
         "{:?}",
         back.place
     );

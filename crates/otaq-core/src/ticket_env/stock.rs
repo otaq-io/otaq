@@ -1,7 +1,7 @@
 //! The stock of builds per repository (M19-a, d0085), on top of the warm build store ([`WarmBuilds`]):
 //!
 //! - **The limit** ([`Stock::limit`]): where builds are renamed ([`HandoffMode::Move`]), a stock keeps as many
-//!   builds as the repository's tickets that could start soon: those in Ready for Dev whose dependencies are done and
+//!   builds as the repository's tickets that could start soon: those waiting to begin whose dependencies are done and
 //!   that wait only for a slot or the plan limit ([`scheduler::stock_limit`]); at least 1. Where builds are cloned
 //!   ([`HandoffMode::Clone`]) it keeps one, forward only, as before.
 //! - **The nearest build** ([`Stock::claim_nearest`]): the ticket's own build first; then a build made at an ancestor

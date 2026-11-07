@@ -373,7 +373,7 @@ const LIMITS = {
     can_lower: true,
     can_raise: true,
   },
-  note: "Tickets in Ready for Dev wait for a free slot.",
+  note: "Started tickets wait for a free agent.",
 };
 
 const POPOVER: ActivityPopover = {
@@ -466,12 +466,12 @@ describe("the Activity popover", () => {
       agents: {
         ...POPOVER.agents,
         count: "0",
-        empty: "Nothing running. Tickets in Ready for Dev start when a slot allows.",
+        empty: "Nothing running. Started tickets begin when an agent is free and their parents are merged.",
       },
       processes: null,
     });
     expect(out.indexOf("Agent limits")).toBeLessThan(out.indexOf("AGENTS RUNNING"));
-    expect(out).toContain("Nothing running. Tickets in Ready for Dev start");
+    expect(out).toContain("Nothing running. Started tickets begin");
     expect(out).not.toContain("PROCESSES");
   });
 

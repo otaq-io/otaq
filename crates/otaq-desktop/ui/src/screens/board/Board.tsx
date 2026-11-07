@@ -18,8 +18,8 @@
 // sheet (`app/scrim.ts`). "Show on board" in a Project agent panel filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain, with its tooltip, and Dependencies: Always keeps every
-// link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02); a blocked ticket started or dragged past Ready for Dev
-// opens DPV-03's dialog (`BlockedDialog`).
+// link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02). A Backlog card's Start (and ⌘D) starts it without
+// opening the sheet: it goes into the first stage, waiting at its top until it can begin.
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -107,7 +107,7 @@ export const BOARD_EVENTS = [
   "project_agent_changed",
   // A named agent renamed or a role default changed: the footers' agent names (T-0345).
   "agents_changed",
-  // A flow change waits (Ready for Dev's "Waiting for the flow change") or applied (the columns change; FLW-06).
+  // A flow change waits (a waiting card's "Waiting for the flow change") or applied (the columns change; FLW-06).
   "flow_changed",
 ];
 
@@ -202,10 +202,6 @@ export function afterDrop(outcome: DropOutcome, ask: typeof request = request): 
     case "drag_back":
       openOverlay("drag_back", outcome.dialog);
       return;
-    // A blocked ticket (DPV-03): it already waits in Ready for Dev; the dialog says why it can't start.
-    case "blocked":
-      openOverlay("blocked", outcome.dialog);
-      return;
     case "not_yet": {
       const notice: NewToast = {
         level: "success",
@@ -233,8 +229,8 @@ export function dropCard(key: string, target: BoardDropTarget, ask: typeof reque
   );
 }
 
-/** The sheet's Start (`board.start`): a drop on the first agent column, as ⌘D; a blocked ticket opens DPV-03's
- * dialog. */
+/** Start (`board.start`, the sheet's and a Backlog card's): a drop on the first agent column, as ⌘D. A ticket that
+ * can't begin yet waits at the top of that column and says why. */
 export function startTicket(key: string, ask: typeof request = request): Promise<void> {
   return ask("board.start", { key }).then(
     (outcome) => {
@@ -571,6 +567,10 @@ export function Board() {
         openTicket(key);
       },
       action: (key, kind: CardActionKind) => {
+        if (kind === "start") {
+          void startTicket(key);
+          return;
+        }
         openTicket(key);
         requestCardAction(key, kind);
       },
@@ -650,6 +650,10 @@ export function Board() {
         }
       },
       action: (key, kind: CardActionKind) => {
+        if (kind === "start") {
+          void startTicket(key);
+          return;
+        }
         openTicket(key);
         requestCardAction(key, kind);
       },

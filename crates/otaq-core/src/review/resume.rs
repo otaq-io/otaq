@@ -258,7 +258,7 @@ impl Review {
     }
 
     /// The Agent stage a resumed ticket waits before: the one it is in, or (from a check) the nearest earlier one;
-    /// `None` for the flow's first, which is Ready for Dev as today.
+    /// `None` for the flow's first, which is waiting to begin as today.
     async fn waits_before(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
         let Some(id) = ticket.place.stage() else {
             return Ok(None);

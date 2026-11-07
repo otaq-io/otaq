@@ -510,7 +510,7 @@ async fn the_diff_says_what_changes_and_when() {
     w.stop().await;
 }
 
-/// The project's Ready for Dev tickets the scheduler would start now (FLW-06's hold), after a settling pass.
+/// The project's waiting to begin tickets the scheduler would start now (FLW-06's hold), after a settling pass.
 async fn would_start(w: &TestService, key: &str) -> Vec<String> {
     let settled = w.board.settle_flow_changes().await.unwrap();
     let tickets = w.board.tickets(key).await.unwrap();
@@ -528,7 +528,7 @@ async fn would_start(w: &TestService, key: &str) -> Vec<String> {
 }
 
 /// FLW-06, FED-08, sentence by sentence: Validate removed while API-1 is in Dev waits for its span, Dev to Review,
-/// which holds the first Agent stage, so no ticket of pocket-api starts from Ready for Dev (another project's still
+/// which holds the first Agent stage, so no ticket of pocket-api starts while waiting to begin (another project's still
 /// does); when API-1 reaches Review (a check by you that stays) nothing inside is at work: the change applies and
 /// starts resume. Cancel change resumes starts too. A second apply while one waits was compared with the waiting flow
 /// (only its own part shows) and merges into it, even a part that would otherwise apply at once; the banner names

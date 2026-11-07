@@ -28,12 +28,12 @@ impl Preset {
         yaml::read(self.yaml).expect("a shipped preset reads (tested)")
     }
 
-    /// The small diagram's columns: the waiting column ("Ready" when Dev isn't first), every stage, and Done
-    /// (`s14-18`: "Ready for Dev · Dev · Validate · Review · Done").
+    /// The small diagram's columns: Backlog, every stage, and Done, the fixed ends of every flow ("Backlog · Dev ·
+    /// Validate · Review · Done").
     pub fn columns(&self) -> Vec<String> {
         let file = self.read();
         let stages = file.flow.stages.iter().map(|s| s.name.clone());
-        std::iter::once(file.flow.waiting_name().to_owned())
+        std::iter::once("Backlog".to_owned())
             .chain(stages)
             .chain(std::iter::once("Done".to_owned()))
             .collect()

@@ -51,7 +51,7 @@ impl Back<'_> {
         skill: Option<&str>,
         actor: &Actor,
     ) -> Result<Option<String>, BoardError> {
-        // Queued (the limit is full), it waits before the stage: Ready for Dev before the flow's first.
+        // Queued (the limit is full), it waits before the stage: waiting to begin the flow's first.
         let stage = match to.is_queued() {
             true => waits_before(self.flow, &self.stage.id),
             false => Some(self.stage.id.clone()),

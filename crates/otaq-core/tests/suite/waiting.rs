@@ -127,7 +127,7 @@ fn finishing_product_spec_waits_before_dev() {
     assert_eq!((fail.place, fail.resume), (Place::stage_of("dev"), true));
 }
 
-/// A skipped Product spec goes straight to waiting before Dev: Ready for Dev is the wait before the first Agent stage
+/// A skipped Product spec goes straight to waiting before Dev: waiting to begin is the wait before the first Agent stage
 /// the ticket runs, and its start enters Dev with a skipped run of Product spec.
 #[test]
 fn a_skipped_product_spec_waits_before_dev_from_ready_for_dev() {
@@ -162,8 +162,8 @@ fn a_skipped_product_spec_waits_before_dev_from_ready_for_dev() {
     assert_eq!(through, [("product-spec", RunResult::Skipped)]);
 }
 
-/// The scheduler treats a ticket waiting before Dev as it treats Ready for Dev: it waits for a slot, then starts, in
-/// the start order; its dependencies hold it as they would in Ready for Dev.
+/// The scheduler treats a ticket waiting before Dev as it treats waiting to begin: it waits for a slot, then starts, in
+/// the start order; its dependencies hold it as they would waiting to begin.
 #[test]
 fn the_scheduler_waits_and_starts_before_any_agent_stage() {
     let mut tickets = vec![

@@ -1,9 +1,10 @@
 //! The board's columns (UI-02, SHL-06, STG-08; *03 · Board & columns*; d0087, d0108): the project's flow's columns
-//! with counts ([`flow_columns`]), on the default flow Backlog · Ready for Dev · Dev · Validate · Review · Done.
-//! Every stage is its own column; a human check's column (Review) also holds the tickets being delivered (To
-//! deliver, PR open), after the ones waiting for you, with no section of their own. Ready for Dev shows the queued
-//! cards (d0066); an agent column (Dev) the cards that need the user (and pins)
-//! on top, then the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027);
+//! with counts ([`flow_columns`]), on the default flow Backlog · Dev · Validate · Review · Done: Backlog and Done are
+//! the fixed ends of every flow. Every stage is its own column; a human check's column (Review) also holds the tickets
+//! being delivered (To deliver, PR open), after the ones waiting for you, with no section of their own. An agent
+//! column (Dev) has at its top the started tickets that can't begin yet, each saying why ("Waits for SHOP-12 to
+//! merge", "Waits for a free agent · 2nd in line", "Waiting for the flow change"), then the cards that need the user
+//! (and pins), then the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027);
 //! and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
 //! board, the service and the tests agree.
 //!
@@ -56,7 +57,8 @@ impl CardEntry {
 /// Dev's parts, top to bottom.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DevSections {
-    /// Pinned cards and cards that need the user, on top (never folded).
+    /// Started tickets waiting to begin the stage, then pinned cards and cards that need the user, on top (never
+    /// folded).
     pub top: Vec<CardEntry>,
     pub working: Vec<CardEntry>,
     /// Cards in the Agent Working section, the floated ones included (section counts count by status).
@@ -79,14 +81,14 @@ pub struct HeaderTooltip {
 pub struct ColumnView {
     pub id: ColumnId,
     pub kind: ColumnKind,
-    /// The stage's name ("Dev", "Review"), or "Backlog", "Ready for Dev", "Done".
+    /// The stage's name ("Dev", "Review"), or "Backlog", "Done".
     pub title: String,
     pub icon: IconName,
     /// The icon in the muted colour (FLW-12: a flow that isn't the default's shape); else in its status colour.
     pub quiet_icon: bool,
     /// "12" or, with a filter, "3/12" (T-0038).
     pub count: String,
-    /// Who runs it; `None` for Backlog, Ready for Dev and Done.
+    /// Who runs it; `None` for Backlog and Done.
     pub tooltip: Option<HeaderTooltip>,
     /// Its cards over all, whatever the filter: an empty stage of a long flow folds to its rail.
     pub total: usize,
@@ -94,8 +96,6 @@ pub struct ColumnView {
     pub cards: Vec<CardEntry>,
     /// An agent column's (Dev's) parts.
     pub dev: Option<DevSections>,
-    /// Under the title: Ready for Dev's "Starts when ready, in priority order" ("Starts when ready" in a long flow).
-    pub hint: Option<&'static str>,
     /// Shown when the column is empty.
     pub empty_hint: &'static str,
     /// Folded (BRD-02): a stage's narrow rail, Done's "Done 4 →" line ([`is_folded`]).
@@ -115,10 +115,6 @@ pub fn column_look(column: &FlowColumn, quiet: bool) -> (IconName, &'static str)
         ColumnKind::Backlog => (
             IconName::CircleDashed,
             "Write a ticket here: what to build and when it’s done.",
-        ),
-        ColumnKind::ReadyForDev => (
-            IconName::Hourglass,
-            "Drag a ticket here from Backlog to start it when it’s ready.",
         ),
         ColumnKind::Agent if owner.is_some_and(Stage::is_agent_check) => {
             (IconName::ShieldCheck, AGENT_CHECK_EMPTY)
@@ -149,11 +145,8 @@ pub fn column_look(column: &FlowColumn, quiet: bool) -> (IconName, &'static str)
 /// An empty agent check's column (Validate's own, FLW-01). No frame draws it: the designer's notes have it.
 pub const AGENT_CHECK_EMPTY: &str = "An agent checks each ticket here before it moves on.";
 
-/// The hint under Ready for Dev's title (BRD-03, *24 · The two views*; d0065 unchanged).
-pub const READY_FOR_DEV_HINT: &str = "Starts in priority order";
-
 use otaq_core::flow::apply::Hold;
-/// What a Ready for Dev card that would start says while a flow change waits for a quiet board (FLW-06, *Row · A
+/// What a card waiting to begin that would start says while a flow change waits for a quiet board (FLW-06, *Row · A
 /// flow change waiting*): [`BoardInput::starts_held`].
 pub use otaq_core::flow::apply::WAITING_FOR_THE_FLOW_CHANGE;
 
@@ -239,7 +232,8 @@ pub struct BoardInput<'a> {
     /// Every agent (`agents.list`): the headers' tooltips name each stage's tool and model (FLW-12); `None` names
     /// only the agents.
     pub agent_list: Option<&'a AgentList>,
-    /// The starts a waiting flow change holds back (FLW-06, FED-08): from Ready for Dev, or at its span's edge. A card
+    /// The starts a waiting flow change holds back (FLW-06, FED-08): of the tickets waiting to begin, or at its span's
+    /// edge. A card
     /// it holds that would start says [`WAITING_FOR_THE_FLOW_CHANGE`] in place of "Starting…". `None` while starts
     /// run.
     pub starts_held: Option<&'a Hold>,
@@ -250,8 +244,8 @@ pub struct BoardInput<'a> {
     pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
-/// A ticket that waits with a kept start while its project is paused (PAU-04, `agents::kept::starts_on_resume`), in
-/// a stage it was dragged or moved into; Ready for Dev's says "starts next" (`s24-07`).
+/// A ticket that waits with a kept start while its project is paused (PAU-04, `agents::kept::starts_on_resume`): a
+/// started ticket waiting at the top of the first stage, or one dragged or moved into a later stage.
 pub const KEPT_START: &str = "Paused \u{b7} starts when you resume";
 
 /// One state's cards, in its order, with what its count counts.
@@ -328,23 +322,16 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         queue.starting = false;
         queue.waits_for = Some(WAITING_FOR_THE_FLOW_CHANGE.to_owned());
     }
-    // Nothing starts while paused (PAU-04): Ready for Dev's next one "starts next" (`s24-07`), one in a stage
-    // waits for Resume.
+    // Nothing starts while paused (PAU-04): a ticket that would start waits for Resume.
     if otaq_core::agents::kept::starts_on_resume(t, all, input.paused) {
         queue.starting = false;
-        queue.waits_for = Some(
-            if t.place == otaq_core::domain::Place::Waiting(None) {
-                crate::view_models::card::STARTS_NEXT
-            } else {
-                KEPT_START
-            }
-            .to_owned(),
-        );
+        queue.waits_for = Some(KEPT_START.to_owned());
     }
     let extras = CardExtras {
         waits_for: queue.waits_for,
         waits_for_merge: queue.waits_for_merge,
         starting: queue.starting,
+        in_line: crate::view_models::queue::in_line(t, all),
         closed_parent: queue.closed_parent,
         project_base: input.project_base.map(str::to_owned),
         start_failure: (t.status == Status::StartInterrupted)
@@ -453,9 +440,6 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 total: whole.total,
                 cards: Vec::new(),
                 dev: None,
-                hint: (column.kind == ColumnKind::ReadyForDev).then(|| {
-                    crate::view_models::planning::ready_hint(input.flow, READY_FOR_DEV_HINT)
-                }),
                 empty_hint,
                 collapsed: is_folded(id, column.kind, whole.total, input.folded, input.fold_empty),
                 needs_you: needs_you_in(&columns, id, all, &cards),
@@ -553,17 +537,32 @@ fn dev_sections(
             .find(|t| &t.key == k)
             .is_some_and(|t| t.needs_user() || t.flags.is_pinned())
     };
+    // A started ticket that can't begin yet waits at the very top, never behind the fold.
+    let waits = |k: &TicketKey| {
+        all.iter()
+            .find(|t| &t.key == k)
+            .is_some_and(|t| t.place.is_waiting())
+    };
+    let (waiting, rest): (Vec<TicketKey>, Vec<TicketKey>) =
+        order.cards.iter().cloned().partition(|k| waits(k));
+    let rest = ColumnOrder {
+        column: order.column,
+        cards: rest,
+    };
     let (shown_cards, fold) = match budget {
         Some(max) => {
-            let f = fold_dev(order, all, max);
+            let f = fold_dev(&rest, all, max);
             let label = f.label();
             (f.shown_cards, label)
         }
-        None => (order.cards.clone(), None),
+        None => (rest.cards.clone(), None),
     };
-    let top: Vec<TicketKey> = shown_cards.iter().filter(|k| floats(k)).cloned().collect();
+    let top: Vec<TicketKey> = waiting
+        .into_iter()
+        .chain(shown_cards.iter().filter(|k| floats(k)).cloned())
+        .collect();
     let working: Vec<TicketKey> = shown_cards.iter().filter(|k| !floats(k)).cloned().collect();
-    let folded = order
+    let folded = rest
         .cards
         .iter()
         .filter(|k| !shown_cards.contains(k))
@@ -617,6 +616,21 @@ mod tests {
         entries.iter().map(|e| e.key().to_string()).collect()
     }
 
+    /// The card of `key`, wherever it shows.
+    fn find_card(columns: &[ColumnView], key: &str) -> CardViewModel {
+        columns
+            .iter()
+            .flat_map(|c| {
+                let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
+                c.cards.iter().chain(dev)
+            })
+            .find_map(|e| match e {
+                CardEntry::Ticket(vm) if vm.key.to_string() == key => Some(vm.clone()),
+                _ => None,
+            })
+            .unwrap()
+    }
+
     fn input(tickets: &[Ticket], budget: Option<usize>) -> BoardInput<'_> {
         BoardInput {
             flow: &otaq_core::flow::default_file().flow,
@@ -668,8 +682,9 @@ mod tests {
         );
     }
 
-    /// STG-08 on the test flow: every stage has its own column between Ready for Dev and Done; a card waiting between
-    /// Product spec and Dev shows in Dev's column with its waiting status, a validating one in Validate, a Security check
+    /// STG-08 on the test flow: every stage has its own column between Backlog and Done; a started ticket waiting to
+    /// begin is at the top of Product spec's column, a card waiting between Product spec and Dev in Dev's column with
+    /// its waiting status, a validating one in Validate, a Security check
     /// in Security, QA's card in QA, and a PR open card in QA too, the last stage (the delivery is no column).
     #[test]
     fn the_test_flow_draws_a_column_per_own_stage() {
@@ -698,7 +713,6 @@ mod tests {
             ids,
             [
                 "backlog",
-                "ready_for_dev",
                 "product-spec",
                 "dev",
                 "validate",
@@ -720,25 +734,18 @@ mod tests {
                 .chain(keys(&dev.working))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(dev_keys("product-spec"), ["NOTE-1"]);
+        assert_eq!(
+            dev_keys("product-spec"),
+            ["NOTE-7", "NOTE-1"],
+            "the started ticket waits at the top of the first stage"
+        );
         assert_eq!(dev_keys("dev"), ["NOTE-2"], "the card waiting before Dev");
         assert_eq!(dev_keys("validate"), ["NOTE-3"]);
         assert_eq!(dev_keys("security"), ["NOTE-4"]);
         // QA's card, then the one being delivered from QA, the last stage.
-        let qa = &columns[6];
+        let qa = &columns[5];
         assert_eq!(keys(&qa.cards), ["NOTE-5", "NOTE-6"]);
-        assert_eq!(keys(&columns[1].cards), ["NOTE-7"]);
-        let waiting = columns[3]
-            .dev
-            .as_ref()
-            .unwrap()
-            .working
-            .iter()
-            .find_map(|e| match e {
-                CardEntry::Ticket(vm) if vm.key.to_string() == "NOTE-2" => Some(vm.clone()),
-                _ => None,
-            })
-            .unwrap();
+        let waiting = find_card(&columns, "NOTE-2");
         assert_eq!(waiting.hover.status, Status::Queued.label());
     }
 
@@ -747,7 +754,7 @@ mod tests {
     #[test]
     fn needs_you_cards_float_up_as_signals_change() {
         let mut tickets = board();
-        let dev = |tickets: &[Ticket]| build(&input(tickets, None))[2].dev.clone().unwrap();
+        let dev = |tickets: &[Ticket]| build(&input(tickets, None))[1].dev.clone().unwrap();
         assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));
         let shop26 = tickets
             .iter_mut()
@@ -755,7 +762,7 @@ mod tests {
             .unwrap();
         shop26.status = Status::Idle;
         let top = keys(&dev(&tickets).top);
-        assert_eq!(top[0], "SHOP-19", "pinned first");
+        assert_eq!(top[4], "SHOP-19", "after the waiting cards, pinned first");
         assert!(top.contains(&"SHOP-26".to_owned()), "{top:?}");
         let shop26 = tickets
             .iter_mut()
@@ -792,21 +799,13 @@ mod tests {
     fn queued_cards_say_what_they_wait_for_and_update_live() {
         let mut tickets = board();
         let card = |tickets: &[Ticket], key: &str| -> CardViewModel {
-            build(&input(tickets, None))[1]
-                .cards
-                .clone()
-                .into_iter()
-                .find_map(|e| match e {
-                    CardEntry::Ticket(vm) if vm.key.to_string() == key => Some(vm),
-                    _ => None,
-                })
-                .unwrap()
+            find_card(&build(&input(tickets, None)), key)
         };
         // SHOP-18 is in Review: the situation line says so.
         let vm = card(&tickets, "SHOP-20");
         assert_eq!(
             vm.situation.unwrap().text,
-            "waits for SHOP-18 to merge (in Review)"
+            "Waits for SHOP-18 to merge (in Review)"
         );
         // SHOP-18 merged: about to start.
         let shop18 = tickets
@@ -819,29 +818,20 @@ mod tests {
         assert!(vm.situation.unwrap().text.starts_with("Starting…"));
     }
 
-    /// SHL-06, FLW-01: six columns (Validate has its own); Review counts both sections.
+    /// SHL-06, FLW-01: five columns, Backlog and Done at the ends (Validate has its own); no Ready for Dev: the
+    /// started tickets that can't begin yet are at the top of Dev, Start failed first, then the start order (the one
+    /// waiting for SHOP-18 last).
     #[test]
-    fn six_columns_with_counts() {
+    fn five_columns_with_counts() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
         let titles: Vec<_> = columns.iter().map(|c| c.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            [
-                "Backlog",
-                "Ready for Dev",
-                "Dev",
-                "Validate",
-                "Review",
-                "Done"
-            ]
-        );
+        assert_eq!(titles, ["Backlog", "Dev", "Validate", "Review", "Done"]);
         let ids: Vec<_> = columns.iter().map(|c| c.id.clone()).collect();
         assert_eq!(
             ids,
             [
                 ColumnId::BACKLOG,
-                ColumnId::READY_FOR_DEV,
                 ColumnId::DEV,
                 ColumnId::new("validate"),
                 ColumnId::REVIEW,
@@ -849,17 +839,15 @@ mod tests {
             ]
         );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
-        assert_eq!(counts, ["2", "4", "7", "0", "1", "1"]);
+        assert_eq!(counts, ["2", "11", "0", "1", "1"]);
         assert_eq!(keys(&columns[0].cards), ["SHOP-24", "SHOP-40"]);
-        // Ready for Dev: Start interrupted first, then the start order (the one waiting for SHOP-18 last).
+        let dev = columns[1].dev.as_ref().unwrap();
         assert_eq!(
-            keys(&columns[1].cards),
+            keys(&dev.top)[..4],
             ["SHOP-28", "SHOP-21", "SHOP-29", "SHOP-20"]
         );
-        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
-        assert!(columns.iter().filter(|c| c.hint.is_some()).count() == 1);
         // Review lists its cards: no section, no Approved part.
-        let review = &columns[4];
+        let review = &columns[3];
         assert_eq!(keys(&review.cards), ["SHOP-18"]);
     }
 
@@ -881,7 +869,7 @@ mod tests {
             ticket("SHOP-27", "Search paging", Status::PrOpen),
         ];
         let columns = build(&input(&tickets, None));
-        let review = &columns[4];
+        let review = &columns[3];
         assert_eq!(review.count, "5");
         let cards = keys(&review.cards);
         assert_eq!(cards[..3], ["SHOP-31", "SHOP-32", "SHOP-18"]);
@@ -892,11 +880,11 @@ mod tests {
             visible: Some(&visible),
             ..input(&tickets, None)
         });
-        let review = &filtered[4];
+        let review = &filtered[3];
         assert_eq!((review.count.as_str(), review.hidden), ("2/5", 3));
     }
 
-    /// FLW-01 (T-0412's Done-when): the default board is Backlog · Ready for Dev · Dev · Validate · Review · Done; a
+    /// FLW-01 (T-0412's Done-when): the default board is Backlog · Dev · Validate · Review · Done; a
     /// validating card is in Validate, and Review has no Approved section. Every stage is its own column on any flow.
     #[test]
     fn the_default_board_has_validate_in_its_own_column() {
@@ -910,33 +898,53 @@ mod tests {
         ];
         let columns = build(&input(&tickets, None));
         let titles: Vec<&str> = columns.iter().map(|c| c.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            [
-                "Backlog",
-                "Ready for Dev",
-                "Dev",
-                "Validate",
-                "Review",
-                "Done"
-            ]
-        );
-        let dev = columns[2].dev.as_ref().expect("Dev's cards");
+        assert_eq!(titles, ["Backlog", "Dev", "Validate", "Review", "Done"]);
+        let dev = columns[1].dev.as_ref().expect("Dev's cards");
         assert_eq!(keys(&dev.working), ["SHOP-19"]);
-        let validate = columns[3].dev.as_ref().expect("Validate's cards");
+        let validate = columns[2].dev.as_ref().expect("Validate's cards");
         assert_eq!(keys(&validate.working), ["SHOP-30"]);
-        assert_eq!(columns[3].count, "1");
-        assert_eq!(keys(&columns[4].cards), ["SHOP-18"]);
+        assert_eq!(columns[2].count, "1");
+        assert_eq!(keys(&columns[3].cards), ["SHOP-18"]);
+    }
+
+    /// Dev's top: the started tickets waiting to begin, then the pinned and needs-you cards; the rest work below.
+    /// A ticket started while no agent is free waits at the top of Dev, saying so with its place in line, above the
+    /// cards that work; the next one begins when an agent frees up.
+    #[test]
+    fn a_ticket_waiting_for_a_free_agent_is_at_the_top_of_dev() {
+        let mut first = ticket("SHOP-30", "Urgent fix", Status::WaitingForSlot);
+        first.priority = otaq_core::domain::Priority::Urgent;
+        let tickets = vec![
+            ticket("SHOP-26", "Add sitemap", Status::Working),
+            ticket("SHOP-31", "Footer links", Status::WaitingForSlot),
+            first,
+        ];
+        let columns = build(&input(&tickets, None));
+        let dev = columns[1].dev.as_ref().unwrap();
+        assert_eq!(keys(&dev.top), ["SHOP-30", "SHOP-31"]);
+        assert_eq!(keys(&dev.working), ["SHOP-26"]);
+        let line = |key: &str| find_card(&columns, key).one_line.line.unwrap().text;
+        assert_eq!(
+            line("SHOP-30"),
+            "Waits for a free agent \u{b7} next in line"
+        );
+        assert_eq!(line("SHOP-31"), "Waits for a free agent \u{b7} 2nd in line");
     }
 
     #[test]
-    fn dev_sections_float_needs_you_and_pins() {
+    fn dev_sections_float_waiting_needs_you_and_pins() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
-        let dev = columns[2].dev.as_ref().unwrap();
-        assert_eq!(keys(&dev.top), ["SHOP-19", "SHOP-22", "SHOP-23", "SHOP-25"]);
+        let dev = columns[1].dev.as_ref().unwrap();
+        assert_eq!(
+            keys(&dev.top),
+            [
+                "SHOP-28", "SHOP-21", "SHOP-29", "SHOP-20", "SHOP-19", "SHOP-22", "SHOP-23",
+                "SHOP-25"
+            ]
+        );
         assert_eq!(keys(&dev.working), ["SHOP-12", "SHOP-26", "SHOP-27"]);
-        assert_eq!(dev.working_count, 7);
+        assert_eq!(dev.working_count, 11);
         assert_eq!(dev.fold, None);
     }
 
@@ -944,14 +952,22 @@ mod tests {
     fn fold_counts_and_never_hides_needs_you() {
         let tickets = board();
         let columns = build(&input(&tickets, Some(5)));
-        let dev = columns[2].dev.as_ref().unwrap();
-        assert_eq!(dev.top.len(), 4, "pinned + 3 needs-you shown");
+        let dev = columns[1].dev.as_ref().unwrap();
+        assert_eq!(
+            dev.top.len(),
+            8,
+            "4 waiting to begin, never folded, + pinned + 3 needs-you shown"
+        );
         assert_eq!(keys(&dev.working), ["SHOP-12"]);
         assert_eq!(dev.fold.as_deref(), Some("2 more · working"));
         assert_eq!(dev.folded.len(), 2, "the folded cards are named");
         let tight = build(&input(&tickets, Some(1)));
-        let dev = tight[2].dev.as_ref().unwrap();
-        assert_eq!(dev.top.len(), 3, "the needs-you cards are never folded");
+        let dev = tight[1].dev.as_ref().unwrap();
+        assert_eq!(
+            dev.top.len(),
+            7,
+            "the waiting and needs-you cards are never folded"
+        );
     }
 
     /// BRD-02: Done is folded at first (the view preference's default) and opens from its line; a column folded from
@@ -976,8 +992,8 @@ mod tests {
             folded: &dev,
             ..input(&tickets, None)
         });
-        assert!(columns[2].collapsed);
-        assert!(columns[2].needs_you > 0);
+        assert!(columns[1].collapsed);
+        assert!(columns[1].needs_you > 0);
         assert!(!columns[4].collapsed, "Done opened");
         // Fold empty columns: nothing here is empty but Backlog stays open anyway.
         let empty: Vec<Ticket> = Vec::new();
@@ -1023,8 +1039,9 @@ mod tests {
         assert_eq!(more_stages(7).as_deref(), Some("7 more stages"));
     }
 
-    /// Spec first's board (`s30-01`; d0129, d0093): the waiting column is "Ready" with "Before the first stage", and
-    /// each planning card says what it is doing, as the board words it from the flow and the card's agents.
+    /// Spec first's board (`s30-01`; d0129, d0093): no waiting column (a started ticket waits at the top of Product
+    /// spec), and each planning card says what it is doing, as the board words it from the flow and the card's
+    /// agents.
     #[test]
     fn spec_first_cards_say_what_planning_is_doing() {
         use crate::view_models::plan::fixtures::WISHLIST;
@@ -1120,17 +1137,9 @@ mod tests {
         );
 
         let columns = build(&input);
-        assert_eq!(columns[1].title, "Ready");
-        assert_eq!(
-            columns[1].hint,
-            Some(crate::view_models::planning::BEFORE_THE_FIRST_STAGE)
-        );
-        // Today's board keeps its name and hint.
-        let today = build(&self::input(&tickets, None));
-        assert_eq!(
-            (today[1].title.as_str(), today[1].hint),
-            ("Ready for Dev", Some(READY_FOR_DEV_HINT))
-        );
+        assert_eq!(columns[1].title, "Product spec");
+        let top = keys(&columns[1].dev.as_ref().unwrap().top);
+        assert_eq!(top[0], "SHOP-35", "waiting at the top of the first stage");
     }
 
     #[test]
@@ -1143,12 +1152,12 @@ mod tests {
         });
         assert_eq!(columns[0].count, "1/2");
         assert_eq!(columns[0].hidden, 1);
-        assert_eq!(columns[2].count, "1/7");
-        assert_eq!(keys(&columns[2].dev.as_ref().unwrap().top), ["SHOP-22"]);
+        assert_eq!(columns[1].count, "1/11");
+        assert_eq!(keys(&columns[1].dev.as_ref().unwrap().top), ["SHOP-22"]);
     }
 
     /// FLW-12 on the default flow: today's icons in their status colours, but Validate's shield (FLW-01); a tooltip
-    /// for each stage column; the Ready for Dev hint.
+    /// for each stage column.
     #[test]
     fn the_default_board_keeps_todays_headers() {
         use crate::view_models::agents::fixtures::{agent, on};
@@ -1173,40 +1182,37 @@ mod tests {
             looks,
             [
                 (IconName::CircleDashed, false),
-                (IconName::Hourglass, false),
                 (IconName::Activity, false),
                 (IconName::ShieldCheck, false),
                 (IconName::Eye, false),
                 (IconName::CircleCheck, false),
             ]
         );
-        assert_eq!(columns[3].empty_hint, AGENT_CHECK_EMPTY);
+        assert_eq!(columns[2].empty_hint, AGENT_CHECK_EMPTY);
         let tip = |i: usize| columns[i].tooltip.clone();
         assert_eq!(tip(0), None);
-        assert_eq!(tip(1), None);
         assert_eq!(
-            tip(2),
+            tip(1),
             Some(HeaderTooltip {
                 title: "Dev · Developer · work-ticket".into(),
                 detail: vec!["Claude Code · sonnet".into()],
             })
         );
         assert_eq!(
-            tip(3),
+            tip(2),
             Some(HeaderTooltip {
                 title: "Validate · Checker · validate".into(),
                 detail: vec!["Codex · gpt-5.5 · up to 3 rounds".into()],
             })
         );
         assert_eq!(
-            tip(4),
+            tip(3),
             Some(HeaderTooltip {
                 title: "Review · your check".into(),
                 detail: vec![],
             })
         );
-        assert_eq!(tip(5), None);
-        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
+        assert_eq!(tip(4), None);
         assert!(columns.iter().all(|c| !c.collapsed));
     }
 
@@ -1250,7 +1256,6 @@ mod tests {
             heads,
             [
                 ("Backlog", IconName::CircleDashed, true),
-                ("Ready", IconName::Hourglass, true),
                 ("Product spec", IconName::Bot, true),
                 ("Dev", IconName::Bot, true),
                 ("Validate", IconName::ShieldCheck, true),
@@ -1259,7 +1264,7 @@ mod tests {
                 ("Done", IconName::CircleCheck, true),
             ]
         );
-        let dev = &columns[3];
+        let dev = &columns[2];
         assert_eq!(dev.count, "2", "Dev's own cards");
         assert_eq!(dev.total, 2);
         assert_eq!(
@@ -1269,18 +1274,18 @@ mod tests {
                 detail: vec!["Claude Code · sonnet".into()],
             })
         );
-        assert_eq!(columns[4].count, "1", "Validate's own column");
+        assert_eq!(columns[3].count, "1", "Validate's own column");
         let tip = |i: usize| columns[i].tooltip.clone().unwrap();
-        assert_eq!(tip(2).title, "Product spec · Spec writer · product-spec");
-        assert_eq!(tip(2).detail, ["Claude Code · sonnet", "Options: skip"]);
+        assert_eq!(tip(1).title, "Product spec · Spec writer · product-spec");
+        assert_eq!(tip(1).detail, ["Claude Code · sonnet", "Options: skip"]);
         assert_eq!(
-            tip(5).title,
+            tip(4).title,
             "Security · Security reviewer · team-security-review"
         );
         // A check's one agent and where it runs, then the stage's rounds.
-        assert_eq!(tip(5).detail, ["Claude Code · opus \u{b7} up to 2 rounds"]);
-        assert_eq!(tip(6).title, "QA · your check");
-        assert_eq!(tip(6).detail, ["Options: skip"]);
+        assert_eq!(tip(4).detail, ["Claude Code · opus \u{b7} up to 2 rounds"]);
+        assert_eq!(tip(5).title, "QA · your check");
+        assert_eq!(tip(5).detail, ["Options: skip"]);
 
         let visible: Vec<TicketKey> = vec!["NOTE-1".parse().unwrap()];
         let filtered = build(&BoardInput {
@@ -1288,12 +1293,12 @@ mod tests {
             visible: Some(&visible),
             ..input(&tickets, None)
         });
-        assert_eq!(filtered[3].count, "1/2");
-        assert_eq!(filtered[3].hidden, 1);
+        assert_eq!(filtered[2].count, "1/2");
+        assert_eq!(filtered[2].hidden, 1);
     }
 
-    /// shop-web's ten columns (*Row · A flow with many stages*): Backlog · Ready for Dev · Product spec · Dev · Validate
-    /// · Security · QA · Review · Docs · Done, delivered by a PR after Docs.
+    /// shop-web's nine columns (*Row · A flow with many stages*): Backlog · Product spec · Dev · Validate · Security ·
+    /// QA · Review · Docs · Done, delivered by a PR after Docs.
     fn ten_stages() -> Flow {
         let yaml = "\
 flow:
@@ -1310,8 +1315,8 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
     }
 
     /// BRD-02, a long flow (`s24-04`): every column keeps its 240 px, nothing folds by itself (Fold empty columns
-    /// is off), Ready for Dev keeps its hint, and at 1440 the board scrolls; Fold empty columns folds Product spec (Docs
-    /// holds the PR open card, delivered from the last stage).
+    /// is off), and at 1440 the board scrolls; Fold empty columns folds Validate (Product spec holds the started
+    /// ticket waiting to begin, Docs the PR open card, delivered from the last stage).
     #[test]
     fn a_long_flow_keeps_its_columns_and_scrolls() {
         let flow = ten_stages();
@@ -1334,17 +1339,12 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
             flow: &flow,
             ..input(&tickets, None)
         });
-        assert_eq!(columns.len(), 10);
+        assert_eq!(columns.len(), 9);
         assert!(columns.iter().all(|c| !c.collapsed));
-        // Product spec comes first: "Ready" under "Before the first stage" (d0093, Q515).
-        assert_eq!(
-            columns[1].hint,
-            Some(crate::view_models::planning::BEFORE_THE_FIRST_STAGE)
-        );
         let rails: Vec<bool> = columns.iter().map(|c| c.collapsed).collect();
         assert_eq!(
             more_stages(columns_after(1440. - 64., 0., &rails)).as_deref(),
-            Some("5 more stages")
+            Some("4 more stages")
         );
         let folded = build(&BoardInput {
             flow: &flow,
@@ -1356,44 +1356,34 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
             .filter(|c| c.collapsed)
             .map(|c| c.title.as_str())
             .collect();
-        assert_eq!(rails, ["Product spec", "Done"]);
+        assert_eq!(rails, ["Done"]);
     }
 
-    /// FLW-06 (the Ready for Dev footer): while a flow change holds starts, a card that would start says why; one
-    /// that waits for a parent keeps saying so.
+    /// FLW-06: while a flow change holds starts, a card waiting to begin that would start says why; one that waits for
+    /// a parent keeps saying so.
     #[test]
     fn held_starts_say_they_wait_for_the_flow_change() {
         let tickets = board();
         let held = build(&BoardInput {
-            starts_held: Some(&Hold::READY_FOR_DEV),
+            starts_held: Some(&Hold::BEFORE_FIRST_STAGE),
             ..input(&tickets, None)
         });
-        let card = |key: &str| -> CardViewModel {
-            held[1]
-                .cards
-                .iter()
-                .find_map(|e| match e {
-                    CardEntry::Ticket(vm) if vm.key.to_string() == key => Some(vm.clone()),
-                    _ => None,
-                })
-                .unwrap()
-        };
+        let card = |key: &str| -> CardViewModel { find_card(&held, key) };
         assert_eq!(
             card("SHOP-21").situation.unwrap().text,
             WAITING_FOR_THE_FLOW_CHANGE
         );
         assert_eq!(
             card("SHOP-20").situation.unwrap().text,
-            "waits for SHOP-18 to merge (in Review)"
+            "Waits for SHOP-18 to merge (in Review)"
         );
         // Without a hold it starts.
         let free = build(&input(&tickets, None));
-        let CardEntry::Ticket(vm) = &free[1].cards[1];
-        assert_eq!(vm.key.to_string(), "SHOP-21");
+        let vm = find_card(&free, "SHOP-21");
         assert!(vm.situation.clone().unwrap().text.starts_with("Starting"));
     }
 
-    /// PAU-04 (`s24-07`): while paused nothing says "Starting…": Ready for Dev's next one "starts next", and one
+    /// PAU-04 (`s24-07`): while paused nothing says "Starting…": the next one waiting to begin waits for Resume, as one
     /// dragged into a stage waits for Resume.
     #[test]
     fn while_paused_a_ticket_that_would_start_waits() {
@@ -1417,7 +1407,10 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
                 })
                 .unwrap()
         };
-        assert!(line(&paused, "SHOP-21").ends_with("starts next"));
+        assert_eq!(
+            line(&paused, "SHOP-21"),
+            "Paused \u{b7} starts when you resume"
+        );
         let t = tickets
             .iter_mut()
             .find(|t| t.key.to_string() == "SHOP-21")

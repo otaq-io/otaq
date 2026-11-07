@@ -1180,10 +1180,13 @@ mod tests {
         let menu = move_menu(&columns, &answer);
         let labels: Vec<_> = menu.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels.first(), Some(&"Backlog"));
-        assert!(labels.contains(&"Ready for Dev"));
+        assert!(
+            !labels.contains(&"Ready for Dev"),
+            "no Ready for Dev column"
+        );
         assert!(menu[0].checked && menu[0].disabled, "its own column");
-        let ready = menu.iter().find(|i| i.id == "ready_for_dev").unwrap();
-        assert!(!ready.disabled);
+        let dev = menu.iter().find(|i| i.id == "dev").unwrap();
+        assert!(!dev.disabled, "Backlog → Dev starts it");
         assert_eq!(column_of(&columns, &t), "backlog");
     }
 
@@ -1224,7 +1227,7 @@ mod tests {
         assert_eq!(
             neighbour(&tickets, &key("SHOP-1"), 1),
             None,
-            "Ready for Dev is its own column"
+            "the tickets waiting to begin are their own group"
         );
         assert_eq!(neighbour(&tickets, &key("SHOP-2"), 1), Some(key("SHOP-3")));
         assert_eq!(neighbour(&tickets, &key("SHOP-3"), -1), Some(key("SHOP-2")));

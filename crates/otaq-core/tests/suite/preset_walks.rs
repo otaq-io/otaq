@@ -156,7 +156,7 @@ async fn schedule(w: &TestService) {
     .unwrap();
 }
 
-/// A new ticket dragged to Ready for Dev and started, as the user's drag starts it.
+/// A new ticket dragged to waiting to begin and started, as the user's drag starts it.
 async fn started(w: &TestService, title: &str) -> Ticket {
     let t = w.create("SHOP", title).await;
     let key = t.key.to_string();

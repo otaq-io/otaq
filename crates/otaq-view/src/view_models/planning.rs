@@ -3,12 +3,10 @@
 //! that isn't the last one before the Delivery reviews ([`checks_planning`]: Spec review, before Code review), and
 //! **what planning did** is the Agent stages that ran since the previous human check (or the ticket's start).
 //!
-//! - **The waiting column** ([`ready_hint`]): "Ready" with "Before the first stage" when the flow's first Agent stage
-//!   isn't Dev ([`otaq_core::flow::Flow::waiting_name`]); the default flow keeps "Ready for Dev".
 //! - **Cards**: a stage running a skill Otaq ships says what it is doing ("Working · writing the architecture",
 //!   [`working_on`]); at a planning check "Your check · the decisions and the plan" (or "· the decisions" with no
-//!   pieces, [`check_line`]); a ticket waiting in Ready that starts past planning "Dev next · skips planning"
-//!   ([`skips_line`]).
+//!   pieces, [`check_line`]); a started ticket waiting to begin that starts past planning "Dev next · skips
+//!   planning" ([`skips_line`]).
 //! - **Overview at a planning check**: WHAT PLANNING DID, one row per Agent stage that ran ([`did`]): "Product spec ·
 //!   Spec writer" over "decisions/0140-share.md; DESIGN.md", Milestone plan's "the Plan, 4 pieces; …", then "The docs
 //!   are on SHOP-40's branch (Files tab) and ship with its code."
@@ -21,14 +19,11 @@ use otaq_core::board::stage_runs::StageRun;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status, plan};
 use otaq_core::flow::engine::{RunResult, next_human_check};
-use otaq_core::flow::model::READY;
 use otaq_core::flow::{Flow, Stage};
 use otaq_core::git::diff::FileStatus;
 use serde::Serialize;
 use ts_rs::TS;
 
-/// The sub-label under "Ready" (`s30-01`).
-pub const BEFORE_THE_FIRST_STAGE: &str = "Before the first stage";
 pub const WHAT_PLANNING_DID: &str = "What planning did";
 /// The Files tab's source line after the branch.
 pub const WHAT_PLANNING_COMMITTED: &str = "what planning committed";
@@ -36,15 +31,6 @@ pub const WHAT_PLANNING_COMMITTED: &str = "what planning committed";
 pub const NOTHING_COMMITTED: &str = "nothing committed";
 /// How many files a row of What planning did names before "+2 more".
 const NAMED_FILES: usize = 3;
-
-/// The hint under the waiting column's title: "Before the first stage" under "Ready"; `default` (today's "Starts in
-/// priority order") under "Ready for Dev".
-pub fn ready_hint(flow: &Flow, default: &'static str) -> &'static str {
-    match flow.waiting_name() {
-        READY => BEFORE_THE_FIRST_STAGE,
-        _ => default,
-    }
-}
 
 /// A human check with another human check after it: it reviews planning, not the code that ships (Spec review before
 /// Code review).
@@ -87,7 +73,7 @@ pub fn working_on(skill: &str) -> Option<&'static str> {
     })
 }
 
-/// The card's words for a ticket waiting in the waiting column that starts past the flow's first Agent stage
+/// The card's words for a started ticket waiting to begin that starts past the flow's first Agent stage
 /// (`s30-01`'s SHOP-35): "Dev next · skips planning" when it skips a human check too (a whole round of planning),
 /// else the stages it skips ("Dev next · skips Product spec"). `starts` is the name of the stage it starts at.
 pub fn skips_line(flow: &Flow, ticket: &Ticket, starts: Option<&str>) -> Option<String> {
@@ -476,24 +462,6 @@ mod tests {
             ],
         };
         (runs, committed)
-    }
-
-    /// The waiting column: "Ready" under "Before the first stage" in Spec first; the default flow keeps "Ready for
-    /// Dev" and its hint.
-    #[test]
-    fn the_waiting_column_is_ready_when_dev_isnt_first() {
-        let spec = spec_first();
-        assert_eq!(spec.waiting_name(), "Ready");
-        assert_eq!(
-            ready_hint(&spec, "Starts in priority order"),
-            "Before the first stage"
-        );
-        let default = otaq_core::flow::default_flow();
-        assert_eq!(default.waiting_name(), "Ready for Dev");
-        assert_eq!(
-            ready_hint(&default, "Starts in priority order"),
-            "Starts in priority order"
-        );
     }
 
     /// Spec review checks planning (Code review comes after it); Code review and the default flow's Review don't.

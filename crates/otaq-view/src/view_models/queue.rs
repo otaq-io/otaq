@@ -2,12 +2,14 @@
 //! deps, Queued · waits for merge, Queued · ready to start, Queued · held: base diverged*; *12 · Stack &
 //! dependencies → 2 · The chain runs, 3 · One parent merged, 4 · All parents merged*).
 //!
-//! Every Queued card says what it waits for, from the core's readiness (the same text as `otaq blocked`,
-//! the Stack list and the sheet): "waits for SHOP-20 to merge" in the meta row while its parents are still at
-//! work; a callout when a parent only waits for the user's merge ("waits for SHOP-18, SHOP-19 to merge (SHOP-18
-//! in Review)"); "Starting…" once every parent is merged; "Waiting for a slot" when the agent limit is full.
-//! When a ticket that waited for its dependencies starts, a toast says so.
+//! A started ticket that can't begin yet waits at the top of the first stage's column, and its card says what it
+//! waits for, from the core's readiness (the same text as `otaq blocked`, the Stack list and the sheet): "Waits for
+//! SHOP-20 to merge" while its parents are still at work; a callout when a parent only waits for the user's merge
+//! ("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"); "Starting…" once every parent is merged; "Waits for a
+//! free agent · 2nd in line" when the agent limit is full ([`in_line`]). When a ticket that waited for its
+//! dependencies starts, a toast says so.
 
+use otaq_core::board::order::start_order;
 use otaq_core::board::readiness::{ReadyState, WaitingParent, readiness};
 use otaq_core::board::stack::queue_reason;
 use otaq_core::board::tickets::Ticket;
@@ -50,6 +52,22 @@ pub fn queue_facts(ticket: &Ticket, all: &[Ticket]) -> QueueFacts {
             ..QueueFacts::default()
         },
     }
+}
+
+/// Where a ticket that waits for a free agent is in line (1 is next): its place in the start order among `all`'s
+/// tickets waiting for one. `None` for any other ticket.
+pub fn in_line(ticket: &Ticket, all: &[Ticket]) -> Option<usize> {
+    if ticket.status != Status::WaitingForSlot {
+        return None;
+    }
+    let mut line: Vec<&Ticket> = all
+        .iter()
+        .filter(|t| t.status == Status::WaitingForSlot)
+        .collect();
+    line.sort_by_cached_key(|t| start_order(t, all));
+    line.iter()
+        .position(|t| t.key == ticket.key)
+        .map(|at| at + 1)
 }
 
 fn merge_pending(parent: &WaitingParent) -> bool {
@@ -195,6 +213,19 @@ mod tests {
             sheet_notice(&all[3], &all).as_deref(),
             Some("Waiting for a slot.")
         );
+    }
+
+    /// Tickets waiting for a free agent are in line in the start order: the higher priority first.
+    #[test]
+    fn tickets_waiting_for_an_agent_are_in_line() {
+        let mut first = ticket("SHOP-30", "Urgent fix", Status::WaitingForSlot);
+        first.priority = otaq_core::domain::Priority::Urgent;
+        let second = ticket("SHOP-31", "Footer links", Status::WaitingForSlot);
+        let working = ticket("SHOP-32", "Search", Status::Working);
+        let all = vec![second.clone(), working.clone(), first.clone()];
+        assert_eq!(in_line(&first, &all), Some(1));
+        assert_eq!(in_line(&second, &all), Some(2));
+        assert_eq!(in_line(&working, &all), None);
     }
 
     #[test]

@@ -1,13 +1,13 @@
 // The gallery's dependencies (T-0463; *24 → Dependencies on the cards* `s24-09`, *Adding and removing* `s24-11`), as
 // Rust words them (`gallery.dependencies`): SHOP-20's blocked card and SHOP-29's "Blocks SHOP-20", the sheet's
-// DEPENDENCIES section, the Add picker with the rows for "SHOP-3", and DPV-03's dialog body.
+// DEPENDENCIES section and the Add picker with the rows for "SHOP-3". A blocked ticket can be started: it then waits
+// at the top of the first stage, saying what it waits for.
 import { useCallback } from "react";
 
 import { TicketCard } from "../../cards";
 import type { DependenciesGallery as GalleryView } from "../../generated/DependenciesGallery";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
-import { BlockedBody } from "../board/BlockedDialog";
 import { DependenciesBody, PickerBody } from "./Dependencies";
 
 const ignore = () => undefined;
@@ -49,12 +49,6 @@ export function DependenciesGallery() {
           </div>
         </figure>
       </div>
-      <figure className="gallery-stack-tight" style={{ width: 480 }}>
-        <figcaption className="gallery-caption">
-          {view.dialog.title} (DPV-03): Keep it waiting only
-        </figcaption>
-        <BlockedBody view={view.dialog} />
-      </figure>
     </div>
   );
 }

@@ -254,6 +254,8 @@ async fn the_scheduler_reads_the_settings_and_counts_needs_you_across_projects()
     scheduler.pass().await.unwrap();
     assert_eq!(*recorder.0.lock().unwrap(), ["SHOP-1"]);
     assert_eq!(f.ticket("SHOP-2").await.status, Status::WaitingForSlot);
+    // Started, it waits to begin the first stage (its card at the top of Dev): nothing began for it yet.
+    assert!(f.ticket("SHOP-2").await.place.waits_to_begin());
     set(&f, "SHOP-1", Status::Working).await;
 
     // Back-pressure: one item waits in billing-api; with the threshold at 1, nothing new starts.

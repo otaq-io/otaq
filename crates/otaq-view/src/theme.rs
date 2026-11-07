@@ -605,7 +605,7 @@ impl Status {
             Self::ChangedSinceReview => "Changed since review",
             Self::AgentWorking => "Working",
             Self::WorkingInBackground => "Working in background",
-            Self::Queued => "Ready for Dev",
+            Self::Queued => "Waiting to start",
             Self::Parked => "Parked · has work",
             Self::Running => "Serving",
             Self::Asked => "Asked",

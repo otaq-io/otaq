@@ -194,13 +194,6 @@
   outline-offset: 1px;
 }
 
-.board-column-hint {
-  flex: none;
-  padding: 0 4px;
-  color: var(--text-muted);
-  font: 400 11px/1.35 var(--font-ui);
-}
-
 .board-column-cards {
   position: relative;
   display: flex;
@@ -437,11 +430,6 @@
   display: inline-flex;
   margin-right: -6px;
   color: var(--text-muted);
-}
-
-/* DPV-03's dialog: how to start it, under what it waits for. */
-.board-blocked-hint {
-  font-size: 12.5px;
 }
 
 .board-toolbar-divider {

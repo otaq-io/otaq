@@ -35,11 +35,9 @@ pub const WARN_AT_LEFT: f64 = 20.0;
 /// The usage warning's colour: amber (`st-paused`), never turquoise (`st-attn` is needs you only, d0077).
 pub const WARNING_TOKEN: &str = "st-paused";
 
-/// The popover's line while no agent runs, naming the waiting column ([`Inputs::waiting`]): "Nothing running. Tickets
-/// in Ready for Dev start when a slot and their parents allow."
-pub fn nothing_running(waiting: &str) -> String {
-    format!("Nothing running. Tickets in {waiting} start when a slot and their parents allow.")
-}
+/// The popover's line while no agent runs: what begins next.
+pub const NOTHING_RUNNING: &str =
+    "Nothing running. Started tickets begin when an agent is free and their parents are merged.";
 
 /// A tool without limit windows now (an API-key login).
 pub const NO_PLAN: &str = "No plan limit · tokens only";
@@ -84,9 +82,6 @@ pub struct Inputs<'a> {
     pub scheduler: Option<&'a SchedulerStatus>,
     pub runs: &'a [RunInfo],
     pub now: i64,
-    /// The waiting column's name across the projects: "Ready for Dev", or "Ready" once a project's flow doesn't start
-    /// at Dev (d0093, Q515).
-    pub waiting: &'a str,
 }
 
 impl Inputs<'_> {
@@ -355,7 +350,7 @@ pub struct Agents {
     pub title: &'static str,
     pub count: String,
     pub rows: Vec<ToolCount>,
-    /// [`nothing_running`] at 0.
+    /// [`NOTHING_RUNNING`] at 0.
     pub empty: Option<String>,
 }
 
@@ -469,7 +464,7 @@ pub fn popover(inputs: &Inputs<'_>, keys: &KeyLabels) -> Popover {
         } else {
             Vec::new()
         },
-        empty: (running == 0).then(|| nothing_running(inputs.waiting)),
+        empty: (running == 0).then(|| NOTHING_RUNNING.to_owned()),
     };
     let tools = inputs
         .tools
@@ -707,7 +702,6 @@ pub mod fixtures {
                 scheduler: None,
                 runs: &self.runs,
                 now: NOW,
-                waiting: otaq_core::flow::model::READY_FOR_DEV,
             }
         }
     }
@@ -1226,12 +1220,8 @@ mod tests {
         assert_eq!(
             p.agents.empty.as_deref(),
             Some(
-                "Nothing running. Tickets in Ready for Dev start when a slot and their parents allow."
+                "Nothing running. Started tickets begin when an agent is free and their parents are merged."
             )
-        );
-        assert_eq!(
-            nothing_running("Ready"),
-            "Nothing running. Tickets in Ready start when a slot and their parents allow."
         );
         assert_eq!(p.usage.today, "Today 0 tokens");
         let cc = &p.usage.tools[0];

@@ -27,7 +27,7 @@ export type Ask = (method: string, params?: unknown) => Promise<unknown>;
 /**
  * Where the editor opens over the board (FED-09): the project, where it opened, and optionally a stage to select
  * (Edit <stage>…) or one to add a new stage after (Add a stage after <stage>, the new one selected with its details
- * open; `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page draw it in place instead.
+ * open; `null`: first, after Backlog). Onboarding's Flow step and the Flow setup page draw it in place instead.
  */
 export interface FlowEditorOpen {
   project: string;

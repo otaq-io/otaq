@@ -36,15 +36,17 @@ board.
 ## How it works
 
 ```
-Backlog ──► Ready for Dev ──► Dev ──────────────► Ready for Review ──► Approved ──► Done
-            (waits for its     agent works,        you read the diff,   local merge
-             dependencies      validator checks    comment, send back   or open a PR
-             and a free slot)  the result          or approve
+Backlog ──► Dev ───────────────────► Ready for Review ──► Approved ──► Done
+  Start     (waits at the top for its   you read the diff,   local merge
+            dependencies and a free     comment, send back   or open a PR
+            agent; then the agent       or approve
+            works and a checker checks)
 ```
 
 1. **Write tickets.** A title and a description in a rich Markdown editor. Acceptance criteria are just text in the
    description. Give a ticket a priority (Urgent, High, Normal, Low) and the tickets it depends on.
-2. **Drag a ticket to Dev** (or Ready for Dev). If its dependencies are merged, Otaq creates a worktree from your base
+2. **Start a ticket** (its Start button, ⌘D or a drag to Dev). It goes into Dev, waiting at the top of the column until
+   its dependencies are merged and an agent is free; nothing is spent until then. Then Otaq creates a worktree from your base
    branch, runs your setup command (for example `pnpm install`), and starts the Dev stage's agent: the one the flow
    names, or the one you picked for this ticket.
 3. **The agent works.** It reads its ticket through the `otaq` command, plans, implements and commits. If it hits a
@@ -209,7 +211,7 @@ project.
 ![The board in the Daylight theme](images/board-light.png)
 
 The board has two views, **Board** and **List**. The Board has a column per stage of the project's flow (by default
-Backlog, Ready for Dev, Dev, Validate, Review and Done), and the List groups the same tickets by stage, status or
+Backlog, Dev, Validate, Review and Done), and the List groups the same tickets by stage, status or
 agent. Above the tickets, the **Needs you** strip lists
 what waits for you. **Pause** stops every agent of a project (or of all projects) at once until you resume. Cards
 show status, priority, what they wait for (`waits for NOTE-8 to merge`), validation rounds, recorded decisions and

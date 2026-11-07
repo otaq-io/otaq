@@ -194,7 +194,7 @@ async fn create(w: &TestService, title: &str) -> Ticket {
     w.create("SHOP", title).await
 }
 
-/// Ready for Dev → Dev: the start sequence runs and the agent works.
+/// waiting to begin → Dev: the start sequence runs and the agent works.
 async fn start(w: &TestService, t: &Ticket) -> SessionInfo {
     let key = t.key.to_string();
     w.board

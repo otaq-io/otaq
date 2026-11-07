@@ -499,7 +499,7 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
     assert!(reached.is_ok(), "{key} never became {want}");
 }
 
-/// Product spec skipped and Dev on Quick developer: the start waits in Ready for Dev like any, then goes straight into
+/// Product spec skipped and Dev on Quick developer: the start waits waiting to begin like any, then goes straight into
 /// Dev, where Quick developer runs; Product spec has a run of result `skipped`; both choices are locked now. The card's
 /// mark reads "Skipped Product spec · this ticket's choice".
 #[tokio::test(flavor = "multi_thread")]

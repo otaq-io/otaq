@@ -77,8 +77,8 @@ pub fn column_name(status: Status) -> &'static str {
     // The default flow's names, by the status's set (an agent check's cards are in Dev).
     match status.set() {
         StatusSet::Backlog => "Backlog",
-        StatusSet::Waiting => "Ready for Dev",
-        StatusSet::AgentStage | StatusSet::AgentCheck => "Dev",
+        // A started ticket waits at the top of Dev until it can begin.
+        StatusSet::Waiting | StatusSet::AgentStage | StatusSet::AgentCheck => "Dev",
         StatusSet::HumanCheck => "Ready for Review",
         StatusSet::Delivery => "Approved",
         StatusSet::Done => "Done",
@@ -304,7 +304,7 @@ mod tests {
         );
         assert_eq!(
             d.text,
-            "The tickets it created stay where they are (SHOP-35 in Ready for Dev, SHOP-36 in Backlog). You can \
+            "The tickets it created stay where they are (SHOP-35 in Dev, SHOP-36 in Backlog). You can \
              resume the conversation from Recently ended."
         );
         assert_eq!(d.confirm, "Stop and end");

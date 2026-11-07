@@ -9,6 +9,6 @@ export type ChainTip = {
  */
 title: string, 
 /**
- * "by SHOP-18 (Review) and SHOP-29 (Dev)", "SHOP-20 (Ready)".
+ * "by SHOP-18 (Review) and SHOP-29 (Dev)", "SHOP-20 (Dev)".
  */
 detail: string, };

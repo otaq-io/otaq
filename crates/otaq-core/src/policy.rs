@@ -108,7 +108,7 @@ pub struct TicketFacts {
     pub created_by: Actor,
     /// In Backlog and never started: a Project agent may edit it (d0068).
     pub backlog: bool,
-    /// Never been to Dev, in Backlog or Ready for Dev ([`crate::board::tickets::is_never_started`]).
+    /// Never been to Dev, in Backlog or waiting to begin ([`crate::board::tickets::is_never_started`]).
     pub never_started: bool,
 }
 
@@ -834,7 +834,7 @@ mod tests {
             ("user, a started ticket", &Caller::User, &started, None),
             ("Noyan, Backlog", &project_agent, &backlog, None),
             (
-                "Noyan, Ready for Dev",
+                "Noyan, waiting to begin",
                 &project_agent,
                 &ready,
                 Some(BACKLOG_ONLY),

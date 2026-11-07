@@ -264,7 +264,7 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
     };
     let (when, last_hour) = resets(at, now, "at ");
     let tail = if last_hour {
-        "tickets in Ready for Dev wait"
+        "started tickets wait"
     } else {
         "no new tickets will start"
     };
@@ -647,7 +647,7 @@ mod tests {
         assert_eq!(
             l.banner.text,
             format!(
-                "Resets in 42 min ({}). 1 agent stopped; tickets in Ready for Dev wait.",
+                "Resets in 42 min ({}). 1 agent stopped; started tickets wait.",
                 clock(at)
             )
         );

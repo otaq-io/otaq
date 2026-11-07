@@ -1404,7 +1404,7 @@ interface EditorOpen {
   select_stage?: string;
   /** Opened on `select_stage`'s Skill field ("use your own Open PR skill" → the Delivery stage's). */
   focus_skill?: boolean;
-  /** A stage to add a new one after on opening; `null`: first, after Ready for Dev. */
+  /** A stage to add a new one after on opening; `null`: first, after Backlog. */
   add_after?: string | null;
   /** Apply (Use this flow) or Cancel (Skip, use the default) was answered: the agent the panel showed, if any. */
   onDone: (agent: string | null) => void;
