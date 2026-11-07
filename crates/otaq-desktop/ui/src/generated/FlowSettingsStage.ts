@@ -2,10 +2,14 @@
 import type { IconName } from "./IconName";
 
 /**
- * One row of the stage table (*Row · The project's Flow section*): the stage and its kind ("Check · agent · 3 rounds ·
- * shown in Dev"), who runs it and on which model, and what a ticket may pick instead.
+ * One stage of the strip: the stage, what it does in plain words ("An agent checks it") and its kind ("Check · agent ·
+ * 3 rounds"), who runs it and on which model, and what a ticket may pick instead.
  */
-export type FlowSettingsStage = { icon: IconName, name: string, kind: string, 
+export type FlowSettingsStage = { icon: IconName, name: string, 
+/**
+ * "An agent does the work", "An agent checks it", "You check it".
+ */
+caption: string, kind: string, 
 /**
  * "Rust developer", "You"; "—" for a stage nobody runs (a Delivery that only merges).
  */

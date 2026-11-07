@@ -59,6 +59,8 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { FilesView } from "../files_view/FilesView";
+import { projectSettingsWanted } from "../project_settings/logic";
+import { ProjectSettings } from "../project_settings/ProjectSettings";
 import { filesViewWanted } from "../files_view/logic";
 import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
@@ -368,7 +370,7 @@ export function Board() {
   );
   // `g b`, `g l` (BRD-01) and ⇧⌘O / `g f` (FIL-11): the view, for this project.
   const showView = useCallback(
-    (kind: "board" | "list" | "files") => {
+    (kind: "board" | "list" | "files" | "settings") => {
       if (project === null) return false;
       if (view?.prefs.view !== kind) changeView({ kind: "view", view: kind });
       return true;
@@ -388,6 +390,16 @@ export function Board() {
     useCallback(() => showView("files"), [showView]),
   );
   const filesShown = view?.prefs.view === "files";
+  // The project's Settings page (the view switch's Settings): the board's place, under the same toolbar.
+  const settingsShown = view?.prefs.view === "settings";
+  const settingsWanted = useStore(projectSettingsWanted);
+  const settingsWantedShown = useRef(0);
+  useEffect(() => {
+    const w = settingsWanted;
+    if (w === null || w.project !== project || w.n === settingsWantedShown.current || !view) return;
+    settingsWantedShown.current = w.n;
+    showView("settings");
+  }, [settingsWanted, project, view, showView]);
   // A terminal's path link asked for this project's Files view (d0117 point 8).
   const wanted = useStore(filesViewWanted);
   const wantedShown = useRef(0);
@@ -800,9 +812,6 @@ export function Board() {
           onNewTicket={() => {
             openOverlay("new_ticket", { full: true });
           }}
-          onSettings={() => {
-            if (project !== null) openOverlay("settings", { project });
-          }}
           onEditFlow={() => {
             if (project !== null) openFlowEditor(changeFlowOpen(project));
           }}
@@ -813,9 +822,15 @@ export function Board() {
       )}
       <NeedsYouStrip />
       {filesShown && project !== null && <FilesView project={project} />}
+      {settingsShown && project !== null && (
+        <ProjectSettings
+          project={project}
+          wanted={settingsWanted?.project === project ? settingsWanted : null}
+        />
+      )}
       <div
         className="board"
-        hidden={filesShown}
+        hidden={filesShown || settingsShown}
         data-view={list === null ? undefined : "list"}
         ref={(el) => {
           boardEl.current = el;
@@ -924,7 +939,7 @@ export function Board() {
           />
         )}
       </div>
-      {more !== null && !filesShown && (
+      {more !== null && !filesShown && !settingsShown && (
         <button
           type="button"
           className="board-more-stages"

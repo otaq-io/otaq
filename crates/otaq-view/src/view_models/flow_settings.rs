@@ -1,8 +1,10 @@
-//! Settings → Flow, a project's section (FLW-07…FLW-11, d0108; *15 → Row · The project's Flow section*, *Row · Use a
-//! preset*): who changed the flow and when, the read-only stage table, the waiting change with Cancel change, and the
-//! actions. **Change flow…** opens the flow editor (FED-09, d0115); every other action but Export puts its flow in the
-//! editor's draft (`flow.propose_from`) and opens the editor on it. The Use a preset… dialog and the Copy from another
-//! project… list are here too, and the toasts of a waiting change applied or cancelled.
+//! The Flow card of the project's Settings page (FLW-07…FLW-11, d0108): the stages as a strip from Backlog to Done
+//! (each with what it does and who works in it), who changed the flow and when with Go back to the previous flow, the
+//! waiting change with Cancel change, and the actions: **Export** writes the flow's file, **Edit flow** opens the
+//! flow editor (FED-09, d0115), and the ⋯ menu's Use a preset…, Copy from another project…, Import flow… and Reset
+//! put their flow in the editor's draft (`flow.propose_from`) and open the editor on it, as Go back does. The Use a
+//! preset… dialog and the Copy from another project… list are here too, and the toasts of a waiting change applied
+//! or cancelled. The delivery is no stage: the project's Repository card shows it.
 
 use otaq_core::agents::{Agent, AgentList};
 use otaq_core::board::snapshot::ProjectInfo;
@@ -24,13 +26,15 @@ use crate::view_models::menu::MenuItem;
 use crate::view_models::project_agent_page::ended_when;
 use crate::view_models::toasts::{NewToast, ToastLevel};
 
-/// One row of the stage table (*Row · The project's Flow section*): the stage and its kind ("Check · agent · 3 rounds ·
-/// shown in Dev"), who runs it and on which model, and what a ticket may pick instead.
+/// One stage of the strip: the stage, what it does in plain words ("An agent checks it") and its kind ("Check · agent ·
+/// 3 rounds"), who runs it and on which model, and what a ticket may pick instead.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowSettingsStage")]
 pub struct StageRow {
     pub icon: IconName,
     pub name: String,
+    /// "An agent does the work", "An agent checks it", "You check it".
+    pub caption: String,
     pub kind: String,
     /// "Rust developer", "You"; "—" for a stage nobody runs (a Delivery that only merges).
     pub agent: String,
@@ -62,11 +66,9 @@ pub struct Button {
 
 /// The ⋯ menu's items, by id ([`Section::menu`]).
 pub const IMPORT: &str = "import";
-pub const EXPORT: &str = "export";
-pub const BACK: &str = "back";
 pub const RESET: &str = "reset";
 
-/// Settings → Flow as drawn (`settings.flow`).
+/// The project's Flow card as drawn (`settings.flow`).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowSettings")]
 pub struct Section {
@@ -76,18 +78,20 @@ pub struct Section {
     pub changed: String,
     pub intro: String,
     pub waiting: Option<WaitingLine>,
-    /// STAGE · AGENT · MODEL · OPTIONS A TICKET CAN PICK.
-    pub columns: Vec<String>,
-    /// "Backlog → … → Done: always first and last".
-    pub ends: String,
+    /// The strip's fixed ends: "Backlog" first, "Done" last.
+    pub first: String,
+    pub last: String,
+    /// The stages between them, in order.
     pub rows: Vec<StageRow>,
-    /// The applied flow doesn't read (never stored so; a guard): shown in place of the table.
+    /// The applied flow doesn't read (never stored so; a guard): shown in place of the strip.
     pub problem: Option<String>,
-    /// Change flow…: opens the flow editor on the project's flow.
+    /// Edit flow: opens the flow editor on the project's flow.
     pub change: Button,
-    pub preset: Button,
-    pub copy: Button,
-    /// The ⋯ button's name, and its menu: Import flow… · Export flow… · Back to the previous flow · Reset to the
+    /// Export: the flow's file, through the save dialog.
+    pub export: Button,
+    /// "Go back to the previous flow"; none on the first flow the project had.
+    pub back: Option<String>,
+    /// The ⋯ button's name, and its menu: Use a preset… · Copy from another project… · Import flow… · Reset to the
     /// default flow.
     pub menu_label: String,
     pub menu: Vec<MenuItem>,
@@ -113,9 +117,14 @@ pub struct Inputs<'a> {
 }
 
 pub const TITLE: &str = "Flow";
-pub const INTRO: &str = "The project\u{2019}s columns and who works in each. Change it in the flow editor; nothing reaches the board until you apply.";
-pub const ENDS: &str = "Backlog \u{2192} \u{2026} \u{2192} Done: always first and last";
-pub const CHANGE_FLOW: &str = "Change flow\u{2026}";
+pub const INTRO: &str =
+    "The stages every ticket goes through, and who works in each. Backlog and Done are fixed.";
+pub const CHANGE_FLOW: &str = "Edit flow";
+pub const EXPORT_FLOW: &str = "Export";
+pub const GO_BACK: &str = "Go back to the previous flow";
+/// The ⋯ menu's ids, with [`IMPORT`], [`RESET`].
+pub const PRESET: &str = "preset";
+pub const COPY: &str = "copy";
 pub const USE_A_PRESET: &str = "Use a preset\u{2026}";
 pub const COPY_FROM_ANOTHER_PROJECT: &str = "Copy from another project\u{2026}";
 pub const NO_OTHER_PROJECT: &str = "No other project to copy from";
@@ -137,37 +146,33 @@ pub fn section(input: &Inputs) -> Section {
         disabled: false,
         hint: None,
     };
-    let no_previous = input.versions < 2;
+    let no_other = input.other_projects == 0;
     Section {
         project: input.project.key.clone(),
         title: TITLE.to_owned(),
         changed: changed(input.current, input.now_ms),
         intro: INTRO.to_owned(),
         waiting: input.waiting.map(waiting_line),
-        columns: ["Stage", "Agent \u{b7} model", "Options a ticket can pick"]
-            .map(str::to_owned)
-            .to_vec(),
-        ends: ENDS.to_owned(),
+        first: "Backlog".to_owned(),
+        last: "Done".to_owned(),
         rows,
         problem,
-        change: button(CHANGE_FLOW, Some(IconName::Workflow)),
-        preset: button(USE_A_PRESET, None),
-        copy: Button {
-            disabled: input.other_projects == 0,
-            hint: (input.other_projects == 0).then(|| NO_OTHER_PROJECT.to_owned()),
-            ..button(COPY_FROM_ANOTHER_PROJECT, None)
-        },
+        change: button(CHANGE_FLOW, Some(IconName::Pencil)),
+        export: button(EXPORT_FLOW, Some(IconName::Upload)),
+        back: (input.versions >= 2).then(|| GO_BACK.to_owned()),
         menu_label: "More flow actions".to_owned(),
         menu: vec![
+            MenuItem::new(PRESET, USE_A_PRESET),
+            MenuItem {
+                disabled: no_other,
+                hint: no_other.then(|| NO_OTHER_PROJECT.to_owned()),
+                ..MenuItem::new(COPY, COPY_FROM_ANOTHER_PROJECT)
+            },
             MenuItem::new(IMPORT, "Import flow\u{2026}").icon(IconName::FolderInput),
-            MenuItem::new(EXPORT, "Export flow\u{2026}").icon(IconName::Upload),
             MenuItem {
                 separated: true,
-                disabled: no_previous,
-                hint: no_previous.then(|| NO_PREVIOUS_FLOW.to_owned()),
-                ..MenuItem::new(BACK, "Back to the previous flow").icon(IconName::History)
+                ..MenuItem::new(RESET, "Reset to the default flow").icon(IconName::RotateCcw)
             },
-            MenuItem::new(RESET, "Reset to the default flow").icon(IconName::RotateCcw),
         ],
         export_title: format!("Export {}\u{2019}s flow", input.project.name),
         export_file: export_file(&input.project.name),
@@ -226,14 +231,13 @@ pub fn waiting_line(waiting: &WaitingChange) -> WaitingLine {
     }
 }
 
-/// The table's rows, one per stage in order, then the flow's delivery (a setting of the flow, not a stage).
+/// The strip's stages, in order. The delivery is a setting of the flow, not a stage: the Repository card shows it.
 pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<StageRow> {
     let flow = &file.flow;
     let model_of = |name: &str| {
         find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref()))
     };
-    let mut rows: Vec<StageRow> = flow
-        .stages
+    flow.stages
         .iter()
         .map(|stage| {
             let (agent, model) = match (stage.kind, stage.named_agents().next()) {
@@ -244,29 +248,24 @@ pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<Stag
             StageRow {
                 icon: stage_icon(stage),
                 name: stage.name.clone(),
+                caption: caption(stage).to_owned(),
                 kind: kind_line(stage),
                 agent,
                 model,
                 options: options(stage),
             }
         })
-        .collect();
-    let delivery = &flow.delivery;
-    // A Local merge runs no agent.
-    let opener = delivery.agent.as_deref().filter(|_| delivery.can_open_pr());
-    rows.push(StageRow {
-        icon: delivery_icon(&flow.delivery),
-        name: DELIVERY.to_owned(),
-        kind: delivery.line(),
-        agent: opener.map_or_else(|| NONE.to_owned(), str::to_owned),
-        model: opener.and_then(model_of),
-        options: NONE.to_owned(),
-    });
-    rows
+        .collect()
 }
 
-/// The delivery row's name in the table.
-pub const DELIVERY: &str = "Delivery";
+/// What a stage does, in plain words, under its name in the strip.
+pub fn caption(stage: &Stage) -> &'static str {
+    match stage.kind {
+        StageKind::Agent => "An agent does the work",
+        StageKind::Check { by: CheckBy::Agent } => "An agent checks it",
+        StageKind::Check { by: CheckBy::You } => "You check it",
+    }
+}
 
 /// The delivery's icon: a PR, or a merge.
 pub fn delivery_icon(delivery: &Delivery) -> IconName {
@@ -576,13 +575,17 @@ mod tests {
         });
         assert_eq!(s.title, "Flow");
         assert_eq!(s.changed, "Changed by Noyan \u{b7} yesterday");
+        assert_eq!((s.first.as_str(), s.last.as_str()), ("Backlog", "Done"));
+        let captions: Vec<&str> = s.rows.iter().map(|r| r.caption.as_str()).collect();
         assert_eq!(
-            s.columns,
-            ["Stage", "Agent \u{b7} model", "Options a ticket can pick"]
-        );
-        assert_eq!(
-            s.ends,
-            "Backlog \u{2192} \u{2026} \u{2192} Done: always first and last"
+            captions,
+            [
+                "An agent does the work",
+                "An agent does the work",
+                "An agent checks it",
+                "An agent checks it",
+                "You check it"
+            ]
         );
         let table: Vec<(&str, &str, &str, Option<&str>, &str)> = s
             .rows
@@ -629,13 +632,6 @@ mod tests {
                     "\u{2014}"
                 ),
                 ("QA", "Check \u{b7} you", "You", None, "skip"),
-                (
-                    "Delivery",
-                    "PR \u{b7} automatic",
-                    "Shipper",
-                    Some("Claude Code \u{b7} haiku"),
-                    "\u{2014}"
-                ),
             ]
         );
         let icons: Vec<IconName> = s.rows.iter().map(|r| r.icon).collect();
@@ -647,14 +643,12 @@ mod tests {
                 IconName::ShieldCheck,
                 IconName::ShieldCheck,
                 IconName::UserCheck,
-                IconName::GitPullRequest
             ]
         );
         assert_eq!(s.waiting, None);
-        assert_eq!(s.change.label, "Change flow\u{2026}");
-        assert_eq!(s.change.icon, Some(IconName::Workflow));
-        assert_eq!(s.preset.label, "Use a preset\u{2026}");
-        assert!(!s.copy.disabled);
+        assert_eq!(s.change.label, "Edit flow");
+        assert_eq!(s.export.label, "Export");
+        assert_eq!(s.back.as_deref(), Some(GO_BACK));
         let menu: Vec<(&str, &str, bool)> = s
             .menu
             .iter()
@@ -663,9 +657,9 @@ mod tests {
         assert_eq!(
             menu,
             [
+                ("preset", "Use a preset\u{2026}", false),
+                ("copy", "Copy from another project\u{2026}", false),
                 ("import", "Import flow\u{2026}", false),
-                ("export", "Export flow\u{2026}", false),
-                ("back", "Back to the previous flow", false),
                 ("reset", "Reset to the default flow", false),
             ]
         );
@@ -711,13 +705,13 @@ mod tests {
                 "Agent",
                 "Check \u{b7} agent \u{b7} 3 rounds",
                 "Check \u{b7} you",
-                "Local merge or PR \u{b7} click"
             ]
         );
         assert_eq!(s.rows[0].model, None, "an agent the list doesn't have");
-        assert!(s.copy.disabled);
-        assert_eq!(s.copy.hint.as_deref(), Some(NO_OTHER_PROJECT));
-        assert!(s.menu.iter().find(|m| m.id == BACK).unwrap().disabled);
+        let copy = s.menu.iter().find(|m| m.id == COPY).unwrap();
+        assert!(copy.disabled);
+        assert_eq!(copy.hint.as_deref(), Some(NO_OTHER_PROJECT));
+        assert_eq!(s.back, None, "the first flow the project had");
     }
 
     /// The waiting change's line and Cancel change (*A change waiting for a quiet board*).

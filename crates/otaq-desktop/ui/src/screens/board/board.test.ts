@@ -839,7 +839,6 @@ describe("the toolbar (BRD-01)", () => {
         onView: () => undefined,
         onAllTickets: () => undefined,
         onNewTicket: () => undefined,
-        onSettings: () => undefined,
         onEditFlow: () => undefined,
       }),
     );
@@ -876,7 +875,6 @@ describe("the toolbar (BRD-01)", () => {
         onView: () => undefined,
         onAllTickets: () => undefined,
         onNewTicket: () => undefined,
-        onSettings: () => undefined,
         onEditFlow: () => undefined,
       }),
     );

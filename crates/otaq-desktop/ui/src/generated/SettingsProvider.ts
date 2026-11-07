@@ -3,14 +3,20 @@ import type { IconName } from "./IconName";
 import type { ProviderLook } from "./ProviderLook";
 
 /**
- * The PR provider row (`settings.provider`): read-only, detected from origin (REV-11).
+ * The Repository card's PR provider line (`settings.provider`): "GitHub · acme/shop-web", with how its tool
+ * stands on this computer and "Set up…" when it isn't ready here. Detected from the remote: a fact of the
+ * repository, not a setting and not the flow's.
  */
-export type SettingsProvider = { description: string, status: string, icon: IconName, look: ProviderLook, 
+export type SettingsProvider = { 
 /**
- * "use your own Open PR skill": opens the flow editor on the Delivery stage's Skill field ([`Self::stage`]).
+ * "GitHub · acme/shop-web"; "None detected" when no provider matches the remote.
  */
-link: string | null, 
+line: string, 
 /**
- * The Delivery stage's id, which the link selects in the flow editor; `None` with no link.
+ * "gh: signed in", "gh isn't installed", "origin is git.acme.internal/web/handbook".
  */
-stage: string | null, };
+status: string, icon: IconName, look: ProviderLook, 
+/**
+ * "Set up…" when the provider's tool isn't ready on this computer: it opens app Settings where it is set up.
+ */
+set_up: string | null, };

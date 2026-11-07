@@ -1,6 +1,6 @@
-// Settings sections (*15 · Settings*), in nav order: the global page's and each project page's. The Settings screen
-// (T-0234) draws the sections the Rust view sends (`settings_page.rs`) that are registered here; each section's
-// screen registers its own. Labels, rows and icons come from the Rust settings view; the ids are its
+// Settings sections (*15 · Settings*), in nav order: the app's Settings page's, and the cards of a project's Settings
+// page. The Settings screen (T-0234) and the project's page draw the sections the Rust view sends (`settings_page.rs`,
+// `project_settings.rs`) that are registered here; each section's screen registers its own. Labels, rows and icons come from the Rust settings view; the ids are its
 // `GlobalSectionId` / `ProjectSectionId`, and the lists below are checked against them both ways.
 import type { ComponentType } from "react";
 
@@ -34,19 +34,16 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
 ] as const);
 
 export const PROJECT_SECTIONS = every<ProjectSectionId>()([
-  /** Name, key, repository, base branch. */
-  "general",
-  /** The project's flow: the stage table and its actions (T-0422, FLW-07). */
+  /** The project's flow: the strip of its stages and its actions (FLW-07). */
   "flow",
+  /** Name, base branch, the flow's delivery, the PR provider, the merge check. */
+  "repository",
+  /** The apps: run commands and Open URLs. */
+  "run",
+  /** Setup command, the variables you set, files to copy, ticket resources, finished tickets, warm build. */
+  "workspace",
   /** The notes every agent in the project gets (AGM-02). */
   "project_notes",
-  /** "Let finished tickets answer questions". */
-  "answers",
-  /** Setup and run commands, Open URL, env files. */
-  "commands",
-  /** Create, Remove and Template refresh commands, schema paths (M19-d). */
-  "ticket_resources",
-  "pr_provider",
   "remove_project",
 ] as const);
 

@@ -1119,7 +1119,8 @@
       "variants": {
         "board": {},
         "files": {},
-        "list": {}
+        "list": {},
+        "settings": {}
       }
     },
     "Body": {

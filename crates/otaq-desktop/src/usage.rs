@@ -259,7 +259,7 @@ pub fn feature(method: &str, params: &Value) -> Option<Key> {
     let prop = match method {
         "board.drop" => word(params, "column").map(|v| ("column", v)),
         "sheet.action" => word(params, "action").map(|v| ("action", v)),
-        "settings.edit" => word(params, "field").map(|v| ("field", v)),
+        "settings.edit" | "project_settings.edit" => word(params, "field").map(|v| ("field", v)),
         "theme.pick" => word(params, "key").map(|v| ("theme", v)),
         _ => None,
     };
@@ -345,7 +345,8 @@ const FEATURES: &[&str] = &[
     // Projects, settings and the look.
     "onboarding.add",
     "settings.edit",
-    "settings.remove",
+    "project_settings.edit",
+    "project_settings.remove",
     "theme.pick",
 ];
 

@@ -357,12 +357,17 @@ delete confirmation: `openOverlay("delete_ticket", { ticket })`.
 ## Settings
 
 Settings (⌘,, the `settings` overlay, T-0234) lives in `ui/src/screens/settings/`. `settings.view` sends the nav and
-the open page (global or one project) as sections of rows, each row worded with its control
-(`otaq_view::view_models::settings_page`); `settings.edit` takes one `field` and its value, applies it with that
-module's rules and answers with the fresh view. The screen registers one component per section id it draws
-(`ui/src/app/registry/settings.ts`); a later section is added in `settings_page.rs` and registered under its id the same
-way (T-0240: `validation`, `project_agent_instructions`). The slow parts load on their own: `settings.tools`,
-`settings.provider`, `settings.branches`.
+the open topic's page as sections of rows, each row worded with its control (`otaq_view::view_models::settings_page`);
+`settings.edit` takes one `field` and its value, applies it with that module's rules and answers with the fresh view.
+The screen registers one component per section id it draws (`ui/src/app/registry/settings.ts`); a later section is
+added in `settings_page.rs` and registered under its id the same way. The slow parts load on their own:
+`settings.tools`, `settings.branches`.
+
+A project's settings are its own page, the view switch's Settings in the project's main area
+(`ui/src/screens/project_settings/`, `otaq_view::view_models::project_settings`): `project_settings.view` sends the
+section list and one card per section, `project_settings.edit` takes one edit and answers with the fresh view (Deliver
+as writes a new flow version), and `project_settings.provider` loads the PR provider line on its own. Elsewhere,
+`openProjectSettings(project, section)` opens it.
 
 ## Shared types
 

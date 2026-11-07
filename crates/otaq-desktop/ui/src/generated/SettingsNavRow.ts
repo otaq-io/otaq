@@ -2,8 +2,4 @@
 import type { IconName } from "./IconName";
 import type { SettingsTarget } from "./SettingsTarget";
 
-export type SettingsNavRow = { label: string, icon: IconName, target: SettingsTarget, 
-/**
- * A flagged value on that project's page: the red alert icon after the label.
- */
-alert: boolean, };
+export type SettingsNavRow = { label: string, icon: IconName, target: SettingsTarget, };
