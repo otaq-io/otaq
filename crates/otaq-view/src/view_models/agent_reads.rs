@@ -2,7 +2,7 @@
 //! `s15-58` / `s15-59` "What this agent reads" and "Another project: no notes, two stages"): one agent's full text for
 //! one project, read-only. The **Project** picker (the project on screen, else the first; "Notes differ per project;
 //! the agent is shared."), then the parts: **Its instructions** (Edit in Agents →), **Notes for <project>** (Edit in
-//! <project>'s settings →; "No notes for otaq"), one **Skill** part per stage it runs and one for its role, each with
+//! <project>'s settings →; "No notes for otaq"), one **Skill** part per stage it runs and one as Noyan, each with
 //! its SKILL.md in full (Open skill folder →), the **Also has:** line of its other skills (the commit skill and the
 //! Project agent's `flow` marked, each opening its folder), and the last line on what isn't shown.
 //!
@@ -10,7 +10,6 @@
 //! launches use; this only words it.
 
 use otaq_core::agent_reads::{AgentReads, RunsAs, SkillMark};
-use otaq_core::agents::Role;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -118,7 +117,7 @@ pub fn opening_project(projects: &[Project], wanted: Option<&str>) -> Option<Str
 pub fn skill_heading(skill: &str, runs: &RunsAs) -> String {
     let place = match runs {
         RunsAs::Stage(stage) => stage.clone(),
-        RunsAs::Role(Role::ProjectAgent) => "as Noyan".to_owned(),
+        RunsAs::Noyan => "as Noyan".to_owned(),
     };
     format!("Skill: {skill} \u{b7} {place}")
 }
@@ -451,13 +450,13 @@ mod tests {
         );
     }
 
-    /// AGR-03: the Project agent's part is named by its role, `flow` marked for flow changes.
+    /// AGR-03: the part of the agent Noyan uses is named "as Noyan", `flow` marked for flow changes.
     #[test]
-    fn a_role_agent() {
+    fn the_agent_noyan_uses() {
         let mut r = reads(
             ("SHOP", "shop-web"),
             "",
-            vec![part("noyan", RunsAs::Role(Role::ProjectAgent), "# noyan")],
+            vec![part("noyan", RunsAs::Noyan, "# noyan")],
             vec![other("flow", Some(SkillMark::FlowChanges))],
         );
         r.agent = "Noyan".into();
@@ -478,7 +477,7 @@ mod tests {
         let also = v.also.unwrap();
         assert_eq!(also.skills[0].name, "flow");
         assert_eq!(also.skills[0].note.as_deref(), Some("(for flow changes)"));
-        // An agent with a role and a stage: a part for each.
+        // The agent Noyan uses, also in a stage: a part for each.
         r.skills.insert(
             0,
             part(
@@ -497,7 +496,7 @@ mod tests {
         );
     }
 
-    /// AGR-02: an agent in no stage of the project and with no role: the line, and no skill part.
+    /// AGR-02: an agent in no stage of the project and not the agent Noyan uses: the line, and no skill part.
     #[test]
     fn an_agent_in_no_stage() {
         let r = reads(

@@ -40,7 +40,7 @@ pub struct RunCommandModel {
 
 impl RunCommandModel {
     /// The dialog for a project, opened from a ticket's Run (or from project settings without one). `agent` is the
-    /// named agent the project's Project agent role resolves to.
+    /// agent Noyan uses.
     pub fn new(
         project: &str,
         project_name: &str,

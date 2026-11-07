@@ -153,7 +153,6 @@ async fn a_rename_follows_into_every_stored_flow() {
         instructions: validator.instructions.clone(),
         model: validator.model.clone(),
         effort: validator.effort.clone(),
-        role: validator.role,
     };
     store
         .update_agent(&validator.id, &fields, false)

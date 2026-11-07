@@ -7,10 +7,6 @@ import type { MenuItem } from "./MenuItem";
  */
 export type AgentListRow = { id: string, name: string, 
 /**
- * "Noyan": the role tag.
- */
-role: string | null, 
-/**
  * "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
  */
 came_from: string, 

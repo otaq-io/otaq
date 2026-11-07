@@ -2,7 +2,7 @@
 //! itself, when the user asks", d0086, d0068).
 //!
 //! - **Asking** ([`ProjectAgents::ask_for_flow`]): the user's **Ask <Tool>** for a project in Flow setup starts a
-//!   **flow agent**: a Project agent with the Project agent role's agent (its instructions),
+//!   **flow agent**: a Project agent with the agent Noyan uses (its instructions),
 //!   launched on the asked tool with **no model option** (the tool's own default, "tool default", d0086), on the
 //!   `flow` skill with [`first_flow_message`]. It is named [`flow_agent_name`] ("Flow setup · OpenCode") from the
 //!   start. Only a connected tool is asked, never at its plan limit; nothing starts on its own. One flow agent per
@@ -26,7 +26,7 @@ use tokio::sync::watch;
 use super::{AgentState, FLOW_COMMAND, ProjectAgent, ProjectAgents, first_skill};
 use crate::agent_tools::Tool;
 use crate::agent_tools::connected::{AgentToolState, ToolStatus};
-use crate::agents::{Agent, ModelCatalog, Role, RunsOn, resolve};
+use crate::agents::{Agent, ModelCatalog, RunsOn, resolve};
 use crate::board::{BoardError, Refusal};
 use crate::flow::apply::FlowEvent;
 use crate::flow::proposal::{Proposal, ProposedBy};
@@ -79,8 +79,8 @@ pub fn is_flow_agent_request(first_request: &str) -> bool {
         && asks.is_some_and(|a| a.starts_with("This is ") && a.contains(FIRST_FLOW_MARK))
 }
 
-/// What a flow agent runs on (ASK-02, d0086): the asked tool with no model option and no effort (the role agent's
-/// effort belongs to its own model), as the role's agent.
+/// What a flow agent runs on (ASK-02, d0086): the asked tool with no model option and no effort (the agent's
+/// effort belongs to its own model), as the agent Noyan uses.
 pub fn flow_runs_on(agent: &Agent, tool: Tool) -> RunsOn {
     RunsOn {
         tool: Some(tool),
@@ -186,7 +186,7 @@ impl ProjectAgents {
             }
         }
         self.refuse_during_limit(Some(tool)).await?;
-        let agent = resolve::role_agent(self.inner.board.store(), Role::ProjectAgent).await?;
+        let agent = resolve::noyan_agent(self.inner.board.store()).await?;
         let started = self
             .start(
                 &project,
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn a_flow_agent_runs_on_the_asked_tool_with_no_model_and_no_effort() {
-        // The role's agent on Claude Code's opus with an effort: neither goes to the asked tool.
+        // Noyan's agent on Claude Code's opus with an effort: neither goes to the asked tool.
         let agent = Agent {
             id: "pa".into(),
             name: "Noyan".into(),
@@ -517,7 +517,6 @@ mod tests {
                 model: Some("opus".into()),
             },
             effort: Some("high".into()),
-            role: Some(Role::ProjectAgent),
             came_from: crate::agents::CameFrom::DefaultPreset,
             mark: None,
             created_at: 0,

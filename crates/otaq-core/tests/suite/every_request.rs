@@ -75,8 +75,7 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agents.add" || method == "agents.edit" {
             params["model"] = json!({"kind": "default"});
         }
-        if method == "agents.move_role" {
-            params["role"] = json!("noyan");
+        if method == "agents.noyan" {
             params["agent"] = json!("nope");
         }
         if method == "agents.default_model" {
@@ -382,7 +381,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::AgentsMoveRole(_)
+        | Request::AgentsNoyan(_)
         | Request::AgentsDefaultModel(_)
         | Request::AgentsReads(_)
         | Request::AgentsPause(_)

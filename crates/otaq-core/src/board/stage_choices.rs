@@ -544,8 +544,8 @@ impl Board {
     }
 
     /// What `stage` offers to `ticket` (a key) of `project`: its own agent, and every other agent whose tool has the
-    /// stage's skill (an agent whose tool isn't known yet is offered too). The agent holding the Project agent role
-    /// answers as Noyan and isn't offered for a ticket's stage.
+    /// stage's skill (an agent whose tool isn't known yet is offered too). An agent has no role: the agent Noyan uses
+    /// is offered like any other.
     async fn options_of(
         &self,
         project: &str,
@@ -564,7 +564,7 @@ impl Board {
             agents = roster
                 .agents
                 .iter()
-                .filter(|a| usual.agent_id.as_deref() != Some(a.id.as_str()) && a.role.is_none())
+                .filter(|a| usual.agent_id.as_deref() != Some(a.id.as_str()))
                 .filter(|a| roster.tool_of(a).is_none_or(|t| tools.contains(&t)))
                 .map(|a| roster.option(&a.name, Some(a)))
                 .collect();

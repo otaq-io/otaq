@@ -192,7 +192,7 @@ pub enum Request {
     #[serde(rename = "onboarding.sources")]
     OnboardingSources(ProjectParams),
     /// **Ask <Tool>** (ASK-02, d0108): `{"project": "SHOP", "tool": "opencode"}` starts the tool's flow agent for a
-    /// project in Flow setup (the Project agent role's agent on the tool's default model, the `flow` skill), or
+    /// project in Flow setup (the agent Noyan uses, on the tool's default model, the `flow` skill), or
     /// returns it while it runs. Refused for a tool that isn't connected, at its plan limit, and for a project not
     /// in Flow setup. Answered with [`Reply::ProjectAgent`]; attach to its `session`.
     #[serde(rename = "onboarding.ask")]
@@ -1030,24 +1030,24 @@ pub enum Request {
     /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
     #[serde(rename = "agents.duplicate")]
     AgentsDuplicate(IdParams),
-    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Noyan has
-    /// the Noyan role. Give the role to another agent first.") and while a stage names it ("Spec writer is used in
+    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for the agent Noyan uses ("Noyan
+    /// uses Strong. Pick another agent for Noyan first") and while a stage names it ("Spec writer is used in
     /// shop-web · Product spec. Change that stage first.").
     #[serde(rename = "agents.delete")]
     AgentsDelete(IdParams),
     /// `{"id": "0199…"}`: what uses an agent, before Delete asks. Answered with [`Reply::AgentInUse`].
     #[serde(rename = "agents.in_use")]
     AgentsInUse(IdParams),
-    /// `{"role": "noyan", "agent": "0199…"}`: gives the role to another agent, in one step. Answered with
-    /// [`Reply::Agent`] (the new holder).
-    #[serde(rename = "agents.move_role")]
-    AgentsMoveRole(MoveRoleParams),
+    /// `{"agent": "0199…"}`: the agent Noyan uses (an app setting); the next conversation starts on it. Answered
+    /// with [`Reply::Agents`].
+    #[serde(rename = "agents.noyan")]
+    AgentsNoyan(NoyanAgentParams),
     /// `{"model": {"tool": "claude", "model": "sonnet"}}`: Default model for new agents (AGM-03). Answered with
     /// [`Reply::Agents`].
     #[serde(rename = "agents.default_model")]
     AgentsDefaultModel(DefaultModelParams),
     /// `{"agent": "0199…", "project": "SHOP"}`: "What this agent reads" (AGR-01…AGR-03), read-only: its
-    /// instructions, the project's notes, a skill part per stage it runs and one for its role, its other skills.
+    /// instructions, the project's notes, a skill part per stage it runs and one for Noyan, its other skills.
     /// Answered with [`Reply::AgentReads`].
     #[serde(rename = "agents.reads")]
     AgentsReads(crate::agent_reads::AgentReadsParams),
@@ -1145,10 +1145,9 @@ pub struct SetHiddenParams {
     pub hidden: bool,
 }
 
-/// `agents.move_role`: the role and the agent that takes it.
+/// `agents.noyan`: the agent Noyan uses.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MoveRoleParams {
-    pub role: crate::agents::Role,
+pub struct NoyanAgentParams {
     pub agent: String,
 }
 
@@ -1241,8 +1240,7 @@ pub struct ProjectAgentSendParams {
 pub struct ProjectAgentOpenParams {
     pub project: String,
     pub message: String,
-    /// The named agent to start on instead of the project's Project agent default: the agent panel's "New agent on
-    /// Sonnet" when the default's tool can't run (M23, CHANGES-v §4).
+    /// The agent the user picked for this conversation when starting it, instead of the agent Noyan uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
 }
@@ -2264,7 +2262,7 @@ impl Request {
             Self::AgentsDuplicate(_) => "agents.duplicate",
             Self::AgentsDelete(_) => "agents.delete",
             Self::AgentsInUse(_) => "agents.in_use",
-            Self::AgentsMoveRole(_) => "agents.move_role",
+            Self::AgentsNoyan(_) => "agents.noyan",
             Self::AgentsDefaultModel(_) => "agents.default_model",
             Self::AgentsReads(_) => "agents.reads",
             Self::AgentsPause(_) => "agents.pause",
@@ -2649,8 +2647,8 @@ pub enum Event {
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
-    /// The named agents or the role defaults (app-wide or a project's) changed (AGT-01…AGT-03): refetch
-    /// `agents.list` (and the project's settings).
+    /// The named agents, the default model or the agent Noyan uses changed (AGT-01…AGT-03): refetch `agents.list`
+    /// (and the project's settings).
     AgentsChanged,
     /// The folder trust notices changed (the one-time note, the projects whose trust couldn't be recorded;
     /// PRJ-08): refetch `onboarding.state`.

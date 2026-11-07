@@ -462,7 +462,7 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
 /// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage a ticket may choose for, each with its
 /// own agent first, then every other agent whose tool has the stage's skill (each with its model and its
 /// instructions' first line), `skip` on a skippable stage, and how to pass on the user's choice with `--by-user`
-/// (T1). Noyan's own agent isn't offered for a ticket's stage, and the Delivery isn't listed.
+/// (T1). An agent has no role, so the agent Noyan uses is offered like any other; the Delivery isn't listed.
 #[tokio::test(flavor = "multi_thread")]
 async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
     let w = with_agents().await;
@@ -478,9 +478,10 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
     };
     for part in [
         "\n## Stage choices\n\nA new ticket runs every stage with the stage's own agent. Pass on only the choices \
-         the user names, with --by-user: `otaq create \"Title\" --stage \"Product spec=Developer\" --by-user \
+         the user names, with --by-user: `otaq create \"Title\" --stage \"Product spec=Noyan\" --by-user \
          --stdin`.\n\n- Product spec\n  - Spec writer (the stage's own) · default: Ask one question at a time.\n"
             .to_owned(),
+        "  - Noyan · default\n".to_owned(),
         format!(
             "\n- Dev\n  - Rust developer (the stage's own) · {default}: Follow our error-handling rules: no unwrap \
              in library code.\n"
@@ -493,7 +494,6 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
         assert!(project.contains(&part), "missing {part:?} in\n{project}");
     }
     let choices = &project[project.find("## Stage choices").unwrap()..];
-    assert!(!choices.contains("Noyan ·"), "{choices}");
     assert!(!choices.contains("- Done\n"), "{choices}");
     w.stop().await;
 }

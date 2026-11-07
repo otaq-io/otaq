@@ -3,7 +3,6 @@
 import { openOverlay } from "../../app/overlays";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 import { request } from "../../tauri";
-import { startNewAgentOn } from "../agent_panel/logic";
 import { showDrawerTab } from "../terminals";
 import { runToolProblemAction, type ToolProblemPlace, type ToolProblemRunner } from "./toolProblems";
 
@@ -13,9 +12,6 @@ export const APP_RUNNER: ToolProblemRunner = {
     openOverlay("settings", params);
   },
   showDrawerTab,
-  newAgentOn: (project, agent) => {
-    startNewAgentOn(project, agent);
-  },
   changeAgent: (ticket) => {
     openOverlay("change_agent", { ticket });
   },

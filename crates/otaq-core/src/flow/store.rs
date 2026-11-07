@@ -396,8 +396,7 @@ impl Board {
     }
 
     /// Tests only: puts the project `key` on `file`'s flow (the test flow, `tests/flows/every-kind.yaml`) as a new
-    /// version applied by the user, and creates the file's agents that aren't there yet ("Added by <key>'s flow"; a
-    /// role another agent holds stays with it).
+    /// version applied by the user, and creates the file's agents that aren't there yet ("Added by <key>'s flow").
     #[doc(hidden)]
     pub async fn use_flow_for_tests(&self, key: &str, file: &FlowFile) {
         let store = self.store();
@@ -410,12 +409,7 @@ impl Board {
             {
                 continue;
             }
-            let mut new = crate::agents::shipped::new_agent(agent);
-            if let Some(role) = new.role
-                && store.role_agent(role).await.expect("agents read").is_some()
-            {
-                new.role = None;
-            }
+            let new = crate::agents::shipped::new_agent(agent);
             store
                 .insert_agent(
                     &new,

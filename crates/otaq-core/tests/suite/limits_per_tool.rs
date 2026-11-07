@@ -216,7 +216,6 @@ async fn world() -> World {
     }
     file.agents = vec![FlowAgent {
         name: "Codex developer".into(),
-        role: None,
         instructions: String::new(),
         model: "codex".into(),
         why: None,
@@ -654,7 +653,7 @@ async fn another_tools_limit_doesnt_hold_a_project_agent() {
         )
         .await
         .unwrap();
-    // The Project agent role's agent on Codex: it opens.
+    // The agent Noyan uses on Codex: it opens.
     world
         .set_model(
             "Noyan",

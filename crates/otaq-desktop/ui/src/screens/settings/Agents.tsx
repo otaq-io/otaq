@@ -1,21 +1,14 @@
 // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04, AGT-05's marks; d0108, d0078, d0086, d0092; *15 → Agents
-// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents and the list (NAME · MODEL · USED IN, each row's ⋯
-// Duplicate / Delete…); and one agent's page in the same place (← name, its Model with the tool's effort, its Role, its
-// Instructions in the Markdown editor, Used in). An agent has no skill list (T7). Everything comes
-// from the views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is
+// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents,
+// "Noyan uses <agent>" (the one setting for Noyan's agent) and the list (NAME · MODEL · USED IN, each row's ⋯
+// Duplicate / Delete…); and one agent's page in the same place (← name, its Model with the tool's effort, its
+// Instructions in the Markdown editor, Used in). An agent has no role: each stage names its agent. An agent has no
+// skill list (T7). Everything comes from the views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is
 // open, the open menu and dialog, and the text being typed until it is saved.
 import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import {
-  AnchoredMenu,
-  Button,
-  ConfirmDialog,
-  IconButton,
-  Segmented,
-  Select,
-  TextInput,
-} from "../../components";
+import { AnchoredMenu, Button, ConfirmDialog, IconButton, Select, TextInput } from "../../components";
 import type { AgentAddOutcome } from "../../generated/AgentAddOutcome";
 import type { AgentChange } from "../../generated/AgentChange";
 import type { AgentDeleteDialog } from "../../generated/AgentDeleteDialog";
@@ -136,6 +129,8 @@ export interface AgentsActions {
   onOpen: (params: AgentPageParams) => void;
   onMenu: (id: string, action: string) => void;
   onDefaultModel: (pick: ModelPick) => void;
+  /** "Noyan uses <agent>": the agent's id. */
+  onNoyanAgent: (agent: string) => void;
 }
 
 function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
@@ -148,12 +143,6 @@ function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
         <button type="button" className="settings-agents-open" onClick={open}>
           <span className="settings-agents-title">
             <span>{row.name}</span>
-            {row.role !== null && (
-              <span className="settings-agents-role">
-                <Icon name="circle-check" size={11} />
-                {row.role}
-              </span>
-            )}
           </span>
           <span className="settings-agents-came">{row.came_from}</span>
         </button>
@@ -190,7 +179,7 @@ function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
   );
 }
 
-/** The Agents page as the view says (`s15-58`): default model, the list. */
+/** The Agents page as the view says (`s15-58`): default model, the agent Noyan uses, the list. */
 /** Rows the skeleton draws for the agents list. */
 const SKELETON_ROWS = 4;
 
@@ -200,7 +189,7 @@ export function AgentsSkeleton() {
     <section className="settings-section settings-agents settings-agents-skeleton" aria-busy="true">
       <span className="settings-skeleton-bar settings-skeleton-intro" />
       <div className="settings-agents-settings">
-        {[0].map((i) => (
+        {[0, 1].map((i) => (
           <div key={i} className="settings-agents-setting">
             <span className="settings-row-text">
               <span className="settings-skeleton-bar settings-skeleton-label" />
@@ -247,6 +236,22 @@ export function AgentsSectionBody({
             />
           </span>
         </div>
+        <div className="settings-agents-setting">
+          <span className="settings-row-text">
+            <span className="settings-row-label">{section.noyan.label}</span>
+            <span className="settings-row-description">{section.noyan.description}</span>
+          </span>
+          <span className="settings-agents-setting-control">
+            <Select
+              label={section.noyan.label}
+              value={section.noyan.value}
+              items={optionItems(section.noyan.options)}
+              onChange={(id) => {
+                if (!section.noyan.options.some((o) => o.id === id && o.selected)) actions.onNoyanAgent(id);
+              }}
+            />
+          </span>
+        </div>
       </div>
       <div className="settings-agents-table" role="table" aria-label={section.title}>
         <div className="settings-agents-row settings-agents-head" role="row">
@@ -267,13 +272,12 @@ export function AgentsSectionBody({
 /** What one agent's page asks for. */
 export interface PageActions {
   onChange: (change: AgentChange) => void;
-  onRole: (role: string) => void;
   onAdd: (name: string, instructions: string) => void;
   onCancel: () => void;
   onRetry: (tool: string) => void;
 }
 
-/** One agent's page (`s15-58` "One agent", "Giving a role to another agent"). Name and instructions are typed here and
+/** One agent's page (`s15-58` "One agent"). Name and instructions are typed here and
  * saved when the name field is left, and a moment after the instructions stop changing; everything else is saved at
  * once (a draft keeps them until Add agent). */
 export function AgentPageBody({ page, actions }: { page: AgentPage; actions: PageActions }) {
@@ -294,13 +298,6 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
     [],
   );
   const model = page.model;
-  const role = page.role;
-  const roleIndex = role
-    ? Math.max(
-        0,
-        role.options.findIndex((o) => o.selected),
-      )
-    : 0;
   return (
     <section className="settings-section settings-agent-page" data-section="agent" aria-label={page.title}>
       {page.mark && (
@@ -369,29 +366,6 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
         model.picker.value.no_longer_listed !== null && (
           <span className="settings-agent-hint">{model.picker.hint}</span>
         )
-      )}
-
-      {role && (
-        <>
-          <span className="settings-agent-label">{role.label}</span>
-          <Segmented
-            label={role.label}
-            options={role.options.map((o) => o.label)}
-            selected={roleIndex}
-            onSelect={(i) => {
-              const picked = role.options[i];
-              if (picked && !picked.selected) actions.onRole(picked.id);
-            }}
-          />
-          <span className="settings-agent-hint">{role.hint}</span>
-          {role.problem !== null && <span className="settings-agent-problem">{role.problem}</span>}
-          {role.moved !== null && (
-            <span className="settings-agent-moved" role="status">
-              <Icon name="circle-check" size={14} />
-              <span>{role.moved}</span>
-            </span>
-          )}
-        </>
       )}
 
       <span className="settings-agent-label">{page.instructions.label}</span>
@@ -491,19 +465,13 @@ function Instructions({
   );
 }
 
-/** One agent's heading in the Settings header: ← name, its role tag, where it came from. */
+/** One agent's heading in the Settings header: ← name, where it came from. */
 function AgentHeading({ page, onBack }: { page: AgentPage; onBack: () => void }) {
   return (
     <span className="settings-agent-heading">
       <span className="settings-agent-heading-line">
         <IconButton icon="arrow-left" label={page.back_label} onClick={onBack} />
         <h2>{page.title}</h2>
-        {page.role_tag !== null && (
-          <span className="settings-agents-role">
-            <Icon name="circle-check" size={11} />
-            {page.role_tag}
-          </span>
-        )}
       </span>
       {page.came_from !== null && <span className="settings-agents-came">{page.came_from}</span>}
     </span>
@@ -651,6 +619,9 @@ export function AgentsSection() {
     onDefaultModel: (pick) => {
       if (pick) listed(request("settings.agents_default_model", pick));
     },
+    onNoyanAgent: (agent) => {
+      listed(request("settings.noyan_agent", { id: agent }));
+    },
   };
 
   const pageActions = (p: AgentPage): PageActions => ({
@@ -663,9 +634,6 @@ export function AgentsSection() {
           change,
         }),
       );
-    },
-    onRole: (role) => {
-      if (p.id !== null) show(request("settings.agent_role", { id: p.id, role }));
     },
     onAdd: (name, instructions) => {
       request("settings.agent_add", { draft: { ...p.draft, name, instructions } }).then((outcome) => {

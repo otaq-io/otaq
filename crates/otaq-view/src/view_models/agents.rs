@@ -1,4 +1,5 @@
-//! Settings → Agents (AGM-02, AGM-03, AGM-04; d0108, d0088, d0086; `s15-58` / `s15-59`): the default model for new agents and the list of agents (name, role tag, came-from line, model
+//! Settings → Agents (AGM-02, AGM-03, AGM-04; d0108, d0088, d0086; `s15-58` / `s15-59`): the default model for new
+//! agents, the agent Noyan uses ("Noyan uses <agent>", one app setting) and the list of agents (name, came-from line, model
 //! with the tool's effort, used in, the amber mark, ⋯ Duplicate / Delete…); one agent's page is
 //! [`super::agent_page`]. Also the shared pieces the other screens use: the formatters of a model ([`model_label`],
 //! [`agent_model`], [`short_model`]), the agent tools' lists ([`AgentTools`]) and the session roles as the page sends
@@ -6,7 +7,7 @@
 
 use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
-use otaq_core::agents::{Agent, AgentList, AgentModel, InUse, Mark, ModelRef, Role, SessionRole};
+use otaq_core::agents::{Agent, AgentList, AgentModel, InUse, Mark, ModelRef, SessionRole};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -302,14 +303,9 @@ pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>)
 
 /// What uses an agent, one place each (AGM-01): "every project · Noyan", "pocket-api · Dev".
 pub fn used_in(uses: &InUse) -> Vec<String> {
-    let role = uses.role.map(|role| {
-        match role {
-            Role::ProjectAgent => "every project \u{b7} Noyan",
-        }
-        .to_owned()
-    });
+    let noyan = uses.noyan.then(|| "every project \u{b7} Noyan".to_owned());
     let stages = uses.stages.iter().map(|s| curly(&s.label()));
-    role.into_iter().chain(stages).collect()
+    noyan.into_iter().chain(stages).collect()
 }
 
 /// The list's Used in cell: the places joined, "—" for none.
@@ -448,8 +444,6 @@ pub struct DefaultModel {
 pub struct TableRow {
     pub id: String,
     pub name: String,
-    /// "Noyan": the role tag.
-    pub role: Option<String>,
     /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
     pub came_from: String,
     /// The model the Agents page's way ([`list_model`]).
@@ -465,7 +459,21 @@ pub struct TableRow {
     pub menu_label: String,
 }
 
-/// The Agents page (AGM-04; `s15-58` / `s15-59`): the default model and the list.
+/// "Noyan uses <agent>": the one app setting for Noyan's agent. Every new conversation starts on it; one can pick
+/// another when it starts. Sent back as `settings.noyan_agent` with the agent's id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsNoyanAgent")]
+pub struct NoyanAgent {
+    /// "Noyan uses".
+    pub label: String,
+    pub description: String,
+    /// The agent's name; "Pick an agent" while none is set.
+    pub value: String,
+    /// Every agent, the one Noyan uses selected.
+    pub options: Vec<super::agent_page::Choice>,
+}
+
+/// The Agents page (AGM-04; `s15-58` / `s15-59`): the default model, the agent Noyan uses and the list.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentsSection")]
 pub struct Section {
@@ -477,6 +485,7 @@ pub struct Section {
     pub more_label: String,
     pub more: Vec<MenuItem>,
     pub default_model: DefaultModel,
+    pub noyan: NoyanAgent,
     /// NAME, MODEL, USED IN.
     pub columns: Vec<String>,
     pub rows: Vec<TableRow>,
@@ -549,7 +558,8 @@ pub fn section(input: &Inputs) -> Section {
     Section {
         title: "Agents".to_owned(),
         intro: "What each agent does: its instructions and its own model. Agents are shared by all your \
-                projects. One agent holds a role: Noyan. Edits apply to the next session that starts."
+                projects, and each stage of a flow names the agent that works it. Edits apply to the next session \
+                that starts."
             .to_owned(),
         new_agent_label: "New agent".to_owned(),
         more_label: "More agent actions".to_owned(),
@@ -562,6 +572,7 @@ pub fn section(input: &Inputs) -> Section {
             description: "A new agent, or one a preset adds, starts with it.".to_owned(),
             dropdown: dropdown(&on, tools, default, NO_DEFAULT),
         },
+        noyan: noyan_agent(list),
         columns: ["Name", "Model", "Used in"]
             .map(str::to_owned)
             .to_vec(),
@@ -571,7 +582,6 @@ pub fn section(input: &Inputs) -> Section {
             .map(|a| TableRow {
                 id: a.id.clone(),
                 name: a.name.clone(),
-                role: a.role.map(|r| r.label().to_owned()),
                 came_from: came_from(a),
                 model: list_model(a, tools, default),
                 used_in: used_in_cell(input.uses_of(a)),
@@ -584,6 +594,30 @@ pub fn section(input: &Inputs) -> Section {
     }
 }
 
+/// "Noyan uses <agent>" from `agents.list`.
+pub fn noyan_agent(list: &AgentList) -> NoyanAgent {
+    let picked = list.noyan();
+    NoyanAgent {
+        label: NOYAN_USES.to_owned(),
+        description: "Each new conversation with Noyan starts on this agent. You can pick another when you start \
+                      one."
+            .to_owned(),
+        value: picked.map_or(NO_NOYAN_AGENT, |a| a.name.as_str()).to_owned(),
+        options: list
+            .agents
+            .iter()
+            .map(|a| {
+                super::agent_page::choice(&a.id, &a.name, picked.is_some_and(|p| p.id == a.id))
+            })
+            .collect(),
+    }
+}
+
+/// The setting's label.
+pub const NOYAN_USES: &str = "Noyan uses";
+/// Its value while no agent is set.
+pub const NO_NOYAN_AGENT: &str = "Pick an agent";
+
 /// The default model's field before a tool connects.
 pub const NO_DEFAULT: &str = "The first agent tool you connect";
 
@@ -592,7 +626,7 @@ pub mod fixtures {
     use otaq_core::agent_tools::models::ModelEntry;
     use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
     use otaq_core::agents::in_use::StageUse;
-    use otaq_core::agents::{Agent, AgentList, AgentModel, CameFrom, InUse, ModelRef, Role};
+    use otaq_core::agents::{Agent, AgentList, AgentModel, CameFrom, InUse, ModelRef};
 
     pub fn entry(id: &str, display: &str, kind: ModelKind, now: Option<&str>) -> ModelEntry {
         ModelEntry {
@@ -650,7 +684,6 @@ pub mod fixtures {
                 model: model.map(str::to_owned),
             },
             effort: None,
-            role: None,
             came_from: CameFrom::You,
             mark: None,
             created_at: 1,
@@ -776,8 +809,8 @@ pub mod fixtures {
         tools(&[Tool::Claude, Tool::Codex])
     }
 
-    /// The ticket file's example (T-0405, AGM-02): Noyan, Developer, Validator, Strong and Light, the default model Light's, and what uses each agent (pocket-notes
-    /// validates, pocket-api doesn't).
+    /// The ticket file's example (T-0405, AGM-02): Noyan, Developer, Validator, Strong and Light, the default model
+    /// Light's, Noyan using the agent Noyan, and what uses each agent (pocket-notes validates, pocket-api doesn't).
     pub fn example() -> (AgentList, Vec<InUse>) {
         let with = |mut a: Agent, f: &dyn Fn(&mut Agent)| {
             f(&mut a);
@@ -786,7 +819,6 @@ pub mod fixtures {
         let instructions = "Run `just test` before committing";
         let agents = vec![
             with(agent("noyan", "Noyan", Some("haiku")), &|a| {
-                a.role = Some(Role::ProjectAgent);
                 a.came_from = CameFrom::AgentsFile;
                 a.instructions = "Keep tickets small".into();
             }),
@@ -811,12 +843,12 @@ pub mod fixtures {
         let uses = vec![
             InUse {
                 agent: "Noyan".into(),
-                role: Some(Role::ProjectAgent),
+                noyan: true,
                 stages: Vec::new(),
             },
             InUse {
                 agent: "Developer".into(),
-                role: None,
+                noyan: false,
                 stages: vec![
                     stage("pocket-api", "Dev"),
                     stage("pocket-api", "Done"),
@@ -826,7 +858,7 @@ pub mod fixtures {
             },
             InUse {
                 agent: "Validator".into(),
-                role: None,
+                noyan: false,
                 stages: vec![stage("pocket-notes", "Validate")],
             },
             InUse {
@@ -844,6 +876,7 @@ pub mod fixtures {
                 tool: Tool::Claude,
                 model: Some("haiku".into()),
             }),
+            noyan_agent: Some("noyan".into()),
         };
         (list, uses)
     }
@@ -894,8 +927,9 @@ mod tests {
         );
     }
 
-    /// The example (T-0410's Done-when): six agents with their roles, came-from lines, models and where they are
-    /// used. An agent has no skill list (T7): no Skills column, and no row names a skill.
+    /// The example (T-0410's Done-when): the agents with their came-from lines, models and where they are used, and
+    /// "Noyan uses" offering every agent with Noyan's own selected. No row shows a role. An agent has no skill list
+    /// (T7): no Skills column, and no row names a skill.
     #[test]
     fn the_examples_agents_page() {
         let (list, uses) = example();
@@ -909,8 +943,30 @@ mod tests {
         assert_eq!(
             page.intro,
             "What each agent does: its instructions and its own model. Agents are shared by all your \
-             projects. One agent holds a role: Noyan. Edits apply to the next session that starts."
+             projects, and each stage of a flow names the agent that works it. Edits apply to the next session \
+             that starts."
         );
+        assert_eq!(page.noyan.label, "Noyan uses");
+        assert_eq!(page.noyan.value, "Noyan");
+        let offered: Vec<(&str, &str, bool)> = page
+            .noyan
+            .options
+            .iter()
+            .map(|o| (o.id.as_str(), o.label.as_str(), o.selected))
+            .collect();
+        assert_eq!(
+            offered,
+            [
+                ("noyan", "Noyan", true),
+                ("developer", "Developer", false),
+                ("validator", "Validator", false),
+                ("strong", "Strong", false),
+                ("light", "Light", false),
+            ]
+        );
+        let mut unset = list.clone();
+        unset.noyan_agent = None;
+        assert_eq!(noyan_agent(&unset).value, "Pick an agent");
         assert_eq!(page.new_agent_label, "New agent");
         let more: Vec<(&str, &str)> = page
             .more
@@ -931,14 +987,13 @@ mod tests {
             "Claude Code \u{b7} haiku"
         );
         assert_eq!(page.columns, ["Name", "Model", "Used in"]);
-        type Shown<'a> = (&'a str, Option<&'a str>, &'a str, &'a str, &'a str);
+        type Shown<'a> = (&'a str, &'a str, &'a str, &'a str);
         let rows: Vec<Shown> = page
             .rows
             .iter()
             .map(|r| {
                 (
                     r.name.as_str(),
-                    r.role.as_deref(),
                     r.came_from.as_str(),
                     r.model.as_str(),
                     r.used_in.as_str(),
@@ -950,35 +1005,30 @@ mod tests {
             [
                 (
                     "Noyan",
-                    Some("Noyan"),
                     &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
                     "Claude Code \u{b7} haiku",
                     "every project \u{b7} Noyan"
                 ),
                 (
                     "Developer",
-                    None,
                     &*format!("Added by the {PRODUCT_NAME} default preset"),
                     "Claude Code \u{b7} haiku",
                     "pocket-api \u{b7} Dev, pocket-api \u{b7} Done, pocket-notes \u{b7} Dev, pocket-notes \u{b7} Done"
                 ),
                 (
                     "Validator",
-                    None,
                     &*format!("Added by the {PRODUCT_NAME} default preset"),
                     "Claude Code \u{b7} opus",
                     "pocket-notes \u{b7} Validate"
                 ),
                 (
                     "Strong",
-                    None,
                     "Added by you",
                     "Claude Code \u{b7} opus",
                     "\u{2014}"
                 ),
                 (
                     "Light",
-                    None,
                     "Added by you",
                     "Claude Code \u{b7} haiku",
                     "\u{2014}"
@@ -987,6 +1037,7 @@ mod tests {
         );
         let view = serde_json::to_value(&page.rows[0]).unwrap();
         assert!(view.get("skills").is_none(), "no row names a skill");
+        assert!(view.get("role").is_none(), "no row shows a role");
         let menu: Vec<&str> = page.rows[0].menu.iter().map(|m| m.label.as_str()).collect();
         assert_eq!(menu, ["Duplicate", "Delete\u{2026}"]);
     }

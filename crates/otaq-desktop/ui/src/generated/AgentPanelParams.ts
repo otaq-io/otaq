@@ -6,6 +6,7 @@
  */
 export type AgentPanelParams = { project: string, agent: string | null, window_width: number | null, 
 /**
- * The empty agent panel after "New agent on …" (M23): the named agent its first message starts.
+ * The agent picked for this conversation in the empty agent panel: its first message starts on it instead of the
+ * agent Noyan uses.
  */
 start_on?: string, };

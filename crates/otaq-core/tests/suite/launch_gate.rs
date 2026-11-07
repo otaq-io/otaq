@@ -47,7 +47,6 @@ fn agent(id: &str, model: AgentModel) -> Agent {
         instructions: String::new(),
         model,
         effort: None,
-        role: None,
         came_from: CameFrom::You,
         mark: None,
         created_at: 0,
@@ -336,7 +335,6 @@ async fn world() -> World {
     }
     file.agents = vec![FlowAgent {
         name: "Codex developer".into(),
-        role: None,
         instructions: String::new(),
         model: "codex".into(),
         why: None,
@@ -751,7 +749,7 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
 async fn a_project_agent_is_held_too() {
     let world = world().await;
     let w = &world.w;
-    // The Project agent role's agent on Codex, with Claude Code free: it is held all the same.
+    // The agent Noyan uses on Codex, with Claude Code free: it is held all the same.
     world.hide(B, true).await;
     world
         .set_model(

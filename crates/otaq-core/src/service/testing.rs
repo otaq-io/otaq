@@ -130,7 +130,6 @@ impl TestService {
             instructions: agent.instructions.clone(),
             model: agent.model.clone(),
             effort: agent.effort.clone(),
-            role: agent.role,
         };
         edit(&mut page);
         let model_changed = page.model != agent.model;

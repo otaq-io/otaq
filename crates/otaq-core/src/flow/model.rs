@@ -18,13 +18,11 @@ pub struct FlowFile {
     pub flow: Flow,
 }
 
-/// An agent a flow file defines (d0108): its instructions, model and role. An agent has no skills: an old file's
-/// `skills:` still reads, and is ignored and never written (T6).
+/// An agent a flow file defines (d0108): its instructions and model. An agent has no skills and no role: an old
+/// file's `skills:` and `role:` still read, and are ignored and never written (T6).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowAgent {
     pub name: String,
-    /// `noyan` (d0108's role), when it has one.
-    pub role: Option<String>,
     /// Empty when it has none.
     pub instructions: String,
     /// `default` (the account's default model, as shipped files say) or a model as M32 names it.

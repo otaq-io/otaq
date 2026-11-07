@@ -1,8 +1,8 @@
 // Where a tool problem's buttons go (§7.2, SHL-04; d0086; T-0367): the sheet's hold callouts, the agent panel's notice
 // and the after-restart sheet's Sign in… all send a `ToolProblemAction` (`tool_problems.rs`).
 // `toolProblemStep` says what one does in a place, without doing it (the tests read it); `runToolProblemAction` does
-// it. Nothing here starts an agent by itself or moves work to another tool: a held agent waits for its own tool, and New
-// agent on … opens the empty agent panel, which starts only when the user sends (d0087).
+// it. Nothing here starts an agent by itself or moves work to another tool: a held agent waits for its own tool, and no
+// other agent is offered in its place (no fallback agents).
 import type { OverlayParams } from "../../app/registry/overlays";
 import type { AgentToolSignIn } from "../../generated/AgentToolSignIn";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
@@ -19,8 +19,6 @@ export type ToolProblemStep =
   /** The tool's own login in a terminal of the Terminals drawer (`agent_tools.sign_in`). */
   | { kind: "sign_in"; tool: string }
   | { kind: "settings"; params: NonNullable<OverlayParams["settings"]> }
-  /** The agent panel's empty state on `agent`; it starts when the user sends. */
-  | { kind: "new_agent"; project: string; agent: string }
   /** Change agent…'s dialog for the ticket's stage that waits for its tool. */
   | { kind: "change_agent"; ticket: string }
   | { kind: "none" };
@@ -47,10 +45,6 @@ export function toolProblemStep(action: ToolProblemAction, place: ToolProblemPla
       return place.ticket === undefined
         ? { kind: "none" }
         : { kind: "request", method: "sheet.check_again", params: { key: place.ticket } };
-    case "new_agent":
-      return place.project === undefined
-        ? { kind: "none" }
-        : { kind: "new_agent", project: place.project, agent: action.agent };
     case "agent_settings":
       return {
         kind: "settings",
@@ -65,7 +59,6 @@ export interface ToolProblemRunner {
   openSettings: (params: NonNullable<OverlayParams["settings"]>) => void;
   /** Opens the drawer on the tab the pending request answers with. */
   showDrawerTab: (pending: Promise<unknown>) => void;
-  newAgentOn: (project: string, agent: string) => void;
   /** Opens Change agent…'s dialog on the ticket. */
   changeAgent: (ticket: string) => void;
 }
@@ -89,9 +82,6 @@ export function runToolProblemAction(
       return;
     case "settings":
       run.openSettings(step.params);
-      return;
-    case "new_agent":
-      run.newAgentOn(step.project, step.agent);
       return;
     case "change_agent":
       run.changeAgent(step.ticket);

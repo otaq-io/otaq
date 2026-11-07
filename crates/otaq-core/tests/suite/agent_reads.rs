@@ -11,7 +11,7 @@ use std::path::Path;
 use otaq_core::agent_reads::{AgentReads, RunsAs, SkillMark};
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::{ClaudeLaunch, find_plugin_dir};
-use otaq_core::agents::{Agent, Role};
+use otaq_core::agents::Agent;
 use otaq_core::board::stage_choices::{ChoicePick, Chooser};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status};
@@ -193,20 +193,14 @@ async fn a_stage_agent_reads_what_prime_gives() {
 /// AGR-03, AGR-04: the Project agent reads its prime's instructions and notes, the skill its launch runs first ("as
 /// Project agent"), and `flow` marked for flow changes, which its `/flow` start runs.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_role_agents_read_what_their_launch_gives() {
+async fn the_agent_noyan_uses_reads_what_its_launch_gives() {
     let dir = TempDir::new().unwrap();
     let w = world(&dir).await;
     w.edit_agent("Noyan", |a| {
         a.instructions = "Split big work into tickets of a day or less.".into();
     })
     .await;
-    let planner = w
-        .board
-        .store()
-        .role_agent(Role::ProjectAgent)
-        .await
-        .unwrap()
-        .unwrap();
+    let planner = w.board.store().noyan_agent().await.unwrap().unwrap();
     let prime = w.board.project_prime("SHOP").await.unwrap();
     let told = prime.instructions.unwrap();
     let r = reads(&w, &planner, "SHOP").await;
@@ -216,7 +210,7 @@ async fn the_role_agents_read_what_their_launch_gives() {
     );
     let (first, _) = first_skill("Split SHOP-40");
     assert_eq!(r.skills.len(), 1, "in no stage: {r:#?}");
-    assert_eq!(r.skills[0].runs, RunsAs::Role(Role::ProjectAgent));
+    assert_eq!(r.skills[0].runs, RunsAs::Noyan);
     assert_eq!(r.skills[0].skill, first);
     assert!(r.skills[0].text.is_some());
     let (flow, _) = first_skill(FLOW_COMMAND);
@@ -309,7 +303,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
         parts,
         [
             (&RunsAs::Stage("Product spec".into()), "product-spec"),
-            (&RunsAs::Role(Role::ProjectAgent), "noyan")
+            (&RunsAs::Noyan, "noyan")
         ]
     );
     w.stop().await;

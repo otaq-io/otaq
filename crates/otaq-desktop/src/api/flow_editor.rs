@@ -491,7 +491,7 @@ pub fn make_one_message(project_name: &str, tool: Tool) -> String {
 }
 
 /// Ask <Tool>: in onboarding the tool's flow agent (`onboarding.ask`, its proposal its own Made for entry); in the
-/// project a Project agent on an agent that runs on that tool (the Project agent role's when it does), whose
+/// project a Project agent on an agent that runs on that tool (the agent Noyan uses when it does), whose
 /// proposal lands in the draft.
 async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
     if params.from == Opened::Onboarding {

@@ -171,8 +171,8 @@ async fn the_users_choices_round_trip() {
     assert_eq!(options(1).first(), Some(&"Rust developer"));
     assert!(options(1).contains(&"Quick developer") && !options(1).contains(&"skip"));
     assert!(
-        !options(1).contains(&"Noyan"),
-        "Noyan's own agent isn't offered"
+        options(1).contains(&"Noyan"),
+        "an agent has no role: the agent Noyan uses is offered like any other"
     );
     assert_eq!(options(4), ["required", "skip"]);
     let dev = created["agents"]
@@ -457,7 +457,6 @@ async fn a_ticket_agent_sets_no_stage_choice() {
                 instructions: String::new(),
                 model: otaq_core::agents::AgentModel::Default,
                 effort: None,
-                role: None,
             },
             &otaq_core::agents::CameFrom::You,
             None,

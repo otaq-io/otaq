@@ -1,8 +1,9 @@
 //! `otaq prime --project` (PAG-03, CLI-06; d0068): what a Project agent reads first. Every ticket of the
 //! project with its status, priority and dependencies; for each started ticket its worktree and branch (it
-//! may read and run code there); **the flow**: every stage with what it is for (its description); the **stage choices** it may set on the tickets it creates (AGM-06, AGM-08; none on
-//! the default flow); the rules of what it may change; and what it is told to follow: the Project agent role's
-//! agent's **instructions**, then the project's notes (AGM-06; d0068, d0108). Concise Markdown ([`render`]); `--json`
+//! may read and run code there); **the flow**: every stage with what it is for (its description); the **stage
+//! choices** it may set on the tickets it creates (AGM-06, AGM-08; none on the default flow); the rules of what it may
+//! change; and what it is told to follow: the agent Noyan uses: its **instructions**, then the project's notes (AGM-06;
+//! d0068, d0108). Concise Markdown ([`render`]); `--json`
 //! prints the [`ProjectPrime`] itself.
 
 use serde::{Deserialize, Serialize};
@@ -76,12 +77,9 @@ impl Board {
     pub async fn project_prime(&self, project: &str) -> Result<ProjectPrime, BoardError> {
         let p = self.project(project).await?;
         let tickets = self.tickets(&p.key).await?;
-        // The Project agent role's agent's instructions (AGM-02: the Project agent instructions moved there), then
-        // the project's notes (AGM-06).
-        let agent = self
-            .store()
-            .role_agent(crate::agents::Role::ProjectAgent)
-            .await?;
+        // The instructions of the agent Noyan uses (AGM-02: the Project agent instructions moved there), then the
+        // project's notes (AGM-06).
+        let agent = self.store().noyan_agent().await?;
         let instructions = self.instructions(&p.key, agent.as_ref()).await?;
         let flow = flow_stages(&self.effective_flow(&p.key).await?, None, &[]);
         Ok(ProjectPrime {

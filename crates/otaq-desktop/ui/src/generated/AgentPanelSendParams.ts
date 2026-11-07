@@ -5,6 +5,6 @@
  */
 export type AgentPanelSendParams = { project: string, message: string, 
 /**
- * The empty agent panel's `starts_on` after "New agent on …" (M23); `None` for the Project agent default.
+ * The empty agent panel's `starts_on`: the agent picked for this conversation; `None` for the agent Noyan uses.
  */
 agent?: string, };

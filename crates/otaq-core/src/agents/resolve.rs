@@ -1,13 +1,13 @@
 //! Which agent runs (AGM-05; d0108, d0088): a session in a stage runs the ticket's choice for that stage (AGM-08,
-//! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); the Project agent runs **the agent with that
-//! role**. A flow names agents by name, looked up among the agents ignoring case; a rename renames the agent in
+//! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); a Noyan conversation runs
+//! **the agent Noyan uses** (an app setting) unless it was started on another. A flow names agents by name, looked up among the agents ignoring case; a rename renames the agent in
 //! every stored flow ([`crate::flow::store`]), so it changes nothing. An unknown name is a check error naming the
 //! stage ([`crate::flow::check_agents`]).
 //!
 //! The model is resolved by the check before every launch ([`super::gate`]): `default` becomes the default model,
 //! and the agent, tool, exact model and effort are saved on the session and its stage run.
 
-use super::{Agent, Role, SessionRole};
+use super::{Agent, SessionRole};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::Place;
@@ -70,12 +70,15 @@ pub async fn running_agent(
     }
 }
 
-/// The agent with `role` (AGM-01, AGM-05).
-pub async fn role_agent(store: &Store, role: Role) -> Result<Agent, BoardError> {
-    store
-        .role_agent(role)
-        .await?
-        .ok_or_else(|| BoardError::NotFound(format!("no agent has the {} role", role.label())))
+/// The agent Noyan uses (an app setting). Refused while none is set: the conversation waits for the user to pick one,
+/// never starts on some other agent.
+pub async fn noyan_agent(store: &Store) -> Result<Agent, BoardError> {
+    store.noyan_agent().await?.ok_or_else(|| {
+        BoardError::refused(
+            Refusal::UnknownAgent,
+            "Noyan has no agent: pick the one it uses in Settings \u{2192} Agents",
+        )
+    })
 }
 
 /// The Agent stage a ticket's agent session starts or continues in: the one it waits before, the Agent stage it is in,
@@ -113,14 +116,14 @@ pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> 
 }
 
 /// The agent a ticket's new session of `role` runs (AGM-05): an Agent stage's ([`agent_stage_of`]), an agent check's
-/// ([`check_stage_of`]), or the role's agent for the Project agent.
+/// ([`check_stage_of`]), or the agent Noyan uses for a Noyan conversation.
 pub async fn session_agent(
     board: &Board,
     ticket: &Ticket,
     role: SessionRole,
 ) -> Result<Agent, BoardError> {
-    if let Some(role) = role.role() {
-        return role_agent(board.store(), role).await;
+    if role == SessionRole::ProjectAgent {
+        return noyan_agent(board.store()).await;
     }
     let flow = board.effective_flow(ticket.key.project.as_str()).await?;
     let skips = board.ticket_skips(ticket, &flow).await?;

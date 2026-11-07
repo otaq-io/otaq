@@ -23,7 +23,7 @@
 //! ```
 //!
 //! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds fail_to mode delivers
-//! description`; agents: `name role instructions model why`); a field with nothing in it is left out, except `column`.
+//! description`; agents: `name instructions model why`); a field with nothing in it is left out, except `column`.
 //! `agents:` is left out when the file defines none. An agent check names its one agent with `agent:`, like an Agent
 //! stage; an older file's `agents: [Validator]` (one name) still reads as `agent: Validator`, and its check with
 //! several agents reads as one check stage per agent ([`Split`]). A check's `fail_to`
@@ -63,7 +63,10 @@ struct RawFile {
 #[serde(deny_unknown_fields)]
 struct RawAgent {
     name: String,
-    role: Option<String>,
+    /// An old file's agent role (`noyan`): read so the file still opens, then ignored (an agent has no role; the
+    /// agent Noyan uses is an app setting).
+    #[serde(default, rename = "role")]
+    _role: serde::de::IgnoredAny,
     #[serde(default)]
     instructions: String,
     /// An old file's agent skills: read so the file still opens, then ignored (an agent has no skills).
@@ -121,7 +124,6 @@ fn format_error(e: impl fmt::Display) -> FormatError {
 fn agent(a: RawAgent) -> FlowAgent {
     FlowAgent {
         name: a.name,
-        role: a.role,
         instructions: a.instructions,
         model: a.model,
         why: why(a.why),
@@ -256,9 +258,6 @@ fn write_agents_into(out: &mut String, agents: &[FlowAgent]) {
     for agent in agents {
         let mut item = Item::new(out);
         item.field("name", &agent.name);
-        if let Some(role) = &agent.role {
-            item.field("role", role);
-        }
         if !agent.instructions.is_empty() {
             item.text("instructions", &agent.instructions);
         }
