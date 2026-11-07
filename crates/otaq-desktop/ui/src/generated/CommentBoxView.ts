@@ -28,7 +28,7 @@ footer_icon: IconName,
  */
 pasted: string, 
 /**
- * The line while a file waits in the box: only the New ticket form's ([`Self::one_report`]), whose report still
+ * The line while a file waits in the box: only the New ticket form's box of one report, whose report still
  * needs its own line (RPT-03). Every other box sends attachments with no text (tuq 007).
  */
 file_line: string | null, 
