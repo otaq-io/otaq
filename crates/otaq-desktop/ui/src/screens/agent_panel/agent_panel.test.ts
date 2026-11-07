@@ -70,9 +70,9 @@ const EMPTY: AgentPanelView = {
     close: { icon: "panel-left-close", label: "Close", keys: "⌘L" },
   },
   empty: {
-    line: { avatar: null, agent: "Claude Code", note: "· starts when you send", rename: null },
+    line: { avatar: null, agent: "Claude Code", note: "· starts when you send", rename: null, reads: "Never edits your code" },
     title: "Ask Noyan",
-    text: "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets.",
+    text: "It reads and runs code in pocket-notes but never edits it. It writes tickets to Backlog, proposing two or more first, and you start them.",
     examples: [
       { label: "Turn this into tickets: …", fill: "Turn this into tickets: " },
       { label: "Why is a ticket stuck?", fill: "Why is a ticket stuck?" },
@@ -86,7 +86,7 @@ const EMPTY: AgentPanelView = {
     pick: null,
   },
   running: null,
-  switcher: { rows: [], new_label: "New conversation", new_keys: "⇧⌘L" },
+  switcher: { rows: [], recent_title: "RECENTLY ENDED", recent: [], new_label: "New conversation", new_keys: "⇧⌘L" },
   menu: [],
   recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended conversations yet." },
 };
@@ -103,19 +103,45 @@ const RUNNING: AgentPanelView = {
   },
   empty: null,
   running: {
-    line: { avatar: null, agent: "Claude Code", note: "· 52k", rename: "Rename" },
+    line: { avatar: null, agent: "Claude Code", note: "· 52k", rename: "Rename", reads: "Never edits your code" },
     created: {
       line: "CREATED 2 · CHANGED 1",
       folded: true,
       show_on_board: { label: "Show on board", agent: "a1" },
+      title: "CREATED 2",
       rows: [
+        {
+          key: "NOTE-11",
+          title: "Slow search query",
+          place: "Dev",
+          line: "Waits for a free agent · next in line",
+          icon: "square-plus",
+          edited: false,
+          start: null,
+          delete: null,
+        },
         {
           key: "NOTE-12",
           title: "Cache note previews",
-          place: "Backlog",
+          place: "",
+          line: null,
           icon: "square-plus",
           edited: false,
+          start: "Start",
           delete: "Delete",
+        },
+      ],
+      changed_title: "CHANGED 1",
+      changed: [
+        {
+          key: "NOTE-5",
+          title: "Sync conflicts",
+          place: "Backlog",
+          line: null,
+          icon: "pencil",
+          edited: true,
+          start: null,
+          delete: null,
         },
       ],
     },
@@ -393,6 +419,86 @@ describe("a running agent", () => {
     expect(
       box.querySelector("section.agent-panel > .agent-panel-well > .agent-panel-terminal"),
     ).not.toBeNull();
+  });
+
+  it("lists the created tickets on top: Start on one in Backlog starts it as a Backlog card's Start does", async () => {
+    ask.mockResolvedValue({ outcome: "moved" });
+    show({ ...RUNNING, running: { ...RUNNING.running!, created: { ...RUNNING.running!.created!, folded: false } } });
+    expect(box.textContent).toContain("CREATED 2");
+    expect(box.textContent).not.toContain("CREATED 2 · CHANGED 1");
+    // The started one says where it is and why it waits; the one in Backlog has Start (Noyan never starts it).
+    const rows = [...box.querySelectorAll(".agent-panel-created-row")];
+    expect(rows.map((r) => r.querySelector(".agent-panel-created-key")?.textContent)).toEqual([
+      "NOTE-11",
+      "NOTE-12",
+      "NOTE-5",
+    ]);
+    expect(rows[0]?.textContent).toContain("Dev");
+    expect(rows[0]?.textContent).toContain("Waits for a free agent · next in line");
+    expect(rows[0]?.textContent).not.toContain("Start");
+    expect(rows[2]?.textContent).not.toContain("Start");
+    expect(box.textContent).toContain("CHANGED 1");
+    const start = [...(rows[1]?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Start");
+    await act(async () => {
+      start?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("board.start", { key: "NOTE-12" });
+  });
+
+  it("the switcher continues a conversation: Resume on an ended one, and the recently ended ones", async () => {
+    ask.mockResolvedValue("a9");
+    show({
+      ...RUNNING,
+      switcher: {
+        ...RUNNING.switcher,
+        rows: [
+          {
+            id: "a1",
+            name: "Tickets waiting on NOTE-5",
+            unnamed: false,
+            pill: { palette: "attn", icon: "hand", label: "Waiting for you" },
+            avatar: null,
+            selected: true,
+            resume: null,
+          },
+          {
+            id: "a2",
+            name: "Footer links",
+            unnamed: false,
+            pill: { palette: "queued", icon: "circle-stop", label: "Ended" },
+            avatar: null,
+            selected: false,
+            resume: "Resume",
+          },
+        ],
+        recent: [
+          {
+            id: "a9",
+            name: "Footer audit",
+            unnamed: false,
+            pill: { palette: "queued", icon: "circle-stop", label: "Ended by restart" },
+            avatar: null,
+            selected: false,
+            resume: "Resume",
+          },
+        ],
+      },
+    });
+    act(() => {
+      box.querySelector<HTMLButtonElement>(".agent-panel-switch")?.click();
+    });
+    const switcher = document.querySelector(".agent-panel-switcher");
+    expect(switcher?.textContent).toContain("RECENTLY ENDED");
+    expect(switcher?.textContent).toContain("Footer audit");
+    const resumes = [...(switcher?.querySelectorAll<HTMLButtonElement>(".agent-panel-switcher-resume") ?? [])];
+    expect(resumes).toHaveLength(2);
+    await act(async () => {
+      resumes[1]?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("agent_panel.resume", { id: "a9" });
+    expect(shownAgents.get().NOTE).toBe("a9");
   });
 
   it("asks before ending mid-turn, and lists Recently ended", () => {

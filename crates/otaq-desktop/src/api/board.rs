@@ -330,6 +330,57 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     Ok(page)
 }
 
+/// Where each of `keys` is on `project`'s board and what its card says there (Noyan's panel: a created ticket the
+/// user started says where it went or why it waits). Read from the same facts as the board's cards: the queue, the
+/// cards' named agents, a waiting flow change, the pause.
+pub(crate) async fn whereabouts(
+    app: &App,
+    project: &str,
+    keys: &[otaq_core::domain::TicketKey],
+) -> Result<Vec<otaq_view::view_models::agent_panel::Whereabouts>, RequestError> {
+    let board = snapshot(app, project).await?;
+    let tickets: Vec<Ticket> = board.tickets().cloned().collect();
+    let agents = match app
+        .service
+        .send(Request::BoardAgents(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::BoardAgents(agents)) => Some(*agents),
+        _ => None,
+    };
+    let starts_held = match app
+        .service
+        .send(Request::FlowWaiting(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowWaiting(Some(waiting))) => Some(waiting.hold),
+        _ => None,
+    };
+    let flow = flow(app, project).await;
+    let input = otaq_view::view_models::board::BoardInput {
+        flow: &flow,
+        tickets: &tickets,
+        visible: None,
+        project_base: Some(&board.project.base_branch),
+        now_ms: otaq_core::store::now_ms(),
+        dev_budget: None,
+        folded: &[],
+        fold_empty: false,
+        agent_names: &[],
+        was_validating: &[],
+        agents: agents.as_ref(),
+        agent_list: None,
+        starts_held: starts_held.as_ref(),
+        paused: board.project.paused_since.is_some(),
+        helpers: &[],
+    };
+    Ok(otaq_view::view_models::agent_panel::whereabouts(&input, keys))
+}
+
 /// Asked once when a drag starts; the page asks nothing more until the drop.
 pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, RequestError> {
     let ticket = ticket(app, &params.key).await?;
@@ -654,6 +705,63 @@ mod tests {
 
     async fn send(h: &Harness, r: Request) -> Reply {
         h.app.service.send(r).await.unwrap()
+    }
+
+    /// Start on a created row of Noyan's panel is `board.start`; afterwards the row says where the ticket is, in the
+    /// words of its card on the board.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_started_ticket_says_where_it_is() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::ProjectAdded { project, .. } = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+                flow_setup: false,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let Reply::Ticket(t) = send(
+            &h,
+            Request::TicketCreate(NewTicketInput {
+                project: project.key.clone(),
+                title: "Footer links go to old pages".into(),
+                body: String::new(),
+                plan: String::new(),
+                priority: None,
+                base_branch: None,
+                first_comment: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no ticket");
+        };
+        let key = t.key.to_string();
+        let before = whereabouts(&h.app, &project.key, std::slice::from_ref(&t.key))
+            .await
+            .unwrap();
+        assert_eq!(before[0].place, "Backlog");
+        request(&h.app, "board.start", json!({ "key": key }))
+            .await
+            .unwrap();
+        let after = whereabouts(&h.app, &project.key, std::slice::from_ref(&t.key))
+            .await
+            .unwrap();
+        let flow = flow(&h.app, &project.key).await;
+        assert_eq!(
+            after[0].place,
+            flow.first_agent_stage().unwrap().name,
+            "into the first stage"
+        );
+        assert!(after[0].line.is_some(), "and what its card says there");
+        h.service.stop_all().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]

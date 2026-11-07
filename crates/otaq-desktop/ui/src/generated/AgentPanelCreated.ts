@@ -3,14 +3,23 @@ import type { AgentPanelCreatedRow } from "./AgentPanelCreatedRow";
 import type { AgentPanelShowOnBoard } from "./AgentPanelShowOnBoard";
 
 /**
- * Created and changed at the top of the agent panel (collapsible; one line at the 1280 class).
+ * What the conversation made and changed, at the top of the panel (collapsible; one line at the 1280 class): the
+ * created tickets first, each with Start while in Backlog, then the changed ones.
  */
 export type AgentPanelCreated = { 
 /**
- * "CREATED 2 · CHANGED 1".
+ * The folded line: "CREATED 2 · CHANGED 1".
  */
 line: string, 
 /**
  * Whether it opens folded to that one line; the page keeps the user's own toggle.
  */
-folded: boolean, show_on_board: AgentPanelShowOnBoard, rows: Array<AgentPanelCreatedRow>, };
+folded: boolean, show_on_board: AgentPanelShowOnBoard, 
+/**
+ * "CREATED 2 · IN BACKLOG" while every created ticket is in Backlog, else "CREATED 2"; none with none created.
+ */
+title: string | null, rows: Array<AgentPanelCreatedRow>, 
+/**
+ * "CHANGED 1"; none with none changed.
+ */
+changed_title: string | null, changed: Array<AgentPanelCreatedRow>, };

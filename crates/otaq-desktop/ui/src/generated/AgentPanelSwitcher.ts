@@ -2,6 +2,11 @@
 import type { AgentPanelSwitcherRow } from "./AgentPanelSwitcherRow";
 
 /**
- * The switcher (`h038v`, `b8kIUd`): the project's open Project agents, newest first, then the empty agent panel.
+ * The switcher (`h038v`, `b8kIUd`): the project's open conversations, newest first, then the recently ended ones
+ * (each with Resume, so any conversation continues from here), then the empty agent panel.
  */
-export type AgentPanelSwitcher = { rows: Array<AgentPanelSwitcherRow>, new_label: string, new_keys: string | null, };
+export type AgentPanelSwitcher = { rows: Array<AgentPanelSwitcherRow>, 
+/**
+ * "RECENTLY ENDED", over `recent`; hidden with none.
+ */
+recent_title: string, recent: Array<AgentPanelSwitcherRow>, new_label: string, new_keys: string | null, };
