@@ -213,7 +213,7 @@ impl TicketComment {
 
     /// One line per attachment under a comment (CMT-07; tuq 002, 006), never its bytes: "Report: test-run.txt · 48 KB,
     /// 2,310 lines · `otaq report SHOP-34 4`" for text; "Image: shot.png · 120 KB · open this path to view it:
-    /// /…/shot.png" and "File: repro.zip · 2 MB · open this path to view it: /…/repro.zip" for the rest.
+    /// `/…/shot.png`" and "File: repro.zip · 2 MB · open this path to view it: `/…/repro.zip`" for the rest.
     pub fn attachment_lines(&self, key: &TicketKey) -> Vec<String> {
         self.attachments
             .iter()
@@ -229,8 +229,8 @@ pub const OPEN_PATH: &str = "open this path to view it";
 pub fn attachment_line(a: &Attachment, command: &str) -> String {
     let (label, open) = match a.kind {
         AttachmentKind::Text => ("Report", format!("`{command}`")),
-        AttachmentKind::Image => ("Image", format!("{OPEN_PATH}: {}", a.path)),
-        AttachmentKind::Other => ("File", format!("{OPEN_PATH}: {}", a.path)),
+        AttachmentKind::Image => ("Image", format!("{OPEN_PATH}: `{}`", a.path)),
+        AttachmentKind::Other => ("File", format!("{OPEN_PATH}: `{}`", a.path)),
     };
     format!(
         "{label}: {} \u{b7} {} \u{b7} {open}",

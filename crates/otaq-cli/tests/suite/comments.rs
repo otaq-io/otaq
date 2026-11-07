@@ -498,14 +498,14 @@ async fn one_comment_carries_three_files_of_any_type() {
     let text = stdout(&cb(&w, &["comments", "SHOP-1"], None));
     for line in [
         format!(
-            "Image: shot.png \u{b7} {} bytes \u{b7} open this path to view it: {}",
+            "Image: shot.png \u{b7} {} bytes \u{b7} open this path to view it: `{}`",
             png.len(),
             paths[0]
         ),
         "Report: run.txt \u{b7} 50 bytes, 3 lines \u{b7} `otaq report SHOP-1 1 --attachment 2`"
             .to_owned(),
         format!(
-            "File: repro.zip \u{b7} {} bytes \u{b7} open this path to view it: {}",
+            "File: repro.zip \u{b7} {} bytes \u{b7} open this path to view it: `{}`",
             zip.len(),
             paths[2]
         ),
@@ -575,7 +575,7 @@ async fn one_comment_carries_three_files_of_any_type() {
         );
     }
     assert!(
-        section.contains(&format!("open this path to view it: {}", paths[0])),
+        section.contains(&format!("open this path to view it: `{}`", paths[0])),
         "{prime}"
     );
     assert!(!prime.contains("FAILED"), "a text file's text in prime");

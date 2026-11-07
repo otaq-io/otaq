@@ -510,13 +510,13 @@ async fn a_comment_carries_several_files_of_any_type() {
         lines,
         [
             format!(
-                "Image: shot.png \u{b7} 16 bytes \u{b7} open this path to view it: {}",
+                "Image: shot.png \u{b7} 16 bytes \u{b7} open this path to view it: `{}`",
                 posted.attachments[0].path
             ),
             "Report: run.txt \u{b7} 10 bytes, 2 lines \u{b7} `otaq report SHOP-1 1 --attachment 2`"
                 .to_owned(),
             format!(
-                "File: repro.zip \u{b7} 8 bytes \u{b7} open this path to view it: {}",
+                "File: repro.zip \u{b7} 8 bytes \u{b7} open this path to view it: `{}`",
                 posted.attachments[2].path
             ),
         ]

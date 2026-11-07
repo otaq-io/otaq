@@ -351,7 +351,7 @@ pub fn list(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<()
 /// 2 · Validator · Validate · round 2 · 3:05 pm · edited
 /// Fail: the 10,000 row limit isn't enforced.
 /// Report: test-run.txt · 48 KB, 2,310 lines · `otaq report SHOP-34 2 --attachment 1`
-/// Image: export.png · 120 KB · open this path to view it: /…/reports/shop-web/SHOP-34/…/2/export.png
+/// Image: export.png · 120 KB · open this path to view it: `/…/reports/shop-web/SHOP-34/…/2/export.png`
 /// ```
 pub fn render(comments: &TicketComments) -> String {
     let count = comments.comments.len();
