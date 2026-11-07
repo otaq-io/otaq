@@ -199,7 +199,7 @@ pub async fn open(app: &App, params: OpenParams) -> Result<vm::View, RequestErro
                 )));
             }
             let report = index(Body::File(PathBuf::from(&file.attachment.path))).await?;
-            (report, ticket, Some(n), row)
+            (report, ticket, Some((n, file.attachment.name)), row)
         }
         OpenParams::Pasted { ticket, text } => {
             let report = index(Body::Text(Arc::from(text.into_bytes()))).await?;
@@ -208,9 +208,10 @@ pub async fn open(app: &App, params: OpenParams) -> Result<vm::View, RequestErro
     };
     let handle = uuid::Uuid::new_v4().to_string();
     let of = match n {
-        Some(n) => vm::Of::Comment {
+        Some((n, ref name)) => vm::Of::Comment {
             key: &ticket,
             n,
+            name,
             row: row.as_ref(),
         },
         None => vm::Of::Pasted { key: &ticket },
@@ -418,7 +419,8 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(view["title"], "Report");
+        // Titled with the attachment's name: pasted text posted is "Pasted text".
+        assert_eq!(view["title"], "Pasted text");
         assert_eq!(view["lines"], 2_311);
         assert!(
             view["meta"]
@@ -554,13 +556,27 @@ mod tests {
         // An image doesn't open in the report view (tuq 002): only text reads in pages.
         let shot = repos.repo("shots", 1).join("shot.png");
         std::fs::write(&shot, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+        let notes = shot.with_file_name("notes.txt");
+        std::fs::write(&notes, "Only on Safari.\n").unwrap();
         let posted = table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "The page.", "attachments": [{ "kind": "file", "path": shot.display().to_string() }] }),
+            json!({ "key": key, "body": "The page.", "attachments": [
+                { "kind": "file", "path": shot.display().to_string() },
+                { "kind": "file", "path": notes.display().to_string() },
+            ] }),
         )
         .await
         .unwrap();
+        // A file's text is titled with its name.
+        let view = table(
+            &h.app,
+            "report.open",
+            json!({ "kind": "comment", "ticket": key, "n": posted["n"], "attachment": 2 }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["title"], "notes.txt");
         let refused = table(
             &h.app,
             "report.open",

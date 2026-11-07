@@ -26,7 +26,6 @@ pub const LINE_CHARS: usize = 4_000;
 /// Matches past this many are counted as "10,000+" and not reachable with next / previous.
 pub const MATCHES: usize = 10_000;
 
-pub const TITLE: &str = "Report";
 pub const PASTED_TITLE: &str = "Pasted text";
 pub const READ_ONLY: &str = "read-only";
 
@@ -414,7 +413,8 @@ impl Poster {
 pub struct View {
     /// What the page sends back for pages, searches, Copy and Download.
     pub handle: String,
-    /// "Report", or "Pasted text" for a paste not posted yet.
+    /// The attachment's name ("notes.txt", "Pasted text" for posted pasted text), or "Pasted text" for a paste not
+    /// posted yet.
     pub title: String,
     /// "· 48 KB · 2,310 lines · read-only".
     pub meta: String,
@@ -437,10 +437,11 @@ pub struct View {
 
 /// What the view opens on.
 pub enum Of<'a> {
-    /// Comment `n` of `key`, and its row in the thread (none once deleted).
+    /// Text attachment `name` of comment `n` of `key`, and the comment's row in the thread (none once deleted).
     Comment {
         key: &'a str,
         n: u32,
+        name: &'a str,
         row: Option<&'a CommentRow>,
     },
     /// Text pasted into a box on `key`.
@@ -449,8 +450,8 @@ pub enum Of<'a> {
 
 pub fn view(handle: String, report: &OpenReport, of: &Of) -> View {
     let (title, poster, file_name) = match of {
-        Of::Comment { key, n, row } => (
-            TITLE,
+        Of::Comment { key, n, name, row } => (
+            *name,
             row.map(|r| Poster::of(r, key)),
             format!("{key}-comment-{n}.txt"),
         ),
@@ -536,10 +537,11 @@ mod tests {
             &Of::Comment {
                 key: "SHOP-34",
                 n: 4,
+                name: "test-run.txt",
                 row: Some(&row),
             },
         );
-        assert_eq!(v.title, "Report");
+        assert_eq!(v.title, "test-run.txt");
         let poster = v.poster.unwrap();
         assert_eq!(
             poster.heading,
