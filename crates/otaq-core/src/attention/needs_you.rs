@@ -847,6 +847,7 @@ mod tests {
             "perm" => Status::NeedsYou,
             "idle" => Status::Idle,
             "int" => Status::Interrupted,
+            "review" => Status::WaitingForYou,
             other => panic!("{other}"),
         }
     }
@@ -854,8 +855,9 @@ mod tests {
     fn item(spec: &str, since: i64) -> NeedsYouItem {
         let (key, word) = spec.split_once(':').unwrap();
         let project = key.split('-').next().unwrap();
+        let status = status(word);
         NeedsYouItem {
-            group: NeedsYouGroup::Family,
+            group: crate::board::needs_you::group_of(status).unwrap(),
             project: project.into(),
             project_name: if project == "BILL" {
                 "billing-api".into()
@@ -865,7 +867,7 @@ mod tests {
             id: key.into(),
             key: key.parse().unwrap(),
             title: "Add a search box".into(),
-            status: status(word),
+            status,
             interrupted_from: None,
             question: None,
             reason: String::new(),
@@ -1081,6 +1083,47 @@ mod tests {
                 (TWO_MIN + 1, Change::Wait(&["SHOP-2:idle"])),
             ],
             posted: &[(TWO_MIN + 1, "SHOP-2 ended its turn")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "ready for your review is off by default: a ticket reaching Review notifies nothing, also later",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:review", "SHOP-2:review"])),
+                (5, Change::Kind(Kind::ReadyForReview, true)),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "ready for your review turned on: one notification per ticket, never again while it waits",
+            script: &[
+                (0, Change::Kind(Kind::ReadyForReview, true)),
+                (1, Change::Wait(&["SHOP-1:review"])),
+                (30, Change::Tick),
+                (TWO_MIN + 10, Change::Tick),
+                (TWO_MIN + 20, Change::Wait(&["SHOP-2:review"])),
+                (3 * TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (1, "SHOP-1 is ready for your review"),
+                (TWO_MIN + 20, "SHOP-2 is ready for your review"),
+            ],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "ready for your review turned on, but the user is looking at the app: nothing",
+            script: &[
+                (0, Change::Kind(Kind::ReadyForReview, true)),
+                (1, Change::Look(true)),
+                (2, Change::Wait(&["SHOP-1:review"])),
+                (10, Change::Look(false)),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[],
             bodies: &[],
             blocked: false,
         },

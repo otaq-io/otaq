@@ -378,6 +378,11 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
             "Agent tool not available",
             "",
         ),
+        Kind::ReadyForReview => (
+            "notification_kinds.ready_for_review",
+            "Ready for your review",
+            "A ticket reaches Review, or another check you do. Off by default: it blocks no agent.",
+        ),
     }
 }
 
@@ -753,7 +758,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     let mut notification_rows = vec![row(
         "notifications",
         "OS notifications for blocking items",
-        "Permission prompts, agent questions and interrupted sessions. Nothing else ever notifies.",
+        "Permission prompts, agent questions and interrupted sessions. Nothing else notifies unless you tick it below.",
         Control::NotificationsSwitch {
             on: s.notifications,
             status: os_status(input.notification_permission),
@@ -2489,8 +2494,9 @@ mod tests {
         }
     }
 
-    /// T-0372 (ATT-16, d0090): the seven kinds then Play a sound, indented under the main switch, disabled and dimmed
-    /// (not hidden) while it is off; ticking one edits its kind.
+    /// T-0372 (ATT-16, d0090): the eight kinds then Play a sound, indented under the main switch, disabled and dimmed
+    /// (not hidden) while it is off; ticking one edits its kind. Every kind is ticked at first but Ready for your
+    /// review, which blocks no agent.
     #[test]
     fn the_notification_checkboxes_follow_the_switch() {
         let mut s = GlobalSettings::default();
@@ -2512,6 +2518,10 @@ mod tests {
                 ),
                 ("Delivery stopped", ""),
                 ("Agent tool not available", ""),
+                (
+                    "Ready for your review",
+                    "A ticket reaches Review, or another check you do. Off by default: it blocks no agent."
+                ),
                 ("Play a sound", "The OS’s default notification sound."),
             ]
         );
@@ -2519,7 +2529,7 @@ mod tests {
             assert_eq!(
                 row.control,
                 Control::Checkbox {
-                    on: true,
+                    on: row.label != "Ready for your review",
                     disabled: false,
                     indented: true
                 },
@@ -2543,6 +2553,14 @@ mod tests {
             &InstalledFonts::default(),
         )
         .unwrap();
+        edit_global(
+            &mut s,
+            "notification_kinds.ready_for_review",
+            &Value::Flag(true),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
+        assert!(s.notification_kinds.allows(Kind::ReadyForReview));
         assert!(!s.notification_kinds.allows(Kind::Question));
         assert!(s.notification_kinds.allows(Kind::Permission));
         assert!(!s.notification_sound);
@@ -2578,7 +2596,7 @@ mod tests {
 
         s.notifications = false;
         let rows = notifications_rows(&s, PermissionState::Allowed);
-        assert_eq!(rows.len(), 9, "not hidden");
+        assert_eq!(rows.len(), 10, "not hidden");
         for row in &rows[1..] {
             let Control::Checkbox { disabled, .. } = row.control else {
                 panic!()

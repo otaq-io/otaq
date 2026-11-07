@@ -337,8 +337,8 @@ impl Default for GlobalSettings {
 }
 
 /// Which kinds of OS notification go out (d0090, one Settings checkbox each). An unticked kind still turns turquoise
-/// and lands in Needs you; only the OS notification is left out. All on by default, also for settings stored before
-/// the checkboxes existed.
+/// and lands in Needs you; only the OS notification is left out. Every kind that blocks an agent is on by default, also
+/// for settings stored before the checkboxes existed; "Ready for your review" blocks no agent and starts off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NotificationKinds {
@@ -349,6 +349,8 @@ pub struct NotificationKinds {
     pub validation_decision: bool,
     pub auto_merge_stopped: bool,
     pub tool_unavailable: bool,
+    /// A ticket reached a check the user does: off by default.
+    pub ready_for_review: bool,
 }
 
 impl Default for NotificationKinds {
@@ -361,6 +363,7 @@ impl Default for NotificationKinds {
             validation_decision: true,
             auto_merge_stopped: true,
             tool_unavailable: true,
+            ready_for_review: false,
         }
     }
 }
@@ -376,6 +379,7 @@ impl NotificationKinds {
             Kind::ValidationDecision => self.validation_decision,
             Kind::AutoMergeStopped => self.auto_merge_stopped,
             Kind::ToolUnavailable => self.tool_unavailable,
+            Kind::ReadyForReview => self.ready_for_review,
         }
     }
 
@@ -389,6 +393,7 @@ impl NotificationKinds {
             Kind::ValidationDecision => &mut self.validation_decision,
             Kind::AutoMergeStopped => &mut self.auto_merge_stopped,
             Kind::ToolUnavailable => &mut self.tool_unavailable,
+            Kind::ReadyForReview => &mut self.ready_for_review,
         };
         *slot = on;
     }
@@ -1642,23 +1647,29 @@ mod tests {
         assert!(!odd.usage_data.sends());
     }
 
-    /// T-0371 (d0090): settings stored before the per-kind checkboxes and the sound read with every kind and the
-    /// sound on; one kind turned off is kept, the others stay on.
+    /// T-0371 (d0090): settings stored before the per-kind checkboxes and the sound read with every blocking kind and
+    /// the sound on, and "Ready for your review" off; one kind turned off is kept, the others stay on.
     #[test]
     fn old_settings_read_with_every_kind_and_the_sound_on() {
+        let blocking = || Kind::ALL.into_iter().filter(|k| *k != Kind::ReadyForReview);
         let old: GlobalSettings =
             read_or_default(serde_json::json!({"notifications": false, "terminal_font_size": 15}));
         assert!(!old.notifications);
         assert_eq!(old.notification_kinds, NotificationKinds::default());
-        assert!(Kind::ALL.iter().all(|k| old.notification_kinds.allows(*k)));
+        assert!(blocking().all(|k| old.notification_kinds.allows(k)));
+        assert!(!old.notification_kinds.allows(Kind::ReadyForReview));
         assert!(old.notification_sound);
         let fresh = GlobalSettings::default();
         assert!(fresh.notifications && fresh.notification_sound);
+        assert!(blocking().all(|k| fresh.notification_kinds.allows(k)));
         assert!(
-            Kind::ALL
-                .iter()
-                .all(|k| fresh.notification_kinds.allows(*k))
+            !fresh.notification_kinds.allows(Kind::ReadyForReview),
+            "a ticket ready for your review notifies only once the user ticks it"
         );
+        let ticked: GlobalSettings =
+            read_or_default(serde_json::json!({"notification_kinds": {"ready_for_review": true}}));
+        assert!(ticked.notification_kinds.allows(Kind::ReadyForReview));
+        assert!(ticked.notification_kinds.allows(Kind::Permission));
 
         let one_off: GlobalSettings = read_or_default(serde_json::json!({
             "notification_kinds": {"turn_ended": false},
