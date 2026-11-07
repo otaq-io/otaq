@@ -273,10 +273,11 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             ..option(label, Some(icon), view == kind, Change::View { view: kind })
         };
     // A view with no key of its own: the project's Settings.
-    let view_option_plain = |kind: ViewKind, label: &str, icon: IconName, tooltip: &str| ToolbarOption {
-        tooltip: Some(tooltip.to_owned()),
-        ..option(label, Some(icon), view == kind, Change::View { view: kind })
-    };
+    let view_option_plain =
+        |kind: ViewKind, label: &str, icon: IconName, tooltip: &str| ToolbarOption {
+            tooltip: Some(tooltip.to_owned()),
+            ..option(label, Some(icon), view == kind, Change::View { view: kind })
+        };
     let group_by: GroupBy = prefs.group_by.into();
     let dependencies: Dependencies = prefs.dependencies.into();
     Toolbar {

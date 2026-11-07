@@ -65,10 +65,7 @@ use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::onboarding_page::{
     ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts, tools_intro,
 };
-use crate::view_models::settings::{
-    GLOBAL_SECTIONS, problem_for,
-    remove_text,
-};
+use crate::view_models::settings::{GLOBAL_SECTIONS, problem_for, remove_text};
 use crate::view_models::theme_credits;
 use crate::view_models::usage_data;
 use crate::view_models::warm_build;
@@ -602,7 +599,12 @@ pub fn view(page: Page) -> View {
     }
 }
 
-pub(crate) fn row(field: &str, label: &str, description: impl Into<String>, control: Control) -> Row {
+pub(crate) fn row(
+    field: &str,
+    label: &str,
+    description: impl Into<String>,
+    control: Control,
+) -> Row {
     Row {
         field: field.to_owned(),
         label: label.to_owned(),
@@ -972,60 +974,60 @@ pub fn ticket_resource_rows(s: &ProjectSettings, p: &[SettingProblem]) -> Vec<Ro
         .map(|problem| problem.message.as_str())
         .collect();
     vec![
-                row(
-                    "resource_create",
-                    "Per-ticket resources \u{b7} optional",
-                    format!(
-                        "Creates what each ticket needs of its own, like a database named ${db_name} from \
+        row(
+            "resource_create",
+            "Per-ticket resources \u{b7} optional",
+            format!(
+                "Creates what each ticket needs of its own, like a database named ${db_name} from \
                          ${db_template}, in each new copy after the files and before setup. {PRODUCT_NAME} then sets \
                          {db_name}, {db_template} and {resource_dir} in the ticket’s commands and sessions."
-                    ),
-                    text(
-                        &s.resource_create,
-                        "none",
-                        true,
-                        problem_for(p, "resource_create"),
-                    ),
-                ),
-                row(
-                    "resource_remove",
-                    "Remove command",
-                    "Runs at Done and Close in the repository, for a resource Create made.",
-                    text(
-                        &s.resource_remove,
-                        "none",
-                        true,
-                        problem_for(p, "resource_remove"),
-                    ),
-                ),
-                row(
-                    "resource_template_refresh",
-                    "Template refresh command",
-                    format!(
-                        "Runs in the repository after Done, so new tickets start from the merged schema. \
+            ),
+            text(
+                &s.resource_create,
+                "none",
+                true,
+                problem_for(p, "resource_create"),
+            ),
+        ),
+        row(
+            "resource_remove",
+            "Remove command",
+            "Runs at Done and Close in the repository, for a resource Create made.",
+            text(
+                &s.resource_remove,
+                "none",
+                true,
+                problem_for(p, "resource_remove"),
+            ),
+        ),
+        row(
+            "resource_template_refresh",
+            "Template refresh command",
+            format!(
+                "Runs in the repository after Done, so new tickets start from the merged schema. \
                          Creates wait while it runs. ${db_template} is set."
-                    ),
-                    text(
-                        &s.resource_template_refresh,
-                        "none",
-                        true,
-                        problem_for(p, "resource_template_refresh"),
-                    ),
-                ),
-                row(
-                    "schema_paths",
-                    "Schema paths",
-                    "One path per line, like db/migrations/**. Two tickets in Review adding files under the same \
+            ),
+            text(
+                &s.resource_template_refresh,
+                "none",
+                true,
+                problem_for(p, "resource_template_refresh"),
+            ),
+        ),
+        row(
+            "schema_paths",
+            "Schema paths",
+            "One path per line, like db/migrations/**. Two tickets in Review adding files under the same \
                      path get a warning.",
-                    Control::Text {
-                        value: s.schema_paths.join("\n"),
-                        placeholder: "none".into(),
-                        mono: true,
-                        multiline: true,
-                        problem: (!schema_problems.is_empty()).then(|| schema_problems.join("; ")),
-                    },
-                ),
-            ]
+            Control::Text {
+                value: s.schema_paths.join("\n"),
+                placeholder: "none".into(),
+                mono: true,
+                multiline: true,
+                problem: (!schema_problems.is_empty()).then(|| schema_problems.join("; ")),
+            },
+        ),
+    ]
 }
 
 /// The × of an environment variable row without a name.
@@ -2541,10 +2543,7 @@ mod tests {
     fn the_merge_check_row_ends_the_repository_and_saves_as_typed() {
         let mut s = ProjectSettings::default();
         let rows = project_rows(&s, &GlobalSettings::default());
-        let at = rows
-            .iter()
-            .position(|r| r.field == "merge_check")
-            .unwrap();
+        let at = rows.iter().position(|r| r.field == "merge_check").unwrap();
         assert_eq!(rows[at + 1].field, "run_command", "the Run card follows");
         let row = &rows[at];
         assert_eq!(row.label, "Merge check \u{b7} optional");
@@ -3167,7 +3166,11 @@ mod tests {
         };
         let rows: Vec<&Row> = sections.iter().flat_map(|s| &s.rows).collect();
         let at = rows.iter().position(|r| r.field == "env_vars").unwrap();
-        assert_eq!(rows[at - 1].field, "setup_command", "after the setup command");
+        assert_eq!(
+            rows[at - 1].field,
+            "setup_command",
+            "after the setup command"
+        );
         assert_eq!(rows[at + 1].field, "env_files", "before the files to copy");
         let row = rows[at];
         assert_eq!(row.label, "Environment variables");

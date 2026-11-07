@@ -24,8 +24,7 @@ use crate::shell::tilde;
 use crate::view_models::settings::problem_for;
 use crate::view_models::settings_page::{
     ButtonAction, Choice, Control, Page, ProjectInputs, ProjectSection, Row, Section, app_rows,
-    env_vars_row, merge_check_row, multiline, row, text, ticket_resource_rows,
-    warm_builds_row,
+    env_vars_row, merge_check_row, multiline, row, text, ticket_resource_rows, warm_builds_row,
 };
 
 /// One entry of the section list on the left.
@@ -112,7 +111,12 @@ pub fn page(input: &ProjectInputs) -> Page {
         ProjectSection::Repository,
         "Where agents start, how work leaves, and what runs before a merge.",
         vec![
-            row("name", "Name", "", text(&info.name, "Project name", false, None)),
+            row(
+                "name",
+                "Name",
+                "",
+                text(&info.name, "Project name", false, None),
+            ),
             row(
                 "base_branch",
                 "Base branch",
@@ -491,18 +495,42 @@ mod tests {
         let labels: Vec<&str> = v.nav.iter().map(|n| n.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Flow", "Repository", "Run", "Workspace", "Notes for agents", "Remove project"]
+            [
+                "Flow",
+                "Repository",
+                "Run",
+                "Workspace",
+                "Notes for agents",
+                "Remove project"
+            ]
         );
         assert_eq!(v.path, "/code/shop-web");
-        let repository: Vec<&str> = sections(&v)[1].rows.iter().map(|r| r.label.as_str()).collect();
+        let repository: Vec<&str> = sections(&v)[1]
+            .rows
+            .iter()
+            .map(|r| r.label.as_str())
+            .collect();
         assert_eq!(
             repository,
-            ["Name", "Base branch", "Delivery", "Pull requests through", "Merge check \u{b7} optional"]
+            [
+                "Name",
+                "Base branch",
+                "Delivery",
+                "Pull requests through",
+                "Merge check \u{b7} optional"
+            ]
         );
-        let workspace: Vec<&str> = sections(&v)[3].rows.iter().map(|r| r.field.as_str()).collect();
+        let workspace: Vec<&str> = sections(&v)[3]
+            .rows
+            .iter()
+            .map(|r| r.field.as_str())
+            .collect();
         assert_eq!(workspace[..3], ["setup_command", "env_vars", "env_files"]);
         assert!(workspace.contains(&"resource_create"));
-        assert_eq!(workspace[workspace.len() - 2..], ["let_finished_tickets_answer", "warm_builds"]);
+        assert_eq!(
+            workspace[workspace.len() - 2..],
+            ["let_finished_tickets_answer", "warm_builds"]
+        );
         assert_eq!(sections(&v)[1].title.as_deref(), Some("Repository"));
     }
 
@@ -540,7 +568,10 @@ mod tests {
         };
         let labels: Vec<&str> = delivers.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["Merge into develop", "Pull request", "Either"]);
-        assert_eq!((delivers_value.as_str(), mode_value.as_str()), ("pr", "automatic"));
+        assert_eq!(
+            (delivers_value.as_str(), mode_value.as_str()),
+            ("pr", "automatic")
+        );
         assert_eq!(modes.len(), 2);
         assert_eq!(either, None);
         assert_eq!(note, DELIVERY_NOTE);
@@ -558,7 +589,10 @@ mod tests {
         assert!(modes.is_empty());
         assert_eq!(either.as_deref(), Some(EITHER_NOTE));
         // A flow that doesn't read.
-        assert!(matches!(delivery_row(None, "main").control, Control::Note { .. }));
+        assert!(matches!(
+            delivery_row(None, "main").control,
+            Control::Note { .. }
+        ));
     }
 
     #[test]
@@ -577,11 +611,17 @@ mod tests {
         );
         // Either is chosen at your click.
         let either = deliver_as(&pr, DELIVERS_FIELD, "either").unwrap();
-        assert_eq!((either.delivers, either.mode), (Delivers::Either, DeliveryMode::Click));
+        assert_eq!(
+            (either.delivers, either.mode),
+            (Delivers::Either, DeliveryMode::Click)
+        );
         assert_eq!(either.agent.as_deref(), Some("Shipper"));
         assert!(deliver_as(&either, MODE_FIELD, "automatic").is_err());
         let click = deliver_as(&pr, MODE_FIELD, "click").unwrap();
-        assert_eq!((click.delivers, click.mode), (Delivers::Pr, DeliveryMode::Click));
+        assert_eq!(
+            (click.delivers, click.mode),
+            (Delivers::Pr, DeliveryMode::Click)
+        );
         assert!(deliver_as(&pr, DELIVERS_FIELD, "carrier pigeon").is_err());
         assert!(is_delivery_field(MODE_FIELD) && !is_delivery_field("merge_check"));
     }

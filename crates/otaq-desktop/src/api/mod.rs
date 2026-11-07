@@ -90,6 +90,8 @@ pub use pr::{
     StartParams as PrStartParams,
 };
 #[cfg(test)]
+pub use project_settings::export_types as export_project_settings_types;
+#[cfg(test)]
 pub use recovery::{
     CleanupParams, GroupParams as CleanupGroupParams, ResumeParams as RecoveryResumeParams,
     SummaryParams as AfterRestartParams, ToggleParams as CleanupToggleParams,
@@ -119,11 +121,9 @@ pub use sections::{
 };
 #[cfg(test)]
 pub use settings::{
-    AgentsOpen, SettingsEdit, SettingsLink, SettingsProject, SettingsRevealParams, export_agent_types,
-    export_flow_types,
+    AgentsOpen, SettingsEdit, SettingsLink, SettingsProject, SettingsRevealParams,
+    export_agent_types, export_flow_types,
 };
-#[cfg(test)]
-pub use project_settings::export_types as export_project_settings_types;
 #[cfg(test)]
 pub use sheet::AnswerAgentParams as SheetAnswerAgentParams;
 #[cfg(test)]
