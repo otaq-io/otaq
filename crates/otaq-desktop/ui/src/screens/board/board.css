@@ -156,6 +156,17 @@
   font: 400 11px/normal var(--font-mono);
 }
 
+/* Who acts in the column, in plain words under the title ("An agent does the work", "You review and approve"). */
+.board-column-who {
+  overflow: hidden;
+  flex: none;
+  padding: 0 4px 4px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.35 var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* The title's tooltip wrapper: the title still shortens with an ellipsis (FLW-12). */
 .board-column-header > .tooltip-anchor {
   display: flex;
@@ -1061,4 +1072,57 @@ button.board-search-option[data-highlighted] {
   .board-lane-progress {
     width: 96px;
   }
+}
+
+/* The filter strip under the toolbar while the search filters the board: "Showing 3 of 17", the chips, "+ is:needs-you"
+   and Clear. */
+.board-filter-strip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 16px 8px;
+  color: var(--text-muted);
+}
+
+.board-filter-showing {
+  flex: none;
+  font: 400 12px var(--font-ui);
+}
+
+.board-filter-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+}
+
+button.board-filter-chip {
+  cursor: pointer;
+}
+
+.board-filter-chip-remove {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.board-filter-clear {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
 }

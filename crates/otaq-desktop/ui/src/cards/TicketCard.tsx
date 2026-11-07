@@ -1,12 +1,12 @@
-// The one-line ticket card (BRD-03; *24 · The two views*): the key and its priority chip (P1, P2, P4), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
-// state's colour (a blocked ticket's in amber after a link, DPV-01), an amber "You don't have the skill `<name>`"
-// while a stage whose skill Otaq can't find runs (no-skill-copies F1), a muted "Blocks SHOP-20" when others wait for
-// it, the Plan's "Plan · 4 pieces" and a build stage's piece rows (d0133), then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
-// has a coloured edge (turquoise, the review colour for your check, red for a closed parent). The pill, the model,
-// the tokens and the answer options are the ticket's sheet's. Everything it says comes from a `TicketCardView`
-// (`card_page.rs`); the board (or the gallery) decides the moment of interaction: hovered, selected, chain, dragging
-// (*Interaction states*). Resting on the key row shows the full status and what the card has no room for; the quick
-// actions (open terminal, open sheet) show on hover.
+// The ticket card: at most four lines plus one action. Its key with a P1/P2 chip, the title on two lines (the full
+// title in a tooltip), one status line in words with a dot in the state's colour (an amber hourglass while it waits),
+// only when set one muted note under it (the ticket's own agent for a stage, or the stages it skips), then who and how
+// long, and the card's one action. A coloured edge only while the card needs the user: turquoise asks, the review
+// colour is your review, red broke and waits. Hovered, a card others wait for gains one line ("SHOP-30 waits for
+// it"). Tokens, models, rounds, Plan pieces, Run ports and decision counts are the sheet's, never the card's.
+// Everything it says comes from a `TicketCardView` (`card_page.rs`); the board (or the gallery) decides the moment of
+// interaction: hovered, selected, chain, dragging. Resting on the key row shows the full status and what the card has
+// no room for; the quick actions (open terminal, open sheet) show on hover.
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
 import { Button, CodeText, PriorityChip, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
@@ -16,7 +16,6 @@ import type { CardStatusHover } from "../generated/CardStatusHover";
 import type { CardStatusLine } from "../generated/CardStatusLine";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { Icon } from "../theme/Icon";
-import { PieceRows } from "./Pieces";
 import { type CardState, edgeColor, paletteInk, RESTING, toneInk } from "./look";
 
 export interface TicketCardProps {
@@ -122,8 +121,8 @@ function WithHover({
   );
 }
 
-/** The one status line: a 7 px dot in the state's colour (a blocked ticket's link, DPV-01), then the words (in the
- * edge's colour while the card needs the user). */
+/** The one status line: a 7 px dot in the state's colour (an amber hourglass while it waits), then the words (in the
+ * edge's colour while the card needs the user; a command in backticks as code). */
 function StatusLine({ line }: { line: CardStatusLine }) {
   return (
     <div className="card-status">
@@ -135,7 +134,7 @@ function StatusLine({ line }: { line: CardStatusLine }) {
         </span>
       )}
       <span className="card-status-text" style={{ color: toneInk(line.tone).fg }}>
-        {line.text}
+        <CodeText text={line.text} />
       </span>
     </div>
   );
@@ -205,7 +204,8 @@ function Body({
   card,
   onAction,
   selected,
-}: Pick<TicketCardProps, "card" | "onAction"> & { selected: boolean }) {
+  showsBlocks,
+}: Pick<TicketCardProps, "card" | "onAction"> & { selected: boolean; showsBlocks: boolean }) {
   return (
     <>
       <WithHover content={<StatusHoverCard hover={card.hover} />} selected={selected}>
@@ -219,27 +219,19 @@ function Body({
         <div className="card-title">{card.title}</div>
       </Tooltip>
       {card.status && <StatusLine line={card.status} />}
-      {/* A running stage whose skill Otaq can't find (no-skill-copies F1): amber, one line, the name as code; the
-          whole sentence on hover when the card is too narrow for it. */}
-      {card.skill_warning !== null && (
-        <Tooltip text={card.skill_warning}>
-          <div className="card-skill-warning">
-            <Icon name="triangle-alert" size={11} />
-            <span className="card-skill-warning-text">
-              <CodeText text={card.skill_warning} />
-            </span>
-          </div>
-        </Tooltip>
+      {card.note !== null && (
+        <div className="card-note">
+          <Icon name={card.note.icon} size={12} />
+          <span>{card.note.text}</span>
+        </div>
       )}
-      {card.pieces !== null && <PieceRows pieces={card.pieces} />}
-      {card.blocks !== null && (
+      {/* Hovered (its chain lit), a card others wait for says which: "SHOP-30 waits for it". */}
+      {showsBlocks && card.blocks !== null && (
         <div className="card-blocks">
           <Icon name="link" size={11} />
           <span>{card.blocks.line}</span>
         </div>
       )}
-      {card.plan !== null && <div className="card-plan">{card.plan}</div>}
-      {card.origin !== null && <div className="card-origin">{card.origin}</div>}
       <WhoRow card={card} {...(onAction ? { onAction } : {})} />
     </>
   );
@@ -268,7 +260,12 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenSh
       }
       onClick={onSelect}
     >
-      <Body card={card} selected={state.selected} {...(onAction ? { onAction } : {})} />
+      <Body
+        card={card}
+        selected={state.selected}
+        showsBlocks={state.chain === "origin"}
+        {...(onAction ? { onAction } : {})}
+      />
       {(onOpenSheet !== undefined || state.hovered) && (
         <QuickActions card={card} {...(onOpenSheet ? { onOpenSheet } : {})} />
       )}

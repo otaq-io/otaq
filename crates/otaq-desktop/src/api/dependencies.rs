@@ -266,7 +266,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(view["waits_for"]["rows"][0]["key"], json!(api));
-        assert_eq!(view["waits_for"]["rows"][0]["place"], "Backlog \u{b7} ready to start");
+        assert_eq!(view["waits_for"]["rows"][0]["place"], "Backlog \u{b7} not started");
         assert_eq!(view["waits_for"]["note"], "starts when it merges");
         // Dropped on Dev, the blocked page starts: it waits at the top of Dev until its parent merges.
         let dropped = table(

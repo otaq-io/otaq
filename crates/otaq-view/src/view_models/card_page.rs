@@ -33,30 +33,25 @@ pub struct TicketCardView {
     /// The priority chip after the key: P1, P2 and P4, none for Normal (d0065; #36), in every column.
     pub priority: Option<PriorityView>,
     pub title: String,
-    /// The one status line; `null` on a calm Backlog card.
+    /// The one status line: the state's dot (an amber hourglass while it waits) and its words.
     pub status: Option<StatusLine>,
-    /// "Codex doesn't have the skill `/team-validate`": one line under the status line while a stage waits because its
-    /// tool doesn't have the skill it names (the card offers Check again and Change agent…). The skill's name is in
-    /// backticks: the page draws it as code.
-    pub skill_warning: Option<String>,
-    /// "Blocks SHOP-20" under the line, muted, with the List's "blocks 1" (DPV-01).
+    /// One muted line under it, only when set: the ticket's own agent for a stage, or the stages it skips.
+    pub note: Option<crate::view_models::card_line::Note>,
+    /// What waits for it: the line the card gains while hovered ("SHOP-30 waits for it"), the List's "blocks 1".
     pub blocks: Option<crate::view_models::dependencies::Blocks>,
     /// The tool mark of whoever has the turn; `null` while only one tool is connected (d0086).
     pub avatar: Option<ToolAvatarView>,
-    /// The agent's name ("Rust developer"); `null` while there is only one agent (d0086).
+    /// The agent's name ("Strong"); `null` while there is only one agent (d0086).
     pub who: Option<String>,
-    /// How long ago the working agent last said something ("3m").
+    /// How long the agent has been at it ("26m"), or when a finished card finished ("today").
     pub time: Option<Signal>,
-    /// The coloured edge of a card that needs the user: its colour.
+    /// The coloured edge, only while the card needs the user: turquoise asks or decides, the review colour is
+    /// your review, red broke and waits.
     pub edge: Option<Tone>,
-    /// The card's one action (Answer, Reply, Review, Decide…).
+    /// The card's one action (Answer, Open, Review, Decide, Retry, Mark merged…).
     pub action: Option<CardAction>,
-    /// "Plan · 4 pieces", "Plan · 2 pieces so far": quiet, under the line (d0133, `s30-01`); none without pieces.
-    pub plan: Option<String>,
-    /// A build stage's pieces, a row each (d0133, `s30-02`): "PIECES · 4", "40.2 · Wishlist button · working".
-    pub pieces: Option<crate::view_models::pieces::CardPieces>,
-    /// "Created by Noyan · Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
-    pub origin: Option<String>,
+    /// The helper whose terminal the action opens ("40.3"), when a helper's permission prompt waits.
+    pub opens: Option<String>,
     /// The full status and what the card has no room for.
     pub hover: StatusHover,
     pub faded: Option<f32>,
@@ -79,20 +74,14 @@ impl TicketCardView {
             priority: priority::on_card(ticket.priority).map(priority::view),
             title: vm.title,
             status: vm.one_line.line,
-            skill_warning: ticket
-                .flags
-                .missing_skill
-                .as_ref()
-                .map(otaq_core::domain::MissingSkill::text),
+            note: vm.one_line.note,
             blocks: vm.one_line.blocks,
             avatar: vm.avatar,
             who: vm.one_line.who,
             time: vm.one_line.time,
             edge: vm.one_line.edge,
             action: vm.one_line.action,
-            plan: vm.plan,
-            pieces: vm.pieces.map(|p| *p),
-            origin: vm.origin,
+            opens: crate::view_models::pieces::opens(ticket),
             hover: vm.hover,
             faded: vm.faded,
             fresh: vm.fresh,
@@ -176,16 +165,94 @@ mod tests {
         (line.text.as_str(), line.dot, line.tone)
     }
 
-    /// A stage held because its tool doesn't have its skill says, word for word, "Codex doesn't have the skill
-    /// `/team-validate`" on a line of its own; any other card says nothing.
+    /// Every cell the gallery draws.
+    fn every(g: &CardGallery) -> impl Iterator<Item = &GalleryCell> {
+        g.variants
+            .iter()
+            .chain(&g.agents)
+            .chain(&g.tools)
+            .chain(&g.flows)
+            .chain(&g.pieces)
+            .chain(&g.planning)
+    }
+
+    /// Every card state the fixtures hold fits the card: its key (with at most a P1/P2 chip), its title, one status
+    /// line, at most one muted note, one row of who and how long, and at most one action. The card has no other line
+    /// to fill, and only three edge colours.
     #[test]
-    fn a_stage_held_for_its_skill_says_which_under_its_line() {
+    fn every_card_state_fits_four_lines_and_one_action() {
+        let g = gallery();
+        for cell in every(&g) {
+            let card = &cell.card;
+            let json = serde_json::to_value(card).unwrap();
+            let keys: Vec<&str> = json
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            for gone in [
+                "plan",
+                "pieces",
+                "origin",
+                "skill_warning",
+                "flag",
+                "situation",
+                "footer",
+                "options",
+                "tokens",
+                "model",
+            ] {
+                assert!(!keys.contains(&gone), "{}: {gone}", cell.name);
+            }
+            let lines = 1 // key
+                + 1 // title, two lines at most (the page clamps it)
+                + usize::from(card.status.is_some())
+                + usize::from(card.note.is_some())
+                + usize::from(card.who.is_some() || card.time.is_some() || card.action.is_some());
+            assert!(lines <= 5, "{}: {lines} lines", cell.name);
+            assert!(
+                lines - usize::from(card.note.is_some()) <= 4,
+                "{}: four lines besides the note",
+                cell.name
+            );
+            assert!(
+                card.priority.as_ref().is_none_or(|p| p.number <= 2),
+                "{}: only P1 and P2 show",
+                cell.name
+            );
+            assert!(
+                matches!(
+                    card.edge,
+                    None | Some(Tone::Attention | Tone::Review | Tone::Error)
+                ),
+                "{}: edge {:?}",
+                cell.name,
+                card.edge
+            );
+            if let Some(status) = &card.status {
+                for never in [" round ", "tokens", ":40", "decisions open"] {
+                    assert!(
+                        !status.text.contains(never),
+                        "{}: {:?} says {never:?}",
+                        cell.name,
+                        status.text
+                    );
+                }
+            }
+        }
+    }
+
+    /// A stage held because its tool doesn't have its skill is red: the line says, word for word, "Codex doesn't
+    /// have the skill `/team-validate`".
+    #[test]
+    fn a_stage_held_for_its_skill_says_which_on_its_line() {
         use crate::view_models::card_fixtures::{NOW, ticket};
         use otaq_core::agent_tools::Tool;
         use otaq_core::domain::{MissingSkill, Status};
         let mut t = ticket("SHOP-41", "Cart totals", Status::Checking);
         let calm = TicketCardView::of(&t, &CardExtras::default(), NOW);
-        assert_eq!(calm.skill_warning, None);
+        assert_eq!(line(&calm).0, "Checking");
 
         t.flags.missing_skill = Some(MissingSkill {
             tool: Tool::Codex,
@@ -193,16 +260,20 @@ mod tests {
         });
         let card = TicketCardView::of(&t, &CardExtras::default(), NOW);
         assert_eq!(
-            card.skill_warning.as_deref(),
-            Some("Codex doesn\u{2019}t have the skill `/team-validate`")
+            line(&card),
+            (
+                "Codex doesn\u{2019}t have the skill `/team-validate`",
+                Palette::Error,
+                Tone::Error
+            )
         );
+        assert_eq!(card.edge, Some(Tone::Error));
     }
 
-    /// PAU-03, PAU-08 (`s24-07`): a ticket the pause stopped reads "Paused" in amber, with what it was doing, its
-    /// timer held, no edge and no action; one waiting for the user keeps its question; a ticket in a stage that
-    /// would start waits ("Paused · starts when you resume").
+    /// A ticket the pause stopped reads "Paused · resumes where it was", with its timer held, no edge and no
+    /// action; one waiting for the user keeps its question and its edge.
     #[test]
-    fn a_paused_card_reads_paused_in_amber_with_its_timer_held() {
+    fn a_paused_card_resumes_where_it_was() {
         use crate::view_models::card_fixtures::{NOW, ticket};
         use otaq_core::domain::{Status, ValidationRound};
         let paused = CardExtras {
@@ -218,7 +289,14 @@ mod tests {
         };
 
         let working = TicketCardView::of(&stopped(None), &paused, NOW);
-        assert_eq!(line(&working), ("Paused", Palette::Paused, Tone::Paused));
+        assert_eq!(
+            line(&working),
+            (
+                "Paused \u{b7} resumes where it was",
+                Palette::Paused,
+                Tone::Secondary
+            )
+        );
         assert_eq!(
             working.time.as_ref().unwrap().text,
             "3m",
@@ -231,15 +309,10 @@ mod tests {
         validating.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
         assert_eq!(
             line(&TicketCardView::of(&validating, &paused, NOW)).0,
-            "Paused \u{b7} validating \u{b7} round 1 of 3"
-        );
-        validating.flags.check = Some("Security".into());
-        assert_eq!(
-            line(&TicketCardView::of(&validating, &paused, NOW)).0,
-            "Paused \u{b7} checking \u{b7} round 1 of 3"
+            "Paused \u{b7} resumes where it was"
         );
 
-        // A question keeps its words and its edge; answering starts that agent only (PAU-05).
+        // A question keeps its words and its edge.
         let mut asks = stopped(Some(Status::AsksYou));
         asks.title = "Add dark mode toggle".into();
         let question = CardExtras {
@@ -247,61 +320,49 @@ mod tests {
             ..paused.clone()
         };
         let card = TicketCardView::of(&asks, &question, NOW);
-        assert_eq!(line(&card).0, "Asks you: follow the system setting?");
+        assert_eq!(line(&card).0, "Asks you \u{b7} follow the system setting?");
         assert_eq!(card.edge, Some(Tone::Attention));
 
-        // The same ticket outside a pause is interrupted, as after a restart.
+        // The same ticket outside a pause was stopped by a restart: red, with Resume.
         let card = TicketCardView::of(&stopped(None), &CardExtras::default(), NOW);
-        assert_ne!(line(&card).0, "Paused");
+        assert_eq!(line(&card).0, "Stopped by a restart");
+        assert_eq!(card.edge, Some(Tone::Error));
+        assert_eq!(card.action.as_ref().unwrap().label, "Resume");
     }
 
+    /// A permission prompt asks you, turquoise, with Open; the app it runs isn't on the card.
     #[test]
-    fn a_needs_you_card_has_one_line_an_edge_and_one_action() {
+    fn a_permission_prompt_asks_you_and_opens() {
         let g = gallery();
         let card = cell(&g, "Needs you + running + 2 dependencies");
         assert_eq!(
             line(card),
             (
-                "Needs you: allow rm -rf .next? \u{b7} also running :4022",
+                "Asks you \u{b7} allow rm -rf .next?",
                 Palette::Attn,
                 Tone::Attention
             )
         );
         assert_eq!(card.edge, Some(Tone::Attention));
-        assert_eq!(card.action.as_ref().unwrap().label, "Answer");
-        assert_eq!(card.hover.status, "Needs you \u{b7} permission");
+        assert_eq!(card.action.as_ref().unwrap().label, "Open");
         assert!(card.avatar.is_none(), "one tool connected: no tool mark");
     }
 
     #[test]
-    fn the_pill_the_model_and_the_tokens_leave_the_card() {
+    fn a_working_card_is_calm() {
         let g = gallery();
-        let json = serde_json::to_value(cell(&g, "Working")).unwrap();
-        let card = json.as_object().unwrap();
-        for gone in [
-            "flag",
-            "situation",
-            "footer",
-            "options",
-            "pinned",
-            "outline",
-        ] {
-            assert!(!card.contains_key(gone), "{gone}");
-        }
-        assert_eq!(json["status"]["text"], "Working");
-        assert_eq!(json["time"]["text"], "40s");
-        assert_eq!(json["edge"], serde_json::Value::Null);
-        assert_eq!(json["action"], serde_json::Value::Null);
+        let card = cell(&g, "Working");
+        assert_eq!(line(card), ("Working", Palette::Working, Tone::Secondary));
+        assert_eq!(card.edge, None);
+        assert_eq!(card.action, None);
     }
 
     #[test]
     fn a_check_out_of_rounds_says_decide() {
         let g = gallery();
         let card = cell(&g, "Security failed \u{d7}3");
-        assert_eq!(
-            line(card).0,
-            "Security failed 3 times \u{b7} unescaped SQL in search \u{b7} see comment"
-        );
+        assert_eq!(line(card).0, "Security failed 3 times \u{b7} decide");
+        assert_eq!(card.edge, Some(Tone::Attention));
         let action = card.action.as_ref().unwrap();
         assert_eq!(
             (action.kind, action.label),
@@ -309,20 +370,17 @@ mod tests {
         );
         let card = cell(&g, "Validation failed 3 times (0063)");
         assert_eq!(card.action.as_ref().unwrap().kind, CardActionKind::Decide);
-        assert_eq!(
-            line(card).0,
-            "Failed 3 times: arrow keys do nothing in the list \u{b7} see comment"
-        );
+        assert_eq!(line(card).0, "Validate failed 3 times \u{b7} decide");
     }
 
     #[test]
-    fn your_check_has_the_review_edge_and_review() {
+    fn your_review_has_the_review_edge_and_review() {
         let g = gallery();
         let card = cell(&g, "Your check \u{b7} passed Security");
         assert_eq!(
             line(card),
             (
-                "Your check \u{b7} Passed Security \u{b7} round 2",
+                "Ready for you \u{b7} passed Security",
                 Palette::Review,
                 Tone::Review
             )
@@ -331,31 +389,27 @@ mod tests {
         assert_eq!(card.action.as_ref().unwrap().kind, CardActionKind::Review);
     }
 
+    /// An open PR is the user's to mark merged; the card has no edge.
     #[test]
-    fn quiet_buttons_leave() {
+    fn an_open_pr_offers_mark_merged() {
         let g = gallery();
-        // Send back with PR comments is a quiet button: the sheet has it.
         let pr = cell(&g, "PR #481 open \u{b7} opened by Shipper");
+        assert_eq!(line(pr).0, "PR #481 open");
         assert_eq!(
-            line(pr).0,
-            "PR #481 open \u{b7} Opened by Shipper \u{b7} 2 h ago"
+            pr.action.as_ref().map(|a| (a.kind, a.label)),
+            Some((CardActionKind::MarkMerged, "Mark merged"))
         );
-        assert_eq!(pr.action, None);
         assert_eq!(pr.edge, None);
     }
 
-    /// d0068 (Q-E): a card a Project agent created keeps naming it.
+    /// The card never says who created it (Noyan's panel lists what it created).
     #[test]
-    fn an_agent_made_card_names_its_agent() {
+    fn an_agent_made_card_says_nothing_of_its_maker() {
         let g = gallery();
         let card = cell(&g, "Created by Noyan (0068)");
-        assert!(
-            card.origin
-                .as_deref()
-                .is_some_and(|o| o.starts_with("Created by")),
-            "{:?}",
-            card.origin
-        );
+        let json = serde_json::to_value(card).unwrap();
+        assert!(json.get("origin").is_none());
+        assert!(!json.to_string().contains("Created by"));
     }
 
     #[test]

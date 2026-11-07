@@ -206,6 +206,8 @@ export interface StripBodyProps {
 
 /** The strip for a loaded view (also what the tests and the gallery render). */
 export function StripBody({ view, project, onOpen = ignore, onNext = ignore }: StripBodyProps) {
+  // Nothing needs the user anywhere: the strip isn't shown.
+  if (view.groups.length === 0 && view.empty === null && view.next === null) return null;
   return (
     <div className="strip" role="region" aria-label="Needs you" data-empty={view.empty !== null || undefined}>
       {view.empty !== null && (

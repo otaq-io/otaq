@@ -21,15 +21,13 @@ const SHOP_22: TicketCardView = {
   time: null,
   edge: "attention",
   action: { kind: "open", label: "Answer", icon: null, primary: true },
-  origin: null,
+  note: null,
+  opens: null,
   hover: { status: "Needs you · permission", details: ["Tokens: 64k"] },
   faded: null,
   fresh: false,
   open_sheet: "Open panel",
   open_sheet_keys: "↵",
-  skill_warning: null,
-  plan: null,
-  pieces: null,
   open_terminal: "Open terminal",
 };
 
@@ -88,21 +86,39 @@ describe("the one-line card draws its view (BRD-03)", () => {
     expect(out).toContain('<span class="card-time">8m</span>');
     expect(out).not.toContain("data-edge");
     expect(out).not.toContain("card-action");
-    expect(out).not.toContain("card-skill-warning");
   });
 
-  it("a running stage whose skill Otaq can't find: one amber line under the status, the name as code", () => {
+  it("a command in the line reads as code", () => {
     const out = html(
       createElement(TicketCard, {
-        card: { ...SHOP_29, skill_warning: "You don't have the skill `team-validate`" },
+        card: {
+          ...SHOP_22,
+          status: { text: "Asks you · allow `npm install`?", dot: "attn", tone: "attention", icon: null },
+        },
       }),
     );
-    expect(out).toContain('class="card-skill-warning"');
-    expect(out).toContain(
-      '<span class="card-skill-warning-text">You don&#x27;t have the skill <code>team-validate</code></span>',
+    expect(out).toContain("Asks you · allow <code>npm install</code>?");
+  });
+
+  it("the muted note under the line, only when set", () => {
+    const out = html(
+      createElement(TicketCard, {
+        card: { ...SHOP_29, note: { icon: "user", text: "Dev: Light instead of Strong" } },
+      }),
     );
-    // Under the status line, which keeps saying what the card is doing.
-    expect(out.indexOf("card-status-text")).toBeLessThan(out.indexOf("card-skill-warning"));
+    expect(out).toContain('class="card-note"');
+    expect(out).toContain("Dev: Light instead of Strong");
+    expect(out.indexOf("card-status-text")).toBeLessThan(out.indexOf("card-note"));
+    expect(html(createElement(TicketCard, { card: SHOP_29 }))).not.toContain("card-note");
+  });
+
+  it("what waits for it shows only while its chain is lit", () => {
+    const card = { ...SHOP_29, blocks: { line: "SHOP-30 waits for it", tag: "blocks 1" } };
+    expect(html(createElement(TicketCard, { card }))).not.toContain("SHOP-30 waits for it");
+    const lit = html(
+      createElement(TicketCard, { card, state: { ...stateOfLook("plain"), chain: "origin" } }),
+    );
+    expect(lit).toContain("SHOP-30 waits for it");
   });
 
   it("a calm Backlog card is its key and title only", () => {
@@ -138,62 +154,5 @@ describe("the one-line card draws its view (BRD-03)", () => {
     expect(dimmed).toContain('data-chain="dimmed"');
     const hovered = html(createElement(TicketCard, { card: SHOP_29, state: stateOfLook("hovered") }));
     expect(hovered).toContain("card-quick");
-  });
-});
-
-describe("a build stage's pieces on the card (d0133, `s30-02`)", () => {
-  it("the label, a row per piece with its status, the folded row and Back from Validate", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...SHOP_22,
-          key: "SHOP-40",
-          status: {
-            text: "Working · fixing the Validate report",
-            dot: "working",
-            tone: "secondary",
-            icon: null,
-          },
-          who: "Developer · in charge",
-          edge: null,
-          action: null,
-          pieces: {
-            back_from: "Back from Validate",
-            label: "PIECES · 5",
-            rows: [
-              { name: "", title: "", status: "4 merged", tone: "passed" },
-              { name: "40.5", title: "Share link signed out", status: "fixing the report", tone: "working" },
-            ],
-            done: null,
-            opens: null,
-          },
-        },
-      }),
-    );
-    expect(out).toContain("Back from Validate");
-    expect(out).toContain("PIECES · 5");
-    expect(out).toContain("4 merged");
-    expect(out).toContain("40.5");
-    expect(out).toContain("Share link signed out");
-    expect(out).toContain("fixing the report");
-    expect(out).toContain("Developer · in charge");
-  });
-  it("once every piece is merged, one line", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...SHOP_22,
-          pieces: {
-            back_from: null,
-            label: null,
-            rows: [],
-            done: "4 pieces merged · moving to Validate",
-            opens: null,
-          },
-        },
-      }),
-    );
-    expect(out).toContain("4 pieces merged · moving to Validate");
-    expect(out).not.toContain("PIECES");
   });
 });

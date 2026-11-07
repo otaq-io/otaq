@@ -901,17 +901,17 @@ mod tests {
         assert_eq!(
             line("SHOP-12"),
             (
-                s("Asks you: follow the system setting?"),
-                s("Reply"),
+                s("Asks you \u{b7} follow the system setting?"),
+                s("Answer"),
                 Some(Tone::Attention)
             )
         );
         assert_eq!(line("SHOP-32").1, s("Decide"));
         assert_eq!(
             line("SHOP-18"),
-            (s("Your check"), s("Review"), Some(Tone::Review))
+            (s("Ready for you"), s("Review"), Some(Tone::Review))
         );
-        assert_eq!(line("SHOP-30").0, s("Validating \u{b7} round 1 of 3"));
+        assert_eq!(line("SHOP-30").0, s("Checking"));
         assert_eq!(row(&list, "SHOP-33").card.time.as_ref().unwrap().text, "3m");
         assert_eq!(
             row(&list, "SHOP-12").icon,
@@ -1162,21 +1162,24 @@ mod tests {
         let flow = shop_web();
         let tickets = tickets();
         let list = view(&input(&flow, &tickets), &prefs(G::Stage));
-        // DPV-01 (`s24-10`): SHOP-20 waits for SHOP-18, in amber with the link; SHOP-18 "blocks 1".
+        // SHOP-20 waits for SHOP-18, with the card's amber hourglass; SHOP-18 "blocks 1".
         let blocked = row(&list, "SHOP-20");
         assert_eq!(
             (blocked.icon, blocked.palette),
-            (IconName::Link, Palette::Paused)
+            (IconName::Hourglass, Palette::Paused)
         );
         let line = blocked.card.status.as_ref().unwrap();
         assert_eq!(
             (line.text.as_str(), line.icon),
-            ("Waits for SHOP-18 to merge", Some(IconName::Link))
+            ("Waits for SHOP-18 to merge", Some(IconName::Hourglass))
         );
         let blocker = row(&list, "SHOP-18");
         assert_eq!(blocker.card.blocks.as_ref().unwrap().tag, "blocks 1");
-        assert_eq!(blocker.card.blocks.as_ref().unwrap().line, "Blocks SHOP-20");
-        assert_ne!(blocker.icon, IconName::Link);
+        assert_eq!(
+            blocker.card.blocks.as_ref().unwrap().line,
+            "SHOP-20 waits for it"
+        );
+        assert_ne!(blocker.icon, IconName::Hourglass);
     }
 
     #[test]

@@ -438,6 +438,8 @@ mod tests {
         use otaq_core::agents::facts::{BoardAgents, CardAgents};
         let all = sample();
         let card = |key: &str, agent: Option<&str>| CardAgents {
+            instead_of: None,
+            skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
             running_validator: None,
