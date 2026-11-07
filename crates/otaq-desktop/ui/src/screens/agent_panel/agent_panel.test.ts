@@ -24,7 +24,7 @@ import {
   agentPanelFocusRequests,
   sendFirstMessage,
   shownAgents,
-  startNewAgentOn,
+  pickStartOn,
   startOn,
   toggleAgentPanel,
 } from "./logic";
@@ -83,6 +83,7 @@ const EMPTY: AgentPanelView = {
     send: "Send",
     notice: null,
     starts_on: null,
+    pick: null,
   },
   running: null,
   switcher: { rows: [], new_label: "New conversation", new_keys: "⇧⌘L" },
@@ -432,7 +433,7 @@ describe("a running agent", () => {
   });
 });
 
-/** *18 `VDJkG`*: the agent on Standard · Codex, Codex logged out; New agent on Sonnet starts a new conversation. */
+/** *18 `VDJkG`*: the agent on Standard · Codex, Codex logged out: it waits, and no other agent is offered. */
 const CODEX_OUT: NonNullable<AgentPanelView["running"]>["notice"] = {
   role: null,
   tone: "amber",
@@ -440,10 +441,7 @@ const CODEX_OUT: NonNullable<AgentPanelView["running"]>["notice"] = {
   heading: "Codex isn't available · signed out. This agent continues after you sign in.",
   text: null,
   model: null,
-  buttons: [
-    { label: "Sign in…", action: { kind: "sign_in", tool: "codex" }, primary: true },
-    { label: "New agent on Sonnet", action: { kind: "new_agent", agent: "sonnet" }, primary: false },
-  ],
+  buttons: [{ label: "Sign in…", action: { kind: "sign_in", tool: "codex" }, primary: true }],
 };
 
 const click = (label: string) => {
@@ -593,7 +591,6 @@ describe("a tool problem's notice (M23)", () => {
           heading: "Codex limit reached · resets 5:10 pm. This agent continues after the reset.",
           buttons: [
             { label: "Resume after reset", action: { kind: "resume_tool", tool: "codex" }, primary: true },
-            { label: "New agent on Sonnet", action: { kind: "new_agent", agent: "sonnet" }, primary: false },
           ],
         },
       },
@@ -603,13 +600,37 @@ describe("a tool problem's notice (M23)", () => {
     expect(ask).toHaveBeenCalledWith("limits.resume_tool", { tool: "codex" });
   });
 
-  it("New agent on Sonnet opens the empty agent panel on Sonnet, and its first message starts it there", async () => {
+  it("the notice offers no other agent: the conversation waits for its own tool", () => {
     show({ ...RUNNING, running: RUNNING.running && { ...RUNNING.running, notice: CODEX_OUT } });
-    click("New agent on Sonnet");
+    const labels = [...box.querySelectorAll(".agent-panel-notice button")].map((b) => b.textContent);
+    expect(labels).toEqual(["Sign in…"]);
+  });
+
+  it("a new conversation picks its own agent, and its first message starts it there", async () => {
+    show({
+      ...EMPTY,
+      empty: EMPTY.empty && {
+        ...EMPTY.empty,
+        pick: {
+          label: "Agent",
+          usual: "noyan",
+          options: [
+            { id: "noyan", label: "Noyan", selected: true },
+            { id: "sonnet", label: "Sonnet", selected: false },
+          ],
+        },
+      },
+    });
+    expect(box.querySelector('.agent-panel-input-row button[aria-label="Agent"]')?.textContent).toContain(
+      "Noyan",
+    );
+    pickStartOn("NOTE", "sonnet", "noyan");
     expect(ask).not.toHaveBeenCalled();
-    expect(shownAgents.get()).toEqual({ NOTE: null });
     expect(startOn.get()).toEqual({ NOTE: "sonnet" });
-    expect(agentPanelFocusRequests.get()).toMatchObject({ agent: null });
+    // Picking the agent Noyan uses again drops the pick.
+    pickStartOn("NOTE", "noyan", "noyan");
+    expect(startOn.get()).toEqual({});
+    pickStartOn("NOTE", "sonnet", "noyan");
 
     ask.mockResolvedValue("a2");
     show({ ...EMPTY, empty: EMPTY.empty && { ...EMPTY.empty, starts_on: "sonnet" } });
@@ -627,8 +648,8 @@ describe("a tool problem's notice (M23)", () => {
     expect(shownAgents.get()).toEqual({ NOTE: "a2" });
   });
 
-  it("+ drops the choice: the empty agent panel starts on Noyan’s default agent again", () => {
-    startNewAgentOn("NOTE", "sonnet");
+  it("+ drops the choice: the empty agent panel starts on the agent Noyan uses again", () => {
+    pickStartOn("NOTE", "sonnet", "noyan");
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
     newProjectAgent();
     expect(startOn.get()).toEqual({});

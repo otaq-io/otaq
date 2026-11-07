@@ -1277,7 +1277,6 @@ pub mod fixtures {
                 model: Some(model.into()),
             },
             effort: None,
-            role: None,
             came_from: CameFrom::You,
             mark: None,
             created_at: 1,

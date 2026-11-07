@@ -1,5 +1,5 @@
-//! What Otaq ships about agents (AGM-02, d0108): the account-level `otaq-agents.yaml` (the Project agent **Noyan**),
-//! embedded at build time like the default flow, and the names of Otaq's own skills.
+//! What Otaq ships about agents (AGM-02, d0108): the account-level `otaq-agents.yaml` (the agent **Noyan** uses at
+//! first), embedded at build time like the default flow, and the names of Otaq's own skills.
 //! A flow file's agents (the default flow's Developer and Validator, the test flow's) become stored agents through
 //! [`new_agent`].
 //!
@@ -12,7 +12,7 @@
 use std::sync::LazyLock;
 
 use super::store::NewAgent;
-use super::{AgentModel, CameFrom, ModelRef, Role};
+use super::{AgentModel, CameFrom, ModelRef};
 use crate::agent_tools::Tool;
 use crate::flow::FlowAgent;
 use crate::flow::yaml;
@@ -66,21 +66,21 @@ pub fn model_of(text: &str) -> Result<AgentModel, String> {
     Ok(AgentModel::Tool { tool, model })
 }
 
-/// A file's agent as stored: its role when it names one, and its model (`default` when the file's doesn't read). A
-/// file's `skills:` is ignored: an agent has no skills (T6).
+/// A file's agent as stored: its model (`default` when the file's doesn't read). A file's `skills:` and `role:` are
+/// ignored: an agent has neither (T6).
 pub fn new_agent(agent: &FlowAgent) -> NewAgent {
     NewAgent {
         name: agent.name.trim().to_owned(),
         instructions: agent.instructions.clone(),
         model: model_of(&agent.model).unwrap_or(AgentModel::Default),
         effort: None,
-        role: agent.role.as_deref().and_then(|r| r.parse::<Role>().ok()),
     }
 }
 
 /// Otaq's first start (AGM-02, FLW-01): with no agents stored yet, applies `otaq-agents.yaml` (Noyan)
-/// and the default flow's `agents:` (Developer, Validator), in one transaction. A role agent can't be deleted, so
-/// the table is never empty again and a later start changes nothing. Whether it applied them.
+/// and the default flow's `agents:` (Developer, Validator), in one transaction, and makes the agents file's first
+/// agent the one Noyan uses. The agent Noyan uses can't be deleted, so the table is never empty again and a later
+/// start changes nothing. Whether it applied them.
 pub async fn apply_on_first_start(store: &Store) -> Result<bool, StoreError> {
     let mut tx = store.begin_write().await?;
     let any: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM agents)")
@@ -89,11 +89,26 @@ pub async fn apply_on_first_start(store: &Store) -> Result<bool, StoreError> {
     if any {
         return Ok(false);
     }
+    let mut noyan = None;
     for agent in agents_file() {
-        Store::insert_agent_in(&mut tx, &new_agent(agent), &CameFrom::AgentsFile, None).await?;
+        let id =
+            Store::insert_agent_in(&mut tx, &new_agent(agent), &CameFrom::AgentsFile, None).await?;
+        noyan.get_or_insert(id);
     }
     for agent in &crate::flow::default_file().agents {
         Store::insert_agent_in(&mut tx, &new_agent(agent), &CameFrom::DefaultPreset, None).await?;
+    }
+    if let Some(id) = noyan {
+        let json = serde_json::to_string(&id).expect("an id serializes");
+        sqlx::query(
+            "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+             ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+        )
+        .bind(crate::store::settings::NOYAN_AGENT)
+        .bind(json)
+        .bind(crate::store::now_ms())
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     tracing::info!("the shipped agents applied (AGM-02)");
@@ -128,7 +143,6 @@ mod tests {
         assert_eq!(names, ["Noyan"]);
         assert_eq!(yaml::write_agents(agents), AGENTS_YAML);
         let noyan = new_agent(&agents[0]);
-        assert_eq!(noyan.role, Some(Role::ProjectAgent));
         assert_eq!(noyan.model, AgentModel::Default);
     }
 

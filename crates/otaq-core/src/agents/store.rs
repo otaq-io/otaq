@@ -1,16 +1,15 @@
 //! Thin access to the `agents` and `agent_holds` tables and the agent settings (AGM-01, AGM-03;
-//! d0108, d0088). The rules (names, models from the tool's list, roles, delete while in use) live in [`super`].
+//! d0108, d0088), and the agent Noyan uses. The rules (names, models from the tool's list, delete while in use) live in
+//! [`super`].
 //!
 //! A row of a tool this build doesn't know is skipped when read as an [`Agent`].
 
 use sqlx::{FromRow, Sqlite, Transaction};
 
-use super::{
-    Agent, AgentHold, AgentModel, CameFrom, HoldReason, Mark, ModelRef, Role, SessionRole,
-};
+use super::{Agent, AgentHold, AgentModel, CameFrom, HoldReason, Mark, ModelRef, SessionRole};
 use crate::agent_tools::Tool;
 use crate::session::END_MODEL_REFUSED;
-use crate::store::settings::DEFAULT_MODEL;
+use crate::store::settings::{DEFAULT_MODEL, NOYAN_AGENT};
 use crate::store::{Store, StoreError, new_id, now_ms};
 
 /// The query's session (its columns prefixed with the literal, `"s."`) started: it didn't end "not started", that is
@@ -37,7 +36,6 @@ pub struct NewAgent {
     pub instructions: String,
     pub model: AgentModel,
     pub effort: Option<String>,
-    pub role: Option<Role>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -48,7 +46,6 @@ struct AgentRecord {
     tool: Option<String>,
     model: Option<String>,
     effort: Option<String>,
-    role: Option<String>,
     came_from: String,
     came_from_project: Option<String>,
     mark_text: Option<String>,
@@ -99,7 +96,6 @@ impl AgentRecord {
             instructions: self.instructions,
             model,
             effort: self.effort,
-            role: self.role.and_then(|r| r.parse().ok()),
             came_from,
             mark,
             created_at: self.created_at,
@@ -148,16 +144,26 @@ impl Store {
             .find(|a| a.name.to_lowercase() == folded))
     }
 
-    /// The agent holding `role` (AGM-01: exactly one does once the agents file was applied).
-    pub async fn role_agent(&self, role: Role) -> Result<Option<Agent>, StoreError> {
-        let id: Option<String> = sqlx::query_scalar("SELECT id FROM agents WHERE role = ?")
-            .bind(role.as_str())
-            .fetch_optional(self.pool())
-            .await?;
-        match id {
+    /// The id of the agent Noyan uses (an app setting); `None` while none is set.
+    pub async fn noyan_agent_id(&self) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .setting(NOYAN_AGENT)
+            .await?
+            .and_then(|json| serde_json::from_str(&json).ok()))
+    }
+
+    /// The agent Noyan uses; `None` while none is set or it isn't one of the agents.
+    pub async fn noyan_agent(&self) -> Result<Option<Agent>, StoreError> {
+        match self.noyan_agent_id().await? {
             Some(id) => self.agent(&id).await,
             None => Ok(None),
         }
+    }
+
+    /// Sets the agent Noyan uses. The caller checked the agent is there.
+    pub async fn set_noyan_agent(&self, id: &str) -> Result<(), StoreError> {
+        let json = serde_json::to_string(id).expect("an id serializes");
+        self.set_setting(NOYAN_AGENT, &json).await
     }
 
     /// Inserts an agent and returns its id. The caller checked the fields.
@@ -185,9 +191,9 @@ impl Store {
         let (from, project) = came_from_columns(came_from);
         let (tool, model) = model_columns(&new.model);
         sqlx::query(
-            "INSERT INTO agents (id, name, instructions, tool, model, effort, role, came_from, came_from_project,
+            "INSERT INTO agents (id, name, instructions, tool, model, effort, came_from, came_from_project,
                                  created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.name)
@@ -195,7 +201,6 @@ impl Store {
         .bind(tool)
         .bind(model)
         .bind(&new.effort)
-        .bind(new.role.map(Role::as_str))
         .bind(from)
         .bind(project)
         .bind(now)
@@ -205,7 +210,7 @@ impl Store {
         Ok(id)
     }
 
-    /// Changes an agent's fields (its role stays); `clear_mark` removes its mark (a saved model change, AGT-05).
+    /// Changes an agent's fields; `clear_mark` removes its mark (a saved model change, AGT-05).
     pub async fn update_agent(
         &self,
         id: &str,
@@ -254,25 +259,6 @@ impl Store {
             .bind(id)
             .execute(self.pool())
             .await?;
-        Ok(())
-    }
-
-    /// Gives `role` to the agent `to`, taking it from the agent that held it, in one transaction.
-    pub async fn move_role(&self, role: Role, to: &str) -> Result<(), StoreError> {
-        let mut tx = self.begin_write().await?;
-        sqlx::query("UPDATE agents SET role = NULL, updated_at = ? WHERE role = ? AND id <> ?")
-            .bind(now_ms())
-            .bind(role.as_str())
-            .bind(to)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE agents SET role = ?, updated_at = ? WHERE id = ?")
-            .bind(role.as_str())
-            .bind(now_ms())
-            .bind(to)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
         Ok(())
     }
 

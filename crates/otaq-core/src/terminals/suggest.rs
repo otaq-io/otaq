@@ -1,5 +1,5 @@
 //! Ask the agent for the run command (RUN-02; d0026, d0035, d0023, d0086): on the user's click only, the Project
-//! agent's named agent (T-0334's resolution of the Project agent role for the project) answers a one-off read-only
+//! agent's named agent (the agent Noyan uses) answers a one-off read-only
 //! question in the project's folder: it takes a short look at the repository and suggests a run command, an Open URL
 //! and a short why. The question is not shown in the agent panel and keeps no conversation. The user confirms or edits the
 //! answer; nothing is saved without their Save. There are no detection rules.
@@ -22,7 +22,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::oneshot;
 
 use crate::agent_tools::{Adapters, OneOffLine, OneOffRequest, OneOffTool, Tool};
-use crate::agents::{Role, RunsOn, resolve};
+use crate::agents::{RunsOn, resolve};
 use crate::board::{Board, BoardError, Refusal};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -92,9 +92,9 @@ impl Suggester {
     /// Starts a suggestion for the project (the user's click). One already running is replaced.
     pub async fn start(&self, project: &str) -> Result<(), BoardError> {
         let project = self.inner.board.project(project).await?;
-        // The agent with the Project agent role, as a new Project agent would start (AGM-05).
+        // The agent Noyan uses, as a new Noyan conversation would start (AGM-05).
         let store = self.inner.board.store();
-        let agent = resolve::role_agent(store, Role::ProjectAgent).await?;
+        let agent = resolve::noyan_agent(store).await?;
         let runs_on = RunsOn::agent(&agent, store.default_model().await?.as_ref());
         let adapter = self.inner.adapters.of_session(runs_on.tool);
         let question = adapter

@@ -473,7 +473,7 @@ async fn action_for(
         | R::AgentsDuplicate(_)
         | R::AgentsDelete(_)
         | R::AgentsInUse(_)
-        | R::AgentsMoveRole(_)
+        | R::AgentsNoyan(_)
         | R::AgentsDefaultModel(_) => Action::UserOnly("change agents"),
         // What an agent reads is shown on the user's Settings → Agents (AGR-01).
         R::AgentsReads(_) => Action::UserOnly("read what an agent reads"),

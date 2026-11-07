@@ -3,10 +3,10 @@
 //! agent panel draws for a project and the agent it shows (`agent_panel.rs`); the others are its clicks: Send (the first
 //! message starts the agent, d0087), Rename, End agent (asks first mid-turn), Close ended agents and Resume. Which
 //! agent each project shows, + and the empty agent panel are the page's own state: nothing here starts without a message
-//! or a click. The empty agent panel names the Project agent role's agent (T-0342, AGM-01), which [`project_agent`] finds
-//! for Ask the agent too.
+//! or a click. The empty agent panel names the agent Noyan uses (one app setting, "Noyan uses <agent>"), which
+//! [`project_agent`] finds for Ask the agent too, and lets the new conversation pick another agent for itself.
 
-use otaq_core::agents::{Agent, Role};
+use otaq_core::agents::Agent;
 use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use otaq_core::protocol::{
     IdParams, KeyParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams,
@@ -96,7 +96,8 @@ async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> 
     edited
 }
 
-/// The Project agent role's agent (AGM-01): the one every Project agent starts on. `None` before it exists.
+/// The agent Noyan uses (the app setting): the one every new Noyan conversation starts on unless it picks another.
+/// `None` while none is set.
 pub(super) async fn project_agent(app: &App) -> Result<Option<Agent>, RequestError> {
     Ok(project_agent_and_list(app).await?.0)
 }
@@ -112,11 +113,7 @@ async fn project_agent_and_list(app: &App) -> Result<(Option<Agent>, Vec<Agent>)
         Reply::Agents(list) => *list,
         other => return Err(unexpected("agents.list", &other)),
     };
-    let default = list
-        .agents
-        .iter()
-        .find(|a| a.role == Some(Role::ProjectAgent))
-        .cloned();
+    let default = list.noyan().cloned();
     Ok((default, list.agents))
 }
 
@@ -140,7 +137,8 @@ pub struct Params {
     pub agent: Option<String>,
     #[serde(default)]
     pub window_width: Option<f32>,
-    /// The empty agent panel after "New agent on …" (M23): the named agent its first message starts.
+    /// The agent picked for this conversation in the empty agent panel: its first message starts on it instead of the
+    /// agent Noyan uses.
     #[serde(default)]
     #[ts(optional)]
     pub start_on: Option<String>,
@@ -190,7 +188,7 @@ pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestEr
 pub struct SendParams {
     pub project: String,
     pub message: String,
-    /// The empty agent panel's `starts_on` after "New agent on …" (M23); `None` for the Project agent default.
+    /// The empty agent panel's `starts_on`: the agent picked for this conversation; `None` for the agent Noyan uses.
     #[serde(default)]
     #[ts(optional)]
     pub agent: Option<String>,
@@ -469,7 +467,7 @@ mod tests {
         .unwrap();
         assert_eq!(gone["agent"], Value::Null);
 
-        // The Project agent role moved to Strong: the empty agent panel says so.
+        // Noyan uses Strong now: the next conversation's empty agent panel starts on it.
         let Reply::Agent(strong) = h
             .app
             .service
@@ -489,8 +487,7 @@ mod tests {
         };
         h.app
             .service
-            .send(Request::AgentsMoveRole(otaq_core::protocol::MoveRoleParams {
-                role: Role::ProjectAgent,
+            .send(Request::AgentsNoyan(otaq_core::protocol::NoyanAgentParams {
                 agent: strong.id.clone(),
             }))
             .await
@@ -501,6 +498,43 @@ mod tests {
         assert_eq!(view["empty"]["line"]["agent"], "Strong");
         assert_eq!(view["empty"]["line"]["note"], "\u{b7} starts when you send");
         assert_eq!(view["empty"]["hint"], "Enter starts Strong");
+        let picked: Vec<(&str, bool)> = view["empty"]["pick"]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| (o["label"].as_str().unwrap(), o["selected"].as_bool().unwrap()))
+            .collect();
+        assert!(picked.contains(&("Strong", true)) && picked.contains(&("Noyan", false)));
+        // A new conversation can pick another agent: the empty agent panel starts on it, for this conversation only.
+        let Reply::Agents(list) = h.app.service.send(Request::AgentsList).await.unwrap() else {
+            panic!("agents.list");
+        };
+        let noyan = list.agents.iter().find(|a| a.name == "Noyan").unwrap();
+        let view = table(
+            &h.app,
+            "agent_panel.view",
+            json!({ "project": project, "start_on": noyan.id }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["empty"]["starts_on"], json!(noyan.id));
+        let selected: Vec<&str> = view["empty"]["pick"]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|o| o["selected"] == true)
+            .map(|o| o["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(selected, ["Noyan"]);
+        // Picking the agent Noyan uses is the setting again: nothing to pass on.
+        let view = table(
+            &h.app,
+            "agent_panel.view",
+            json!({ "project": project, "start_on": strong.id }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["empty"]["starts_on"], Value::Null);
 
         // Send without words is refused; nothing was started.
         assert!(

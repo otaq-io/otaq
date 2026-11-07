@@ -646,7 +646,6 @@ async fn on_the_default_flow_the_user_sets_dev_to_another_agent() {
                 instructions: String::new(),
                 model: AgentModel::Default,
                 effort: None,
-                role: None,
             },
             &otaq_core::agents::CameFrom::You,
             None,

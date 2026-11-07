@@ -1044,7 +1044,6 @@ pub fn warnings(flow: &Flow, branch: &str, provider: Option<&str>) -> Vec<Warnin
 pub fn flow_agent_of(agent: &Agent) -> FlowAgent {
     FlowAgent {
         name: agent.name.clone(),
-        role: agent.role.map(|r| r.as_str().to_owned()),
         instructions: agent.instructions.clone(),
         model: model_text(&agent.model),
         why: None,

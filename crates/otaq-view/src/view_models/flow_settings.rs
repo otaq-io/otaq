@@ -545,6 +545,7 @@ mod tests {
                 on(Tool::Claude, "opus", "Security reviewer"),
                 on(Tool::Claude, "haiku", "Shipper"),
             ],
+            noyan_agent: None,
             default_model: Some(ModelRef {
                 tool: Tool::Claude,
                 model: Some("sonnet".into()),
@@ -703,6 +704,7 @@ mod tests {
         };
         let agents = AgentList {
             agents: Vec::new(),
+            noyan_agent: None,
             default_model: None,
         };
         let (tools, project) = (tools(), project());

@@ -21,7 +21,6 @@ agents:
   - name: Shipper
     model: default
   - name: Noyan
-    role: noyan
     model: default
 flow:
   - id: product-spec

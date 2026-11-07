@@ -1,5 +1,5 @@
 {
-  "protocol_version": 9,
+  "protocol_version": 10,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -139,10 +139,6 @@
         "name": {
           "ty": "String",
           "required": true
-        },
-        "role": {
-          "ty": "Option<Role>",
-          "omittable": true
         },
         "updated_at": {
           "ty": "i64",
@@ -331,6 +327,10 @@
         },
         "default_model": {
           "ty": "Option<ModelRef>",
+          "omittable": true
+        },
+        "noyan_agent": {
+          "ty": "Option<String>",
           "omittable": true
         }
       }
@@ -4344,8 +4344,8 @@
           "ty": "String",
           "required": true
         },
-        "role": {
-          "ty": "Option<Role>",
+        "noyan": {
+          "ty": "bool",
           "omittable": true
         },
         "stages": {
@@ -5124,19 +5124,6 @@
         }
       }
     },
-    "MoveRoleParams": {
-      "kind": "struct",
-      "fields": {
-        "agent": {
-          "ty": "String",
-          "required": true
-        },
-        "role": {
-          "ty": "Role",
-          "required": true
-        }
-      }
-    },
     "MovedOn": {
       "kind": "struct",
       "fields": {
@@ -5465,6 +5452,15 @@
         },
         "permission": {
           "ty": "PermissionState",
+          "required": true
+        }
+      }
+    },
+    "NoyanAgentParams": {
+      "kind": "struct",
+      "fields": {
+        "agent": {
+          "ty": "String",
           "required": true
         }
       }
@@ -7959,8 +7955,8 @@
         "agents.models_retry": {
           "newtype": "ModelsParams"
         },
-        "agents.move_role": {
-          "newtype": "MoveRoleParams"
+        "agents.noyan": {
+          "newtype": "NoyanAgentParams"
         },
         "agents.pause": {
           "newtype": "PauseScope"
@@ -8756,12 +8752,6 @@
         }
       }
     },
-    "Role": {
-      "kind": "strings",
-      "values": [
-        "noyan"
-      ]
-    },
     "Route": {
       "kind": "strings",
       "values": [
@@ -9074,9 +9064,7 @@
         "tag=kind"
       ],
       "variants": {
-        "role": {
-          "newtype": "Role"
-        },
+        "noyan": {},
         "stage": {
           "newtype": "String"
         }

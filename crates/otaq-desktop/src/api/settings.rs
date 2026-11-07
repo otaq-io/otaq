@@ -10,7 +10,7 @@ use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{
     AgentEditParams, DefaultModelParams, IdParams, KeyParams, ModelsParams,
-    MoveRoleParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
+    NoyanAgentParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::branch_items;
@@ -67,8 +67,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 .await?;
             reply(&view(app, None).await?)
         }
-        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model;
-        // one agent's page, its changes, its role, Delete.
+        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model, the agent Noyan uses;
+        // one agent's page, its changes, Delete.
         "settings.agents" => {
             let p: AgentsOpen = parse(params)?;
             reply(&agents_section(app, p.refresh).await?)
@@ -91,9 +91,13 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let p: AgentAdd = parse(params)?;
             reply(&agent_add(app, p.draft).await?)
         }
-        "settings.agent_role" => {
-            let p: AgentRoleSet = parse(params)?;
-            reply(&agent_role(app, &p.id, &p.role).await?)
+        // "Noyan uses <agent>": the one app setting for Noyan's agent; the next conversation starts on it.
+        "settings.noyan_agent" => {
+            let p: AgentId = parse(params)?;
+            app.service
+                .send(Request::AgentsNoyan(NoyanAgentParams { agent: p.id }))
+                .await?;
+            reply(&agents_section(app, false).await?)
         }
         "settings.agent_delete_dialog" => {
             let p: AgentId = parse(params)?;
@@ -216,13 +220,6 @@ pub struct AgentOpen {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentAdd {
     pub draft: agent_page::Draft,
-}
-
-/// `settings.agent_role`: the role as stored (`noyan`), or empty for None.
-#[derive(Debug, Clone, Deserialize)]
-pub struct AgentRoleSet {
-    pub id: String,
-    pub role: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -361,7 +358,6 @@ async fn page_of(
     id: Option<&str>,
     draft: Option<agent_page::Draft>,
     refused: Option<agent_page::Refused>,
-    moved: Option<String>,
 ) -> Result<agent_page::Page, RequestError> {
     let list = agent_list(app).await?;
     let tools = agent_tools(app, false).await?;
@@ -388,7 +384,6 @@ async fn page_of(
         draft: &draft,
         uses: uses.as_ref(),
         refused: refused.as_ref(),
-        moved,
     }))
 }
 
@@ -396,7 +391,7 @@ async fn page_of(
 async fn agent_page(app: &App, p: AgentOpen) -> Result<agent_page::Page, RequestError> {
     if let Some(id) = &p.id {
         let Some(change) = p.change else {
-            return page_of(app, Some(id), None, None, None).await;
+            return page_of(app, Some(id), None, None).await;
         };
         let list = agent_list(app).await?;
         let agent = list
@@ -410,8 +405,8 @@ async fn agent_page(app: &App, p: AgentOpen) -> Result<agent_page::Page, Request
             fields: draft.fields(),
         });
         return match app.service.send(request).await {
-            Ok(_) => page_of(app, Some(id), None, None, None).await,
-            Err(e) => page_of(app, Some(id), Some(draft), Some(refused(e)?), None).await,
+            Ok(_) => page_of(app, Some(id), None, None).await,
+            Err(e) => page_of(app, Some(id), Some(draft), Some(refused(e)?)).await,
         };
     }
     let draft = match (p.draft, p.duplicate) {
@@ -426,61 +421,18 @@ async fn agent_page(app: &App, p: AgentOpen) -> Result<agent_page::Page, Request
         Some(change) => agent_page::apply(draft, change),
         None => draft,
     };
-    page_of(app, None, Some(draft), None, None).await
+    page_of(app, None, Some(draft), None).await
 }
 
 async fn agent_add(app: &App, draft: agent_page::Draft) -> Result<AgentAddOutcome, RequestError> {
     match app.service.send(Request::AgentsAdd(draft.fields())).await {
         Ok(Reply::Agent(agent)) => Ok(AgentAddOutcome::Added {
-            page: Box::new(page_of(app, Some(&agent.id), None, None, None).await?),
+            page: Box::new(page_of(app, Some(&agent.id), None, None).await?),
         }),
         Ok(other) => Err(unexpected("agents.add", &other)),
         Err(e) => Ok(AgentAddOutcome::Refused {
-            page: Box::new(page_of(app, None, Some(draft), Some(refused(e)?), None).await?),
+            page: Box::new(page_of(app, None, Some(draft), Some(refused(e)?)).await?),
         }),
-    }
-}
-
-/// The page's Role: another role is given to this agent (`agents.move_role`), and the page says whose it was; None
-/// on the agent holding a role is refused as AGM-01 says.
-async fn agent_role(app: &App, id: &str, role: &str) -> Result<agent_page::Page, RequestError> {
-    let list = agent_list(app).await?;
-    let agent = list
-        .agents
-        .iter()
-        .find(|a| a.id == id)
-        .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?;
-    let Some(role) = agent_page::role_of(role) else {
-        let refusal = agent.role.map(|held| agent_page::Refused {
-            field: agent_page::Field::Role,
-            message: agent_page::sentence(held.holder_refusal(&agent.name)),
-        });
-        return page_of(app, Some(id), None, refusal, None).await;
-    };
-    if agent.role == Some(role) {
-        return page_of(app, Some(id), None, None, None).await;
-    }
-    let before = list
-        .agents
-        .iter()
-        .find(|a| a.role == Some(role))
-        .map(|a| a.name.clone());
-    let request = Request::AgentsMoveRole(MoveRoleParams {
-        role,
-        agent: id.to_owned(),
-    });
-    match app.service.send(request).await {
-        Ok(_) => {
-            let moved = agent_page::moved_line(role, &agent.name, before.as_deref());
-            page_of(app, Some(id), None, None, Some(moved)).await
-        }
-        Err(e) => {
-            let refusal = agent_page::Refused {
-                field: agent_page::Field::Role,
-                message: agent_page::sentence(refused(e)?.message),
-            };
-            page_of(app, Some(id), None, Some(refusal), None).await
-        }
     }
 }
 
@@ -931,32 +883,28 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// Settings → Agents through the service (T-0410; AGM-01, AGM-03, AGM-04): a fresh install's four agents with
-    /// their roles and where they are used, with no skills (T7), and no default model before a tool connects; one agent's
-    /// page and a saved change; None refused on the role's agent; a role moved; New agent's draft added; Delete
-    /// refused for a stage's agent and allowed for an unused one.
+    /// Settings → Agents through the service (T-0410; AGM-01, AGM-03, AGM-04): a fresh install's agents and where they
+    /// are used, with no skills (T7) and no role, and no default model before a tool connects; "Noyan uses" set to
+    /// another agent; one agent's page (no role on it) and a saved change; New agent's draft added; Delete refused for
+    /// a stage's agent and for the agent Noyan uses, and allowed for an unused one.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_agents_page_lists_edits_moves_a_role_adds_and_deletes() {
+    async fn the_agents_page_lists_edits_sets_noyans_agent_adds_and_deletes() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let ask = |method: &'static str, params: Value| request(&h.app, method, params);
         let section = ask("settings.agents", json!({ "refresh": true })).await.unwrap();
         assert_eq!(section["title"], "Agents");
         assert!(section.get("notice").is_none(), "no move-over notice");
-        let rows: Vec<(&str, &Value)> = section["rows"]
+        let rows: Vec<&str> = section["rows"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|r| (r["name"].as_str().unwrap(), &r["role"]))
+            .map(|r| r["name"].as_str().unwrap())
             .collect();
-        assert_eq!(
-            rows,
-            [
-                ("Noyan", &json!("Noyan")),
-                ("Developer", &Value::Null),
-                ("Validator", &Value::Null),
-            ]
-        );
+        assert_eq!(rows, ["Noyan", "Developer", "Validator"]);
+        assert!(section["rows"].as_array().unwrap().iter().all(|r| r.get("role").is_none()), "no row shows a role");
+        assert_eq!(section["noyan"]["label"], "Noyan uses");
+        assert_eq!(section["noyan"]["value"], "Noyan");
         // An agent has no skill list (T7): no Skills column, and no row names a skill.
         assert_eq!(section["columns"], json!(["Name", "Model", "Used in"]));
         assert!(section["rows"][1].get("skills").is_none());
@@ -984,25 +932,18 @@ mod tests {
         assert_eq!(page["name"]["problem"], "Another agent is already called Noyan");
         assert_eq!(page["draft"]["name"], "Noyan", "the refused name stays typed");
 
-        // The role: None · Noyan; None is refused on its agent; another agent takes it, and the page says
-        // whose it was.
-        let page = ask("settings.agent_role", json!({ "id": noyan, "role": "" })).await.unwrap();
-        let options: Vec<(&str, &str)> = page["role"]["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|o| (o["id"].as_str().unwrap(), o["label"].as_str().unwrap()))
-            .collect();
-        assert_eq!(options, [("", "None"), ("noyan", "Noyan")]);
-        assert_eq!(
-            page["role"]["problem"],
-            "Noyan has the Noyan role. Give the role to another agent first."
-        );
-        let page = ask("settings.agent_role", json!({ "id": developer, "role": "noyan" }))
-            .await
-            .unwrap();
-        assert_eq!(page["role"]["moved"], "Developer is now Noyan \u{b7} the agent Noyan has no role");
-        assert_eq!(page["role_tag"], "Noyan");
+        // No agent's page shows a role, Noyan's own included.
+        let page = ask("settings.agent", json!({ "id": noyan })).await.unwrap();
+        assert!(page.get("role").is_none() && page.get("role_tag").is_none());
+        // The agent Noyan uses can't be deleted.
+        let refused = ask("settings.agent_delete_dialog", json!({ "id": noyan })).await.unwrap();
+        assert_eq!(refused["text"], "Noyan uses Noyan. Pick another agent for Noyan first.");
+
+        // "Noyan uses" Developer: the setting changes, and Noyan's own agent is free.
+        let section = ask("settings.noyan_agent", json!({ "id": developer })).await.unwrap();
+        assert_eq!(section["noyan"]["value"], "Developer");
+        let confirm = ask("settings.agent_delete_dialog", json!({ "id": noyan })).await.unwrap();
+        assert_eq!(confirm["kind"], "confirm");
 
         // New agent: a draft until Add agent.
         let draft = ask("settings.agent", json!({ "change": { "field": "instructions", "value": "Be quick." } }))

@@ -33,10 +33,10 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             .in_use(&p.id)
             .await
             .map(|uses| Reply::AgentInUse(Box::new(uses))),
-        Request::AgentsMoveRole(p) => agents
-            .move_role(p.role, &p.agent)
+        Request::AgentsNoyan(p) => agents
+            .set_noyan(&p.agent)
             .await
-            .map(|a| changed(Reply::Agent(Box::new(a)))),
+            .map(|list| changed(Reply::Agents(Box::new(list)))),
         Request::AgentsDefaultModel(p) => match agents.set_default_model(&p.model).await {
             Ok(_) => list().await.map(changed),
             Err(e) => Err(e),

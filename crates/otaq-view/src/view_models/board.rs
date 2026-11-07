@@ -1408,6 +1408,7 @@ mod tests {
                     agent("a2", "Validator", Some("gpt-5.5")),
                 ),
             ],
+            noyan_agent: None,
             default_model: None,
         };
         let columns = build(&BoardInput {
@@ -1485,6 +1486,7 @@ mod tests {
                 agent("s", "Security reviewer", Some("opus")),
                 agent("p", "Shipper", Some("haiku")),
             ],
+            noyan_agent: None,
             default_model: None,
         };
         let columns = build(&BoardInput {

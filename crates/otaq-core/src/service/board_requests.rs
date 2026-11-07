@@ -1676,7 +1676,7 @@ pub(super) async fn handle(
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::AgentsMoveRole(_)
+        | Request::AgentsNoyan(_)
         | Request::AgentsDefaultModel(_)
         | Request::AgentsReads(_)
         | Request::HelperStart(_)

@@ -17,6 +17,10 @@ pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 /// resolves to it at session start. Absent until a tool connects.
 pub const DEFAULT_MODEL: &str = "agents.default_model";
 
+/// The agent Noyan uses (an app setting, "Noyan uses <agent>"): the agent's id as a JSON string. Set at the first
+/// start to the shipped Noyan agent; a new conversation may pick another for itself.
+pub const NOYAN_AGENT: &str = "agents.noyan";
+
 /// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
 /// (`["copilot"]`). A hidden tool doesn't count as connected.
 pub const AGENT_TOOLS_HIDDEN: &str = "agent_tools.hidden";

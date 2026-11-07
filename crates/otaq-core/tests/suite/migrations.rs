@@ -1755,7 +1755,8 @@ async fn merge_check_due_starts_off() {
 
 /// T-0517 (d0128, d0108; Q511): migration 0063 stores the Project agent role as `noyan`. An agent holding
 /// `project-agent` holds `noyan` and its shipped skill reads `noyan`; its skills and the stage choices that name it
-/// stay (the rebuild cascades nothing); one agent still holds the role, and `project-agent` is refused.
+/// stay (the rebuild cascades nothing). Since migration 0088 that agent is the one Noyan uses, an app setting, and
+/// agents have no role column.
 #[tokio::test]
 async fn the_project_agent_role_is_stored_as_noyan() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1796,25 +1797,22 @@ async fn the_project_agent_role_is_stored_as_noyan() {
     pool.close().await;
 
     let store = Store::open(&path).await.unwrap();
-    let agents: Vec<(String, String, Option<String>, String)> =
-        sqlx::query_as("SELECT id, name, role, instructions FROM agents ORDER BY id")
+    let agents: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT id, name, instructions FROM agents ORDER BY id")
             .fetch_all(store.pool())
             .await
             .unwrap();
     assert_eq!(
         agents,
         [
-            (
-                "ag".into(),
-                "Noyan".into(),
-                Some("noyan".into()),
-                "Split small.".into()
-            ),
-            ("dev".into(), "Developer".into(), None, String::new()),
+            ("ag".into(), "Noyan".into(), "Split small.".into()),
+            ("dev".into(), "Developer".into(), String::new()),
             // Migration 0066: the `epic-lead` role is gone (d0133); the agent stays.
-            ("el".into(), "Epic lead".into(), None, String::new()),
+            ("el".into(), "Epic lead".into(), String::new()),
         ]
     );
+    assert_eq!(store.noyan_agent_id().await.unwrap().as_deref(), Some("ag"));
+    assert!(!has_column(store.pool(), "agents", "role").await);
     // Migration 0078: the agents' skill lists are gone with their table.
     assert!(!has_table(store.pool(), "agent_skills").await);
     let choice: String =
@@ -1823,14 +1821,6 @@ async fn the_project_agent_role_is_stored_as_noyan() {
             .await
             .unwrap();
     assert_eq!(choice, "ag");
-    let second = sqlx::query("UPDATE agents SET role = 'noyan' WHERE id = 'dev'")
-        .execute(store.pool())
-        .await;
-    assert!(second.is_err(), "one agent holds the role");
-    let old = sqlx::query("UPDATE agents SET role = 'project-agent' WHERE id = 'dev'")
-        .execute(store.pool())
-        .await;
-    assert!(old.is_err(), "the old key is refused");
 }
 
 /// T-0533 (d0133, d0059, d0108): migration 0066 removes the epic type and the lead. Epics, their children and their
@@ -1942,15 +1932,13 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     ] {
         assert!(!has_table(store.pool(), table).await, "{table}");
     }
-    let role: Option<String> = sqlx::query_scalar("SELECT role FROM agents WHERE id = 'el'")
+    // The lead's agent keeps its row; agents have no role at all since migration 0088.
+    let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents WHERE id = 'el'")
         .fetch_one(store.pool())
         .await
         .unwrap();
-    assert_eq!(role, None);
-    let refused = sqlx::query("UPDATE agents SET role = 'epic-lead' WHERE id = 'el'")
-        .execute(store.pool())
-        .await;
-    assert!(refused.is_err(), "only noyan");
+    assert_eq!(kept, 1);
+    assert!(!has_column(store.pool(), "agents", "role").await);
     let null = sqlx::query("UPDATE tickets SET priority = NULL WHERE id = 't18'")
         .execute(store.pool())
         .await;
@@ -2464,13 +2452,12 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
         Option<String>,
         Option<String>,
         Option<String>,
-        Option<String>,
         String,
         Option<String>,
         i64,
     );
     let agents: Vec<AgentRow> = sqlx::query_as(
-        "SELECT name, instructions, tool, model, effort, role, came_from, mark_text, updated_at FROM agents
+        "SELECT name, instructions, tool, model, effort, came_from, mark_text, updated_at FROM agents
          ORDER BY id",
     )
     .fetch_all(store.pool())
@@ -2485,7 +2472,6 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
                 Some("claude".into()),
                 Some("opus".into()),
                 Some("high".into()),
-                Some("noyan".into()),
                 "agents_file".into(),
                 None,
                 2
@@ -2494,7 +2480,6 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
                 "Validator".into(),
                 "Run the tests.".into(),
                 Some("codex".into()),
-                None,
                 None,
                 None,
                 "default_preset".into(),
@@ -2565,7 +2550,8 @@ async fn migration_0080_drops_the_other_tool_settings_and_keeps_holds_sessions_a
             .fetch_all(pool)
             .await
             .unwrap();
-    assert_eq!(keys, ["agents.default_model"]);
+    // The agent that held the Noyan role becomes the agent Noyan uses (migration 0088).
+    assert_eq!(keys, ["agents.default_model", "agents.noyan"]);
     for (table, column) in [
         ("agent_holds", "fallback_tool"),
         ("agent_holds", "fallback_held"),
@@ -2735,4 +2721,54 @@ async fn migration_0084_turns_a_stored_you_choice_into_required() {
     );
     assert_eq!(read(&payloads[1], "by"), Some("you".into()));
     assert_eq!(payloads[2], json!({"choice": "you"}));
+}
+
+/// Noyan's agent is one app setting, and agents have no role: migration 0088 makes the agent that held the Noyan role
+/// the agent Noyan uses (the `agents.noyan` setting) and drops the role column. Every agent keeps everything else; a
+/// database where no agent held the role gets no setting.
+#[tokio::test]
+async fn migration_0088_keeps_todays_noyan_agent_as_the_setting() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 87).await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, tool, model, effort, role, came_from, created_at, updated_at)
+         VALUES ('noyan', 'Noyan', 'Keep tickets small.', NULL, NULL, NULL, NULL, 'agents_file', 1, 1),
+                ('strong', 'Strong', 'Think hard.', 'claude', 'opus', 'high', 'noyan', 'you', 1, 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    assert!(!has_column(store.pool(), "agents", "role").await);
+    assert_eq!(
+        store.noyan_agent_id().await.unwrap().as_deref(),
+        Some("strong"),
+        "the agent that held the role, not the one called Noyan"
+    );
+    let strong = store.agent("strong").await.unwrap().unwrap();
+    assert_eq!(
+        (
+            strong.name.as_str(),
+            strong.instructions.as_str(),
+            strong.effort.as_deref()
+        ),
+        ("Strong", "Think hard.", Some("high"))
+    );
+    assert_eq!(store.agents().await.unwrap().len(), 2);
+
+    // No agent held the role: no setting.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 87).await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, came_from, created_at, updated_at)
+         VALUES ('dev', 'Developer', '', 'default_preset', 1, 1)",
+    )
+    .await;
+    pool.close().await;
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(store.noyan_agent_id().await.unwrap(), None);
 }

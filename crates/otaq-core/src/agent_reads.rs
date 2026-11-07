@@ -5,8 +5,8 @@
 //! commit skill as prime names it, and the Project agent's `flow` start ([`crate::project_agents::first_skill`]).
 //!
 //! The parts: one **skill part** per stage of the project's flow whose own agent this is (a ticket's stage choice,
-//! AGM-08, doesn't move it: it is per ticket, and the per-ticket context is left out), then one for the role it holds
-//! ("noyan · as Noyan"); then the **other skills** it is told about: the commit skill as prime names it (an agent
+//! AGM-08, doesn't move it: it is per ticket, and the per-ticket context is left out), then one when it is the agent
+//! Noyan uses ("noyan · as Noyan"); then the **other skills** it is told about: the commit skill as prime names it (an agent
 //! that runs a stage) and, for the Project agent, its `flow` start, each marked. An agent has no skill list of its own (T6). An agent in no stage
 //! and with no role has no skill part.
 //!
@@ -19,7 +19,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::{PROJECT_AGENT_SKILL, Tool};
-use crate::agents::{Agent, Role};
 use crate::board::settings::WorkflowStep;
 use crate::board::{Board, BoardError};
 use crate::flow::Stage;
@@ -74,8 +73,8 @@ pub struct SkillPart {
 pub enum RunsAs {
     /// In the stage of that name ("Dev").
     Stage(String),
-    /// As the role's agent.
-    Role(Role),
+    /// As Noyan: the agent Noyan uses (the app setting).
+    Noyan,
 }
 
 /// One of the agent's other skills.
@@ -136,14 +135,11 @@ impl Board {
                 skills.push(user_part(found, tool, name, runs));
             }
         }
-        if let Some(role) = agent.role {
-            skills.push(part(
-                shipped,
-                role_skill(role).to_owned(),
-                RunsAs::Role(role),
-            ));
+        let noyan = self.store().noyan_agent_id().await?.as_deref() == Some(agent.id.as_str());
+        if noyan {
+            skills.push(part(shipped, PROJECT_AGENT_SKILL.to_owned(), RunsAs::Noyan));
         }
-        let others = others(shipped, &agent, &skills);
+        let others = others(shipped, noyan, &skills);
         Ok(AgentReads {
             agent_id: agent.id.clone(),
             agent: agent.name.clone(),
@@ -166,14 +162,6 @@ impl Board {
                     .await
             }
         }
-    }
-}
-
-/// The skill a role's agent runs first: the Project agent's own (a `/flow` start runs `flow`, listed with the
-/// others).
-pub fn role_skill(role: Role) -> &'static str {
-    match role {
-        Role::ProjectAgent => PROJECT_AGENT_SKILL,
     }
 }
 
@@ -227,9 +215,9 @@ fn part(shipped: Option<&Path>, skill: String, runs: RunsAs) -> SkillPart {
 
 /// The skills the agent is told about that no part shows, each once: the commit skill (as prime names it, for an
 /// agent that runs a stage) and the Project agent's `flow`, each marked; a folder only for one of Otaq's own (read from the bundle at `shipped`).
-fn others(shipped: Option<&Path>, agent: &Agent, parts: &[SkillPart]) -> Vec<OtherSkill> {
+fn others(shipped: Option<&Path>, noyan: bool, parts: &[SkillPart]) -> Vec<OtherSkill> {
     let commit = crate::prime::commit_skill();
-    let flow = (agent.role == Some(Role::ProjectAgent)).then(|| {
+    let flow = noyan.then(|| {
         let (skill, _) = crate::project_agents::first_skill(crate::project_agents::FLOW_COMMAND);
         skill.to_owned()
     });

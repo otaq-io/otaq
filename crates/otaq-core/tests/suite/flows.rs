@@ -52,7 +52,19 @@ fn the_test_flow_round_trips() {
         read.agents[4].instructions,
         "Never edit files.\nFail on unescaped SQL."
     );
-    assert_eq!(read.agents[6].role.as_deref(), Some("noyan"));
+    assert_eq!(read.agents[6].name, "Noyan");
+}
+
+/// An agent has no role: an old file's `role: noyan` still reads, is ignored, and is never written back.
+#[test]
+fn an_old_files_agent_role_reads_and_is_dropped() {
+    let old = "agents:\n  - name: Noyan\n    role: noyan\n    model: default\n";
+    let read = yaml::read_agents(old).unwrap();
+    assert_eq!(read[0].name, "Noyan");
+    assert_eq!(
+        yaml::write_agents(&read),
+        "agents:\n  - name: Noyan\n    model: default\n"
+    );
 }
 
 #[test]

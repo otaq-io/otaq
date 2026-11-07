@@ -957,7 +957,7 @@ pub struct Facts<'a> {
     pub selected: Option<&'a str>,
     /// The panel's agent, once one was asked.
     pub agent: Option<&'a ProjectAgent>,
-    /// The Project agent role's agent: what the first message starts.
+    /// The agent Noyan uses: what the first message starts.
     pub new_agent: Option<&'a Agent>,
     pub keys: &'a KeyLabels,
     /// The user's picks so far (the page's, until Apply).
@@ -2414,7 +2414,7 @@ fn chips(f: &Facts, tools: &[Tool]) -> Vec<Chip> {
     chips
 }
 
-/// "Claude Code · sonnet": what the first message starts on (the Project agent role's agent).
+/// "Claude Code · sonnet": what the first message starts on (the agent Noyan uses).
 fn starts_on(f: &Facts) -> (Option<ToolAvatarView>, String) {
     let on = f
         .new_agent
@@ -3330,7 +3330,6 @@ flow:
             instructions: String::new(),
             model: AgentModel::Default,
             effort: None,
-            role: None,
             came_from: CameFrom::AgentsFile,
             mark: None,
             created_at: 0,
