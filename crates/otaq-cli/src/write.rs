@@ -16,9 +16,10 @@
 //! **The Plan** (d0133): `--plan <text>` or `--plan-file <path>`, and on `update` also `--plan-stdin` (`--stdin` stays
 //! the description's); an empty Plan removes it.
 //!
-//! **Stage choices** (AGM-11, d0108, d0087): `--stage "<stage>=<agent|skip>"` (repeatable; `required` sets a
-//! skippable stage back), `--reason` for an agent's choice, `--by-user` when the user named them (Noyan only). The
-//! service judges who may set which (`otaq_core::board::stage_choices`).
+//! **Stage choices** (AGM-11, d0087): `--stage "<stage>=<agent|skip>"` (repeatable; any agent whose tool has the
+//! stage's skill; the stage's own agent, or `required` on a check of yours, sets it back), `--by-user` when the user named
+//! them (Noyan only). Only the user picks: the service refuses a ticket agent's choice
+//! (`otaq_core::board::stage_choices`).
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -63,19 +64,16 @@ fn usage(message: impl Into<String>) -> ErrorBody {
     ErrorBody::new(ErrorKind::Usage, message)
 }
 
-/// The `--stage` flags as choices, each with `--reason`. `--reason` alone is a usage error, and so is `--by-user`
-/// unless a file (`file`) brings the choices.
+/// The `--stage` flags as choices. `--by-user` is a usage error unless `--stage` or a file (`file`) brings the
+/// choices.
 fn picks(flags: &ChoiceFlags, file: bool) -> Result<Vec<ChoicePick>, ErrorBody> {
-    if flags.stages.is_empty() && flags.reason.is_some() {
-        return Err(usage("--reason goes with --stage"));
-    }
     if flags.stages.is_empty() && flags.by_user && !file {
         return Err(usage("--by-user goes with --stage (or -f)"));
     }
     flags
         .stages
         .iter()
-        .map(|stage| ChoicePick::parse(stage, flags.reason.as_deref()).map_err(usage))
+        .map(|stage| ChoicePick::parse(stage, None).map_err(usage))
         .collect()
 }
 

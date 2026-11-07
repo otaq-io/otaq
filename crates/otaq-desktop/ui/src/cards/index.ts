@@ -3,5 +3,4 @@
 import "./cards.css";
 
 export { type ChainState, type CardState, RESTING, stateOfLook } from "./look";
-export { CheckRoundRows, stepLook } from "./CheckRound";
 export { TicketCard, type TicketCardProps } from "./TicketCard";

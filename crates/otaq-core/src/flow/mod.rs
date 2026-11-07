@@ -21,7 +21,7 @@ pub mod store;
 pub mod write_skill;
 pub mod yaml;
 
-pub use check::{Problem, Rule, check, check_agents};
+pub use check::{Problem, Rule, check, check_agents, check_skills};
 pub use default::{default_file, default_flow};
 pub use model::{
     CheckBy, Column, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,

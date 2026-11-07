@@ -127,9 +127,9 @@ pub use sheet::NotesGallery as OptionNotesGallery;
 #[cfg(test)]
 pub use sheet::{
     ActionParams as SheetActionParams, AnswerParams as SheetAnswerParams,
-    CardParams as SheetCardParams, ChoiceParams as SheetChoiceParams,
-    CloseDialog as SheetCloseDialog, Load as SheetLoad, MenuParams as SheetMenuParams,
-    Params as SheetParams, ParentParams as SheetParentParams,
+    CardParams as SheetCardParams, ChangeAgentParams as SheetChangeAgentParams,
+    ChoiceParams as SheetChoiceParams, CloseDialog as SheetCloseDialog, Load as SheetLoad,
+    MenuParams as SheetMenuParams, Params as SheetParams, ParentParams as SheetParentParams,
     PriorityParams as SheetPriorityParams, SendAgainParams as SheetSendAgainParams,
     Sent as SheetSent, SubmitDialog as SheetSubmitDialog, SubmitParams as SheetSubmitParams,
     ViewParams as SheetViewParams,

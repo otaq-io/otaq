@@ -476,7 +476,6 @@ mod tests {
             .send(Request::AgentsAdd(otaq_core::agents::AgentFields {
                 name: "Strong".into(),
                 instructions: String::new(),
-                skills: Vec::new(),
                 model: otaq_core::agents::AgentModel::Tool {
                     tool: otaq_core::agent_tools::Tool::ALL[0],
                     model: None,

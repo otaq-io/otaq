@@ -42,8 +42,7 @@
 //! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::agents::gate`]) runs first for a new
 //! conversation, before any step, on the agent of the Agent stage it starts (AGM-05): a tool that isn't available or
 //! is at its limit, or a model no longer listed, holds the ticket in Ready for Dev (Held, its step naming the reason;
-//! nothing is created and nothing locks), or it starts on its tool's fallback when the user asked for it (AGM-03). A
-//! resumed conversation isn't checked. A launch that fails because of its tool has the tool checked again, then the
+//! nothing is created and nothing locks) until its tool can run it. A resumed conversation isn't checked. A launch that fails because of its tool has the tool checked again, then the
 //! check decides once more (ADP-10).
 
 use std::collections::HashSet;
@@ -112,6 +111,9 @@ pub enum StartOutcome {
     /// Its project is paused and the start was automatic: it stays waiting, and starts once the user resumes the
     /// project (PAU-04). Nothing was done.
     Kept,
+    /// The start entered a human check (the ticket skips every Agent stage before it): it waits there for you, and
+    /// no agent started.
+    InCheck,
 }
 
 /// Runs start sequences. Cheap to clone.
@@ -253,7 +255,14 @@ impl Starter {
             Ok(ticket) if WAITING_TO_START.contains(&ticket.status) => {
                 match self.kept(&ticket, start).await {
                     Ok(true) => Ok(StartOutcome::Kept),
-                    Ok(false) => self.run(&ticket, actor, start).await,
+                    Ok(false) => match self.inner.board.begin_in_check(&ticket, actor).await {
+                        Ok(Some(after)) => {
+                            self.publish(&after, true);
+                            Ok(StartOutcome::InCheck)
+                        }
+                        Ok(None) => self.run(&ticket, actor, start).await,
+                        Err(e) => Err(e),
+                    },
                     Err(e) => Err(e),
                 }
             }
@@ -859,17 +868,24 @@ impl Starter {
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
             ) {
-                // By its name when the session started with it, else by its file, copied now (d0118); what came
-                // back follows the skill (CMT-05), never a note's text.
-                let text = deliveries
-                    .skill_line(
-                        board,
-                        &running.id,
-                        Some(&worktree.path),
-                        skill,
-                        returning.as_ref().and_then(|r| r.prompt.as_deref()),
-                    )
-                    .await;
+                // A skill runs only on a tool that has it: nothing is typed, and the start stops saying which skill
+                // the session's tool doesn't have (Retry start asks again). Otaq's own skills always pass.
+                if let Some(tool) = running.tool
+                    && let Some(missing) = board.skill_missing_on(ticket, tool, Some(skill)).await
+                {
+                    return Err((
+                        StartStep::Launch,
+                        StartError::Other(crate::flow::proposal::missing_skill_text(
+                            tool, &missing,
+                        )),
+                    ));
+                }
+                // Typed by its name (T2); what came back follows the skill (CMT-05), never a note's text.
+                let text = deliveries.skill_text(
+                    &running.id,
+                    skill,
+                    returning.as_ref().and_then(|r| r.prompt.as_deref()),
+                );
                 // A Send back or a conflict waiting for the agent's slot: pending for it once typed (d0118).
                 let queued = match HandOffKind::of_skill(skill) {
                     Some(kind) => {
@@ -952,7 +968,6 @@ impl Starter {
                 &worktree.path,
                 ports.agent,
                 runs_on,
-                agent_new.as_ref(),
                 resume,
                 first_prompt,
                 start,
@@ -984,8 +999,7 @@ impl Starter {
         }
     }
 
-    /// Builds the agent's launch and spawns its session. `agent` is a new conversation's agent; a resumed one runs
-    /// the agent its session stored.
+    /// Builds the agent's launch and spawns its session.
     #[allow(clippy::too_many_arguments)]
     async fn launch(
         &self,
@@ -994,28 +1008,12 @@ impl Starter {
         cwd: &Path,
         port: u16,
         runs_on: RunsOn,
-        agent: Option<&Agent>,
         resume: Option<String>,
         first_prompt: Option<FirstPrompt>,
         start: Start,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
-        // Every skill of the running agent, the one it runs first and every hand-off skill (d0118), written into the
-        // worktree by one name (AGM-07); a copy that can't be written is logged.
-        let stored = match (agent, &runs_on.agent) {
-            (None, Some(stored)) => inner.board.store().agent(&stored.id).await?,
-            _ => None,
-        };
-        let (first_prompt, written) = inner
-            .board
-            .copy_for_ticket_session(
-                cwd,
-                inner.adapters.shipped_skills(),
-                agent.or(stored.as_ref()),
-                first_prompt,
-                &project.key,
-            )
-            .await;
+        // Otaq writes no skill into the worktree: the tool loads Otaq's own from its plugin and the user's itself (T2).
         let launched = inner
             .adapters
             .launch(
@@ -1057,17 +1055,10 @@ impl Starter {
                 model: launched.model,
                 agent: runs_on.agent,
                 effort: runs_on.effort,
-                fallback: runs_on.fallback,
                 theme: Some(launched.theme),
             })
             .await
             .map_err(|e| StartError::Other(e.to_string()))?;
-        if let Err(e) = inner
-            .sessions
-            .set_started_skills(&session.id, written.names)
-        {
-            tracing::warn!(ticket = %ticket.key, error = %e, "the session's skills weren't recorded");
-        }
         Ok(session)
     }
 
@@ -1386,8 +1377,8 @@ async fn rewalk_text(
 }
 
 /// Why the card is back in the Agent stage `here` ([`rewalk_text`]), from the ticket's runs (oldest first): the Agent
-/// stage that just finished, and the visit before its latest one, every consecutive run of one stage (a check of
-/// several agents has one run per agent; it failed when any of them did). `dragged`: the latest way back was a drag.
+/// stage that just finished, and the visit before its latest one, every consecutive run of one stage (a round
+/// stored from when a check could have several agents has one run per agent; it failed when any of them did). `dragged`: the latest way back was a drag.
 fn rewalk_why(
     runs: &[crate::board::stage_runs::StageRun],
     here: &str,

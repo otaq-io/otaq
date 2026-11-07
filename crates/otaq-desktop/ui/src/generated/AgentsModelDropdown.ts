@@ -7,6 +7,6 @@ import type { AgentsModelChoice } from "./AgentsModelChoice";
  */
 export type AgentsModelDropdown = { 
 /**
- * The field's text: "Claude Code · sonnet", "None".
+ * The field's text: "Claude Code · sonnet".
  */
 value: string, choices: Array<AgentsModelChoice>, read_only: boolean, };

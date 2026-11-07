@@ -3,8 +3,8 @@ import type { FlowEditorClashPick } from "./FlowEditorClashPick";
 
 /**
  * The user's picks for the draft's problems (Q426; FLW-04's, field for field), which the page keeps until Apply sends
- * them (`flow.apply`'s choices): a pick per import clash by the agent's name (Keep mine when left out), a folder per
- * missing skill, a local model per agent whose model isn't listed or whose tool isn't connected (`default`,
+ * them (`flow.apply`'s choices): a pick per import clash by the agent's name (Keep mine when left out), a local model
+ * per agent whose model isn't listed or whose tool isn't connected (`default`,
  * `claude`, `claude:opus`). The view is rebuilt with them on every pick. `FlowEditorChoices` on the page.
  */
-export type FlowEditorChoices = { clashes: { [key in string]: FlowEditorClashPick }, skill_folders: { [key in string]: string }, models: { [key in string]: string }, };
+export type FlowEditorChoices = { clashes: { [key in string]: FlowEditorClashPick }, models: { [key in string]: string }, };

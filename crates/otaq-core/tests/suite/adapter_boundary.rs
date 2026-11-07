@@ -129,6 +129,12 @@ struct Exception {
 
 const EXCEPTIONS: &[Exception] = &[
     Exception {
+        path: "otaq-core/src/flow/write_skill.rs",
+        pattern: "Tool::Codex",
+        reason: "a skill the user asks Noyan to write is saved where the stage's agent's tool reads project skills: \
+                 `.agents/skills` for Codex, `.claude/skills` for every other tool (T6)",
+    },
+    Exception {
         path: "otaq-core/src/agent_tools/mod.rs",
         pattern: "\"claude\"",
         reason: "the `Tool` enum's stored name for Claude Code",

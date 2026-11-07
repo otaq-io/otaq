@@ -17,10 +17,6 @@ pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 /// resolves to it at session start. Absent until a tool connects.
 pub const DEFAULT_MODEL: &str = "agents.default_model";
 
-/// Each tool's fallback (AGM-03): `{"claude": {"tool": "codex", "model": "newest:gpt-sol"}}`. Used only on the
-/// user's click (Use fallback, Use fallback now).
-pub const AGENT_FALLBACK: &str = "agents.fallback";
-
 /// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
 /// (`["copilot"]`). A hidden tool doesn't count as connected.
 pub const AGENT_TOOLS_HIDDEN: &str = "agent_tools.hidden";

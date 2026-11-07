@@ -5,9 +5,9 @@
 //! **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent and result, oldest first),
 //! then the ticket's **comments** in full, oldest first (CMT-07, d0109: the hand-over between stages; a report is
 //! only named, never printed) and the **manual checks** listed for the user (d0125). After them the tickets it
-//! depends on with their last comment from an Agent stage, pending questions, recorded decisions, the **stage
-//! choices** the agent may still set ([`reader_choices`]; none on the default flow), and Otaq's own rules (`stage
-//! next`, `stage done`, `--manual-check`). The output is concise Markdown for an agent ([`render`]); `--json` prints
+//! depends on with their last comment from an Agent stage, pending questions, recorded decisions, and Otaq's own rules
+//! (`stage next`, `stage done`, `--manual-check`). A ticket's agent sets no stage choices (only the user picks a
+//! stage's agent), so its prime lists none; Noyan's lists them ([`reader_choices`]). The output is concise Markdown for an agent ([`render`]); `--json` prints
 //! the [`PrimeContext`] itself.
 
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ use crate::board::stage_choices::StageOptions;
 use crate::board::ticket_comments::{CommentAuthor, OPEN_PATH, TicketComment};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
-use crate::domain::{Place, Status, TicketKey};
+use crate::domain::{Status, TicketKey};
 use crate::flow::engine::RunResult;
 use crate::flow::{Flow, Stage, StageKind};
 use crate::naming;
@@ -39,12 +39,11 @@ pub struct PrimeContext {
     /// The decisions this ticket's agent recorded (DEC-02), so a resumed or sent-back agent sees them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decisions: Vec<crate::decisions::Decision>,
-    /// The commit skill of the stage's agent (d0050), named for the caller's tool by its copy in the worktree
-    /// (AGM-07): `/otaq-commit`, or the agent's imported skill standing for it (`/otaq-commit-compact`). Empty when
-    /// the agent has no commit skill: it commits with git.
+    /// The commit skill (d0050): Otaq's `commit`, which every session has from Otaq's plugin, named for the caller's
+    /// tool (`/otaq:commit`; T2). Always set by [`Board::prime_context`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub commit_skill: String,
-    /// The restack skill in the caller's tool's syntax: `/otaq-restack`.
+    /// The restack skill in the caller's tool's syntax: `/otaq:restack`.
     pub restack_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
     /// (a Delivery's conflict, or a reopened ticket's rebase; GIT-03, GIT-06, FLW-17).
@@ -68,9 +67,6 @@ pub struct PrimeContext {
     /// The pull request being prepared or already open (REV-10, REV-14): for the Open PR and Push skills.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PrimePr>,
-    /// The stage choices the reader may set (AGM-06, AGM-08); none on the default flow. Filled by the service.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub choices: Vec<PrimeChoice>,
     /// The tickets this ticket's agent created that never started: what it may still fix (d0129).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub created_not_started: Vec<TicketKey>,
@@ -152,7 +148,7 @@ impl Instructions {
     }
 }
 
-/// The stage a ticket's session works in (AGM-06): "Dev, as Developer, with the skill `/otaq-work-ticket`".
+/// The stage a ticket's session works in (AGM-06): "Dev, as Developer, with the skill `/otaq:work-ticket`".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CurrentStage {
     /// The stage's name ("Dev").
@@ -160,7 +156,8 @@ pub struct CurrentStage {
     /// The agent that runs it for this ticket (its choice, else the stage's own; AGM-05).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-    /// The stage's skill, named for the caller's tool by its copy (`/otaq-work-ticket`).
+    /// The stage's skill, named as the caller's tool names it: Otaq's own by the plugin's namespace
+    /// (`/otaq:work-ticket`, `$otaq:work-ticket`), the user's by its own name (`/team-dev`; T4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,
 }
@@ -198,17 +195,14 @@ impl EarlierStage {
     }
 }
 
-/// A stage whose choice the reader may set (AGM-06, AGM-08), with what it offers.
+/// A stage of a new ticket whose choice Noyan may pass on for the user (AGM-06, AGM-08), with what it offers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeChoice {
     /// The stage's name ("Dev").
     pub stage: String,
-    /// What the ticket runs there now ("Rust developer", "skip"); `None` for a new ticket.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub now: Option<String>,
-    /// The stage's own agent first, then the other agents it offers.
+    /// The stage's own agent first, then every other agent whose tool has the stage's skill.
     pub options: Vec<PrimeOption>,
-    /// `skip` is one of the options.
+    /// The flow marks the stage skippable.
     pub can_skip: bool,
 }
 
@@ -288,53 +282,14 @@ pub fn agent_model_text(agent: &Agent, default: Option<&ModelRef>, models: &Mode
     text
 }
 
-/// Who reads the stage choices, which says what it may do with them (AGM-08).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentReader {
-    /// A ticket's agent: later stages of its own ticket, with a reason.
-    TicketAgent,
-    /// A Project agent: any stage of the tickets it creates.
-    ProjectAgent,
-}
-
-/// Whose stage choices a prime lists ([`reader_choices`]).
-#[derive(Debug, Clone, Copy)]
-pub enum ChoicesFor<'a> {
-    /// A ticket's own agent: the stages it hasn't reached, whose choice the user didn't set.
-    Ticket(&'a Ticket),
-    /// A Project agent in `project`: every stage with options, as a new ticket has them.
-    NewTickets(&'a str),
-}
-
-/// The stage choices a prime lists (AGM-06, AGM-08), each option with its model and its instructions' first line;
-/// none on the default flow (no stage has options).
+/// The stage choices of a new ticket in `project` that Noyan's prime lists (AGM-06, AGM-08): every stage a ticket may
+/// choose for, each agent with its model and its instructions' first line.
 pub async fn reader_choices(
     board: &Board,
-    of: ChoicesFor<'_>,
+    project: &str,
     models: &ModelLists,
 ) -> Result<Vec<PrimeChoice>, BoardError> {
-    let stages: Vec<StageOptions> = match of {
-        ChoicesFor::NewTickets(project) => board.new_ticket_choices(project).await?.stages,
-        ChoicesFor::Ticket(ticket) => {
-            let stages = board.ticket_choices(&ticket.key.to_string()).await?.stages;
-            if stages.is_empty() {
-                return Ok(Vec::new());
-            }
-            let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-            let from = match ticket.has_started() {
-                true => later_from(&flow, &ticket.place),
-                false => 0,
-            };
-            stages
-                .into_iter()
-                .filter(|s| {
-                    !s.locked
-                        && flow.position(&s.stage_id).is_some_and(|i| i >= from)
-                        && !s.choice.as_ref().is_some_and(|c| c.set_by.is_user())
-                })
-                .collect()
-        }
-    };
+    let stages: Vec<StageOptions> = board.new_ticket_choices(project).await?.stages;
     if stages.is_empty() {
         return Ok(Vec::new());
     }
@@ -372,7 +327,6 @@ pub async fn reader_choices(
             });
         }
         choices.push(PrimeChoice {
-            now: matches!(of, ChoicesFor::Ticket(_)).then(|| stage.label()),
             stage: stage.stage,
             options,
             can_skip: stage.can_skip,
@@ -381,81 +335,31 @@ pub async fn reader_choices(
     Ok(choices)
 }
 
-/// The first stage (an index into `flow`) a ticket's agent may still choose for once the ticket has started: the one
-/// after the stage it is in, or the one it waits before (as `stage_choices` judges an agent's choice).
-fn later_from(flow: &Flow, place: &Place) -> usize {
-    match place {
-        Place::InStage(id) => flow.position(id).map_or(0, |i| i + 1),
-        Place::Waiting(Some(id)) => flow.position(id).unwrap_or(0),
-        Place::Done => flow.stages.len(),
-        Place::Backlog | Place::Waiting(None) => 0,
-    }
-}
-
-/// The "## Stage choices" section (AGM-06, AGM-08): nothing when the reader may set none (the default flow), else
-/// what `reader` may do, with an example, and each stage's options. Noyan passes on only the user's choices
-/// (`--by-user`); a ticket agent may pick another agent but only the user skips a stage, so its example never skips
-/// and its options don't list `skip` (T1). A ticket agent sees only the stages where it can pick another agent than
-/// the stage's own: nothing when none remain (T9). `key` is the reading ticket's own.
-pub fn render_choices(
-    choices: &[PrimeChoice],
-    reader: AgentReader,
-    key: Option<&TicketKey>,
-) -> String {
-    let choices: Vec<&PrimeChoice> = choices
-        .iter()
-        .filter(|c| reader == AgentReader::ProjectAgent || c.options.iter().any(|o| !o.usual))
-        .collect();
+/// The "## Stage choices" section of Noyan's prime (AGM-06, AGM-08): nothing when no stage has a choice, else how to
+/// pass on only the choices the user names (`--by-user`), with an example, and each stage's choices.
+pub fn render_choices(choices: &[PrimeChoice]) -> String {
     let Some(first) = choices.first() else {
         return String::new();
     };
     let cmd = naming::COMMAND_NAME;
-    let lead = match reader {
-        AgentReader::TicketAgent => {
-            let key = key
-                .map(ToString::to_string)
-                .unwrap_or_else(|| "<KEY>".to_owned());
-            // Only the user skips a stage: the example picks another agent.
-            let example = choices.iter().find_map(|c| {
-                c.options
-                    .iter()
-                    .find(|o| !o.usual)
-                    .map(|o| format!("--stage \"{}={}\"", c.stage, o.name))
-            });
-            let how = match example {
-                Some(example) => format!(": `{cmd} update {key} {example} --reason \"…\"`"),
-                None => String::new(),
-            };
-            format!(
-                "You may pick another agent for these later stages of this ticket when what you learned changes how \
-                 hard their work is, always with a reason{how}. Never skip a stage: only the user skips one. A choice \
-                 the user set isn't listed: it can't be changed."
-            )
-        }
-        AgentReader::ProjectAgent => {
-            let pick = first
-                .options
-                .iter()
-                .find(|o| !o.usual)
-                .map(|o| o.name.clone())
-                .unwrap_or_else(|| crate::board::stage_choices::SKIP.to_owned());
-            format!(
-                "A new ticket runs every stage with the stage's own agent. Pass on only the choices the user names, \
-                 with --by-user: `{cmd} create \"Title\" --stage \"{}={pick}\" --by-user --stdin`.",
-                first.stage
-            )
-        }
-    };
+    let pick = first
+        .options
+        .iter()
+        .find(|o| !o.usual)
+        .map(|o| o.name.clone())
+        .unwrap_or_else(|| crate::board::stage_choices::SKIP.to_owned());
+    let lead = format!(
+        "A new ticket runs every stage with the stage's own agent. Pass on only the choices the user names, with \
+         --by-user: `{cmd} create \"Title\" --stage \"{}={pick}\" --by-user --stdin`.",
+        first.stage
+    );
     let mut out = format!("\n## Stage choices\n\n{lead}\n\n");
-    for c in &choices {
-        match &c.now {
-            Some(now) => out.push_str(&format!("- {} (now: {now})\n", c.stage)),
-            None => out.push_str(&format!("- {}\n", c.stage)),
-        }
+    for c in choices {
+        out.push_str(&format!("- {}\n", c.stage));
         for option in &c.options {
             out.push_str(&format!("  - {}\n", option.label()));
         }
-        if c.can_skip && reader == AgentReader::ProjectAgent {
+        if c.can_skip {
             out.push_str("  - skip: the ticket passes this stage\n");
         }
     }
@@ -464,30 +368,20 @@ pub fn render_choices(
 
 impl Board {
     /// The prime context of a ticket, its skills named for an agent of `tool` (ADP-05): the caller's session's
-    /// tool, or a new session's for someone running `otaq prime` by hand. The stage's skill and the commit skill are
-    /// the stage's running agent's (AGM-05), resolved for it ([`crate::skills::Sources::runs`]: its imported skill
-    /// standing for `commit`), by their copies' names in the worktree (AGM-07).
+    /// tool, or a new session's for someone running `otaq prime` by hand. The stage's skill is its `skill:`, else
+    /// Otaq's own for the stage; the commit skill is Otaq's `commit`. Each is named as the tool names it (T2).
     pub async fn prime_context(
         &self,
         key: &str,
         tool: &dyn AgentTool,
     ) -> Result<PrimeContext, BoardError> {
-        let (mut context, agent) = self
+        let (mut context, _) = self
             .unnamed_prime_context(key, SessionRole::Developer)
             .await?;
-        let sources = crate::skills::Sources {
-            shipped: None,
-            data: self.data(),
-        };
         if let Some(stage) = &mut context.stage {
-            stage.skill = stage
-                .skill
-                .take()
-                .map(|skill| tool.skill_reference(&sources.runs(agent.as_ref(), &skill).own));
+            stage.skill = stage.skill.take().map(|skill| tool.skill_reference(&skill));
         }
-        context.commit_skill = commit_skill(&sources, agent.as_ref())
-            .map(|skill| tool.skill_reference(&skill))
-            .unwrap_or_default();
+        context.commit_skill = tool.skill_reference(&commit_skill());
         context.restack_skill = tool.skill_reference(crate::review::RESTACK_SKILL);
         Ok(context)
     }
@@ -573,7 +467,6 @@ impl Board {
             comments,
             manual_checks,
             pull_request,
-            choices: Vec::new(),
             created_not_started,
         };
         Ok((context, agent))
@@ -714,23 +607,12 @@ impl Board {
     }
 }
 
-/// The commit skill `agent` runs (d0050), by its own name: `commit` (its imported skill of that name, else Otaq's),
-/// when it is one of the agent's skills (so its copy is in the worktree); `None` for an agent with no commit skill.
-/// With no agent resolved, Otaq's own. "What this agent reads" marks it the same way ([`crate::agent_reads`]).
-pub(crate) fn commit_skill(
-    sources: &crate::skills::Sources<'_>,
-    agent: Option<&Agent>,
-) -> Option<String> {
-    let commit = crate::board::settings::WorkflowStep::Commit.own_skill();
-    let Some(agent) = agent else {
-        return Some(commit.to_owned());
-    };
-    let runs = sources.runs(Some(agent), commit).own;
-    sources
-        .of_agent(agent)
-        .iter()
-        .any(|s| s.own == runs)
-        .then_some(runs)
+/// The commit skill every session runs (d0050), by its own name: Otaq's `commit`, which every session has from its
+/// plugin (T2). "What this agent reads" marks it the same way ([`crate::agent_reads`]).
+pub(crate) fn commit_skill() -> String {
+    crate::board::settings::WorkflowStep::Commit
+        .own_skill()
+        .to_owned()
 }
 
 /// What `otaq prime --validate` prints for a validator (VAL-10, d0063, AGM-06, CMT-07): the ticket, the check's
@@ -739,9 +621,15 @@ pub(crate) fn commit_skill(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidatePrime {
     pub ticket: Ticket,
-    /// The round this validator judges, and the project's rounds.
+    /// The round this validator judges, its own check stage's (two check stages count apart), and that stage's
+    /// rounds.
     pub round: u32,
     pub rounds: u32,
+    /// The check stage it judges for, its agent and its skill (no-skill-copies F6): "Validate, as Validator, with the
+    /// skill `/team-validate`", so a validator still knows its skill after compaction or a resume. The skill is named
+    /// as the caller's tool names it ([`Board::validate_prime_for`]), else by its own name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<CurrentStage>,
     /// The ticket's earlier stages (AGM-06), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub earlier: Vec<EarlierStage>,
@@ -783,7 +671,21 @@ pub struct Linked {
 }
 
 impl Board {
-    /// The context of a ticket's validator (`otaq prime --validate`).
+    /// [`Board::validate_prime`] with the check stage's skill named as `tool` names it (the caller's session's tool,
+    /// else a new session's), as the working prime names its stage's ([`Board::prime_context`]).
+    pub async fn validate_prime_for(
+        &self,
+        key: &str,
+        tool: &dyn AgentTool,
+    ) -> Result<ValidatePrime, BoardError> {
+        let mut context = self.validate_prime(key).await?;
+        if let Some(stage) = &mut context.stage {
+            stage.skill = stage.skill.take().map(|skill| tool.skill_reference(&skill));
+        }
+        Ok(context)
+    }
+
+    /// The context of a ticket's validator (`otaq prime --validate`), its stage's skill by its own name.
     pub async fn validate_prime(&self, key: &str) -> Result<ValidatePrime, BoardError> {
         let (base, _) = self
             .unnamed_prime_context(key, SessionRole::Validator)
@@ -809,9 +711,22 @@ impl Board {
             Some(sent) => Some(self.line_review(key, sent.round).await?),
             None => None,
         };
+        // Its own stage's round: the open round's number (that stage's fails in a row plus one), else the stage's.
+        let round = match self.open_round(&ticket.id).await? {
+            Some(open) => open.round,
+            None => {
+                let counts = self.check_counts(&ticket.id).await?;
+                ticket
+                    .place
+                    .stage()
+                    .map_or(ticket.validation_round, |stage| counts.of(stage).fails)
+                    + 1
+            }
+        };
         Ok(ValidatePrime {
-            round: ticket.validation_round + 1,
+            round,
             rounds,
+            stage: base.stage,
             earlier: base.earlier,
             comments: base.comments,
             manual_checks: base.manual_checks,
@@ -858,6 +773,20 @@ impl Board {
     }
 }
 
+/// "Your stage": the stage, the agent that runs it and its skill ("Dev, as Developer, with the skill
+/// `/otaq:work-ticket`."), in a working agent's prime and a validator's.
+fn render_your_stage(stage: &CurrentStage) -> String {
+    let mut out = format!("\n## Your stage\n\n{}", stage.name);
+    if let Some(agent) = &stage.agent {
+        out.push_str(&format!(", as {agent}"));
+    }
+    if let Some(skill) = &stage.skill {
+        out.push_str(&format!(", with the skill `{skill}`"));
+    }
+    out.push_str(".\n");
+    out
+}
+
 /// The Markdown a validator reads.
 pub fn render_validate(ctx: &ValidatePrime) -> String {
     let t = &ctx.ticket;
@@ -881,6 +810,9 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     out.push_str(&render_plan(&t.plan));
     if let Some(i) = &ctx.instructions {
         out.push_str(&i.render("Agent instructions"));
+    }
+    if let Some(stage) = &ctx.stage {
+        out.push_str(&render_your_stage(stage));
     }
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&ctx.ticket.key, &ctx.comments));
@@ -1260,14 +1192,7 @@ pub fn render(ctx: &PrimeContext) -> String {
         out.push_str(&instructions.render("Agent instructions"));
     }
     if let Some(stage) = &ctx.stage {
-        out.push_str(&format!("\n## Your stage\n\n{}", stage.name));
-        if let Some(agent) = &stage.agent {
-            out.push_str(&format!(", as {agent}"));
-        }
-        if let Some(skill) = &stage.skill {
-            out.push_str(&format!(", with the skill `{skill}`"));
-        }
-        out.push_str(".\n");
+        out.push_str(&render_your_stage(stage));
     }
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&t.key, &ctx.comments));
@@ -1309,20 +1234,13 @@ pub fn render(ctx: &PrimeContext) -> String {
         out.push_str(&render_pr(pr));
     }
 
-    out.push_str(&render_choices(
-        &ctx.choices,
-        AgentReader::TicketAgent,
-        Some(&t.key),
-    ));
     out.push_str(&crate::board::fixes::render_created_not_started(
         &ctx.created_not_started,
     ));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
-    let commit = match ctx.commit_skill.as_str() {
-        "" => "Commit everything with git (`git add -A`, `git commit`)".to_owned(),
-        skill => format!("Commit everything with `{skill}`"),
-    };
+    // Every session has Otaq's `commit` from Otaq's plugin, so there is no "commit with git" fallback (T4).
+    let commit = format!("Commit everything with `{}`", ctx.commit_skill);
     let rules = [
         "Follow the Agent instructions and the project's notes above. They add to these rules; they can't skip \
          getting context or ending your stage."

@@ -80,7 +80,7 @@ use crate::view_models::warm_build;
 pub enum GlobalSection {
     /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]).
     AgentTools,
-    /// T-0405: the agents, the default model and each tool's fallback, drawn from `settings.agents`
+    /// T-0405: the agents and the default model, drawn from `settings.agents`
     /// ([`super::agents::section`]).
     Agents,
     AgentLimits,
@@ -932,7 +932,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         sections: vec![
             // Its own view: the four tools' rows ([`super::agent_tools_page`]).
             section(GlobalSection::AgentTools, Some("Agent tools"), Vec::new()),
-            // Its own view: the list, the default model and the fallbacks ([`super::agents::section`]).
+            // Its own view: the list and the default model ([`super::agents::section`]).
             section(GlobalSection::Agents, Some("Agents"), Vec::new()),
             agent_limits,
             usage,
@@ -1863,11 +1863,14 @@ pub struct ProviderView {
     pub status: String,
     pub icon: IconName,
     pub look: ProviderLook,
-    /// "use your own Open PR skill": focuses the Open PR field.
+    /// "use your own Open PR skill": opens the flow editor on the Delivery stage's Skill field ([`Self::stage`]).
     pub link: Option<String>,
+    /// The Delivery stage's id, which the link selects in the flow editor; `None` with no link.
+    pub stage: Option<String>,
 }
 
-pub fn provider(detected: Option<&PrProvider>) -> ProviderView {
+/// The PR provider row; `delivery` is the id of the project's Delivery stage, where the user's own Open PR skill goes.
+pub fn provider(detected: Option<&PrProvider>, delivery: Option<&str>) -> ProviderView {
     let row = provider_row(detected);
     let (icon, look) = match row.tone {
         ProviderTone::Ready => (IconName::CircleCheck, ProviderLook::Ready),
@@ -1879,6 +1882,7 @@ pub fn provider(detected: Option<&PrProvider>) -> ProviderView {
         status: row.status,
         icon,
         look,
+        stage: row.link.and(delivery).map(str::to_owned),
         link: row.link.map(str::to_owned),
     }
 }
@@ -3326,7 +3330,20 @@ mod tests {
         assert!(c.credits[0].themes.starts_with("→ "));
         assert!(is_credit_source(&c.credits[0].source));
         assert!(!is_credit_source("https://example.com"));
-        assert_eq!(provider(None).status, "Checking…");
+        assert_eq!(provider(None, Some("done")).status, "Checking…");
+        assert_eq!(provider(None, Some("done")).stage, None);
+        // On a GitLab remote the row's link opens the flow editor on the Delivery stage (its Skill field).
+        let gitlab = PrProvider {
+            remote: Some("gitlab.com/acme/shop-web".into()),
+            provider: None,
+            logged_in: None,
+            cli_found: false,
+            open_pr_skill: "open-pr".into(),
+        };
+        let row = provider(Some(&gitlab), Some("done"));
+        assert_eq!(row.link.as_deref(), Some("use your own Open PR skill"));
+        assert_eq!(row.stage.as_deref(), Some("done"));
+        assert!(!row.description.contains("Settings") && !row.description.contains("agent"));
         let t = tools(Err("boom".into()));
         assert_eq!(t.error.as_deref(), Some("boom"));
         assert!(t.rows.is_empty());

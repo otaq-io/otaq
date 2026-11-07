@@ -395,15 +395,6 @@ const claudeLine = (over: Partial<LimitLine> = {}): LimitLine => ({
       action: { kind: "resume_tool", tool: "claude" },
       enabled: false,
       primary: false,
-      tooltip: null,
-    },
-    {
-      label: "Use fallback now",
-      icon: "arrow-right-left",
-      action: { kind: "use_fallback_now", tool: "claude" },
-      enabled: true,
-      primary: false,
-      tooltip: "Starts the waiting tickets on Codex",
     },
   ],
   ...over,
@@ -415,7 +406,7 @@ const codexLine: LimitLine = {
   tone: "warning",
   icon: "triangle-alert",
   title: "Codex isn’t available",
-  text: "signed out · 5 tickets on Claude Code",
+  text: "signed out · 5 tickets waiting",
   buttons: [
     {
       label: "Sign in…",
@@ -423,7 +414,6 @@ const codexLine: LimitLine = {
       action: { kind: "sign_in", tool: "codex" },
       enabled: true,
       primary: false,
-      tooltip: null,
     },
   ],
 };
@@ -441,7 +431,7 @@ const limitBanner = (lines: LimitLine[]): Banner =>
   });
 
 describe("the limit banner per tool", () => {
-  it("draws one line per tool with its avatar, Resume <tool>, Sign in… and Use fallback now", () => {
+  it("draws one line per tool with its avatar, Resume <tool> and Sign in…", () => {
     const b = limitBanner([claudeLine(), codexLine]);
     expect(limitLinesOf(b)).toHaveLength(2);
     const html = renderToStaticMarkup(createElement(BannerRows, { banners: [b] }));
@@ -450,32 +440,28 @@ describe("the limit banner per tool", () => {
       /data-tone="neutral" data-tool="claude".*Claude Code limit reached.*Resume Claude Code/,
     );
     expect(html).toMatch(/data-tone="warning" data-tool="codex".*Codex isn’t available.*Sign in…/);
-    expect(html).toContain(">Use fallback now<");
     expect(html).not.toContain(">Resume<");
     expect(html).not.toContain('data-tone="attention"');
   });
 
-  it("the one-tool banner stays M22's: no avatar, no lines, no Use fallback now", () => {
-    const one = limitBanner([claudeLine({ avatar: null, buttons: claudeLine().buttons.slice(0, 1) })]);
+  it("the one-tool banner stays M22's: no avatar, no lines", () => {
+    const one = limitBanner([claudeLine({ avatar: null })]);
     expect(limitLinesOf(one)).toEqual([]);
     const html = renderToStaticMarkup(createElement(BannerRows, { banners: [one] }));
     expect(html).not.toContain("notices-line");
-    expect(html).not.toContain("Use fallback now");
     expect(html).not.toContain("tool-avatar");
     expect(html).toContain(">Resume<");
   });
 
-  it("Resume <tool> calls limits.resume_tool with its tool; Use fallback now calls limits.use_fallback_now", () => {
+  it("Resume <tool> calls limits.resume_tool with its tool", () => {
     const ask = vi.mocked(request);
     ask.mockReset();
     ask.mockResolvedValue(null);
     LINE_HANDLERS.onAction({ kind: "resume_tool", tool: "claude" });
     LINE_HANDLERS.onAction({ kind: "resume_tool", tool: "codex" });
-    LINE_HANDLERS.onAction({ kind: "use_fallback_now", tool: "claude" });
     expect(ask.mock.calls).toEqual([
       ["limits.resume_tool", { tool: "claude" }],
       ["limits.resume_tool", { tool: "codex" }],
-      ["limits.use_fallback_now", { tool: "claude" }],
     ]);
   });
 });

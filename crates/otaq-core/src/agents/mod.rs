@@ -1,19 +1,18 @@
 //! Agents (AGM-01…AGM-05; d0108, d0086, d0088, d0040, d0068, d0092): every session Otaq starts runs an agent, which
-//! has a name, its own instructions, an ordered set of skills and its own model (a tool and a model from that tool's
-//! list, or `default`), with the tool's own effort level where the tool has a documented one. Agents belong to the
-//! account and are shared by every project; flows name them by name and Otaq keeps their ids, so a rename changes
-//! nothing.
+//! has a name, its own instructions and its own model (a tool and a model from that tool's list, or `default`), with
+//! the tool's own effort level where the tool has a documented one. Agents belong to the account and are shared by
+//! every project; flows name them by name and Otaq keeps their ids, so a rename changes nothing.
 //!
-//! - The types: [`Agent`], [`AgentModel`], [`SkillRef`], [`Role`] (the two roles an agent can hold), [`CameFrom`],
-//!   [`ModelRef`] (a tool and a model: the default model, a tool's fallback) and [`SessionRole`] (which kind of
+//! - The types: [`Agent`], [`AgentModel`], [`Role`] (the two roles an agent can hold), [`CameFrom`],
+//!   [`ModelRef`] (a tool and a model: the default model) and [`SessionRole`] (which kind of
 //!   session a hold or a token count is about).
-//! - [`Agents`]: the requests' rules (add, edit, duplicate, delete, in use, move a role, the default model, the
-//!   fallbacks, importing a skill).
+//! - [`Agents`]: the requests' rules (add, edit, duplicate, delete, in use, move a role, the default model). An
+//!   agent has no skills: a stage's `skill:` is the only place a skill is picked (T6).
 //! - [`store`]: the tables; [`shipped`]: Otaq's agents file and the default flow's agents, applied at the first
 //!   start; [`in_use`]: what uses an agent; [`resolve`]: which agent a session runs (AGM-05);
-//!   [`gate`]: the check before every launch and the fallback (AGM-03); [`limits`]: the plan-limit banner's lines,
-//!   Resume per tool and Use fallback now; [`mark`]: the amber mark of a model the tool refused; [`skills`]:
-//!   importing a skill folder onto an agent (WSK-02…WSK-04); [`pause`]: Pause and Resume per project (d0112).
+//!   [`gate`]: the check before every launch: an agent whose tool can't run waits for it; [`limits`]: the
+//!   plan-limit banner's lines and Resume per tool; [`mark`]: the amber mark of a model the tool refused; [`pause`]: Pause
+//!   and Resume per project (d0112).
 
 pub mod facts;
 pub mod gate;
@@ -24,10 +23,8 @@ pub mod mark;
 pub mod pause;
 pub mod resolve;
 pub mod shipped;
-pub mod skills;
 pub mod store;
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -105,35 +102,10 @@ stored_enum! {
         ToolUnavailable = "tool_unavailable",
         /// Its model is no longer in its tool's list: "Model unavailable · Open agent…".
         ModelUnavailable = "model_unavailable",
+        /// Its tool doesn't have the skill the stage names (a stage runs only on a tool that has its skill): the
+        /// hold keeps the skill's name, and Check again asks the finder again.
+        MissingSkill = "missing_skill",
     }
-}
-
-/// One of an agent's skills (AGM-01): a shipped skill by its name (`work-ticket`), or an imported folder by the id
-/// of Otaq's copy (`skills/<id>/`, WSK-03), whose record is in [`Agent::imported`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SkillRef {
-    Shipped(String),
-    Imported(String),
-}
-
-/// What an agent remembers of an imported skill (WSK-03).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ImportedSkill {
-    /// Otaq's own id: the copy is `skills/<id>/`.
-    pub id: String,
-    /// The `name:` of its SKILL.md, the skill's label.
-    pub name: String,
-    /// The folder it was imported from (absolute).
-    pub original: String,
-    /// Unix milliseconds.
-    pub imported_at: i64,
-    /// A hash of the copy as imported ([`crate::skills::folder::fingerprint`]): the copy was edited when it
-    /// differs.
-    pub fingerprint: String,
-    /// What the last import warned about (WSK-02: files the SKILL.md mentions that aren't in the folder).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
 }
 
 /// An agent's model (AGM-01): `default` (the account's default model, resolved when a session starts, AGM-03), or a
@@ -193,8 +165,8 @@ impl ToolModel {
     }
 }
 
-/// A tool and a model from its list (`None`: the tool's default): the default model for new agents, a tool's
-/// fallback (AGM-03).
+/// A tool and a model from its list (`None`: the tool's default): the default model for new agents, what a session
+/// runs on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelRef {
     pub tool: Tool,
@@ -258,11 +230,6 @@ pub struct Agent {
     pub name: String,
     /// Markdown; empty when it has none.
     pub instructions: String,
-    /// In order.
-    pub skills: Vec<SkillRef>,
-    /// The records of its [`SkillRef::Imported`] skills.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub imported: Vec<ImportedSkill>,
     pub model: AgentModel,
     /// The tool's own effort level (`high`), only with a model on a tool that has a documented one
     /// ([`Tool::effort_levels`]).
@@ -277,11 +244,6 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// The record of one of its imported skills.
-    pub fn imported_skill(&self, id: &str) -> Option<&ImportedSkill> {
-        self.imported.iter().find(|s| s.id == id)
-    }
-
     /// Its model by kind, from its tool's list; `None` for `default`. A text the list no longer has counts as exact,
     /// or as a follow choice in one of Otaq's forms (`newest:gpt-sol`, `auto@balance`;
     /// [`crate::agent_tools::follow`]).
@@ -311,7 +273,7 @@ impl Agent {
 
 /// An agent that would start but doesn't (an Agent stage's start, an agent check's round, a Project agent's first
 /// message), one per ticket and session role (and check agent, d0130 row 17), or per project for its
-/// Project agent (`agent_holds`). It lifts when its cause goes, or on the user's Use fallback.
+/// Project agent (`agent_holds`). It lifts when its cause goes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentHold {
     pub id: String,
@@ -320,10 +282,6 @@ pub struct AgentHold {
     /// The project of a held Project agent's first message; `None` for a ticket's hold.
     pub project_id: Option<String>,
     pub role: SessionRole,
-    /// The held check agent of an agent check's round, as its row names it ("Security reviewer"): the others of the
-    /// round run on (d0130 row 17). `None` for every other hold.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check_agent: Option<String>,
     pub reason: HoldReason,
     /// The tool it would have started on.
     pub tool: Tool,
@@ -331,14 +289,8 @@ pub struct AgentHold {
     pub model: Option<String>,
     /// The agent it would have started on.
     pub agent_id: Option<String>,
-    /// The tool whose fallback could take it now ([`Fallbacks`]); `None` without one, or while that can't run either.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback_tool: Option<Tool>,
-    /// The tool's fallback can't run either ("Claude Code and its fallback Codex are both at their limits").
-    pub fallback_held: bool,
-    /// The user asked for the fallback (Use fallback, Use fallback now): the held start launches there.
-    #[serde(default)]
-    pub fallback_asked: bool,
+    /// The skill its tool doesn't have, for a [`HoldReason::MissingSkill`] hold; `None` for every other.
+    pub skill: Option<String>,
     /// When it was first held for this reason, in Unix milliseconds.
     pub since: i64,
 }
@@ -399,60 +351,35 @@ impl ModelCatalog for FixedModels {
 
 /// An agent's fields as its page sends them (`agents.add`, `agents.edit`) and as Duplicate's draft ("<name> copy",
 /// not saved). A model text comes from the tool's list (`"default"` or empty = the tool's default). The role moves
-/// with its own request (`agents.move_role`); imported skills come with `agents.import_skill`, and the list here
-/// may keep, reorder or drop them.
+/// with its own request (`agents.move_role`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentFields {
     pub name: String,
     #[serde(default)]
     pub instructions: String,
-    #[serde(default)]
-    pub skills: Vec<SkillRef>,
     pub model: AgentModel,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
 }
 
-/// Each tool's fallback (AGM-03): "When Claude Code hits its limit → Codex · newest GPT". Stored as one JSON object
-/// in `settings` (`agents.fallback`), by tool.
-pub type Fallbacks = BTreeMap<Tool, ModelRef>;
-
-/// One line of Fallback per tool.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolFallback {
-    pub tool: Tool,
-    pub fallback: ModelRef,
-}
-
 /// The answer to `agents.list`: every agent (oldest first), the default model for new agents (`None` until a tool
-/// connects) and each tool's fallback.
+/// connects).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentList {
     pub agents: Vec<Agent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<ModelRef>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fallbacks: Vec<ToolFallback>,
-}
-
-/// A session that runs on its tool's fallback, by the user's click (AGM-03): the tool it would have run on and why
-/// it couldn't ("on Codex · Claude Code limit").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FallbackFrom {
-    pub tool: Tool,
-    pub reason: HoldReason,
 }
 
 /// What a session launches on (AGM-05, ADP-04; d0088 "The exact tool, model and agent are saved on the session"):
 /// the tool (`None`: the new-session tool, while no default model is set), the model passed to it unchanged (`None`
-/// passes no model option), the effort, the agent saved on the session, and the fallback it runs on.
+/// passes no model option), the effort, and the agent saved on the session.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunsOn {
     pub tool: Option<Tool>,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub agent: Option<SessionAgent>,
-    pub fallback: Option<FallbackFrom>,
 }
 
 impl RunsOn {
@@ -465,7 +392,6 @@ impl RunsOn {
             model: on.and_then(|m| m.model),
             effort: agent.model.tool().and(agent.effort.clone()),
             agent: Some(agent.session_agent()),
-            fallback: None,
         }
     }
 
@@ -477,7 +403,6 @@ impl RunsOn {
             model: conversation.model.clone(),
             effort: conversation.effort.clone(),
             agent: conversation.agent.clone(),
-            fallback: None,
         }
     }
 }
@@ -542,12 +467,6 @@ impl Agents {
         Ok(AgentList {
             agents: store.agents().await?,
             default_model: store.default_model().await?,
-            fallbacks: store
-                .fallbacks()
-                .await?
-                .into_iter()
-                .map(|(tool, fallback)| ToolFallback { tool, fallback })
-                .collect(),
         })
     }
 
@@ -570,7 +489,7 @@ impl Agents {
         self.agent(&id).await
     }
 
-    /// Changes an agent (name, instructions, skills, model, effort). A saved model change clears the mark (AGT-05).
+    /// Changes an agent (name, instructions, model, effort). A saved model change clears the mark (AGT-05).
     /// The next session that starts uses it; running and parked sessions keep what they started with (0088).
     pub async fn edit(&self, id: &str, fields: &AgentFields) -> Result<Agent, BoardError> {
         let before = self.agent(id).await?;
@@ -583,14 +502,13 @@ impl Agents {
         self.agent(id).await
     }
 
-    /// Duplicate's draft: the agent's fields named "<name> copy" (imported skills share Otaq's copy). Not saved; the
+    /// Duplicate's draft: the agent's fields named "<name> copy". Not saved; the
     /// page saves it with [`Self::add`].
     pub async fn duplicate(&self, id: &str) -> Result<AgentFields, BoardError> {
         let agent = self.agent(id).await?;
         Ok(AgentFields {
             name: format!("{} copy", agent.name),
             instructions: agent.instructions,
-            skills: agent.skills,
             model: agent.model,
             effort: agent.effort,
         })
@@ -635,34 +553,8 @@ impl Agents {
         Ok(model)
     }
 
-    /// One line of Fallback per tool (AGM-03): another tool and a model from its list, or none.
-    pub async fn set_fallback(
-        &self,
-        tool: Tool,
-        fallback: Option<&ModelRef>,
-    ) -> Result<Fallbacks, BoardError> {
-        let store = self.board.store();
-        let mut fallbacks = store.fallbacks().await?;
-        match fallback {
-            Some(fallback) if fallback.tool == tool => {
-                return Err(BoardError::refused(
-                    Refusal::BadFallback,
-                    "A fallback must be on another tool",
-                ));
-            }
-            Some(fallback) => {
-                fallbacks.insert(tool, self.checked_ref(fallback)?);
-            }
-            None => {
-                fallbacks.remove(&tool);
-            }
-        }
-        store.set_fallbacks(&fallbacks).await?;
-        Ok(fallbacks)
-    }
-
     /// The fields as stored, after the rules: the name ([`checked_name`]), a model from its tool's list, an effort
-    /// only where the tool has one (one of its levels), shipped skills Otaq ships and imported ones the agent has.
+    /// only where the tool has one (one of its levels).
     async fn checked(
         &self,
         fields: &AgentFields,
@@ -714,41 +606,9 @@ impl Agents {
                 ));
             }
         };
-        // Every agent's imported records: Duplicate's draft keeps the copies of the agent it came from.
-        let known: Vec<&ImportedSkill> = agents.iter().flat_map(|a| &a.imported).collect();
-        let mut skills = Vec::new();
-        let mut imported = Vec::new();
-        for skill in &fields.skills {
-            match skill {
-                SkillRef::Shipped(name) if !shipped::SKILLS.contains(&name.as_str()) => {
-                    return Err(BoardError::refused(
-                        Refusal::BadSkill,
-                        format!(
-                            "{} doesn't ship a skill called {name}",
-                            crate::naming::PRODUCT_NAME
-                        ),
-                    ));
-                }
-                SkillRef::Shipped(_) => {}
-                SkillRef::Imported(id) => {
-                    let record = known.iter().find(|s| &s.id == id).ok_or_else(|| {
-                        BoardError::refused(
-                            Refusal::BadSkill,
-                            "That imported skill isn't there any more",
-                        )
-                    })?;
-                    imported.push((*record).clone());
-                }
-            }
-            if !skills.contains(skill) {
-                skills.push(skill.clone());
-            }
-        }
         Ok(store::NewAgent {
             name,
             instructions: fields.instructions.clone(),
-            skills,
-            imported,
             model,
             effort,
             role: editing.and_then(|a| a.role),

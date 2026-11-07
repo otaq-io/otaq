@@ -6,7 +6,6 @@ import type { AgentMarkView } from "./AgentMarkView";
 import type { AgentModelField } from "./AgentModelField";
 import type { AgentNameField } from "./AgentNameField";
 import type { AgentRoleField } from "./AgentRoleField";
-import type { AgentSkillsField } from "./AgentSkillsField";
 import type { AgentUsedIn } from "./AgentUsedIn";
 import type { MenuItem } from "./MenuItem";
 
@@ -29,7 +28,7 @@ reads_label: string | null, menu_label: string,
 /**
  * Duplicate, Delete… on a saved agent.
  */
-menu: Array<MenuItem>, draft: AgentDraft, name: AgentNameField, model: AgentModelField, role: AgentRoleField | null, instructions: AgentInstructionsField, skills: AgentSkillsField, used_in: AgentUsedIn | null, mark: AgentMarkView | null, 
+menu: Array<MenuItem>, draft: AgentDraft, name: AgentNameField, model: AgentModelField, role: AgentRoleField | null, instructions: AgentInstructionsField, used_in: AgentUsedIn | null, mark: AgentMarkView | null, 
 /**
  * "Edits apply to the next session that starts." on a saved agent.
  */

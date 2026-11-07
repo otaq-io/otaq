@@ -15,7 +15,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Reviewer]
+    agent: Reviewer
     skill: validate
     rounds: 3
   - id: review

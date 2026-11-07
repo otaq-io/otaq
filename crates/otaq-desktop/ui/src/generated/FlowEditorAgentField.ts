@@ -11,6 +11,12 @@ export type FlowEditorAgentField = { label: string, avatar: ToolAvatarView | nul
  */
 note: string | null, 
 /**
- * Every agent: the stored ones, then those the draft brings ("new").
+ * The agents whose tool has the stage's skill (every agent for one of Otaq's own): the stored ones, then those
+ * the draft brings ("new"); the current one always.
  */
-items: Array<MenuItem>, hint: string, };
+items: Array<MenuItem>, 
+/**
+ * "Copilot doesn’t have the skill `/team-validate`", amber: the agent's tool doesn't have the stage's skill. Only
+ * a warning, Apply still works.
+ */
+warning: string | null, hint: string, };

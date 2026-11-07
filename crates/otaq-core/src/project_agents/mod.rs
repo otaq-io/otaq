@@ -7,7 +7,7 @@
 //!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). The message is its first request from the start: there is
 //!   no empty "New conversation" session. The check before every launch runs first (SCH-04 `[M23]`,
 //!   [`crate::agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
-//!   refuses the message with the reason and holds the Project agent (no fallback, Q-B); the message stays in the
+//!   refuses the message with the reason and holds the Project agent (Q-B); the message stays in the
 //!   agent panel for the user to send again. A Resume is refused while the usage limit holds. They never count toward the
 //!   agent limit, which counts tickets (SCH-03).
 //! - **Naming** (PAG-04): "New conversation" until named. The agent names itself once with `otaq agent name`; a second
@@ -20,12 +20,10 @@
 //!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
 //!   conversations are never deleted.
 
-mod checkout;
 pub mod first_flow;
 pub mod prime;
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -265,8 +263,6 @@ struct Inner {
     turn_ends: Mutex<HashMap<String, i64>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
-    /// The skill copies each running agent holds in its project's folder (AGM-07).
-    checkout: tokio::sync::Mutex<checkout::Held>,
     /// How long an unchosen flow agent may take to read its answer before it ends anyway, in milliseconds
     /// ([`first_flow::ANSWER_GRACE`]; tests shorten it).
     answer_grace_ms: std::sync::atomic::AtomicU64,
@@ -326,7 +322,6 @@ impl ProjectAgents {
                 waiting: Mutex::new(HashMap::new()),
                 turn_ends: Mutex::new(HashMap::new()),
                 gate: std::sync::OnceLock::new(),
-                checkout: Default::default(),
                 answer_grace_ms: std::sync::atomic::AtomicU64::new(
                     u64::try_from(first_flow::ANSWER_GRACE.as_millis()).unwrap_or(u64::MAX),
                 ),
@@ -386,8 +381,6 @@ impl ProjectAgents {
                 "project agents after the restart"
             );
         }
-        // No agent runs now: the skill copies a crash left in the projects' folders go (AGM-07).
-        self.remove_checkout_leftovers().await;
         Ok(report)
     }
 
@@ -431,35 +424,26 @@ impl ProjectAgents {
                 &agent,
             )
             .await?;
-        self.start(&project, message, &agent, &runs_on, None).await
+        self.start(&project, message, &runs_on, None).await
     }
 
-    /// Starts a new Project agent in `project` on `agent` with `runs_on` (already checked) and the first `message`;
+    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first `message`;
     /// `name` names it from the start (a flow agent, "Flow setup · OpenCode"), as the user's name would.
     async fn start(
         &self,
         project: &Project,
         message: &str,
-        agent: &Agent,
         runs_on: &RunsOn,
         name: Option<&str>,
     ) -> Result<ProjectAgent, BoardError> {
         let id = new_id();
-        // The agent's skills, copied into the project's folder while it runs (AGM-07); `/flow` runs the flow
-        // skill (FLW-11).
+        // Otaq writes no skill into the project's folder (T2); `/flow` runs the flow skill (FLW-11).
         let (skill, asks) = first_skill(message);
-        let first_prompt = self
-            .copy_into_checkout(
-                &id,
-                Path::new(&project.repo_path),
-                Some(agent),
-                Some(FirstPrompt::Skill {
-                    name: skill.to_owned(),
-                    message: asks,
-                }),
-            )
-            .await;
-        let launched = match self.launch(
+        let first_prompt = Some(FirstPrompt::Skill {
+            name: skill.to_owned(),
+            message: asks,
+        });
+        let launched = self.launch(
             runs_on.tool,
             LaunchRequest {
                 model: runs_on.model.clone(),
@@ -472,13 +456,7 @@ impl ProjectAgents {
                 )
                 .await
             },
-        ) {
-            Ok(launched) => launched,
-            Err(e) => {
-                self.release_checkout(&id).await;
-                return Err(e);
-            }
-        };
+        )?;
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
                                          state, first_request, created_at, name, name_source)
@@ -510,7 +488,6 @@ impl ProjectAgents {
             .spawn(project, launched, &id, size, runs_on, Start::User)
             .await
         {
-            self.release_checkout(&id).await;
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(self.inner.board.store().pool())
@@ -535,8 +512,6 @@ impl ProjectAgents {
         self.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner.board.project(&agent.project).await?;
         let conversation = agent.conversation()?.to_owned();
-        self.copy_stored_agent_into_checkout(&agent.id, &project, &runs_on)
-            .await?;
         let launched = self.launch(
             runs_on.tool,
             LaunchRequest {
@@ -551,18 +526,9 @@ impl ProjectAgents {
                 )
                 .await
             },
-        );
-        let started = match launched {
-            Ok(launched) => {
-                self.restart(&agent, &project, launched, &runs_on, Start::User)
-                    .await
-            }
-            Err(e) => Err(e),
-        };
-        if let Err(e) = started {
-            self.release_checkout(&agent.id).await;
-            return Err(e);
-        }
+        )?;
+        self.restart(&agent, &project, launched, &runs_on, Start::User)
+            .await?;
         tracing::info!(agent = id, "project agent resumed");
         self.changed(&agent.project, id);
         self.get(id).await
@@ -582,25 +548,7 @@ impl ProjectAgents {
             model: agent.model.clone(),
             effort,
             agent: id.zip(name).map(|(id, name)| SessionAgent { id, name }),
-            fallback: None,
         })
-    }
-
-    /// Before a resume: the skills of the agent `runs_on` stored (its agent now, if it is still there) are copied into
-    /// the project's folder for the agent `id` (AGM-07).
-    async fn copy_stored_agent_into_checkout(
-        &self,
-        id: &str,
-        project: &Project,
-        runs_on: &RunsOn,
-    ) -> Result<(), BoardError> {
-        let agent = match &runs_on.agent {
-            Some(stored) => self.inner.board.store().agent(&stored.id).await?,
-            None => None,
-        };
-        self.copy_into_checkout(id, Path::new(&project.repo_path), agent.as_ref(), None)
-            .await;
-        Ok(())
     }
 
     /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed) on `runs_on`'s
@@ -740,14 +688,14 @@ impl ProjectAgents {
         self.get(id).await
     }
 
-    /// The noyan skill as the agent `id`'s tool names it (ADP-05); a new session's tool when the agent
-    /// is gone.
+    /// The noyan skill as the agent `id`'s tool types it at the start of its first prompt (ADP-05,
+    /// [`crate::agent_tools::AgentTool::skill_prompt`]); a new session's tool when the agent is gone.
     async fn skill_invocation(&self, id: &str) -> String {
         let tool = self.get(id).await.ok().map(|agent| agent.tool);
         self.inner
             .adapters
             .of_session(tool)
-            .skill_reference(PROJECT_AGENT_SKILL)
+            .skill_prompt(PROJECT_AGENT_SKILL)
     }
 
     /// A hook signal of the Project agent `id` (§11.4 M12 rows): its first request is kept (open already recorded
@@ -1265,7 +1213,6 @@ impl ProjectAgents {
                 model: launched.model,
                 agent: runs_on.agent.clone(),
                 effort: runs_on.effort.clone(),
-                fallback: runs_on.fallback.clone(),
                 theme: Some(launched.theme),
             })
             .await
@@ -1278,8 +1225,6 @@ impl ProjectAgents {
             let Some(ended) = this.inner.sessions.wait_ended(&session_id).await else {
                 return;
             };
-            // Its skill copies leave the project's folder with it, whatever ended it (AGM-07).
-            this.release_checkout(&id).await;
             if ended.end_reason.as_deref() == Some(END_SERVICE_STOPPED) {
                 return;
             }
@@ -1475,7 +1420,7 @@ fn summary(c: &CreatedAndChanged) -> String {
 }
 
 /// The request in a UserPromptSubmit prompt: the prompt without `skill`, the invocation that starts the session
-/// (`/otaq-noyan`, alone it is no request). `None` when nothing is left.
+/// (`/otaq:noyan`, alone it is no request). `None` when nothing is left.
 pub fn request_text(prompt: &str, skill: &str) -> Option<String> {
     let prompt = prompt.trim();
     let rest = prompt.strip_prefix(skill).unwrap_or(prompt).trim();
@@ -1517,7 +1462,7 @@ mod tests {
 
     #[test]
     fn the_skill_invocation_is_no_request() {
-        let skill = format!("/{}", naming::copy_name(PROJECT_AGENT_SKILL));
+        let skill = format!("/{}:{PROJECT_AGENT_SKILL}", naming::PLUGIN_NAMESPACE);
         assert_eq!(request_text(&skill, &skill), None);
         assert_eq!(request_text(&format!("  {skill}  "), &skill), None);
         assert_eq!(

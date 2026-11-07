@@ -3,8 +3,17 @@
 /**
  * What the Skill field shows (FED-06). `FlowEditorSkillState` on the page.
  */
-export type FlowEditorSkillState = { "state": "set", skill: string, } | { "state": "empty", text: string, pick: string, ask: string, hint: string, prefill: string, } | { "state": "writing", text: string, stop: string, } | { "state": "written", skill: string, note: string, 
+export type FlowEditorSkillState = { "state": "set", skill: string, warning: string | null, } | { "state": "empty", text: string, pick: string, ask: string, hint: string, prefill: string, } | { "state": "writing", text: string, stop: string, } | { "state": "written", skill: string, note: string, 
+/**
+ * "Saved in `.claude/skills/plan-ticket` in this project. Commit it so agents get it in their worktrees.";
+ * `None` for one an older Otaq wrote, which has no folder in the project.
+ */
+saved: string | null, 
 /**
  * "Written by Checkout slowness" (hover).
  */
-why: string, open: string, undo: string, };
+why: string, 
+/**
+ * Opens its folder; `None` for one an older Otaq wrote, which has no folder in the project.
+ */
+open: string | null, undo: string, };

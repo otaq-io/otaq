@@ -4,6 +4,8 @@
 
 use std::collections::HashSet;
 
+use crate::agent_tools::Tool;
+
 use super::model::{Column, Delivers, DeliveryMode, Flow, Stage, StageKind};
 
 /// The rounds an agent check may have (d0063): 1–5; anything else is a [`Rule::Rounds`] problem.
@@ -34,10 +36,10 @@ pub enum Rule {
     SkipDelivery,
     /// With the skips taken, no Agent stage runs.
     SkipLeavesNoAgent,
-    /// With the skips taken, a required human check has no running Agent stage before it (a skippable one skips on
-    /// its own, 0129 row 4).
+    /// With the skips taken, a human check that can't be skipped has no running Agent stage before it (a skippable
+    /// one is fine: the ticket waits there, or the user skips it too).
     SkipStrandsHumanCheck,
-    /// Two stages with one id or one name, or an agent check listing one agent twice.
+    /// Two stages with one id or one name.
     Duplicate,
     /// A stage or a stage option names an agent that isn't one of the agents (AGM-01).
     UnknownAgent,
@@ -45,8 +47,11 @@ pub enum Rule {
     NeedsSkill,
     /// A check's fails go to a stage that isn't an Agent stage before it (d0131).
     FailTo,
-    /// An agent check with no check agent (d0130: one or more).
+    /// An agent check with no agent (it has one).
     NoCheckAgent,
+    /// A stage's skill is a tool's built-in command (`/security-review`), which isn't a skill, and the user has no
+    /// skill of that name.
+    BuiltInCommand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +75,7 @@ pub fn unknown_agent_message(stage: &Stage, name: &str) -> String {
     )
 }
 
-/// The agents a flow names (AGM-01: a stage's `agent`, an agent check's check agents and its options' agents), each
+/// The agents a flow names (AGM-01: a stage's `agent`, an agent check's too, and its options' agents), each
 /// against `known` (whether an agent of that name is there); a problem per unknown name, in stage order.
 pub fn check_agents(flow: &Flow, known: impl Fn(&str) -> bool) -> Result<(), Vec<Problem>> {
     let mut problems = Vec::new();
@@ -84,6 +89,54 @@ pub fn check_agents(flow: &Flow, known: impl Fn(&str) -> bool) -> Result<(), Vec
                 });
             }
         }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems)
+    }
+}
+
+/// "Security: `/security-review` is Claude Code's built-in command, not a skill. …": `tools` are the tools that have
+/// the command (at least one).
+pub fn built_in_command_message(stage: &Stage, command: &str, tools: &[Tool]) -> String {
+    let owners: Vec<String> = tools
+        .iter()
+        .map(|t| format!("{}'s", t.display_name()))
+        .collect();
+    let owners = match owners.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    format!(
+        "{}: `/{command}` is {owners} built-in command, not a skill. Write a small skill that runs it, and name that \
+         skill here",
+        stage.name
+    )
+}
+
+/// The stages whose skill is a tool's built-in command ([`Tool::with_built_in_command`]) rather than a skill, each
+/// against `has` (whether the user has a skill of that name, which then is theirs and fine); a problem per stage.
+pub fn check_skills(flow: &Flow, has: impl Fn(&str) -> bool) -> Result<(), Vec<Problem>> {
+    let mut problems = Vec::new();
+    for stage in &flow.stages {
+        let Some(skill) = stage
+            .skill
+            .as_deref()
+            .map(|s| s.trim().trim_start_matches('/'))
+        else {
+            continue;
+        };
+        let tools = Tool::with_built_in_command(skill);
+        if tools.is_empty() || has(skill) {
+            continue;
+        }
+        problems.push(Problem {
+            rule: Rule::BuiltInCommand,
+            stage: Some(stage.id.clone()),
+            message: built_in_command_message(stage, skill, &tools),
+        });
     }
     if problems.is_empty() {
         Ok(())
@@ -130,28 +183,12 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
     }
 
     for stage in stages.iter().filter(|s| s.is_agent_check()) {
-        let agents = stage.check_agents();
-        if agents.is_empty() {
+        if stage.check_agent().is_none() {
             add(
                 Rule::NoCheckAgent,
                 Some(stage),
-                format!(
-                    "{} is an agent check with no check agent: name one or more",
-                    stage.name
-                ),
+                format!("{} is an agent check with no agent: name one", stage.name),
             );
-        }
-        for (i, agent) in agents.iter().enumerate() {
-            if agents[..i].iter().any(|a| a.eq_ignore_ascii_case(agent)) {
-                add(
-                    Rule::Duplicate,
-                    Some(stage),
-                    format!(
-                        "{} lists {agent} twice: each check agent runs once",
-                        stage.name
-                    ),
-                );
-            }
         }
     }
 
@@ -310,8 +347,8 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
             format!("If {} skipped, no Agent stage runs", skipped(&agents)),
         );
     }
-    // A skippable human check after only skippable Agent stages is allowed (0129 row 4): a ticket that skips every
-    // one of them skips the check too, on its own ([`super::engine::skipped_on_its_own`]).
+    // A skippable human check after only skippable Agent stages is allowed: a ticket that skips every one of them
+    // waits there all the same (nothing is skipped on its own), and the user skips the check too if they want.
     for (i, stage) in stages.iter().enumerate() {
         let before: Vec<&Stage> = stages[..i].iter().filter(|s| s.is_agent_stage()).collect();
         // With none before it at all, HumanCheckFirst already says so.

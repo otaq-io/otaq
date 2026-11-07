@@ -18,10 +18,12 @@ import {
   NO_CHOICES,
   nextTile,
   openFlowEditor,
+  openStageSkill,
   sendFirst,
   skillButton,
+  stageSkillOpen,
+  typedItem,
   withClash,
-  withFolder,
   withModel,
   writeSkill,
 } from "./logic";
@@ -126,16 +128,14 @@ describe("the flow editor's calls", () => {
   });
 
   it("a problem's picks are kept until Apply sends them (Q426)", async () => {
-    let picks = withFolder(NO_CHOICES, "security-review", "/skills/security-review");
-    picks = withModel(picks, "Rust developer", "claude", "opus");
+    let picks = withModel(NO_CHOICES, "Rust developer", "claude", "opus");
     picks = withModel(picks, "Security reviewer", "default", "ignored");
     picks = withClash(picks, "Validator", "add_as");
     expect(picks).toEqual({
       clashes: { Validator: "add_as" },
-      skill_folders: { "security-review": "/skills/security-review" },
       models: { "Rust developer": "claude:opus", "Security reviewer": "default" },
     });
-    expect(NO_CHOICES).toEqual({ clashes: {}, skill_folders: {}, models: {} });
+    expect(NO_CHOICES).toEqual({ clashes: {}, models: {} });
     ask.mockResolvedValue(null);
     const view = {
       project: "SHOP",
@@ -149,6 +149,17 @@ describe("the flow editor's calls", () => {
       from: "project",
       proposal: 3,
       choices: picks,
+    });
+  });
+
+  it("Pick a skill… takes a name typed by hand: Use `<typed text>`, chosen as the text", () => {
+    expect(typedItem("Use `{name}`", "   ")).toBeNull();
+    const item = typedItem("Use `{name}`", " team-validate ");
+    expect(item).toMatchObject({
+      id: "team-validate",
+      label: "Use `team-validate`",
+      disabled: false,
+      header: false,
     });
   });
 
@@ -219,6 +230,26 @@ describe("where the editor opens (FED-09, BRD-04)", () => {
     });
     expect(columnEditorOpen("SHOP", { open: "flow" })).toEqual(changeFlowOpen("SHOP"));
     expect(changeFlowOpen("SHOP")).toEqual({ project: "SHOP", from: "project" });
+  });
+
+  it("use your own Open PR skill: Settings closes and the editor opens on the Delivery stage's Skill field", () => {
+    expect(stageSkillOpen("SHOP", "done")).toEqual({
+      project: "SHOP",
+      from: "project",
+      select_stage: "done",
+      focus_skill: true,
+    });
+    const calls: string[] = [];
+    const routes = {
+      closeSettings: () => calls.push("close settings"),
+      open: (o: unknown) => calls.push(JSON.stringify(o)),
+    };
+    openStageSkill("SHOP", "done", routes);
+    expect(calls).toEqual(["close settings", JSON.stringify(stageSkillOpen("SHOP", "done"))]);
+    // The Delivery stage not known: the whole flow.
+    calls.length = 0;
+    openStageSkill("SHOP", null, routes);
+    expect(calls).toEqual(["close settings", JSON.stringify(changeFlowOpen("SHOP"))]);
   });
 
   it("the stage a column asked for is added on opening, after its stage or first", () => {

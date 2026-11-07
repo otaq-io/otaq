@@ -489,123 +489,6 @@ pub fn agent_variants() -> Vec<Variant> {
     out
 }
 
-/// The cards of checks and deliveries in any flow (FLW-13…FLW-17; `s03-44`, `s03-46`, `s03-48`, `s03-54`): shop-web's
-/// Security check (Security reviewer on opus), its Review, its Done · PR delivery by Shipper, and billing-api's
-/// click Delivery (drawn on the default flow in `s03-46`; built for other flows only, d0108 keeps the default board).
-/// The gallery's "M33 · Checks and deliveries".
-/// SHOP-33's Validate with two check agents (d0130; `s29-04` "On the card", `s30-05` "When a check agent doesn't
-/// finish"): both running, one held at its plan limit, both failed and back in Dev, one ended without a verdict, a
-/// round again after a change; then SHOP-30's one check agent as today.
-pub fn check_agent_variants() -> Vec<Variant> {
-    use otaq_core::agent_tools::Tool;
-    use otaq_core::agents::{HoldReason, SessionRole as Role};
-    use otaq_core::domain::{
-        CheckAgentFlag, CheckRoundFlag, ValidationOutcome as O, ValidationRound,
-    };
-    let round = |security: Option<O>, performance: Option<O>| CheckRoundFlag {
-        round: 1,
-        agents: vec![
-            CheckAgentFlag {
-                name: "Security reviewer".into(),
-                tool: Some(Tool::Claude),
-                model: Some("opus".into()),
-                outcome: security,
-            },
-            CheckAgentFlag {
-                name: "Performance reviewer".into(),
-                tool: Some(Tool::Codex),
-                model: Some("gpt-5.5".into()),
-                outcome: performance,
-            },
-        ],
-        again: false,
-        back_in: None,
-    };
-    let validating = |status: Status, flag: CheckRoundFlag| {
-        let mut t = ticket("SHOP-33", "Shipping estimate", status);
-        t.flags.check = Some("Validate".into());
-        t.flags.validating_round =
-            matches!(status, Status::Checking).then_some(ValidationRound { round: 1, of: 3 });
-        t.flags.check_round = Some(flag);
-        t
-    };
-    let named = AgentFacts {
-        count: 7,
-        running_developer: Some("Developer".into()),
-        ..AgentFacts::default()
-    };
-    let extras = |agents: AgentFacts| CardExtras {
-        agents,
-        several_tools: true,
-        custom_flow: true,
-        ..base()
-    };
-    let mut out = vec![v(
-        "Validate · two check agents · running",
-        validating(Status::Checking, round(Some(O::Pass), None)),
-        extras(named.clone()),
-    )];
-    let mut held = hold(
-        Role::Validator,
-        HoldReason::ToolLimit,
-        Tool::Codex,
-        Some("gpt-5.5"),
-        "Performance reviewer",
-        Some(Tool::Claude),
-        true,
-        false,
-    );
-    held.check_agent = Some("Performance reviewer".into());
-    out.push(v(
-        "Validate · one held at its plan limit",
-        validating(Status::Checking, round(Some(O::Pass), None)),
-        extras(AgentFacts {
-            holds: vec![held],
-            ..named.clone()
-        }),
-    ));
-    let mut back = ticket("SHOP-33", "Shipping estimate", Status::Working);
-    back.flags.check = Some("Validate".into());
-    back.flags.validation_round = Some(ValidationRound { round: 1, of: 3 });
-    back.flags.check_round = Some(CheckRoundFlag {
-        back_in: Some("Dev".into()),
-        ..round(Some(O::Fail), Some(O::Fail))
-    });
-    out.push(v(
-        "Validate · both gave a verdict · back in Dev",
-        back,
-        extras(named.clone()),
-    ));
-    out.push(v(
-        "Validate · one ended without a verdict",
-        validating(
-            Status::CheckNoResult,
-            round(Some(O::Pass), Some(O::NoResult)),
-        ),
-        extras(named.clone()),
-    ));
-    out.push(v(
-        "Validate · round 1 again · the code changed",
-        validating(
-            Status::Checking,
-            CheckRoundFlag {
-                again: true,
-                ..round(None, None)
-            },
-        ),
-        extras(named.clone()),
-    ));
-    let mut one = ticket("SHOP-30", "Order history page", Status::Checking);
-    one.flags.check = Some("Validate".into());
-    one.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
-    out.push(v(
-        "Validate · one check agent · as today",
-        one,
-        extras(named),
-    ));
-    out
-}
-
 /// *30 → The card in Dev* (`s30-02`, `s30-03`, `s30-04`; d0133, T-0541): one card in its build stage with a row per
 /// piece, the fold past four, all merged, back from Validate, after a restart, a check of the whole ticket, and a
 /// ticket working alone as today.
@@ -744,6 +627,10 @@ pub fn piece_variants() -> Vec<Variant> {
     ]
 }
 
+/// The cards of checks and deliveries in any flow (FLW-13…FLW-17; `s03-44`, `s03-46`, `s03-48`, `s03-54`): shop-web's
+/// Security check (Security reviewer on opus), its Review, its Done · PR delivery by Shipper, and billing-api's
+/// click Delivery (drawn on the default flow in `s03-46`; built for other flows only, d0108 keeps the default board).
+/// The gallery's "M33 · Checks and deliveries".
 pub fn flow_variants() -> Vec<Variant> {
     use otaq_core::agent_tools::Tool;
     use otaq_core::agents::facts::RunsOnTool;
@@ -758,14 +645,12 @@ pub fn flow_variants() -> Vec<Variant> {
             tool: Tool::Claude,
             model: None,
             passed: Some(model.to_owned()),
-            fallback: None,
         }),
         running_developer: developer.map(|(name, _)| name.to_owned()),
         developer_on: developer.map(|(_, model)| RunsOnTool {
             tool: Tool::Claude,
             model: None,
             passed: Some(model.to_owned()),
-            fallback: None,
         }),
         ..AgentFacts::default()
     };
@@ -814,7 +699,15 @@ pub fn flow_variants() -> Vec<Variant> {
     security(&mut t);
     t.validation_round = 3;
     t.flags.verdict = Some("Fail: unescaped SQL in search".into());
-    out.push(v("Security failed \u{d7}3", t, shop(Delivers::Pr)));
+    // A flow that marks Security skippable: Move on anyway.
+    out.push(v(
+        "Security failed \u{d7}3",
+        t,
+        CardExtras {
+            skippable_check: true,
+            ..shop(Delivers::Pr)
+        },
+    ));
 
     // `s03-46`, `s03-54`: your check.
     let check = |key: &str, title: &str, arrival| {
@@ -946,42 +839,32 @@ pub fn flow_variants() -> Vec<Variant> {
     let mut t = ticket("DOCS-7", "Fix broken anchors", Status::Merged);
     t.flags.merged_automatically = true;
     t.flags.delivered_without_checks = true;
-    out.push(v("Delivered without checks", t, base()));
+    out.push(v("Delivered without all checks", t, base()));
 
-    // `s03-54`: a check held for the plan limit, with and without a fallback that can run.
-    let limit = |fallback: bool| {
-        let mut h = hold(
-            Role::Validator,
-            HoldReason::ToolLimit,
-            Tool::Claude,
-            Some("opus"),
-            "Security reviewer",
-            fallback.then_some(Tool::Codex),
-            fallback,
-            false,
-        );
-        h.can_skip_check = !fallback;
-        h
-    };
-    for (name, fallback) in [
-        ("Plan limit \u{b7} a fallback is set", true),
-        ("Plan limit \u{b7} no fallback can run", false),
-    ] {
-        let mut t = ticket("SHOP-19", "Price table", Status::Checking);
-        security(&mut t);
-        out.push(v(
-            name,
-            t,
-            CardExtras {
-                agents: AgentFacts {
-                    count: 7,
-                    holds: vec![limit(fallback)],
-                    ..AgentFacts::default()
-                },
-                ..base()
+    // `s03-54`: a check held for the plan limit, which the flow marks skippable: Skip this check, then Open agent….
+    let mut limit = hold(
+        Role::Validator,
+        HoldReason::ToolLimit,
+        Tool::Claude,
+        Some("opus"),
+        "Security reviewer",
+    );
+    limit.can_skip_check = true;
+    let mut t = ticket("SHOP-19", "Price table", Status::Checking);
+    security(&mut t);
+    out.push(v(
+        "Plan limit \u{b7} Skip this check",
+        t,
+        CardExtras {
+            agents: AgentFacts {
+                count: 7,
+                holds: vec![limit],
+                ..AgentFacts::default()
             },
-        ));
-    }
+            skippable_check: true,
+            ..base()
+        },
+    ));
     // Each in a flow other than the default (`keeps_default_look`), as the frames draw them.
     for v in &mut out {
         v.extras.custom_flow = true;
@@ -1086,9 +969,6 @@ pub fn hold(
     tool: otaq_core::agent_tools::Tool,
     model: Option<&str>,
     agent: &str,
-    fallback: Option<otaq_core::agent_tools::Tool>,
-    can_use_fallback: bool,
-    fallback_held: bool,
 ) -> otaq_core::agents::facts::CardHold {
     otaq_core::agents::facts::CardHold {
         role,
@@ -1096,31 +976,14 @@ pub fn hold(
         tool,
         model: model.map(str::to_owned),
         agent: Some(agent.to_owned()),
-        check_agent: None,
         agent_id: None,
-        fallback: fallback.map(|tool| otaq_core::agents::ModelRef { tool, model: None }),
-        can_use_fallback,
-        fallback_held,
         can_skip_check: false,
         resets_at: None,
+        skill: None,
     }
 }
 
-/// A session running on `tool`, its tool `from`'s fallback, for `reason` (AGM-03).
-pub fn on_fallback(
-    tool: otaq_core::agent_tools::Tool,
-    from: otaq_core::agent_tools::Tool,
-    reason: otaq_core::agents::HoldReason,
-) -> otaq_core::agents::facts::RunsOnTool {
-    otaq_core::agents::facts::RunsOnTool {
-        tool,
-        model: None,
-        passed: None,
-        fallback: Some(otaq_core::agents::FallbackFrom { tool: from, reason }),
-    }
-}
-
-/// *04 → Variants · several tools (M23)* (`gef2j`) and the fallback and limit cards of *Ticket Card v2 · all variants*
+/// *04 → Variants · several tools (M23)* (`gef2j`) and the held and limit cards of *Ticket Card v2 · all variants*
 /// (`SPy9r`): two or more tools connected, so the head shows whoever has the turn's avatar. shop-web's list here:
 /// Strong, Light, Sonnet, Fable test on Claude Code; Standard, Strong GPT, Old GPT on Codex; Verifier on Copilot
 /// (update Y's sample list). The gallery's "M23 · Several tools".
@@ -1193,9 +1056,6 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Codex,
                     Some("gpt-5.4"),
                     "Old GPT",
-                    None,
-                    false,
-                    false,
                 )],
                 ..named("Old GPT")
             },
@@ -1219,9 +1079,6 @@ pub fn tool_variants() -> Vec<Variant> {
                         Tool::Codex,
                         Some("gpt-5.4"),
                         "Old GPT",
-                        None,
-                        false,
-                        false,
                     )],
                     ..named("Strong")
                 },
@@ -1253,7 +1110,7 @@ pub fn tool_variants() -> Vec<Variant> {
     let mut t = held("SHOP-24", "Update footer links", StartStep::ToolLimit);
     t.priority = Priority::Low;
     out.push(v(
-        "Tool at its limit, no fallback (0086)",
+        "Tool at its limit (0086)",
         t,
         tools(
             av(AvatarTool::ClaudeCode, None),
@@ -1264,34 +1121,8 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Claude,
                     None,
                     "Light",
-                    None,
-                    false,
-                    false,
                 )],
                 ..named("Light")
-            },
-        ),
-    ));
-
-    let mut t = held("SHOP-31", "Hotfix: checkout crash", StartStep::ToolLimit);
-    t.priority = Priority::Urgent;
-    out.push(v(
-        "Tool at its limit \u{b7} fallback off",
-        t,
-        tools(
-            av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
-            AgentFacts {
-                holds: vec![hold(
-                    Role::Developer,
-                    H::ToolLimit,
-                    Tool::Claude,
-                    Some("claude-opus-5-5"),
-                    "Strong",
-                    Some(Tool::Codex),
-                    true,
-                    false,
-                )],
-                ..named("Strong")
             },
         ),
     ));
@@ -1302,7 +1133,7 @@ pub fn tool_variants() -> Vec<Variant> {
         StartStep::ToolUnavailable,
     );
     out.push(v(
-        "Tool not available \u{b7} fallback off (0086)",
+        "Tool not available (0086)",
         t,
         tools(
             av(AvatarTool::Codex, None),
@@ -1313,9 +1144,6 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Codex,
                     None,
                     "Standard",
-                    Some(Tool::Claude),
-                    true,
-                    false,
                 )],
                 ..named("Standard")
             },
@@ -1338,74 +1166,7 @@ pub fn tool_variants() -> Vec<Variant> {
                         Tool::Copilot,
                         None,
                         "Verifier",
-                        Some(Tool::Claude),
-                        true,
-                        false,
                     )],
-                    ..named("Standard")
-                },
-            )
-        },
-    ));
-
-    let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Working);
-    t.priority = Priority::Urgent;
-    t.started_at = Some(NOW - 600_000);
-    t.flags.last_signal_at = Some(NOW - 30_000);
-    t.flags.tokens = Some(80_000);
-    out.push(v(
-        "On its tool\u{2019}s fallback (AGM-03)",
-        t,
-        tools(
-            av(AvatarTool::Codex, Some("gpt-5.5")),
-            AgentFacts {
-                running_developer: Some("Strong GPT".into()),
-                developer_on: Some(on_fallback(Tool::Codex, Tool::Claude, H::ToolLimit)),
-                ..named("Strong GPT")
-            },
-        ),
-    ));
-
-    let mut t = held("SHOP-31", "Hotfix: checkout crash", StartStep::ToolLimit);
-    t.priority = Priority::Urgent;
-    out.push(v(
-        "Fallback also at its limit",
-        t,
-        tools(
-            av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
-            AgentFacts {
-                holds: vec![hold(
-                    Role::Developer,
-                    H::ToolLimit,
-                    Tool::Claude,
-                    Some("claude-opus-5-5"),
-                    "Strong",
-                    Some(Tool::Codex),
-                    false,
-                    true,
-                )],
-                ..named("Strong")
-            },
-        ),
-    ));
-
-    let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
-    t.started_at = Some(NOW - 3_600_000);
-    t.flags.tokens = Some(6_000);
-    out.push(v(
-        "Validator on its tool\u{2019}s fallback",
-        t,
-        CardExtras {
-            validator: av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
-            ..tools(
-                av(AvatarTool::Copilot, None),
-                AgentFacts {
-                    running_validator: Some("Strong".into()),
-                    validator_on: Some(on_fallback(
-                        Tool::Claude,
-                        Tool::Copilot,
-                        H::ToolUnavailable,
-                    )),
                     ..named("Standard")
                 },
             )

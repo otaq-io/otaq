@@ -42,8 +42,7 @@ types a reminder into this session.
    criteria, and before you write any code, judge the work by the size measure and either build it alone, as
    described here, or write a Plan of pieces on this ticket and work as the agent in charge (see "Decide the split").
    If the work turns out bigger partway through, see "When the work grows".
-5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
-   commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
+5. **Commit everything** with Otaq's `commit` skill. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
 6. **End your stage** with a short comment on stdin: what you changed and what the next stage needs to know, in a
    few lines (at most 2,000 characters); the next stage's agent reads it in `prime`. Run your last checks **after
@@ -516,11 +515,10 @@ QUESTION
   get no Run: the agent in charge runs the app after merging the pieces.
 - If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run
   since Otaq last resumed you), fix it and run it again.
-- If `prime` lists **Stage choices**, you may pick another agent for a later stage of this ticket when what you
-  learned changes how hard its work is (for example a stronger Validator when the change turned out risky), always
-  with a reason (`otaq update <KEY> --stage "<stage>=<agent>" --reason "…"`). **You never skip a stage: only the user
-  does.** If you try, the CLI refuses: "Only the user skips a stage: pick another agent for it, or leave it". A choice
-  the user set can't be changed.
+- **You never set a stage choice: only the user picks a stage's agent or skips a stage.** If what you learned
+  changes how hard a later stage's work is (for example the change turned out risky), say so in your comment for the
+  user. If you try, the CLI refuses:
+  "Only the user picks a stage's agent: leave the stage's own agent, or ask the user to change it".
 
 ## As a helper
 
@@ -532,8 +530,7 @@ branch. The agent in charge reviews your work, merges it and moves the ticket; y
    notes it names, as far as they apply to your piece.
 2. **Build only your piece**, as the Plan describes it. Anything else you notice goes in your hand-back, not in your
    code. If the piece turns out too big for one agent, see step 7.
-3. **Commit everything** with the `otaq-commit` skill (or your agent's own commit skill); without one, commit with
-   `git add -A` and `git commit`. Never push and never merge: the agent in charge merges your branch.
+3. **Commit everything** with Otaq's `commit` skill. Never push and never merge: the agent in charge merges your branch.
 4. **Questions** go through `otaq ask human --stdin`, as in "When you need the user": they reach the agent in charge
    first, which answers or passes them on to the user. End your turn and wait; the answer is typed into this session.
 5. **Hand your piece back** with what you built and what you couldn't check yourself (a real browser, a device), then

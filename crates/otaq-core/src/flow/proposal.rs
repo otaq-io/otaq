@@ -5,10 +5,16 @@
 //! replaces only the open one from the same tool (the user's, the user's).
 //!
 //! **The checks** ([`ProposalProblem`]): STG-02's rules ([`super::check()`]), the agents the stages name
-//! ([`super::check_agents`]), each agent's model against its tool's list, its skills (shipped, imported already, or
-//! an importable folder), written stage ids starting with `_` (Otaq's own, Q267) and two skills of one agent with the
-//! same copy name (Q297). Each problem names its stage or agent. A Project agent's proposal with problems is refused
-//! (it can act on them); a user's opens with them marked, and Apply waits for their fixes ([`Fix`]).
+//! ([`super::check_agents`]), each agent's model against its tool's list, written stage ids starting with `_`
+//! (Otaq's own, Q267), and a stage skill that is a tool's built-in command (`/security-review`) rather than a skill,
+//! unless the user has a skill of that name ([`super::check_skills`]). Each problem names its stage or agent. A
+//! Project agent's proposal with problems is refused (it can act on them); a user's opens with them marked, and Apply
+//! waits for their fixes ([`Fix`]).
+//!
+//! **A stage naming a skill the user doesn't have** isn't a problem: the flow still applies, and the stage carries
+//! the warning "You don't have the skill `<name>`" in the diff's warnings ([`Board::skill_warnings`]). Nor is a stage
+//! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `/<name>`", and the stage is
+//! held when it is due to start on that tool. Otaq's own skills never warn.
 //!
 //! **The draft** ([`super::draft`], FED-02): outside Flow setup the open proposal is the project's draft, which the
 //! flow editor and a Project agent's `flow propose` both edit; during it, the user's own one is.
@@ -28,7 +34,6 @@
 //! restores agents, second gap review rule 13); the shipped agents file brings agents only.
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -37,9 +42,8 @@ use super::model::{Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use super::yaml;
 use crate::agent_tools::Tool;
 use crate::agents::in_use::StageUse;
-use crate::agents::{Agent, AgentModel, ModelCatalog, SkillRef, in_use, shipped};
+use crate::agents::{Agent, AgentModel, ModelCatalog, in_use, shipped};
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::TicketKey;
 use crate::store::now_ms;
 
 /// What the flow editor says when nothing differs (FLW-04).
@@ -171,8 +175,6 @@ pub enum About {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Fix {
-    /// "`security-review` isn't on this machine · Import its folder…" ([`ApplyChoices::skill_folders`]).
-    ImportSkillFolder { skill: String },
     /// An agent whose model isn't in its tool's list: pick a local model ([`ApplyChoices::models`]).
     PickModel { agent: String },
 }
@@ -195,7 +197,7 @@ pub enum Applies {
     /// Removing or reordering stages, or a stage's kind (FED-08): once no ticket is inside the affected span, from
     /// `first` to `last` ([`super::apply::affected_span`]).
     Span { first: String, last: String },
-    /// A stage's agent (an agent check's check agents), skill, options or rounds: when that stage next starts.
+    /// A stage's agent, skill, options or rounds: when that stage next starts.
     StageStarts { stage: String },
     /// A stage's name and column, a Delivery's mode or target: the next card that arrives.
     AtOnce,
@@ -248,7 +250,8 @@ pub enum Change {
         from: Option<String>,
         to: Option<String>,
     },
-    /// An agent check's check agents (d0130).
+    /// An agent check's several agents, from before a check had one ([`Self::Agent`] now): still read in a waiting
+    /// change stored then, never made.
     Agents {
         from: Vec<String>,
         to: Vec<String>,
@@ -405,19 +408,6 @@ pub struct Warning {
     pub text: String,
 }
 
-/// Tickets whose chosen option the change removes (FLW-05): "1 ticket chose Quick developer for Dev; it will use
-/// Rust developer". They fall back to the stage's agent when it starts, with a History note.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemovedChoice {
-    pub stage: String,
-    /// The option they chose.
-    pub chose: String,
-    /// The stage's agent they run instead.
-    pub runs: String,
-    pub tickets: Vec<TicketKey>,
-    pub text: String,
-}
-
 /// What a proposal changes, against the flow as it will be.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowDiff {
@@ -429,7 +419,6 @@ pub struct FlowDiff {
     /// The agents the document defines, in its order: added, changed, or already there.
     pub agents: Vec<AgentChange>,
     pub warnings: Vec<Warning>,
-    pub removed_choices: Vec<RemovedChoice>,
     /// Apply makes a waiting change, or merges into the one there is.
     pub waits: bool,
 }
@@ -491,13 +480,11 @@ impl Proposal {
 }
 
 /// The user's answers in the flow editor, sent with Apply: a pick per import clash (by the agent's name; Keep mine when
-/// left out), a folder per missing skill, a local model per agent whose model isn't listed (`claude:sonnet`).
+/// left out), a local model per agent whose model isn't listed (`claude:sonnet`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ApplyChoices {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub clashes: BTreeMap<String, ClashChoice>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub skill_folders: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub models: BTreeMap<String, String>,
 }
@@ -596,17 +583,6 @@ pub fn kind_word(kind: StageKind) -> &'static str {
         } => "your check",
         StageKind::Delivery => "Delivery",
     }
-}
-
-fn agent_options(stage: &Stage) -> Vec<String> {
-    stage
-        .options
-        .iter()
-        .filter_map(|o| match o {
-            StageOption::Agent(name) => Some(name.clone()),
-            StageOption::Skip => None,
-        })
-        .collect()
 }
 
 fn options_words(stage: &Stage) -> Vec<String> {
@@ -734,15 +710,6 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
                 Change::Agent {
                     from: old.agent.clone(),
                     to: stage.agent.clone(),
-                },
-            );
-        }
-        if old.agents != stage.agents {
-            push(
-                stage,
-                Change::Agents {
-                    from: old.agents.clone(),
-                    to: stage.agents.clone(),
                 },
             );
         }
@@ -966,6 +933,75 @@ pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
     }
 }
 
+/// The warning on a stage whose `skill:` names a skill the user doesn't have: "You don't have the skill `<name>`".
+pub fn unknown_skill_text(skill: &str) -> String {
+    format!("You don't have the skill `{skill}`")
+}
+
+/// The warning on a stage whose agent's tool doesn't have the stage's skill, and Settings → Agents' "What this agent
+/// reads" for such a skill: "Copilot doesn’t have the skill `/team-validate`".
+pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
+    format!(
+        "{} doesn\u{2019}t have the skill `/{skill}`",
+        tool.display_name()
+    )
+}
+
+impl Board {
+    /// One amber warning per stage of `file` whose `skill:` the stage can't run with: a skill neither Otaq ships nor
+    /// the user has in `project` ([`unknown_skill_text`]), or one the tool of the stage's agent doesn't have
+    /// ([`missing_skill_text`]; such a stage is held until the tool has it or the ticket picks another agent). Only
+    /// warnings: the flow still applies. Otaq's own skills never warn. The agent's tool is a stored agent's (`stored`,
+    /// on the default model when it names none), else the one the document brings.
+    pub async fn skill_warnings(
+        &self,
+        project: &str,
+        file: &FlowFile,
+        stored: &[Agent],
+    ) -> Vec<Warning> {
+        let default = self.store().default_model().await.ok().flatten();
+        let tool_of = |name: &str| -> Option<Tool> {
+            let model = match stored.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
+                Some(agent) => agent.model.clone(),
+                None => file
+                    .agents
+                    .iter()
+                    .find(|a| a.name.eq_ignore_ascii_case(name))
+                    .and_then(|a| shipped::model_of(&a.model).ok())?,
+            };
+            model.on(default.as_ref()).map(|on| on.tool)
+        };
+        let mut out = Vec::new();
+        for stage in &file.flow.stages {
+            let Some(skill) = stage.skill.as_deref().map(str::trim) else {
+                continue;
+            };
+            if skill.is_empty() {
+                continue;
+            }
+            let tools = self.skill_tools(project, None, skill).await;
+            // A built-in command nobody has as a skill is a problem already ([`super::check_skills`]).
+            if tools.is_empty() && !Tool::with_built_in_command(skill).is_empty() {
+                continue;
+            }
+            let text = if tools.is_empty() {
+                unknown_skill_text(skill)
+            } else {
+                match stage.agent.as_deref().and_then(tool_of) {
+                    Some(tool) if !tools.contains(&tool) => missing_skill_text(tool, skill),
+                    _ => continue,
+                }
+            };
+            out.push(Warning {
+                level: Level::Amber,
+                stage: Some(stage.name.clone()),
+                text,
+            });
+        }
+        out
+    }
+}
+
 /// The warnings on a flow (FLW-04): an automatic Delivery acts without asking (amber), or with no check before it
 /// (red). `branch` is what a Local merge merges into, `provider` where a PR opens ("GitHub").
 pub fn warnings(flow: &Flow, branch: &str, provider: Option<&str>) -> Vec<Warning> {
@@ -1004,21 +1040,12 @@ pub fn warnings(flow: &Flow, branch: &str, provider: Option<&str>) -> Vec<Warnin
     warnings
 }
 
-/// A stored agent as a flow file writes it: its skills by name (an imported one by its SKILL.md's name) and its
-/// model as `default`, `<tool>` or `<tool>:<model>`.
+/// A stored agent as a flow file writes it: its model as `default`, `<tool>` or `<tool>:<model>`.
 pub fn flow_agent_of(agent: &Agent) -> FlowAgent {
     FlowAgent {
         name: agent.name.clone(),
         role: agent.role.map(|r| r.as_str().to_owned()),
         instructions: agent.instructions.clone(),
-        skills: agent
-            .skills
-            .iter()
-            .filter_map(|s| match s {
-                SkillRef::Shipped(name) => Some(name.clone()),
-                SkillRef::Imported(id) => agent.imported_skill(id).map(|i| i.name.clone()),
-            })
-            .collect(),
         model: model_text(&agent.model),
         why: None,
     }
@@ -1033,74 +1060,6 @@ pub fn model_text(model: &AgentModel) -> String {
             tool,
             model: Some(m),
         } => format!("{}:{m}", tool.as_str()),
-    }
-}
-
-/// Where a skill a proposal names comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SkillSource {
-    /// Otaq ships it.
-    Shipped(String),
-    /// An agent already holds an imported skill of that name: its copy, shared.
-    Imported(crate::agents::ImportedSkill),
-    /// A folder to import on Apply (an absolute path in the document, or the user's pick for a missing skill), with
-    /// its skill's name.
-    Folder { path: String, name: String },
-    /// None of those.
-    Missing,
-}
-
-impl SkillSource {
-    /// The skill's own name (its copy is `otaq-<name>`); `None` when missing.
-    pub fn name(&self) -> Option<&str> {
-        match self {
-            Self::Shipped(name) | Self::Folder { name, .. } => Some(name),
-            Self::Imported(skill) => Some(&skill.name),
-            Self::Missing => None,
-        }
-    }
-}
-
-/// What a skill entry `entry` stands for: an absolute path is a folder to import; else a shipped skill (or one an
-/// agent already has by that name), an imported skill some agent holds (by name), the user's chosen folder for it, or
-/// missing. A folder that can't be read is
-/// missing too, with why.
-pub fn skill_source(
-    entry: &str,
-    stored: &[Agent],
-    folders: &BTreeMap<String, String>,
-) -> (SkillSource, Option<String>) {
-    let folder = |path: &str| match crate::skills::folder::name_of(Path::new(path)) {
-        Ok(name) => (
-            SkillSource::Folder {
-                path: path.to_owned(),
-                name,
-            },
-            None,
-        ),
-        Err(crate::skills::folder::Refused(why)) => (SkillSource::Missing, Some(why)),
-    };
-    if Path::new(entry).is_absolute() {
-        return folder(entry);
-    }
-    // Shipped, or a skill by that name an agent already has (a flow file's agents keep the names they were given).
-    let held = stored
-        .iter()
-        .flat_map(|a| &a.skills)
-        .any(|s| *s == SkillRef::Shipped(entry.to_owned()));
-    if shipped::SKILLS.contains(&entry) || held {
-        return (SkillSource::Shipped(entry.to_owned()), None);
-    }
-    if let Some(skill) = stored
-        .iter()
-        .flat_map(|a| &a.imported)
-        .find(|s| same_name(&s.name, entry))
-    {
-        return (SkillSource::Imported(skill.clone()), None);
-    }
-    match folders.get(entry) {
-        Some(path) => folder(path),
-        None => (SkillSource::Missing, None),
     }
 }
 
@@ -1365,7 +1324,17 @@ impl Board {
         let scope = row.source.scope();
         let file = effective_file(&read, scope, &base.flow, &row.source, choices);
         let stored = self.store().agents().await?;
-        let problems = problems(&file, scope, &stored, models, &choices.skill_folders);
+        // A stage naming a tool's built-in command is refused unless the user has a skill of that name.
+        let mut had = HashSet::new();
+        for skill in file.flow.stages.iter().filter_map(|s| s.skill.as_deref()) {
+            let skill = skill.trim().trim_start_matches('/');
+            if !Tool::with_built_in_command(skill).is_empty()
+                && self.has_skill(&project.key, skill).await
+            {
+                had.insert(skill.to_owned());
+            }
+        }
+        let problems = problems(&file, scope, &stored, models, |skill| had.contains(skill));
 
         let mut stages = if scope.stages() {
             stage_changes(&base.flow, &file.flow, against_waiting)
@@ -1380,10 +1349,7 @@ impl Board {
         }
         let mut agents = Vec::new();
         for agent in &file.agents {
-            agents.push(
-                self.agent_change(agent, row, &stored, &choices.skill_folders)
-                    .await?,
-            );
+            agents.push(self.agent_change(agent, row, &stored).await?);
         }
         let warnings = if scope.stages() {
             let provider = self
@@ -1392,13 +1358,9 @@ impl Board {
                 .ok()
                 .and_then(|p| p.provider)
                 .map(|p| p.name());
-            warnings(&file.flow, &project.base_branch, provider)
-        } else {
-            Vec::new()
-        };
-        let removed_choices = if scope.stages() {
-            self.removed_choices(&project, &base.flow, &file.flow)
-                .await?
+            let mut found = warnings(&file.flow, &project.base_branch, provider);
+            found.extend(self.skill_warnings(&project.key, &file, &stored).await);
+            found
         } else {
             Vec::new()
         };
@@ -1423,7 +1385,6 @@ impl Board {
                 stages,
                 agents,
                 warnings,
-                removed_choices,
                 waits,
             },
             why: why_lines(&file),
@@ -1437,7 +1398,6 @@ impl Board {
         agent: &FlowAgent,
         row: &Row,
         stored: &[Agent],
-        folders: &BTreeMap<String, String>,
     ) -> Result<AgentChange, BoardError> {
         let Some(mine) = stored.iter().find(|a| same_name(&a.name, &agent.name)) else {
             return Ok(AgentChange {
@@ -1449,29 +1409,12 @@ impl Board {
             });
         };
         let ours = flow_agent_of(mine);
-        let theirs_skills: Vec<String> = agent
-            .skills
-            .iter()
-            .map(|s| {
-                skill_source(s, stored, folders)
-                    .0
-                    .name()
-                    .map_or_else(|| s.clone(), str::to_owned)
-            })
-            .collect();
         let mut fields = Vec::new();
         if ours.instructions.trim() != agent.instructions.trim() {
             fields.push(AgentField {
                 field: "instructions".into(),
                 from: ours.instructions.clone(),
                 to: agent.instructions.clone(),
-            });
-        }
-        if ours.skills != theirs_skills {
-            fields.push(AgentField {
-                field: "skills".into(),
-                from: list_or_none(&ours.skills),
-                to: list_or_none(&theirs_skills),
             });
         }
         let model_differs = match shipped::model_of(&agent.model) {
@@ -1495,21 +1438,13 @@ impl Board {
             });
         }
         let used_in = in_use::in_use(self, mine).await?.stages;
-        // A Project agent's own document changes the agent, and so does the user's own (the editor's draft, a skill
-        // picked for a stage, FED-06; their terminal); anything brought in (a file, a preset) clashes, Keep mine by
-        // default. A skill the Project agent wrote for the draft's stage is given to the stage's agent, no clash.
+        // A Project agent's own document changes the agent, and so does the user's own (the editor's draft; their
+        // terminal); anything brought in (a file, a preset) clashes, Keep mine by default.
         let agent_document = match (&row.proposed_by, &row.source) {
             (ProposedBy::ProjectAgent { .. }, Source::Document { .. }) => true,
             (ProposedBy::User, Source::Document { file }) => file.is_none(),
             _ => false,
         };
-        let gets_written = row.draft.written.iter().any(|w| {
-            agent
-                .skills
-                .iter()
-                .any(|s| Path::new(s).file_name().is_some_and(|n| *n == *w.copy))
-        });
-        let agent_document = agent_document || gets_written;
         let clash = (!agent_document).then(|| Clash {
             add_as: row.source.file().map(|f| add_as_name(&mine.name, f)),
         });
@@ -1520,73 +1455,6 @@ impl Board {
             used_in,
             clash,
         })
-    }
-
-    /// The tickets of `project` whose chosen option for a stage `new` keeps is no longer offered there (FLW-05), by
-    /// stage and option. Tickets in Done, and those that already ran the stage, are left out.
-    async fn removed_choices(
-        &self,
-        project: &crate::store::projects::Project,
-        base: &Flow,
-        new: &Flow,
-    ) -> Result<Vec<RemovedChoice>, BoardError> {
-        let mut out = Vec::new();
-        let tickets = self.tickets(&project.key).await?;
-        for old in &base.stages {
-            let Some(now) = new.stage(&old.id) else {
-                continue;
-            };
-            let offered = agent_options(now);
-            let gone: Vec<String> = agent_options(old)
-                .into_iter()
-                .filter(|o| !offered.iter().any(|n| same_name(n, o)))
-                .collect();
-            if gone.is_empty() {
-                continue;
-            }
-            let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-                "SELECT c.ticket_id, c.agent_id FROM ticket_stage_choices c
-                 JOIN tickets t ON t.id = c.ticket_id
-                 WHERE t.project_id = ? AND c.stage_id = ? AND c.choice = 'agent'
-                   AND NOT EXISTS (SELECT 1 FROM stage_runs r WHERE r.ticket_id = c.ticket_id AND r.stage_id = c.stage_id)",
-            )
-            .bind(&project.id)
-            .bind(&old.id)
-            .fetch_all(self.store().pool())
-            .await?;
-            for option in &gone {
-                let Some(agent) = crate::agents::resolve::named(self.store(), option).await? else {
-                    continue;
-                };
-                let mut keys: Vec<TicketKey> = rows
-                    .iter()
-                    .filter(|(_, id)| id.as_deref() == Some(agent.id.as_str()))
-                    .filter_map(|(ticket, _)| tickets.iter().find(|t| &t.id == ticket))
-                    .filter(|t| !t.place.is_done())
-                    .map(|t| t.key.clone())
-                    .collect();
-                if keys.is_empty() {
-                    continue;
-                }
-                keys.sort();
-                let runs = now.agents_line();
-                let count = match keys.len() {
-                    1 => "1 ticket".to_owned(),
-                    n => format!("{n} tickets"),
-                };
-                out.push(RemovedChoice {
-                    stage: now.name.clone(),
-                    chose: option.clone(),
-                    text: format!(
-                        "{count} chose {option} for {}; it will use {runs}",
-                        now.name
-                    ),
-                    runs,
-                    tickets: keys,
-                });
-            }
-        }
-        Ok(out)
     }
 }
 
@@ -1630,7 +1498,7 @@ pub fn problems(
     scope: Scope,
     stored: &[Agent],
     models: &dyn ModelCatalog,
-    folders: &BTreeMap<String, String>,
+    has_skill: impl Fn(&str) -> bool,
 ) -> Vec<ProposalProblem> {
     let mut out = Vec::new();
     let stage_about = |id: &str| {
@@ -1674,60 +1542,24 @@ pub fn problems(
                 fix: None,
             }));
         }
+        if let Err(found) = super::check_skills(&file.flow, has_skill) {
+            out.extend(found.into_iter().map(|p| ProposalProblem {
+                about: p.stage.as_deref().map_or(About::Flow, stage_about),
+                message: p.message,
+                fix: None,
+            }));
+        }
     }
     if scope.agents() {
         for agent in &file.agents {
-            out.extend(agent_problems(agent, stored, models, folders));
-        }
-    }
-    if scope.stages() {
-        // A stage's own skill: shipped, imported already, or one of the document's agents brings it.
-        let brought: Vec<String> = file
-            .agents
-            .iter()
-            .flat_map(|a| &a.skills)
-            .filter_map(|s| skill_source(s, stored, folders).0.name().map(str::to_owned))
-            .collect();
-        let mut named = HashSet::new();
-        for stage in &file.flow.stages {
-            let Some(skill) = &stage.skill else {
-                continue;
-            };
-            let (found, why) = skill_source(skill, stored, folders);
-            if found != SkillSource::Missing || brought.iter().any(|b| same_name(b, skill)) {
-                continue;
-            }
-            if !named.insert(skill.to_lowercase()) {
-                continue;
-            }
-            out.push(ProposalProblem {
-                about: stage_about(&stage.id),
-                message: missing_skill(&stage.name, skill, why),
-                fix: Some(Fix::ImportSkillFolder {
-                    skill: skill.clone(),
-                }),
-            });
+            out.extend(agent_problems(agent, models));
         }
     }
     out
 }
 
-/// "Security runs `security-review`, which isn't on this machine".
-fn missing_skill(who: &str, skill: &str, why: Option<String>) -> String {
-    match why {
-        Some(why) => format!("{who} names the skill `{skill}`, which can't be imported: {why}"),
-        None => format!("{who} names the skill `{skill}`, which isn't on this machine"),
-    }
-}
-
-/// An agent's problems: its model doesn't read or isn't in its tool's list; a skill that isn't on this machine; two
-/// of its skills with one copy name (Q297).
-fn agent_problems(
-    agent: &FlowAgent,
-    stored: &[Agent],
-    models: &dyn ModelCatalog,
-    folders: &BTreeMap<String, String>,
-) -> Vec<ProposalProblem> {
+/// An agent's problems: its name, or its model doesn't read or isn't in its tool's list.
+fn agent_problems(agent: &FlowAgent, models: &dyn ModelCatalog) -> Vec<ProposalProblem> {
     let mut out = Vec::new();
     let about = || About::Agent {
         name: agent.name.clone(),
@@ -1762,33 +1594,6 @@ fn agent_problems(
             }),
         }),
         Ok(_) => {}
-    }
-    let mut copies: Vec<(String, String)> = Vec::new();
-    for skill in &agent.skills {
-        let (found, why) = skill_source(skill, stored, folders);
-        let Some(name) = found.name() else {
-            out.push(ProposalProblem {
-                about: about(),
-                message: missing_skill(&agent.name, skill, why),
-                fix: Some(Fix::ImportSkillFolder {
-                    skill: skill.clone(),
-                }),
-            });
-            continue;
-        };
-        let copy = crate::naming::copy_name(name);
-        if let Some((other, _)) = copies.iter().find(|(_, c)| *c == copy) {
-            out.push(ProposalProblem {
-                about: about(),
-                message: format!(
-                    "{} has two skills that copy as `{copy}`: {other} and {skill}. Keep one, or rename one's folder",
-                    agent.name
-                ),
-                fix: None,
-            });
-            continue;
-        }
-        copies.push((skill.clone(), copy));
     }
     out
 }
@@ -2052,11 +1857,11 @@ mod tests {
             }
         );
 
-        // Setting it, and changing a check's agents, are changes of their own.
+        // Setting it, and changing a check's agent, are changes of their own.
         let unset = read(
             &FAILS_TO_SPEC
                 .replace("    fail_to: Product spec\n", "")
-                .replace("[Validator]", "[Validator, Security reviewer]"),
+                .replace("agents: [Validator]", "agent: Security reviewer"),
             &base,
         );
         let texts: Vec<String> = stage_changes(&base, &unset, false)
@@ -2066,8 +1871,8 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "Spec review \u{b7} agents: Validator \u{2192} Validator, Security reviewer \u{2014} applies when \
-                 Spec review next starts",
+                "Spec review \u{b7} agent: Validator \u{2192} Security reviewer \u{2014} applies when Spec review \
+                 next starts",
                 "Spec review \u{b7} fails go to: Product spec \u{2192} nearest \u{2014} applies at once",
             ]
         );

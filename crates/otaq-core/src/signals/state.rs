@@ -3,6 +3,8 @@
 //!
 //! - **Asks you** (`otaq ask human`), **Needs you** (a permission or elicitation prompt) and **Idle** (the turn
 //!   ended with nothing pending) keep their label and text: the question, the prompt, the agent's last line.
+//! - **A failed turn** (the tool stopped on an error that isn't its usage limit, F10) is Idle too, with the tool's
+//!   message ([`super::hooks::tool_error_text`]); a turn end that follows it keeps that message.
 //! - They **clear** on the user's input: Enter in the ticket's terminal, an answer from Needs you (M7); Needs you and
 //!   Idle also when the agent runs an `otaq` command that acts. The ticket is Working again.
 //! - **An open question holds Asks you** (d0119): while the ticket has an unanswered question
@@ -133,6 +135,14 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
                 next.since = Some(since);
             }
         }
+        // A turn end right after a failed turn (no new turn between) keeps the tool's message (F10).
+        Input::Hook(Signal::Idle { .. })
+            if state.status == Status::Idle
+                && state
+                    .text
+                    .as_deref()
+                    .and_then(super::hooks::tool_error)
+                    .is_some() => {}
         Input::Hook(Signal::Idle { last_line }) => {
             set(&mut next, Status::Idle, last_line.clone(), None);
         }
@@ -145,7 +155,12 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
                 None,
             );
         }
-        Input::Hook(Signal::TurnEnded | Signal::Failed { .. } | Signal::Ignored) => {}
+        // The tool stopped on an error of its own (F10): the agent waits for the user, with the tool's message.
+        Input::Hook(Signal::Failed { error, message }) => {
+            let text = super::hooks::tool_error_text(error, message.as_deref());
+            set(&mut next, Status::Idle, Some(text), None);
+        }
+        Input::Hook(Signal::TurnEnded | Signal::Ignored) => {}
         Input::AskHuman(question) => {
             set(&mut next, Status::AsksYou, Some(question.clone()), None);
         }
@@ -331,19 +346,59 @@ mod tests {
             (Status::Working, None, Some(200))
         );
 
-        for quiet in [
-            Signal::TurnEnded,
-            Signal::Ignored,
-            Signal::Failed {
-                error: "rate_limit".into(),
-                message: None,
-            },
-        ] {
+        for quiet in [Signal::TurnEnded, Signal::Ignored] {
             let before = with(Status::AsksYou, "Which email provider?");
             let s = transition(&before, &Input::Hook(quiet), 300);
             assert_eq!((s.status, s.text.clone()), (before.status, before.text));
             assert_eq!(s.last_signal_at, Some(300), "every hook is a signal");
         }
+    }
+
+    /// F10: a failed turn stops a working card on Idle with the tool's message (its first line, short); a turn end
+    /// right after keeps it, a new turn clears it; an open question still holds Asks you.
+    #[test]
+    fn a_failed_turn_is_idle_with_the_tools_message() {
+        let failed = |message: Option<&str>| {
+            Input::Hook(Signal::Failed {
+                error: "provider.auth".into(),
+                message: message.map(str::to_owned),
+            })
+        };
+        let s = transition(
+            &working(),
+            &failed(Some("Invalid API key\nstatus 401")),
+            100,
+        );
+        assert_eq!(s.status, Status::Idle);
+        assert_eq!(s.text.as_deref(), Some("tool error: Invalid API key"));
+        assert_eq!(s.since, Some(100));
+        let after = transition(
+            &s,
+            &Input::Hook(Signal::Idle {
+                last_line: Some("Done.".into()),
+            }),
+            200,
+        );
+        assert_eq!(
+            (after.status, after.text.clone()),
+            (s.status, s.text.clone())
+        );
+        let next = transition(&s, &Input::Hook(Signal::Working { prompt: None }), 300);
+        assert_eq!((next.status, next.text), (Status::Working, None));
+
+        // No message: the error kind. A long one is cut.
+        let s = transition(&working(), &failed(None), 100);
+        assert_eq!(s.text.as_deref(), Some("tool error: provider.auth"));
+        let long = "x".repeat(300);
+        let s = transition(&working(), &failed(Some(&long)), 100);
+        let text = s.text.unwrap();
+        assert!(text.ends_with('\u{2026}'), "{text}");
+        assert_eq!(text.chars().count(), "tool error: ".len() + 200 + 1);
+
+        let mut asked = with(Status::AsksYou, "Which email provider?");
+        asked.question = Some("Which email provider?".into());
+        let s = transition(&asked, &failed(Some("Invalid API key")), 100);
+        assert_eq!(s.status, Status::AsksYou);
     }
 
     #[test]

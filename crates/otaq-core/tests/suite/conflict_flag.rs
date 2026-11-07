@@ -21,7 +21,7 @@ use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::deliveries::handoff_sentence;
+use otaq_core::skills::testing::claude_skill;
 
 /// Keeps running, printing its arguments.
 const KEEPS_RUNNING: &str = "printf 'ARGS %s\\n' \"$*\"; exec sleep 30";
@@ -156,10 +156,7 @@ async fn merging_one_ticket_hands_back_the_one_that_would_conflict() {
     assert_eq!(conflict.files, ["lib/pricing.ts"]);
     assert_eq!(conflict.reason, ConflictReason::TestMerge);
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(
-        pending.last().unwrap().text,
-        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
-    );
+    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
     let comments = w
         .board
         .comments(&shop2.key.to_string(), None)

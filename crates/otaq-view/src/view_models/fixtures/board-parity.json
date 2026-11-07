@@ -2007,6 +2007,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Backlog",
@@ -2033,6 +2034,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
@@ -2090,6 +2092,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "error",
                     "icon": null,
@@ -2126,6 +2129,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "attn",
                     "icon": null,
@@ -2157,6 +2161,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -2188,6 +2193,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -2219,6 +2225,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -2344,6 +2351,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2380,6 +2388,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2416,6 +2425,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2452,6 +2462,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2488,6 +2499,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2524,6 +2536,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2557,6 +2570,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -2699,6 +2713,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2735,6 +2750,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2771,6 +2787,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -2804,6 +2821,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -3035,6 +3053,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Ready for Review",
@@ -3074,6 +3093,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "To deliver",
@@ -3100,6 +3120,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": {
                         "dot": "review",
                         "icon": null,
@@ -3131,6 +3152,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Merged into",
@@ -3183,6 +3205,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Merged",
@@ -3209,6 +3232,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3426,6 +3450,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Backlog",
@@ -3452,6 +3477,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
@@ -3509,6 +3535,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "error",
                     "icon": null,
@@ -3545,6 +3572,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "attn",
                     "icon": null,
@@ -3576,6 +3604,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3607,6 +3636,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3638,6 +3668,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -3763,6 +3794,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3799,6 +3831,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3835,6 +3868,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3871,6 +3905,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3907,6 +3942,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3943,6 +3979,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -3976,6 +4013,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -4118,6 +4156,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -4154,6 +4193,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -4190,6 +4230,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -4223,6 +4264,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -4454,6 +4496,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Ready for Review",
@@ -4493,6 +4536,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "To deliver",
@@ -4519,6 +4563,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": {
                         "dot": "review",
                         "icon": null,
@@ -4550,6 +4595,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Merged into",
@@ -4602,6 +4648,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Merged",
@@ -4628,6 +4675,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -4845,6 +4893,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Backlog",
@@ -4871,6 +4920,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
@@ -4928,6 +4978,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "error",
                     "icon": null,
@@ -4964,6 +5015,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "attn",
                     "icon": null,
@@ -4995,6 +5047,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -5026,6 +5079,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -5057,6 +5111,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -5182,6 +5237,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5218,6 +5274,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5254,6 +5311,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5290,6 +5348,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5326,6 +5385,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5362,6 +5422,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5395,6 +5456,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -5537,6 +5599,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5573,6 +5636,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5609,6 +5673,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
@@ -5642,6 +5707,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -5873,6 +5939,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Ready for Review",
@@ -5912,6 +5979,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "To deliver",
@@ -5938,6 +6006,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": {
                         "dot": "review",
                         "icon": null,
@@ -5969,6 +6038,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Merged into",
@@ -6021,6 +6091,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Merged",
@@ -6047,6 +6118,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "queued",
                     "icon": null,
@@ -6440,6 +6512,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -6988,6 +7061,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -7536,6 +7610,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -8529,6 +8604,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Tag notes",
@@ -8555,6 +8631,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Sharing",
@@ -8602,6 +8679,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": "link",
@@ -8719,6 +8797,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -8750,6 +8829,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9090,6 +9170,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Sort notes by date",
@@ -9151,6 +9232,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Share link",
@@ -9398,6 +9480,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Tag notes",
@@ -9424,6 +9507,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Sharing",
@@ -9471,6 +9555,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": "link",
@@ -9588,6 +9673,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9619,6 +9705,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9959,6 +10046,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Sort notes by date",
@@ -10020,6 +10108,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Share link",
@@ -10267,6 +10356,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Tag notes",
@@ -10293,6 +10383,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Sharing",
@@ -10340,6 +10431,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": "link",
@@ -10457,6 +10549,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -10488,6 +10581,7 @@
                     "open_terminal": "Open terminal",
                     "origin": null,
                     "priority": null,
+                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -10828,6 +10922,7 @@
                       "open_terminal": "Open terminal",
                       "origin": null,
                       "priority": null,
+                      "skill_warning": null,
                       "status": null,
                       "time": null,
                       "title": "Sort notes by date",
@@ -10889,6 +10984,7 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "priority": null,
+                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Share link",

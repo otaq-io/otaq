@@ -98,6 +98,11 @@ interface Find {
   count: number;
 }
 
+/** Whether `element` is laid out: not inside something hidden (`display: none`), so it has a size to fit. */
+export function laidOut(element: Element): boolean {
+  return element.getClientRects().length > 0;
+}
+
 const CLOSED_FIND: Find = { open: false, text: "", index: -1, count: 0 };
 
 /** The font a terminal opens with, until the setting's font stack arrives (`TerminalSettings.font_family`). */
@@ -340,8 +345,21 @@ export function Terminal({
       ),
     );
     xterm.current = term;
+    // Whether the host was hidden (a closed panel keeps its terminal mounted) at the last fit.
+    let wasHidden = false;
     const fitToBox = () => {
-      if (term.element && !replaying) fit.fit();
+      if (!term.element || replaying) return;
+      // A hidden host has no size: the fit addon would read its `width: 100%` as 100 px and squeeze the terminal,
+      // and the shared PTY with it, to about ten columns (T10: Noyan's terminal in the flow editor). It keeps its
+      // size until it shows again.
+      if (!laidOut(element)) {
+        wasHidden = true;
+        return;
+      }
+      fit.fit();
+      // Shown again: the PTY follows this terminal, which another view of the session may have resized meanwhile.
+      if (wasHidden && takesInput(phase)) sender.push({ kind: "resize", cols: term.cols, rows: term.rows });
+      wasHidden = false;
     };
     fitBox.current = fitToBox;
     search.current = searchAddon;

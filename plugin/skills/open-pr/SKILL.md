@@ -30,7 +30,7 @@ How you were started says which one this is:
   was confirmed automatically". So propose exactly what you want pushed, following the user's rules to the letter.
 
 The steps are the same in both modes. After a Send back with PR comments, the new commits go to the same PR through
-the `otaq-push` skill, not this one.
+Otaq's `push` skill, not this one.
 
 ## Turn 1: propose
 
@@ -44,7 +44,7 @@ the `otaq-push` skill, not this one.
    `gh`); `dev.azure.com` or `*.visualstudio.com` is **Azure DevOps** (you will use `az repos`). For any other remote,
    **stop**: propose nothing, push nothing, and tell the user with `otaq ask human --stdin`: "This remote isn't GitHub
    or Azure DevOps, so the built-in Open PR skill can't open the PR. Use your own Open PR skill (name it as the
-   Delivery stage's skill in the flow, or add it to the agent's skills in Settings → Agents)." Then end your turn.
+   Delivery stage's skill in the flow editor)." Then end your turn.
 4. **Write the proposal.**
    - **Branch name:** follow the user's rules if the Agent instructions give any (for example
      `bugfix/SHOP-18-login-redirect`, or `feature/PAY-123-wishlist` from the External ID). Otherwise use

@@ -55,7 +55,6 @@ impl World {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         };
         let info = service
@@ -300,8 +299,8 @@ fn without_a_service_attach_says_so() {
 }
 
 /// `otaq attach <KEY> --stage <name>` (FLW-20; was T-0183's `--validator`) opens the session of the agent running
-/// that stage: in Dev a Validate check is refused; in Validate (one check agent) it opens the check's terminal, not
-/// the agent's.
+/// that stage: in Dev a Validate check is refused; in Validate it opens the check's terminal, not the agent's.
+/// `--agent` is kept for one release and ignored, with a note: a check has one agent.
 #[tokio::test(flavor = "multi_thread")]
 async fn attach_stage_reaches_the_check_running_it() {
     let w = World::new().await;
@@ -335,7 +334,14 @@ async fn attach_stage_reaches_the_check_running_it() {
         })
         .unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_otaq"));
-    cmd.args(["attach", "SHOP-1", "--stage", "Validate"]);
+    cmd.args([
+        "attach",
+        "SHOP-1",
+        "--stage",
+        "Validate",
+        "--agent",
+        "Security reviewer",
+    ]);
     cmd.env(DataDir::env_var(), w.home());
     let mut child = pty.slave.spawn_command(cmd).unwrap();
     drop(pty.slave);
@@ -361,6 +367,11 @@ async fn attach_stage_reaches_the_check_running_it() {
         !String::from_utf8_lossy(&seen.lock().unwrap()).contains("the agent"),
         "the validator's terminal, not the agent's"
     );
+    wait_for(
+        &seen,
+        "note: --agent is ignored: a check has one agent, so --stage names its session",
+    )
+    .await;
     tokio::time::timeout(Duration::from_secs(10), async {
         while !w.service.sessions.is_focused(&w.validator).unwrap() {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -368,126 +379,6 @@ async fn attach_stage_reaches_the_check_running_it() {
     })
     .await
     .expect("attaching holds the validator's focus");
-    child.kill().unwrap();
-    let _ = child.wait();
-    w.stop().await;
-}
-
-/// d0130 row 17: Security has two check agents. `--stage security` alone is refused with the count; `--agent` (any
-/// case) opens that one's checker; a name the stage hasn't is refused with its check agents.
-#[tokio::test(flavor = "multi_thread")]
-async fn attach_agent_picks_one_check_agent_of_several() {
-    let w = World::new().await;
-    let project = w.service.board.project("SHOP").await.unwrap();
-    let reviewer = w
-        .service
-        .sessions
-        .spawn(SpawnSpec {
-            kind: SessionKind::Validator,
-            start: Start::User,
-            project_id: project.id.clone(),
-            project_key: "SHOP".into(),
-            ticket: Some(SessionTicket {
-                id: w.shop1.id.clone(),
-                key: w.shop1.key.clone(),
-            }),
-            program: "cat".into(),
-            args: vec![],
-            cwd: project.repo_path.clone().into(),
-            env: vec![],
-            size: TerminalSize::default(),
-            tool: None,
-            tool_session_id: None,
-            model: None,
-            agent: None,
-            effort: None,
-            fallback: None,
-            theme: None,
-        })
-        .await
-        .unwrap();
-    w.service
-        .validating_with_agents(
-            &w.shop1,
-            &[
-                ("Security reviewer", &reviewer.id),
-                ("Validator", &w.validator),
-            ],
-        )
-        .await;
-    w.service
-        .force_stage(&w.shop1, "security", Status::Checking)
-        .await;
-    let refused = |args: &[&str], expected: &str| {
-        let out = w.command(args).output().unwrap();
-        assert!(!out.status.success(), "{out:?}");
-        assert_eq!(String::from_utf8_lossy(&out.stderr), expected);
-    };
-    refused(
-        &["attach", "SHOP-1", "--stage", "security"],
-        "error: Security has 2 check agents; add --agent\n",
-    );
-    refused(
-        &[
-            "attach",
-            "SHOP-1",
-            "--stage",
-            "security",
-            "--agent",
-            "Performance",
-        ],
-        "error: Security has no check agent Performance (its check agents: Security reviewer, Validator)\n",
-    );
-    w.service
-        .sessions
-        .write(&reviewer.id, b"the reviewer\n")
-        .unwrap();
-    w.service
-        .sessions
-        .write(&w.validator, b"the validator\n")
-        .unwrap();
-    let pty = native_pty_system()
-        .openpty(PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .unwrap();
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_otaq"));
-    cmd.args([
-        "attach",
-        "SHOP-1",
-        "--stage",
-        "security",
-        "--agent",
-        "security reviewer",
-    ]);
-    cmd.env(DataDir::env_var(), w.home());
-    let mut child = pty.slave.spawn_command(cmd).unwrap();
-    drop(pty.slave);
-    let mut reader = pty.master.try_clone_reader().unwrap();
-    let mut writer = pty.master.take_writer().unwrap();
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let sink = seen.clone();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 {
-                break;
-            }
-            sink.lock().unwrap().extend_from_slice(&buf[..n]);
-        }
-    });
-    if cfg!(windows) {
-        wait_for(&seen, "\x1b[6n").await;
-        writer.write_all(b"\x1b[1;1R").unwrap();
-    }
-    wait_for(&seen, "the reviewer").await;
-    assert!(
-        !String::from_utf8_lossy(&seen.lock().unwrap()).contains("the validator"),
-        "the Security reviewer's terminal, not the Validator's"
-    );
     child.kill().unwrap();
     let _ = child.wait();
     w.stop().await;

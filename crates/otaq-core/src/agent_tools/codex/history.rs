@@ -186,7 +186,10 @@ not json
     /// [`SESSION`] with Otaq's names filled in (they are spelled out only in `naming`).
     fn session() -> String {
         SESSION
-            .replace("@SKILL@", &format!("${}", naming::copy_name("work-ticket")))
+            .replace(
+                "@SKILL@",
+                &format!("${}:work-ticket", naming::PLUGIN_NAMESPACE),
+            )
             .replace("@COMMAND@", naming::COMMAND_NAME)
     }
 
@@ -196,7 +199,7 @@ not json
 
     #[test]
     fn the_messages_and_commands_of_a_session_file() {
-        let skill = format!("${}", naming::copy_name("work-ticket"));
+        let skill = format!("${}:work-ticket", naming::PLUGIN_NAMESPACE);
         assert_eq!(
             entries(&session(), 40),
             [

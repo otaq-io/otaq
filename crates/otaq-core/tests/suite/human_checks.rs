@@ -62,7 +62,6 @@ fn human_check(id: &str, name: &str) -> Stage {
         kind: StageKind::Check { by: CheckBy::You },
         column: Column::Own,
         agent: None,
-        agents: Vec::new(),
         skill: None,
         options: Vec::new(),
         rounds: None,
@@ -304,6 +303,8 @@ async fn a_pass_into_an_agent_check_starts_its_checker() {
     let security = file.flow.position("security").unwrap();
     file.flow.stages.insert(security, qa);
     w.board.use_flow_for_tests("SHOP", &file).await;
+    // Security names the user's `team-security-review`: Claude Code has it, so its check starts.
+    w.claude_has_skill("team-security-review").await;
     let t = at(&w, "Export as CSV", "qa", Status::WaitingForYou).await;
 
     let after = moved(w.review.pass("SHOP-1", &w.validation, &me()).await.unwrap());
@@ -446,7 +447,7 @@ async fn on_the_default_flow_reviews_pass_offers_the_delivery_choices() {
 
 /// Needs-you group 3 (FLW-15, Q265): a card that a Pass moved into an automatic Delivery delivers by itself (its
 /// delivery session opens the PR) and isn't in group 3; in QA it was, naming its stage. A card whose Security check
-/// failed and was moved on reaches the same Delivery in click mode and waits in group 3 (T-0419).
+/// failed and was moved on delivers by itself the same way: no forced click.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_automatic_deliverys_card_is_not_in_group_three() {
     let w = world().await;
@@ -494,16 +495,16 @@ async fn an_automatic_deliverys_card_is_not_in_group_three() {
     let after = moved(w.review.pass(&key, &w.validation, &me()).await.unwrap());
     assert_eq!(after.status, Status::ToDeliver);
     assert!(
-        !w.board
+        w.board
             .ticket(&key)
             .await
             .unwrap()
             .flags
-            .delivering_automatically
+            .delivering_automatically,
+        "the flow's automatic Delivery, whatever Security did"
     );
     let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
-    let item = items.iter().find(|i| i.id == moved_on.id).unwrap();
-    assert_eq!(item.group, NeedsYouGroup::Review, "click mode: the user's");
+    assert!(items.iter().all(|i| i.id != moved_on.id), "{items:?}");
     w.stop().await;
 }
 

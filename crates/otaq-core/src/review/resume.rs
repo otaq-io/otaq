@@ -344,7 +344,10 @@ impl Review {
                 .start(&ticket.key.to_string(), actor, start)
                 .await?
             {
-                StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
+                StartOutcome::Started(_)
+                | StartOutcome::Skipped
+                | StartOutcome::Kept
+                | StartOutcome::InCheck => {}
                 StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                     tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
                 }

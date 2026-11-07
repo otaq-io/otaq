@@ -34,8 +34,8 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json", "n
 # Codex's `config.toml` (d0085, d0086): Otaq's own tables edited in place, every other line, comment and order
 # kept. Already in the lock through other crates.
 toml_edit = "0.25.17"
-# The fingerprint of Otaq's copy of an imported workflow skill (WSK-03, d0092): stable across Rust versions, unlike
-# std's hasher. Already in the lock through other crates.
+# Fingerprints that must stay stable across Rust versions, unlike std's hasher: a written skill's folder (its Undo)
+# and the stamp of a flow change waiting to apply. Already in the lock through other crates.
 sha2 = "0.10.9"
 # The flow files (STG-01, d0108): read with serde; Otaq writes them itself (`flow::yaml`). Maintained, pure Rust, no
 # unsafe C port; `serde_yaml` is archived.

@@ -167,8 +167,94 @@ impl Store {
         .bind(now_ms())
         .execute(&mut **tx)
         .await?;
+        carry_splits_in(tx, project_id, version, &new.yaml).await?;
         Ok(u32::try_from(version).unwrap_or(0))
     }
+}
+
+/// The `settings` key of the flow versions whose split checks the project's tickets were carried over to
+/// ([`carry_splits_in`]): a JSON list of `[project id, version]`.
+const SPLITS_CARRIED: &str = "flow_splits_carried";
+
+/// When the version `version` of the project `project_id` (its document `text`) splits a check that listed several
+/// agents ([`yaml::Split`]), carries the project's tickets over to its copies, once per version: a ticket's skip (or
+/// its usual choice) on the stage applies to every copy, and so does its "moved past" (the counter's row, copied); a
+/// ticket's chosen agent stays on the stage, its first copy; every copy's rounds start at 0 (the stage's fails in a
+/// row and extra rounds go, its last pass stays as a record). A ticket in the middle of the stage's round is not
+/// touched here: the upgrade restarts the service, which makes it Interrupted, and it restarts on the stage, its
+/// first copy.
+async fn carry_splits_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    project_id: &str,
+    version: i64,
+    text: &str,
+) -> Result<(), StoreError> {
+    let Ok((_, splits)) = yaml::read_split(text) else {
+        return Ok(());
+    };
+    if splits.is_empty() {
+        return Ok(());
+    }
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT value_json FROM settings WHERE key = ?")
+            .bind(SPLITS_CARRIED)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let mut carried: Vec<(String, i64)> = stored
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    let this = (project_id.to_owned(), version);
+    if carried.contains(&this) {
+        return Ok(());
+    }
+    for split in &splits {
+        for copy in &split.copies {
+            sqlx::query(
+                "INSERT OR IGNORE INTO ticket_stage_choices
+                     (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at)
+                 SELECT c.ticket_id, ?, c.choice, c.agent_id, c.set_by, c.by_name, c.reason, c.set_at
+                 FROM ticket_stage_choices c JOIN tickets t ON t.id = c.ticket_id
+                 WHERE t.project_id = ? AND c.stage_id = ? AND c.choice IN ('skip', 'usual')",
+            )
+            .bind(copy)
+            .bind(project_id)
+            .bind(&split.stage)
+            .execute(&mut **tx)
+            .await?;
+            sqlx::query(
+                "INSERT OR IGNORE INTO check_counters
+                     (ticket_id, stage_id, fails, extra, passed_round, moved_past, updated_at)
+                 SELECT c.ticket_id, ?, c.fails, c.extra, c.passed_round, c.moved_past, c.updated_at
+                 FROM check_counters c JOIN tickets t ON t.id = c.ticket_id
+                 WHERE t.project_id = ? AND c.stage_id = ? AND c.moved_past IS NOT NULL",
+            )
+            .bind(copy)
+            .bind(project_id)
+            .bind(&split.stage)
+            .execute(&mut **tx)
+            .await?;
+        }
+        sqlx::query(
+            "UPDATE check_counters SET fails = 0, extra = 0
+             WHERE stage_id = ? AND moved_past IS NULL
+               AND ticket_id IN (SELECT id FROM tickets WHERE project_id = ?)",
+        )
+        .bind(&split.stage)
+        .bind(project_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    carried.push(this);
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+    )
+    .bind(SPLITS_CARRIED)
+    .bind(serde_json::to_string(&carried).unwrap_or_else(|_| "[]".to_owned()))
+    .bind(now_ms())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// Renames the agent `old` (ignoring case, as agent names are compared) to `new` in `file`: its entry in `agents:`,
@@ -188,14 +274,6 @@ pub fn rename_agent(file: &mut FlowFile, old: &str, new: &str) -> bool {
     for stage in &mut file.flow.stages {
         if let Some(agent) = &mut stage.agent {
             rename(agent);
-        }
-        for agent in &mut stage.agents {
-            rename(agent);
-        }
-        for option in &mut stage.options {
-            if let super::model::StageOption::Agent(agent) = option {
-                rename(agent);
-            }
         }
     }
     changed
@@ -255,6 +333,25 @@ impl Board {
             .expect("flows")
             .insert(version.yaml, file.clone());
         Ok(file)
+    }
+
+    /// Carries every project's tickets over to the copies of its current flow's split checks ([`yaml::Split`]),
+    /// once per version: what a flow stored before a check had one agent needs when this build first runs it. The
+    /// service does it as it starts; versions stored after are carried as they are stored.
+    pub async fn carry_split_checks(&self) -> Result<(), BoardError> {
+        let rows: Vec<(String, i64, String)> =
+            sqlx::query_as("SELECT project_id, version, yaml FROM project_flows WHERE current")
+                .fetch_all(self.store().pool())
+                .await?;
+        for (project_id, version, text) in rows {
+            if !text.contains("agents:") {
+                continue;
+            }
+            let mut tx = self.store().begin_write().await?;
+            carry_splits_in(&mut tx, &project_id, version, &text).await?;
+            tx.commit().await?;
+        }
+        Ok(())
     }
 
     /// `flow.current`: the project's current flow version.

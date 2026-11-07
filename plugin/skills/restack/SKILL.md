@@ -33,8 +33,7 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
 4. **Resolve every conflict.** Keep both sides' intent: the target's changes are other merged work, yours is this
    ticket's. Continue the rebase (`git add <file>`, then `git rebase --continue`) until it finishes. If a conflict needs
    a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
-5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
-   commit skill; when it names none, `git add -A` and `git commit`) if anything is left uncommitted after the rebase,
+5. **Commit everything** with Otaq's `commit` skill if anything is left uncommitted after the rebase,
    then run the checks the Agent instructions ask for **after your last commit**, their output into a file (see
    "Long output"). Nothing may stay uncommitted.
 6. **End your stage again** with a short comment on stdin: how you resolved the conflicts, in a line or two, and one

@@ -19,22 +19,17 @@
 //! **Any agent check of any flow** runs this way (FLW-13, d0108 second gap review rule 9): each counts its own fails
 //! in a row ([`crate::board::validation::CheckCounts`]) against its own rounds; a pass into another agent check opens
 //! that check's round and starts its checker; 0063's rules (VAL-02, VAL-07, VAL-08) and Stop this check hold
-//! whatever the check's skill. **Move on anyway** and **Skip this check** take the card to the engine's next stage,
-//! and its Delivery is then in click mode ([`Board::forced_click_reason`]); Skip this check is also offered on a check
-//! held for the plan limit when no fallback can take it (Q277), never on a held Agent stage.
+//! whatever the check's skill. **Move on anyway** and **Skip this check**, only on a check the flow marks skippable
+//! (`options: [skip]`; refused on any other), take the card to the engine's next stage,
+//! and its Delivery then does what the flow says (automatic stays automatic); Skip this check is also offered on a check
+//! held for the plan limit (Q277), never on a held Agent stage.
 //!
 //! With validation off for the project the submit goes straight to Ready for Review, as before M12. Every round's
 //! validator goes through the check before every launch (SCH-04 `[M23]`, [`crate::agents::gate`]): when its
 //! tool is at its limit the round opens but no validator starts and the ticket shows "Waiting for limit reset";
 //! when its tool isn't available or its model isn't listed the round stays open without a validator (Validating…,
-//! with the hold). The automatic fallback may move its Validator row instead. The validator starts once the hold
+//! with the hold). The validator starts once the hold
 //! lifts ([`Validation::start_held`]), or with its tool's Resume ([`Validation::start_waiting`]).
-//!
-//! **Several check agents** (d0130 row 17): each check agent's hold is its own ([`AgentHold::check_agent`]): a held
-//! one waits while the round's others run on (one at its limit mid-round stops and waits the same way), the ticket
-//! shows "Waiting for limit reset" only once nothing else runs, and Use fallback moves the held one only. Retry after
-//! "ended without a verdict" re-runs only the check agents without one (`Board::rerun_without_verdict`); Stop this
-//! check and Skip this check stop every checker; Resume after a restart starts every one fresh (0063).
 //!
 //! **While the project is paused** (PAU-04, d0112) a checker Otaq would start on its own ([`Start::Auto`]: after a
 //! submit or a pass, a drag into a check, a lifted hold, a tool's Resume) doesn't start: the ticket is taken the
@@ -54,8 +49,7 @@ use crate::agents::{AgentHold, HoldReason, RunsOn, SessionRole, resolve};
 use crate::board::hand_over::{HandOver, check_failed_text, settled};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    OpenRound, RoundClose, RowEnd, ValidationEvent, ValidationState, check_name, round_event,
-    transition, verdict_of,
+    OpenRound, RoundClose, RowEnd, ValidationEvent, ValidationState, check_name, transition,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
@@ -116,13 +110,12 @@ struct Inner {
     events: EventBus,
     /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
     agent_turned: Mutex<HashSet<String>>,
-    /// The checkers waiting on a prompt, per ticket (d0130: one checker's Working leaves another's Needs you).
+    /// The checkers waiting on a prompt, per ticket.
     asking: Mutex<std::collections::HashMap<String, HashSet<String>>>,
     /// One checker start at a time per ticket: a tool's Resume and the hold lifting it causes both start a waiting
     /// round's checker, and two overlapping starts would leave the round naming a checker that was stopped.
     starting: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// One end of a round's checker at a time per ticket (a verdict, a turn without one, a cancel): the last of a
-    /// round's check agents closes it, and two verdicts at once would each wait for the other (d0130).
+    /// One end of a round's checker at a time per ticket (a verdict, a turn without one, a cancel).
     ending: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
     resume_agent: Mutex<Option<AgentResume>>,
@@ -249,7 +242,7 @@ impl Validation {
                 format!("This isn't {}'s running check", ticket.key),
             )
         };
-        // The calling session's own row of the open round (d0130: one per check agent).
+        // The calling session's own row of the open round.
         let Some((round, row)) = board.open_round(&ticket.id).await?.and_then(|round| {
             let row = round.open_row_of(session)?.id.clone();
             Some((round, row))
@@ -268,7 +261,7 @@ impl Validation {
         } else {
             (ValidationEvent::Fail, ValidationOutcome::Fail)
         };
-        // Refused where the ticket doesn't validate, whatever the other check agents said.
+        // Refused where the ticket doesn't validate.
         transition(facts.state(&ticket), event)
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
         let end = RowEnd {
@@ -287,11 +280,9 @@ impl Validation {
         board.ticket_by_id(&ticket.id).await
     }
 
-    /// One check agent's row of the open round ended (its verdict, or none): the round waits while another still
-    /// checks; the last one closes it (d0130). Every one passed: Pass. Any failed: Fail, the hand-over naming each
-    /// agent's verdict in the stage's order and the round counted once. Else it ended without a verdict: `signal` is
-    /// the card's text for one check agent; several name the agents with none. `false` when the row had ended
-    /// already (the round was cancelled meanwhile): nothing is written.
+    /// The checker's row of the open round ended (its verdict, or none), and with it the round. Pass, Fail (the
+    /// round counted once), or it ended without a verdict: `signal` is then the card's text. `false` when the row had
+    /// ended already (the round was cancelled meanwhile): nothing is written.
     async fn row_ended(
         &self,
         ticket: &Ticket,
@@ -303,39 +294,18 @@ impl Validation {
     ) -> Result<bool, BoardError> {
         let board = &self.inner.board;
         self.not_asking(&ticket.id, round, end.row);
-        if round.open().any(|r| r.id != end.row) {
-            let row = end.row.to_owned();
-            let ended = board
-                .end_in_round(ticket, round, Some(end), None, actor)
-                .await?;
-            if ended {
-                self.wait_for_held(ticket, round, &row).await?;
-            }
-            return Ok(ended);
-        }
-        let verdicts: Vec<(String, Option<ValidationOutcome>)> = round
-            .latest()
-            .into_iter()
-            .map(|r| {
-                let outcome = if r.id == end.row {
-                    Some(end.outcome)
-                } else {
-                    r.outcome
-                };
-                let agent = r.agent.clone().unwrap_or_else(|| "The check".to_owned());
-                (agent, outcome)
-            })
-            .collect();
-        let outcomes: Vec<Option<ValidationOutcome>> = verdicts.iter().map(|(_, o)| *o).collect();
-        let event = round_event(&outcomes);
+        let event = match end.outcome {
+            ValidationOutcome::Pass => ValidationEvent::Pass,
+            ValidationOutcome::Fail => ValidationEvent::Fail,
+            _ => ValidationEvent::NoVerdict,
+        };
         let step = transition(facts.state(ticket), event)
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
         if event == ValidationEvent::NoVerdict {
-            let named = round.several().then(|| no_verdict_text(&verdicts));
             let close = RoundClose {
                 step: &step,
                 reason: "",
-                signal: named.as_deref().or(signal),
+                signal,
                 resumed: false,
             };
             let ended = board
@@ -359,18 +329,13 @@ impl Validation {
             return Ok(false);
         }
         if step.deliver_findings {
-            // The findings are the checkers' comments: the agent reads them all in `prime` (CMT-05, d0130).
-            let number = facts.fails + 1;
+            // The findings are the checker's comment: the agent reads it in `prime` (CMT-05).
             let check = check_name(&facts.flow, &ticket.place);
-            let text = if round.several() {
-                checks_failed_text(&check, number, &verdicts)
-            } else {
-                check_failed_text(&check, number)
-            };
+            let text = check_failed_text(&check, facts.fails + 1);
             self.tell_agent(ticket, &text, Start::Auto).await;
         }
         if step.start_validator {
-            // A pass into the next agent check: its own round and checkers (FLW-13).
+            // A pass into the next agent check: its own round and checker (FLW-13).
             self.start_next_check(&ticket.id, ValidationTrigger::Agent)
                 .await?;
         }
@@ -658,11 +623,12 @@ impl Validation {
                 self.forget_turns(&ticket.id);
             }
             ValidationAction::Skip => {
+                // Refused on a check the flow doesn't mark skippable, and on a held one not at its tool's limit.
+                let step = self.step(&ticket, ValidationEvent::SkipCheck).await?;
                 if ticket.status == Status::WaitingForLimitReset {
                     self.may_skip_held(&ticket).await?;
                 }
                 // The whole stage is skipped, every check agent's checker stopped and its holds let go (d0130 row 17).
-                let step = self.step(&ticket, ValidationEvent::SkipCheck).await?;
                 self.stop_validator(&ticket).await;
                 self.let_go_held(&ticket).await?;
                 board.end_round(&ticket, &step, "", None, actor).await?;
@@ -715,11 +681,7 @@ impl Validation {
                 self.step(&ticket, ValidationEvent::RetryValidation).await?;
                 let head = board.submit_head(&ticket).await?;
                 self.let_go_held(&ticket).await?;
-                // After "ended without a verdict", only the check agents without one run again; the others' verdicts
-                // stand, as the code is the same (d0130 row 17). Otherwise a fresh round for every one.
-                if !board.rerun_without_verdict(&ticket, &head, actor).await? {
-                    board.reopen_round(&ticket, &head, actor).await?;
-                }
+                board.reopen_round(&ticket, &head, actor).await?;
                 self.forget_turns(&ticket.id);
                 // Retry validation: the user's click on this one check (PAU-05).
                 if let Err(e) = self.start_validator(&ticket.id, Start::User).await {
@@ -733,41 +695,26 @@ impl Validation {
             action,
             ValidationAction::Skip | ValidationAction::MoveOnAnyway
         ) {
-            // On into a Delivery: moved past a check, it waits for the click (FLW-15); the hook decides.
+            // On into a Delivery: an automatic one delivers now, as the flow says (FLW-15); the hook decides.
             board.delivery().arrived(&ticket.id).await;
         }
         board.ticket_by_id(&ticket.id).await
     }
 
-    /// Skip this check on a check held for the plan limit is the user's only when no fallback can take it (Q277):
-    /// none set, or the fallback at its limit too, for one of its held check agents (d0130 row 17: `skip_at_limit`
-    /// per held session). Otherwise Use fallback is the way on.
+    /// Skip this check on a held check is the user's only while a check agent of it waits for its tool's plan limit
+    /// (Q277); the flow marking the check skippable is the transition's rule.
     async fn may_skip_held(&self, ticket: &Ticket) -> Result<(), BoardError> {
-        let holds: Vec<AgentHold> = self
+        let at_limit = self
             .inner
             .board
             .store()
             .ticket_holds(&ticket.id)
             .await?
-            .into_iter()
-            .filter(|h| h.role == SessionRole::Validator)
-            .collect();
-        let hold = holds
             .iter()
-            .find(|h| skip_at_limit(h))
-            .or_else(|| holds.first())
-            .cloned();
-        match hold {
-            Some(hold) if skip_at_limit(&hold) => Ok(()),
-            Some(hold) if hold.reason == HoldReason::ToolLimit => Err(BoardError::refused(
-                Refusal::MoveRefused,
-                format!(
-                    "{}'s check can run on {}'s fallback: use the fallback instead",
-                    ticket.key,
-                    hold.tool.display_name()
-                ),
-            )),
-            _ => Err(BoardError::refused(
+            .any(skip_at_limit);
+        match at_limit {
+            true => Ok(()),
+            false => Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
                     "{}'s check isn't waiting for its tool's plan limit",
@@ -889,7 +836,7 @@ impl Validation {
         }
         let lock = self.end_lock(ticket_id);
         let _one_end = lock.lock().await;
-        // One of the open round's checkers (d0130: one per check agent).
+        // The open round's checker.
         let Some((round, row)) = board.open_round(ticket_id).await?.and_then(|round| {
             let row = round.open_row_of(session)?.id.clone();
             Some((round, row))
@@ -914,7 +861,7 @@ impl Validation {
                     .await?;
             }
             Signal::Working { .. } => {
-                // Validating… again once no checker of the round waits on a prompt (d0130).
+                // Validating… again once the checker no longer waits on a prompt.
                 let still = self.asking_of(ticket_id, |asking| {
                     asking.remove(session);
                     !asking.is_empty()
@@ -939,7 +886,7 @@ impl Validation {
                     let _ = self.changed_under_validation(&ticket).await?;
                     return Ok(());
                 }
-                // Its row ends without one; the round waits for the other check agents (d0130).
+                // Its row ends without one, and with it the round.
                 self.stop_session(&ticket, session).await;
                 let facts = self.check_facts(&ticket).await?;
                 let end = RowEnd {
@@ -949,13 +896,6 @@ impl Validation {
                     hand_over: None,
                 };
                 self.row_ended(&ticket, &facts, &round, end, None, &Actor::current_user())
-                    .await?;
-            }
-            Signal::LimitReached { .. }
-                if validating(ticket.status) && self.others_check(&round, &row) =>
-            {
-                // The round's other check agents run on: this one waits for its tool, held (d0130 row 17).
-                self.hold_checker_at_limit(&ticket, &round, &row, session)
                     .await?;
             }
             Signal::LimitReached { .. } if validating(ticket.status) => {
@@ -996,7 +936,7 @@ impl Validation {
         let ticket = board.ticket_by_id(ticket_id).await?;
         let ended = match own {
             Some((round, row)) if validating(ticket.status) => {
-                // Its row ends without a verdict; with other check agents the round waits for them (d0130).
+                // Its row ends without a verdict, and with it the round.
                 let facts = self.check_facts(&ticket).await?;
                 let text = couldnt_run_text(model, message);
                 let end = RowEnd {
@@ -1226,95 +1166,7 @@ impl Validation {
         Ok(())
     }
 
-    /// The round's other check agents still run (or wait for a start of their own) beside `row`'s.
-    fn others_check(&self, round: &OpenRound, row: &str) -> bool {
-        round.several() && round.open().any(|r| r.id != row)
-    }
-
-    /// A check agent's checker hit its tool's limit while the round's others run on (d0130 row 17): its row waits
-    /// without a session (stopping it isn't a crash: nothing interrupts the round) and it is held for its tool,
-    /// offering the fallback (Use fallback for it only) or, with none usable, Skip this check. Its tool's Resume, or
-    /// the limit's reset, lifts the hold and starts a fresh checker for it.
-    async fn hold_checker_at_limit(
-        &self,
-        ticket: &Ticket,
-        round: &OpenRound,
-        row: &str,
-        session: &str,
-    ) -> Result<(), BoardError> {
-        let inner = &self.inner;
-        let board = &inner.board;
-        let tool = inner.sessions.info(session).ok().and_then(|i| i.tool);
-        let name = round
-            .rows
-            .iter()
-            .find(|r| r.id == row)
-            .and_then(|r| r.agent.clone());
-        sqlx::query("UPDATE validations SET session_id = NULL WHERE id = ? AND ended_at IS NULL")
-            .bind(row)
-            .execute(board.store().pool())
-            .await?;
-        self.not_asking(&ticket.id, round, row);
-        self.stop_session(ticket, session).await;
-        if let (Some(gate), Some(tool)) = (inner.gate.get(), tool) {
-            let named = match &name {
-                Some(name) => resolve::named(board.store(), name).await?,
-                None => None,
-            };
-            let agent = match named {
-                Some(agent) => agent,
-                None => resolve::session_agent(board, ticket, SessionRole::Validator).await?,
-            };
-            gate.hold_at_limit(
-                SessionRole::Validator,
-                Scope::check(ticket, name.as_deref()),
-                &agent,
-                tool,
-            )
-            .await?;
-        }
-        tracing::info!(key = %ticket.key, agent = ?name, "a check agent waits for its tool's limit");
-        self.wait_for_held(ticket, round, row).await
-    }
-
-    /// After `row` stopped checking (its verdict, a turn without one, its limit): when the round's other open rows
-    /// have no running checker, the round only waits for its held check agents, "Waiting for limit reset" if one
-    /// waits for its tool's limit (d0130 row 17).
-    async fn wait_for_held(
-        &self,
-        ticket: &Ticket,
-        round: &OpenRound,
-        row: &str,
-    ) -> Result<(), BoardError> {
-        let running = self
-            .inner
-            .sessions
-            .running_all_of(&ticket.id, SessionKind::Validator);
-        let others: Vec<_> = round.open().filter(|r| r.id != row).collect();
-        let runs = others.iter().any(|r| {
-            r.session
-                .as_ref()
-                .is_some_and(|s| running.iter().any(|i| &i.id == s))
-        });
-        if others.is_empty() || runs {
-            return Ok(());
-        }
-        let limit = self
-            .inner
-            .board
-            .store()
-            .ticket_holds(&ticket.id)
-            .await?
-            .iter()
-            .any(|h| h.role == SessionRole::Validator && h.reason == HoldReason::ToolLimit);
-        if limit {
-            let now = self.inner.board.ticket_by_id(&ticket.id).await?;
-            self.round_waits(&now, true).await?;
-        }
-        Ok(())
-    }
-
-    /// Lets go every held check agent of the ticket (Stop this check, Skip this check, Retry, Resume).
+    /// Lets go the ticket's held checker (Stop this check, Skip this check, Retry, Resume).
     async fn let_go_held(&self, ticket: &Ticket) -> Result<(), BoardError> {
         self.inner
             .board
@@ -1362,8 +1214,8 @@ impl Validation {
         self.start_validator_locked(ticket_id, start).await
     }
 
-    /// Starts the checkers of a round that waits for them (a lifted hold, a tool's Resume): the check agents whose
-    /// checker already runs keep it, so the first of two overlapping starts wins and the second keeps its checkers.
+    /// Starts the checker of a round that waits for it (a lifted hold, a tool's Resume): a checker that already runs
+    /// for the round is kept, so the first of two overlapping starts wins.
     async fn start_waiting_checker(
         &self,
         ticket_id: &str,
@@ -1394,11 +1246,10 @@ impl Validation {
             .clone()
     }
 
-    /// Starts the open round's checkers (d0130): one fresh read-only session per check agent, together, in the
-    /// ticket's worktree, each on its own agent and model. A check agent whose checker already runs keeps it; any
-    /// other checker of the ticket stops first. Each goes through the check before every launch: a held one leaves
-    /// its row waiting (the round waits for it). One that can't start ends its row without a verdict while the others
-    /// run; when none starts, the error is the caller's (the round ends without a result).
+    /// Starts the open round's checker: one fresh read-only session in the ticket's worktree, on the check's agent
+    /// and model. A checker that already runs for the round's row keeps it; any other checker of the ticket stops
+    /// first. It goes through the check before every launch: held, the round waits for it. One that can't start is
+    /// the caller's error (the round ends without a result).
     async fn start_validator_locked(
         &self,
         ticket_id: &str,
@@ -1412,158 +1263,61 @@ impl Validation {
         }
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         let skips = board.ticket_skips(&ticket, &flow).await?;
-        let stage = resolve::check_stage_of(&flow, &ticket, &skips).cloned();
-        if let Some(stage) = &stage {
-            board.name_round_agents(&ticket, stage).await?;
+        if let Some(stage) = resolve::check_stage_of(&flow, &ticket, &skips) {
+            board.name_round_agent(&ticket, stage).await?;
         }
-        let round = board.open_round(&ticket.id).await?;
+        // The round's open row (a round-less start, in tests, runs a checker all the same).
+        let row = board
+            .open_round(&ticket.id)
+            .await?
+            .and_then(|round| round.open().last().cloned());
         let running = inner
             .sessions
             .running_all_of(&ticket.id, SessionKind::Validator);
-        let runs = |row: &crate::board::validation::RoundRow| {
-            row.session
-                .as_ref()
-                .is_some_and(|s| running.iter().any(|r| &r.id == s))
+        let keeps = |s: &SessionInfo| {
+            row.as_ref()
+                .is_some_and(|row| row.session.as_deref() == Some(s.id.as_str()))
         };
-        // Each open row's check agent, without a running checker; a round-less start (tests) runs one checker.
-        let (keep, todo): (Vec<_>, Vec<_>) = match &round {
-            Some(round) => round.open().partition(|row| runs(row)),
-            None => (Vec::new(), Vec::new()),
-        };
-        let todo: Vec<(Option<String>, Option<String>)> = match &round {
-            Some(_) => todo
-                .into_iter()
-                .map(|row| (Some(row.id.clone()), row.agent.clone()))
-                .collect(),
-            None => vec![(None, None)],
-        };
-        let kept: Vec<&SessionInfo> = running
-            .iter()
-            .filter(|s| {
-                keep.iter()
-                    .any(|row| row.session.as_deref() == Some(s.id.as_str()))
-            })
-            .collect();
-        for old in running
-            .iter()
-            .filter(|s| !kept.iter().any(|k| k.id == s.id))
-        {
+        if let Some(kept) = running.iter().find(|s| keeps(s)) {
+            return Ok(ValidatorStart::Started(Box::new(kept.clone())));
+        }
+        for old in &running {
             inner.sessions.stop(&old.id).await.map_err(other)?;
         }
-        let mut started: Vec<SessionInfo> = kept.into_iter().cloned().collect();
-        let mut held: Option<Box<Held>> = None;
-        let mut failed: Vec<(String, BoardError)> = Vec::new();
-        let mut first_error: Option<BoardError> = None;
-        // Each check agent's agent and launch, after the check before every launch.
-        let mut ready = Vec::new();
-        for (row, name) in todo {
-            match self
-                .ready_one(&ticket, stage.as_ref(), name.as_deref())
-                .await
-            {
-                Ok(Ok((agent, runs_on))) => ready.push((row, name, agent, runs_on)),
-                Ok(Err(h)) => {
-                    held.get_or_insert(h);
-                }
-                Err(e) => match row {
-                    Some(row) => failed.push((row, e)),
-                    None => first_error = Some(e),
-                },
+        // The check's agent and launch, after the check before every launch.
+        let (agent, runs_on) = match self.ready_one(&ticket).await? {
+            Ok(ready) => ready,
+            Err(held) => {
+                self.hold_round(&ticket, &held).await?;
+                return Ok(ValidatorStart::Held(held));
             }
-        }
-        // Every checker's skills are in place before any of their tools starts (d0118): a tool reads its skill
-        // folders only at start, and a shared copy being replaced for the next checker is briefly missing.
-        let mut prompts = Vec::with_capacity(ready.len());
-        for (_, _, agent, _) in &ready {
-            prompts.push(self.copy_skills(&ticket, agent).await);
-        }
-        for ((row, name, agent, runs_on), prompt) in ready.into_iter().zip(prompts) {
-            let launched = match prompt {
-                Ok(prompt) => {
-                    self.launch_one(
-                        &ticket,
-                        row.as_deref(),
-                        name.as_deref(),
-                        &agent,
-                        runs_on,
-                        prompt,
-                        start,
-                    )
-                    .await
-                }
-                Err(e) => Err(e),
-            };
-            match launched {
-                Ok(ValidatorStart::Started(session)) => started.push(*session),
-                Ok(ValidatorStart::Held(h)) => {
-                    held.get_or_insert(h);
-                }
-                Ok(ValidatorStart::Kept) => return Ok(ValidatorStart::Kept),
-                Err(e) => match row {
-                    Some(row) => failed.push((row, e)),
-                    None => first_error = Some(e),
-                },
-            }
-        }
-        if let Some(e) = first_error {
-            return Err(e);
-        }
-        if started.is_empty() && held.is_none() {
-            if let Some((_, e)) = failed.into_iter().next() {
-                return Err(e);
-            }
-            return Ok(ValidatorStart::Kept);
-        }
-        // The others run: each one that couldn't start ends its own row without a verdict (Retry is the user's).
-        if let Some(round) = &round {
-            for (row, e) in &failed {
-                tracing::warn!(key = %ticket.key, error = %e, "a check agent's checker didn't start");
-                let reason = format!("The validator didn't start: {e}");
-                let end = RowEnd {
-                    row,
-                    outcome: ValidationOutcome::NoResult,
-                    reason: &reason,
-                    hand_over: None,
-                };
-                board
-                    .end_in_round(&ticket, round, Some(end), None, &Actor::current_user())
-                    .await?;
-            }
-        }
-        // A held check agent waits while the round's others run (d0130 row 17); with none running, the round waits.
-        if let Some(held) = held
-            && started.is_empty()
+        };
+        // The checker runs the check's own skill by its name; Otaq writes no skill into the worktree (T2).
+        let prompt = self.check_prompt(&ticket).await?;
+        let row = row.map(|r| r.id);
+        match self
+            .launch_one(&ticket, row.as_deref(), &agent, runs_on, prompt, start)
+            .await?
         {
-            self.hold_round(&ticket, &held).await?;
-            return Ok(ValidatorStart::Held(held));
+            ValidatorStart::Held(held) => {
+                self.hold_round(&ticket, &held).await?;
+                Ok(ValidatorStart::Held(held))
+            }
+            started => Ok(started),
         }
-        Ok(ValidatorStart::Started(Box::new(started.remove(0))))
     }
 
-    /// One check agent's agent (`name`, as the stage lists it; `None`: the ticket's check agent) and how it launches,
-    /// after the check before every launch; `Err` the hold that keeps it.
+    /// The check's agent (the ticket's choice for it, else the stage's) and how it launches, after the check before
+    /// every launch; `Err` the hold that keeps it.
     async fn ready_one(
         &self,
         ticket: &Ticket,
-        stage: Option<&crate::flow::Stage>,
-        name: Option<&str>,
     ) -> Result<Result<(crate::agents::Agent, RunsOn), Box<Held>>, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         // Every round resolves its agent again: the agent's model may change between rounds (AGM-05, d0088).
-        let agent = match (name, stage) {
-            (Some(name), Some(stage)) => {
-                resolve::named(board.store(), name).await?.ok_or_else(|| {
-                    BoardError::refused(
-                        Refusal::UnknownAgent,
-                        crate::flow::check::unknown_agent_message(stage, name),
-                    )
-                })?
-            }
-            _ => resolve::session_agent(board, ticket, SessionRole::Validator).await?,
-        };
-        // Each check agent's hold is its own (d0130 row 17).
-        let scope = Scope::check(ticket, name);
+        let agent = resolve::session_agent(board, ticket, SessionRole::Validator).await?;
+        let scope = Scope::ticket(ticket);
         let runs_on = match inner.gate.get() {
             Some(gate) => match gate
                 .before_launch(SessionRole::Validator, scope, &agent)
@@ -1577,13 +1331,11 @@ impl Validation {
         Ok(Ok((agent, runs_on)))
     }
 
-    /// One check agent's checker for its row of the round (`row`), its skills already copied (`first_prompt`).
-    #[allow(clippy::too_many_arguments)]
+    /// The checker for the round's row (`row`), with its first prompt.
     async fn launch_one(
         &self,
         ticket: &Ticket,
         row: Option<&str>,
-        name: Option<&str>,
         agent: &crate::agents::Agent,
         runs_on: RunsOn,
         first_prompt: Option<FirstPrompt>,
@@ -1600,11 +1352,7 @@ impl Validation {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
                 if let Some(gate) = self.inner.gate.get()
                     && let Some(held) = gate
-                        .after_failed_launch(
-                            SessionRole::Validator,
-                            Scope::check(ticket, name),
-                            agent,
-                        )
+                        .after_failed_launch(SessionRole::Validator, Scope::ticket(ticket), agent)
                         .await?
                 {
                     return Ok(ValidatorStart::Held(Box::new(held)));
@@ -1629,17 +1377,12 @@ impl Validation {
             })
     }
 
-    /// A checker's first prompt, once the check's own skill (Q261, every check agent's: Q516) and every skill of
-    /// `agent` are written into the worktree by one name (several check agents share the copies, d0118; AGM-07):
-    /// only ignored paths change, so the round's recorded head and tracked files stay as they were (VAL-02).
-    async fn copy_skills(
-        &self,
-        ticket: &Ticket,
-        agent: &crate::agents::Agent,
-    ) -> Result<Option<FirstPrompt>, BoardError> {
-        let inner = &self.inner;
-        let board = &inner.board;
-        let worktree = Self::worktree_of(ticket)?;
+    /// A checker's first prompt: the check's own skill (Q261) by its name, the stage's
+    /// `skill:` else Otaq's `validate`. Nothing is written into the worktree, so the round's recorded head and tracked
+    /// files stay as they were (VAL-02).
+    async fn check_prompt(&self, ticket: &Ticket) -> Result<Option<FirstPrompt>, BoardError> {
+        let board = &self.inner.board;
+        Self::worktree_of(ticket)?;
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         let skips = board.ticket_skips(ticket, &flow).await?;
         let skill = resolve::check_stage_of(&flow, ticket, &skips)
@@ -1649,19 +1392,10 @@ impl Validation {
                     .own_skill()
                     .to_owned()
             });
-        Ok(board
-            .copy_for_session(
-                &worktree,
-                inner.adapters.shipped_skills(),
-                Some(agent),
-                Some(FirstPrompt::Skill {
-                    name: skill,
-                    message: None,
-                }),
-                crate::skills::Marker::Worktree,
-            )
-            .await
-            .0)
+        Ok(Some(FirstPrompt::Skill {
+            name: skill,
+            message: None,
+        }))
     }
 
     async fn launch_validator(
@@ -1715,7 +1449,6 @@ impl Validation {
                 model: launched.model,
                 agent: runs_on.agent,
                 effort: runs_on.effort,
-                fallback: runs_on.fallback,
                 theme: Some(launched.theme),
             })
             .await
@@ -1745,41 +1478,6 @@ impl Validation {
     }
 }
 
-/// What the agent is told after a failed round of several check agents (VAL-04, d0130): each agent's verdict in the
-/// stage's order, the reports being their comments. "Validate failed round 1: Security reviewer failed, Validator
-/// passed. Run `otaq prime`."
-pub fn checks_failed_text(
-    check: &str,
-    round: u32,
-    verdicts: &[(String, Option<ValidationOutcome>)],
-) -> String {
-    let each: Vec<String> = verdicts
-        .iter()
-        .map(|(agent, outcome)| verdict_of(agent, *outcome))
-        .collect();
-    format!(
-        "{check} failed round {round}: {}. Run `{} prime`.",
-        each.join(", "),
-        crate::naming::COMMAND_NAME
-    )
-}
-
-/// The card's text for a round of several check agents that ended without a verdict (d0130), naming who gave none:
-/// "Performance reviewer ended without a verdict", "Security reviewer and Validator ended without a verdict".
-fn no_verdict_text(verdicts: &[(String, Option<ValidationOutcome>)]) -> String {
-    let none: Vec<&str> = verdicts
-        .iter()
-        .filter(|(_, o)| !matches!(o, Some(ValidationOutcome::Pass | ValidationOutcome::Fail)))
-        .map(|(agent, _)| agent.as_str())
-        .collect();
-    let names = match none.split_last() {
-        Some((last, [])) => (*last).to_owned(),
-        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
-        None => "The check".to_owned(),
-    };
-    format!("{names} ended without a verdict")
-}
-
 /// What the agent gets on Give it another round or Answer the agent: the user's note first, then the findings.
 fn user_findings_message(ticket: &Ticket, findings: &str, note: &str, extra: bool) -> String {
     let mut text = String::new();
@@ -1799,13 +1497,11 @@ fn user_findings_message(ticket: &Ticket, findings: &str, note: &str, extra: boo
     text
 }
 
-/// Whether a hold offers **Skip this check** (FLW-13, Q277): an agent check's checker held for its tool's plan limit
-/// with no usable fallback (none set, or the fallback at its limit too). An Agent stage held for the limit never
-/// offers it, nor does any other hold.
+/// Whether a hold offers **Skip this check** (FLW-13, Q277): an agent check's checker held for its tool's plan
+/// limit. An Agent stage held for the limit never offers it, nor does any other hold. It is offered only on a check
+/// the flow marks skippable ([`crate::flow::engine::user_may_move_past`]), which the screens add.
 pub fn skip_at_limit(hold: &AgentHold) -> bool {
-    hold.role == SessionRole::Validator
-        && hold.reason == HoldReason::ToolLimit
-        && hold.fallback_tool.is_none()
+    hold.role == SessionRole::Validator && hold.reason == HoldReason::ToolLimit
 }
 
 /// What the rules need about a ticket's agent check: the flow, the stages it skips, and the counter of the check it

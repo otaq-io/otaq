@@ -19,21 +19,16 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::commit;
-use otaq_core::naming;
 use otaq_core::project_agents::AgentState;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{SessionAgent, SessionInfo, SessionKind};
+use otaq_core::skills::testing::claude_skill;
 use serde_json::json;
 use tempfile::TempDir;
 
 /// Prints its arguments, then waits (reading what is typed into it).
 const SCRIPT: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
-
-/// A skill as Claude Code runs it: `/otaq-work-ticket` (AGM-07).
-fn claude_skill(name: &str) -> String {
-    format!("/{}", naming::copy_name(name))
-}
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -85,7 +80,6 @@ fn fields(agent: &Agent, model: AgentModel, effort: Option<&str>) -> AgentFields
     AgentFields {
         name: agent.name.clone(),
         instructions: agent.instructions.clone(),
-        skills: agent.skills.clone(),
         model,
         effort: effort.map(str::to_owned),
     }
@@ -134,7 +128,6 @@ async fn world() -> World {
         .add(&AgentFields {
             name: "Strong".into(),
             instructions: String::new(),
-            skills: Vec::new(),
             model: claude(Some("opus")),
             effort: None,
         })
@@ -588,20 +581,16 @@ async fn resume(
             record_ended_on(w, &t, &agent).await;
             world.set_model(on, edited_to).await;
             w.force_status(&t, Status::WaitingForYou).await;
-            // A local origin has no PR provider: Developer's own imported Open PR skill runs instead.
+            // A local origin has no PR provider: the user's Open PR skill the Delivery stage names runs instead.
             let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-            import_open_pr(&world, &folder).await;
+            name_open_pr_skill(&world, &folder).await;
             w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
             let s = w
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)
                 .expect("resumed");
-            // Written into the worktree before the resume, and run by its copy's name (AGM-07).
-            assert!(
-                worktree
-                    .join(".agents/skills/otaq-my-pr/SKILL.md")
-                    .is_file()
-            );
+            // Run by its own name; nothing is written into the worktree (T2).
+            assert!(!worktree.join(".agents").exists());
             let prompt = w.adapters.get(Tool::Claude).skill_reference("my-pr");
             (s, format!("--resume {CONVERSATION}{flag} {prompt}"))
         }
@@ -666,11 +655,11 @@ async fn resume(
     (world, args, expected, session)
 }
 
-/// Imports the test skill folder `my-pr` onto Developer, and the flow's Delivery names it as its Open PR skill.
-async fn import_open_pr(world: &World, folder: &Path) {
+/// The flow's Delivery names the test skill `my-pr` as its Open PR skill; nothing is copied or imported.
+async fn name_open_pr_skill(world: &World, folder: &Path) {
     world
         .w
-        .import_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, folder)
+        .use_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, folder)
         .await;
 }
 

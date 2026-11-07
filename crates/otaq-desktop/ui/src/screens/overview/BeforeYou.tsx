@@ -1,13 +1,25 @@
-// "Before you" on a human check after a Check stage with several check agents (d0130; canvas `s30-05`): the round
-// ("Before you · Validate, round 1 of 3", "2 check agents · both passed"), then a block per check agent with its tool
-// mark, name, verdict and model, its comment and Open terminal, which shows that agent's side of Session. Its words
-// are Rust's (`validation_report.rs`, `BeforeYouView`).
+// "Before you" on a human check after a round stored from when a check could have several agents (canvas `s30-05`):
+// the round ("Before you · Validate, round 1 of 3", "2 check agents · both passed"), then a block per check agent with
+// its tool mark, name, verdict and model, its comment and Open terminal, which shows that agent's side of Session. A
+// check has one agent now, so a new round never shows it. Its words are Rust's (`validation_report.rs`,
+// `BeforeYouView`).
 import { showTab } from "../../app/selection";
 import { Button, ToolAvatar } from "../../components";
-import { stepLook } from "../../cards";
+import type { BeforeYouStep } from "../../generated/BeforeYouStep";
 import type { BeforeYouView } from "../../generated/BeforeYouView";
+import type { IconName } from "../../generated/IconName";
 import { Icon } from "../../theme/Icon";
 import { shownCheckAgent } from "../session/terminalLogic";
+
+/** The verdict's icon and colour: a green check or a red cross. */
+function stepLook(step: BeforeYouStep): { icon: IconName; color: string } {
+  switch (step) {
+    case "passed":
+      return { icon: "check", color: "var(--st-approved)" };
+    case "failed":
+      return { icon: "x", color: "var(--st-error)" };
+  }
+}
 
 export function BeforeYou({ view }: { view: BeforeYouView }) {
   return (

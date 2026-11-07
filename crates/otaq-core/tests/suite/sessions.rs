@@ -39,7 +39,6 @@ fn spec(f: &Fixture, ticket: Option<SessionTicket>, script: &str) -> SpawnSpec {
         model: None,
         agent: None,
         effort: None,
-        fallback: None,
         theme: None,
     }
 }
@@ -418,7 +417,6 @@ async fn protocol_list_attach_resize_detach() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -600,7 +598,6 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -744,7 +741,6 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             model: cmd.model.clone(),
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -770,7 +766,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
         format!("ARG=Bash({name}:*)"),
         "ARG=--session-id".to_owned(),
         format!("ARG={tool_session_id}"),
-        format!("ARG=/{name}-work-ticket"),
+        format!("ARG=/{}:work-ticket", otaq_core::naming::PLUGIN_NAMESPACE),
         format!("{}=SHOP-1", otaq_core::naming::ticket_env_var()),
         "PORT=4019".to_owned(),
         "PATH=/opt/cb/bin:".to_owned(),
@@ -858,7 +854,6 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await

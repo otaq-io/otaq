@@ -2,7 +2,7 @@
 //! itself, when the user asks", d0086, d0068).
 //!
 //! - **Asking** ([`ProjectAgents::ask_for_flow`]): the user's **Ask <Tool>** for a project in Flow setup starts a
-//!   **flow agent**: a Project agent with the Project agent role's agent (its instructions and skills, AGM-07),
+//!   **flow agent**: a Project agent with the Project agent role's agent (its instructions),
 //!   launched on the asked tool with **no model option** (the tool's own default, "tool default", d0086), on the
 //!   `flow` skill with [`first_flow_message`]. It is named [`flow_agent_name`] ("Flow setup · OpenCode") from the
 //!   start. Only a connected tool is asked, never at its plan limit; nothing starts on its own. One flow agent per
@@ -87,7 +87,6 @@ pub fn flow_runs_on(agent: &Agent, tool: Tool) -> RunsOn {
         model: None,
         effort: None,
         agent: Some(agent.session_agent()),
-        fallback: None,
     }
 }
 
@@ -192,7 +191,6 @@ impl ProjectAgents {
             .start(
                 &project,
                 &first_flow_message(&project.name, tool),
-                &agent,
                 &flow_runs_on(&agent, tool),
                 Some(&flow_agent_name(tool)),
             )
@@ -514,8 +512,6 @@ mod tests {
             id: "pa".into(),
             name: "Noyan".into(),
             instructions: String::new(),
-            skills: Vec::new(),
-            imported: Vec::new(),
             model: crate::agents::AgentModel::Tool {
                 tool: Tool::Claude,
                 model: Some("opus".into()),
@@ -531,7 +527,6 @@ mod tests {
         assert_eq!(runs_on.tool, Some(Tool::OpenCode));
         assert_eq!(runs_on.model, None);
         assert_eq!(runs_on.effort, None);
-        assert_eq!(runs_on.fallback, None);
         assert_eq!(runs_on.agent, Some(agent.session_agent()));
     }
 

@@ -42,8 +42,7 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    The review asks for the page size from settings (lib/search.ts:12). Run `otaq prime` for the comments.
    NOTE
    ```
-5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
-   commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
+5. **Commit everything** with Otaq's `commit` skill. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
 6. **End your stage again** with a short comment on stdin: what you changed for each comment, a line each. Run your
    last checks **after your last commit** and give one line each: the command, the commit

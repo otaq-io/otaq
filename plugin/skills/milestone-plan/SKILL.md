@@ -49,9 +49,7 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    the order, in a few lines, naming the decisions it follows), then the **Pieces** list in its fixed shape.
 6. **Write the plan into the project's docs** where it keeps one, as the project's notes say (for example "milestone
    plans are rows in SDD.md §24", or a file per milestone in docs/milestones/). With no such place, the ticket's Plan
-   is enough: write nothing else. Then **commit everything** on the ticket's branch with the commit skill `prime` names
-   (`otaq-commit`, or your agent's own commit skill); when it names none, commit with `git add -A` and
-   `git commit -m "SHOP-40: …"`. Nothing may stay uncommitted: `otaq stage next` is refused while files are
+   is enough: write nothing else. Then **commit everything** on the ticket's branch with Otaq's `commit` skill. Nothing may stay uncommitted: `otaq stage next` is refused while files are
    uncommitted. **Never push.**
 7. **End your stage** with a short comment on stdin, then end your turn: the number of pieces and each file you wrote,
    in a line or two (at most 2,000 characters). The user reads it at Spec review:

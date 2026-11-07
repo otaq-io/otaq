@@ -36,16 +36,14 @@ pub struct PlanFlags {
     pub plan_file: Option<PathBuf>,
 }
 
-/// The stage choices of `create` and `update` (AGM-11, d0108): a stage with options (by name or id) and one of its
-/// options.
+/// The stage choices of `create` and `update` (AGM-11): a stage (by name or id) and the user's choice for it. Only the
+/// user picks a stage's agent, or Noyan passing on the user's words.
 #[derive(Debug, Default, Args)]
 pub struct ChoiceFlags {
-    /// A stage choice, repeatable: "Dev=Quick developer", "QA=required", or "QA=skip" where the flow lets QA be skipped
+    /// A stage choice, repeatable: "Dev=Strong" (any agent whose tool has the stage's skill), "QA=skip" where the flow
+    /// lets QA be skipped; the stage's own agent ("Dev=Developer", "QA=required" on a check of yours) sets it back
     #[arg(long = "stage", value_name = "STAGE=AGENT|skip")]
     pub stages: Vec<String>,
-    /// Why you chose (agents only: "typo fix")
-    #[arg(long, value_name = "TEXT")]
-    pub reason: Option<String>,
     /// The user named these choices themselves (Noyan only): they show as set by you
     #[arg(long)]
     pub by_user: bool,
@@ -131,7 +129,7 @@ pub enum Command {
         /// The agent running this stage of the ticket's flow (its name or id): `--stage security` while it checks
         #[arg(long, value_name = "STAGE")]
         stage: Option<String>,
-        /// With --stage: which check agent, when the check has several: `--agent "Security reviewer"`
+        /// Ignored: a check has one agent (kept for one release)
         #[arg(long, value_name = "AGENT", requires = "stage")]
         agent: Option<String>,
     },
@@ -157,7 +155,7 @@ pub enum Command {
         /// With --terminal: the terminal of the agent running this stage (its name or id) instead
         #[arg(long, value_name = "STAGE", requires = "terminal")]
         stage: Option<String>,
-        /// With --stage: which check agent's terminal, when the check has several: `--agent "Security reviewer"`
+        /// Ignored: a check has one agent (kept for one release)
         #[arg(long, value_name = "AGENT", requires = "stage")]
         agent: Option<String>,
         /// Only piece N of the ticket's Plan (`show SHOP-40 --piece 3` prints 40.3)
@@ -538,11 +536,15 @@ pub enum FlowCommand {
         #[arg(long, value_name = "PROJECT")]
         from: Option<String>,
     },
-    /// Write a stage's skill for the flow being edited: prints the only folder to write it in; `--done` hands it in
+    /// Write a stage's skill for the flow being edited, saved in this project: `--name` prints the only folder to
+    /// write it in; `--done` hands it in
     WriteSkill {
         /// The stage's id or name, e.g. plan
         stage: String,
-        /// The skill is written: Otaq imports the folder as its own copy and puts it in the stage
+        /// The skill's name, which names its folder (lowercase letters, digits and hyphens), e.g. plan-ticket
+        #[arg(long, conflicts_with = "done")]
+        name: Option<String>,
+        /// The skill is written: Otaq checks the folder and puts the skill in the stage (it doesn't commit it)
         #[arg(long)]
         done: bool,
     },
@@ -614,6 +616,14 @@ pub fn option_notes(matches: &ArgMatches) -> Result<Vec<Option<String>>, String>
 
 /// The refusal of a `--note` with no `--option` before it.
 pub const NOTE_AFTER_OPTION: &str = "--note must follow the --option it describes";
+
+/// `--agent` on `otaq attach` and `otaq show --terminal --stage`: kept for one release and ignored, with a note on
+/// stderr, as a check has one agent.
+pub fn agent_ignored(agent: Option<&str>) {
+    if agent.is_some() {
+        eprintln!("note: --agent is ignored: a check has one agent, so --stage names its session");
+    }
+}
 
 pub fn wants_json(args: &[OsString]) -> bool {
     args.iter()
@@ -960,7 +970,7 @@ mod tests {
         assert!(
             matches!(cli.command, Some(Command::Attach { key: Some(k), stage: Some(s), agent: None }) if k == "SHOP-29" && s == "security")
         );
-        // d0130 row 17: one check agent of several, only with --stage.
+        // `--agent` still parses (kept for one release, ignored: a check has one agent), only with --stage.
         let cli = parse(&[
             "attach",
             "SHOP-33",

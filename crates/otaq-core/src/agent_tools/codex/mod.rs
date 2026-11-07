@@ -19,6 +19,7 @@ pub mod launch;
 pub mod models;
 pub mod oneoff;
 pub mod permissions;
+mod plugins;
 pub mod session_file;
 pub mod setup;
 pub mod usage;
@@ -35,8 +36,8 @@ use super::{
     TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
-use crate::naming;
 use crate::usage::limit::LimitKind;
+pub use plugins::plugin_skills;
 
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "Codex";
@@ -84,14 +85,46 @@ pub struct CodexContext {
 
 impl CodexContext {
     pub fn new(tool: ToolContext) -> Self {
-        let codex_home = tool.home.as_ref().map(|home| {
-            std::env::var_os("CODEX_HOME")
-                .filter(|dir| !dir.is_empty())
-                .map_or_else(|| home.join(".codex"), PathBuf::from)
-        });
+        let codex_home = tool
+            .home
+            .as_deref()
+            .map(|home| codex_home(home, &super::process_var));
         Self { tool, codex_home }
     }
 }
+
+/// Codex's home folder under `home`: `$CODEX_HOME` (read with `var`; empty is unset), else `~/.codex`.
+pub fn codex_home(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    var("CODEX_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| home.join(".codex"), PathBuf::from)
+}
+
+/// Codex's personal skills folder: `skills` in its home ([`codex_home`]).
+pub fn skills_folder(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    codex_home(home, var).join("skills")
+}
+
+/// The personal skills folders Codex reads (S6): its home's ([`skills_folder`]) and the shared `~/.agents/skills`.
+pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBuf> {
+    vec![
+        skills_folder(home, var),
+        home.join(".agents").join("skills"),
+    ]
+}
+
+/// Whether Codex loads a `SKILL.md` that starts with a UTF-8 byte order mark: it doesn't (seen with Codex 0.166.0 on
+/// Windows, where PowerShell 5 writes one). Its front matter must start with the `---` line itself.
+pub const READS_SKILL_WITH_BOM: bool = false;
+
+/// Codex's built-in commands that do work a stage could want, so a flow could take them for skills: `/review` and
+/// `/init`, from its TUI's slash commands (codex-rs/tui/src/slash_command.rs). A stage can't name one as its skill (it
+/// isn't a skill file the tool loads). This is what Codex had when the list was written (2026-11); its other commands
+/// (model, clear, …) do no work a stage would want.
+pub const BUILT_IN_COMMANDS: &[&str] = &["review", "init"];
+
+/// The project's skills folders Codex reads in its worktree: `.agents/skills`.
+pub const PROJECT_SKILL_FOLDERS: &[&[&str]] = &[&[".agents", "skills"]];
 
 /// What a running Codex session sets on the commands it runs (seen in `codex exec`, 0.157.1), dropped by the service
 /// at start ([`crate::agent_tools::parent_session_vars`]): that session's ids and its CI marker. None of them stops
@@ -273,11 +306,11 @@ impl AgentTool for Codex {
         EFFORT_LEVELS
     }
 
-    /// `$otaq-commit`: Codex reads the project skills in `.agents/skills` "in every directory from your current
-    /// working directory up to the repository root" and a skill is mentioned with `$` (its skills page,
-    /// learn.chatgpt.com/docs/build-skills, formerly developers.openai.com/codex/skills).
+    /// `$otaq:commit` for Otaq's skill (from the `otaq@otaq-local` plugin), `$team-validate` for the user's: Codex
+    /// mentions a skill with `$` (its skills page, learn.chatgpt.com/docs/build-skills, formerly
+    /// developers.openai.com/codex/skills).
     fn skill_reference(&self, skill: &str) -> String {
-        format!("${}", naming::copy_name(skill))
+        super::namespaced_reference("$", skill)
     }
 
     /// Codex's ids are models.dev's `openai` ids exactly (d0086).

@@ -27,27 +27,28 @@
 //! skill"; `s26-09`, `s27-05`, `s27-06`): a stage the user added has **Start from** templates in its details
 //! ([`Templates`]): Plan, Security check, Visual check, Docs and Blank fill only the name and the kind; Product
 //! spec, Tech spec, Milestone plan, Validate, Review and PR delivery come from Otaq's presets complete, skill included.
-//! An agent stage with no skill offers **Pick a skill…** (the user's imported skills, searchable) and **Ask the agent
-//! to write it** (the Project agent writes it in Otaq's folder and hands it in as Otaq's copy, d0092, never the repo,
-//! d0023); while it writes the field says so with Stop, then shows the skill tinted with Open and Undo
-//! ([`SkillState`]). Apply stays off while an agent stage has no skill ("Plan needs a skill"). **Ask the agent to write
-//! it** sends nothing (Q441): it puts "Write a skill for the Plan stage: " in the panel's box ([`write_skill_prefill`])
+//! An agent stage with no skill offers **Pick a skill…** (the skills the user already has and Otaq's own, from
+//! `skills.list`, searchable, or a name typed by hand) and **Ask the agent to write it** (the Project agent writes it
+//! into the project's checkout, which Otaq doesn't commit); while it writes the field says so with Stop, then shows
+//! the skill tinted, where it was saved, with Open and Undo ([`SkillState`]). A stage whose skill nobody has shows
+//! "You don't have the skill `<name>`" as a warning (the draft's), on its step and in its Skill field; it never keeps
+//! Apply off. A stage's Agent field offers only the agents whose tool has the stage's skill (every agent for one of
+//! Otaq's own); a stage whose agent's tool lacks it shows "GitHub Copilot doesn’t have the skill `/<name>`" on its
+//! step and in its Agent field, only a warning too. Apply stays off while an agent stage has no skill ("Plan needs a
+//! skill"). **Ask the agent to write it** sends nothing (Q441): it puts "Write a skill for the Plan stage: " in the panel's box ([`write_skill_prefill`])
 //! for the user to finish and send.
 //!
 //! **Problems that need a pick** (Q426; FED-04, FLW-04's controls): a step whose problem has a fix shows it in its
 //! details ([`FixRow`]): an import clash's Keep mine (the default) · Take theirs · Add as "<name> (<file>)", the model
-//! menu for an agent whose model isn't listed or whose tool isn't connected, and "Import its folder…" for a missing
-//! skill. The page keeps the picks ([`Choices`]) until Apply sends them, as the preview did; a picked problem no
+//! menu for an agent whose model isn't listed or whose tool isn't connected. The page keeps the picks ([`Choices`]) until Apply sends them, as the preview did; a picked problem no
 //! longer marks its step, and Apply turns on once none is left.
 //!
-//! **Checks** (T-0529; d0131, d0130; `s29-04` "Fails go to" and "One check, several agents"): every check in the
-//! steps list says where its fails go ("fails go to Dev"), and an agent check with several agents says "2 check
-//! agents" in the agent's place. A check's details have **Fails go to** ([`FailToField`]): the Agent stages before it,
-//! the nearest marked and picked by default (the flow file leaves `fail_to` out for it). An agent check's details list
-//! its **Check agents** ([`CheckAgentsField`]: add, remove), one **Rounds** limit for the stage ([`RoundsField`]) and
-//! the rule text; the change line says what a new set of check agents does ("Validate now runs Security reviewer and
-//! Performance reviewer side by side…"). A `fail_to` that no longer fits, and an agent check left with no agent, are
-//! the check's problems: they show in the step's details and keep Apply off until fixed.
+//! **Checks** (T-0529; d0131; `s29-04` "Fails go to"): every check in the steps list says where its fails go ("fails
+//! go to Dev"). A check's details have **Fails go to** ([`FailToField`]): the Agent stages before it, the nearest
+//! marked and picked by default (the flow file leaves `fail_to` out for it). An agent check has one agent, like an
+//! Agent stage: its details have the one **Agent** field ([`AgentField`]) and one **Rounds** limit for the stage
+//! ([`RoundsField`]); two checks are two stages. A `fail_to` that no longer fits, and an agent check with no agent,
+//! are the check's problems: they show in the step's details and keep Apply off until fixed.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -61,10 +62,12 @@ use otaq_core::flow::model::{
 use otaq_core::flow::presets::{SPEC_FIRST_FILE, preset, presets};
 use otaq_core::flow::proposal::{
     About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
-    ProposalProblem, Source, flow_agent_of,
+    ProposalProblem, Source, missing_skill_text, unknown_skill_text,
 };
+use otaq_core::flow::write_skill::saved_text;
 use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow};
 use otaq_core::project_agents::{AgentState, ProjectAgent};
+use otaq_core::skills::found::{FoundSkill, SkillScope};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -121,7 +124,7 @@ pub enum StageEdit {
         stage: String,
         agent: String,
     },
-    /// A ticket can …: `option` is `skip` or another agent's name.
+    /// A ticket can …: `option` is `skip` (a stage lists no agents; any other is refused).
     Option {
         stage: String,
         option: String,
@@ -142,7 +145,7 @@ pub enum StageEdit {
     Remove {
         stage: String,
     },
-    /// Pick a skill…: the stage runs the user's imported skill `skill` (by its name), which its agent gets.
+    /// Pick a skill…: the stage runs the skill `skill` by its name (picked, or typed by hand); nothing is copied.
     Skill {
         stage: String,
         skill: String,
@@ -151,16 +154,6 @@ pub enum StageEdit {
     Template {
         stage: String,
         template: Template,
-    },
-    /// **Add a check agent** on an agent check (d0130).
-    AddCheckAgent {
-        stage: String,
-        agent: String,
-    },
-    /// A check agent's remove.
-    RemoveCheckAgent {
-        stage: String,
-        agent: String,
     },
     /// An agent check's Rounds (1–5, d0063).
     Rounds {
@@ -294,16 +287,14 @@ pub enum Pick {
 }
 
 /// The user's picks for the draft's problems (Q426; FLW-04's, field for field), which the page keeps until Apply sends
-/// them (`flow.apply`'s choices): a pick per import clash by the agent's name (Keep mine when left out), a folder per
-/// missing skill, a local model per agent whose model isn't listed or whose tool isn't connected (`default`,
+/// them (`flow.apply`'s choices): a pick per import clash by the agent's name (Keep mine when left out), a local model
+/// per agent whose model isn't listed or whose tool isn't connected (`default`,
 /// `claude`, `claude:opus`). The view is rebuilt with them on every pick. `FlowEditorChoices` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[ts(rename = "FlowEditorChoices")]
 pub struct Choices {
     #[serde(default)]
     pub clashes: BTreeMap<String, ClashPick>,
-    #[serde(default)]
-    pub skill_folders: BTreeMap<String, String>,
     #[serde(default)]
     pub models: BTreeMap<String, String>,
 }
@@ -338,7 +329,6 @@ impl Choices {
                 .iter()
                 .map(|(name, pick)| (name.clone(), (*pick).into()))
                 .collect(),
-            skill_folders: self.skill_folders.clone(),
             models: self.models.clone(),
         }
     }
@@ -346,7 +336,6 @@ impl Choices {
     /// The pick `problem` asks for is there (a problem with no fix never is).
     pub fn fix(&self, problem: &ProposalProblem) -> bool {
         match &problem.fix {
-            Some(Fix::ImportSkillFolder { skill }) => self.skill_folders.contains_key(skill),
             Some(Fix::PickModel { agent }) => self.models.contains_key(agent),
             None => false,
         }
@@ -375,17 +364,8 @@ pub enum FixControl {
     /// Keep mine · Take theirs · Add as "<name> (<file>)" (ids `keep_mine`, `take_theirs`, `add_as`), selected as
     /// picked.
     Clash { agent: String, options: Vec<Choice> },
-    /// "Import its folder…": the system folder picker, then [`Choices::skill_folders`].
-    Folder {
-        skill: String,
-        label: &'static str,
-        /// The folder picker's title.
-        picker_title: String,
-        /// The folder picked.
-        picked: Option<String>,
-    },
     /// The model menu ([`Choices::models`]).
-    Model { fix: ModelFix },
+    Model { fix: Box<ModelFix> },
 }
 
 /// A problem's fix, or an import clash, in a step's details (or under the flow when no step runs its agent).
@@ -393,7 +373,7 @@ pub enum FixControl {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowEditorFix")]
 pub struct FixRow {
-    /// "security-review isn’t on this machine", "Security reviewer: opus isn’t in Claude Code’s model list",
+    /// "Security reviewer: opus isn’t in Claude Code’s model list",
     /// "Security reviewer is in the file and already here, with other instructions."
     pub text: String,
     /// Apply no longer waits for it: picked (a clash, Keep mine by default, never keeps Apply off).
@@ -594,6 +574,8 @@ pub struct StepRow {
     pub fails_to: Option<String>,
     /// Its problem from the check, in the error colour ("needs a skill").
     pub problem: Option<String>,
+    /// "You don't have the skill `team-validate`", amber: only a warning, Apply still works.
+    pub warning: Option<String>,
     pub selected: bool,
     /// Ready for Dev and the Delivery stay where they are.
     pub draggable: bool,
@@ -633,36 +615,16 @@ pub struct AgentField {
     pub name: String,
     /// "default for An agent works", or the model ("gpt-5.5").
     pub note: Option<String>,
-    /// Every agent: the stored ones, then those the draft brings ("new").
+    /// The agents whose tool has the stage's skill (every agent for one of Otaq's own): the stored ones, then those
+    /// the draft brings ("new"); the current one always.
     pub items: Vec<MenuItem>,
+    /// "Copilot doesn’t have the skill `/team-validate`", amber: the agent's tool doesn't have the stage's skill. Only
+    /// a warning, Apply still works.
+    pub warning: Option<String>,
     pub hint: &'static str,
 }
 
-/// One check agent of an agent check: its tool badge, name and model, and its remove (`s29-04`).
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorCheckAgent")]
-pub struct CheckAgentRow {
-    pub name: String,
-    pub avatar: Option<ToolAvatarView>,
-    pub model: Option<String>,
-    /// "Remove Security reviewer" (the x's label).
-    pub remove: String,
-}
-
-/// An agent check's Check agents (d0130): one row per agent, **Add a check agent** (the agents not listed yet) and the
-/// note. `FlowEditorCheckAgents` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorCheckAgents")]
-pub struct CheckAgentsField {
-    pub label: &'static str,
-    pub rows: Vec<CheckAgentRow>,
-    pub add: &'static str,
-    /// The stored agents, then the ones only the draft brings ("new"), but those already listed; empty: Add is off.
-    pub add_items: Vec<MenuItem>,
-    pub note: &'static str,
-}
-
-/// An agent check's Rounds: one limit for the stage, whichever agent fails (d0130). `FlowEditorRounds` on the page.
+/// An agent check's Rounds: one limit for the stage. `FlowEditorRounds` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorRounds")]
 pub struct RoundsField {
@@ -695,8 +657,12 @@ pub struct FailToField {
 #[serde(tag = "state", rename_all = "snake_case")]
 #[ts(rename = "FlowEditorSkillState")]
 pub enum SkillState {
-    /// The stage's skill (clicking it picks another).
-    Set { skill: String },
+    /// The stage's skill (clicking it picks another); `warning` "You don't have the skill `<name>`" when nobody has it
+    /// (amber, Apply still works).
+    Set {
+        skill: String,
+        warning: Option<String>,
+    },
     /// "No skill yet. An agent stage needs one: it’s what the agent follows in Plan.", with Pick a skill… and Ask the
     /// agent to write it, which puts `prefill` in the agent's box ([`write_skill_prefill`], Q441).
     Empty {
@@ -711,26 +677,32 @@ pub enum SkillState {
         text: &'static str,
         stop: &'static str,
     },
-    /// The skill the agent wrote, tinted: "Written by the agent", Open, Undo.
+    /// The skill the agent wrote, tinted: "Written by the agent", where it was saved, Open (its folder), Undo.
     Written {
         skill: String,
         note: &'static str,
+        /// "Saved in `.claude/skills/plan-ticket` in this project. Commit it so agents get it in their worktrees.";
+        /// `None` for one an older Otaq wrote, which has no folder in the project.
+        saved: Option<String>,
         /// "Written by Checkout slowness" (hover).
         why: String,
-        open: &'static str,
+        /// Opens its folder; `None` for one an older Otaq wrote, which has no folder in the project.
+        open: Option<&'static str>,
         undo: &'static str,
     },
 }
 
-/// Pick a skill…: the user's imported skills (any agent's), searchable, each with its description as a second line;
-/// the item's id is the skill's name. With none, one disabled line says so (Q-C: not drawn). `FlowEditorSkillPicker`
-/// on the page.
+/// Pick a skill…: the skills the user already has (personal ones, then the project's), then Otaq's own, searchable;
+/// each item's second line says where it lives, which tools have it and what it does ("Personal · Claude Code ·
+/// Lists the steps…", "Otaq’s · …": every tool has Otaq's own), its id is the skill's name. Never empty: Otaq's own are always there. `FlowEditorSkillPicker` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorSkillPicker")]
 pub struct SkillPicker {
     pub title: &'static str,
     pub search: MenuSearch,
     pub items: Vec<MenuItem>,
+    /// The last item while searching, for a name typed by hand: "Use `{name}`", `{name}` the typed text (its id).
+    pub use_typed: &'static str,
 }
 
 /// The Skill field (FED-06).
@@ -779,7 +751,14 @@ pub struct CanRow {
     pub label: String,
     pub on: bool,
     pub enabled: bool,
+    /// Said next to the mark: on a check's skip, once it is on, [`DELIVERED_WITHOUT_THIS_CHECK`].
+    pub note: Option<&'static str>,
 }
+
+/// Next to a check's skip mark: the Delivery does what the flow says (an automatic one stays automatic), so a ticket
+/// skipping the check, or moved past it, is delivered without it.
+pub const DELIVERED_WITHOUT_THIS_CHECK: &str =
+    "A ticket that skips it, or is moved past it, is delivered without this check.";
 
 /// The selected step's details (FED-04). `FlowEditorDetails` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -799,14 +778,11 @@ pub struct Details {
     pub fixed_kind: Option<&'static str>,
     /// A stage the user added: its templates (FED-05).
     pub templates: Option<Templates>,
-    /// The agent of a stage one agent runs; an agent check has [`Details::check_agents`] instead.
+    /// The agent that runs the stage (an Agent stage's, an agent check's, a Delivery's that can open a PR).
     pub agent: Option<AgentField>,
-    pub check_agents: Option<CheckAgentsField>,
     pub skill: Option<SkillField>,
     pub rounds: Option<RoundsField>,
     pub fail_to: Option<FailToField>,
-    /// An agent check's rule (d0130).
-    pub rule: Option<&'static str>,
     pub can_label: &'static str,
     pub can: Vec<CanRow>,
     /// Its problem that no pick fixes (a problem with a fix shows in [`Details::fixes`]).
@@ -946,7 +922,7 @@ pub struct View {
     pub flow: FlowPart,
     pub agent: AgentPanel,
     pub footer: Footer,
-    /// The picks as Apply sends them: every clash with its pick (Keep mine by default), only the folders and models
+    /// The picks as Apply sends them: every clash with its pick (Keep mine by default), only the models
     /// still asked for.
     pub choices: Choices,
 }
@@ -973,8 +949,8 @@ pub struct Facts<'a> {
     pub setup: &'a FlowSetup,
     /// The other projects (key, name), for Import a flow… → from a project.
     pub projects: &'a [(String, String)],
-    /// Imported skills' descriptions, by the skill's name.
-    pub captions: &'a BTreeMap<String, String>,
+    /// The skills the user already has and Otaq's own (`skills.list` for the project): Pick a skill… and captions.
+    pub skills: &'a [FoundSkill],
     /// The stages whose skill the Project agent is writing, and the skills it wrote (the draft's).
     pub writing: &'a [SkillWriting],
     pub written: &'a [WrittenSkill],
@@ -1055,7 +1031,7 @@ fn caption_kind(stage: &Stage) -> &'static str {
 }
 
 /// A step's caption (d0115): its skill's description, Otaq's fixed caption for a check by you and the Delivery.
-fn caption(file: &FlowFile, stage: &Stage, captions: &BTreeMap<String, String>) -> Option<String> {
+fn caption(file: &FlowFile, stage: &Stage, skills: &[FoundSkill]) -> Option<String> {
     match stage.kind {
         StageKind::Check { by: CheckBy::You } => Some(YOU_CHECK_CAPTION.to_owned()),
         StageKind::Delivery => Some(
@@ -1067,10 +1043,15 @@ fn caption(file: &FlowFile, stage: &Stage, captions: &BTreeMap<String, String>) 
         ),
         _ => {
             let skill = stage.skill.as_deref()?;
-            captions.get(skill).cloned().or_else(|| {
-                let back = file.flow.fail_to_of(stage).map(|s| s.name.as_str());
-                shipped_caption(skill, back)
-            })
+            // A name that matches one of Otaq's own skills always means Otaq's skill: Otaq's own words for it.
+            skills
+                .iter()
+                .find(|s| !s.otaq && s.name == skill)
+                .and_then(|s| s.description.clone())
+                .or_else(|| {
+                    let back = file.flow.fail_to_of(stage).map(|s| s.name.as_str());
+                    shipped_caption(skill, back)
+                })
         }
     }
 }
@@ -1122,33 +1103,20 @@ fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
         .find(|m| m.stage_id == id && m.mark != Mark::Removed)
 }
 
-/// The stage's one agent: an Agent stage's or a Delivery's, an agent check's first check agent (a kind change keeps
-/// it; its options replace it).
+/// The stage's one agent: an Agent stage's, an agent check's or a Delivery's (a kind change keeps it; its options
+/// replace it).
 fn the_agent(stage: &Stage) -> Option<&String> {
-    stage.named_agents().next()
+    stage.agent.as_ref()
 }
 
-/// "Security reviewer", or "2 check agents" for an agent check with several (`s29-04`).
+/// "Security reviewer": who runs the stage.
 fn who_runs(stage: &Stage) -> Option<String> {
-    match stage.check_agents() {
-        several @ [_, _, ..] => Some(format!("{} check agents", several.len())),
-        _ => the_agent(stage).cloned(),
-    }
+    the_agent(stage).cloned()
 }
 
-/// Sets the agent [`the_agent`] reads: an agent check's first check agent, else the stage's agent.
+/// Sets the agent [`the_agent`] reads.
 fn set_agent(stage: &mut Stage, agent: Option<String>) {
-    if stage.is_agent_check() {
-        stage.agent = None;
-        match (agent, stage.agents.is_empty()) {
-            (Some(name), true) => stage.agents.push(name),
-            (Some(name), false) => stage.agents[0] = name,
-            (None, _) => stage.agents.clear(),
-        }
-    } else {
-        stage.agents.clear();
-        stage.agent = agent;
-    }
+    stage.agent = agent;
 }
 
 /// The stages that run the agent `name`, or offer it as an option: where its problems and its clash show (Q426).
@@ -1204,12 +1172,6 @@ fn model_problem(f: &Facts, agent: &str, message: &str) -> String {
 /// What a problem says on its step and as Apply's reason: a fix's own words, else the check's message.
 fn problem_text(f: &Facts, problem: &ProposalProblem) -> String {
     match &problem.fix {
-        // A folder that can't be imported keeps the check's reason.
-        Some(Fix::ImportSkillFolder { skill })
-            if !problem.message.contains("can't be imported") =>
-        {
-            format!("{skill} isn\u{2019}t on this machine")
-        }
         Some(Fix::PickModel { agent }) => model_problem(f, agent, &problem.message),
         _ => problem.message.clone(),
     }
@@ -1360,25 +1322,13 @@ fn fix_rows<'a>(
         .filter_map(|p| {
             let fixed = f.choices.fix(p);
             match p.fix.as_ref()? {
-                Fix::ImportSkillFolder { skill } => asked
-                    .insert(format!("skill:{}", skill.to_lowercase()))
-                    .then(|| FixRow {
-                        text: problem_text(f, p),
-                        fixed,
-                        control: FixControl::Folder {
-                            skill: skill.clone(),
-                            label: "Import its folder\u{2026}",
-                            picker_title: format!("The folder of {skill}"),
-                            picked: f.choices.skill_folders.get(skill).cloned(),
-                        },
-                    }),
                 Fix::PickModel { agent } => asked
                     .insert(format!("model:{}", agent.to_lowercase()))
                     .then(|| FixRow {
                         text: problem_text(f, p),
                         fixed,
                         control: FixControl::Model {
-                            fix: model_fix(f, agent),
+                            fix: Box::new(model_fix(f, agent)),
                         },
                     }),
             }
@@ -1413,11 +1363,6 @@ fn choices_kept(f: &Facts) -> Choices {
     }
     for p in &f.proposal.problems {
         match &p.fix {
-            Some(Fix::ImportSkillFolder { skill }) => {
-                if let Some(folder) = picks.skill_folders.get(skill) {
-                    kept.skill_folders.insert(skill.clone(), folder.clone());
-                }
-            }
             Some(Fix::PickModel { agent }) => {
                 if let Some(model) = picks.models.get(agent) {
                     kept.models.insert(agent.clone(), model.clone());
@@ -1504,7 +1449,7 @@ fn tiles(f: &Facts) -> Vec<Tile> {
             tone,
             caption_title: format!("{} \u{b7} {}", stage.name, caption_kind(stage)),
             caption_mark: added.then_some("New step \u{b7}"),
-            caption: caption(f.file, stage, f.captions),
+            caption: caption(f.file, stage, f.skills),
         }
     });
     std::iter::once(ready).chain(stages).collect()
@@ -1525,6 +1470,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
         written: None,
         fails_to: None,
         problem: None,
+        warning: None,
         selected: false,
         draggable: false,
         selectable: false,
@@ -1538,7 +1484,6 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             StageKind::Delivery => (None, Some(delivers_word(stage).to_owned())),
             // "needs a skill" takes the agent's place (`s27-05`).
             _ if stage.needs_skill() => (None, None),
-            _ if stage.check_agents().len() > 1 => (None, who_runs(stage)),
             _ => match the_agent(stage) {
                 Some(name) => (agent_on(name, f).0, Some(name.clone())),
                 None => (None, None),
@@ -1558,10 +1503,11 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             written: written_of(f, stage).map(written_view),
             fails_to: fails_to(&f.file.flow, stage).map(|t| format!("fails go to {}", t.name)),
             problem,
+            warning: unknown_skill(f, stage).or_else(|| missing_skill(f, stage)),
             selected: f.selected == Some(stage.id.as_str()),
             draggable: !stage.is_delivery(),
             selectable: true,
-            caption: caption(f.file, stage, f.captions),
+            caption: caption(f.file, stage, f.skills),
             add_after: Some(stage.id.clone()),
             can_add_after: !stage.is_delivery(),
         }
@@ -1594,9 +1540,12 @@ fn legend() -> Vec<LegendRow> {
     ]
 }
 
-/// The agents the field offers: the stored ones, then the ones only the draft brings ("new").
-fn agent_items(f: &Facts, current: &str) -> Vec<MenuItem> {
-    let stored = f.stored.iter().map(|a| {
+/// The agents the field offers: the stored ones, then the ones only the draft brings ("new"), each only when its tool
+/// has the stage's skill ([`offers`]). The current agent stays listed, checked, even when its tool doesn't have it:
+/// the field and the step say so ([`missing_skill`]).
+fn agent_items(f: &Facts, stage: &Stage, current: &str) -> Vec<MenuItem> {
+    let offered = |name: &str| name.eq_ignore_ascii_case(current) || offers(f, stage, name);
+    let stored = f.stored.iter().filter(|a| offered(&a.name)).map(|a| {
         MenuItem::new(a.name.clone(), a.name.clone()).checked(a.name.eq_ignore_ascii_case(current))
     });
     let brought = f
@@ -1604,6 +1553,7 @@ fn agent_items(f: &Facts, current: &str) -> Vec<MenuItem> {
         .agents
         .iter()
         .filter(|a: &&FlowAgent| stored_agent(f.stored, &a.name).is_none())
+        .filter(|a| offered(&a.name))
         .map(|a| {
             MenuItem::new(a.name.clone(), a.name.clone())
                 .hint("new")
@@ -1612,14 +1562,71 @@ fn agent_items(f: &Facts, current: &str) -> Vec<MenuItem> {
     stored.chain(brought).collect()
 }
 
-fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
-    if stage.is_agent_check() {
+/// The tool the agent `name` runs on: a stored agent's (its own, or the default model's), else the one the draft
+/// brings names. `None` when it isn't known yet.
+fn agent_tool(f: &Facts, name: &str) -> Option<Tool> {
+    if let Some(agent) = stored_agent(f.stored, name) {
+        return agent
+            .model
+            .on(f.tools.default_model.as_ref())
+            .map(|on| on.tool);
+    }
+    let brought = f
+        .file
+        .agents
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(name))?;
+    match shipped::model_of(&brought.model) {
+        Ok(AgentModel::Tool { tool, .. }) => Some(tool),
+        Ok(AgentModel::Default) => f.tools.default_model.as_ref().map(|m| m.tool),
+        Err(_) => None,
+    }
+}
+
+/// The tools that have the stage's skill for the project (S5, S6), from `skills.list`: `None` when every tool may
+/// run it — a stage with no skill or with one of Otaq's own (Otaq's own skills are in every tool), or a skill
+/// nobody has, which the step already warns about ("You don't have the skill").
+fn skill_holders<'f>(f: &'f Facts, stage: &Stage) -> Option<&'f [Tool]> {
+    let skill = stage.skill.as_deref()?.trim();
+    if skill.is_empty() || otaq_core::skills::found::is_shipped(skill) {
         return None;
     }
-    let name = the_agent(stage)?;
+    f.skills
+        .iter()
+        .find(|s| !s.otaq && s.name == skill)
+        .map(|s| s.tools.as_slice())
+        .filter(|tools| !tools.is_empty())
+}
+
+/// Whether the stage's agent picker offers the agent `name`: its tool has the stage's skill (an agent whose tool
+/// isn't known yet is offered).
+fn offers(f: &Facts, stage: &Stage, name: &str) -> bool {
+    match (skill_holders(f, stage), agent_tool(f, name)) {
+        (Some(tools), Some(tool)) => tools.contains(&tool),
+        _ => true,
+    }
+}
+
+/// "Copilot doesn’t have the skill `/team-validate`" on a stage whose agent's tool doesn't have its skill: only a
+/// warning, the flow still applies.
+fn missing_skill(f: &Facts, stage: &Stage) -> Option<String> {
+    let tools = skill_holders(f, stage)?;
+    let tool = agent_tool(f, the_agent(stage)?)?;
+    let skill = stage.skill.as_deref()?.trim();
+    (!tools.contains(&tool)).then(|| missing_skill_text(tool, skill))
+}
+
+fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
+    // An agent check with no agent yet still offers the field, to pick one.
+    let name = match the_agent(stage) {
+        Some(name) => name.as_str(),
+        None if stage.is_agent_check() => "",
+        None => return None,
+    };
     let (avatar, model) = agent_on(name, f);
     let default = match stage.kind {
         StageKind::Agent => Some((WORKS_AGENT, "An agent works")),
+        StageKind::Check { by: CheckBy::Agent } => Some((CHECKS_AGENT, "An agent checks")),
         _ => None,
     };
     let note = match default {
@@ -1633,52 +1640,25 @@ fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
         avatar,
         name: name.to_owned(),
         note,
-        items: agent_items(f, name),
+        items: agent_items(f, stage, name),
+        warning: missing_skill(f, stage),
         hint: "Change it here, or manage agents in Settings \u{2192} Agents.",
     })
 }
 
-/// "A ticket can": skipping it, each other agent it may use, and (fixed) coming back here when a later check fails.
+/// "A ticket can": skipping it, and (fixed) coming back here when a later check fails. A stage lists no agents: a
+/// ticket may pick any agent whose tool has the stage's skill.
 fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
     let mut rows = Vec::new();
-    let runs_agent = the_agent(stage).is_some() && !stage.is_delivery();
-    if runs_agent {
-        let current = the_agent(stage).map(String::as_str).unwrap_or_default();
-        let named: Vec<String> = f
-            .stored
-            .iter()
-            .map(|a| a.name.clone())
-            .chain(f.file.agents.iter().map(|a| a.name.clone()))
-            .collect();
-        let mut seen: Vec<String> = Vec::new();
-        for name in named {
-            if name.eq_ignore_ascii_case(current)
-                || seen.iter().any(|s| s.eq_ignore_ascii_case(&name))
-            {
-                continue;
-            }
-            let on = stage
-                .options
-                .iter()
-                .any(|o| matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(&name)));
-            // The ones it allows, and those of the same kind's default it could.
-            if on {
-                rows.push(CanRow {
-                    label: format!("use {name} instead"),
-                    option: name.clone(),
-                    on,
-                    enabled: true,
-                });
-            }
-            seen.push(name);
-        }
-    }
     if !stage.is_delivery() {
+        let on = stage.options.contains(&StageOption::Skip);
+        let check = stage.is_agent_check() || stage.is_human_check();
         rows.push(CanRow {
             option: StageOption::SKIP.to_owned(),
             label: "skip it".to_owned(),
-            on: stage.options.contains(&StageOption::Skip),
+            on,
             enabled: true,
+            note: (on && check).then_some(DELIVERED_WITHOUT_THIS_CHECK),
         });
     }
     if stage.is_agent_stage() {
@@ -1693,6 +1673,7 @@ fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
                 label: "come back here when a later check fails".to_owned(),
                 on: true,
                 enabled: false,
+                note: None,
             });
         }
     }
@@ -1715,10 +1696,6 @@ fn fails_to<'a>(flow: &'a Flow, stage: &Stage) -> Option<&'a Stage> {
 /// "A fail resumes that stage’s session…" (d0131, `s29-04`).
 pub const FAIL_TO_EXPLANATION: &str = "A fail resumes that stage\u{2019}s session with the report or your comments; \
      the card then walks every stage after it again. To send one card somewhere else, drag it back.";
-
-/// An agent check's rule (d0130, `s29-04`).
-pub const CHECK_AGENTS_RULE: &str = "Passes when every check agent passes. If one fails, the card goes back once all \
-     have given their verdict, with every report together; the next round runs them all again.";
 
 /// A check's Fails go to: the Agent stages before it (d0131); `None` with none before it (the flow check says so).
 fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
@@ -1754,38 +1731,7 @@ fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
     })
 }
 
-/// An agent check's Check agents (d0130).
-fn check_agents_field(f: &Facts, stage: &Stage) -> Option<CheckAgentsField> {
-    if !stage.is_agent_check() {
-        return None;
-    }
-    let listed = stage.check_agents();
-    let rows = listed
-        .iter()
-        .map(|name| {
-            let (avatar, model) = agent_on(name, f);
-            CheckAgentRow {
-                name: name.clone(),
-                avatar,
-                model,
-                remove: format!("Remove {name}"),
-            }
-        })
-        .collect();
-    let add_items = agent_items(f, "")
-        .into_iter()
-        .filter(|i| !listed.iter().any(|a| a.eq_ignore_ascii_case(&i.id)))
-        .collect();
-    Some(CheckAgentsField {
-        label: "Check agents",
-        rows,
-        add: "Add a check agent",
-        add_items,
-        note: "They run side by side, each read-only.",
-    })
-}
-
-/// An agent check's Rounds (d0063, d0130).
+/// An agent check's Rounds (d0063).
 fn rounds_field(stage: &Stage) -> Option<RoundsField> {
     if !stage.is_agent_check() {
         return None;
@@ -1832,40 +1778,83 @@ pub fn write_skill_prefill(file: &FlowFile, stage: &str) -> String {
     format!("Write a skill for the {name} stage: ")
 }
 
-/// The user's imported skills, each once, by name (Pick a skill…).
-fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
-    let mut names: Vec<&str> = f
-        .stored
-        .iter()
-        .flat_map(|a| &a.imported)
-        .map(|i| i.name.as_str())
-        .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-    if names.is_empty() {
-        return vec![
-            MenuItem::new(
-                "",
-                "No skills of yours yet. Import one in Settings \u{2192} Agents.",
-            )
-            .disabled(true),
-        ];
+/// Where a skill of Pick a skill… lives, its second line's start: "Personal", "This project", "Plugin", "Otaq’s".
+fn skill_place(skill: &FoundSkill) -> String {
+    if skill.otaq {
+        return format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME);
     }
-    names
+    match skill.places.first().map(|p| p.scope) {
+        Some(SkillScope::Project) => "This project".to_owned(),
+        Some(SkillScope::Plugin) => "Plugin".to_owned(),
+        _ => "Personal".to_owned(),
+    }
+}
+
+/// The tools that have one of the user's skills, for Pick a skill…'s second line (S6): "Claude Code, Codex"; a
+/// project skill no tool reads until it is committed says so.
+fn skill_tools(skill: &FoundSkill) -> String {
+    if skill.tools.is_empty() {
+        return "Not committed yet: no tool has it".to_owned();
+    }
+    skill
+        .tools
+        .iter()
+        .map(|tool| tool.display_name())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Pick a skill…'s items: the user's own skills (personal ones, then the project's, each by name), then Otaq's own
+/// (by name), the stage's skill checked. A name that matches one of Otaq's own skills always means Otaq's skill, so it
+/// is listed once, as Otaq's. The second line is where it lives, the tools that have it (not for Otaq's own, which
+/// every tool has), then its description (Otaq's own words for its shipped skills).
+fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
+    let mut skills: Vec<&FoundSkill> = f.skills.iter().collect();
+    let order = |s: &FoundSkill| match (s.otaq, s.places.first().map(|p| p.scope)) {
+        (true, _) => 2,
+        (false, Some(SkillScope::Project)) => 1,
+        (false, _) => 0,
+    };
+    skills.sort_by_key(|s| (order(s), s.name.to_lowercase()));
+    skills
         .into_iter()
-        .map(|name| {
-            let item = MenuItem::new(name, name).checked(
-                stage
-                    .skill
-                    .as_deref()
-                    .is_some_and(|s| s.eq_ignore_ascii_case(name)),
-            );
-            match f.captions.get(name) {
-                Some(caption) => item.hint(caption.clone()),
-                None => item,
-            }
+        .map(|skill| {
+            let description = if skill.otaq {
+                shipped_caption(&skill.name, None).or_else(|| skill.description.clone())
+            } else {
+                skill.description.clone()
+            };
+            let place = if skill.otaq {
+                skill_place(skill)
+            } else {
+                format!("{} \u{b7} {}", skill_place(skill), skill_tools(skill))
+            };
+            let hint = match description {
+                Some(d) => format!("{place} \u{b7} {d}"),
+                None => place,
+            };
+            MenuItem::new(skill.name.as_str(), skill.name.as_str())
+                .hint(hint)
+                .checked(stage.skill.as_deref() == Some(skill.name.as_str()))
         })
         .collect()
+}
+
+/// "You don't have the skill `<name>`" on `stage`: the draft's warning for its skill, which neither Otaq ships nor
+/// the user has. Only a warning: Apply still works.
+fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
+    let skill = stage.skill.as_deref()?.trim();
+    // Otaq's own skills never warn.
+    if otaq_core::skills::found::is_shipped(skill) {
+        return None;
+    }
+    let text = unknown_skill_text(skill);
+    f.proposal
+        .diff
+        .warnings
+        .iter()
+        .find(|w| w.stage.as_deref() == Some(stage.name.as_str()) && w.text == text)
+        .map(|w| w.text.clone())
 }
 
 /// The Skill field of a stage an agent runs (FED-06): set, empty with Pick and Ask, being written, or written.
@@ -1877,8 +1866,9 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
         SkillState::Written {
             skill: written.skill.clone(),
             note: "Written by the agent",
+            saved: (!written.folder.is_empty()).then(|| saved_text(&written.folder)),
             why: format!("Written by {}", written.by),
-            open: "Open",
+            open: (!written.folder.is_empty()).then_some("Open"),
             undo: "Undo",
         }
     } else if stage.skill.is_none() && writing(f, &stage.id) {
@@ -1889,6 +1879,7 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
     } else if let Some(skill) = &stage.skill {
         SkillState::Set {
             skill: skill.clone(),
+            warning: unknown_skill(f, stage),
         }
     } else {
         SkillState::Empty {
@@ -1912,6 +1903,7 @@ fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
                 empty: "No matching skills".to_owned(),
             },
             items: skill_choices(f, stage),
+            use_typed: "Use `{name}`",
         },
     })
 }
@@ -1987,7 +1979,6 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         fixed_kind: stage.is_delivery().then_some("Delivery"),
         templates: templates(f, stage),
         agent: agent_field(f, stage),
-        check_agents: check_agents_field(f, stage),
         skill: skill_field(f, stage),
         rounds: rounds_field(stage),
         problem: f
@@ -1999,7 +1990,6 @@ fn details(f: &Facts, stage: &Stage) -> Details {
             .find(|p| fail_to.as_ref().and_then(|t| t.problem.as_ref()) != Some(&p.message))
             .map(|p| p.message.clone()),
         fail_to,
-        rule: stage.is_agent_check().then_some(CHECK_AGENTS_RULE),
         can_label: "A ticket can",
         can: can_rows(f, stage),
         fixes: stage_fixes(f, stage),
@@ -2094,34 +2084,6 @@ fn inside_words(inside: &[Inside]) -> String {
         .join(", ")
 }
 
-/// "Validate now runs Security reviewer and Performance reviewer side by side. It applies at once: the next round of
-/// a ticket at Validate runs both." for each agent check whose check agents the draft changes (d0130, d0115: a stage's
-/// agents apply when it next starts, `s29-04`); one sentence per stage.
-fn check_agents_words(f: &Facts) -> Vec<String> {
-    f.proposal
-        .diff
-        .stages
-        .iter()
-        .filter_map(|c| match &c.change {
-            Change::Agents { to, .. } if !to.is_empty() => {
-                let names: Vec<&str> = to.iter().map(String::as_str).collect();
-                let stage = &c.stage;
-                let (side, them) = match names.len() {
-                    1 => ("", "it".to_owned()),
-                    2 => (" side by side", "both".to_owned()),
-                    n => (" side by side", format!("all {n}")),
-                };
-                Some(format!(
-                    "{stage} now runs {}{side}. It applies at once: the next round of a ticket at {stage} runs \
-                     {them}.",
-                    joined_words(&names)
-                ))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 /// The change line (FED-08; `s27-07`): which part waits, how many tickets are in it, and that Apply now is there.
 fn change_line(f: &Facts) -> Option<String> {
     if f.opened == Opened::Onboarding {
@@ -2130,22 +2092,9 @@ fn change_line(f: &Facts) -> Option<String> {
     Some(match f.applies {
         DraftApplies::Nothing => return None,
         DraftApplies::AtOnce => {
-            let mut words = check_agents_words(f);
-            // Anything else changed: the line for it too.
-            let others = f
-                .proposal
-                .diff
-                .stages
-                .iter()
-                .any(|c| !matches!(c.change, Change::Agents { .. }));
-            if words.is_empty() || others {
-                words.push(
-                    "This applies at once: tickets that haven\u{2019}t reached a changed step follow it; tickets \
-                     in it or past it finish as they are."
-                        .to_owned(),
-                );
-            }
-            words.join(" ")
+            "This applies at once: tickets that haven\u{2019}t reached a changed step follow it; \
+                                  tickets in it or past it finish as they are."
+                .to_owned()
         }
         DraftApplies::Span { span, inside } => {
             let what = shape_words(f);
@@ -2733,7 +2682,7 @@ fn with_kind(stage: &Stage, kind: EditorKind) -> Stage {
             }
             // A stage with no skill yet keeps none: the user picks or has one written (FED-05, FED-06).
             let skilless = the_agent(stage).is_some() && stage.skill.is_none();
-            // The agent moves to the new kind's field (an agent check lists it, d0130).
+            // The agent stays the stage's agent.
             let kept = the_agent(stage).cloned();
             set_agent(&mut s, kept);
             if defaults || the_agent(&s).is_none() {
@@ -2786,7 +2735,6 @@ fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stag
         },
         column: Column::Own,
         agent: None,
-        agents: Vec::new(),
         skill: None,
         options: Vec::new(),
         rounds,
@@ -2845,21 +2793,21 @@ pub fn edited(
         StageEdit::Agent { stage, agent } => {
             let i = at(stage)?;
             let s = &mut out.flow.stages[i];
-            if the_agent(s).is_none() {
+            if the_agent(s).is_none() && !s.is_agent_check() {
                 return Err(format!("No agent runs {}", s.name));
             }
             set_agent(s, Some(agent.clone()));
-            s.options
-                .retain(|o| !matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(agent)));
         }
         StageEdit::Option { stage, option, on } => {
             let i = at(stage)?;
             let s = &mut out.flow.stages[i];
-            let option = if option == StageOption::SKIP {
-                StageOption::Skip
-            } else {
-                StageOption::Agent(option.clone())
-            };
+            if option != StageOption::SKIP {
+                return Err(format!(
+                    "A stage lists no agents: a ticket may pick any agent whose tool has {}\u{2019}s skill",
+                    s.name
+                ));
+            }
+            let option = StageOption::Skip;
             s.options.retain(|o| *o != option);
             if *on {
                 s.options.push(option);
@@ -2900,7 +2848,6 @@ pub fn edited(
                     kind: StageKind::Agent,
                     column: Column::Own,
                     agent: Some(WORKS_AGENT.to_owned()),
-                    agents: Vec::new(),
                     // Blank: the user picks the skill or has it written (FED-05, FED-06).
                     skill: None,
                     options: Vec::new(),
@@ -2936,55 +2883,6 @@ pub fn edited(
                 return Err("Pick a skill".to_owned());
             }
             out.flow.stages[i].skill = Some(skill.to_owned());
-            // The stage runs its agents' skill of that name (each check agent its own, d0130): each gets it unless it
-            // has it.
-            let has = |skills: &[String]| skills.iter().any(|s| s.eq_ignore_ascii_case(skill));
-            for agent in runs {
-                match out
-                    .agents
-                    .iter_mut()
-                    .find(|a| a.name.eq_ignore_ascii_case(&agent))
-                {
-                    Some(a) if !has(&a.skills) => a.skills.push(skill.to_owned()),
-                    Some(_) => {}
-                    None => {
-                        if let Some(mine) = stored_agent(stored, &agent) {
-                            let mut a = flow_agent_of(mine);
-                            if !has(&a.skills) {
-                                a.skills.push(skill.to_owned());
-                                out.agents.push(a);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        StageEdit::AddCheckAgent { stage, agent } => {
-            let i = at(stage)?;
-            let s = &mut out.flow.stages[i];
-            if !s.is_agent_check() {
-                return Err(format!("{} isn\u{2019}t an agent check", s.name));
-            }
-            let agent = agent.trim();
-            if agent.is_empty() {
-                return Err("Pick an agent".to_owned());
-            }
-            if s.agents.iter().any(|a| a.eq_ignore_ascii_case(agent)) {
-                return Err(format!("{agent} already checks {}", s.name));
-            }
-            s.agents.push(agent.to_owned());
-            s.options
-                .retain(|o| !matches!(o, StageOption::Agent(a) if a.eq_ignore_ascii_case(agent)));
-        }
-        StageEdit::RemoveCheckAgent { stage, agent } => {
-            let i = at(stage)?;
-            let s = &mut out.flow.stages[i];
-            let before = s.agents.len();
-            // The last one may go too: the check then says the stage needs one, and Apply waits (d0130).
-            s.agents.retain(|a| !a.eq_ignore_ascii_case(agent));
-            if s.agents.len() == before {
-                return Err(format!("{agent} doesn\u{2019}t check {}", s.name));
-            }
         }
         StageEdit::Rounds { stage, rounds } => {
             let i = at(stage)?;
@@ -3093,10 +2991,8 @@ pub fn gallery() -> Gallery {
         FlowSetupRow::NotAsked,
     );
     let keys = KeyLabels::default();
-    let captions = BTreeMap::from([(
-        "security-review".to_owned(),
-        "A security agent reviews the change for risky code.".to_owned(),
-    )]);
+    let skills = found_skills();
+    let otaqs = otaq_skills();
     let shop = shop_web();
     let default = otaq_default();
     let stored = stored();
@@ -3109,17 +3005,12 @@ pub fn gallery() -> Gallery {
     let writing = [SkillWriting {
         stage_id: "plan".into(),
         agent: None,
+        folder: None,
+        made: Vec::new(),
     }];
     let written = [written_plan()];
     let no_choices = Choices::default();
     let imported_proposal = imported(&shop);
-    let two_agents = checks(
-        &shop,
-        &[StageEdit::AddCheckAgent {
-            stage: "validate".into(),
-            agent: "Security reviewer".into(),
-        }],
-    );
     let review_to_product_spec = checks(
         &shop,
         &[StageEdit::FailTo {
@@ -3143,7 +3034,7 @@ pub fn gallery() -> Gallery {
             tools: &tools,
             setup: &setup,
             projects: &[],
-            captions: &captions,
+            skills: &skills,
             writing: &[],
             written: &[],
             selected: Some(selected),
@@ -3173,7 +3064,7 @@ pub fn gallery() -> Gallery {
             tools: &tools,
             setup: &setup,
             projects: &[],
-            captions: &captions,
+            skills: &skills,
             writing,
             written,
             selected: Some("plan"),
@@ -3199,7 +3090,7 @@ pub fn gallery() -> Gallery {
             tools: &tools,
             setup: &setup,
             projects: &[],
-            captions: &captions,
+            skills: &skills,
             writing: &[],
             written: &[],
             selected: None,
@@ -3232,7 +3123,7 @@ pub fn gallery() -> Gallery {
                 plan(&wrote_proposal, &wrote, &[], &written),
             ),
             (
-                "An imported file: a skill to import, a clash".to_owned(),
+                "An imported file: a skill nobody has, a clash".to_owned(),
                 view(&Facts {
                     project: "SHOP",
                     project_name: "shop-web",
@@ -3248,7 +3139,8 @@ pub fn gallery() -> Gallery {
                     tools: &tools,
                     setup: &setup,
                     projects: &[],
-                    captions: &captions,
+                    // The file's Security runs security-review, which nobody here has.
+                    skills: &otaqs,
                     writing: &[],
                     written: &[],
                     selected: Some("security"),
@@ -3257,10 +3149,6 @@ pub fn gallery() -> Gallery {
                     keys: &keys,
                     choices: &no_choices,
                 }),
-            ),
-            (
-                "One check, several agents".to_owned(),
-                check(&two_agents, "validate"),
             ),
             (
                 "Fails go to on a check by you".to_owned(),
@@ -3272,15 +3160,69 @@ pub fn gallery() -> Gallery {
 
 /// shop-web's flow and the draft around it, for the tests and the gallery.
 pub mod fixtures {
-    use otaq_core::agents::{Agent, AgentModel, CameFrom, ImportedSkill, SkillRef};
+    use otaq_core::agents::{Agent, AgentModel, CameFrom};
     use otaq_core::flow::draft::WrittenSkill;
     use otaq_core::flow::model::FlowFile;
     use otaq_core::flow::proposal::{
-        About, AgentChange, AgentChangeKind, AgentField, Clash, Fix, FlowDiff, Proposal,
-        ProposalProblem, ProposedBy, Source,
+        About, AgentChange, AgentChangeKind, AgentField, Clash, FlowDiff, Level, Proposal,
+        ProposalProblem, ProposedBy, Source, Warning, unknown_skill_text,
     };
 
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::skills::found::{self, FoundSkill, Homes, SkillPlace, SkillScope};
+
     use super::{StageEdit, Template, edited};
+
+    /// Otaq's own skills only: what `skills.list` finds for a user with none of their own.
+    pub fn otaq_skills() -> Vec<FoundSkill> {
+        found::list(&Homes::default(), None)
+    }
+
+    /// One of the user's skills, found in `folder`.
+    pub fn users_skill(
+        name: &str,
+        description: &str,
+        scope: SkillScope,
+        folder: &str,
+        tools: &[Tool],
+    ) -> FoundSkill {
+        FoundSkill {
+            name: name.into(),
+            description: Some(description.into()),
+            otaq: false,
+            places: vec![SkillPlace {
+                scope,
+                folder: folder.into(),
+                path: format!("{folder}/{name}").into(),
+                real: None,
+                tools: tools.to_vec(),
+            }],
+            tools: tools.to_vec(),
+        }
+    }
+
+    /// What `skills.list` finds for shop-web: the user's own `security-review`, the project's `release-notes`, and
+    /// Otaq's own.
+    pub fn found_skills() -> Vec<FoundSkill> {
+        let mut skills = otaq_skills();
+        skills.push(users_skill(
+            "security-review",
+            "A security agent reviews the change for risky code.",
+            SkillScope::Personal,
+            "/Users/me/.claude/skills",
+            // Claude Code, the first tool.
+            &Tool::ALL[..1],
+        ));
+        skills.push(users_skill(
+            "release-notes",
+            "Writes the release notes from the merged tickets.",
+            SkillScope::Project,
+            "/code/shop-web/.claude/skills",
+            &found::project_tools(&[".claude", "skills"]),
+        ));
+        skills.sort_by(|a, b| a.name.cmp(&b.name));
+        skills
+    }
 
     /// The draft's proposal of `new` against `base`: its changes, and the flow check's problems on their stages.
     pub fn checked_proposal(base: &FlowFile, new: &FlowFile) -> Proposal {
@@ -3347,7 +3289,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
   - id: security
@@ -3355,7 +3297,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Security reviewer]
+    agent: Security reviewer
     skill: security-review
     rounds: 3
   - id: review
@@ -3381,13 +3323,11 @@ flow:
         otaq_core::flow::presets::presets()[0].read()
     }
 
-    fn agent(id: &str, name: &str, skill: &str) -> Agent {
+    fn agent(id: &str, name: &str) -> Agent {
         Agent {
             id: id.to_owned(),
             name: name.to_owned(),
             instructions: String::new(),
-            skills: vec![SkillRef::Shipped(skill.to_owned())],
-            imported: Vec::new(),
             model: AgentModel::Default,
             effort: None,
             role: None,
@@ -3398,24 +3338,14 @@ flow:
         }
     }
 
-    /// The stored agents: Otaq's and shop-web's; the Security reviewer has the user's imported `security-review`.
+    /// The stored agents: Otaq's and shop-web's.
     pub fn stored() -> Vec<Agent> {
-        let mut security = agent("a5", "Security reviewer", "validate");
-        security.skills.push(SkillRef::Imported("s1".into()));
-        security.imported.push(ImportedSkill {
-            id: "s1".into(),
-            name: "security-review".into(),
-            original: "/Users/me/.claude/skills/security-review".into(),
-            imported_at: 0,
-            fingerprint: String::new(),
-            warnings: Vec::new(),
-        });
         vec![
-            agent("a1", "Developer", "work-ticket"),
-            agent("a2", "Validator", "validate"),
-            agent("a3", "Spec writer", "product-spec"),
-            agent("a4", "Rust developer", "work-ticket"),
-            security,
+            agent("a1", "Developer"),
+            agent("a2", "Validator"),
+            agent("a3", "Spec writer"),
+            agent("a4", "Rust developer"),
+            agent("a5", "Security reviewer"),
         ]
     }
 
@@ -3460,7 +3390,9 @@ flow:
         WrittenSkill {
             stage_id: "plan".into(),
             skill: "plan-ticket".into(),
-            copy: "c1".into(),
+            folder: ".claude/skills/plan-ticket".into(),
+            fingerprint: String::new(),
+            made: Vec::new(),
             by: "Checkout slowness".into(),
             was: None,
         }
@@ -3482,7 +3414,6 @@ flow:
                 stages: Vec::new(),
                 agents: Vec::new(),
                 warnings: Vec::new(),
-                removed_choices: Vec::new(),
                 waits: false,
             },
             why: Vec::new(),
@@ -3490,30 +3421,18 @@ flow:
         }
     }
 
-    /// shop-web's flow imported from team.yaml (Q426): Security's skill isn't on this machine, and the file's Security
-    /// reviewer clashes with the user's.
+    /// shop-web's flow imported from team.yaml (Q426): the user doesn't have Security's skill (a warning only), and
+    /// the file's Security reviewer clashes with the user's.
     pub fn imported(file: &FlowFile) -> Proposal {
-        let missing = |about: About| ProposalProblem {
-            about,
-            message: "Security names the skill `security-review`, which isn't on this machine"
-                .into(),
-            fix: Some(Fix::ImportSkillFolder {
-                skill: "security-review".into(),
-            }),
-        };
         let mut proposal = proposal(file, false);
         proposal.source = Source::Document {
             file: Some("team.yaml".into()),
         };
-        proposal.problems = vec![
-            missing(About::Stage {
-                id: "security".into(),
-                name: "Security".into(),
-            }),
-            missing(About::Agent {
-                name: "Security reviewer".into(),
-            }),
-        ];
+        proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Security".into()),
+            text: unknown_skill_text("security-review"),
+        }];
         proposal.diff.agents = vec![AgentChange {
             name: "Security reviewer".into(),
             change: AgentChangeKind::Changed,
@@ -3534,7 +3453,9 @@ flow:
 #[cfg(test)]
 mod tests {
     use otaq_core::flow::apply::Span;
-    use otaq_core::flow::proposal::{Applies, ProposalProblem, ProposedBy, StageChange};
+    use otaq_core::flow::proposal::{
+        Applies, Level, ProposalProblem, ProposedBy, StageChange, Warning,
+    };
     use otaq_core::project_agents::first_flow::FlowSetupTool;
 
     use super::fixtures::*;
@@ -3568,7 +3489,7 @@ mod tests {
         tools: Tools,
         setup: FlowSetup,
         keys: KeyLabels,
-        captions: BTreeMap<String, String>,
+        skills: Vec<FoundSkill>,
         writing: Vec<SkillWriting>,
         written: Vec<WrittenSkill>,
         choices: Choices,
@@ -3580,10 +3501,7 @@ mod tests {
             tools: setup::tools(),
             setup,
             keys: KeyLabels::default(),
-            captions: BTreeMap::from([(
-                "security-review".to_owned(),
-                "A security agent reviews the change for risky code.".to_owned(),
-            )]),
+            skills: found_skills(),
             writing: Vec::new(),
             written: Vec::new(),
             choices: Choices::default(),
@@ -3624,7 +3542,7 @@ mod tests {
             tools: &e.tools,
             setup: &e.setup,
             projects: &[("BILL".to_owned(), "billing-api".to_owned())],
-            captions: &e.captions,
+            skills: &e.skills,
             writing: &e.writing,
             written: &e.written,
             selected,
@@ -3775,7 +3693,7 @@ mod tests {
         assert!(!v.flow.steps[0].draggable && !v.flow.steps[6].draggable);
         assert!(!v.flow.steps[6].can_add_after);
         assert_eq!(v.flow.add_stage_after.as_deref(), Some("review"));
-        // Short tile words past five steps; the Security caption is its imported skill's description.
+        // Short tile words past five steps; the Security caption is the user's own skill's description.
         assert_eq!(v.flow.tiles[1].ticket, "Asks you a question");
         assert_eq!(v.flow.tiles[4].kind, "Check");
         assert_eq!(
@@ -3861,7 +3779,8 @@ mod tests {
         assert_eq!(
             details.skill.map(|s| s.state),
             Some(SkillState::Set {
-                skill: "work-ticket".into()
+                skill: "work-ticket".into(),
+                warning: None,
             })
         );
         let can: Vec<(&str, bool, bool)> = details
@@ -4212,7 +4131,7 @@ mod tests {
     }
 
     /// Q426 (FED-04, FLW-04's controls): each problem that needs a pick marks its step and shows its fix in the step's
-    /// details (a missing skill: Import its folder…; a model not listed or a tool not connected: the model menu); an
+    /// details (a model not listed or a tool not connected: the model menu); an
     /// import clash shows Keep mine (the default) · Take theirs · Add as. Each pick clears its problem; Apply turns on
     /// after the last, and sends the picks.
     #[test]
@@ -4226,14 +4145,6 @@ mod tests {
         d.proposal.source = Source::Document {
             file: Some("team.yaml".into()),
         };
-        let missing = |about: About| ProposalProblem {
-            about,
-            message: "Security names the skill `security-review`, which isn't on this machine"
-                .into(),
-            fix: Some(Fix::ImportSkillFolder {
-                skill: "security-review".into(),
-            }),
-        };
         let model = |agent: &str| ProposalProblem {
             about: About::Agent { name: agent.into() },
             message: format!(
@@ -4243,17 +4154,7 @@ mod tests {
                 agent: agent.into(),
             }),
         };
-        d.proposal.problems = vec![
-            missing(About::Stage {
-                id: "security".into(),
-                name: "Security".into(),
-            }),
-            missing(About::Agent {
-                name: "Security reviewer".into(),
-            }),
-            model("Rust developer"),
-            model("Security reviewer"),
-        ];
+        d.proposal.problems = vec![model("Rust developer"), model("Security reviewer")];
         d.proposal.diff.agents = vec![AgentChange {
             name: "Validator".into(),
             change: AgentChangeKind::Changed,
@@ -4283,19 +4184,13 @@ mod tests {
                 .and_then(|s| s.problem.clone())
         };
         assert_eq!(problem(&v, "dev"), Some(not_listed.clone()));
-        assert_eq!(
-            problem(&v, "security").as_deref(),
-            Some("security-review isn\u{2019}t on this machine")
-        );
+        assert_eq!(problem(&v, "security"), Some(not_connected.clone()));
         assert_eq!(problem(&v, "validate"), None, "a clash keeps Apply on");
         assert!(v.flow.problems.is_empty() && v.flow.fixes.is_empty());
         assert!(!v.footer.apply_enabled);
-        assert_eq!(
-            v.footer.reason.as_deref(),
-            Some("security-review isn\u{2019}t on this machine")
-        );
+        assert_eq!(v.footer.reason, Some(not_listed.clone()));
 
-        // Security: its missing skill once (the stage and its agent name it), then its agent's model.
+        // Security: its agent's model.
         let fixes = |v: &View| v.flow.details.as_ref().unwrap().fixes.clone();
         let v = render(
             &e,
@@ -4307,21 +4202,8 @@ mod tests {
             None,
         );
         let security = fixes(&v);
-        assert_eq!(
-            security[0],
-            FixRow {
-                text: "security-review isn\u{2019}t on this machine".into(),
-                fixed: false,
-                control: FixControl::Folder {
-                    skill: "security-review".into(),
-                    label: "Import its folder\u{2026}",
-                    picker_title: "The folder of security-review".into(),
-                    picked: None,
-                },
-            }
-        );
-        assert_eq!(security[1].text, not_connected);
-        assert_eq!(security.len(), 2);
+        assert_eq!(security[0].text, not_connected);
+        assert_eq!(security.len(), 1);
         assert_eq!(v.flow.details.as_ref().unwrap().problem, None);
 
         // Dev: the model menu, the default model and the connected tools.
@@ -4387,10 +4269,7 @@ mod tests {
             Some(&ClashPick::KeepMine)
         );
 
-        // The folder and a tool picked: those problems are gone from their steps.
-        e.choices
-            .skill_folders
-            .insert("security-review".into(), "/skills/security-review".into());
+        // A tool picked: that problem is gone from its step.
         e.choices
             .models
             .insert("Rust developer".into(), Tool::ALL[0].as_str().into());
@@ -4407,11 +4286,7 @@ mod tests {
         assert_eq!(problem(&v, "security"), Some(not_connected.clone()));
         assert_eq!(v.footer.reason, Some(not_connected.clone()));
         let security = fixes(&v);
-        assert!(security[0].fixed);
-        assert!(matches!(
-            &security[0].control,
-            FixControl::Folder { picked: Some(p), .. } if p == "/skills/security-review"
-        ));
+        assert!(!security[0].fixed);
         let v = render(&e, Opened::Project, &d, &file, &file, Some("dev"), None);
         let [dev] = fixes(&v).try_into().unwrap();
         let FixControl::Model { fix } = &dev.control else {
@@ -4434,12 +4309,6 @@ mod tests {
         assert_eq!(v.footer.reason, None);
         let sent = v.choices.apply_choices();
         assert_eq!(sent.clashes.get("Validator"), Some(&ClashChoice::AddAs));
-        assert_eq!(
-            sent.skill_folders
-                .get("security-review")
-                .map(String::as_str),
-            Some("/skills/security-review")
-        );
         assert_eq!(sent.models.len(), 2);
     }
 
@@ -4541,8 +4410,8 @@ mod tests {
         .unwrap();
         let s = back.flow.stage("validate").unwrap();
         assert_eq!(
-            (s.check_agents(), s.skill.as_deref(), s.rounds),
-            (&["Validator".to_owned()][..], Some("validate"), Some(3))
+            (s.agent.as_deref(), s.skill.as_deref(), s.rounds),
+            (Some("Validator"), Some("validate"), Some(3))
         );
         assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&back)).is_ok());
         // Rename, agent, an option.
@@ -4600,11 +4469,67 @@ mod tests {
         )
         .unwrap();
         assert!(unskip.flow.stage("review").unwrap().options.is_empty());
+        // A stage lists no agents: an agent as an option is refused, and "A ticket can" offers only skip (and the way
+        // back).
+        assert_eq!(
+            edited(
+                &file,
+                &StageEdit::Option {
+                    stage: "dev".into(),
+                    option: "Quick developer".into(),
+                    on: true,
+                },
+            )
+            .unwrap_err(),
+            "A stage lists no agents: a ticket may pick any agent whose tool has Dev\u{2019}s skill"
+        );
+    }
+
+    /// Next to a check's skip mark, once it is on, the editor says a ticket skipping it or moved past it is delivered
+    /// without that check (the Delivery does what the flow says): on an agent check and a check by you alike, never on
+    /// an Agent stage, and not while the mark is off.
+    #[test]
+    fn a_checks_skip_mark_says_it_is_delivered_without_it() {
+        let e = env(not_asked());
+        let file = shop_web();
+        let skip_note = |file: &FlowFile, stage: &str| {
+            let d = draft(file, true);
+            let v = render(&e, Opened::Project, &d, file, file, Some(stage), None);
+            let details = v.flow.details.expect("the step's details");
+            let skip = details.can.iter().find(|c| c.option == "skip").unwrap();
+            (skip.on, skip.note)
+        };
+        assert_eq!(skip_note(&file, "validate"), (false, None), "mark off");
+        let mut skippable = file.clone();
+        for id in ["product-spec", "validate", "review"] {
+            let edit = StageEdit::Option {
+                stage: id.into(),
+                option: "skip".into(),
+                on: true,
+            };
+            skippable = edited(&skippable, &edit).unwrap().0;
+        }
+        for check in ["validate", "review"] {
+            assert_eq!(
+                skip_note(&skippable, check),
+                (true, Some(DELIVERED_WITHOUT_THIS_CHECK)),
+                "{check}"
+            );
+        }
+        assert_eq!(
+            DELIVERED_WITHOUT_THIS_CHECK,
+            "A ticket that skips it, or is moved past it, is delivered without this check."
+        );
+        assert_eq!(
+            skip_note(&skippable, "product-spec"),
+            (true, None),
+            "an Agent stage"
+        );
     }
 
     #[test]
     fn the_gallery_builds() {
-        assert_eq!(gallery().cells.len(), 8);
+        assert_eq!(gallery().cells.len(), 7);
     }
 
     fn plan_details(v: &View) -> &Details {
@@ -4676,20 +4601,9 @@ mod tests {
                 prefill: "Write a skill for the Plan stage: ".into(),
             }
         );
-        // Pick a skill…: the user's imported skills, with their captions.
-        let items: Vec<(&str, Option<&str>)> = skill
-            .picker
-            .items
-            .iter()
-            .map(|i| (i.id.as_str(), i.hint.as_deref()))
-            .collect();
-        assert_eq!(
-            items,
-            [(
-                "security-review",
-                Some("A security agent reviews the change for risky code.")
-            )]
-        );
+        // Pick a skill…: the user's own first, nothing checked yet.
+        assert_eq!(skill.picker.items[0].id, "security-review");
+        assert!(!skill.picker.items.iter().any(|i| i.checked));
         // The step: "needs a skill" in the agent's place.
         let step = &v.flow.steps[2];
         assert_eq!(step.name, "Plan");
@@ -4741,6 +4655,150 @@ mod tests {
         assert!(plan_details(&v).templates.is_none());
     }
 
+    /// Pick a skill… lists the skills the user already has, personal ones then the project's, then Otaq's own,
+    /// labelled as Otaq's; each second line says where it lives and what it does. A typed name is its last item.
+    #[test]
+    fn pick_a_skill_lists_personal_then_project_then_otaqs_own() {
+        let e = env(not_asked());
+        let shop = shop_web();
+        let (file, d) = plan_draft(None);
+        let d = Draft {
+            proposal: d,
+            ..draft(&file, false)
+        };
+        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
+        let items: Vec<(&str, Option<&str>)> = picker
+            .items
+            .iter()
+            .map(|i| (i.id.as_str(), i.hint.as_deref()))
+            .collect();
+        assert_eq!(
+            items[..2],
+            [
+                (
+                    "security-review",
+                    Some(
+                        "Personal \u{b7} Claude Code \u{b7} A security agent reviews the change for risky code."
+                    )
+                ),
+                (
+                    "release-notes",
+                    Some(
+                        "This project \u{b7} Claude Code, GitHub Copilot, OpenCode \u{b7} Writes the release notes from the merged tickets."
+                    )
+                ),
+            ]
+        );
+        assert_eq!(items[2].0, "address-review");
+        let otaqs: Vec<&str> = items[2..].iter().map(|(id, _)| *id).collect();
+        assert_eq!(otaqs.len(), shipped::SKILLS.len());
+        assert!(otaqs.contains(&"validate") && otaqs.contains(&"work-ticket"));
+        assert!(items[2..].iter().all(|(_, hint)| hint.is_some_and(|h| {
+            h.starts_with(&format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME))
+        })));
+        assert_eq!(picker.search.placeholder, "Search your skills\u{2026}");
+        assert_eq!(picker.use_typed, "Use `{name}`");
+
+        // With none of the user's own, Otaq's own still show: the list is never empty.
+        let mut e = e;
+        e.skills = otaq_skills();
+        let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
+        let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
+        assert_eq!(picker.items.len(), shipped::SKILLS.len());
+        assert!(picker.items.iter().all(|i| !i.disabled && !i.id.is_empty()));
+    }
+
+    /// A name typed by hand is the stage's skill as it is, with nothing imported or copied; a skill nobody has shows
+    /// "You don't have the skill `<name>`" (the draft's warning) in its Skill field and on its step, amber, and Apply
+    /// still works. Otaq's own skills never warn.
+    #[test]
+    fn a_typed_name_works_and_a_skill_nobody_has_warns() {
+        let e = env(not_asked());
+        let shop = shop_web();
+        let (typed, _) = edited(
+            &shop,
+            &StageEdit::Skill {
+                stage: "validate".into(),
+                skill: "  team-validate ".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            typed.flow.stage("validate").unwrap().skill.as_deref(),
+            Some("team-validate")
+        );
+        let mut d = draft(&typed, false);
+        d.proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Validate".into()),
+            text: "You don't have the skill `team-validate`".into(),
+        }];
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &typed,
+            &shop,
+            Some("validate"),
+            None,
+        );
+        let field = v.flow.details.as_ref().unwrap().skill.as_ref().unwrap();
+        assert_eq!(
+            field.state,
+            SkillState::Set {
+                skill: "team-validate".into(),
+                warning: Some("You don't have the skill `team-validate`".into()),
+            }
+        );
+        let step = v.flow.steps.iter().find(|s| s.id == "validate").unwrap();
+        assert_eq!(
+            step.warning.as_deref(),
+            Some("You don't have the skill `team-validate`")
+        );
+        assert_eq!(step.problem, None);
+        assert!(v.footer.apply_enabled, "only a warning");
+        assert!(
+            v.flow
+                .steps
+                .iter()
+                .filter(|s| s.id != "validate")
+                .all(|s| s.warning.is_none())
+        );
+
+        // `validate` is Otaq's own: no warning, even one the draft says.
+        let mut d = draft(&shop, false);
+        d.proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Validate".into()),
+            text: "You don't have the skill `validate`".into(),
+        }];
+        let v = render(
+            &e,
+            Opened::Project,
+            &d,
+            &shop,
+            &shop,
+            Some("validate"),
+            None,
+        );
+        assert_eq!(
+            v.flow
+                .details
+                .as_ref()
+                .unwrap()
+                .skill
+                .as_ref()
+                .unwrap()
+                .state,
+            SkillState::Set {
+                skill: "validate".into(),
+                warning: None,
+            }
+        );
+        assert!(v.flow.steps.iter().all(|s| s.warning.is_none()));
+    }
+
     /// FED-06 (`s27-06`): while the agent writes it the field says so with Stop, and Apply's reason says it too;
     /// once written, the skill is tinted with Open and Undo, the step is marked New, and Apply is on.
     #[test]
@@ -4753,8 +4811,10 @@ mod tests {
             ..draft(&file, false)
         };
         e.writing = vec![SkillWriting {
+            folder: None,
             stage_id: "plan".into(),
             agent: Some("pa-1".into()),
+            made: Vec::new(),
         }];
         let v = render(&e, Opened::Project, &d, &file, &shop, Some("plan"), None);
         assert_eq!(
@@ -4787,11 +4847,44 @@ mod tests {
             SkillState::Written {
                 skill: "plan-ticket".into(),
                 note: "Written by the agent",
+                saved: Some(
+                    "Saved in `.claude/skills/plan-ticket` in this project. Commit it so agents get it in their \
+                     worktrees."
+                        .into()
+                ),
                 why: "Written by Checkout slowness".into(),
-                open: "Open",
+                open: Some("Open"),
                 undo: "Undo",
             }
         );
+        // One an older Otaq wrote has no folder in the project: no saved line, and no Open.
+        let mut old = e.written.clone();
+        old[0].folder.clear();
+        let e_old = Env {
+            written: old,
+            ..env(not_asked())
+        };
+        let state = plan_details(&render(
+            &e_old,
+            Opened::Project,
+            &d,
+            &file,
+            &shop,
+            Some("plan"),
+            None,
+        ))
+        .skill
+        .clone()
+        .unwrap()
+        .state;
+        assert!(matches!(
+            state,
+            SkillState::Written {
+                saved: None,
+                open: None,
+                ..
+            }
+        ));
         let step = &v.flow.steps[2];
         assert_eq!(step.written.as_ref().map(|m| m.label), Some("New"));
         assert_eq!(step.problem, None);
@@ -4805,7 +4898,8 @@ mod tests {
         assert_eq!(
             plan_details(&v).skill.as_ref().unwrap().state,
             SkillState::Set {
-                skill: "security-review".into()
+                skill: "security-review".into(),
+                warning: None,
             }
         );
     }
@@ -4885,8 +4979,7 @@ mod tests {
                 ),
                 (name, StageKind::Agent, Some(agent), Some(skill), true)
             );
-            let brought = planning.agents.iter().find(|a| a.name == agent).unwrap();
-            assert_eq!(brought.skills, [skill, "commit"]);
+            assert!(planning.agents.iter().any(|a| a.name == agent));
             assert!(!shop_web().agents.iter().any(|a| a.name == agent));
         }
         let (validate, id) = template(Template::Validate);
@@ -4926,7 +5019,7 @@ mod tests {
         let again = otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&plan)).unwrap();
         let problems = otaq_core::flow::check(&again.flow).unwrap_err();
         assert_eq!(problems[0].message, "Plan needs a skill");
-        // Pick a skill…: Plan runs security-review, and its agent (Developer) gets it.
+        // Pick a skill…: Plan runs security-review; its agent gets no skill list (an agent has none, T6).
         let (picked, _) = edited(
             &plan,
             &StageEdit::Skill {
@@ -4939,12 +5032,6 @@ mod tests {
             picked.flow.stage("plan").unwrap().skill.as_deref(),
             Some("security-review")
         );
-        let developer = picked
-            .agents
-            .iter()
-            .find(|a| a.name == "Developer")
-            .unwrap();
-        assert_eq!(developer.skills, ["work-ticket", "security-review"]);
         assert!(
             edited(
                 &plan,
@@ -5024,13 +5111,6 @@ mod tests {
         })
     }
 
-    fn add_check_agent(stage: &str, agent: &str) -> StageEdit {
-        StageEdit::AddCheckAgent {
-            stage: stage.into(),
-            agent: agent.into(),
-        }
-    }
-
     fn fail_to(stage: &str, to: Option<&str>) -> StageEdit {
         StageEdit::FailTo {
             stage: stage.into(),
@@ -5038,15 +5118,12 @@ mod tests {
         }
     }
 
-    /// T-0529 (d0131, d0130, `s29-04`): every check says where its fails go under its kind; an agent check with two
-    /// agents says "2 check agents" in the agent's place.
+    /// T-0529 (d0131, `s29-04`): every check says where its fails go under its kind; an agent check names its one
+    /// agent, as an Agent stage does.
     #[test]
     fn the_steps_list_says_where_each_checks_fails_go() {
         let e = env(not_asked());
-        let file = shop_with(&[
-            add_check_agent("validate", "Security reviewer"),
-            fail_to("review", Some("product-spec")),
-        ]);
+        let file = shop_with(&[fail_to("review", Some("product-spec"))]);
         let d = checked(&file);
         let v = render(&e, Opened::Project, &d, &file, &shop_web(), None, None);
         let rows: Vec<(&str, &str, Option<&str>, Option<&str>)> = v
@@ -5072,7 +5149,7 @@ mod tests {
                     "Validate",
                     "Agent checks",
                     Some("fails go to Dev"),
-                    Some("2 check agents")
+                    Some("Validator")
                 ),
                 (
                     "Security",
@@ -5158,9 +5235,8 @@ mod tests {
              stage after it again. To send one card somewhere else, drag it back."
         );
         assert_eq!(field.problem, None);
-        // A check by you has no agents, no rounds and no rule; "A ticket can: skip it" stays.
-        assert!(details.check_agents.is_none() && details.rounds.is_none());
-        assert_eq!(details.rule, None);
+        // A check by you has no agent and no rounds; "A ticket can: skip it" stays.
+        assert!(details.agent.is_none() && details.rounds.is_none());
         assert_eq!(
             details
                 .can
@@ -5243,10 +5319,99 @@ mod tests {
         assert_eq!(gone.flow.stage("review").unwrap().fail_to, None);
     }
 
-    /// d0130: an agent check lists its check agents (tool badge, name, model), adds one of the account's agents not
-    /// listed, removes one; one Rounds limit for the stage; the rule text. The agent field is gone from it.
+    /// A check has one agent, like an Agent stage: an agent check's details have the one Agent field (its default
+    /// noted), one Rounds limit for the stage and its Fails go to; there is no list of check agents. Picking another
+    /// agent writes `agent:`; a check left with no agent offers the field to pick one, shows the problem and keeps
+    /// Apply off.
+    /// With `team-validate` only in `~/.claude/skills`, Validate's agent picker offers only the Claude Code agents
+    /// (S5, S6); switching the skill back to Otaq's `validate` offers every agent.
     #[test]
-    fn an_agent_check_lists_its_check_agents() {
+    fn the_agent_picker_offers_only_agents_whose_tool_has_the_skill() {
+        let mut e = env(not_asked());
+        let on = |tool| AgentModel::Tool { tool, model: None };
+        for a in &mut e.stored {
+            a.model = match a.name.as_str() {
+                "Validator" | "Rust developer" => on(Tool::Claude),
+                "Security reviewer" => on(Tool::Copilot),
+                _ => on(Tool::Codex),
+            };
+        }
+        e.skills.push(users_skill(
+            "team-validate",
+            "Validates the change the team's way.",
+            SkillScope::Personal,
+            "~/.claude/skills",
+            &[Tool::Claude],
+        ));
+        let skill = |skill: &str| {
+            edited(
+                &shop_web(),
+                &StageEdit::Skill {
+                    stage: "validate".into(),
+                    skill: skill.into(),
+                },
+            )
+            .unwrap()
+            .0
+        };
+        let agents = |file: &FlowFile| {
+            let d = checked(file);
+            let v = render(
+                &e,
+                Opened::Project,
+                &d,
+                file,
+                &shop_web(),
+                Some("validate"),
+                None,
+            );
+            let field = v.flow.details.unwrap().agent.unwrap();
+            let step = v.flow.steps.iter().find(|s| s.id == "validate").unwrap();
+            let ids: Vec<String> = field.items.iter().map(|i| i.id.clone()).collect();
+            (ids, field.warning, step.warning.clone())
+        };
+
+        let team = skill("team-validate");
+        let (ids, field, step) = agents(&team);
+        assert_eq!(ids, ["Validator", "Rust developer"]);
+        assert_eq!((field, step), (None, None));
+
+        let shipped = skill("validate");
+        let (ids, field, step) = agents(&shipped);
+        assert_eq!(
+            ids,
+            [
+                "Developer",
+                "Validator",
+                "Spec writer",
+                "Rust developer",
+                "Security reviewer"
+            ]
+        );
+        assert_eq!((field, step), (None, None));
+
+        // A stage whose agent's tool lacks the skill still applies and says so; the current agent stays listed.
+        let (copilot, _) = edited(
+            &team,
+            &StageEdit::Agent {
+                stage: "validate".into(),
+                agent: "Security reviewer".into(),
+            },
+        )
+        .unwrap();
+        let (ids, field, step) = agents(&copilot);
+        assert_eq!(ids, ["Validator", "Rust developer", "Security reviewer"]);
+        let text = "GitHub Copilot doesn\u{2019}t have the skill `/team-validate`";
+        assert_eq!(field.as_deref(), Some(text));
+        assert_eq!(step.as_deref(), Some(text));
+        assert_eq!(text, missing_skill_text(Tool::Copilot, "team-validate"));
+        let d = checked(&copilot);
+        let v = render(&e, Opened::Project, &d, &copilot, &shop_web(), None, None);
+        assert!(v.footer.apply_enabled, "only a warning");
+    }
+
+    #[test]
+    fn an_agent_check_has_one_agent_field() {
         let e = env(not_asked());
         let file = shop_web();
         let d = draft(&file, true);
@@ -5265,100 +5430,42 @@ mod tests {
             .expect("Validate's details")
         };
         let one = details(&file, &d);
-        assert!(
-            one.agent.is_none(),
-            "an agent check lists its agents instead"
-        );
-        let field = one.check_agents.expect("Check agents");
-        assert_eq!(field.label, "Check agents");
+        let agent = one.agent.expect("an agent check's Agent field");
         assert_eq!(
-            field
-                .rows
-                .iter()
-                .map(|r| (r.name.as_str(), r.remove.as_str()))
-                .collect::<Vec<_>>(),
-            [("Validator", "Remove Validator")]
+            (agent.label, agent.name.as_str(), agent.note.as_deref()),
+            ("Agent", "Validator", Some("default for An agent checks"))
         );
-        assert_eq!(field.add, "Add a check agent");
-        assert_eq!(field.note, "They run side by side, each read-only.");
-        let offered: Vec<&str> = field.add_items.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(
-            offered,
-            [
-                "Developer",
-                "Spec writer",
-                "Rust developer",
-                "Security reviewer"
-            ]
-        );
+        assert!(agent.items.iter().any(|i| i.id == "Security reviewer"));
         let rounds = one.rounds.expect("Rounds");
         assert_eq!(
             (rounds.label, rounds.value.as_str(), rounds.note),
             ("Rounds", "3", "for the stage, whichever fails")
         );
-        assert_eq!(
-            rounds
-                .items
-                .iter()
-                .map(|i| (i.id.as_str(), i.checked))
-                .collect::<Vec<_>>(),
-            [
-                ("1", false),
-                ("2", false),
-                ("3", true),
-                ("4", false),
-                ("5", false)
-            ]
-        );
-        assert_eq!(
-            one.rule,
-            Some(
-                "Passes when every check agent passes. If one fails, the card goes back once all have given their \
-                 verdict, with every report together; the next round runs them all again."
-            )
-        );
         assert_eq!(one.fail_to.map(|f| f.value), Some("Dev".to_owned()));
         assert!(one.skill.is_some());
 
-        // Add Security reviewer: both listed, neither offered; twice is refused.
-        let (two, _) = edited(&file, &add_check_agent("validate", "Security reviewer")).unwrap();
+        // Another agent: the stage's one agent, written as `agent:`.
+        let (other, _) = edited(
+            &file,
+            &StageEdit::Agent {
+                stage: "validate".into(),
+                agent: "Security reviewer".into(),
+            },
+        )
+        .unwrap();
+        let validate = other.flow.stage("validate").unwrap();
+        assert_eq!(validate.agent.as_deref(), Some("Security reviewer"));
+        let yaml = otaq_core::flow::yaml::write(&other);
+        assert!(!yaml.contains("agents: ["), "{yaml}");
+        let d = checked(&other);
         assert_eq!(
-            two.flow.stage("validate").unwrap().agents,
-            ["Validator", "Security reviewer"]
-        );
-        let d = checked(&two);
-        let field = details(&two, &d).check_agents.unwrap();
-        assert_eq!(
-            field
-                .rows
-                .iter()
-                .map(|r| r.name.as_str())
-                .collect::<Vec<_>>(),
-            ["Validator", "Security reviewer"]
-        );
-        assert!(
-            !field
-                .add_items
-                .iter()
-                .any(|i| i.id == "Validator" || i.id == "Security reviewer")
-        );
-        assert_eq!(
-            edited(&two, &add_check_agent("validate", "security reviewer")).unwrap_err(),
-            "security reviewer already checks Validate"
-        );
-        assert_eq!(
-            edited(&file, &add_check_agent("dev", "Validator")).unwrap_err(),
-            "Dev isn\u{2019}t an agent check"
-        );
-        let yaml = otaq_core::flow::yaml::write(&two);
-        assert!(
-            yaml.contains("agents: [Validator, Security reviewer]"),
-            "{yaml}"
+            details(&other, &d).agent.map(|a| a.name),
+            Some("Security reviewer".to_owned())
         );
 
         // Rounds.
         let (fewer, _) = edited(
-            &two,
+            &file,
             &StageEdit::Rounds {
                 stage: "validate".into(),
                 rounds: 2,
@@ -5369,7 +5476,7 @@ mod tests {
         for (stage, rounds) in [("validate", 6), ("review", 2)] {
             assert!(
                 edited(
-                    &two,
+                    &file,
                     &StageEdit::Rounds {
                         stage: stage.into(),
                         rounds
@@ -5379,23 +5486,15 @@ mod tests {
             );
         }
 
-        // Remove Validator, then Security reviewer: the check has none, which shows and keeps Apply off.
-        let remove = |file: &FlowFile, agent: &str| {
-            edited(
-                file,
-                &StageEdit::RemoveCheckAgent {
-                    stage: "validate".into(),
-                    agent: agent.into(),
-                },
-            )
-        };
-        let (left_one, _) = remove(&two, "Validator").unwrap();
-        assert_eq!(
-            left_one.flow.stage("validate").unwrap().agents,
-            ["Security reviewer"]
-        );
-        let (none, _) = remove(&left_one, "Security reviewer").unwrap();
-        assert!(remove(&none, "Security reviewer").is_err());
+        // A check with no agent (a file can hold one): the field to pick one, the problem, Apply off; picking one
+        // fixes it.
+        let mut none = file.clone();
+        none.flow
+            .stages
+            .iter_mut()
+            .find(|s| s.id == "validate")
+            .unwrap()
+            .agent = None;
         let d = checked(&none);
         let v = render(
             &e,
@@ -5406,67 +5505,25 @@ mod tests {
             Some("validate"),
             None,
         );
-        let details = v.flow.details.unwrap();
-        let message = "Validate is an agent check with no check agent: name one or more";
-        assert_eq!(details.problem.as_deref(), Some(message));
-        assert!(details.check_agents.unwrap().rows.is_empty());
-        assert!(details.skill.is_some(), "its skill stays");
+        let details_none = v.flow.details.unwrap();
+        let message = "Validate is an agent check with no agent: name one";
+        assert_eq!(details_none.problem.as_deref(), Some(message));
+        assert_eq!(details_none.agent.map(|a| a.name), Some(String::new()));
+        assert!(details_none.skill.is_some(), "its skill stays");
         assert_eq!(v.flow.steps[3].problem.as_deref(), Some(message));
         assert!(!v.footer.apply_enabled);
         assert_eq!(v.footer.reason.as_deref(), Some(message));
-    }
-
-    /// d0130, d0115 (`s29-04`): the change line for a check's new agents names them and when they run.
-    #[test]
-    fn the_change_line_for_new_check_agents() {
-        let e = env(not_asked());
-        let line = |file: &FlowFile| {
-            let d = checked(file);
-            render(&e, Opened::Project, &d, file, &shop_web(), None, None)
-                .flow
-                .change_line
-        };
-        let replaced = shop_with(&[
-            add_check_agent("validate", "Security reviewer"),
-            add_check_agent("validate", "Performance reviewer"),
-            StageEdit::RemoveCheckAgent {
+        let (picked, _) = edited(
+            &none,
+            &StageEdit::Agent {
                 stage: "validate".into(),
                 agent: "Validator".into(),
             },
-        ]);
+        )
+        .unwrap();
         assert_eq!(
-            line(&replaced).as_deref(),
-            Some(
-                "Validate now runs Security reviewer and Performance reviewer side by side. It applies at once: \
-                 the next round of a ticket at Validate runs both."
-            )
-        );
-        let one = shop_with(&[
-            add_check_agent("validate", "Security reviewer"),
-            StageEdit::RemoveCheckAgent {
-                stage: "validate".into(),
-                agent: "Validator".into(),
-            },
-        ]);
-        assert_eq!(
-            line(&one).as_deref(),
-            Some(
-                "Validate now runs Security reviewer. It applies at once: the next round of a ticket at Validate \
-                 runs it."
-            )
-        );
-        // With another change, its line follows.
-        let more = shop_with(&[
-            add_check_agent("validate", "Security reviewer"),
-            fail_to("review", Some("product-spec")),
-        ]);
-        assert_eq!(
-            line(&more).as_deref(),
-            Some(
-                "Validate now runs Validator and Security reviewer side by side. It applies at once: the next round \
-                 of a ticket at Validate runs both. This applies at once: tickets that haven\u{2019}t reached a \
-                 changed step follow it; tickets in it or past it finish as they are."
-            )
+            picked.flow.stage("validate").unwrap().agent.as_deref(),
+            Some("Validator")
         );
     }
 

@@ -680,8 +680,8 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
       {
         stage_id: "product-spec",
         label: "Product spec:",
-        value: "required",
-        items: [item("required", true), item("skip", false)],
+        value: "Spec writer",
+        items: [item("Spec writer", true), item("skip", false)],
         lock: null,
         change: null,
       },

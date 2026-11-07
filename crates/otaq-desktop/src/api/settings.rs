@@ -9,8 +9,8 @@ use otaq_core::board::Refusal;
 use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{
-    AgentEditParams, DefaultModelParams, FallbackParams, IdParams, ImportSkillParams, KeyParams, ModelsParams,
-    MoveRoleParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, ReimportSkillParams, Reply, Request,
+    AgentEditParams, DefaultModelParams, IdParams, KeyParams, ModelsParams,
+    MoveRoleParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::branch_items;
@@ -49,9 +49,12 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         })),
         "settings.provider" => {
             let p: SettingsProject = parse(params)?;
+            let delivery = super::board::delivery_stage(app, &p.project).await;
             let request = Request::ProjectPrProvider(ProjectParams { project: p.project });
             match app.service.send(request).await? {
-                Reply::PrProvider(provider) => reply(&page::provider(Some(&provider))),
+                Reply::PrProvider(provider) => {
+                    reply(&page::provider(Some(&provider), delivery.as_deref()))
+                }
                 other => Err(unexpected("project.pr_provider", &other)),
             }
         }
@@ -64,8 +67,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 .await?;
             reply(&view(app, None).await?)
         }
-        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model and fallbacks;
-        // one agent's page, its changes, its role, its skills, Delete.
+        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model;
+        // one agent's page, its changes, its role, Delete.
         "settings.agents" => {
             let p: AgentsOpen = parse(params)?;
             reply(&agents_section(app, p.refresh).await?)
@@ -74,16 +77,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let p: ModelRef = parse(params)?;
             app.service
                 .send(Request::AgentsDefaultModel(DefaultModelParams { model: p }))
-                .await?;
-            reply(&agents_section(app, false).await?)
-        }
-        "settings.agents_fallback" => {
-            let p: AgentsFallback = parse(params)?;
-            app.service
-                .send(Request::AgentsFallback(FallbackParams {
-                    tool: p.tool,
-                    fallback: p.fallback,
-                }))
                 .await?;
             reply(&agents_section(app, false).await?)
         }
@@ -101,22 +94,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "settings.agent_role" => {
             let p: AgentRoleSet = parse(params)?;
             reply(&agent_role(app, &p.id, &p.role).await?)
-        }
-        "settings.agent_import" => {
-            let p: AgentImport = parse(params)?;
-            let request = Request::AgentsImportSkill(ImportSkillParams {
-                id: p.id.clone(),
-                folder: p.folder.into(),
-            });
-            reply(&agent_skill(app, &p.id, request).await?)
-        }
-        "settings.agent_reimport" => {
-            let p: AgentReimport = parse(params)?;
-            let request = Request::AgentsReimportSkill(ReimportSkillParams {
-                id: p.id.clone(),
-                skill: p.skill,
-            });
-            reply(&agent_skill(app, &p.id, request).await?)
         }
         "settings.agent_delete_dialog" => {
             let p: AgentId = parse(params)?;
@@ -220,14 +197,6 @@ pub struct AgentsOpen {
     pub refresh: bool,
 }
 
-/// `settings.agents_fallback`: a tool's fallback; none clears it.
-#[derive(Debug, Clone, Deserialize)]
-pub struct AgentsFallback {
-    pub tool: Tool,
-    #[serde(default)]
-    pub fallback: Option<ModelRef>,
-}
-
 /// `settings.agent`: a saved agent's page (`id`), or a draft's: New agent (nothing), Duplicate (`duplicate`: the
 /// agent copied) or the draft the page holds (`draft`). `change` applies one change first: saved at once on a saved
 /// agent, kept in the draft otherwise.
@@ -254,18 +223,6 @@ pub struct AgentAdd {
 pub struct AgentRoleSet {
     pub id: String,
     pub role: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AgentImport {
-    pub id: String,
-    pub folder: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AgentReimport {
-    pub id: String,
-    pub skill: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -432,7 +389,6 @@ async fn page_of(
         uses: uses.as_ref(),
         refused: refused.as_ref(),
         moved,
-        now: otaq_core::store::now_ms(),
     }))
 }
 
@@ -524,19 +480,6 @@ async fn agent_role(app: &App, id: &str, role: &str) -> Result<agent_page::Page,
                 message: agent_page::sentence(refused(e)?.message),
             };
             page_of(app, Some(id), None, Some(refusal), None).await
-        }
-    }
-}
-
-/// Import skill folder… and Re-import: the page again, with a refused import's reason under Skills.
-async fn agent_skill(app: &App, id: &str, request: Request) -> Result<agent_page::Page, RequestError> {
-    match app.service.send(request).await {
-        Ok(_) => page_of(app, Some(id), None, None, None).await,
-        Err(e) => {
-            let mut why = refused(e)?;
-            why.field = agent_page::Field::Skills;
-            why.message = agent_page::not_imported(&why.message);
-            page_of(app, Some(id), None, Some(why), None).await
         }
     }
 }
@@ -989,7 +932,7 @@ mod tests {
     }
 
     /// Settings → Agents through the service (T-0410; AGM-01, AGM-03, AGM-04): a fresh install's four agents with
-    /// their roles, skills and where they are used, and no default model before a tool connects; one agent's
+    /// their roles and where they are used, with no skills (T7), and no default model before a tool connects; one agent's
     /// page and a saved change; None refused on the role's agent; a role moved; New agent's draft added; Delete
     /// refused for a stage's agent and allowed for an unused one.
     #[tokio::test(flavor = "multi_thread")]
@@ -1014,7 +957,9 @@ mod tests {
                 ("Validator", &Value::Null),
             ]
         );
-        assert_eq!(section["rows"][1]["skills"], json!(["work-ticket", "commit"]));
+        // An agent has no skill list (T7): no Skills column, and no row names a skill.
+        assert_eq!(section["columns"], json!(["Name", "Model", "Used in"]));
+        assert!(section["rows"][1].get("skills").is_none());
         assert_eq!(section["rows"][1]["model"], "default");
         assert_eq!(section["rows"][0]["used_in"], "every project \u{b7} Noyan");
         assert_eq!(section["default_model"]["dropdown"]["value"], "The first agent tool you connect");
@@ -1024,6 +969,7 @@ mod tests {
         // One agent's page, and a change saved at once.
         let page = ask("settings.agent", json!({ "id": developer })).await.unwrap();
         assert_eq!(page["title"], "Developer");
+        assert!(page.get("skills").is_none(), "the page has no skills field");
         assert_eq!(page["model"]["tool_value"], "Default model");
         let page = ask(
             "settings.agent",
@@ -1059,11 +1005,12 @@ mod tests {
         assert_eq!(page["role_tag"], "Noyan");
 
         // New agent: a draft until Add agent.
-        let draft = ask("settings.agent", json!({ "change": { "field": "add_skill", "value": "work-ticket" } }))
+        let draft = ask("settings.agent", json!({ "change": { "field": "instructions", "value": "Be quick." } }))
             .await
             .unwrap();
         assert_eq!(draft["title"], "New agent");
-        assert_eq!(draft["draft"]["skills"], json!(["shipped:work-ticket"]));
+        assert_eq!(draft["draft"]["instructions"], "Be quick.");
+        assert!(draft["draft"].get("skills").is_none());
         let mut fields = draft["draft"].clone();
         fields["name"] = json!("Quick");
         let added = ask("settings.agent_add", json!({ "draft": fields })).await.unwrap();

@@ -3,7 +3,7 @@
 //! ```text
 //! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
-//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq-work-ticket"
+//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq:work-ticket"
 //! ```
 //!
 //! and a resume `copilot --resume <id> [--model …] --plugin-dir … --allow-tool … [-i "<prompt>"]` (the model is
@@ -12,14 +12,11 @@
 //! Otaq's own `otaq` commands. Otaq doesn't touch the user's Copilot settings or status line (d0088).
 //!
 //! **Copilot's plugin folder** (ADP-03): `copilot/` inside Otaq's plugin folder (found where
-//! [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest
-//! and a `hooks/hooks.json` whose commands pass `--tool copilot`, and **no skills** (AGM-07): the skills reach Copilot
-//! as project skills copied into the session's folder (`.agents/skills/otaq-<name>/` and `.claude/skills/`, both read
-//! by Copilot, `copilot skill --help`: "Project .github/skills/, .agents/skills/, or .claude/skills/"), run as
-//! `/otaq-<name>` (docs.github.com, "Adding agent skills for GitHub Copilot CLI": the skill name "preceded by a forward
-//! slash"). Checked with Copilot 1.0.98 on 2026-10-20 with a throwaway HOME: `copilot --plugin-dir plugin/copilot
-//! skill list` in a folder holding one copy in both places lists it once, under "Project skills", and lists no
-//! plugin skills.
+//! [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest,
+//! a `hooks/hooks.json` whose commands pass `--tool copilot`, and Otaq's shipped skills in its `skills/` folder. They
+//! reach every session from its start and run as `/otaq:<name>` (a plugin's skill, the skill name "preceded by a
+//! forward slash", docs.github.com, "Adding agent skills for GitHub Copilot CLI"); the user's skills are Copilot's to
+//! find, by their own names (`/<name>`). Otaq writes no skill into the working folder (T2).
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +28,7 @@ use crate::agent_tools::{
 use crate::naming;
 
 /// Copilot's plugin folder inside Otaq's plugin folder.
-const PLUGIN_FOLDER: &str = "copilot";
+pub(crate) const PLUGIN_FOLDER: &str = "copilot";
 
 /// What `copilot --resume <id>` prints for an id it doesn't have ("Error: No session, task, or name matched
 /// '<id>'."), compared without case. Captured from 1.0.98 on 2026-10-18.
@@ -124,14 +121,14 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     }
 }
 
-/// The first prompt as typed: `/otaq-noyan <message>`, or the text.
+/// The first prompt as typed: `/otaq:noyan <message>`, or the text.
 fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
     prompt.text(adapter)
 }
 
-/// A skill as Copilot runs a project skill: `/otaq-work-ticket` (AGM-07).
+/// A skill as Copilot runs it: Otaq's own from its plugin as `/otaq:work-ticket`, the user's as `/team-validate`.
 pub(super) fn skill_reference(skill: &str) -> String {
-    format!("/{}", naming::copy_name(skill))
+    crate::agent_tools::namespaced_reference("/", skill)
 }
 
 /// Otaq's variables for the role, as for every tool: the ticket and `PORT` for a ticket's agent (an answer, a
@@ -305,7 +302,7 @@ mod tests {
                 "--allow-tool".into(),
                 allow(),
                 "-i".into(),
-                format!("/{}-work-ticket", naming::COMMAND_NAME),
+                format!("/{}:work-ticket", naming::PLUGIN_NAMESPACE),
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-29"));
@@ -453,10 +450,10 @@ mod tests {
                 (naming::role_env_var(), naming::ROLE_VALIDATOR.to_owned()),
             ]
         );
-        // A project skill by its copy's name, shipped or imported alike (AGM-07); no `--add-dir` (d0011).
+        // Otaq's own skill by its plugin name; no `--add-dir` (d0011).
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("/{}-validate", naming::COMMAND_NAME)
+            &format!("/{}:validate", naming::PLUGIN_NAMESPACE)
         );
         assert!(!plan.args.iter().any(|a| a == "--add-dir"));
 
@@ -558,7 +555,9 @@ mod tests {
         );
     }
 
-    /// The repository's `plugin/copilot/` is found, it has no skills (AGM-07: hooks only), and every hook passes `--tool copilot` behind the PLG-04 guard, for an event the adapter maps.
+    /// The repository's `plugin/copilot/` is found, it has no skills in git (the runtime copy fills its `skills/`
+    /// from `plugin/skills`, the one place they live), and every hook passes `--tool copilot` behind the PLG-04
+    /// guard, for an event the adapter maps.
     #[test]
     fn the_repository_plugin_folder() {
         let plugin =
@@ -578,7 +577,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(manifest["name"], naming::PLUGIN_NAMESPACE);
-        assert!(!dir.join("skills").exists(), "hooks only");
+        assert!(
+            !dir.join("skills").exists(),
+            "filled in the runtime copy only"
+        );
         assert!(manifest.get("skills").is_none());
         let hooks: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("hooks/hooks.json")).unwrap())

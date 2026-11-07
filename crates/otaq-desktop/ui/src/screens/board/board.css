@@ -151,6 +151,7 @@
 }
 
 .board-column-count {
+  flex: none;
   color: var(--text-muted);
   font: 400 11px/normal var(--font-mono);
 }
@@ -161,18 +162,23 @@
   min-width: 0;
 }
 
-/* "· Validating 1": a stage folded into the column (FLW-12, Q270). */
+/* "· Validating 1": a stage folded into the column (FLW-12, Q270). It shrinks with the title, so neither name is
+   squeezed to a letter while the other keeps its whole width; each shortens with an ellipsis only when the header
+   has no room left. */
 .board-column-folded {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .board-column-folded-tag {
+  overflow: hidden;
   color: var(--text-secondary);
   font: 500 12px/normal var(--font-ui);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .board-spacer {

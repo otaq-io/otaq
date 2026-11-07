@@ -168,6 +168,16 @@ pub(crate) async fn flow(app: &App, project: &str) -> Flow {
     }
 }
 
+/// The id of the project's Delivery stage (its flow's last stage), where the user's own Open PR skill goes.
+pub(crate) async fn delivery_stage(app: &App, project: &str) -> Option<String> {
+    flow(app, project)
+        .await
+        .stages
+        .into_iter()
+        .find(otaq_core::flow::Stage::is_delivery)
+        .map(|s| s.id)
+}
+
 /// The project's helpers (`board.helpers`, d0133): a build stage's piece rows on the card, the sheet's Session list.
 /// None when they can't be read (the cards look as they would without).
 pub(crate) async fn helpers(app: &App, project: &str) -> Vec<otaq_core::helpers::Helper> {

@@ -1,7 +1,7 @@
 {
   "name": "otaq",
   "version": "0.1.0",
-  "description": "Otaq agent signals for Codex: hooks only. Otaq copies the skills its agents use into their working folder as otaq-<name>.",
+  "description": "Otaq for Codex: its agent signal hooks and Otaq's own skills.",
   "author": {
     "name": "The Otaq Authors"
   },

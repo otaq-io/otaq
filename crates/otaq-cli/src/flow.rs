@@ -1,6 +1,6 @@
 //! `otaq flow show`, `presets`, `propose` and `write-skill` (FLW-02, FLW-03, FED-06; d0108, d0115): a Project agent
 //! reads the project's flow, the ready-made ones, and proposes a whole document, or writes a stage's skill in the
-//! folder Otaq gives it. Proposing lands in Otaq's flow editor and returns at once; the
+//! folder Otaq gives it inside the project. Proposing lands in Otaq's flow editor and returns at once; the
 //! user's answer (Apply, Cancel, Ask for more changes) comes back as the Project agent's next message. From the
 //! user's own terminal nothing comes back. A ticket's agent and a check are refused.
 //!
@@ -69,12 +69,15 @@ pub fn run(command: FlowCommand, global: &GlobalArgs, out: &Output) -> Result<()
             };
             propose(source, global, out)
         }
-        FlowCommand::WriteSkill { stage, done } => write_skill(stage, done, global, out),
+        FlowCommand::WriteSkill { stage, name, done } => {
+            write_skill(stage, name, done, global, out)
+        }
     }
 }
 
 fn write_skill(
     stage: String,
+    name: Option<String>,
     done: bool,
     global: &GlobalArgs,
     out: &Output,
@@ -87,6 +90,7 @@ fn write_skill(
             .request(Request::FlowWriteSkill(WriteSkillParams {
                 project: project.to_string(),
                 stage,
+                name,
                 done,
             }))
             .await

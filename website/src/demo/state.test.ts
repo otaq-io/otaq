@@ -92,9 +92,7 @@ describe("the board", () => {
   it("counts the working agents across projects", () => {
     expect(boardView(store.getState()).runningLabel).toBe("3 working");
     const cc = boardView(store.getState()).actTools[0];
-    expect(cc).toMatchObject({ name: "Claude Code", running: "3 running", hasFallback: true });
-    store.useFallback();
-    expect(boardView(store.getState()).actTools[0]?.limit).toContain("waiting agents moved to Codex");
+    expect(cc).toMatchObject({ name: "Claude Code", running: "3 running" });
   });
 });
 
@@ -396,7 +394,7 @@ describe("the ticket sheet", () => {
   it("SHOP-18 shows the checks before you, the decision, manual checks and attachments", () => {
     store.openTicket("SHOP-18");
     const t = ticketView(store.getState());
-    expect(t?.before).toMatchObject({ head: "Security and Validate", sum: "2 check agents · both passed" });
+    expect(t?.before).toMatchObject({ head: "Security and Validate", sum: "2 checks · both passed" });
     expect(t?.decision?.t).toBe("Totals are recomputed on the server");
     expect(t?.atts.map((a) => a.name)).toEqual(["Summary.md", "Security report.md", "Validate report.md"]);
     expect(t?.steps.find((x) => x.state === "current")?.name).toBe("Review");

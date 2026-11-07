@@ -21,7 +21,6 @@ avatar: ToolAvatarView | null,
  */
 tone: BannerTone, icon: IconName, title: string, text: string, 
 /**
- * Resume, Sign in… or Show in Agent tools, and Use fallback now (several tools, tickets waiting, a fallback
- * that can start now).
+ * Resume, Sign in… or Show in Agent tools.
  */
 buttons: Array<LimitLineButton>, };

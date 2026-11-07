@@ -2,7 +2,8 @@
 //! data folder: refused before anything changes while worktrees weren't confirmed; once confirmed, every session stops
 //! and none can start, each ticket's resource Remove runs (a failure is reported, not fatal), every worktree and the
 //! merge worktree go with `git worktree remove --force` (a dirty one too), a worktree whose repository is gone and a
-//! folder git doesn't know are left for the data folder, Otaq's marked skill copies go and the user's folders stay,
+//! folder git doesn't know are left for the data folder, the skill copies an older Otaq left go from the checkouts and
+//! the worktrees left behind and the user's folders stay,
 //! and every `otaq/` branch keeps its commits.
 
 use std::path::{Path, PathBuf};
@@ -17,9 +18,8 @@ use otaq_core::git::testing::{commit, git};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::skills::copy::{Marker, write_copy};
+use otaq_core::skills::testing::leftover_copy;
 use otaq_core::uninstall::{NOT_CONFIRMED, StepKind, UninstallOutcome};
-use tempfile::TempDir;
 
 /// Every file and folder under `dir` with its size and modification time (symlinks not followed).
 fn tree(dir: &Path) -> Vec<(String, u64, Option<std::time::SystemTime>)> {
@@ -164,14 +164,22 @@ async fn confirmed_removal_takes_the_worktrees_and_copies_and_keeps_branches() {
             &scratch.display().to_string(),
         ],
     );
-    // Otaq's marked copy in the checkout, and the user's own folders (one named like a copy, without the marker).
-    let source = TempDir::new().unwrap();
-    std::fs::write(source.path().join("SKILL.md"), "---\nname: noyan\n---\n").unwrap();
-    write_copy(&repo, "otaq-noyan", source.path(), Marker::Checkout).unwrap();
-    for own in ["my-skill", "otaq-x"] {
-        let folder = repo.join(".claude/skills").join(own);
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join("SKILL.md"), "mine\n").unwrap();
+    // A marked copy an older Otaq left in the checkout, and the user's own folders (one named like a copy, without the
+    // marker). PAY-1's worktree, which stays for the data folder, holds two marked copies, M27's `otaq-custom-commit`
+    // and the user's own folders and settings too.
+    leftover_copy(&repo, "otaq-noyan");
+    leftover_copy(&wt_pay, "otaq-noyan");
+    leftover_copy(&wt_pay, "otaq-commit");
+    let old = wt_pay.join(".claude/skills/otaq-custom-commit");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("SKILL.md"), "old\n").unwrap();
+    std::fs::write(wt_pay.join(".claude/settings.json"), "{}\n").unwrap();
+    for root in [&repo, &wt_pay] {
+        for own in ["my-skill", "otaq-x"] {
+            let folder = root.join(".claude/skills").join(own);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join("SKILL.md"), "mine\n").unwrap();
+        }
     }
     let heads = |branches: &[&str]| -> Vec<String> {
         branches
@@ -265,15 +273,40 @@ async fn confirmed_removal_takes_the_worktrees_and_copies_and_keeps_branches() {
     // Branches stay with their commits.
     assert_eq!(heads(&["otaq/SHOP-12", "otaq/SHOP-14"]), before_heads);
 
-    // The marked copy went from both roots; the user's folders stay.
+    // The copies went from both roots, in the checkout and in the worktree left behind; the user's folders stay.
+    let checkout_copies: Vec<_> = outcome
+        .removed
+        .iter()
+        .filter(|s| s.kind == StepKind::SkillCopy && s.ticket.is_none())
+        .cloned()
+        .collect();
     assert_eq!(
-        names(&outcome.removed, StepKind::SkillCopy),
+        names(&checkout_copies, StepKind::SkillCopy),
         [("otaq-noyan".into(), None)]
     );
-    assert!(!repo.join(".claude/skills/otaq-noyan").exists());
-    assert!(!repo.join(".agents/skills/otaq-noyan").exists());
-    assert!(repo.join(".claude/skills/my-skill/SKILL.md").is_file());
-    assert!(repo.join(".claude/skills/otaq-x/SKILL.md").is_file());
+    let worktree_copies: Vec<_> = outcome
+        .removed
+        .iter()
+        .filter(|s| s.kind == StepKind::SkillCopy && s.ticket.is_some())
+        .cloned()
+        .collect();
+    assert_eq!(
+        names(&worktree_copies, StepKind::SkillCopy),
+        [
+            ("otaq-commit".into(), None),
+            ("otaq-custom-commit".into(), None),
+            ("otaq-noyan".into(), None)
+        ]
+    );
+    for root in [&repo, &wt_pay] {
+        assert!(!root.join(".claude/skills/otaq-noyan").exists());
+        assert!(!root.join(".agents").exists());
+        assert!(root.join(".claude/skills/my-skill/SKILL.md").is_file());
+        assert!(root.join(".claude/skills/otaq-x/SKILL.md").is_file());
+    }
+    assert!(!wt_pay.join(".claude/skills/otaq-commit").exists());
+    assert!(!wt_pay.join(".claude/skills/otaq-custom-commit").exists());
+    assert!(wt_pay.join(".claude/settings.json").is_file());
     assert!(outcome.failed.iter().all(|s| s.kind == StepKind::Resources));
 }
 

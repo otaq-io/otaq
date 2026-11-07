@@ -621,6 +621,11 @@ fn cleared_choice_line(p: &serde_json::Value, facts: &Facts) -> (String, Option<
             format!("{stage}: {by}\u{2019}s skip cleared"),
             Some("only the user skips stages now".to_owned()),
         )
+    } else if text(p, "set_by").as_deref() == Some("agent") {
+        (
+            format!("{stage}: {by}\u{2019}s choice of {choice} cleared"),
+            Some("only the user picks a stage\u{2019}s agent now".to_owned()),
+        )
     } else {
         (
             format!("{stage}: {by}\u{2019}s choice of {choice} cleared"),
@@ -1287,7 +1292,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             ),
             None,
         ),
-        EventKind::FallbackUsed => (stage_choices::fallback_line(p), None),
+        EventKind::StartedOnAnotherTool => (stage_choices::started_elsewhere_line(p), None),
         EventKind::SchemaOverlap => (
             match text(p, "other") {
                 Some(other) => format!("Schema path shared with {other}"),
@@ -1762,7 +1767,6 @@ mod tests {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             model_ran: None,
             size: None,
         }
@@ -3159,6 +3163,18 @@ mod tests {
         assert_eq!(
             pick.detail.as_deref(),
             Some("Noyan sets only the stage choices the user names")
+        );
+        // Only the user picks a stage's agent: a ticket agent's pick, cleared.
+        let agents_pick = row(serde_json::json!({
+            "stage": "Validate", "stage_id": "validate", "choice": "Strong", "set_by": "agent", "by": "Developer"
+        }));
+        assert_eq!(
+            agents_pick.title,
+            "Validate: Developer\u{2019}s choice of Strong cleared"
+        );
+        assert_eq!(
+            agents_pick.detail.as_deref(),
+            Some("only the user picks a stage\u{2019}s agent now")
         );
         // Named by its id only: the flow's name for it reads.
         let facts = Facts {

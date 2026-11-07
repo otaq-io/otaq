@@ -6,7 +6,6 @@ import type { CardSignal } from "./CardSignal";
 import type { CardStatusHover } from "./CardStatusHover";
 import type { CardStatusLine } from "./CardStatusLine";
 import type { CardTone } from "./CardTone";
-import type { CheckRoundView } from "./CheckRoundView";
 import type { PriorityView } from "./PriorityView";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
@@ -23,6 +22,12 @@ priority: PriorityView | null, title: string,
  * The one status line; `null` on a calm Backlog card.
  */
 status: CardStatusLine | null, 
+/**
+ * "Codex doesn't have the skill `/team-validate`": one line under the status line while a stage waits because its
+ * tool doesn't have the skill it names (the card offers Check again and Change agent…). The skill's name is in
+ * backticks: the page draws it as code.
+ */
+skill_warning: string | null, 
 /**
  * "Blocks SHOP-20" under the line, muted, with the List's "blocks 1" (DPV-01).
  */
@@ -47,15 +52,6 @@ edge: CardTone | null,
  * The card's one action (Answer, Reply, Review, Decide…).
  */
 action: CardAction | null, 
-/**
- * After the action, the one check agent it acts on: "for Performance only", "re-runs Performance only" (d0130).
- */
-action_note: string | null, 
-/**
- * A Check stage with several check agents (d0130, `s29-04`): a row per check agent under the line, which is the
- * round's ("Validate · round 1 of 3"), and its note; the rows name the agents, so `avatar` and `who` are empty.
- */
-check: CheckRoundView | null, 
 /**
  * "Plan · 4 pieces", "Plan · 2 pieces so far": quiet, under the line (d0133, `s30-01`); none without pieces.
  */

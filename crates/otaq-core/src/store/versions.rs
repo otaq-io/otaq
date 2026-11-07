@@ -230,7 +230,7 @@ pub(super) async fn copy_before(
 ) -> Result<DatabaseCopy, StoreError> {
     let target = copy_path(database, version);
     if !target.is_file() {
-        write_copy(pool, database, version, &target).await?;
+        write_database_copy(pool, database, version, &target).await?;
     }
     for older in copies(database) {
         if older.path != target
@@ -250,7 +250,7 @@ pub(super) async fn copy_before(
         })
 }
 
-async fn write_copy(
+async fn write_database_copy(
     pool: &SqlitePool,
     database: &Path,
     version: &str,

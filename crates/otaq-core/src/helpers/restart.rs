@@ -174,22 +174,6 @@ impl Helpers {
                 .as_ref()
                 .and_then(|c| c.agent.clone())
                 .or_else(|| last.as_ref().and_then(|s| s.agent.clone())),
-            fallback: last.as_ref().and_then(|s| s.fallback.clone()),
-        };
-        let agent = match &runs_on.agent {
-            Some(agent) => board.store().agent(&agent.id).await?,
-            None => None,
-        };
-        let agent = match agent {
-            Some(agent) => agent,
-            None => {
-                crate::agents::resolve::session_agent(
-                    board,
-                    ticket,
-                    crate::agents::SessionRole::Developer,
-                )
-                .await?
-            }
         };
         let first = match &conversation {
             Some(_) => FirstPrompt::Text(prompt),
@@ -216,7 +200,6 @@ impl Helpers {
                 helper.piece,
                 &helper.title,
                 &runs_on,
-                &agent,
                 session_id,
                 conversation.map(|c| c.id),
                 first,

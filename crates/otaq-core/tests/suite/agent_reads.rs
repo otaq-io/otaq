@@ -4,13 +4,13 @@
 //! stage the agent runs (a ticket's choice doesn't move it), one for its role, the other skills with the commit skill
 //! and the Project agent's `flow` marked; nothing for an agent in no stage.
 //!
-//! The plugin folder is the repository's (read only); copies go into temporary folders; no tool is started.
+//! The plugin folder is the repository's (read only); no tool is started.
 
 use std::path::Path;
 
 use otaq_core::agent_reads::{AgentReads, RunsAs, SkillMark};
+use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::{ClaudeLaunch, find_plugin_dir};
-use otaq_core::agent_tools::{FirstPrompt, LaunchContext};
 use otaq_core::agents::{Agent, Role};
 use otaq_core::board::stage_choices::{ChoicePick, Chooser};
 use otaq_core::client::{Client, ClientConfig};
@@ -20,8 +20,7 @@ use otaq_core::project_agents::{FLOW_COMMAND, first_skill};
 use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
-use otaq_core::skills::copy::Marker;
-use otaq_core::skills::testing::skill_folder;
+use otaq_core::skills::testing::claude_skill;
 use tempfile::TempDir;
 
 /// The sample board on a service whose plugin folder is the repository's, with shop-web's notes.
@@ -81,28 +80,6 @@ async fn reads(w: &TestService, agent: &Agent, project: &str) -> AgentReads {
     }
 }
 
-/// The skill a launch of `agent` runs first for `name`, as the copies before it resolve it (AGM-07).
-async fn launch_runs(w: &TestService, agent: &Agent, name: &str) -> String {
-    let root = TempDir::new().unwrap();
-    let (prompt, _) = w
-        .board
-        .copy_for_session(
-            root.path(),
-            w.adapters.shipped_skills(),
-            Some(agent),
-            Some(FirstPrompt::Skill {
-                name: name.into(),
-                message: None,
-            }),
-            Marker::Checkout,
-        )
-        .await;
-    match prompt {
-        Some(FirstPrompt::Skill { name, .. }) => name,
-        other => panic!("{other:?}"),
-    }
-}
-
 /// The part running in `stage`.
 fn stage_part<'r>(reads: &'r AgentReads, stage: &str) -> &'r otaq_core::agent_reads::SkillPart {
     reads
@@ -121,8 +98,8 @@ fn commit_mark(reads: &AgentReads) -> Option<&str> {
 }
 
 /// AGR-04: a stage agent's reads text equals its ticket's prime (instructions, notes, stage skill, commit skill), on
-/// the default flow (Developer commits with `commit`) and on the test flow (Rust developer has no commit skill), with
-/// an imported skill standing for the stage's.
+/// the default flow (Developer commits with `commit`) and on the test flow. Sessions don't read an agent's skills
+/// (T2): the stage's skill is Otaq's own, and every session commits with Otaq's `commit`.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stage_agent_reads_what_prime_gives() {
     let dir = TempDir::new().unwrap();
@@ -152,7 +129,7 @@ async fn a_stage_agent_reads_what_prime_gives() {
             .unwrap_or_default(),
         prime.commit_skill
     );
-    assert_eq!(prime.commit_skill, "/otaq-commit");
+    assert_eq!(prime.commit_skill, claude_skill("commit"));
     // The shipped SKILL.md in full, from the bundle; Developer also opens PRs in the default flow's Done.
     let shipped = w.adapters.shipped_skills().unwrap().join("work-ticket");
     assert_eq!(dev.folder.as_deref(), Some(shipped.as_path()));
@@ -183,13 +160,9 @@ async fn a_stage_agent_reads_what_prime_gives() {
         .collect();
     assert_eq!(others, [("commit", Some(SkillMark::Commits))]);
 
-    // The test flow: Rust developer, its imported `work-ticket` standing for the stage's.
+    // The test flow: Rust developer runs Otaq's `work-ticket` in Dev.
     w.board.use_flow_for_tests("SHOP", &every_kind()).await;
     let rust = agent(&w, "Rust developer").await;
-    let folder = skill_folder(dir.path(), "work-ticket");
-    let rust = otaq_core::agents::skills::import(&w.board, &rust.id, &folder)
-        .await
-        .unwrap();
     let t = w.create("SHOP", "Sort notes by date").await;
     w.force_status(&t, Status::Working).await; // in Dev
     let prime = w
@@ -208,19 +181,12 @@ async fn a_stage_agent_reads_what_prime_gives() {
         Some(tool.skill_reference(&dev.skill)),
         prime.stage.unwrap().skill
     );
-    assert_eq!(
-        dev.folder,
-        Some(w.board.data().skill_path(&rust.imported[0].id).unwrap())
-    );
-    assert!(
-        dev.text.as_deref().unwrap().contains("Do the step."),
-        "{dev:?}"
-    );
-    assert_eq!(commit_mark(&r), None);
-    assert_eq!(prime.commit_skill, "");
+    assert_eq!(dev.folder.as_deref(), Some(shipped.as_path()));
+    assert_eq!(prime.commit_skill, claude_skill("commit"));
     assert_eq!(r.skills.len(), 1, "{r:#?}");
+    // An agent has no skill list of its own (T6): only the commit skill prime names.
     let others: Vec<&str> = r.others.iter().map(|o| o.skill.as_str()).collect();
-    assert_eq!(others, ["commit-compact"]);
+    assert_eq!(others, ["commit"]);
     w.stop().await;
 }
 
@@ -251,7 +217,7 @@ async fn the_role_agents_read_what_their_launch_gives() {
     let (first, _) = first_skill("Split SHOP-40");
     assert_eq!(r.skills.len(), 1, "in no stage: {r:#?}");
     assert_eq!(r.skills[0].runs, RunsAs::Role(Role::ProjectAgent));
-    assert_eq!(r.skills[0].skill, launch_runs(&w, &planner, first).await);
+    assert_eq!(r.skills[0].skill, first);
     assert!(r.skills[0].text.is_some());
     let (flow, _) = first_skill(FLOW_COMMAND);
     let others: Vec<(&str, Option<SkillMark>)> = r
@@ -259,13 +225,7 @@ async fn the_role_agents_read_what_their_launch_gives() {
         .iter()
         .map(|o| (o.skill.as_str(), o.mark))
         .collect();
-    assert_eq!(
-        others,
-        [(
-            launch_runs(&w, &planner, flow).await.as_str(),
-            Some(SkillMark::FlowChanges)
-        )]
-    );
+    assert_eq!(others, [(flow, Some(SkillMark::FlowChanges))]);
 
     w.stop().await;
 }
@@ -316,20 +276,14 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
     let rust = reads(&w, &agent(&w, "Rust developer").await, "SHOP").await;
     assert_eq!(rust.skills.len(), 1);
     assert_eq!(stage_part(&rust, "Dev").skill, "work-ticket");
-    // Validator runs Validate, and Security as its second check agent (d0130): a part for each.
+    // Validator runs Validate; Security has its own agent.
     let validator = reads(&w, &agent(&w, "Validator").await, "SHOP").await;
     let parts: Vec<(&RunsAs, &str)> = validator
         .skills
         .iter()
         .map(|p| (&p.runs, p.skill.as_str()))
         .collect();
-    assert_eq!(
-        parts,
-        [
-            (&RunsAs::Stage("Validate".into()), "validate"),
-            (&RunsAs::Stage("Security".into()), "security-review")
-        ]
-    );
+    assert_eq!(parts, [(&RunsAs::Stage("Validate".into()), "validate")]);
 
     // Noyan, the Project agent, also runs Product spec.
     w.board
@@ -358,5 +312,67 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
             (&RunsAs::Role(Role::ProjectAgent), "noyan")
         ]
     );
+    w.stop().await;
+}
+
+/// A user's stage skill is shown from where the skill finder found it: with `team-validate` in the personal
+/// `~/.claude/skills` on Validate, a Claude Code validator's part is that SKILL.md, and its folder (what Open skill
+/// folder → opens) is `~/.claude/skills/team-validate`, not a copy. A Codex validator's tool doesn't have it (Codex
+/// doesn't read `~/.claude/skills`): the part names Codex and shows no text or folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_users_stage_skill_is_read_from_its_own_folder() {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::AgentModel;
+
+    let tool_home = TempDir::new().unwrap();
+    let home = tool_home.path().to_path_buf();
+    let w = TestService::start_with(move |mut config| {
+        config.tool_home = Some(home);
+        config
+    })
+    .await;
+    w.shop_sample().await;
+    let folder = tool_home.path().join(".claude/skills/team-validate");
+    std::fs::create_dir_all(&folder).unwrap();
+    let text = "---\nname: team-validate\ndescription: Our checks.\n---\n\nRun our checks.\n";
+    std::fs::write(folder.join("SKILL.md"), text).unwrap();
+    let mut flow = every_kind();
+    for stage in &mut flow.flow.stages {
+        if stage.name == "Validate" {
+            stage.skill = Some("team-validate".into());
+        }
+    }
+    w.board.use_flow_for_tests("SHOP", &flow).await;
+
+    let on = |tool| {
+        move |a: &mut otaq_core::agents::store::NewAgent| {
+            a.model = AgentModel::Tool { tool, model: None };
+        }
+    };
+    w.edit_agent("Validator", on(Tool::Claude)).await;
+    let validator = agent(&w, "Validator").await;
+    let r = reads(&w, &validator, "SHOP").await;
+    let part = stage_part(&r, "Validate");
+    assert_eq!(part.skill, "team-validate");
+    assert_eq!(part.text.as_deref(), Some(text));
+    assert_eq!(part.folder.as_deref(), Some(folder.as_path()));
+    assert_eq!(part.missing_in, None);
+
+    w.edit_agent("Validator", on(Tool::Codex)).await;
+    let r = reads(&w, &validator, "SHOP").await;
+    let part = stage_part(&r, "Validate");
+    assert_eq!(part.skill, "team-validate");
+    assert_eq!((&part.text, &part.folder), (&None, &None));
+    assert_eq!(part.missing_in, Some(Tool::Codex));
+
+    // A copy Codex reads (`~/.agents/skills`) is the one its validator's page shows.
+    let shared = tool_home.path().join(".agents/skills/team-validate");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::write(shared.join("SKILL.md"), "Shared copy.\n").unwrap();
+    let r = reads(&w, &validator, "SHOP").await;
+    let part = stage_part(&r, "Validate");
+    assert_eq!(part.text.as_deref(), Some("Shared copy.\n"));
+    assert_eq!(part.folder.as_deref(), Some(shared.as_path()));
+    assert_eq!(part.missing_in, None);
     w.stop().await;
 }

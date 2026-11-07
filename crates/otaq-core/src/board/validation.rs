@@ -12,7 +12,7 @@
 //! check stage in `check_counters` ([`CheckCounts`]), driven by the engine's [`Counters`]: a verdict counts on its
 //! check, Answer the agent resets that check's, a human Fail or a drag back resets them all
 //! ([`Board::reset_all_check_counters`]). The user moving a card past a check (Move on anyway, Skip this check) is
-//! stored on its row too, and sends the card to a click-mode Delivery ([`Board::forced_click_reason`]).
+//! stored on its row too, for its card ([`CheckCounts::moved_past_reason`]); its Delivery does what the flow says.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -67,10 +67,11 @@ pub enum ValidationEvent {
     CodeChanged,
     /// Stop this check: the checker stops, the round doesn't count, back to the agent.
     StopValidation,
-    /// Skip this check: on a running check, or on one held for the plan limit (the caller checked that no fallback
-    /// can take it, Q277). On to the next stage; its Delivery in click mode.
+    /// Skip this check: on a running check, or on one held for the plan limit (Q277), that the flow marks skippable.
+    /// On to the next stage; its Delivery as the flow says.
     SkipCheck,
-    /// After the last allowed fail or no result: on to the engine's next stage, whatever its kind (d0108).
+    /// After the last allowed fail or no result, on a check the flow marks skippable: on to the engine's next stage,
+    /// whatever its kind (d0108).
     MoveOnAnyway,
     AnotherRound,
     AnswerAgent,
@@ -236,6 +237,14 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
             },
         )
     };
+    // Skip this check and Move on anyway only on a check the flow marks skippable; the reason says so.
+    if matches!(event, E::SkipCheck | E::MoveOnAnyway)
+        && let Some(stage) = s.place.stage().and_then(|id| s.flow.stage(id))
+        && stage.is_agent_check()
+        && !stage.can_skip()
+    {
+        return Err(NotNow(engine::not_skippable(stage).0));
+    }
     Ok(match event {
         E::AgentSubmit if agent_works(s.status) => go_next()?,
         E::UserNextStage if agent_works(s.status) || s.status == Status::Interrupted => go_next()?,
@@ -310,7 +319,7 @@ impl Board {
             Option<String>,
             Option<String>,
         );
-        // Newest round first; a round's check agents in the stage's order (d0130).
+        // Newest round first; a round stored with several check agents keeps their rows in the stage's order.
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT v.round, v.trigger, v.outcome, v.started_at, v.ended_at, v.session_id, COALESCE(c.body, v.reason),
                     v.notes_json, v.agent
@@ -460,7 +469,9 @@ impl Board {
     }
 
     /// A checker of the ticket's open round started: its session is stored on its check agent's row (`row`; `None`:
-    /// the round's newest open row), and a validation that waited for the usage limit shows Validating… again.
+    /// the round's newest open row), with the agent the session runs as (a round named for a held agent and then
+    /// started on another one, through Change agent…, is that other one's), and a validation that waited for the usage
+    /// limit shows Validating… again.
     pub(crate) async fn validator_started(
         &self,
         ticket_id: &str,
@@ -470,10 +481,13 @@ impl Board {
         let now = now_ms();
         let mut tx = self.store.begin_write().await?;
         sqlx::query(
-            "UPDATE validations SET session_id = ? WHERE id = COALESCE(?, (
+            "UPDATE validations
+             SET session_id = ?, agent = COALESCE((SELECT agent_name FROM sessions WHERE id = ?), agent)
+             WHERE id = COALESCE(?, (
                  SELECT id FROM validations WHERE ticket_id = ? AND ended_at IS NULL
                  ORDER BY started_at DESC, id DESC LIMIT 1))",
         )
+        .bind(session_id)
         .bind(session_id)
         .bind(row)
         .bind(ticket_id)
@@ -535,7 +549,7 @@ impl Board {
         Ok(())
     }
 
-    /// The ticket's open round (d0130): the round a row still runs in, with every check agent's row.
+    /// The ticket's open round: the round a row still runs in.
     pub(crate) async fn open_round(
         &self,
         ticket_id: &str,
@@ -553,7 +567,8 @@ impl Board {
         }
     }
 
-    /// The round `round_id` of the ticket, its rows oldest first (a round's rows in the stage's order).
+    /// The round `round_id` of the ticket, its rows oldest first (one row, or a row per check agent for a round stored
+    /// from when a check could have several).
     pub(crate) async fn round(
         &self,
         ticket_id: &str,
@@ -596,10 +611,10 @@ impl Board {
         }))
     }
 
-    /// Gives the ticket's open round one row per check agent of `stage` (d0130), once: a round opens with one row
-    /// (a submit, a pass into the check, a drag, Retry), which takes the first check agent's name, and each other
-    /// check agent gets its own row with the same number and head. Every row is a run of the stage (STG-05).
-    pub(crate) async fn name_round_agents(
+    /// Names the ticket's open round's row with the agent of `stage` (the ticket's chosen option in its place,
+    /// Q517), once: a round opens with one row (a submit, a pass into the check, a drag, Retry). The row is a run of
+    /// the stage (STG-05).
+    pub(crate) async fn name_round_agent(
         &self,
         ticket: &Ticket,
         stage: &Stage,
@@ -607,46 +622,32 @@ impl Board {
         let Some(round) = self.open_round(&ticket.id).await? else {
             return Ok(());
         };
-        let [first] = round.rows.as_slice() else {
+        let Some(row) = round.open().last() else {
             return Ok(());
         };
-        if first.agent.is_some() || !first.open {
+        if row.agent.is_some() {
             return Ok(());
         }
         let mut tx = self.store.begin_write().await?;
-        let agents = round_agents(&mut tx, ticket, stage).await?;
-        let Some((name, others)) = agents.split_first() else {
+        let Some(name) = round_agent(&mut tx, ticket, stage).await? else {
             return Ok(());
         };
-        sqlx::query("UPDATE validations SET agent = ?, round_id = ? WHERE id = ?")
-            .bind(name)
-            .bind(&round.id)
-            .bind(&first.id)
+        sqlx::query("UPDATE validations SET agent = ? WHERE id = ?")
+            .bind(&name)
+            .bind(&row.id)
             .execute(&mut *tx)
             .await?;
         sqlx::query("UPDATE stage_runs SET agent = COALESCE(agent, ?) WHERE validation_id = ?")
-            .bind(name)
-            .bind(&first.id)
+            .bind(&name)
+            .bind(&row.id)
             .execute(&mut *tx)
             .await?;
-        for agent in others {
-            sqlx::query(
-                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha, agent, round_id)
-                 SELECT ?, ticket_id, round, trigger, started_at, head_sha, ?, ? FROM validations WHERE id = ?",
-            )
-            .bind(new_id())
-            .bind(agent)
-            .bind(&round.id)
-            .bind(&first.id)
-            .execute(&mut *tx)
-            .await?;
-        }
         tx.commit().await?;
         Ok(())
     }
 
-    /// Ends the ticket's open round as `step` says without a verdict (a cancel, a discard, a stop…): every check
-    /// agent's row still open ends; `reason` is why, in Otaq's words (History's line for a round that doesn't count),
+    /// Ends the ticket's open round as `step` says without a verdict (a cancel, a discard, a stop…): its rows still
+    /// open end; `reason` is why, in Otaq's words (History's line for a round that doesn't count),
     /// `signal` the card's text for the new status ("Validation discarded: the validator changed files").
     pub(crate) async fn end_round(
         &self,
@@ -673,7 +674,7 @@ impl Board {
             .map(|_| ())
     }
 
-    /// One check agent's row of `round` ends (`row`: its verdict, its text the checker's comment, CMT-05; or none),
+    /// The checker's row of `round` ends (`row`: its verdict, its text the checker's comment, CMT-05; or none),
     /// and the round closes as `close` says (VAL-03 … VAL-06): the ticket moves, the counter counts once for the
     /// round, and a pass enters Review with the round's head as the reviewed head. Its rows still open end with the
     /// step's outcome. A fail that sends the findings back to the agent marks its run as handed over (`resumed`,
@@ -766,7 +767,7 @@ impl Board {
         .bind(&round.id)
         .execute(&mut **tx)
         .await?;
-        // The round counts once on the check it ran in (the stage the ticket is in until now), whichever agent failed.
+        // The round counts once on the check it ran in (the stage the ticket is in until now).
         if let Some(check) = ticket.place.stage() {
             count_on(tx, &ticket.id, check, step.counters, outcome, round.round).await?;
         }
@@ -895,7 +896,7 @@ impl Board {
     }
 
     /// Into Ready for Review without a verdict, by the user (Move on anyway, VAL-06, VAL-07): the last
-    /// round's head is the reviewed head; never auto-merged. The ticket goes to the first human check after its
+    /// round's head is the reviewed head; its Delivery as the flow says. The ticket goes to the first human check after its
     /// stage (the default flow's Review).
     pub(crate) async fn move_to_review(
         &self,
@@ -1004,8 +1005,8 @@ impl Board {
     }
 
     /// The last ended round's report (its findings: the checker's comment), for Give it another round and Answer the
-    /// agent. A round of several check agents gives every agent's report together, each under its verdict
-    /// ("Security reviewer failed:"), in the stage's order (d0130).
+    /// agent. A round stored from when a check could have several agents gives every agent's report together, each
+    /// under its verdict ("Security reviewer failed:").
     pub(crate) async fn last_report(&self, ticket_id: &str) -> Result<Option<String>, BoardError> {
         let rows: Vec<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT v.agent, v.outcome, c.body FROM validations v
@@ -1092,88 +1093,6 @@ impl Board {
         Ok(())
     }
 
-    /// The ticket's newest round, open or ended, with every check agent's row.
-    pub(crate) async fn last_round(
-        &self,
-        ticket_id: &str,
-    ) -> Result<Option<OpenRound>, BoardError> {
-        let last: Option<String> = sqlx::query_scalar(
-            "SELECT COALESCE(round_id, id) FROM validations WHERE ticket_id = ?
-             ORDER BY started_at DESC, rowid DESC LIMIT 1",
-        )
-        .bind(ticket_id)
-        .fetch_optional(self.store.pool())
-        .await?;
-        match last {
-            Some(id) => self.round(ticket_id, &id).await,
-            None => Ok(None),
-        }
-    }
-
-    /// Retry after "ended without a verdict" (d0130 row 17): the ticket's last round gets a fresh row for each check
-    /// agent without a verdict, with the same number and head; the others' verdicts stand, as the code is the one
-    /// they judged. `false` (nothing written) unless that round has a verdict to keep, none of its check agents
-    /// failed, every other one ended without a verdict (not stopped, cancelled or interrupted) and `head` is its
-    /// head: then Retry opens a fresh round for every check agent ([`Self::reopen_round`]).
-    pub(crate) async fn rerun_without_verdict(
-        &self,
-        ticket: &Ticket,
-        head: &str,
-        actor: &Actor,
-    ) -> Result<bool, BoardError> {
-        let Some(round) = self.last_round(&ticket.id).await? else {
-            return Ok(false);
-        };
-        let latest = round.latest();
-        let passed = |r: &&RoundRow| r.outcome == Some(ValidationOutcome::Pass);
-        let without: Vec<&RoundRow> = latest.iter().copied().filter(|r| !passed(r)).collect();
-        let keeps = latest.iter().any(passed)
-            && !without.is_empty()
-            && without.iter().all(|r| {
-                !r.open && r.outcome == Some(ValidationOutcome::NoResult) && r.agent.is_some()
-            })
-            && round.head.as_deref() == Some(head);
-        if !keeps {
-            return Ok(false);
-        }
-        let now = now_ms();
-        let to = Status::Checking;
-        let mut tx = self.store.begin_write().await?;
-        sqlx::query(concat!(
-            "UPDATE tickets SET state = ?, signal_text = NULL, signal_since = NULL,
-                                interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
-            set_state_since!(),
-            " WHERE id = ?"
-        ))
-        .bind(to.as_str())
-        .bind(actor.to_string())
-        .bind(now)
-        .bind(to.as_str())
-        .bind(now)
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?;
-        for row in &without {
-            sqlx::query(
-                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha, agent, round_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(new_id())
-            .bind(&ticket.id)
-            .bind(i64::from(round.round))
-            .bind(ValidationTrigger::User.as_str())
-            .bind(now)
-            .bind(head)
-            .bind(&row.agent)
-            .bind(&round.id)
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await?;
-        tracing::info!(key = %ticket.key, round = round.round, again = without.len(), "retry: the check agents without a verdict");
-        Ok(true)
-    }
-
     /// Whether the round this validator session judged has ended (its verdict is in).
     pub(crate) async fn round_of_session_ended(&self, session: &str) -> Result<bool, BoardError> {
         let ended: Option<Option<i64>> =
@@ -1258,9 +1177,9 @@ impl CheckCounts {
             .or_else(|| flow.round_check(place.stage()))
     }
 
-    /// Why the card's Delivery waits for a click (d0108 "Move on anyway", Q277): each check the user moved it past
-    /// in this walk, in flow order ("Failed Security 3 times · moved by you", "Skipped Security · by you"). `None`
-    /// when it moved past none.
+    /// The checks the user moved the card past in this walk (Move on anyway, Skip this check, a drag past them), in
+    /// flow order, as its card says them ("Failed Security 3 times · moved by you", "Skipped Security · by you").
+    /// `None` when it moved past none. Only a record: the Delivery still does what the flow says.
     pub fn moved_past_reason(&self, flow: &Flow) -> Option<String> {
         let mut past: Vec<(usize, String)> = self
             .0
@@ -1413,8 +1332,8 @@ async fn add_round(
     Ok(())
 }
 
-/// The user moved the card past the check `stage` (Move on anyway, Skip this check; a forward drag past it): its
-/// Delivery will be in click mode, saying why ([`CheckCounts::moved_past_reason`]).
+/// The user moved the card past the check `stage` (Move on anyway, Skip this check; a forward drag past it): its card
+/// says so ([`CheckCounts::moved_past_reason`]).
 pub(crate) async fn mark_moved_past(
     tx: &mut Transaction<'_, Sqlite>,
     ticket_id: &str,
@@ -1457,8 +1376,8 @@ impl Board {
         Ok(())
     }
 
-    /// Marks that the user moved the ticket past the check `stage` (a forward drag past it, T-0421): its Delivery
-    /// will be in click mode.
+    /// Marks that the user moved the ticket past the check `stage` (a forward drag past it, T-0421): its card says
+    /// so.
     pub async fn moved_past_check(
         &self,
         ticket_id: &str,
@@ -1469,17 +1388,6 @@ impl Board {
         mark_moved_past(&mut tx, ticket_id, stage, how).await?;
         tx.commit().await?;
         Ok(())
-    }
-
-    /// **Why the ticket's Delivery must wait for a click** (d0108: "a ticket the user moved past a failed or skipped
-    /// agent check always reaches Delivery in click mode, whatever the stage's mode"): "Failed Security 3 times ·
-    /// moved by you", "Skipped Security · by you"; `None` when its checks ran (an automatic Delivery may deliver).
-    pub async fn forced_click_reason(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
-        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        Ok(self
-            .check_counts(&ticket.id)
-            .await?
-            .moved_past_reason(&flow))
     }
 
     /// The user moved the ticket on from its agent check (Move on anyway, Skip this check on a check held for the
@@ -1660,7 +1568,8 @@ pub fn note_of(line: &str) -> Option<&str> {
     (!note.is_empty()).then_some(note)
 }
 
-/// A ticket's validation round (d0130): one row per check agent, sharing the round's number and head.
+/// A ticket's validation round: its checker's row. A round stored from when a check could have several agents has a
+/// row per check agent, sharing the round's number and head; such a round still reads as it was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpenRound {
     /// The round's id (its first row's).
@@ -1672,11 +1581,11 @@ pub(crate) struct OpenRound {
     pub rows: Vec<RoundRow>,
 }
 
-/// One check agent's row of a round.
+/// A checker's row of a round.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RoundRow {
     pub id: String,
-    /// The check agent's name as the stage lists it; `None` for a round opened before its agents were named.
+    /// The check's agent, as the stage names it; `None` for a round opened before its agent was named.
     pub agent: Option<String>,
     /// Its checker's session, once it started.
     pub session: Option<String>,
@@ -1695,26 +1604,9 @@ impl OpenRound {
     pub fn open_row_of(&self, session: &str) -> Option<&RoundRow> {
         self.open().find(|r| r.session.as_deref() == Some(session))
     }
-
-    /// Each check agent's latest row, in the stage's order (a re-run adds a row for an agent).
-    pub fn latest(&self) -> Vec<&RoundRow> {
-        let mut latest: Vec<&RoundRow> = Vec::new();
-        for row in &self.rows {
-            match latest.iter_mut().find(|r| r.agent == row.agent) {
-                Some(slot) => *slot = row,
-                None => latest.push(row),
-            }
-        }
-        latest
-    }
-
-    /// Whether more than one check agent checks in it.
-    pub fn several(&self) -> bool {
-        self.latest().len() > 1
-    }
 }
 
-/// How one check agent's row of a round ends ([`Board::end_in_round`]).
+/// How the checker's row of a round ends ([`Board::end_in_round`]).
 pub(crate) struct RowEnd<'a> {
     pub row: &'a str,
     pub outcome: ValidationOutcome,
@@ -1736,20 +1628,8 @@ pub(crate) struct RoundClose<'a> {
     pub resumed: bool,
 }
 
-/// What a round's verdicts add up to once none of its check agents runs (d0130): every one passed, a pass; any
-/// failed, a fail; else (one ended without a verdict, the others passed) none.
-pub(crate) fn round_event(outcomes: &[Option<ValidationOutcome>]) -> ValidationEvent {
-    if outcomes.contains(&Some(ValidationOutcome::Fail)) {
-        ValidationEvent::Fail
-    } else if outcomes.iter().all(|o| *o == Some(ValidationOutcome::Pass)) {
-        ValidationEvent::Pass
-    } else {
-        ValidationEvent::NoVerdict
-    }
-}
-
 /// "Security reviewer passed", "Security reviewer failed", "Performance reviewer ended without a verdict".
-pub(crate) fn verdict_of(agent: &str, outcome: Option<ValidationOutcome>) -> String {
+fn verdict_of(agent: &str, outcome: Option<ValidationOutcome>) -> String {
     match outcome {
         Some(ValidationOutcome::Pass) => format!("{agent} passed"),
         Some(ValidationOutcome::Fail) => format!("{agent} failed"),
@@ -1757,17 +1637,16 @@ pub(crate) fn verdict_of(agent: &str, outcome: Option<ValidationOutcome>) -> Str
     }
 }
 
-/// The check agents of a round of `stage` for `ticket` (d0130), as the stage lists them: the ticket's chosen
-/// option takes the first one's place (Q517). Empty for a stage that lists none.
-async fn round_agents(
+/// The agent of a round of `stage` for `ticket`: the ticket's chosen agent for it, else the stage's (Q517). `None`
+/// for a stage that names none.
+async fn round_agent(
     tx: &mut Transaction<'_, Sqlite>,
     ticket: &Ticket,
     stage: &Stage,
-) -> Result<Vec<String>, BoardError> {
-    let mut agents = stage.check_agents().to_vec();
-    if agents.is_empty() {
-        return Ok(agents);
-    }
+) -> Result<Option<String>, BoardError> {
+    let Some(agent) = stage.check_agent() else {
+        return Ok(None);
+    };
     let chosen: Option<String> = sqlx::query_scalar(
         "SELECT a.name FROM ticket_stage_choices c JOIN agents a ON a.id = c.agent_id
          WHERE c.ticket_id = ? AND c.stage_id = ? AND c.choice = 'agent'",
@@ -1776,15 +1655,7 @@ async fn round_agents(
     .bind(&stage.id)
     .fetch_optional(&mut **tx)
     .await?;
-    let option = chosen.and_then(|chosen| {
-        stage
-            .option_agents()
-            .find(|name| name.trim().to_lowercase() == chosen.trim().to_lowercase())
-    });
-    if let Some(option) = option {
-        agents[0] = option.clone();
-    }
-    Ok(agents)
+    Ok(Some(chosen.unwrap_or_else(|| agent.to_owned())))
 }
 
 /// The name of the agent check a ticket at `place` is in ("Validate", "Security"); "The check" when it isn't in one.
@@ -1809,6 +1680,16 @@ mod tests {
             fails: 0,
             rounds: 3,
             skips: &[],
+        }
+    }
+
+    /// On a flow that marks Validate skippable (Skip this check, Move on anyway).
+    fn skippable(s: ValidationState<'static>) -> ValidationState<'static> {
+        let mut file = crate::flow::default_file().clone();
+        crate::flow::default::testing::skippable_validate(&mut file);
+        ValidationState {
+            flow: Box::leak(Box::new(file.flow)),
+            ..s
         }
     }
 
@@ -2012,15 +1893,44 @@ mod tests {
             (t.to, t.tell_cancelled, t.outcome),
             (Status::Working, false, Some(ValidationOutcome::Stopped))
         );
-        let t = go(state(Status::Checking), E::SkipCheck);
+        let t = go(skippable(state(Status::Checking)), E::SkipCheck);
         assert_eq!(
             (t.to, t.entry),
             (Status::WaitingForYou, Some(ReviewEntry::Skipped))
         );
         for event in [E::StopValidation, E::SkipCheck, E::CodeChanged] {
             assert!(
-                transition(state(Status::Working), event).is_err(),
+                transition(skippable(state(Status::Working)), event).is_err(),
                 "{event:?}"
+            );
+        }
+    }
+
+    /// Skip this check and Move on anyway only on a check the flow marks skippable: the default flow's Validate isn't,
+    /// so both are refused there, saying why.
+    #[test]
+    fn skip_and_move_on_only_on_a_skippable_check() {
+        for (status, event) in [
+            (Status::Checking, E::SkipCheck),
+            (Status::CheckerNeedsYou, E::SkipCheck),
+            (Status::WaitingForLimitReset, E::SkipCheck),
+            (Status::CheckFailed, E::MoveOnAnyway),
+            (Status::CheckNoResult, E::MoveOnAnyway),
+        ] {
+            let place = Place::stage_of(crate::flow::default::VALIDATE);
+            let at = |s: ValidationState<'static>| ValidationState {
+                place: Box::leak(Box::new(place.clone())),
+                ..s
+            };
+            let refused = transition(at(state(status)), event).unwrap_err();
+            assert_eq!(
+                refused.0,
+                "Validate can\u{2019}t be skipped: the flow doesn\u{2019}t mark it skippable",
+                "{status:?} {event:?}"
+            );
+            assert!(
+                transition(at(skippable(state(status))), event).is_ok(),
+                "{status:?} {event:?}"
             );
         }
     }
@@ -2029,7 +1939,7 @@ mod tests {
     #[test]
     fn after_the_last_failed_round() {
         let failed = state(Status::CheckFailed);
-        let t = go(failed, E::MoveOnAnyway);
+        let t = go(skippable(failed), E::MoveOnAnyway);
         assert_eq!(
             (t.to, t.entry),
             (Status::WaitingForYou, Some(ReviewEntry::FailedMoved))
@@ -2055,7 +1965,7 @@ mod tests {
             (t.to, t.start_validator, t.counters),
             (Status::Checking, true, Counters::Keep)
         );
-        let t = go(state(Status::CheckNoResult), E::MoveOnAnyway);
+        let t = go(skippable(state(Status::CheckNoResult)), E::MoveOnAnyway);
         assert_eq!(t.entry, Some(ReviewEntry::Skipped));
         assert!(transition(state(Status::CheckFailed), E::RetryValidation).is_err());
     }
@@ -2116,7 +2026,7 @@ mod tests {
 
     /// T-0417: every check the user moved the card past, in flow order.
     #[test]
-    fn why_the_delivery_waits_for_a_click() {
+    fn the_checks_moved_past() {
         let flow = every_kind();
         assert_eq!(CheckCounts::default().moved_past_reason(&flow), None);
         let counts = CheckCounts(vec![
@@ -2138,7 +2048,21 @@ mod tests {
     /// T-0417 (Q277): Skip this check on a check held for the plan limit; never on a held Agent stage.
     #[test]
     fn skip_on_a_check_held_for_the_limit() {
-        let flow = every_kind();
+        let mut flow = every_kind();
+        let unmarked = flow.clone();
+        for stage in flow.stages.iter_mut().filter(|s| s.id == "security") {
+            stage.options.push(crate::flow::StageOption::Skip);
+        }
+        let place = Place::stage_of("security");
+        let not_skippable = ValidationState {
+            flow: &unmarked,
+            place: &place,
+            status: Status::WaitingForLimitReset,
+            fails: 0,
+            rounds: 2,
+            skips: &[],
+        };
+        assert!(transition(not_skippable, E::SkipCheck).is_err());
         let held = |stage: &str| {
             let place = Place::stage_of(stage);
             transition(

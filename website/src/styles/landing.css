@@ -1169,19 +1169,6 @@ html {
   border-left: 2px solid var(--border);
   padding-left: 10px;
 }
-.lp .agc .sk {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.lp .agc .sk span {
-  font: 11px var(--font-mono);
-  color: var(--text-secondary);
-  background: var(--bg-column);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px;
-}
 .lp .agc .st {
   margin-top: auto;
   padding-top: 4px;

@@ -1,6 +1,6 @@
-//! The stand-in agent tool (`tests/fixtures/stand-in/agent-tool.sh`, T-0487, d0118): it reads its skill folders only
-//! at start, runs a skill it loaded (`RUNS otaq-restack`) and answers any other with `Unknown command: /otaq-x`, so
-//! a hand-off typed before the tool could load its skill shows. See the fixture's README.
+//! The stand-in agent tool (`tests/fixtures/stand-in/agent-tool.sh`, T-0487, d0118, T2): Otaq's own skills come from
+//! its plugin and always run (`RUNS otaq:restack`); the user's project skills are read only at start, and any other
+//! skill answers `Unknown command: /x`. See the fixture's README.
 
 use std::path::{Path, PathBuf};
 

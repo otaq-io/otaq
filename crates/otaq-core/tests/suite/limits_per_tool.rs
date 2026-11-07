@@ -1,7 +1,7 @@
 //! Limits per tool (T-0358, T-0405; USG-10, USG-06, USG-07, AGM-03, ATT-09; d0086, d0108, d0020, d0046, d0018): one
 //! banner line per tool, Resume per tool (only that tool's agents continue, only its holds lift), "This is the usage
-//! limit" per tool, a tool that isn't available (its line and one notification, no needs-you item per ticket), Use
-//! fallback now (the tool's fallback, only on the click), and the limit signal's own reset.
+//! limit" per tool, a tool that isn't available (its line and one notification, no needs-you item per ticket), and the
+//! limit signal's own reset. Only the tool's own agents wait; nothing moves to another tool.
 //!
 //! The tools are stand-ins (scripts printing a version: no tool runs), as in `launch_gate.rs`; `claude` is `sh`
 //! printing its arguments, a Codex launch runs a script that exits at once. Agents stopped mid-turn are `sh`
@@ -17,13 +17,12 @@ use otaq_core::agent_tools::models::{ModelEntry, ModelKind, ModelList};
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::limits::{Situation, ToolLine, ToolLines};
 use otaq_core::agents::{
-    Agent, AgentFields, AgentHold, AgentModel, Agents, FallbackFrom, FixedModels, HoldReason,
-    ModelRef, ToolModel,
+    Agent, AgentFields, AgentHold, AgentModel, Agents, FixedModels, HoldReason, ToolModel,
 };
 use otaq_core::attention::notify::pace::{FakeClock, QUIET};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{EventKind, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
@@ -98,7 +97,6 @@ impl World {
                 &AgentFields {
                     name: agent.name.clone(),
                     instructions: agent.instructions.clone(),
-                    skills: agent.skills.clone(),
                     model,
                     effort: None,
                 },
@@ -159,9 +157,8 @@ impl World {
 
 const ARGS: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
 
-/// Claude Code and Codex connected (stand-ins printing a version): the default model is Claude Code's own. Claude
-/// Code's fallback is Codex · GPT Sol (always the newest), Codex's is Claude Code · sonnet. Project SHOP (`shop-web`,
-/// Developer) and BILL (`billing-api`, "Codex developer" on Codex's default). OS notifications are recorded.
+/// Claude Code and Codex connected (stand-ins printing a version): the default model is Claude Code's own. Project
+/// SHOP (`shop-web`, Developer) and BILL (`billing-api`, "Codex developer" on Codex's default). OS notifications are recorded.
 async fn world() -> World {
     let tools = TempDir::new().unwrap();
     let bin = tools.path().join("bin");
@@ -221,7 +218,6 @@ async fn world() -> World {
         name: "Codex developer".into(),
         role: None,
         instructions: String::new(),
-        skills: vec!["work-ticket".into(), "commit".into()],
         model: "codex".into(),
         why: None,
     }];
@@ -234,18 +230,6 @@ async fn world() -> World {
             ToolModel::Follow("newest:gpt-sol".into()),
         ])),
     );
-    let model = |tool, model: &str| ModelRef {
-        tool,
-        model: Some(model.into()),
-    };
-    rules
-        .set_fallback(A, Some(&model(B, "newest:gpt-sol")))
-        .await
-        .unwrap();
-    rules
-        .set_fallback(B, Some(&model(A, "sonnet")))
-        .await
-        .unwrap();
     // Codex's list, with GPT Sol's newest model.
     let entry = |id: &str, kind, resolves_to: Option<&str>| ModelEntry {
         id: id.into(),
@@ -356,16 +340,11 @@ async fn shell_on(w: &TestService, ticket: &Ticket, tool: Tool) -> String {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
         .unwrap()
         .id
-}
-
-fn refusal(e: &otaq_core::protocol::ErrorBody) -> Option<&str> {
-    e.data.as_ref()?.get("refusal")?.as_str()
 }
 
 fn hit(kind: LimitKind, text: &str) -> LimitHit {
@@ -485,13 +464,6 @@ async fn two_tools_at_their_limits_get_two_lines_and_resume_is_per_tool() {
     );
     assert_eq!((codex.stopped, codex.waiting), (1, 1));
     assert!(!codex.resume_enabled, "a known reset that hasn't come");
-    // Each tool's fallback is at its limit too: Use fallback now can't start them.
-    assert_eq!(
-        claude.fallback.as_ref().map(|f| f.tool),
-        Some(B),
-        "Claude Code's fallback"
-    );
-    assert!(!claude.fallback_can_start && !codex.fallback_can_start);
 
     // Only the tool's own limit-stopped agents are out of Needs you (ATT-09): both are, for now.
     assert!(w.needs_you.list().await.unwrap().items.is_empty());
@@ -515,16 +487,6 @@ async fn two_tools_at_their_limits_get_two_lines_and_resume_is_per_tool() {
     assert_eq!(holds(w, &bill).await[0].reason, HoldReason::ToolLimit);
     let tools: Vec<Tool> = world.lines().await.lines.iter().map(|l| l.tool).collect();
     assert_eq!(tools, [B]);
-    // Codex's line now offers its fallback, Claude Code · sonnet, which can start.
-    let codex = world.line(B).await;
-    assert_eq!(
-        codex.fallback,
-        Some(ModelRef {
-            tool: A,
-            model: Some("sonnet".into())
-        })
-    );
-    assert!(codex.fallback_can_start);
 
     // Needs you: Claude Code's agent raises its item again; Codex's still doesn't.
     w.force_status(&order_email, Status::Idle).await;
@@ -648,8 +610,7 @@ async fn a_tool_that_isnt_available_gets_its_line_and_one_notification() {
         (line.waiting, line.stopped, line.resume_enabled),
         (1, 0, false)
     );
-    // Codex hidden leaves one tool connected: no fallback offered (it reads as M22's banner).
-    assert_eq!(line.fallback, None);
+    // Codex hidden leaves one tool connected: it reads as M22's banner.
     assert!(!world.lines().await.several_tools);
 
     // A second held ticket: the line counts it, no second notification, no needs-you item for either.
@@ -678,166 +639,6 @@ async fn a_tool_that_isnt_available_gets_its_line_and_one_notification() {
         world.recorder.unavailable().len() == 2
     })
     .await;
-    world.w.stop().await;
-}
-
-/// Use fallback now (AGM-03): nothing moves on its own; the click starts every ticket waiting on Claude Code on its
-/// fallback (Codex · GPT Sol, resolved to its newest listed model), saved on each session, and the line counts them;
-/// with the fallback blocked it is refused and nothing moves.
-#[tokio::test(flavor = "multi_thread")]
-async fn use_fallback_now_starts_the_tools_waiting_tickets_on_its_fallback() {
-    let world = world().await;
-    let w = &world.w;
-    w.create("SHOP", "Checkout flow").await;
-    w.create("SHOP", "Update footer links").await;
-    w.create("SHOP", "Order email").await;
-    w.plan_limit
-        .record_hit(
-            A,
-            &hit(LimitKind::Session, "Claude usage limit reached"),
-            now_ms(),
-        )
-        .await
-        .unwrap();
-    for key in ["SHOP-1", "SHOP-2"] {
-        queue(w, key).await;
-    }
-    until_status(w, "SHOP-1", Status::Held).await;
-    until_status(w, "SHOP-2", Status::Held).await;
-    // The line offers the fallback, which can start; nothing moves without the click.
-    let line = world.line(A).await;
-    assert_eq!(
-        (
-            line.fallback.as_ref().map(|f| f.tool),
-            line.fallback_can_start
-        ),
-        (Some(B), true)
-    );
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(w.status("SHOP-1").await, Status::Held);
-    assert_eq!(line.on_fallback, 0);
-
-    let Reply::StartedOnFallback(keys) = world
-        .request(Request::LimitsUseFallbackNow(ToolParams { tool: A }))
-        .await
-        .unwrap()
-    else {
-        panic!("started")
-    };
-    let keys: Vec<String> = keys.iter().map(ToString::to_string).collect();
-    assert_eq!(keys, ["SHOP-1", "SHOP-2"]);
-    for key in ["SHOP-1", "SHOP-2"] {
-        until_started(w, key).await;
-        let t = ticket(w, key).await;
-        // Started on Codex, with GPT Sol resolved to its newest listed model, and the fallback on the session.
-        let (tool, model, from, reason): (
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT tool, model, fallback_from, fallback_reason FROM sessions
-             WHERE ticket_id = ? AND kind = 'agent' ORDER BY started_at DESC",
-        )
-        .bind(&t.id)
-        .fetch_one(w.board.store().pool())
-        .await
-        .unwrap();
-        assert_eq!(tool.as_deref(), Some(B.as_str()), "{key}");
-        assert_eq!(model.as_deref(), Some("gpt-6-sol"), "{key}");
-        assert_eq!(
-            (from.as_deref(), reason.as_deref()),
-            (Some(A.as_str()), Some(HoldReason::ToolLimit.as_str())),
-            "{key}"
-        );
-        let history = w.board.history(key).await.unwrap();
-        assert!(
-            history.iter().any(|e| e.kind == EventKind::FallbackUsed
-                && e.payload["from_tool"] == A.as_str()
-                && e.payload["tool"] == B.as_str()),
-            "{key}: {history:?}"
-        );
-    }
-    until("the line counts them", || async {
-        world.line(A).await.on_fallback == 2
-    })
-    .await;
-    assert_eq!(world.line(A).await.waiting, 0);
-
-    // With Codex hidden the fallback can't start: refused, and a newly held ticket stays waiting.
-    world.hide(B, true).await;
-    queue(w, "SHOP-3").await;
-    until_status(w, "SHOP-3", Status::Held).await;
-    let blocked = world
-        .request(Request::LimitsUseFallbackNow(ToolParams { tool: A }))
-        .await
-        .unwrap_err();
-    assert_eq!(refusal(&blocked), Some("move_refused"), "{blocked:?}");
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(w.status("SHOP-3").await, Status::Held);
-    world.w.stop().await;
-}
-
-/// A tool that isn't available keeps its line for the tickets started on its fallback: "Codex isn't available ·
-/// hidden in Settings · 2 tickets on the fallback", with one notification; nothing moves back once it is back.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_tool_that_isnt_available_keeps_its_line_for_the_tickets_on_its_fallback() {
-    let world = world().await;
-    let w = &world.w;
-    let (first, second) = (world.bill(1), world.bill(2));
-    w.create(&world.bill, "Add coupon codes").await;
-    w.create(&world.bill, "Coupon field").await;
-    world.hide(B, true).await;
-    queue(w, &first).await;
-    queue(w, &second).await;
-    until_status(w, &first, Status::Held).await;
-    until_status(w, &second, Status::Held).await;
-    w.gate.use_fallback_now(B).await.unwrap();
-    until_status(w, &first, Status::Working).await;
-    until_status(w, &second, Status::Working).await;
-    assert!(holds(w, &first).await.is_empty() && holds(w, &second).await.is_empty());
-    let t = ticket(w, &first).await;
-    let session = w
-        .sessions
-        .running_of(&t.id, SessionKind::Agent)
-        .expect("started");
-    assert_eq!(
-        w.sessions.stored(&session.id).await.unwrap().fallback,
-        Some(FallbackFrom {
-            tool: B,
-            reason: HoldReason::ToolUnavailable
-        })
-    );
-
-    // The line stays and says so.
-    until("both counted", || async {
-        world.line(B).await.on_fallback == 2
-    })
-    .await;
-    let line = world.line(B).await;
-    assert!(
-        matches!(&line.situation, Situation::Unavailable { reason, .. } if reason == "hidden in Settings"),
-        "{line:?}"
-    );
-    assert_eq!(line.waiting, 0);
-    // One notification, when the first ticket was held.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let posted = world.recorder.unavailable();
-    assert_eq!(posted.len(), 1, "{posted:?}");
-    assert_eq!(posted[0].0, "Codex isn\u{2019}t available");
-
-    // Codex is back: the line goes (nothing moves back).
-    world.hide(B, false).await;
-    until("the line gone", || async {
-        world.lines().await.lines.iter().all(|l| l.tool != B)
-    })
-    .await;
-    assert_eq!(
-        w.sessions
-            .running_of(&t.id, SessionKind::Agent)
-            .and_then(|s| s.tool),
-        Some(A)
-    );
     world.w.stop().await;
 }
 

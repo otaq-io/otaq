@@ -159,7 +159,7 @@ to each, and only `y` or `yes` counts: Enter means no.
    ```
 
 Then it stops the background service (agents still working are interrupted), removes the worktrees, removes
-Otaq's skill copies from your projects (`.claude/skills/otaq-*`, `.agents/skills/otaq-*`), deletes the data folder
+the skill folders an older version of Otaq left in your projects, deletes the data folder
 (with `~/.otaq/bin`), removes the `# added by Otaq` line from your shell's file (on Windows, the folder from your
 PATH), and prints what it removed and what it kept, for example:
 

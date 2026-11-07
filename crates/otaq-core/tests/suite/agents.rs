@@ -1,6 +1,6 @@
 //! Agents (T-0405; AGM-01, AGM-03, AGM-05; d0108, d0088): a fresh install's agents, the name rules, one agent per
 //! role (delete and role removal refused, the role moved), delete refused while a stage uses an agent, models from
-//! the tool's list with the tool's own effort, skills, the default model and the fallbacks, the flow's names bound to
+//! the tool's list with the tool's own effort, skills, the default model, the flow's names bound to
 //! ids (a rename changes nothing), the holds' store, and the requests (the user's only).
 
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::agents::store::HoldScope;
 use otaq_core::agents::{
     Agent, AgentFields, AgentHold, AgentModel, Agents, CameFrom, FixedModels, HoldReason, Mark,
-    ModelRef, Role, SessionRole, SkillRef, resolve,
+    ModelRef, Role, SessionRole, resolve,
 };
 use otaq_core::board::Refusal;
 use otaq_core::client::{Client, ClientConfig, ClientError};
@@ -37,7 +37,6 @@ fn fields(name: &str, model: AgentModel) -> AgentFields {
     AgentFields {
         name: name.into(),
         instructions: String::new(),
-        skills: vec![SkillRef::Shipped("work-ticket".into())],
         model,
         effort: None,
     }
@@ -95,25 +94,7 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
             ),
         ]
     );
-    let skills = |name: &str| {
-        list.agents
-            .iter()
-            .find(|a| a.name == name)
-            .unwrap()
-            .skills
-            .clone()
-    };
-    let shipped = |names: &[&str]| -> Vec<SkillRef> {
-        names
-            .iter()
-            .map(|n| SkillRef::Shipped((*n).into()))
-            .collect()
-    };
-    assert_eq!(skills("Developer"), shipped(&["work-ticket", "commit"]));
-    assert_eq!(skills("Validator"), shipped(&["validate"]));
-    assert_eq!(skills("Noyan"), shipped(&["noyan", "flow"]));
     assert_eq!(list.default_model, None);
-    assert!(list.fallbacks.is_empty());
 }
 
 /// AGM-01, Q256: names are trimmed and new ignoring case; `skip` and names starting with `_` are refused.
@@ -250,9 +231,9 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
     agents.delete(&spare.id).await.unwrap();
 }
 
-/// AGM-01 with d0130: every check agent an agent check lists is used there, the second as much as the first.
+/// AGM-01: an agent check's one agent is used there, like an Agent stage's; changed to another, the first is free.
 #[tokio::test]
-async fn every_check_agent_is_in_use() {
+async fn a_check_agent_is_in_use() {
     let (f, agents) = world().await;
     let second = agents
         .add(&fields("Performance reviewer", AgentModel::Default))
@@ -261,7 +242,7 @@ async fn every_check_agent_is_in_use() {
     f.board
         .edit_flow_for_tests("SHOP", |file| {
             for stage in file.flow.stages.iter_mut().filter(|s| s.id == "validate") {
-                stage.agents.push("Performance reviewer".into());
+                stage.agent = Some("Performance reviewer".into());
             }
         })
         .await;
@@ -272,11 +253,6 @@ async fn every_check_agent_is_in_use() {
             "Performance reviewer is used in shop-web \u{b7} Validate. Change that stage first."
                 .into()
         )
-    );
-    let validator = named(&agents, "Validator").await;
-    assert_eq!(
-        refusal(agents.delete(&validator.id).await).1,
-        "Validator is used in shop-web \u{b7} Validate. Change that stage first."
     );
 }
 
@@ -332,24 +308,6 @@ async fn models_come_from_the_list_and_effort_only_where_the_tool_has_one() {
     );
 }
 
-/// AGM-01: shipped skills by the names Otaq ships; an imported skill must be one an agent has.
-#[tokio::test]
-async fn skills_are_shipped_ones_or_imported_ones() {
-    let (_f, agents) = world().await;
-    let mut odd = fields("Odd", AgentModel::Default);
-    odd.skills = vec![SkillRef::Shipped("not-a-skill".into())];
-    assert_eq!(refusal(agents.add(&odd).await).0, Refusal::BadSkill);
-    odd.skills = vec![SkillRef::Imported("0199-gone".into())];
-    assert_eq!(refusal(agents.add(&odd).await).0, Refusal::BadSkill);
-    odd.skills = vec![
-        SkillRef::Shipped("work-ticket".into()),
-        SkillRef::Shipped("commit".into()),
-        SkillRef::Shipped("work-ticket".into()),
-    ];
-    let added = agents.add(&odd).await.unwrap();
-    assert_eq!(added.skills.len(), 2, "a skill once");
-}
-
 /// AGT-05: a saved model change clears the mark; a rename doesn't. Duplicate is a draft named "<name> copy".
 #[tokio::test]
 async fn a_model_change_clears_the_mark_and_duplicate_is_a_draft() {
@@ -369,7 +327,6 @@ async fn a_model_change_clears_the_mark_and_duplicate_is_a_draft() {
     .await
     .unwrap();
     let mut page = fields("Builder", AgentModel::Default);
-    page.skills = developer.skills.clone();
     let renamed = agents.edit(&developer.id, &page).await.unwrap();
     assert!(renamed.mark.is_some(), "a rename keeps it");
     page.model = claude(Some("sonnet"));
@@ -379,7 +336,6 @@ async fn a_model_change_clears_the_mark_and_duplicate_is_a_draft() {
     let draft = agents.duplicate(&developer.id).await.unwrap();
     assert_eq!(draft.name, "Builder copy");
     assert_eq!(draft.model, claude(Some("sonnet")));
-    assert_eq!(draft.skills, developer.skills);
 }
 
 /// AGM-01: a rename changes nothing: it follows into every stored flow, so SHOP's Dev stage still runs the renamed
@@ -388,8 +344,7 @@ async fn a_model_change_clears_the_mark_and_duplicate_is_a_draft() {
 async fn a_rename_changes_nothing_for_the_flow() {
     let (f, agents) = world().await;
     let developer = named(&agents, "Developer").await;
-    let mut page = fields("Rust developer", AgentModel::Default);
-    page.skills = developer.skills.clone();
+    let page = fields("Rust developer", AgentModel::Default);
     agents.edit(&developer.id, &page).await.unwrap();
     let t = f.create("Price table").await;
     let running = resolve::session_agent(&f.board, &t, SessionRole::Developer)
@@ -419,10 +374,6 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
         CameFrom::Flow {
             project: "SHOP".into()
         }
-    );
-    assert_eq!(
-        spec_writer.skills,
-        [SkillRef::Shipped("product-spec".into())]
     );
     assert_eq!(
         named(&agents, "Noyan").await.came_from,
@@ -459,20 +410,20 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
         flow::check_agents(&file.flow, |n| names.iter().any(|a| a == n)),
         Ok(())
     );
-    let without_quick: Vec<&String> = names.iter().filter(|n| *n != "Quick developer").collect();
+    let without_rust: Vec<&String> = names.iter().filter(|n| *n != "Rust developer").collect();
     let problems =
-        flow::check_agents(&file.flow, |n| without_quick.iter().any(|a| *a == n)).unwrap_err();
+        flow::check_agents(&file.flow, |n| without_rust.iter().any(|a| *a == n)).unwrap_err();
     assert_eq!(problems.len(), 1);
     assert_eq!(problems[0].stage.as_deref(), Some("dev"));
     assert_eq!(
         problems[0].message,
-        "Dev names the agent Quick developer, which isn't one of your agents"
+        "Dev names the agent Rust developer, which isn't one of your agents"
     );
-    // Deleting an agent a stage option names is refused too.
-    let quick = named(&agents, "Quick developer").await;
+    // Deleting an agent a stage names is refused.
+    let rust = named(&agents, "Rust developer").await;
     assert_eq!(
-        refusal(agents.delete(&quick.id).await).1,
-        "Quick developer is used in shop-web \u{b7} Dev. Change that stage first."
+        refusal(agents.delete(&rust.id).await).1,
+        "Rust developer is used in shop-web \u{b7} Dev. Change that stage first."
     );
     // A flow file that names an agent it doesn't define and nobody has: its stage can't resolve.
     let mut lonely = FlowFile {
@@ -513,11 +464,11 @@ async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
     );
 }
 
-/// AGM-03: the default model and each tool's fallback come from the tools' lists; a fallback is on another tool.
+/// AGM-03: the default model comes from the tool's list.
 #[tokio::test]
-async fn the_default_model_and_the_fallbacks_are_checked() {
+async fn the_default_model_is_checked() {
     let (_f, agents) = world().await;
-    let [a, b] = [Tool::ALL[0], Tool::ALL[1]];
+    let a = Tool::ALL[0];
     let model = |tool, model: &str| ModelRef {
         tool,
         model: Some(model.into()),
@@ -531,25 +482,6 @@ async fn the_default_model_and_the_fallbacks_are_checked() {
         agents.list().await.unwrap().default_model,
         Some(model(a, "haiku"))
     );
-    assert_eq!(
-        refusal(agents.set_fallback(a, Some(&model(a, "sonnet"))).await),
-        (
-            Refusal::BadFallback,
-            "A fallback must be on another tool".into()
-        )
-    );
-    agents
-        .set_fallback(a, Some(&model(b, "opus")))
-        .await
-        .unwrap();
-    let list = agents.list().await.unwrap();
-    assert_eq!(list.fallbacks.len(), 1);
-    assert_eq!(
-        (list.fallbacks[0].tool, &list.fallbacks[0].fallback),
-        (a, &model(b, "opus"))
-    );
-    agents.set_fallback(a, None).await.unwrap();
-    assert!(agents.list().await.unwrap().fallbacks.is_empty());
 }
 
 fn hold(
@@ -562,21 +494,18 @@ fn hold(
         id: uuid::Uuid::now_v7().to_string(),
         ticket_id: ticket.map(str::to_owned),
         project_id: project.map(str::to_owned),
-        check_agent: None,
         role,
         reason,
         tool: Tool::ALL[0],
         model: Some("opus".into()),
         agent_id: None,
-        fallback_tool: None,
-        fallback_held: false,
-        fallback_asked: false,
+        skill: None,
         since: 100,
     }
 }
 
 /// SCH-04 `[M23]`: one hold per ticket (or project) and session role; setting it again replaces it and keeps when it
-/// started while the reason stays, and keeps the user's Use fallback; queries by ticket, tool and reason; clearing
+/// started while the reason stays; queries by ticket, tool and reason; clearing
 /// lifts it.
 #[tokio::test]
 async fn holds_are_one_per_scope_and_role() {
@@ -621,13 +550,10 @@ async fn holds_are_one_per_scope_and_role() {
         .await
         .unwrap();
 
-    // Use fallback on the Developer's hold, then the same role again: replaced, the start and the ask kept while the
-    // reason stays.
-    assert!(store.ask_fallback(&developer.id).await.unwrap());
+    // The same role again: replaced, the start kept while the reason stays.
     developer.id = "another".into();
     developer.since = 900;
-    developer.fallback_tool = Some(Tool::ALL[0]);
-    developer.fallback_held = true;
+    developer.model = Some("sonnet".into());
     store.set_agent_hold(&developer).await.unwrap();
     let held = store.ticket_holds(&shop31.id).await.unwrap();
     assert_eq!(held.len(), 2);
@@ -635,15 +561,7 @@ async fn holds_are_one_per_scope_and_role() {
         .iter()
         .find(|h| h.role == SessionRole::Developer)
         .unwrap();
-    assert_eq!(
-        (
-            dev.since,
-            dev.fallback_tool,
-            dev.fallback_held,
-            dev.fallback_asked
-        ),
-        (100, Some(Tool::ALL[0]), true, true)
-    );
+    assert_eq!((dev.since, dev.model.as_deref()), (100, Some("sonnet")));
     developer.reason = HoldReason::ToolUnavailable;
     store.set_agent_hold(&developer).await.unwrap();
     let held = store.ticket_holds(&shop31.id).await.unwrap();
@@ -701,59 +619,30 @@ async fn holds_are_one_per_scope_and_role() {
             .unwrap()
     );
 
-    // An agent check's holds are per check agent (d0130 row 17): Use fallback asks one, a check agent's scope clears
-    // one, the ticket's clears every one.
-    let mut security = hold(
+    // A check's hold is the ticket's, one per role: a second replaces the first.
+    let first = hold(
         Some(&shop31.id),
         None,
         SessionRole::Validator,
         HoldReason::ToolLimit,
     );
-    security.check_agent = Some("Security reviewer".into());
-    let mut validator = hold(
+    let second = hold(
         Some(&shop31.id),
         None,
         SessionRole::Validator,
-        HoldReason::ToolLimit,
+        HoldReason::ModelUnavailable,
     );
-    validator.check_agent = Some("Validator".into());
-    store.set_agent_hold(&security).await.unwrap();
-    store.set_agent_hold(&validator).await.unwrap();
-    assert!(store.ask_fallback(&security.id).await.unwrap());
-    let checks: Vec<(Option<String>, bool)> = store
+    store.set_agent_hold(&first).await.unwrap();
+    store.set_agent_hold(&second).await.unwrap();
+    let checks: Vec<HoldReason> = store
         .ticket_holds(&shop31.id)
         .await
         .unwrap()
         .into_iter()
         .filter(|h| h.role == SessionRole::Validator)
-        .map(|h| (h.check_agent, h.fallback_asked))
+        .map(|h| h.reason)
         .collect();
-    assert_eq!(
-        checks,
-        [
-            (Some("Security reviewer".into()), true),
-            (Some("Validator".into()), false)
-        ]
-    );
-    let of_validator = HoldScope::Check {
-        ticket: &shop31.id,
-        agent: "Validator",
-    };
-    assert_eq!(
-        store
-            .agent_hold(of_validator, SessionRole::Validator)
-            .await
-            .unwrap()
-            .map(|h| h.id),
-        Some(validator.id.clone())
-    );
-    assert!(
-        store
-            .clear_agent_hold(of_validator, SessionRole::Validator)
-            .await
-            .unwrap()
-    );
-    store.set_agent_hold(&validator).await.unwrap();
+    assert_eq!(checks, [HoldReason::ModelUnavailable]);
     assert!(
         store
             .clear_agent_hold(HoldScope::Ticket(&shop31.id), SessionRole::Validator)
@@ -789,14 +678,13 @@ async fn ask(client: &Client, method: &str, params: Value) -> Result<Reply, Clie
     client.request(request).await
 }
 
-/// The requests (AGM-04's page): list, add, edit, delete refused with the AGM-01 text, a role moved, the default model
-/// and a fallback; each change publishes `agents_changed`; an agent's caller is refused every one of them.
+/// The requests (AGM-04's page): list, add, edit, delete refused with the AGM-01 text, a role moved and the default
+/// model; each change publishes `agents_changed`; an agent's caller is refused every one of them.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_requests_are_the_users() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let ticket = w.create("SHOP", "Price table").await;
-    let key = ticket.key.to_string();
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     let mut events = client.subscribe().await.unwrap();
 
@@ -860,18 +748,6 @@ async fn the_requests_are_the_users() {
             model: None
         })
     );
-    let other = Tool::ALL[1].as_str();
-    let Reply::Agents(list) = ask(
-        &client,
-        "agents.fallback",
-        json!({"tool": tool, "fallback": {"tool": other}}),
-    )
-    .await
-    .unwrap() else {
-        panic!("agents.fallback")
-    };
-    assert_eq!(list.fallbacks.len(), 1);
-
     // A ticket's agent is refused every one.
     let agent = w.agent_shell(&ticket).await;
     for (method, params) in [
@@ -886,13 +762,6 @@ async fn the_requests_are_the_users() {
             json!({"role": "noyan", "agent": strong.id}),
         ),
         ("agents.default_model", json!({"model": {"tool": tool}})),
-        ("agents.fallback", json!({"tool": tool})),
-        (
-            "agents.import_skill",
-            json!({"id": strong.id, "folder": "/tmp/x"}),
-        ),
-        ("limits.use_fallback_now", json!({"tool": tool})),
-        ("ticket.use_fallback", json!({"key": key})),
     ] {
         let mut request = json!({"method": method});
         if !params.is_null() {

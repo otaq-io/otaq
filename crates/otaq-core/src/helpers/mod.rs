@@ -6,8 +6,8 @@
 //! - `otaq helper start <n> --title "<piece>" [--stdin]` ([`Helpers::start`]): the branch `otaq/<KEY>.<n>` from the
 //!   ticket's branch's head and its own worktree `wt/<repo>/<KEY>.<n>` (named after the ticket's, the piece number
 //!   after a dot: "40.3" is how the piece is shown), seeded as a start seeds (d0082: the ticket's own worktree build
-//!   first, else the warm build), the env files and the setup command as a start runs them, its own `$PORT`, the
-//!   agent's skills and the hand-off skills copied (d0118), then a fresh session of the stage's agent on the tool
+//!   first, else the warm build), the env files and the setup command as a start runs them, its own `$PORT` (nothing
+//!   written into its skill folders: Otaq's own skills come from its plugin), then a fresh session of the stage's agent on the tool
 //!   and model the agent in charge runs on (Q513 may add a pick), running the stage's skill (its "As a helper" part)
 //!   followed by "You are the helper for piece 3 of SHOP-40, Wishlist page. …", with `OTAQ_PIECE=3`. The note on stdin is posted as a comment "To 40.3: …". A tool at its limit
 //!   (or not available) holds the helper ("Waiting for limit reset"); it starts once the hold lifts

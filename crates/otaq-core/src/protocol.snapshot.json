@@ -1,5 +1,5 @@
 {
-  "protocol_version": 3,
+  "protocol_version": 9,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -125,10 +125,6 @@
           "ty": "String",
           "required": true
         },
-        "imported": {
-          "ty": "Vec<ImportedSkill>",
-          "omittable": true
-        },
         "instructions": {
           "ty": "String",
           "required": true
@@ -147,10 +143,6 @@
         "role": {
           "ty": "Option<Role>",
           "omittable": true
-        },
-        "skills": {
-          "ty": "Vec<SkillRef>",
-          "required": true
         },
         "updated_at": {
           "ty": "i64",
@@ -270,9 +262,6 @@
         "name": {
           "ty": "String",
           "required": true
-        },
-        "skills": {
-          "ty": "Vec<SkillRef>"
         }
       }
     },
@@ -281,21 +270,6 @@
       "fields": {
         "agent_id": {
           "ty": "Option<String>"
-        },
-        "check_agent": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
-        "fallback_asked": {
-          "ty": "bool"
-        },
-        "fallback_held": {
-          "ty": "bool",
-          "required": true
-        },
-        "fallback_tool": {
-          "ty": "Option<crate::agent_tools::Tool>",
-          "omittable": true
         },
         "id": {
           "ty": "String",
@@ -318,6 +292,9 @@
         "since": {
           "ty": "i64",
           "required": true
+        },
+        "skill": {
+          "ty": "Option<String>"
         },
         "ticket_id": {
           "ty": "Option<String>"
@@ -354,10 +331,6 @@
         },
         "default_model": {
           "ty": "Option<ModelRef>",
-          "omittable": true
-        },
-        "fallbacks": {
-          "ty": "Vec<ToolFallback>",
           "omittable": true
         }
       }
@@ -683,10 +656,6 @@
         "models": {
           "ty": "BTreeMap<String, String>",
           "omittable": true
-        },
-        "skill_folders": {
-          "ty": "BTreeMap<String, String>",
-          "omittable": true
         }
       }
     },
@@ -878,14 +847,6 @@
               "ty": "Option<String>",
               "omittable": true
             },
-            "stage": {
-              "ty": "String",
-              "required": true
-            }
-          }
-        },
-        "skipped_on_its_own": {
-          "fields": {
             "stage": {
               "ty": "String",
               "required": true
@@ -1289,22 +1250,6 @@
         "can_skip_check": {
           "ty": "bool"
         },
-        "can_use_fallback": {
-          "ty": "bool",
-          "required": true
-        },
-        "check_agent": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
-        "fallback": {
-          "ty": "Option<ModelRef>",
-          "omittable": true
-        },
-        "fallback_held": {
-          "ty": "bool",
-          "required": true
-        },
         "model": {
           "ty": "Option<String>"
         },
@@ -1318,6 +1263,10 @@
         "role": {
           "ty": "SessionRole",
           "required": true
+        },
+        "skill": {
+          "ty": "Option<String>",
+          "omittable": true
         },
         "tool": {
           "ty": "crate::agent_tools::Tool",
@@ -1589,48 +1538,6 @@
         },
         "status": {
           "ty": "FileStatus",
-          "required": true
-        }
-      }
-    },
-    "CheckAgentFlag": {
-      "kind": "struct",
-      "fields": {
-        "model": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
-        "name": {
-          "ty": "String",
-          "required": true
-        },
-        "outcome": {
-          "ty": "Option<ValidationOutcome>",
-          "omittable": true
-        },
-        "tool": {
-          "ty": "Option<crate::agent_tools::Tool>",
-          "omittable": true
-        }
-      }
-    },
-    "CheckRoundFlag": {
-      "kind": "struct",
-      "fields": {
-        "again": {
-          "ty": "bool",
-          "omittable": true
-        },
-        "agents": {
-          "ty": "Vec<CheckAgentFlag>",
-          "required": true
-        },
-        "back_in": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
-        "round": {
-          "ty": "u32",
           "required": true
         }
       }
@@ -3102,32 +3009,6 @@
         }
       }
     },
-    "FallbackFrom": {
-      "kind": "struct",
-      "fields": {
-        "reason": {
-          "ty": "HoldReason",
-          "required": true
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
-    },
-    "FallbackParams": {
-      "kind": "struct",
-      "fields": {
-        "fallback": {
-          "ty": "Option<ModelRef>",
-          "omittable": true
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
-    },
     "FeedbackComment": {
       "kind": "struct",
       "fields": {
@@ -3497,14 +3378,6 @@
         "tag=kind"
       ],
       "variants": {
-        "import_skill_folder": {
-          "fields": {
-            "skill": {
-              "ty": "String",
-              "required": true
-            }
-          }
-        },
         "pick_model": {
           "fields": {
             "agent": {
@@ -3544,10 +3417,6 @@
         },
         "check": {
           "ty": "Option<String>",
-          "omittable": true
-        },
-        "check_round": {
-          "ty": "Option<CheckRoundFlag>",
           "omittable": true
         },
         "conflict_files": {
@@ -3600,6 +3469,10 @@
         },
         "messages_waiting": {
           "ty": "u32",
+          "omittable": true
+        },
+        "missing_skill": {
+          "ty": "Option<MissingSkill>",
           "omittable": true
         },
         "moved_past_check": {
@@ -3714,10 +3587,6 @@
         },
         "agents": {
           "ty": "Vec<crate::flow::proposal::AgentChange>",
-          "required": true
-        },
-        "removed_choices": {
-          "ty": "Vec<RemovedChoice>",
           "required": true
         },
         "same": {
@@ -3979,6 +3848,28 @@
         "suggested_key": {
           "ty": "String",
           "required": true
+        }
+      }
+    },
+    "FoundSkill": {
+      "kind": "struct",
+      "fields": {
+        "description": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "otaq": {
+          "ty": "bool"
+        },
+        "places": {
+          "ty": "Vec<SkillPlace>"
+        },
+        "tools": {
+          "ty": "Vec<crate::agent_tools::Tool>"
         }
       }
     },
@@ -4332,6 +4223,7 @@
     "HoldReason": {
       "kind": "strings",
       "values": [
+        "missing_skill",
         "model_unavailable",
         "tool_limit",
         "tool_unavailable"
@@ -4442,48 +4334,6 @@
         "id": {
           "ty": "String",
           "required": true
-        }
-      }
-    },
-    "ImportSkillParams": {
-      "kind": "struct",
-      "fields": {
-        "folder": {
-          "ty": "PathBuf",
-          "required": true
-        },
-        "id": {
-          "ty": "String",
-          "required": true
-        }
-      }
-    },
-    "ImportedSkill": {
-      "kind": "struct",
-      "fields": {
-        "fingerprint": {
-          "ty": "String",
-          "required": true
-        },
-        "id": {
-          "ty": "String",
-          "required": true
-        },
-        "imported_at": {
-          "ty": "i64",
-          "required": true
-        },
-        "name": {
-          "ty": "String",
-          "required": true
-        },
-        "original": {
-          "ty": "String",
-          "required": true
-        },
-        "warnings": {
-          "ty": "Vec<String>",
-          "omittable": true
         }
       }
     },
@@ -5135,6 +4985,19 @@
         }
       }
     },
+    "MissingSkill": {
+      "kind": "struct",
+      "fields": {
+        "skill": {
+          "ty": "String",
+          "required": true
+        },
+        "tool": {
+          "ty": "crate::agent_tools::Tool",
+          "required": true
+        }
+      }
+    },
     "ModelCopy": {
       "kind": "struct",
       "fields": {
@@ -5370,6 +5233,10 @@
         },
         "message": {
           "ty": "Option<QuestionItem>",
+          "omittable": true
+        },
+        "missing_skill": {
+          "ty": "Option<MissingSkill>",
           "omittable": true
         },
         "piece": {
@@ -5662,6 +5529,10 @@
         "name": {
           "ty": "String",
           "required": true
+        },
+        "tool": {
+          "ty": "Option<crate::agent_tools::Tool>",
+          "omittable": true
         }
       }
     },
@@ -6341,10 +6212,6 @@
           "ty": "bool",
           "required": true
         },
-        "now": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "options": {
           "ty": "Vec<PrimeOption>",
           "required": true
@@ -6358,10 +6225,6 @@
     "PrimeContext": {
       "kind": "struct",
       "fields": {
-        "choices": {
-          "ty": "Vec<PrimeChoice>",
-          "omittable": true
-        },
         "comments": {
           "ty": "Vec<TicketComment>",
           "omittable": true
@@ -7591,19 +7454,6 @@
         }
       }
     },
-    "ReimportSkillParams": {
-      "kind": "struct",
-      "fields": {
-        "id": {
-          "ty": "String",
-          "required": true
-        },
-        "skill": {
-          "ty": "String",
-          "required": true
-        }
-      }
-    },
     "RemoteWarning": {
       "kind": "struct",
       "fields": {
@@ -7621,31 +7471,6 @@
         },
         "went_on": {
           "ty": "WentOn",
-          "required": true
-        }
-      }
-    },
-    "RemovedChoice": {
-      "kind": "struct",
-      "fields": {
-        "chose": {
-          "ty": "String",
-          "required": true
-        },
-        "runs": {
-          "ty": "String",
-          "required": true
-        },
-        "stage": {
-          "ty": "String",
-          "required": true
-        },
-        "text": {
-          "ty": "String",
-          "required": true
-        },
-        "tickets": {
-          "ty": "Vec<TicketKey>",
           "required": true
         }
       }
@@ -7976,14 +7801,14 @@
         "skill_write": {
           "newtype": "SkillWrite"
         },
+        "skills": {
+          "newtype": "Vec<FoundSkill>"
+        },
         "stage_ended": {
           "newtype": "StageEnded"
         },
         "stage_files": {
           "newtype": "StageFiles"
-        },
-        "started_on_fallback": {
-          "newtype": "Vec<TicketKey>"
         },
         "startup_report": {
           "newtype": "StartupReport"
@@ -8121,12 +7946,6 @@
         "agents.edit": {
           "newtype": "AgentEditParams"
         },
-        "agents.fallback": {
-          "newtype": "FallbackParams"
-        },
-        "agents.import_skill": {
-          "newtype": "ImportSkillParams"
-        },
         "agents.in_use": {
           "newtype": "IdParams"
         },
@@ -8151,9 +7970,6 @@
         },
         "agents.reads": {
           "newtype": "AgentReadsParams"
-        },
-        "agents.reimport_skill": {
-          "newtype": "ReimportSkillParams"
         },
         "agents.resume": {
           "newtype": "PauseScope"
@@ -8328,9 +8144,6 @@
           "newtype": "HookParams"
         },
         "limits.resume_tool": {
-          "newtype": "ToolParams"
-        },
-        "limits.use_fallback_now": {
           "newtype": "ToolParams"
         },
         "message.answer": {
@@ -8527,6 +8340,9 @@
         "shell.open": {
           "newtype": "ShellOpenParams"
         },
+        "skills.list": {
+          "newtype": "ProjectParams"
+        },
         "ticket.agent_edits": {
           "newtype": "KeyParams"
         },
@@ -8547,6 +8363,9 @@
         },
         "ticket.branch_rename": {
           "newtype": "BranchRenameParams"
+        },
+        "ticket.check_again": {
+          "newtype": "KeyParams"
         },
         "ticket.choices": {
           "newtype": "TicketChoicesParams"
@@ -8724,9 +8543,6 @@
         },
         "ticket.update": {
           "newtype": "TicketUpdateParams"
-        },
-        "ticket.use_fallback": {
-          "newtype": "UseFallbackParams"
         },
         "ticket.validation_action": {
           "newtype": "ValidationActionParams"
@@ -9269,10 +9085,6 @@
     "RunsOnTool": {
       "kind": "struct",
       "fields": {
-        "fallback": {
-          "ty": "Option<FallbackFrom>",
-          "omittable": true
-        },
         "model": {
           "ty": "Option<String>"
         },
@@ -9530,10 +9342,6 @@
           "ty": "Option<i64>",
           "omittable": true
         },
-        "fallback": {
-          "ty": "Option<FallbackFrom>",
-          "omittable": true
-        },
         "id": {
           "ty": "String",
           "required": true
@@ -9621,10 +9429,6 @@
     "SessionTarget": {
       "kind": "struct",
       "fields": {
-        "agent": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "key": {
           "ty": "Option<String>",
           "omittable": true
@@ -9893,6 +9697,10 @@
           "ty": "Option<PathBuf>",
           "omittable": true
         },
+        "missing_in": {
+          "ty": "Option<crate::agent_tools::Tool>",
+          "omittable": true
+        },
         "runs": {
           "ty": "RunsAs",
           "required": true
@@ -9907,15 +9715,36 @@
         }
       }
     },
-    "SkillRef": {
+    "SkillPlace": {
+      "kind": "struct",
+      "fields": {
+        "folder": {
+          "ty": "PathBuf",
+          "required": true
+        },
+        "path": {
+          "ty": "PathBuf",
+          "required": true
+        },
+        "real": {
+          "ty": "Option<PathBuf>",
+          "omittable": true
+        },
+        "scope": {
+          "ty": "SkillScope",
+          "required": true
+        },
+        "tools": {
+          "ty": "Vec<crate::agent_tools::Tool>"
+        }
+      }
+    },
+    "SkillScope": {
       "kind": "enum",
       "variants": {
-        "imported": {
-          "newtype": "String"
-        },
-        "shipped": {
-          "newtype": "String"
-        }
+        "personal": {},
+        "plugin": {},
+        "project": {}
       }
     },
     "SkillWrite": {
@@ -9944,6 +9773,14 @@
       "fields": {
         "agent": {
           "ty": "Option<String>",
+          "omittable": true
+        },
+        "folder": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "made": {
+          "ty": "Vec<String>",
           "omittable": true
         },
         "stage_id": {
@@ -10199,13 +10036,13 @@
         "choice": {
           "ty": "Option<StageChoice>"
         },
+        "held": {
+          "ty": "bool",
+          "omittable": true
+        },
         "locked": {
           "ty": "bool",
           "required": true
-        },
-        "on_its_own": {
-          "ty": "bool",
-          "omittable": true
         },
         "stage": {
           "ty": "String",
@@ -10268,10 +10105,6 @@
     "StageUse": {
       "kind": "struct",
       "fields": {
-        "option": {
-          "ty": "bool",
-          "required": true
-        },
         "project": {
           "ty": "Option<String>"
         },
@@ -10300,6 +10133,7 @@
         "base",
         "env_files",
         "launch",
+        "missing_skill",
         "model",
         "model_unavailable",
         "ports",
@@ -10617,10 +10451,6 @@
     "TerminalParams": {
       "kind": "struct",
       "fields": {
-        "agent": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "key": {
           "ty": "String",
           "required": true
@@ -11200,19 +11030,6 @@
         }
       }
     },
-    "ToolFallback": {
-      "kind": "struct",
-      "fields": {
-        "fallback": {
-          "ty": "ModelRef",
-          "required": true
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
-    },
     "ToolLimits": {
       "kind": "enum",
       "attrs": [
@@ -11230,16 +11047,6 @@
     "ToolLine": {
       "kind": "struct",
       "fields": {
-        "fallback": {
-          "ty": "Option<ModelRef>",
-          "omittable": true
-        },
-        "fallback_can_start": {
-          "ty": "bool"
-        },
-        "on_fallback": {
-          "ty": "u32"
-        },
         "resume_enabled": {
           "ty": "bool",
           "required": true
@@ -11672,19 +11479,6 @@
         }
       }
     },
-    "UseFallbackParams": {
-      "kind": "struct",
-      "fields": {
-        "agent": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
-        "key": {
-          "ty": "String",
-          "required": true
-        }
-      }
-    },
     "UserWorktree": {
       "kind": "struct",
       "fields": {
@@ -11748,6 +11542,10 @@
         "rounds": {
           "ty": "u32",
           "required": true
+        },
+        "stage": {
+          "ty": "Option<CurrentStage>",
+          "omittable": true
         },
         "ticket": {
           "ty": "Ticket",
@@ -12266,6 +12064,10 @@
           "ty": "bool",
           "omittable": true
         },
+        "name": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "project": {
           "ty": "String",
           "required": true
@@ -12283,9 +12085,15 @@
           "ty": "String",
           "required": true
         },
-        "copy": {
-          "ty": "String",
-          "required": true
+        "fingerprint": {
+          "ty": "String"
+        },
+        "folder": {
+          "ty": "String"
+        },
+        "made": {
+          "ty": "Vec<String>",
+          "omittable": true
         },
         "skill": {
           "ty": "String",

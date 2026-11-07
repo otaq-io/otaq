@@ -135,7 +135,7 @@ async fn github_origin_with_gh_logged_in_then_other_remotes() {
 
     // A custom Open PR skill works with any remote.
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, &folder)
+    w.use_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, &folder)
         .await;
     // It is the user's own, shown by its name (REV-11, WSK-08).
     let custom = provider(&w).await;

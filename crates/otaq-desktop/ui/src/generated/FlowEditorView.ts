@@ -15,7 +15,7 @@ export type FlowEditorView = { project: string, from: FlowEditorFrom,
  */
 proposal: number, start_from: FlowEditorStartFrom, flow: FlowEditorFlow, agent: FlowEditorAgent, footer: FlowEditorFooter, 
 /**
- * The picks as Apply sends them: every clash with its pick (Keep mine by default), only the folders and models
+ * The picks as Apply sends them: every clash with its pick (Keep mine by default), only the models
  * still asked for.
  */
 choices: FlowEditorChoices, };

@@ -29,6 +29,21 @@ fn every_kind() -> Flow {
         .flow
 }
 
+/// The default flow with Validate marked skippable: Skip this check and Move on anyway apply on it.
+fn skippable_validate() -> Flow {
+    let mut file = otaq_core::flow::default_file().clone();
+    otaq_core::flow::default::testing::skippable_validate(&mut file);
+    file.flow
+}
+
+/// `flow` with the stage `id` marked skippable.
+fn skippable(mut flow: Flow, id: &str) -> Flow {
+    for stage in flow.stages.iter_mut().filter(|s| s.id == id) {
+        stage.options.push(otaq_core::flow::StageOption::Skip);
+    }
+    flow
+}
+
 fn without_validate() -> Flow {
     let mut flow = default_flow();
     flow.stages.retain(|s| s.id != VALIDATE);
@@ -204,7 +219,18 @@ fn from_validating() {
             Some(RunResult::Passed)
         )
     );
-    let skip = checking(Move::SkipCheck);
+    // Skip this check and Move on anyway only on a check the flow marks skippable: not the default's Validate.
+    assert!(refused(
+        &flow,
+        &stage(VALIDATE),
+        Status::Checking,
+        Move::SkipCheck
+    ));
+    for status in [Status::CheckFailed, Status::CheckNoResult] {
+        assert!(refused(&flow, &stage(VALIDATE), status, Move::MoveOnAnyway));
+    }
+    let marked = skippable_validate();
+    let skip = go(&marked, &stage(VALIDATE), Status::Checking, Move::SkipCheck);
     assert_eq!(
         (skip.place, skip.status, skip.ended, skip.automatic),
         (
@@ -224,7 +250,7 @@ fn from_validating() {
         )
     );
     for status in [Status::CheckFailed, Status::CheckNoResult] {
-        let anyway = go(&flow, &stage(VALIDATE), status, Move::MoveOnAnyway);
+        let anyway = go(&marked, &stage(VALIDATE), status, Move::MoveOnAnyway);
         assert_eq!(
             (anyway.place, anyway.status, anyway.automatic),
             (stage(REVIEW), Status::WaitingForYou, false)
@@ -520,7 +546,8 @@ impl<'f> Card<'f> {
 /// counter.
 #[test]
 fn a_fail_walks_every_later_stage_again() {
-    let flow = every_kind();
+    // Move on anyway past Security: the flow marks it skippable.
+    let flow = skippable(every_kind(), "security");
     let mut card = Card::new(&flow, &[]);
     card.apply(Move::Begin);
     assert_eq!(card.at(), Some("product-spec"));
@@ -616,7 +643,7 @@ fn a_fail_walks_every_later_stage_again() {
 }
 
 /// Product spec skipped (its `skip` option taken): the start goes straight to Dev, and Product spec has a skipped run.
-/// QA skipped too: its Delivery is in click mode (AGM-08).
+/// QA skipped too: its automatic Delivery stays automatic, as the flow says (AGM-08).
 #[test]
 fn a_skipped_stage_gets_a_skipped_run() {
     let flow = every_kind();
@@ -645,8 +672,8 @@ fn a_skipped_stage_gets_a_skipped_run() {
         Some(("qa", RunResult::Skipped))
     );
     assert!(
-        !into_ship.automatic,
-        "QA, a human check, was skipped: the automatic PR Delivery waits for a click (d0108)"
+        into_ship.automatic,
+        "QA, a human check, was skipped: the automatic PR Delivery still delivers by itself"
     );
 }
 
@@ -878,6 +905,13 @@ async fn skipped_and_failed_runs() {
     })
     .await;
     pocket_notes(&w).await;
+    // Skip this check: the flow marks Validate skippable.
+    w.board
+        .edit_flow_for_tests(
+            "NOTE",
+            otaq_core::flow::default::testing::skippable_validate,
+        )
+        .await;
     let t = w.create("NOTE", "Export as CSV").await;
     w.give_worktree(&t).await;
     w.force_status(&t, Status::Idle).await;

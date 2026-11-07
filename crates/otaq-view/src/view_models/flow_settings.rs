@@ -36,7 +36,7 @@ pub struct StageRow {
     pub agent: String,
     /// "Claude Code · sonnet"; none for You and for a name no agent has.
     pub model: Option<String>,
-    /// "Quick developer", "skip"; "—" with none.
+    /// "skip"; "—" with none (a stage lists no agents).
     pub options: String,
 }
 
@@ -234,21 +234,11 @@ pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<Stag
         .iter()
         .enumerate()
         .map(|(i, stage)| {
-            // An agent check's agents on one line, and their models in the same order (d0130).
             let model_of = |name: &str| {
                 find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref()))
             };
             let (agent, model) = match (stage.kind, stage.named_agents().next()) {
                 (StageKind::Check { by: CheckBy::You }, _) => ("You".to_owned(), None),
-                (_, Some(_)) if stage.check_agents().len() > 1 => (
-                    stage.agents_line(),
-                    stage
-                        .check_agents()
-                        .iter()
-                        .map(|n| model_of(n))
-                        .collect::<Option<Vec<_>>>()
-                        .map(|m| m.join(" + ")),
-                ),
                 (_, Some(name)) => (stage.agents_line(), model_of(name)),
                 (_, None) => (NONE.to_owned(), None),
             };
@@ -335,7 +325,7 @@ pub fn kind_line(flow: &Flow, index: usize) -> String {
     parts.join(" \u{b7} ")
 }
 
-/// "Quick developer", "skip", "Quick developer, skip"; "—" with none.
+/// "skip"; "—" with none (a stage lists no agents).
 pub fn options(stage: &Stage) -> String {
     if stage.options.is_empty() {
         return NONE.to_owned();
@@ -559,7 +549,6 @@ mod tests {
                 tool: Tool::Claude,
                 model: Some("sonnet".into()),
             }),
-            fallbacks: Vec::new(),
         }
     }
 
@@ -640,7 +629,7 @@ mod tests {
                     "Agent",
                     "Rust developer",
                     Some("Claude Code \u{b7} sonnet"),
-                    "Quick developer"
+                    "\u{2014}"
                 ),
                 (
                     "Validate",
@@ -652,8 +641,8 @@ mod tests {
                 (
                     "Security",
                     "Check \u{b7} agent \u{b7} 2 rounds",
-                    "Security reviewer + Validator",
-                    Some("Claude Code \u{b7} opus + Codex \u{b7} gpt-5.5"),
+                    "Security reviewer",
+                    Some("Claude Code \u{b7} opus"),
                     "\u{2014}"
                 ),
                 ("QA", "Check \u{b7} you", "You", None, "skip"),
@@ -715,7 +704,6 @@ mod tests {
         let agents = AgentList {
             agents: Vec::new(),
             default_model: None,
-            fallbacks: Vec::new(),
         };
         let (tools, project) = (tools(), project());
         let s = section(&Inputs {

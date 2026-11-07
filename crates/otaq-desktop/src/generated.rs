@@ -204,6 +204,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
     // The stage choices' and the path's gallery (T-0411); their views come with the editor and sheet views.
     otaq_view::view_models::stage_choices::Gallery::export_all(&cfg)?;
+    // Change agent… (a stage waiting for its tool): its request and its dialog.
+    crate::api::SheetChangeAgentParams::export_all(&cfg)?;
+    otaq_view::view_models::stage_choices::ChangeAgentDialog::export_all(&cfg)?;
     // The Files tab (T-0468): the tab, the tree, the search, All changes, a file, its diff's lines, the review notes,
     // the comments and the review bar; then the requests' own types.
     crate::api::FilesLoad::export_all(&cfg)?;

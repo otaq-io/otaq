@@ -1,7 +1,7 @@
 // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04, AGT-05's marks; d0108, d0078, d0086, d0092; *15 → Agents
-// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents, the fallback per tool and the list (NAME · MODEL · SKILLS · USED IN, each row's ⋯
+// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents and the list (NAME · MODEL · USED IN, each row's ⋯
 // Duplicate / Delete…); and one agent's page in the same place (← name, its Model with the tool's effort, its Role, its
-// Instructions in the Markdown editor, its Skills with Import skill folder… and Re-import, Used in). Everything comes
+// Instructions in the Markdown editor, Used in). An agent has no skill list (T7). Everything comes
 // from the views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is
 // open, the open menu and dialog, and the text being typed until it is saved.
 import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -28,8 +28,6 @@ import type { AgentPage } from "../../generated/AgentPage";
 import type { AgentPageParams } from "../../generated/AgentPageParams";
 import type { AgentReadsTarget } from "../../generated/AgentReadsTarget";
 import type { AgentReadsView } from "../../generated/AgentReadsView";
-import type { AgentSkillDialog } from "../../generated/AgentSkillDialog";
-import type { AgentSkillRow } from "../../generated/AgentSkillRow";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { RequestError } from "../../generated/RequestError";
@@ -45,7 +43,7 @@ import {
   useSourceMode,
 } from "../../markdown";
 import { asRequestError, watchView } from "../../service";
-import { pickFolder, request } from "../../tauri";
+import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { useSelection } from "../../app/selection";
 import { AgentReadsBody, AgentReadsHeading } from "./AgentReads";
@@ -82,22 +80,6 @@ export function optionItems(options: readonly AgentOption[]): MenuItem[] {
     hint: null,
     separated: false,
     checked: o.selected,
-    header: false,
-  }));
-}
-
-/** The shipped skills Add skill offers, as menu rows. */
-export function skillItems(names: readonly string[]): MenuItem[] {
-  return names.map((name) => ({
-    id: name,
-    label: name,
-    icon: null,
-    shortcut: null,
-    danger: false,
-    disabled: false,
-    hint: null,
-    separated: false,
-    checked: false,
     header: false,
   }));
 }
@@ -154,7 +136,6 @@ export interface AgentsActions {
   onOpen: (params: AgentPageParams) => void;
   onMenu: (id: string, action: string) => void;
   onDefaultModel: (pick: ModelPick) => void;
-  onFallback: (tool: string, pick: ModelPick) => void;
 }
 
 function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
@@ -179,13 +160,6 @@ function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
       </span>
       <span className="settings-agents-model" role="cell" data-marked={row.mark ? true : undefined}>
         {row.model}
-      </span>
-      <span className="settings-agents-skills" role="cell">
-        {row.skills.map((skill) => (
-          <code key={skill} className="settings-agents-skill">
-            {skill}
-          </code>
-        ))}
       </span>
       <span className="settings-agents-use" role="cell">
         {row.used_in}
@@ -216,7 +190,7 @@ function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
   );
 }
 
-/** The Agents page as the view says (`s15-58`): default model, fallbacks, the list. */
+/** The Agents page as the view says (`s15-58`): default model, the list. */
 /** Rows the skeleton draws for the agents list. */
 const SKELETON_ROWS = 4;
 
@@ -226,7 +200,7 @@ export function AgentsSkeleton() {
     <section className="settings-section settings-agents settings-agents-skeleton" aria-busy="true">
       <span className="settings-skeleton-bar settings-skeleton-intro" />
       <div className="settings-agents-settings">
-        {[0, 1].map((i) => (
+        {[0].map((i) => (
           <div key={i} className="settings-agents-setting">
             <span className="settings-row-text">
               <span className="settings-skeleton-bar settings-skeleton-label" />
@@ -239,7 +213,7 @@ export function AgentsSkeleton() {
       <div className="settings-agents-table">
         {Array.from({ length: SKELETON_ROWS + 1 }, (_, i) => (
           <div key={i} className="settings-agents-row">
-            {[0, 1, 2, 3].map((c) => (
+            {[0, 1, 2].map((c) => (
               <span key={c} className="settings-skeleton-bar" />
             ))}
           </div>
@@ -273,28 +247,6 @@ export function AgentsSectionBody({
             />
           </span>
         </div>
-        {section.fallbacks && (
-          <div className="settings-agents-setting">
-            <span className="settings-row-text">
-              <span className="settings-row-label">{section.fallbacks.label}</span>
-              <span className="settings-row-description">{section.fallbacks.description}</span>
-            </span>
-            <span className="settings-agents-fallbacks">
-              {section.fallbacks.lines.map((line) => (
-                <span key={line.tool} className="settings-agents-fallback-line">
-                  <span>{line.label}</span>
-                  <ModelDropdown
-                    label={line.label}
-                    dropdown={line.dropdown}
-                    onPick={(pick) => {
-                      actions.onFallback(line.tool, pick);
-                    }}
-                  />
-                </span>
-              ))}
-            </span>
-          </div>
-        )}
       </div>
       <div className="settings-agents-table" role="table" aria-label={section.title}>
         <div className="settings-agents-row settings-agents-head" role="row">
@@ -318,64 +270,7 @@ export interface PageActions {
   onRole: (role: string) => void;
   onAdd: (name: string, instructions: string) => void;
   onCancel: () => void;
-  onImport: () => void;
-  onReimport: (skill: string) => void;
   onRetry: (tool: string) => void;
-}
-
-/** One skill: its name in mono, where an imported one came from, its warnings, Re-import (asks first) and Remove. */
-function SkillLine({ row, actions }: { row: AgentSkillRow; actions: PageActions }) {
-  const [asking, setAsking] = useState<AgentSkillDialog | null>(null);
-  return (
-    <div className="settings-agent-skill">
-      <Icon name="folder" size={14} />
-      <span className="settings-agent-skill-text">
-        <span className="settings-agent-skill-line">
-          <code className="settings-agent-skill-name">{row.name}</code>
-          {row.source !== null && <span className="settings-agent-skill-source">{row.source}</span>}
-        </span>
-        {row.warnings.map((w) => (
-          <span key={w} className="settings-agent-skill-warning">
-            <Icon name="triangle-alert" size={12} />
-            <span>{w}</span>
-          </span>
-        ))}
-      </span>
-      {row.reimport !== null && (
-        <Button
-          variant="secondary"
-          compact
-          icon="refresh-cw"
-          label={row.reimport_label}
-          onClick={() => {
-            setAsking(row.reimport);
-          }}
-        />
-      )}
-      <IconButton
-        icon="x"
-        label={`${row.remove_label} ${row.name}`}
-        onClick={() => {
-          actions.onChange({ field: "remove_skill", value: row.key });
-        }}
-      />
-      {asking && (
-        <ConfirmDialog
-          title={asking.title}
-          body={asking.text}
-          confirmLabel={asking.confirm}
-          cancelLabel={asking.cancel}
-          onConfirm={() => {
-            setAsking(null);
-            if (row.reimport_id !== null) actions.onReimport(row.reimport_id);
-          }}
-          onCancel={() => {
-            setAsking(null);
-          }}
-        />
-      )}
-    </div>
-  );
 }
 
 /** One agent's page (`s15-58` "One agent", "Giving a role to another agent"). Name and instructions are typed here and
@@ -514,33 +409,6 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
         }}
       />
 
-      <span className="settings-agent-label">{page.skills.label}</span>
-      <div className="settings-agent-skills">
-        {page.skills.rows.map((row) => (
-          <SkillLine key={row.key} row={row} actions={actions} />
-        ))}
-      </div>
-      {page.skills.problem !== null && <span className="settings-agent-problem">{page.skills.problem}</span>}
-      <span className="settings-agent-skill-buttons">
-        {page.skills.import_label !== null && (
-          <Button
-            variant="secondary"
-            icon="folder-input"
-            label={page.skills.import_label}
-            onClick={actions.onImport}
-          />
-        )}
-        {page.skills.add_options.length > 0 && (
-          <AddSkill
-            label={page.skills.add_label}
-            options={page.skills.add_options}
-            onAdd={(skill) => {
-              actions.onChange({ field: "add_skill", value: skill });
-            }}
-          />
-        )}
-      </span>
-
       {page.used_in && (
         <>
           <span className="settings-agent-label">{page.used_in.label}</span>
@@ -620,48 +488,6 @@ function Instructions({
           }
         : {})}
     />
-  );
-}
-
-/** Add skill: a button that opens the shipped skills the agent doesn't have. */
-function AddSkill({
-  label,
-  options,
-  onAdd,
-}: {
-  label: string;
-  options: readonly string[];
-  onAdd: (skill: string) => void;
-}) {
-  const button = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <Button
-        ref={button}
-        variant="secondary"
-        icon="plus"
-        label={label}
-        onClick={() => {
-          setOpen((o) => !o);
-        }}
-      />
-      {open && (
-        <AnchoredMenu
-          anchor={button}
-          align="start"
-          label={label}
-          items={skillItems(options)}
-          onChoose={(id) => {
-            setOpen(false);
-            onAdd(id);
-          }}
-          onClose={() => {
-            setOpen(false);
-          }}
-        />
-      )}
-    </>
   );
 }
 
@@ -825,9 +651,6 @@ export function AgentsSection() {
     onDefaultModel: (pick) => {
       if (pick) listed(request("settings.agents_default_model", pick));
     },
-    onFallback: (tool, fallback) => {
-      listed(request("settings.agents_fallback", { tool, fallback }));
-    },
   };
 
   const pageActions = (p: AgentPage): PageActions => ({
@@ -851,16 +674,6 @@ export function AgentsSection() {
       }, failed);
     },
     onCancel: back,
-    onImport: () => {
-      const id = p.id;
-      if (id === null) return;
-      void pickFolder(p.skills.picker_title).then((folder) => {
-        if (folder !== null) show(request("settings.agent_import", { id, folder }));
-      }, failed);
-    },
-    onReimport: (skill) => {
-      if (p.id !== null) show(request("settings.agent_reimport", { id: p.id, skill }));
-    },
     onRetry: (tool) => {
       request("settings.agents_models_retry", { tool }).then(() => {
         open({ id: p.id, duplicate: null, draft: p.id === null ? p.draft : null, change: null });

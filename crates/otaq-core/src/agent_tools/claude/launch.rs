@@ -5,13 +5,13 @@
 //! ```text
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
 //! claude --plugin-dir <otaq plugin>/claude --allowedTools "Bash(otaq:*)" --settings <status-line settings>
-//!        --session-id <uuid> "/otaq-work-ticket"
+//!        --session-id <uuid> "/otaq:work-ticket"
 //! ```
 //!
-//! `<otaq plugin>/claude` is Otaq's Claude Code plugin with its hooks only: Claude Code always loads a plugin's
-//! `skills/` folder too (the plugin manifest reference, code.claude.com/docs/en/plugins-reference: "`skills` … Adds
-//! to the default `skills/` scan"), so the shipped skills live outside it and reach the agent as copies in its
-//! working folder, `.claude/skills/otaq-<name>/`, run as `/otaq-<name>` (AGM-07).
+//! `<otaq plugin>/claude` is Otaq's Claude Code plugin: its hooks and its `skills/` folder, which Claude Code loads
+//! with the plugin (the plugin manifest reference, code.claude.com/docs/en/plugins-reference). Otaq's own skills reach
+//! every session from its start that way and run as `/otaq:<name>`; the user's skills are Claude Code's to find, by
+//! their own names (`/<name>`). Otaq writes no skill into the working folder (T2).
 //!
 //! **No permission mode or other permission flag**: the user's own Claude Code settings apply (d0011). The only
 //! pre-approval is `Bash(otaq:*)`. `--settings` points at Otaq's file in its data folder whose only key is
@@ -52,7 +52,7 @@ impl ClaudeLaunch {
 }
 
 /// The folder of Otaq's Claude Code plugin (its hooks) inside Otaq's plugin folder.
-const PLUGIN_FOLDER: &str = "claude";
+pub(crate) const PLUGIN_FOLDER: &str = "claude";
 
 /// The plugin folder: `<bin>/plugin` (a runtime copy, UPD-02), `<bin>/../share/otaq/plugin`,
 /// `<bin>/../Resources/plugin` (`Otaq.app`, d0072), `<bin>/../lib/Otaq/plugin` (where Tauri puts a Linux `.deb`'s and
@@ -90,9 +90,9 @@ pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
     })
 }
 
-/// A skill as Claude Code runs a project skill: `/otaq-work-ticket` (AGM-07).
+/// A skill as Claude Code runs it: Otaq's own from its plugin as `/otaq:work-ticket`, the user's as `/team-validate`.
 pub(super) fn skill_reference(skill: &str) -> String {
-    format!("/{}", naming::copy_name(skill))
+    crate::agent_tools::namespaced_reference("/", skill)
 }
 
 /// A command line, which the adapter turns into its [`crate::agent_tools::LaunchPlan`].
@@ -168,9 +168,9 @@ pub(super) fn launch_validator(
 }
 
 /// A new Project agent (PAG-01, d0068): a conversation in the project's own folder (the user's checkout) with
-/// `/otaq-noyan` as its first prompt and the Project agent role in its environment. No ticket, no
+/// `/otaq:noyan` as its first prompt and the Project agent role in its environment. No ticket, no
 /// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011). The adapter
-/// puts the user's first message after the skill (`/otaq-noyan <message>`, d0087).
+/// puts the user's first message after the skill (`/otaq:noyan <message>`, d0087).
 pub(super) fn launch_project_agent(
     ctx: &LaunchContext,
     repo: &Path,
@@ -235,7 +235,7 @@ pub(super) fn resume_agent(
 }
 
 /// Like [`resume_agent`], with a first prompt for the resumed conversation: the skill a Send back or Send to
-/// agent to fix asked for (`claude --resume <id> "/otaq-address-review"`), so it runs as soon as the
+/// agent to fix asked for (`claude --resume <id> "/otaq:address-review"`), so it runs as soon as the
 /// conversation is loaded instead of being typed into a terminal that may not be ready yet.
 pub(super) fn resume_agent_with(
     ctx: &LaunchContext,
@@ -406,7 +406,7 @@ mod tests {
                 settings.display().to_string(),
                 "--session-id".to_owned(),
                 cmd.tool_session_id.clone(),
-                format!("/{}-noyan", naming::COMMAND_NAME),
+                format!("/{}:noyan", naming::PLUGIN_NAMESPACE),
             ]
         );
         assert!(!cmd.args.iter().any(|a| a.contains("permission")));
@@ -466,7 +466,7 @@ mod tests {
                 "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
                 "--session-id".to_owned(),
                 session,
-                format!("/{}-work-ticket", naming::COMMAND_NAME),
+                format!("/{}:work-ticket", naming::PLUGIN_NAMESPACE),
             ]
         );
         assert_eq!(cmd.cwd, Path::new("/wt/shop-web/SHOP-18"));
@@ -725,7 +725,7 @@ mod tests {
         }
 
         fn otaq_skill(name: &str) -> String {
-            format!("/{}", naming::copy_name(name))
+            format!("/{}:{name}", naming::PLUGIN_NAMESPACE)
         }
 
         #[test]

@@ -163,7 +163,7 @@ pub enum Way {
     Back,
     /// The first stage it runs after the place.
     Next,
-    /// A later stage: the stages between are skipped by you, a Delivery then waits for a click.
+    /// A later stage: the stages between are skipped by you; a Delivery then does what the flow says.
     Forward,
 }
 

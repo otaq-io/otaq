@@ -169,9 +169,6 @@ pub struct SessionInfo {
     /// The tool's effort level passed at launch (AGM-01); `None` when none was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// It runs on its tool's fallback, by the user's click (AGM-03): the tool it would have run on and why.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<crate::agents::FallbackFrom>,
     /// The exact model the tool reported running (`claude-opus-5-5`), the first one it reported; `None` until it
     /// does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -428,8 +425,6 @@ pub struct SpawnSpec {
     pub agent: Option<SessionAgent>,
     /// The tool's effort level passed (AGM-01).
     pub effort: Option<String>,
-    /// It runs on its tool's fallback (AGM-03).
-    pub fallback: Option<crate::agents::FallbackFrom>,
     /// The theme the session is told (`COLORFGBG`, the colour answers; d0117 point 4): an agent's launch read it
     /// ([`crate::agent_tools::Launched::theme`]); `None` reads the theme in use now (Shell, Run, terminals).
     pub theme: Option<Theme>,
@@ -654,9 +649,6 @@ struct Live {
     project_agent: Option<String>,
     /// The ticket agent the session's processes act for (agents run the app): set for a Run an agent started.
     acting_for: Option<ActingFor>,
-    /// The skill copies in its folder when it started (`otaq-address-review`…), once
-    /// [`Sessions::set_started_skills`] said so (d0118): its tool read those, and only those, at its start.
-    started_skills: Mutex<Vec<String>>,
     pid: Option<u32>,
     /// The program and what it started, stopped together.
     group: crate::process::Group,
@@ -900,7 +892,6 @@ impl Sessions {
             model: spec.model.clone(),
             agent: spec.agent.clone(),
             effort: spec.effort.clone(),
-            fallback: spec.fallback.clone(),
             model_ran: None,
             size: Some(spec.size),
         };
@@ -912,8 +903,8 @@ impl Sessions {
         if stored {
             sqlx::query(
                 "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, model, state, started_at,
-                                       agent_id, agent_name, effort, fallback_from, fallback_reason, project_agent_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                       agent_id, agent_name, effort, project_agent_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&info.id)
             .bind(&spec.project_id)
@@ -927,8 +918,6 @@ impl Sessions {
             .bind(info.agent.as_ref().map(|a| &a.id))
             .bind(info.agent.as_ref().map(|a| &a.name))
             .bind(&info.effort)
-            .bind(info.fallback.as_ref().map(|f| f.tool.as_str()))
-            .bind(info.fallback.as_ref().map(|f| f.reason.as_str()))
             .bind(&project_agent)
             .execute(self.inner.store.pool())
             .await
@@ -969,7 +958,6 @@ impl Sessions {
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
             project_agent,
             acting_for,
-            started_skills: Mutex::new(Vec::new()),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
             killer: Mutex::new(child.clone_killer()),
@@ -1276,29 +1264,6 @@ impl Sessions {
             })
     }
 
-    /// Records the skill copies (`otaq-work-ticket`, `otaq-address-review`…) written into the session's folder right
-    /// before it started (d0118). In memory only: a restart relaunches the session, which copies them again.
-    pub fn set_started_skills(&self, id: &str, copies: Vec<String>) -> Result<(), SessionError> {
-        *self
-            .live(id)?
-            .started_skills
-            .lock()
-            .expect("session skills") = copies;
-        Ok(())
-    }
-
-    /// Whether the session started with the skill copy `copy` (`otaq-restack`) in its folder: only then can its
-    /// tool run it by name (d0118). A session nothing was recorded for started with none.
-    pub fn started_with_skill(&self, id: &str, copy: &str) -> bool {
-        self.live(id).is_ok_and(|live| {
-            live.started_skills
-                .lock()
-                .expect("session skills")
-                .iter()
-                .any(|c| c == copy)
-        })
-    }
-
     /// Every process running inside the session's tree ([`crate::process::tree`]); on Windows also what its job holds
     /// that the parent chain lost (Git Bash's `exec` starts a new process and ends the old). Empty for a session that
     /// isn't running.
@@ -1413,8 +1378,7 @@ impl Sessions {
         Some((info, output.scrollback.contents().0, output.size))
     }
 
-    /// The session `id`'s kept output and its terminal's size, while it is in memory (running or just ended): one
-    /// check agent's of several (d0130 row 17).
+    /// The session `id`'s kept output and its terminal's size, while it is in memory (running or just ended).
     pub fn output_of_session(&self, id: &str) -> Option<(SessionInfo, Vec<u8>, TerminalSize)> {
         let live = self.live(id).ok()?;
         let info = live.info.lock().expect("session info").clone();
@@ -1426,8 +1390,7 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
-                    s.fallback_from, s.fallback_reason
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -1528,7 +1491,6 @@ impl Sessions {
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
                     s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
-                    s.fallback_from, s.fallback_reason,
                     t.number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
@@ -1891,8 +1853,6 @@ struct SessionRow {
     agent_name: Option<String>,
     model_ran: Option<String>,
     effort: Option<String>,
-    fallback_from: Option<String>,
-    fallback_reason: Option<String>,
 }
 
 impl SessionRow {
@@ -1911,10 +1871,6 @@ impl SessionRow {
             model: self.model,
             agent: SessionAgent::of_columns(self.agent_id, self.agent_name),
             effort: self.effort,
-            fallback: crate::agents::store::fallback_of(
-                self.fallback_from.as_deref(),
-                self.fallback_reason.as_deref(),
-            ),
             model_ran: self.model_ran,
             size: None,
         })

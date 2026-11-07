@@ -23,7 +23,6 @@ import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
 import { closeTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { CheckRoundRows } from "../../cards";
 import {
   AnchoredMenu,
   IconButton,
@@ -293,9 +292,10 @@ function FlowPath({ steps }: { steps: readonly SheetStep[] }) {
             data-attention={step.attention || undefined}
             aria-current={step.state === "current" ? "step" : undefined}
           >
-            <span className="sheet-step-node">
+            <span className="sheet-step-node" title={step.state === "skipped" ? "Skipped" : undefined}>
               {step.state === "done" && <Icon name="check" size={11} />}
               {step.state === "current" && <span className="sheet-step-dot" />}
+              {step.state === "skipped" && <Icon name="skip-forward" label="Skipped" size={10} />}
             </span>
             <span className="sheet-step-name">{step.stage}</span>
           </li>
@@ -375,13 +375,6 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
         </div>
         <Details view={view} />
         <FlowPath steps={sheet.steps} />
-        {view.check_round !== null && (
-          // A Check stage with several check agents (d0130, `s29-04`): the round and each agent's state.
-          <div className="sheet-check-round">
-            <span className="sheet-check-round-title">{view.check_round.title}</span>
-            <CheckRoundRows round={view.check_round} />
-          </div>
-        )}
         <div className="sheet-tabs">
           <Tabs
             label={view.key}

@@ -101,7 +101,7 @@ pub enum Move {
     NextStage,
     /// The board's move for the user's Move to next stage when no agent check comes next (an agent check runs
     /// through `NextStage`, d0108 rule 10): to the next stage, any agent checks walked over counting as skipped
-    /// (d0052; never delivered automatically).
+    /// (d0052).
     SubmitByUser,
     /// An agent check's `pass`.
     Pass,
@@ -161,8 +161,8 @@ pub struct At<'f, 'a> {
     pub fails: u32,
     /// The current agent check's limit ([`rounds_of`]).
     pub rounds: u32,
-    /// The stages this ticket skips: its choices of `skip` and the checks it skips on its own
-    /// ([`crate::board::Board::ticket_skips`], AGM-08, 0129 row 4).
+    /// The stages this ticket skips: its choices of `skip` ([`crate::board::Board::ticket_skips`], AGM-08); nothing
+    /// is skipped on its own.
     pub skips: &'a [String],
 }
 
@@ -199,15 +199,7 @@ fn skips(stage: &Stage, skips: &[String]) -> bool {
     stage.can_skip() && !stage.is_delivery() && skips.contains(&stage.id)
 }
 
-/// The ticket skips a human check of the flow: its Delivery is then in click mode (d0108: "a ticket that skipped a
-/// human check this way always reaches Delivery in click mode").
-fn skips_a_human_check(flow: &Flow, skipping: &[String]) -> bool {
-    flow.stages
-        .iter()
-        .any(|s| s.is_human_check() && skips(s, skipping))
-}
-
-/// The Agent stages before the stage at `index` when the ticket runs none of them (0129 row 4): it skips each by its
+/// The Agent stages before the stage at `index` when the ticket runs none of them: it skips each by its
 /// choices (`skips`) and none has run (`ran`: the stages with a run that wasn't skipped, as a drag back into a skipped
 /// stage runs it once). `None` when one of them runs, or no Agent stage comes before.
 pub fn nothing_runs_before<'f>(
@@ -225,25 +217,6 @@ pub fn nothing_runs_before<'f>(
             .iter()
             .all(|s| self::skips(s, skips) && !ran.contains(&s.id));
     none_runs.then_some(before)
-}
-
-/// The skippable human checks a ticket skips on its own (0129 row 4, "Spec review skipped · nothing before it
-/// runs"): nothing before them runs ([`nothing_runs_before`]). `kept`: the checks the ticket chose to run
-/// ("Spec review=required"), which never skip on their own. The board adds them to the ticket's skips
-/// ([`crate::board::Board::ticket_skips`]), so the walk passes them as it passes the stages the ticket chose to skip.
-pub fn skipped_on_its_own<'f>(
-    flow: &'f Flow,
-    skips: &[String],
-    ran: &[String],
-    kept: &[String],
-) -> Vec<&'f Stage> {
-    flow.stages
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| s.is_human_check() && s.can_skip() && !kept.contains(&s.id))
-        .filter(|(i, _)| nothing_runs_before(flow, *i, skips, ran).is_some())
-        .map(|(_, s)| s)
-        .collect()
 }
 
 /// What a ticket's agent-check counters do.
@@ -364,10 +337,17 @@ pub fn fail_to<'f>(flow: &'f Flow, check: &str, skips: &[String]) -> Option<&'f 
     }
 }
 
-/// The first Agent stage the ticket runs: where a start takes it, and the stages it skips before it.
+/// The first Agent stage the ticket runs: where its first agent session starts, and the stages before it.
 pub fn first_stage<'f>(flow: &'f Flow, skips: &[String]) -> (Vec<&'f Stage>, Option<&'f Stage>) {
     // Ready for Dev waits before the first Agent stage the ticket runs (checks never come before one, STG-02).
     walk(flow, skips, None, |s| !s.is_agent_stage())
+}
+
+/// Where a start from Ready takes the ticket, and the stages it walks over: the first stage it doesn't skip, an Agent
+/// stage or a human check (an agent check has no work to check before an Agent stage ran). Nothing is skipped on its
+/// own: a ticket that skips every Agent stage before a skippable human check waits in that check.
+pub fn first_entered<'f>(flow: &'f Flow, skips: &[String]) -> (Vec<&'f Stage>, Option<&'f Stage>) {
+    walk(flow, skips, None, Stage::is_agent_check)
 }
 
 /// Where a status written by the validation's own bookkeeping belongs, from the stage the ticket is in: a check's
@@ -420,10 +400,10 @@ fn enter<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>)
                 Some(stage),
             );
             step.start_check = stage.is_agent_check();
+            // The Delivery does what the flow says: a skipped check never turns it into a click.
             step.automatic = stage
                 .delivery
-                .is_some_and(|d| d.mode == DeliveryMode::Automatic)
-                && !skips_a_human_check(at.flow, at.skips);
+                .is_some_and(|d| d.mode == DeliveryMode::Automatic);
             step
         }
     };
@@ -498,6 +478,23 @@ fn checking(status: Status) -> bool {
     matches!(status, Status::Checking | Status::CheckerNeedsYou)
 }
 
+/// The user may move a card past the check it stands in (Skip this check, Move on anyway) only when the flow marks
+/// that check skippable (`options: [skip]`); elsewhere the user waits, picks another agent or sends the ticket back.
+pub fn user_may_move_past(flow: &Flow, place: &Place) -> bool {
+    place
+        .stage()
+        .and_then(|id| flow.stage(id))
+        .is_some_and(|stage| stage.is_agent_check() && stage.can_skip())
+}
+
+/// Why Skip this check or Move on anyway is refused on `stage`.
+pub fn not_skippable(stage: &Stage) -> NotNow {
+    NotNow(format!(
+        "{} can\u{2019}t be skipped: the flow doesn\u{2019}t mark it skippable",
+        stage.name
+    ))
+}
+
 /// What `mv` does where `at` stands.
 pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
     let not_now = || {
@@ -515,6 +512,14 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
         let (skipped, next) = walk(at.flow, at.skips, at.index(), also_skip);
         move_on(&at, skipped, next)
     };
+    // Skip this check and Move on anyway take the card past its check: only one the flow marks skippable.
+    if matches!(mv, Move::SkipCheck | Move::MoveOnAnyway)
+        && agent_check
+        && let Some(stage) = current
+        && !stage.can_skip()
+    {
+        return Err(not_skippable(stage));
+    }
     Ok(match mv {
         Move::Start if at.place.is_backlog() => {
             Step::to(&at, Place::Waiting(None), Status::Queued, None)
@@ -522,7 +527,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
         Move::Begin if at.place.is_waiting() => {
             let target = match at.place {
                 Place::Waiting(Some(id)) => (Vec::new(), at.flow.stage(id)),
-                _ => first_stage(at.flow, at.skips),
+                _ => first_entered(at.flow, at.skips),
             };
             match target {
                 (skipped, Some(stage)) => enter(&at, skipped, Some(stage)),
@@ -533,9 +538,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             forward(&|_| false).ended(RunResult::Done)
         }
         Move::SubmitByUser if is(StageKind::Agent) && agent_works(at.status) => {
-            let mut step = forward(&|s: &Stage| s.is_agent_check()).ended(RunResult::Done);
-            step.automatic = false;
-            step
+            forward(&|s: &Stage| s.is_agent_check()).ended(RunResult::Done)
         }
         Move::Pass if agent_check && checking(at.status) => forward(&|_| false)
             .ended(RunResult::Passed)
@@ -564,16 +567,12 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
             step
         }
         Move::SkipCheck if agent_check && checking(at.status) => {
-            let mut step = forward(&|_| false).ended(RunResult::Skipped);
-            step.automatic = false;
-            step
+            forward(&|_| false).ended(RunResult::Skipped)
         }
         Move::MoveOnAnyway
             if agent_check && matches!(at.status, Status::CheckFailed | Status::CheckNoResult) =>
         {
-            let mut step = forward(&|_| false);
-            step.automatic = false;
-            step
+            forward(&|_| false)
         }
         Move::AnotherRound if agent_check && at.status == Status::CheckFailed => {
             back(&at, current.expect("in a check"), Back::Nearest)?
@@ -791,7 +790,6 @@ pub fn dragged<'f>(at: At<'f, '_>, to: &'f Stage) -> Step<'f> {
         _ => RunResult::Skipped,
     });
     step.start_check = to.is_agent_check();
-    step.automatic = false;
     step
 }
 

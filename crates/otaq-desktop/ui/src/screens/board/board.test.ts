@@ -106,10 +106,9 @@ const cardOf = (key: string): BoardCard => ({
     fresh: false,
     open_sheet: "Open panel",
     open_sheet_keys: "↵",
-    action_note: null,
+    skill_warning: null,
     plan: null,
     pieces: null,
-    check: null,
     open_terminal: "Open terminal",
   },
 });
@@ -690,6 +689,20 @@ describe("the board screen", () => {
     expect(review).not.toContain("board-column-folded");
   });
 
+  it("shrinks a folded stage's name with the title, so neither is squeezed to a letter", async () => {
+    // Two check stages in one column ("Validate 0 · Validate · Security reviewer 0"): the folded name used to keep
+    // its whole width and the title shrank to "V…". Read as text with Node's fs (CSS imports reach tests empty).
+    const fsModule = "node:fs";
+    const fs = (await import(fsModule)) as { readFileSync(path: string, encoding: "utf8"): string };
+    const here = (import.meta as ImportMeta & { dirname: string }).dirname;
+    const css = fs.readFileSync(`${here}/board.css`, "utf8");
+    const rule = (name: string) => new RegExp(`\\n\\.${name} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    expect(rule("board-column-folded")).toContain("flex: 0 1 auto;");
+    expect(rule("board-column-folded")).toContain("min-width: 0;");
+    expect(rule("board-column-folded-tag")).toContain("text-overflow: ellipsis;");
+    expect(rule("board-column-count")).toContain("flex: none;");
+  });
+
   it("draws a folded column as its rail: icon, count, the needs-you dot and its name (`s26-10`)", () => {
     const productSpec = renderToStaticMarkup(
       createElement(
@@ -837,10 +850,9 @@ describe("the Review column (T-0328, d0087)", () => {
       fresh: false,
       open_sheet: "Open panel",
       open_sheet_keys: "↵",
-      action_note: null,
+      skill_warning: null,
       plan: null,
       pieces: null,
-      check: null,
       open_terminal: "Open terminal",
     },
   });

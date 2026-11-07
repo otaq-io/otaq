@@ -1,5 +1,5 @@
 //! What Otaq ships about agents (AGM-02, d0108): the account-level `otaq-agents.yaml` (the Project agent **Noyan**),
-//! embedded at build time like the default flow, and the skills a shipped skill may name.
+//! embedded at build time like the default flow, and the names of Otaq's own skills.
 //! A flow file's agents (the default flow's Developer and Validator, the test flow's) become stored agents through
 //! [`new_agent`].
 //!
@@ -12,7 +12,7 @@
 use std::sync::LazyLock;
 
 use super::store::NewAgent;
-use super::{AgentModel, CameFrom, ModelRef, Role, SkillRef};
+use super::{AgentModel, CameFrom, ModelRef, Role};
 use crate::agent_tools::Tool;
 use crate::flow::FlowAgent;
 use crate::flow::yaml;
@@ -20,7 +20,7 @@ use crate::store::{Store, StoreError};
 
 pub use crate::naming::{AGENTS_FILE, AGENTS_YAML};
 
-/// The skills Otaq ships (`plugin/skills/<name>/`): the names an agent's shipped skill can take.
+/// The skills Otaq ships (`plugin/skills/<name>/`): a name that matches one always means Otaq's own skill.
 pub const SKILLS: &[&str] = &[
     "address-review",
     "answer-question",
@@ -66,18 +66,12 @@ pub fn model_of(text: &str) -> Result<AgentModel, String> {
     Ok(AgentModel::Tool { tool, model })
 }
 
-/// A file's agent as stored: its shipped skills by name, its role when it names one, and its model (`default` when
-/// the file's doesn't read).
+/// A file's agent as stored: its role when it names one, and its model (`default` when the file's doesn't read). A
+/// file's `skills:` is ignored: an agent has no skills (T6).
 pub fn new_agent(agent: &FlowAgent) -> NewAgent {
     NewAgent {
         name: agent.name.trim().to_owned(),
         instructions: agent.instructions.clone(),
-        skills: agent
-            .skills
-            .iter()
-            .map(|s| SkillRef::Shipped(s.clone()))
-            .collect(),
-        imported: Vec::new(),
         model: model_of(&agent.model).unwrap_or(AgentModel::Default),
         effort: None,
         role: agent.role.as_deref().and_then(|r| r.parse::<Role>().ok()),
@@ -135,14 +129,6 @@ mod tests {
         assert_eq!(yaml::write_agents(agents), AGENTS_YAML);
         let noyan = new_agent(&agents[0]);
         assert_eq!(noyan.role, Some(Role::ProjectAgent));
-        // Noyan changes flows too (FLW-11).
-        assert_eq!(
-            noyan.skills,
-            [
-                SkillRef::Shipped("noyan".into()),
-                SkillRef::Shipped("flow".into())
-            ]
-        );
         assert_eq!(noyan.model, AgentModel::Default);
     }
 

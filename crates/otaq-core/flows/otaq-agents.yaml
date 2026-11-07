@@ -1,5 +1,4 @@
 agents:
   - name: Noyan
     role: noyan
-    skills: [noyan, flow]
     model: default

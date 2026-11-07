@@ -45,7 +45,7 @@ agents:
     skills: [work-ticket, commit-compact]
     model: default
   - name: Security reviewer
-    skills: [security-review]
+    skills: [team-security-review]
     model: default
 flow:
   - id: product-spec
@@ -66,7 +66,7 @@ flow:
     by: agent
     column: own
     agents: [Security reviewer]
-    skill: security-review
+    skill: team-security-review
     rounds: 2
   - id: review
     name: Review

@@ -49,7 +49,6 @@ pub const DETACH_KEY: u8 = 0x1d;
 pub fn run(
     key: Option<String>,
     stage: Option<String>,
-    agent: Option<String>,
     global: &GlobalArgs,
 ) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
@@ -60,17 +59,15 @@ pub fn run(
         .map_err(|e| internal(e.to_string()))?;
     let target = Target {
         stage: stage.as_deref(),
-        agent: agent.as_deref(),
     };
     runtime.block_on(attach(&data, key, target, global))
 }
 
 /// Which of the ticket's sessions: its agent's, or with `stage` the session of the agent running that stage
-/// (`--stage`, FLW-20), with `agent` one check agent's of several (`--agent`, d0130 row 17).
+/// (`--stage`, FLW-20).
 #[derive(Clone, Copy)]
 struct Target<'a> {
     stage: Option<&'a str>,
-    agent: Option<&'a str>,
 }
 
 async fn attach(
@@ -187,7 +184,6 @@ async fn request_attach(
                 session: None,
                 key: Some(key.to_string()),
                 stage: stage.stage.map(str::to_owned),
-                agent: stage.agent.map(str::to_owned),
                 ..Default::default()
             }
             .into(),

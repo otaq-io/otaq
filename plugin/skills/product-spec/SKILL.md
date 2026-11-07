@@ -54,9 +54,7 @@ types a reminder into this session.
 6. **Write the product decisions and docs** where step 3 found they live: a new decision for each thing you agreed
    (or a change to an existing one, the way the folder records changes), and the overview docs updated to match. You
    may edit any file the spec needs (an overview, a docs page, a sample), but don't build the feature: Dev does that.
-7. **Commit everything** on the ticket's branch with the commit skill `prime` names (`otaq-commit`, or your agent's
-   own commit skill); when it names none, commit with `git add -A` and `git commit -m "SHOP-40: …"`. Nothing may stay
-   uncommitted: `otaq stage next` is refused while files are uncommitted. **Never push.**
+7. **Commit everything** on the ticket's branch with Otaq's `commit` skill. Nothing may stay uncommitted: `otaq stage next` is refused while files are uncommitted. **Never push.**
 8. **End your stage** with a short comment on stdin, then end your turn. It names **each file and decision you
    wrote**, then what you agreed, in a line or two (at most 2,000 characters). Tech spec, Milestone
    plan and the user at Spec review read it:

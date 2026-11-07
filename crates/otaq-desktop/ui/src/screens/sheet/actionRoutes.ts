@@ -131,7 +131,10 @@ export type CardRoute =
   | { kind: "service" }
   | { kind: "pick"; number: number }
   | { kind: "send_answer" }
-  | { kind: "overlay"; id: "start_from_scratch" | "open_pr" | "local_merge" | "send_back" | "send_back_pr" }
+  | {
+      kind: "overlay";
+      id: "start_from_scratch" | "open_pr" | "local_merge" | "send_back" | "send_back_pr" | "change_agent";
+    }
   // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
   | { kind: "pass" }
   | { kind: "mark_closed" }
@@ -152,11 +155,10 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "retry_validation":
     case "retry_merge":
     case "move_to_review":
-    case "use_fallback": // AGT-08: a held role's fallback takes it (`ticket.use_fallback`, T-0362).
-    case "use_validator_fallback":
     case "move_on_anyway": // FLW-13: after the last failed round.
-    case "skip_check": // FLW-13: a check at the plan limit with no fallback.
+    case "skip_check": // FLW-13: a check at the plan limit.
     case "stop_merge_check": // d0120: Stop on "Merging · running the merge check".
+    case "check_again": // A stage held for its skill: the finder is asked again.
       return { kind: "service" };
     case "pass":
       return { kind: "pass" };
@@ -185,6 +187,9 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     // AGM-03: Open agent… opens Settings → Agents on the agent that can't run (the sheet's `open_agent`).
     case "open_agent":
       return { kind: "open_agent" };
+    // Change agent…: the dialog that picks another agent for the stage waiting for its tool.
+    case "change_agent":
+      return { kind: "overlay", id: "change_agent" };
     // Answer, Reply and Open (Ticket Card v2): the sheet the click opens is where it is dealt with.
     case "open":
     case "review":

@@ -7,6 +7,10 @@ import type { ProviderLook } from "./ProviderLook";
  */
 export type SettingsProvider = { description: string, status: string, icon: IconName, look: ProviderLook, 
 /**
- * "use your own Open PR skill": focuses the Open PR field.
+ * "use your own Open PR skill": opens the flow editor on the Delivery stage's Skill field ([`Self::stage`]).
  */
-link: string | null, };
+link: string | null, 
+/**
+ * The Delivery stage's id, which the link selects in the flow editor; `None` with no link.
+ */
+stage: string | null, };

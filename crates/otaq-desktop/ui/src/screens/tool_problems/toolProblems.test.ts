@@ -1,4 +1,4 @@
-// Where a tool problem's buttons go (T-0367, T-0411): Use fallback calls its request, Open agent… opens Settings →
+// Where a tool problem's buttons go (T-0367, T-0411): Open agent… opens Settings →
 // Agents on the agent, Sign in… opens the tool's login in the drawer, New agent on … opens the empty agent panel on that
 // agent, Show in Agent tools opens Settings. Nothing starts by itself (d0018, d0087).
 import { createElement } from "react";
@@ -7,8 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ToolProblemCallout } from "../../components";
 import type { ToolProblemCallout as CalloutView } from "../../generated/ToolProblemCallout";
-import { cardRoute } from "../sheet/actionRoutes";
-import { runToolProblemAction, type ToolProblemRunner, toolProblemStep } from "./toolProblems";
+import { runToolProblemAction, type ToolProblemRunner } from "./toolProblems";
 
 function runner(answer: unknown = null) {
   return {
@@ -16,51 +15,23 @@ function runner(answer: unknown = null) {
     openSettings: vi.fn(),
     showDrawerTab: vi.fn(),
     newAgentOn: vi.fn(),
+    changeAgent: vi.fn(),
   } satisfies ToolProblemRunner;
 }
 
-/** *05 `sFZiP`*: SHOP-18 on Standard with Codex hidden (Sonnet is Standard's fallback). */
+/** *05 `sFZiP`*: SHOP-18 on Standard with Codex hidden: it waits for Codex. */
 const HIDDEN: CalloutView = {
   role: "developer",
   tone: "amber",
   avatar: null,
   heading: "Codex isn't available · hidden in Settings",
-  text: "Standard runs on Codex. Use its fallback Sonnet, pick another agent, or show Codex again.",
+  text: "Nothing started and nothing is locked. Standard starts once Codex is available again.",
   model: null,
   buttons: [
-    { label: "Use fallback (Sonnet)", action: { kind: "use_fallback", role: "developer" }, primary: true },
-    { label: "Open agent…", action: { kind: "open_agent", agent: "standard" }, primary: false },
+    { label: "Open agent…", action: { kind: "open_agent", agent: "standard" }, primary: true },
     { label: "Show in Agent tools", action: { kind: "show_in_agent_tools" }, primary: false },
   ],
 };
-
-describe("Use fallback", () => {
-  it("asks the service to move the developer row, as the card's button does", () => {
-    const run = runner();
-    runToolProblemAction({ kind: "use_fallback", role: "developer" }, { ticket: "SHOP-18" }, run);
-    expect(run.request).toHaveBeenCalledWith("sheet.card", {
-      key: "SHOP-18",
-      kind: "use_fallback",
-      clear: false,
-    });
-    expect(cardRoute("use_fallback")).toEqual({ kind: "service" });
-  });
-
-  it("the validator's moves the validator row", () => {
-    const run = runner();
-    runToolProblemAction({ kind: "use_fallback", role: "validator" }, { ticket: "SHOP-30" }, run);
-    expect(run.request).toHaveBeenCalledWith("sheet.card", {
-      key: "SHOP-30",
-      kind: "use_validator_fallback",
-      clear: false,
-    });
-    expect(cardRoute("use_validator_fallback")).toEqual({ kind: "service" });
-  });
-
-  it("does nothing without a ticket", () => {
-    expect(toolProblemStep({ kind: "use_fallback", role: "developer" }, {})).toEqual({ kind: "none" });
-  });
-});
 
 describe("Open agent…", () => {
   it("opens Settings → Agents on the held agent's page (AGM-03)", () => {
@@ -80,6 +51,27 @@ describe("Open agent…", () => {
       run,
     );
     expect(run.openSettings).toHaveBeenCalledWith({ section: "agents", agent: "old-gpt" });
+  });
+});
+
+describe("Change agent…", () => {
+  it("opens the ticket's Change agent… dialog, and nothing outside a ticket", () => {
+    const run = runner();
+    runToolProblemAction({ kind: "change_agent" }, { ticket: "SHOP-30" }, run);
+    expect(run.changeAgent).toHaveBeenCalledWith("SHOP-30");
+    runToolProblemAction({ kind: "change_agent" }, { project: "SHOP" }, run);
+    expect(run.changeAgent).toHaveBeenCalledTimes(1);
+    expect(run.request).not.toHaveBeenCalled();
+  });
+});
+
+describe("Check again", () => {
+  it("asks the service to check the ticket's held stage again, and nothing outside a ticket", () => {
+    const run = runner();
+    runToolProblemAction({ kind: "check_again" }, { ticket: "SHOP-30" }, run);
+    expect(run.request).toHaveBeenCalledWith("sheet.check_again", { key: "SHOP-30" });
+    runToolProblemAction({ kind: "check_again" }, { project: "SHOP" }, run);
+    expect(run.request).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -114,12 +106,7 @@ describe("the callout", () => {
       createElement(ToolProblemCallout, { callout: HIDDEN, look: "edge", onAction: () => undefined }),
     );
     expect(html).toContain('data-tone="amber"');
-    for (const text of [
-      "hidden in Settings",
-      "Use fallback (Sonnet)",
-      "Open agent…",
-      "Show in Agent tools",
-    ]) {
+    for (const text of ["hidden in Settings", "Open agent…", "Show in Agent tools"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("attn");

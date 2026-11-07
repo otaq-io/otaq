@@ -1,18 +1,13 @@
 agents:
   - name: Spec writer
-    skills: [product-spec, commit]
     model: default
   - name: Architect
-    skills: [tech-spec, commit]
     model: default
   - name: Milestone planner
-    skills: [milestone-plan, commit]
     model: default
   - name: Developer
-    skills: [work-ticket, commit]
     model: default
   - name: Validator
-    skills: [validate]
     model: default
 flow:
   - id: product-spec
@@ -54,7 +49,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
     fail_to: Dev

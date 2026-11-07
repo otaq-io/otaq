@@ -2,8 +2,8 @@
 //! a ticket passes its checks (its validator is an ordinary `sh`; the verdict is reported from that session) and the
 //! project's flow decides what happens next. A Delivery with `mode: automatic` and `delivers: local` merges it
 //! without a click; with `delivers: pr` its agent (an `sh` standing in) gets the PR skill and Otaq confirms the
-//! proposal itself, no dialog. Work moved past a check never delivers by itself; a flow with no check says
-//! "Delivered without checks". The repository's own folder stands for the user's checkout; `origin` is a local bare
+//! proposal itself, no dialog. Work moved past a check (Skip this check, Move on anyway) delivers as the flow says
+//! too, and like a flow with no check it says "Delivered without all checks". The repository's own folder stands for the user's checkout; `origin` is a local bare
 //! repository, and a script named `gh` stands in for GitHub's CLI. A conflict handed back to the agent brings a
 //! build freed at Review back first (T-0309, M19-c).
 
@@ -20,7 +20,8 @@ use otaq_core::domain::{
     Actor, AutoMergeStop, BuildState, Place, Status, ValidationAction, ValidationTrigger,
 };
 use otaq_core::flow::default::testing::{
-    automatic_local_delivery, automatic_pr_delivery, with_rounds, without_validate,
+    automatic_local_delivery, automatic_pr_delivery, skippable_validate, with_rounds,
+    without_validate,
 };
 use otaq_core::flow::default::{DELIVER, DEV};
 use otaq_core::git::testing::{commit, git};
@@ -29,7 +30,7 @@ use otaq_core::review::delivery::Delivered;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::deliveries::handoff_sentence;
+use otaq_core::skills::testing::claude_skill;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -177,14 +178,18 @@ async fn a_flow_with_no_check_delivers_without_checks() {
     w.stop().await;
 }
 
-/// Skip this check leads to a click (d0108 "Move on anyway": automatic delivery is only for work that passed its
-/// checks): the card waits in its Delivery. The user's Move to next stage runs the check like the agent's `stage next`
-/// (d0108 rule 10): its pass may deliver by itself.
+/// Skip this check never forces a click: the automatic Delivery merges the card by itself, "Delivered without all checks".
+/// The user's Move to next stage runs the check like the agent's `stage next` (d0108 rule 10): its pass may deliver by
+/// itself.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_users_routes_past_a_check_lead_to_a_click() {
+async fn the_users_routes_past_a_check_deliver_as_the_flow_says() {
     let w = world().await;
     w.add_project("shop-web").await;
     auto_merge(&w).await;
+    // Skip this check: the flow marks Validate skippable.
+    w.board
+        .edit_flow_for_tests("SHOP", skippable_validate)
+        .await;
 
     let submitted = working(&w, "Submitted", "a.ts").await;
     w.force_status(&submitted, Status::Idle).await;
@@ -214,23 +219,27 @@ async fn the_users_routes_past_a_check_lead_to_a_click() {
         .unwrap();
     assert_eq!(
         (after.status, &after.place),
-        (Status::ToDeliver, &Place::stage_of(DELIVER))
+        (Status::Merged, &Place::Done),
+        "a skipped check: merged automatically, no click"
     );
-    assert!(!after.flags.delivering_automatically);
-    let now = w.board.delivery_now(&after).await.unwrap().unwrap();
-    assert!(!now.automatic, "a skipped check: click mode");
+    assert!(after.flags.merged_automatically);
+    assert!(after.flags.delivered_without_checks);
     w.stop().await;
 }
 
-/// d0108 "Move on anyway": a ticket moved past its failed check reaches its automatic Delivery in click mode; one
-/// whose check passed delivers by itself.
+/// Move on anyway never forces a click: a ticket moved past its failed check is merged by its automatic Delivery,
+/// "Delivered without all checks"; one whose check passed delivers by itself with its checks.
 #[tokio::test(flavor = "multi_thread")]
-async fn move_on_anyway_forces_click_mode() {
+async fn move_on_anyway_delivers_as_the_flow_says() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     auto_merge(&w).await;
     w.board.edit_flow_for_tests("SHOP", with_rounds(1)).await;
+    // Move on anyway: the flow marks Validate skippable.
+    w.board
+        .edit_flow_for_tests("SHOP", skippable_validate)
+        .await;
 
     let failed = working(&w, "Failed", "a.ts").await;
     let key = failed.key.to_string();
@@ -259,7 +268,7 @@ async fn move_on_anyway_forces_click_mode() {
         .await
         .unwrap();
     assert_eq!(after.status, Status::CheckFailed);
-    // Move on anyway takes it on to the Delivery (the engine's next stage), which waits for the user's click.
+    // Move on anyway takes it on to the Delivery (the engine's next stage), which merges it by itself.
     let after = w
         .validation
         .user_action(&key, ValidationAction::MoveOnAnyway, "", &me())
@@ -267,20 +276,20 @@ async fn move_on_anyway_forces_click_mode() {
         .unwrap();
     assert_eq!(
         (after.status, &after.place),
-        (Status::ToDeliver, &Place::stage_of(DELIVER)),
-        "waits for the user's click"
+        (Status::Merged, &Place::Done),
+        "merged automatically, no click"
     );
-    assert!(!after.flags.delivering_automatically);
-    let now = w.board.delivery_now(&after).await.unwrap().unwrap();
-    assert!(!now.automatic);
-    assert!(now.forced.is_some(), "the reason for the card");
-    assert_ne!(
+    assert!(after.flags.merged_automatically);
+    assert!(after.flags.delivered_without_checks);
+    assert_eq!(
         git(&repo, &["log", "-1", "--format=%s", "main"]),
         format!("{}: Failed", failed.key)
     );
 
     let passed = working(&w, "Passed", "b.ts").await;
-    assert_eq!(pass(&w, &passed).await.status, Status::Merged);
+    let passed = pass(&w, &passed).await;
+    assert_eq!(passed.status, Status::Merged);
+    assert!(!passed.flags.delivered_without_checks, "its check passed");
     w.stop().await;
 }
 
@@ -360,10 +369,7 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
     assert_eq!(after.place, Place::stage_of(DEV));
     assert_eq!(after.auto_merge_conflicts, 1);
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(
-        pending.last().unwrap().text,
-        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
-    );
+    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
     assert_eq!(
         after.validation_round, 0,
         "the next submit validates from 0"
@@ -603,10 +609,7 @@ async fn a_conflict_handed_to_the_agent_gets_the_build_back() {
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(
-        pending.last().unwrap().text,
-        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
-    );
+    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
     w.stop().await;
 }
 
@@ -648,7 +651,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
         .unwrap();
     // origin is a local folder, not GitHub: the project uses its own Open PR skill.
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     w.board
         .edit_flow_for_tests("SHOP", automatic_pr_delivery)
         .await;
@@ -672,11 +675,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let skill = &pending.last().unwrap().text;
     assert!(
-        skill.starts_with(&handoff_sentence(
-            w.adapters.of_session(None).skill_root(),
-            "my-pr",
-            Some("automatic:")
-        )),
+        skill.starts_with(&format!("{} automatic:", claude_skill("my-pr"))),
         "{skill}"
     );
 
@@ -756,13 +755,10 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let out = w
         .wait_for_output(
             &agent.session,
-            &handoff_sentence(
-                w.adapters.of_session(None).skill_root(),
-                "address-review",
-                Some(
-                    "SHOP-1 was sent back to Dev with PR comments and a comment. Run `otaq prime`, then `otaq \
-                     review feedback`.",
-                ),
+            &format!(
+                "{} SHOP-1 was sent back to Dev with PR comments and a comment. Run `otaq prime`, then `otaq \
+                 review feedback`.",
+                claude_skill("address-review")
             ),
         )
         .await;
@@ -791,11 +787,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let skill = &pending.last().unwrap().text;
     assert!(
-        skill.starts_with(&handoff_sentence(
-            w.adapters.of_session(None).skill_root(),
-            "push",
-            Some("automatic:")
-        )),
+        skill.starts_with(&format!("{} automatic:", claude_skill("push"))),
         "{skill}"
     );
     let new = commits(&repo, "origin/feature/SHOP-1-login..feature/SHOP-1-login");
@@ -840,7 +832,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
         .await
         .unwrap();
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
@@ -901,7 +893,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
         .await
         .unwrap();
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     let shipper = |file: &mut otaq_core::flow::FlowFile| {
         for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
             stage.agent = Some("Validator".into());
@@ -938,7 +930,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     let attached = w.sessions.attach(&dev.session).unwrap();
     let dev_saw = String::from_utf8_lossy(&attached.scrollback).into_owned();
     assert!(
-        !dev_saw.contains(&naming::copy_name("my-pr")),
+        !dev_saw.contains(&claude_skill("my-pr")),
         "nothing typed into Dev's session: {dev_saw}"
     );
 
@@ -988,7 +980,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
         .await
         .unwrap();
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
@@ -1072,7 +1064,7 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
         .await
         .unwrap();
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     w.board
         .edit_flow_for_tests("SHOP", automatic_pr_delivery)
         .await;

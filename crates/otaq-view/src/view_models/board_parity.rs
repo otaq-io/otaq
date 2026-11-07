@@ -172,7 +172,7 @@ fn without_new_fields(mut snapshot: Value) -> Value {
     snapshot
 }
 
-/// The card footer's `second` button (T-0411: Open agent… beside Use fallback), added after the snapshot.
+/// The card footer's `second` button (T-0411: Open agent… beside Skip this check), added after the snapshot.
 fn drop_footer_seconds(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -181,13 +181,10 @@ fn drop_footer_seconds(value: &mut Value) {
                 // T-0424: the two buttons stacked (`s03-46`).
                 map.remove("stacked");
             }
-            // T-0531: a check of several agents' rows and the action's note (d0130), none on the default board.
-            if map.contains_key("action_note") {
-                map.remove("action_note");
-                map.remove("check");
-                // T-0540: the Plan's line (d0133), none on the default board.
+            // A card's fields added after the snapshot, none on the default board: T-0540's Plan line and T-0541's
+            // piece rows (d0133).
+            if map.contains_key("open_sheet_keys") && map.contains_key("pieces") {
                 map.remove("plan");
-                // T-0541: a build stage's piece rows (d0133), none on the default board.
                 map.remove("pieces");
             }
             map.values_mut().for_each(drop_footer_seconds);

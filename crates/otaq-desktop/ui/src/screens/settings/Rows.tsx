@@ -28,6 +28,7 @@ import type { SettingsRowButton } from "../../generated/SettingsRowButton";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import type { SettingsTools } from "../../generated/SettingsTools";
 import type { ToolTerminalOpened } from "../../generated/ToolTerminalOpened";
+import { openStageSkill } from "../flow_editor/logic";
 import { RowTerminal, useRowTerminals } from "../onboarding/RowTerminal";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
@@ -270,8 +271,8 @@ function ProviderRow({ row }: { row: SettingsRow }) {
                 type="button"
                 className="settings-link"
                 onClick={() => {
-                  // The Open PR skill is the Delivery stage agent's (AGM-01): Settings → Agents.
-                  openOverlay("settings", { section: "agents" });
+                  // The user's own Open PR skill goes in the Delivery stage's Skill field of the flow editor.
+                  if (project !== null) openStageSkill(project, provider.stage);
                 }}
               >
                 {provider.link}

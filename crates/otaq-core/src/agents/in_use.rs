@@ -1,4 +1,4 @@
-//! What uses an agent, for Delete (AGM-01, d0108): a stage or a stage option of any project's flow (in M32 each
+//! What uses an agent, for Delete (AGM-01, d0108): a stage of any project's flow (in M32 each
 //! project's flow derives from the default one), Otaq's default flow itself (every project's flow derives from it,
 //! and a project that turns Validation on gets its Validate stage back), or a role. "Noyan has the Noyan role.
 //! Give the role to another agent first"; "Spec writer is used in shop-web · Product spec. Change that stage first."
@@ -7,17 +7,15 @@ use serde::{Deserialize, Serialize};
 
 use super::{Agent, Role, resolve};
 use crate::board::{Board, BoardError};
-use crate::flow::{Stage, StageOption};
+use crate::flow::Stage;
 
-/// One stage that names the agent, as its usual agent or as an option.
+/// One stage that names the agent as its agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageUse {
     /// The project's name; `None` for Otaq's default flow.
     pub project: Option<String>,
     /// The stage's name ("Product spec").
     pub stage: String,
-    /// The agent is one of the stage's options rather than its usual agent.
-    pub option: bool,
 }
 
 impl StageUse {
@@ -91,16 +89,7 @@ async fn uses_in(
 ) -> Result<Vec<StageUse>, BoardError> {
     let mut uses = Vec::new();
     for stage in stages {
-        let options = stage.options.iter().filter_map(|o| match o {
-            StageOption::Agent(name) => Some(name),
-            StageOption::Skip => None,
-        });
-        // An agent check's check agents each count (d0130).
-        for (name, option) in stage
-            .named_agents()
-            .map(|n| (n, false))
-            .chain(options.map(|n| (n, true)))
-        {
+        for name in stage.named_agents() {
             if resolve::named(board.store(), name)
                 .await?
                 .is_some_and(|a| a.id == agent.id)
@@ -108,7 +97,6 @@ async fn uses_in(
                 uses.push(StageUse {
                     project: project.map(str::to_owned),
                     stage: stage.name.clone(),
-                    option,
                 });
             }
         }
@@ -142,7 +130,6 @@ mod tests {
         StageUse {
             project: Some(project.into()),
             stage: stage.into(),
-            option: false,
         }
     }
 
@@ -175,7 +162,6 @@ mod tests {
                 StageUse {
                     project: None,
                     stage: "Dev".into(),
-                    option: false,
                 },
             ],
         };

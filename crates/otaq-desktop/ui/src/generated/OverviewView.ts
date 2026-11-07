@@ -29,8 +29,8 @@ bar: DescriptionSaveBar, leave: DescriptionLeaveDialog,
  */
 usage_limit: OverviewUsageLimit | null, 
 /**
- * "Before you · Validate, round 1 of 3": each check agent's verdict and comment, on a human check after a Check
- * stage with several check agents (d0130, `s30-05`); set by the service's facts ([`with_before_you`]).
+ * "Before you · Validate, round 1 of 3": each check agent's verdict and comment, on a human check after a round
+ * stored from when a check could have several agents (`s30-05`); set by the service's facts ([`with_before_you`]).
  */
 before_you: BeforeYouView | null, 
 /**

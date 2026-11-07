@@ -7,8 +7,10 @@ OpenCode adapter's tests (`src/agent_tools/opencode/hooks.rs`) and `crates/otaq-
 
 **Written from `reports/Hands-on check of Codex, Copilot and OpenCode (2026-10-17).md`, row 3 (payload shapes), and
 the event schemas in the OpenCode 2.0.17 binary** (read with `strings`; `session.step.started` carries `model`
-`{id, providerID, variant}`, `session.step.ended` doesn't). Not captured from a real session: T-0369 replaces them
-with captures (the adapter logs every event raw at debug level, "plugin event").
+`{id, providerID, variant}`, `session.step.ended` doesn't). The two `session.execution.failed-*` files follow the
+OpenCode 2.2.5 binary's `Session.StructuredError` (`type`, `message`, `status`, `response.body`, `retryAfterMs`) and
+its error types; the quota's body is the Gemini API's 429 (F10). Not captured from a real session: T-0369 replaces
+them with captures (the adapter logs every event raw at debug level, "plugin event").
 
 | File | What it gives |
 |---|---|
@@ -19,7 +21,9 @@ with captures (the adapter logs every event raw at debug level, "plugin event").
 | `form.created.json` | a question → Asks you ("Which color?") |
 | `session.usage.updated.json` | running token totals → *tokens* (the cost is ignored) |
 | `session.execution.succeeded.json`, `session.execution.interrupted.json` | the turn ended → Idle |
-| `session.execution.failed.json` | a failed turn (`provider.auth`) → a logged failure |
+| `session.execution.failed.json` | a failed turn (`provider.auth`) → Idle with the tool's message (F10) |
+| `session.execution.failed-quota.json` | a provider's quota (`provider.quota`, Gemini's daily free tier) → Waiting for limit reset, reset at `created` plus the body's `retryDelay` |
+| `session.execution.failed-rate_limit.json` | a rate limit OpenCode stopped retrying, with `retryAfterMs` → Waiting for limit reset, reset at `created` plus it |
 | `session.retry.scheduled-rate_limit.json` | a rate-limit retry → Waiting for limit reset, reset at `at` |
 | `session.retry.scheduled-transport.json` | another retry → nothing |
 | `session.step.ended.json` | a type Otaq doesn't map → nothing |

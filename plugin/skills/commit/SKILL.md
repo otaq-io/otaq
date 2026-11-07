@@ -1,6 +1,6 @@
 ---
 name: commit
-description: 'Otaq''s default Commit workflow skill - commit every change in this worktree with "<KEY>: <what changed>" messages, before `otaq stage next`.'
+description: 'Otaq''s default Commit workflow skill - commit every change in this worktree (messages as the Agent instructions say, else "<KEY>: <what changed>"), before `otaq stage next`.'
 ---
 
 # Commit everything
@@ -14,14 +14,19 @@ any file is uncommitted, and the user reviews and merges only what is committed.
    there instead, search it with `grep` or `tail`, and never print it in full or retype it.
    Never commit secrets or env files (`.env`, keys, tokens). If one shows up as untracked, don't commit it and don't
    delete it: ask the user with `otaq ask human --stdin` (it may belong in `.gitignore`).
-3. Stage the rest and commit. Use one commit, or a few if the work splits into clear steps. Each message starts with
-   the ticket key from `$OTAQ_TICKET`:
+3. **Follow the Agent instructions** that `otaq prime` prints, and the project's own rules on commits (a
+   contributing guide, a commit message format). If you haven't read `otaq prime` in this session, run it now and read
+   its Agent instructions. They decide how the commits are written: the message format (for example Conventional
+   Commits) and how the work is split into commits. They never decide whether to commit everything (step 4 always
+   does) and never make you push.
+4. Stage the rest and commit. Unless the instructions say otherwise, use one commit, or a few if the work splits into
+   clear steps, and start each message with the ticket key from `$OTAQ_TICKET`:
 
    ```sh
    git add -A
    git commit -m "SHOP-19: add the price table with sorting"
    ```
 
-4. The user's git hooks and settings apply. If a hook rejects the commit, fix the problem and commit again; never use
+5. The user's git hooks and settings apply. If a hook rejects the commit, fix the problem and commit again; never use
    `--no-verify`.
-5. Check that `git status` is clean. **Never push.**
+6. Check that `git status` is clean. **Never push.**

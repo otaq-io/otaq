@@ -51,7 +51,7 @@ function press(target: Element | null) {
 }
 
 describe("Settings' dropdowns and a press outside", () => {
-  it("closes the floating dropdown (Default model, Fallback) and keeps it open on a press inside", () => {
+  it("closes the floating dropdown (Default model) and keeps it open on a press inside", () => {
     const onChoose = vi.fn();
     const { host, outside } = open(
       createElement(Dropdown, {

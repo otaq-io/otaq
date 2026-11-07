@@ -206,7 +206,6 @@ export interface ActivityTool {
   pct: number | null;
   barColor: string;
   tokens: string;
-  hasFallback: boolean;
 }
 
 export interface BoardView {
@@ -312,14 +311,11 @@ function activityTools(s: DemoState): ActivityTool[] {
       id: "CC",
       name: "Claude Code",
       running: run("CC"),
-      limit: s.fellBack
-        ? "5h: 18% left · resets 3:45 pm · waiting agents moved to Codex"
-        : "5h: 18% left · resets 3:45 pm · week: 60% left",
+      limit: "5h: 18% left · resets 3:45 pm · week: 60% left",
       cls: "pa",
       pct: 18,
       barColor: "var(--pau)",
       tokens: "today 412k tokens",
-      hasFallback: !s.fellBack,
     },
     {
       id: "CX",
@@ -330,7 +326,6 @@ function activityTools(s: DemoState): ActivityTool[] {
       pct: 71,
       barColor: "var(--ok)",
       tokens: "today 96k tokens",
-      hasFallback: false,
     },
     {
       id: "CP",
@@ -341,7 +336,6 @@ function activityTools(s: DemoState): ActivityTool[] {
       pct: 80,
       barColor: "var(--ok)",
       tokens: "today 31k tokens",
-      hasFallback: false,
     },
     {
       id: "OC",
@@ -352,7 +346,6 @@ function activityTools(s: DemoState): ActivityTool[] {
       pct: null,
       barColor: "",
       tokens: "today 6k tokens",
-      hasFallback: false,
     },
   ];
 }
@@ -632,9 +625,7 @@ export function ticketView(s: DemoState): TicketView | null {
       checks.length && ot.st === "review"
         ? {
             head: beforeHead,
-            sum:
-              String(checks.length) +
-              (checks.length === 1 ? " check agent · passed" : " check agents · both passed"),
+            sum: String(checks.length) + (checks.length === 1 ? " check · passed" : " checks · both passed"),
             checks: checks.map((ck) => ({
               name: isSecurity(ck) ? "Security reviewer" : "Validator",
               tool: isSecurity(ck) ? "CC" : "CX",

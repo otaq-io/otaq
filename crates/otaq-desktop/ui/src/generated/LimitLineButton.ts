@@ -10,8 +10,4 @@ export type LimitLineButton = { label: string, icon: IconName,
  * `resume_tool` → `limits.resume_tool { tool }`; `sign_in` → `agent_tools.sign_in`; `show_in_agent_tools` →
  * Settings → Agent tools.
  */
-action: ToolProblemAction, enabled: boolean, primary: boolean, 
-/**
- * On hover: where Use fallback now starts the tickets ("Starts the waiting tickets on Codex · gpt-5.5").
- */
-tooltip: string | null, };
+action: ToolProblemAction, enabled: boolean, primary: boolean, };

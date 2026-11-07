@@ -48,7 +48,6 @@ async fn cat_agent(w: &TestService, ticket: &Ticket) -> String {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await

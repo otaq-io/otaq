@@ -151,8 +151,6 @@ async fn a_rename_follows_into_every_stored_flow() {
     let mut fields = otaq_core::agents::store::NewAgent {
         name: "Checker".into(),
         instructions: validator.instructions.clone(),
-        skills: validator.skills.clone(),
-        imported: validator.imported.clone(),
         model: validator.model.clone(),
         effort: validator.effort.clone(),
         role: validator.role,
@@ -168,8 +166,8 @@ async fn a_rename_follows_into_every_stored_flow() {
     }
     let running = f.board.effective_flow("SHOP").await.unwrap();
     assert_eq!(
-        running.stage("validate").unwrap().check_agents(),
-        ["Checker"]
+        running.stage("validate").unwrap().check_agent(),
+        Some("Checker")
     );
     assert_eq!(running.stage("validate").unwrap().rounds, Some(2));
     // Saving it with its name unchanged rewrites nothing.

@@ -53,6 +53,8 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
+    // Change agent… on a held card: the dialog picking another agent for the waiting stage.
+    expect(cardRoute("change_agent")).toEqual({ kind: "overlay", id: "change_agent" });
     expect(agentSettings("spec-writer")).toEqual({ section: "agents", agent: "spec-writer" });
     expect(agentSettings(null)).toEqual({ section: "agents" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
@@ -123,8 +125,6 @@ describe("a board card's button", () => {
       "retry_validation",
       "retry_merge",
       "move_to_review",
-      "use_fallback",
-      "use_validator_fallback",
     ];
     for (const kind of service) expect(cardRoute(kind)).toEqual({ kind: "service" });
     expect(cardRoute({ pick_option: 3 })).toEqual({ kind: "pick", number: 3 });
@@ -271,7 +271,7 @@ describe("what it needs from you, at the top of Overview", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["sheet"],
-      overlays: ["close_ticket", "submit_for_review"],
+      overlays: ["close_ticket", "submit_for_review", "change_agent"],
     });
   });
 });
@@ -297,7 +297,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
       {
         stage_id: "product-spec",
         label: "Product spec:",
-        value: "required",
+        value: "Spec writer",
         items: [],
         lock: "Locked: Product spec has started",
         change: null,
@@ -534,5 +534,34 @@ describe("the action bar's fit (T-0572)", () => {
     const bar = /\n\.sheet-bar \{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(bar).toContain("flex-wrap: wrap;");
     expect(bar).toContain("min-width: 0;");
+  });
+});
+
+describe("Change agent…", () => {
+  it("opens on the agent Rust marks picked, else the first; with none, nothing", async () => {
+    const { firstPick } = await import("./Dialogs");
+    const item = (id: string, checked: boolean) => ({
+      id,
+      label: id,
+      icon: null,
+      shortcut: null,
+      danger: false,
+      disabled: false,
+      hint: null,
+      separated: false,
+      checked,
+      header: false,
+    });
+    const view = {
+      title: "Change Dev’s agent",
+      stage_id: "dev",
+      intro: "",
+      empty: null,
+      confirm: "Change agent",
+      items: [item("Light", false), item("Codex developer", true)],
+    };
+    expect(firstPick(view)).toBe("Codex developer");
+    expect(firstPick({ ...view, items: [item("Light", false)] })).toBe("Light");
+    expect(firstPick({ ...view, items: [] })).toBeNull();
   });
 });

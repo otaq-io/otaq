@@ -26,8 +26,10 @@ already checked.
 - **Your flow, your stages.** Choose the steps a ticket goes through: agents doing work, checks that pass or fail
   it, and how it's delivered. Start from a preset (Otaq default, Spec first, Solo autopilot, Team PR), or have an
   agent propose one based on how you already work.
-- **Named agents.** Each one is a tool, a model, instructions and skills: a Rust developer on Opus, a security
-  reviewer that only reads code, a docs updater on a small model. Choose one per stage, per project or per ticket.
+- **Named agents.** Each one is a tool, a model and instructions: a Rust developer on Opus, a security reviewer
+  that only reads code, a docs updater on a small model. Choose one per stage, per project or per ticket.
+- **Your skills, where they are.** Your agent tools find your skills the way they always do; Otaq copies nothing.
+  Each stage of your flow names the skill it runs, and Otaq's own skills come with its plugin.
 - **Checked by other agents.** Validators and reviewers test the work against the ticket and run your app. Work that
   fails goes back to the stage that needs to fix it, so you only see work that passed.
 - **Noyan, your planning agent.** Ask "why is checkout slow? make tickets." It reads the code and writes the
@@ -73,6 +75,11 @@ cd crates/otaq-desktop && npm ci
 OTAQ_HOME=/tmp/otaq-dev npm run tauri dev   # the app with live reload, on a throwaway data folder
 scripts/check.sh                             # every change must pass (scripts/check.ps1 on Windows)
 ```
+
+## product decisions (tuq)
+
+Product decisions, milestone plans and orchestrator prompts live in `tuq/`, indexed in
+[`tuq/README.md`](tuq/README.md). Read the index before changing a feature's behaviour.
 
 ## contributing
 

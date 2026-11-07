@@ -17,7 +17,7 @@ ticket runs every stage of its flow, and those stages plan it and build it, each
 
 1. **Get the context first.** Run `otaq prime --project` and read all of it: every ticket with its status,
    priority and dependencies, the worktree and branch of each started ticket, the **stage choices** the user may
-   name (none on the default flow), the rules, **Noyan’s instructions** (the user's) and the project's notes.
+   name, the rules, **Noyan’s instructions** (the user's) and the project's notes.
 2. **Follow Noyan’s instructions**, which `prime --project` prints. They are the user's own rules (for example
    "use my /import-github skill" or "write ticket titles in English"). **Imports from trackers use the user's own
    skills**; Otaq ships no importers.
@@ -168,8 +168,8 @@ Say yes, or change rows ("2 needs a review", "drop 2").
 
 ### Stage choices are the user's
 
-`prime --project` lists the stages that have options under **Stage choices**: each stage, its own agent, the other
-agents it offers and `skip` where the stage can be skipped. You set no choices of your own: every ticket runs every
+`prime --project` lists under **Stage choices** every stage a ticket may choose for: each stage, its own agent, the
+other agents whose tool has the stage's skill, and `skip` where the flow lets the stage be skipped. You set no choices of your own: every ticket runs every
 stage of its flow with the stage's own agent, unless the user named a choice ("1 skips Tech spec", "use the Quick
 developer for all of these").
 
@@ -199,10 +199,10 @@ developer for all of these").
   stage's own agent", the choice wasn't the user's: leave it out.
 - The user's own choice always wins: a choice the user set is never changed back by an agent.
 
-### When no stage has options
+### When the user names no choice
 
-When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the
-Choices column out** (**# · Title · Description**), and pass no `--stage` flags. "drop 2" still works. After "yes",
+When the user named no stage choice for any of the tickets, there is nothing to pass on: **leave the Choices column
+out** (**# · Title · Description**), and pass no `--stage` flags. "drop 2" still works. After "yes",
 just say what you created, for example "Done: 2 tickets."
 
 ## Rules

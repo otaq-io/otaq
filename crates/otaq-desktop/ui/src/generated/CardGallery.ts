@@ -16,18 +16,14 @@ width: number, width_1280: number,
  */
 agents: Array<CardGalleryCell>, 
 /**
- * *04 → Variants · several tools (M23)* and the fallback and limit cards (T-0362): avatars on, Unavailable,
- * waiting on a tool, moved by a fallback.
+ * *04 → Variants · several tools (M23)* and the held and limit cards (T-0362): avatars on, Unavailable, waiting
+ * on a tool.
  */
 tools: Array<CardGalleryCell>, 
 /**
  * *03 → cards in an agent check, your check, deliveries, conflicts, Done* (`s03-44`…`s03-54`, T-0424).
  */
 flows: Array<CardGalleryCell>, 
-/**
- * *29 → On the card*, *30 → When a check agent doesn't finish*: a Check stage with two check agents (d0130).
- */
-checks: Array<CardGalleryCell>, 
 /**
  * *30 → The card in Dev*: a build stage's piece rows (d0133, T-0541).
  */

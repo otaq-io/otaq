@@ -7,9 +7,9 @@
 //! - The gitignored paths come from `git ls-files --others --ignored --exclude-standard --directory`: a folder is one
 //!   entry, so a folder of a hundred thousand files is one rename. Every gitignored file is treated the same.
 //! - The project's env files are left out, and stay in the worktree (a folder holding one moves around it): they are
-//!   copied fresh at each start (SES-01 step 4). So are Otaq's skill copies (marked folders under
-//!   `.agents/skills/` and `.claude/skills/`, AGM-07, and M27's `otaq-custom-*`): each session writes its own, and they
-//!   are never kept or seeded (d0082).
+//!   copied fresh at each start (SES-01 step 4). So are the skill copies an older Otaq left (marked folders under
+//!   `.agents/skills/` and `.claude/skills/`, and M27's `otaq-custom-*`): Otaq writes none any more, and a leftover
+//!   is never kept or seeded (d0082).
 //! - The record: built at (`HEAD`), base (`merge-base HEAD <base branch>`, for "forward only"), from (the ticket)
 //!   and the time. The stock decides whether it is kept.
 //! - The times file ([`TrackedTimes`]): every tracked file's modified time in the worktree (a symlink's own), so a
@@ -112,7 +112,7 @@ pub(crate) async fn collect(
         .iter()
         .map(|f| normal(Path::new(f.trim())))
         .filter(|f| !f.as_os_str().is_empty())
-        // Otaq's skill copies are never kept (d0082): each session writes its own (AGM-07).
+        // A skill copy an older Otaq left is never kept, so it can't come back in another worktree.
         .chain(crate::skills::copy::copies_to_skip(worktree))
         .collect();
     let git = board.project_git(&project.key).await.map_err(failed)?;
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn the_files_of_a_left_out_folder_stay_too() {
-        // Each skill copy has its own `.gitignore`, so git lists its files one by one, not the folder.
+        // Each leftover skill copy has its own `.gitignore`, so git lists its files one by one, not the folder.
         let listed = ".claude/skills/a-copy/.gitignore\0.claude/skills/a-copy/SKILL.md\0target/\0";
         let skip = [PathBuf::from(".claude/skills/a-copy")];
         assert_eq!(ignored_paths(listed, &skip), [PathBuf::from("target")]);

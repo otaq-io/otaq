@@ -1,6 +1,7 @@
 #!/bin/sh
-# Otaq's stand-in agent tool (T-0487, d0118): reads its skill folders only at start, as the real tools do, so a skill
-# copied while it runs is one it doesn't know. See README.md next to it.
+# Otaq's stand-in agent tool (T-0487, d0118, T2): Otaq's own skills come from Otaq's plugin, so every one of them runs
+# by its namespaced name; the user's project skills are read from its folder only at start, as the real tools do. See
+# README.md next to it.
 
 tool=${OTAQ_STAND_IN_TOOL:-$(basename "$0")}
 case "$tool" in
@@ -18,7 +19,11 @@ opencode)
     ;;
 esac
 
-# The skills it can run by name: the copies in its folder now, and only now.
+# Otaq's own skills, which Otaq's plugin gives every session from its start (`plugin/skills/`).
+own=" address-review answer-question commit flow milestone-plan noyan open-pr product-spec push restack tech-spec \
+validate work-ticket "
+
+# The user's skills it can run by name: the project skills in its folder now, and only now.
 loaded=" "
 for dir in "$root"/*/; do
     [ -f "${dir}SKILL.md" ] && loaded="$loaded$(basename "$dir") "
@@ -36,8 +41,9 @@ hook() {
     printf '%s' "$payload" | otaq hook --tool claude "$1"
 }
 
-# One prompt: a skill by name runs when it was loaded at start and is an unknown command otherwise; "Follow the skill
-# in `<file>`" runs when the file is there (read now, as any file); other text is ignored.
+# One prompt: Otaq's skill by its namespaced name (`/otaq:x`, `$otaq:x`; OpenCode's plain `x` in its "Load the skill
+# `x` …" instruction) always runs; the user's skill by its own name (`/x`, `$x`, `x`) runs when it was loaded at start
+# and is an unknown command otherwise (OpenCode's model says it has no skill named `x`); other text is ignored.
 handle() {
     line=$1
     esc=$(printf '\033')
@@ -46,38 +52,46 @@ handle() {
     line=${line%"$cr"}
     line=${line%"$esc[201~"}
     case "$form:$line" in
-    *:"Follow the skill in \`"*)
-        file=${line#"Follow the skill in \`"}
-        file=${file%%\`*}
-        if [ -f "$file" ]; then
-            printf 'FOLLOWS %s\n' "$file"
-            hook UserPromptSubmit
-            hook Stop
-        else
-            printf 'No such file: %s\n' "$file"
-        fi
-        return
-        ;;
     slash:/*) command=${line%% *} name=${command#/} ;;
     dollar:\$*) command=${line%% *} name=${command#\$} ;;
-    bare:otaq-*) command=${line%% *} name=$command ;;
+    # OpenCode's: "Load the skill `x` with your skill tool and follow it. …", the name between the backticks.
+    bare:"Load the skill \`"*)
+        name=${line#"Load the skill \`"}
+        name=${name%%\`*}
+        command=$name
+        ;;
+    bare:*) return ;;
     *) return ;;
     esac
-    case "$loaded" in
-    *" $name "*)
+    known=
+    case "$name" in
+    */* | "") return ;;
+    otaq:*)
+        [ "$form" = bare ] && return
+        case "$own" in *" ${name#otaq:} "*) known=yes ;; esac
+        ;;
+    *)
+        case "$loaded" in *" $name "*) known=yes ;; esac
+        if [ "$form" = bare ] && [ -z "$known" ]; then
+            # OpenCode names Otaq's skills by their own names.
+            case "$own" in *" $name "*) known=yes ;; esac
+        fi
+        ;;
+    esac
+    if [ -n "$known" ]; then
         printf 'RUNS %s\n' "$name"
         hook UserPromptSubmit
         hook Stop
-        ;;
-    *) printf 'Unknown command: %s\n' "$command" ;;
-    esac
+    elif [ "$form" = bare ]; then
+        printf 'No skill named %s.\n' "$name"
+    else
+        printf 'Unknown command: %s\n' "$command"
+    fi
 }
 
-# The first prompt is the last argument, when it names one of Otaq's skills or a skill's file.
+# The first prompt is the last argument, when it names a skill.
 for last; do :; done
-case "${last-}" in
-/otaq-* | \$otaq-* | otaq-* | "Follow the skill in"*) handle "$last" ;;
-esac
+handle "${last-}"
 
 while IFS= read -r typed; do
     handle "$typed"

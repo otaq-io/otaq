@@ -3,11 +3,14 @@
 //! Stage choices and path, finished and set by you*), from the facts of `ticket.choices` ([`TicketChoices`]) and
 //! `ticket.agents` ([`TicketAgents`]). They replace the Developer and Validator rows.
 //!
-//! - **Choices** ([`form_choices`], [`sheet_choices`]): a picker only for the stages with options ("Dev: Rust
+//! - **Choices** ([`form_choices`], [`sheet_choices`]): a picker for every stage an agent runs (its own agent, then
+//!   every other agent whose tool has the stage's skill) and every stage the flow marks skippable ("Dev: Rust
 //!   developer ▾", "Review: required ▾"); the ⌘N form preselects each stage's own agent. A stage that started is
-//!   locked. Who set them: "set by Noyan" above the rows; a change by a ticket's
-//!   agent says who and why in violet ("Dev: Quick developer → Rust developer · by Spec writer · touches session
-//!   handling"), one you made says it's yours ("… · by you"). None on a flow without options (the default flow).
+//!   locked, unless it waits for its tool. Who set them: "set by Noyan" above the rows; a change one of yours says
+//!   it's yours ("… · by you"), and one a ticket's agent made before only the user picked says who and why in violet
+//!   ("Dev: Quick developer → Rust developer · by Spec writer · touches session handling").
+//! - **Change agent…** ([`change_agent_dialog`]): on a card or a sheet whose stage waits for its tool, the same choice
+//!   for that stage, offering only the agents whose tool has its skill and can run now.
 //! - **The path** ([`path`]): every stage the ticket goes through with its agent and model; stages already run with
 //!   the exact model and a lock, failed rounds kept with what they found, skipped stages marked ("Skipped Product spec
 //!   (this ticket's choice)"), and a one-line summary ("Product spec skipped · Dev · Quick developer · haiku · … ·
@@ -25,9 +28,7 @@ use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::mark::is_swap;
 use otaq_core::agents::store::SessionAgentRun;
 use otaq_core::agents::{Agent, ModelRef, SessionRole};
-use otaq_core::board::stage_choices::{
-    NOTHING_BEFORE_IT_RUNS, SetBy, StageOptions, TicketChoices, on_its_own_label,
-};
+use otaq_core::board::stage_choices::{SetBy, StageOptions, TicketChoices};
 use otaq_core::board::stage_runs::StageRun;
 use otaq_core::domain::{Place, Status, StatusSet};
 use otaq_core::flow::engine::RunResult;
@@ -39,6 +40,7 @@ use crate::view_models::agents::{TOOL_DEFAULT, is_tool_default};
 use crate::view_models::card::tokens_label;
 use crate::view_models::menu::MenuItem;
 use crate::view_models::tool_problems::{self, Callout, Tools, tool_word};
+use otaq_core::board::stage_choices::StageOptions as Offered;
 
 /// The ⌘N form's field label.
 pub const FORM_HEADING: &str = "Stage choices";
@@ -198,18 +200,6 @@ fn rows(stages: &[StageOptions], with_changes: bool) -> Vec<ChoiceRow> {
     stages
         .iter()
         .map(|options| {
-            // A check skipped on its own (0129 row 4): "Spec review: skipped · nothing before it runs", no picker
-            // while it holds.
-            if options.on_its_own {
-                return ChoiceRow {
-                    stage_id: options.stage_id.clone(),
-                    label: format!("{}:", options.stage),
-                    value: on_its_own_label(),
-                    items: Vec::new(),
-                    lock: None,
-                    change: None,
-                };
-            }
             let value = options.label();
             ChoiceRow {
                 stage_id: options.stage_id.clone(),
@@ -226,8 +216,8 @@ fn rows(stages: &[StageOptions], with_changes: bool) -> Vec<ChoiceRow> {
         .collect()
 }
 
-/// The ⌘N form's "Stage choices" under Priority (`s08-29`): one picker per stage with options, each on its stage's
-/// own agent; `None` on a flow without options (the default flow). `project` is the project's name.
+/// The ⌘N form's "Stage choices" under Priority (`s08-29`): one picker per stage a ticket may choose for, each on
+/// its stage's own agent; `None` when no stage has one. `project` is the project's name.
 pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesView> {
     if choices.stages.is_empty() {
         return None;
@@ -237,13 +227,13 @@ pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesVie
         set_by: None,
         rows: rows(&choices.stages, false),
         note: Some(format!(
-            "Only stages with options in {project}\u{2019}s flow. You can change them until that stage starts."
+            "Any agent whose tool has the stage\u{2019}s skill, and skip where {project}\u{2019}s flow allows it. You \
+             can change them until that stage starts."
         )),
     })
 }
 
-/// The sheet's Choices (`s05-36`, `s05-38`): the ticket's choices with who set them; `None` on a flow without
-/// options.
+/// The sheet's Choices (`s05-36`, `s05-38`): the ticket's choices with who set them; `None` when no stage has one.
 pub fn sheet_choices(t: &TicketAgents) -> Option<ChoicesView> {
     if t.choices.is_empty() {
         return None;
@@ -269,6 +259,82 @@ pub fn picks_to_send(choices: &TicketChoices, picks: &[(String, String)]) -> Vec
         })
         .cloned()
         .collect()
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Change agent…
+
+/// The dialog's confirm button.
+pub const CHANGE_AGENT_CONFIRM: &str = "Change agent";
+
+/// Change agent…'s dialog (`sheet.change_agent_dialog`): another agent for a stage that hasn't started, one whose
+/// tool has the stage's skill and can run now. The pick goes back as `sheet.set_choice` with `stage_id` and the
+/// item's id. `ChangeAgentDialog` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ChangeAgentDialog")]
+pub struct ChangeAgentDialog {
+    /// "Change Dev’s agent".
+    pub title: String,
+    pub stage_id: String,
+    /// "Dev waits for Developer. It starts on the agent you pick; only agents whose tool has Dev’s skill and can run
+    /// now are listed."
+    pub intro: String,
+    /// Each agent (its id is the word the pick sends), with its tool as the hint; the first one picked.
+    pub items: Vec<MenuItem>,
+    /// No agent to offer: "No other agent whose tool has Dev’s skill can run now."
+    pub empty: Option<String>,
+    pub confirm: &'static str,
+}
+
+/// Whether an agent whose tool is `tool` can run now: its tool can (`None`: not known yet, it's offered).
+fn can_run(tool: Option<Tool>, tools: &Tools) -> bool {
+    tool.is_none_or(|t| tools.problem(t).is_none())
+}
+
+/// Change agent…'s dialog for `stage` (a stage's id) of the ticket's `choices`, else for the stage that waits for its
+/// tool; `None` when there is no such stage, it runs no agent, or it started. Offers the stage's own agent and the
+/// other agents whose tool has its skill ([`TicketChoices`] lists only those), each when its tool can run now, never
+/// the agent it runs on now.
+pub fn change_agent_dialog(
+    choices: &TicketChoices,
+    stage: Option<&str>,
+    tools: &Tools,
+) -> Option<ChangeAgentDialog> {
+    let options: &Offered = match stage {
+        Some(id) => choices.stages.iter().find(|s| s.stage_id == id),
+        None => choices.stages.iter().find(|s| s.held),
+    }?;
+    let usual = options.usual.as_ref()?;
+    if options.locked {
+        return None;
+    }
+    let now = options.label();
+    let mut items: Vec<MenuItem> = std::iter::once(usual)
+        .chain(&options.agents)
+        .filter(|a| a.name != now && a.agent_id.is_some() && can_run(a.tool, tools))
+        .map(|a| {
+            let mut item = MenuItem::new(a.name.clone(), a.name.clone());
+            item.hint = a.tool.map(|t| tool_word(t).to_owned());
+            item
+        })
+        .collect();
+    if let Some(first) = items.first_mut() {
+        first.checked = true;
+    }
+    let stage = &options.stage;
+    Some(ChangeAgentDialog {
+        title: format!("Change {stage}\u{2019}s agent"),
+        stage_id: options.stage_id.clone(),
+        intro: format!(
+            "{stage} waits for {now}. It starts on the agent you pick; only agents whose tool has {stage}\u{2019}s \
+             skill and can run now are listed."
+        ),
+        empty: items
+            .is_empty()
+            .then(|| format!("No other agent whose tool has {stage}\u{2019}s skill can run now.")),
+        items,
+        confirm: CHANGE_AGENT_CONFIRM,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -375,25 +441,9 @@ fn agent_name(stage: &PathStage) -> String {
         .map_or_else(|| DASH.to_owned(), |a| a.name.clone())
 }
 
-/// "Skipped Product spec (this ticket's choice)"; a skipped check of yours waits for your click at the Delivery, unless
-/// it skipped on its own ("Skipped Spec review · nothing before it runs", 0129 row 4).
-fn skipped_detail(
-    stage: &PathStage,
-    delivery: Option<&str>,
-    delivered: bool,
-    on_its_own: bool,
-) -> String {
-    if on_its_own {
-        return format!("Skipped {} \u{b7} {NOTHING_BEFORE_IT_RUNS}", stage.stage);
-    }
-    match (stage.kind, delivery) {
-        (PathKind::HumanCheck, Some(at)) => format!(
-            "{} skipped \u{b7} {} for your click at {at}",
-            stage.stage,
-            if delivered { "waited" } else { "waits" }
-        ),
-        _ => format!("Skipped {} (this ticket\u{2019}s choice)", stage.stage),
-    }
+/// "Skipped Product spec (this ticket's choice)", a check of yours too (its Delivery still does what the flow says).
+fn skipped_detail(stage: &PathStage) -> String {
+    format!("Skipped {} (this ticket\u{2019}s choice)", stage.stage)
 }
 
 /// The exact model a run ran on, with the effort its session passed ("claude-opus-5-5 · high").
@@ -468,14 +518,8 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
     if t.path.is_empty() {
         return None;
     }
-    let stages = shown_stages(&t.path);
+    let stages = &t.path;
     let stage_of = |id: &str| stages.iter().find(|s| s.stage_id == id);
-    let delivery = stages
-        .iter()
-        .find(|s| s.kind == PathKind::Delivery)
-        .map(|s| s.stage.as_str());
-    let finished = t.status.is_some_and(|s| s.set() == StatusSet::Done);
-    let on_its_own = |id: &str| t.choices.iter().any(|c| c.stage_id == id && c.on_its_own);
     let (to_come_from, current) = now_at(t);
     // Runs of each stage, to number its rounds.
     let runs_of = |id: &str| t.runs.iter().filter(|r| r.stage == id).count();
@@ -541,7 +585,7 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
             RunResult::Skipped => row(
                 PathState::Skipped,
                 match stage.skipped {
-                    true => skipped_detail(stage, delivery, finished, on_its_own(&stage.stage_id)),
+                    true => skipped_detail(stage),
                     false => format!("Skipped {} \u{b7} by you", stage.stage),
                 },
                 DASH.to_owned(),
@@ -641,7 +685,7 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
         let (state, detail, part) = if stage.skipped {
             (
                 PathState::Skipped,
-                skipped_detail(stage, delivery, false, on_its_own(&stage.stage_id)),
+                skipped_detail(stage),
                 format!("{} skipped", stage.stage),
             )
         } else {
@@ -729,23 +773,6 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
         summary,
         rows,
     })
-}
-
-/// The path's stages as they read for this ticket: a ticket that skips a check of yours reaches its Delivery in
-/// click mode (d0108), so that Delivery waits for your click.
-fn shown_stages(path: &[PathStage]) -> Vec<PathStage> {
-    let skips_yours = path
-        .iter()
-        .any(|s| s.kind == PathKind::HumanCheck && s.skipped);
-    path.iter()
-        .cloned()
-        .map(|mut stage| {
-            if skips_yours && let Some(d) = &mut stage.delivery {
-                d.automatic = false;
-            }
-            stage
-        })
-        .collect()
 }
 
 /// A stage in the one-line path: "Dev · Quick developer · haiku", "Product spec skipped", "Review", "Done".
@@ -863,7 +890,7 @@ fn finished(t: &TicketAgents) -> bool {
 }
 
 /// The callouts of `t`'s held sessions (§7.2, SCH-04 `[M23]`): a model that can't run, a tool that isn't available
-/// or is at its limit, each with Use fallback and Open agent….
+/// or is at its limit, each with Open agent….
 pub fn callouts(t: &TicketAgents, tools: &Tools) -> Vec<Callout> {
     tool_problems::hold_callouts(&t.holds, &t.agents, tools)
 }
@@ -1048,8 +1075,8 @@ fn move_reason(reason: &str, tool: Option<Tool>) -> Option<String> {
 }
 
 /// A recorded row's move (AGT-08, M31's `agent_row_set` with `moved_reason`): "Moved to Strong GPT (Codex): Claude
-/// Code limit" by the automatic fallback; "Developer: Strong GPT (moved by you from Strong · Claude Code limit)" by
-/// Use fallback or Move waiting to…. `None` for a row change that isn't a move.
+/// Code limit" moved by Otaq then; "Developer: Strong GPT (moved by you from Strong · Claude Code limit)" moved by
+/// you then. Old rows only: Otaq no longer moves work to another tool. `None` for a row change that isn't a move.
 pub fn move_line(p: &serde_json::Value) -> Option<String> {
     let reason = text(p, "moved_reason")?;
     let role = role_label(p);
@@ -1073,13 +1100,13 @@ pub fn move_line(p: &serde_json::Value) -> Option<String> {
     Some(format!("Moved to {target}: {}", why.unwrap_or_default()))
 }
 
-/// Use fallback's History line (AGM-03, `fallback_used`): "Developer started on Codex: Claude Code limit (by
-/// you)".
-pub fn fallback_line(p: &serde_json::Value) -> String {
+/// History's line of an old start on another tool (stored as `fallback_used`; History keeps these lines): "Developer
+/// started on Codex: Claude Code limit (by you)".
+pub fn started_elsewhere_line(p: &serde_json::Value) -> String {
     let tool = |field| {
         text(p, field)
             .and_then(|t| t.parse::<Tool>().ok())
-            .map_or("its fallback", tool_word)
+            .map_or("another tool", tool_word)
     };
     let why = text(p, "reason")
         .and_then(|r| move_reason(&r, text(p, "from_tool").and_then(|t| t.parse().ok())))
@@ -1245,8 +1272,6 @@ pub mod fixtures {
             id: id.into(),
             name: name.into(),
             instructions: String::new(),
-            skills: Vec::new(),
-            imported: Vec::new(),
             model: AgentModel::Tool {
                 tool,
                 model: Some(model.into()),
@@ -1335,10 +1360,11 @@ pub mod fixtures {
         OptionAgent {
             name: name.into(),
             agent_id: Some(id.into()),
+            tool: None,
         }
     }
 
-    /// shop-web's stages with options, nobody chose.
+    /// shop-web's stages a ticket may choose for, nobody chose.
     pub fn shop_options() -> Vec<StageOptions> {
         let options = |id: &str, name: &str, usual: Option<OptionAgent>| StageOptions {
             stage_id: id.into(),
@@ -1348,7 +1374,7 @@ pub mod fixtures {
             can_skip: true,
             choice: None,
             locked: false,
-            on_its_own: false,
+            held: false,
         };
         vec![
             options(
@@ -1746,7 +1772,7 @@ mod tests {
 
     /// AGM-09, `s08-29`: the ⌘N form's three pickers on the test flow, each on its stage's own agent.
     #[test]
-    fn the_form_has_a_picker_per_stage_with_options() {
+    fn the_form_has_a_picker_per_stage_with_choices() {
         let view = form_choices(&new_ticket(), "shop-web").expect("choices");
         assert_eq!(view.heading, "Stage choices");
         let shown: Vec<_> = view
@@ -1757,7 +1783,7 @@ mod tests {
         assert_eq!(
             shown,
             [
-                // FLW-22 (Q290): a skippable Agent stage shows its agent, a skippable human check "required".
+                // A skippable Agent stage shows its agent, a skippable human check "required" (you check it).
                 ("Product spec:", "Spec writer"),
                 ("Dev:", "Rust developer"),
                 ("Review:", "required")
@@ -1784,7 +1810,8 @@ mod tests {
         assert_eq!(
             view.note.as_deref(),
             Some(
-                "Only stages with options in shop-web\u{2019}s flow. You can change them until that stage starts."
+                "Any agent whose tool has the stage\u{2019}s skill, and skip where shop-web\u{2019}s flow allows it. \
+                 You can change them until that stage starts."
             )
         );
         // Only the picks that aren't the stage's own agent go with the new ticket.
@@ -1803,6 +1830,106 @@ mod tests {
                 ("dev".to_owned(), "Quick developer".to_owned()),
                 ("review".to_owned(), "skip".to_owned())
             ]
+        );
+    }
+
+    /// Change agent… on a stage waiting for its tool: the stage's own agent and the others its choices offer (only
+    /// agents whose tool has the skill), each when its tool can run now, never the one it runs now; the first is
+    /// picked. A stage that started, or one with no agent, has none; with nobody left the dialog says so.
+    #[test]
+    fn change_agent_offers_the_agents_that_can_run_the_waiting_stage() {
+        use crate::view_models::tool_problems::fixtures::at_limit;
+        use otaq_core::board::stage_choices::OptionAgent;
+        let agent = |name: &str, tool| OptionAgent {
+            name: name.into(),
+            agent_id: Some(name.to_lowercase()),
+            tool: Some(tool),
+        };
+        let mut choices = new_ticket();
+        let dev = choices
+            .stages
+            .iter_mut()
+            .find(|s| s.stage_id == "dev")
+            .unwrap();
+        dev.usual = Some(agent("Rust developer", Tool::Claude));
+        dev.agents = vec![
+            agent("Light", Tool::Claude),
+            agent("Codex developer", Tool::Codex),
+            agent("Verifier", Tool::Copilot),
+        ];
+        dev.held = true;
+        let tools = at_limit(Tool::Claude, None);
+        let dialog = change_agent_dialog(&choices, None, &tools).expect("Dev waits");
+        assert_eq!(dialog.title, "Change Dev\u{2019}s agent");
+        assert_eq!(dialog.stage_id, "dev");
+        assert_eq!(
+            dialog.intro,
+            "Dev waits for Rust developer. It starts on the agent you pick; only agents whose tool has Dev\u{2019}s \
+             skill and can run now are listed."
+        );
+        let items: Vec<(&str, Option<&str>, bool)> = dialog
+            .items
+            .iter()
+            .map(|i| (i.id.as_str(), i.hint.as_deref(), i.checked))
+            .collect();
+        assert_eq!(
+            items,
+            [
+                ("Codex developer", Some("Codex"), true),
+                ("Verifier", Some("Copilot"), false)
+            ]
+        );
+        assert_eq!(dialog.empty, None);
+        assert_eq!(dialog.confirm, "Change agent");
+        // Chosen already: the stage's own agent is offered back.
+        let dev = choices
+            .stages
+            .iter_mut()
+            .find(|s| s.stage_id == "dev")
+            .unwrap();
+        dev.choice = chose(
+            Choice::Agent {
+                id: "verifier".into(),
+                name: "Verifier".into(),
+            },
+            SetBy::User,
+            None,
+        );
+        let tools = Tools::default();
+        let ids: Vec<String> = change_agent_dialog(&choices, Some("dev"), &tools)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        assert_eq!(ids, ["Rust developer", "Light", "Codex developer"]);
+        // Nobody left; a stage with no agent; a stage that started.
+        let dev = choices
+            .stages
+            .iter_mut()
+            .find(|s| s.stage_id == "dev")
+            .unwrap();
+        dev.choice = None;
+        dev.agents.clear();
+        let dialog =
+            change_agent_dialog(&choices, Some("dev"), &at_limit(Tool::Claude, None)).unwrap();
+        assert!(dialog.items.is_empty());
+        assert_eq!(
+            dialog.empty.as_deref(),
+            Some("No other agent whose tool has Dev\u{2019}s skill can run now.")
+        );
+        assert_eq!(change_agent_dialog(&choices, Some("review"), &tools), None);
+        choices
+            .stages
+            .iter_mut()
+            .find(|s| s.stage_id == "dev")
+            .unwrap()
+            .locked = true;
+        assert_eq!(change_agent_dialog(&choices, Some("dev"), &tools), None);
+        assert_eq!(
+            change_agent_dialog(&new_ticket(), None, &tools),
+            None,
+            "nothing waits"
         );
     }
 
@@ -1931,7 +2058,7 @@ mod tests {
     }
 
     /// `s05-38` "Finished": the skipped stages marked, every stage that ran with its exact model and a lock; Review
-    /// skipped, so Done waited for your click.
+    /// skipped by its choice, Done delivering as the flow says.
     #[test]
     fn a_finished_ticket_shows_what_ran() {
         let t = shop_41();
@@ -1953,7 +2080,8 @@ mod tests {
         assert_eq!(
             p.summary,
             "Product spec skipped \u{b7} Dev \u{b7} Quick developer \u{b7} haiku \u{b7} Validate \u{b7} Validator \u{b7} \
-             gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review skipped \u{b7} Done"
+             gpt-5.5 \u{b7} Security \u{b7} Security reviewer \u{b7} opus \u{b7} Review skipped \u{b7} Done \u{b7} \
+             Shipper \u{b7} haiku"
         );
         assert_eq!(
             texts(&p),
@@ -1979,7 +2107,7 @@ mod tests {
                 ),
                 row(
                     "Review",
-                    "Review skipped \u{b7} waited for your click at Done",
+                    "Skipped Review (this ticket\u{2019}s choice)",
                     "\u{2014}",
                     false
                 ),
@@ -2056,32 +2184,6 @@ mod tests {
         );
     }
 
-    /// 0129 row 4: a check the ticket skips on its own reads "Review: skipped · nothing before it runs", with no
-    /// picker and no lock, and its path row says why.
-    #[test]
-    fn a_check_skipped_on_its_own_says_so() {
-        let mut t = shop_31();
-        t.choices[2].on_its_own = true;
-        let review = t.path.iter_mut().find(|s| s.stage_id == "review").unwrap();
-        review.skipped = true;
-        let choices = sheet_choices(&t).expect("choices");
-        let row = &choices.rows[2];
-        assert_eq!(
-            (row.label.as_str(), row.value.as_str()),
-            ("Review:", "skipped \u{b7} nothing before it runs")
-        );
-        assert!(row.items.is_empty() && row.lock.is_none() && row.change.is_none());
-        let p = path(&t, &tools()).expect("path");
-        let review = p.rows.iter().find(|r| r.stage == "Review").unwrap();
-        assert_eq!(
-            (review.state, review.detail.as_str()),
-            (
-                PathState::Skipped,
-                "Skipped Review \u{b7} nothing before it runs"
-            )
-        );
-    }
-
     #[test]
     fn models_read_short() {
         let tools = tools();
@@ -2140,9 +2242,9 @@ mod tests {
     }
 
     #[test]
-    fn use_fallback_reads_as_a_history_line() {
+    fn an_old_start_on_another_tool_reads_as_a_history_line() {
         assert_eq!(
-            fallback_line(&json!({
+            started_elsewhere_line(&json!({
                 "role": "developer", "tool": "codex", "from_tool": "claude", "reason": "tool_limit"
             })),
             "Developer started on Codex: Claude Code limit (by you)"

@@ -398,8 +398,8 @@ function StartProblem({ view, problem }: { view: SheetView; problem: SheetStartP
 
 /**
  * The held roles' callouts above the bar (§7.2, SCH-04 `[M23]`; *05 → Column 3 · several tools (M23)*): "Model
- * unavailable", "Codex isn't available · hidden in Settings", "Claude Code limit reached · resets 3:45 pm", with Use
- * fallback, Open agent…, Sign in… and Show in Agent tools.
+ * unavailable", "Codex isn't available · hidden in Settings", "Claude Code limit reached · resets 3:45 pm", with Open
+ * agent…, Sign in… and Show in Agent tools.
  */
 function Holds({ view }: { view: SheetView }) {
   if (view.holds.length === 0) return null;

@@ -12,7 +12,7 @@ flow:
     column: own
     agent: Developer
     skill: work-ticket
-    options: [Quick developer, skip]
+    options: [skip]
   - id: deliver
     name: Done
     kind: delivery

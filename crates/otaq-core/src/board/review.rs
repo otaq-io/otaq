@@ -62,8 +62,15 @@ pub struct StageEnded {
 
 /// What `otaq stage next` answers (AGM-10), from the ticket `before` and `after` the move: the stage it finished and
 /// where it is now. "Finished Dev. Validate is running; the result will come back to you here. End your turn." /
-/// "Finished Dev. SHOP-18 is Ready for Review." / "Finished Product spec. Dev starts next; end your turn."
-pub fn stage_next_text(flow: &crate::flow::Flow, before: &Ticket, after: &Ticket) -> String {
+/// "Finished Dev. SHOP-18 is Ready for Review." / "Finished Product spec. Dev starts next; end your turn." An agent
+/// check held before its checker started (`held`: the agent it waits for) waits instead: "Finished Dev. Validate
+/// waits for Codex checker; the result will come back to you here once it runs. End your turn."
+pub fn stage_next_text(
+    flow: &crate::flow::Flow,
+    before: &Ticket,
+    after: &Ticket,
+    held: Option<&str>,
+) -> String {
     let name = |place: &crate::domain::Place| {
         place
             .stage()
@@ -74,9 +81,14 @@ pub fn stage_next_text(flow: &crate::flow::Flow, before: &Ticket, after: &Ticket
     let next_name = name(&after.place).unwrap_or_default();
     let now = match next {
         _ if after.place.is_waiting() => format!("{next_name} starts next; end your turn."),
-        Some(stage) if stage.is_agent_check() => {
-            format!("{next_name} is running; the result will come back to you here. End your turn.")
-        }
+        Some(stage) if stage.is_agent_check() => match held {
+            Some(agent) => format!(
+                "{next_name} waits for {agent}; the result will come back to you here once it runs. End your turn."
+            ),
+            None => format!(
+                "{next_name} is running; the result will come back to you here. End your turn."
+            ),
+        },
         Some(stage) if stage.is_human_check() => {
             format!("{} is Ready for {next_name}.", after.key)
         }
@@ -281,6 +293,63 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::tickets::Base;
+    use crate::domain::{Actor, Flags, Place, Status};
+
+    fn ticket(status: Status, stage: &str) -> Ticket {
+        Ticket {
+            id: "t1".into(),
+            key: "SHOP-1".parse().unwrap(),
+            title: "t".into(),
+            body: String::new(),
+            plan: String::new(),
+            plan_by: None,
+            plan_at: None,
+            priority: Default::default(),
+            place: Place::of(status, Some(stage), None),
+            status,
+            base: Base::Branch("main".into()),
+            base_locked: false,
+            external_id: None,
+            depends_on: Vec::new(),
+            flags: Flags::default(),
+            created_by: Actor::User("me".into()),
+            updated_by: None,
+            started_at: None,
+            created_at: 0,
+            updated_at: 0,
+            status_since: None,
+            queued_at: None,
+            ready_since: None,
+            validation_round: 0,
+            auto_merge_conflicts: 0,
+            auto_merge_stop: None,
+            work: None,
+            start_problem: None,
+            interrupted_from: None,
+            signal: None,
+            question: None,
+            pushed_differs: None,
+        }
+    }
+
+    /// `stage next` into an agent check says it runs, or, when its checker is held before it started, that it waits
+    /// for that agent: the Dev agent mustn't tell the user a check runs that hasn't started.
+    #[test]
+    fn stage_next_says_a_held_check_waits() {
+        let flow = crate::flow::default_flow();
+        let before = ticket(Status::Working, crate::flow::default::DEV);
+        let after = ticket(Status::Checking, crate::flow::default::VALIDATE);
+        assert_eq!(
+            stage_next_text(&flow, &before, &after, None),
+            "Finished Dev. Validate is running; the result will come back to you here. End your turn."
+        );
+        assert_eq!(
+            stage_next_text(&flow, &before, &after, Some("Codex checker")),
+            "Finished Dev. Validate waits for Codex checker; the result will come back to you here once it runs. \
+             End your turn."
+        );
+    }
 
     #[test]
     fn the_refusal_names_the_count() {

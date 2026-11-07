@@ -56,7 +56,6 @@ async fn spawn(
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -170,7 +169,6 @@ async fn an_agent_session_keeps_the_theme_its_launch_read() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: Some(Theme::Daylight),
         })
         .await

@@ -14,6 +14,7 @@ use ts_rs::TS;
 use crate::view_models::card::{age_label, pr_provider_label};
 use crate::view_models::pr_dialog::{self as pd, PrDialog, Stage};
 use crate::view_models::review_page::ToastText;
+use crate::view_models::toasts::{NewToast, ToastLevel, ToastLink};
 
 /// One editable commit message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -285,6 +286,26 @@ pub fn success_toast(ticket: &Ticket, kind: FlowKind, target: &str) -> Option<To
     })
 }
 
+/// The toast when Open PR didn't go through: the refusal's text; with `delivery` (the project and its Delivery stage),
+/// a refusal because the built-in skill can't open a PR on this remote links to that stage's Skill field in the flow
+/// editor, where the user's own Open PR skill goes.
+pub fn refused_toast(key: &str, message: String, delivery: Option<(&str, &str)>) -> NewToast {
+    let mut toast = NewToast::new(
+        ToastLevel::Error,
+        format!("Open PR for {key} didn\u{2019}t go through"),
+        Some(message),
+    );
+    toast.link = delivery.map(|(project, stage)| ToastLink::StageSkill {
+        label: OWN_SKILL_LINK.to_owned(),
+        project: project.to_owned(),
+        stage: stage.to_owned(),
+    });
+    toast
+}
+
+/// The refused Open PR toast's link to the Delivery stage's Skill field.
+pub const OWN_SKILL_LINK: &str = "Set the Delivery stage\u{2019}s skill";
+
 /// *05 → SHOP-26 · Approved, PR open*: the PR box under the tabs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PrOpenBox")]
@@ -409,9 +430,10 @@ mod tests {
         }
     }
 
-    /// WSK-08, REV-11: an imported Open PR skill is shown by its name, and it handles a provider's login itself.
+    /// WSK-08, REV-11: the user's Open PR skill (the Delivery stage's) is shown by its name, and it handles a
+    /// provider's login itself.
     #[test]
-    fn an_imported_skill_is_shown_by_its_name() {
+    fn the_users_open_pr_skill_is_shown_by_its_name() {
         let mut provider = github(false);
         provider.open_pr_skill = "my-pr".into();
         let mut d = PrDialog::opening(&shop18(), "my-pr", Some(&provider));
@@ -553,5 +575,39 @@ mod tests {
         );
         t.status = Status::WaitingForYou;
         assert!(open_box(&t, 0).is_none(), "only while the PR is open");
+    }
+    /// On a GitLab remote the built-in Open PR is refused; the toast says to name your own skill as the Delivery
+    /// stage's skill and links to that stage's Skill field in the flow editor, never to the agent's skills.
+    #[test]
+    fn refused_open_pr_on_gitlab_links_to_the_delivery_stage_skill() {
+        let gitlab = PrProvider {
+            remote: Some("gitlab.com/acme/shop-web".into()),
+            provider: None,
+            logged_in: None,
+            cli_found: false,
+            open_pr_skill: "open-pr".to_owned(),
+        };
+        let why = gitlab.open_pr_blocked().unwrap();
+        let message = otaq_core::pr::service::own_open_pr_skill(why);
+        let toast = refused_toast("SHOP-18", message, Some(("SHOP", "done")));
+        assert_eq!(toast.title, "Open PR for SHOP-18 didn\u{2019}t go through");
+        let text = toast.text.unwrap();
+        assert!(
+            text.contains("Delivery stage\u{2019}s skill in the flow editor"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("Settings") && !text.contains("agent\u{2019}s skills"),
+            "{text}"
+        );
+        assert_eq!(
+            toast.link,
+            Some(ToastLink::StageSkill {
+                label: "Set the Delivery stage\u{2019}s skill".into(),
+                project: "SHOP".into(),
+                stage: "done".into(),
+            })
+        );
+        assert_eq!(refused_toast("SHOP-18", "Nope".into(), None).link, None);
     }
 }

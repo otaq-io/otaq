@@ -1,25 +1,29 @@
 //! "What this agent reads" (AGR-01…AGR-03; d0108 rule 12 and its changelog of 2026-10-21): what one agent is given
 //! in one project, read-only, for Settings → Agents. Built from the same functions the agent's own start uses, so the
 //! preview and the agent can't differ: [`Board::instructions`] (its instructions, then the project's notes, as
-//! `otaq prime` gives them, AGM-06), [`crate::skills::Sources::runs`] for each skill it runs first (AGM-07: its
-//! imported skill standing for the stage's), the commit skill as prime names it, and the Project agent's `flow` start
-//! ([`crate::project_agents::first_skill`]).
+//! `otaq prime` gives them, AGM-06), the skill it runs first by its name (the stage's `skill:`, else Otaq's own), the
+//! commit skill as prime names it, and the Project agent's `flow` start ([`crate::project_agents::first_skill`]).
 //!
 //! The parts: one **skill part** per stage of the project's flow whose own agent this is (a ticket's stage choice,
 //! AGM-08, doesn't move it: it is per ticket, and the per-ticket context is left out), then one for the role it holds
-//! ("noyan · as Noyan"); then its **other skills** by name, the commit skill and the Project agent's
-//! `flow` marked. An agent in no stage and with no role has no skill part.
+//! ("noyan · as Noyan"); then the **other skills** it is told about: the commit skill as prime names it (an agent
+//! that runs a stage) and, for the Project agent, its `flow` start, each marked. An agent has no skill list of its own (T6). An agent in no stage
+//! and with no role has no skill part.
+//!
+//! A user's skill (one not Otaq's own) is shown from where the skill finder found it ([`Board::found_skills`]): the
+//! copy the agent's own tool loads, so its text and Open skill folder → are the user's own folder, never a copy. When
+//! the agent's tool doesn't have the skill, the part says so instead of showing another tool's copy.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_tools::PROJECT_AGENT_SKILL;
+use crate::agent_tools::{PROJECT_AGENT_SKILL, Tool};
 use crate::agents::{Agent, Role};
 use crate::board::settings::WorkflowStep;
 use crate::board::{Board, BoardError};
 use crate::flow::Stage;
-use crate::skills::{Source, Sources};
+use crate::skills::found::FoundSkill;
 
 /// `agents.reads`: the agent (its id) and the project (its key).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +47,7 @@ pub struct AgentReads {
     pub notes: String,
     /// One per stage it runs, then one for its role.
     pub skills: Vec<SkillPart>,
-    /// Its other skills, in its order.
+    /// The other skills it is told about: the commit skill, and the Project agent's `flow`.
     pub others: Vec<OtherSkill>,
 }
 
@@ -53,12 +57,15 @@ pub struct SkillPart {
     /// The skill's own name as resolved for the agent ("work-ticket", "team-validate").
     pub skill: String,
     pub runs: RunsAs,
-    /// Its SKILL.md in full; `None` when it can't be read (the plugin wasn't found, a copy went missing).
+    /// Its SKILL.md in full; `None` when it can't be read (the plugin wasn't found) or the agent's tool doesn't have it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// The folder it is read from; `None` when there is none to show.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<PathBuf>,
+    /// The agent's tool, when it doesn't have this user's skill: the part says so and shows no other tool's copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_in: Option<Tool>,
 }
 
 /// Where a skill part runs.
@@ -107,11 +114,10 @@ impl Board {
             .ok_or_else(|| BoardError::NotFound(format!("no agent {agent_id}")))?;
         let info = self.project(project).await?;
         let told = self.instructions(&info.key, Some(&agent)).await?;
-        let sources = Sources {
-            shipped,
-            data: self.data(),
-        };
         let mut skills = Vec::new();
+        let default = self.store().default_model().await?;
+        let tool = agent.model.on(default.as_ref()).map(|m| m.tool);
+        let mut found: Option<Vec<FoundSkill>> = None;
         let flow = self.effective_flow(&info.key).await?;
         // Every stage naming it, an agent check's check agents each (d0130).
         for stage in &flow.stages {
@@ -119,18 +125,25 @@ impl Board {
                 continue;
             }
             let name = self.stage_skill(&info.key, stage).await?;
-            skills.push(part(
-                sources.runs(Some(&agent), &name),
-                RunsAs::Stage(stage.name.clone()),
-            ));
+            let runs = RunsAs::Stage(stage.name.clone());
+            if crate::agent_tools::is_own_skill(&name) {
+                skills.push(part(shipped, name, runs));
+            } else {
+                if found.is_none() {
+                    found = Some(self.found_skills(&info.key).await?);
+                }
+                let found = found.as_deref().unwrap_or_default();
+                skills.push(user_part(found, tool, name, runs));
+            }
         }
         if let Some(role) = agent.role {
             skills.push(part(
-                sources.runs(Some(&agent), role_skill(role)),
+                shipped,
+                role_skill(role).to_owned(),
                 RunsAs::Role(role),
             ));
         }
-        let others = others(&sources, &agent, &skills);
+        let others = others(shipped, &agent, &skills);
         Ok(AgentReads {
             agent_id: agent.id.clone(),
             agent: agent.name.clone(),
@@ -164,43 +177,80 @@ pub fn role_skill(role: Role) -> &'static str {
     }
 }
 
-fn part(source: Source, runs: RunsAs) -> SkillPart {
-    let folder = Some(source.folder).filter(|f| !f.as_os_str().is_empty());
+/// The skill part for the user's skill `skill` from `found` (the finder's list for the project): the first place,
+/// in the order the folders are read, where the agent's `tool` finds it (with no tool known, the first any tool finds
+/// it in). Its text is that place's SKILL.md and its folder that place's, the user's own; a tool that doesn't have
+/// the skill gets no text and no folder, and is named.
+pub fn user_part(
+    found: &[FoundSkill],
+    tool: Option<Tool>,
+    skill: String,
+    runs: RunsAs,
+) -> SkillPart {
+    let place = found
+        .iter()
+        .find(|f| f.name == skill && !f.otaq)
+        .and_then(|f| {
+            f.places.iter().find(|p| match tool {
+                Some(tool) => p.tools.contains(&tool),
+                None => !p.tools.is_empty(),
+            })
+        });
+    let folder = place.map(|p| p.path.clone());
     SkillPart {
         text: folder
             .as_ref()
             .and_then(|f| std::fs::read_to_string(f.join(crate::skills::folder::SKILL_FILE)).ok()),
-        skill: source.own,
+        missing_in: if place.is_none() { tool } else { None },
+        skill,
         runs,
         folder,
     }
 }
 
-/// The agent's skills that no part shows, each once, the commit skill (as prime names it) and the Project agent's
-/// `flow` marked.
-fn others(sources: &Sources<'_>, agent: &Agent, parts: &[SkillPart]) -> Vec<OtherSkill> {
-    let commit = crate::prime::commit_skill(sources, Some(agent));
+/// The skill part for `skill`: its text and folder when it is one of Otaq's own skills (read from the bundle at
+/// `shipped`).
+fn part(shipped: Option<&Path>, skill: String, runs: RunsAs) -> SkillPart {
+    let folder = shipped
+        .filter(|_| crate::agent_tools::is_own_skill(&skill))
+        .map(|dir| dir.join(&skill));
+    SkillPart {
+        text: folder
+            .as_ref()
+            .and_then(|f| std::fs::read_to_string(f.join(crate::skills::folder::SKILL_FILE)).ok()),
+        skill,
+        runs,
+        folder,
+        missing_in: None,
+    }
+}
+
+/// The skills the agent is told about that no part shows, each once: the commit skill (as prime names it, for an
+/// agent that runs a stage) and the Project agent's `flow`, each marked; a folder only for one of Otaq's own (read from the bundle at `shipped`).
+fn others(shipped: Option<&Path>, agent: &Agent, parts: &[SkillPart]) -> Vec<OtherSkill> {
+    let commit = crate::prime::commit_skill();
     let flow = (agent.role == Some(Role::ProjectAgent)).then(|| {
         let (skill, _) = crate::project_agents::first_skill(crate::project_agents::FLOW_COMMAND);
-        sources.runs(Some(agent), skill).own
+        skill.to_owned()
     });
+    // A ticket's session is told the commit skill (prime names it), so an agent that runs a stage is.
+    let commits = parts.iter().any(|p| matches!(p.runs, RunsAs::Stage(_)));
+    let told = commits
+        .then_some((commit, SkillMark::Commits))
+        .into_iter()
+        .chain(flow.map(|name| (name, SkillMark::FlowChanges)));
     let mut out: Vec<OtherSkill> = Vec::new();
-    for source in sources.of_agent(agent) {
-        if parts.iter().any(|p| p.skill == source.own) || out.iter().any(|o| o.skill == source.own)
-        {
+    for (name, mark) in told {
+        if parts.iter().any(|p| p.skill == name) || out.iter().any(|o| o.skill == name) {
             continue;
         }
-        let mark = if commit.as_deref() == Some(source.own.as_str()) {
-            Some(SkillMark::Commits)
-        } else if flow.as_deref() == Some(source.own.as_str()) {
-            Some(SkillMark::FlowChanges)
-        } else {
-            None
-        };
+        let folder = shipped
+            .filter(|_| crate::agent_tools::is_own_skill(&name))
+            .map(|dir| dir.join(&name));
         out.push(OtherSkill {
-            folder: Some(source.folder).filter(|f| !f.as_os_str().is_empty()),
-            skill: source.own,
-            mark,
+            skill: name,
+            folder,
+            mark: Some(mark),
         });
     }
     out

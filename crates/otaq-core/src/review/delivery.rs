@@ -6,7 +6,8 @@
 //!   confirmation would propose: Done · "Merged automatically", a History line, no needs-you item and no notification;
 //!   the Done cleanup and the waiting tickets follow as after any Local merge (the flow is the user's standing
 //!   go-ahead). `delivers: pr` runs the Delivery's agent with its PR skill and no dialog ([`crate::pr::service`]).
-//!   With no check passed before it, the ticket records "Delivered without checks". A base that diverged or the
+//!   With a check before it not passed (skipped, moved past) or none at all, the ticket records "Delivered without
+//!   checks"; a skipped or moved-past check never stops it. A base that diverged or the
 //!   user's dirty checkout stops it, turquoise, with the Local merge's message; Retry merge and Move to Review are
 //!   the user's ([`crate::board::merge`]).
 //! - **Click mode** stays the user's Local merge or Open PR (0050's dialog).
@@ -100,7 +101,7 @@ pub async fn run_automatic(
 
 impl Review {
     /// The automatic local Delivery of a ticket waiting in its Delivery stage: the Local merge without the
-    /// confirmation. `without_checks` records "Delivered without checks".
+    /// confirmation. `without_checks` records "Delivered without all checks".
     pub async fn deliver_locally(
         &self,
         key: &str,
@@ -269,16 +270,10 @@ impl Review {
                     .await;
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
-                let worktree = ticket
-                    .work
-                    .as_ref()
-                    .and_then(|w| w.worktree.as_deref())
-                    .map(std::path::Path::new);
                 let told = check.map(|_| merge_check_failed_told(&ticket.key, target));
                 let text = inner
                     .deliveries
-                    .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
-                    .await;
+                    .skill_text(&session.id, skill, told.as_deref());
                 inner
                     .deliveries
                     .queue_hand_off(&session.id, HandOff::new(action.hand_off(), text))
@@ -298,7 +293,10 @@ impl Review {
                     .start(&ticket.key.to_string(), actor, Start::Auto)
                     .await?
                 {
-                    StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
+                    StartOutcome::Started(_)
+                    | StartOutcome::Skipped
+                    | StartOutcome::Kept
+                    | StartOutcome::InCheck => {}
                     StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                         tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
                     }

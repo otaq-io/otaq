@@ -1,41 +1,25 @@
-//! A stage's skill the Project agent writes (T-0472; FED-06; d0115, d0092, d0023): a new Plan stage with no skill
-//! keeps Apply off ("Plan needs a skill"); `flow.write_skill` gives the agent a folder in Otaq's own data folder, and
-//! handing it in imports it as Otaq's copy under `$OTAQ_HOME/skills/`, with nothing written in the project's checkout
-//! or a worktree; Apply gives the copy to the stage's agent without copying it again; Undo deletes it, Stop drops the
-//! folder; a ticket's agent can't write one.
+//! A stage's skill the Project agent writes (T-0472; FED-06; d0115): a new Plan stage with no skill keeps Apply off
+//! ("Plan needs a skill"). "Ask the agent to write it" saves into the project (T6): `flow.write_skill` with the
+//! skill's name gives the agent a folder inside the project's checkout, `.agents/skills/<name>/` for a Codex agent and
+//! `.claude/skills/<name>/` otherwise, and refuses one that is already there; handing it in names the skill on the
+//! stage, with nothing copied, imported or committed. Undo and Stop delete the folder only while git says it is
+//! untracked and it holds only what was written. A ticket's agent can't write one. The folders an older Otaq kept
+//! skills in go at the service's start.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use otaq_core::agents::{FixedModels, SkillRef};
+use otaq_core::agent_tools::Tool;
+use otaq_core::agents::{AgentModel, FixedModels};
 use otaq_core::flow::draft::DraftEdit;
 use otaq_core::flow::proposal::ApplyChoices;
+use otaq_core::flow::write_skill::saved_text;
 use otaq_core::flow::{FlowFile, Stage, StageKind, yaml};
+use otaq_core::git::testing::git;
 use otaq_core::service::testing::TestService;
 use serde_json::{Value, json};
 
 fn models() -> FixedModels {
     FixedModels::sample()
-}
-
-/// Every file under `root` with its contents (`.git` included): what a test compares before and after.
-fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    let mut out = BTreeMap::new();
-    let mut todo = vec![root.to_owned()];
-    while let Some(dir) = todo.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                todo.push(path);
-            } else {
-                out.insert(path.clone(), std::fs::read(&path).unwrap_or_default());
-            }
-        }
-    }
-    out
 }
 
 /// The draft's document with a new Plan stage (An agent works, Developer, no skill) after Dev.
@@ -51,7 +35,6 @@ async fn with_plan(w: &TestService, key: &str) -> FlowFile {
             kind: StageKind::Agent,
             column: Default::default(),
             agent: Some("Developer".into()),
-            agents: Vec::new(),
             skill: None,
             options: Vec::new(),
             rounds: None,
@@ -83,26 +66,20 @@ fn write_plan_skill(folder: &Path) {
     .unwrap();
 }
 
-fn skill_copies(w: &TestService) -> Vec<String> {
-    let mut ids: Vec<String> = std::fs::read_dir(w.data.skills_dir())
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    ids.sort();
-    ids
-}
-
 #[tokio::test(flavor = "multi_thread")]
-async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
+async fn a_written_skill_is_saved_in_the_project_for_a_claude_code_agent() {
     let w = TestService::start().await;
     let project = w.add_project("shop-web").await;
     let key = project.key.clone();
     let checkout = PathBuf::from(&project.repo_path);
-    let before = files(&checkout);
+    w.set_agent_model(
+        "Developer",
+        AgentModel::Tool {
+            tool: Tool::Claude,
+            model: None,
+        },
+    )
+    .await;
 
     // A new Agent stage with no skill: the draft holds it, Apply stays off with the reason.
     with_plan(&w, &key).await;
@@ -114,15 +91,6 @@ async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
         .map(|p| p.message.as_str())
         .collect();
     assert_eq!(messages, ["Plan needs a skill"]);
-    let refused = w
-        .board
-        .apply_proposal(&key, draft.proposal.id, &ApplyChoices::default(), &models())
-        .await
-        .unwrap_err();
-    assert!(
-        refused.to_string().contains("Plan needs a skill"),
-        "{refused}"
-    );
 
     // Ask the agent to write it: being written, by the agent the user asked.
     let draft = w
@@ -138,19 +106,60 @@ async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
         .await
         .unwrap();
     assert_eq!(draft.writing.len(), 1);
-    assert_eq!(draft.writing[0].agent.as_deref(), Some("pa-1"));
 
-    // The agent's folder is Otaq's own, outside the checkout.
-    let given = w.board.skill_folder(&key, "Plan", None).await.unwrap();
+    // The skill needs a name first, and one of Otaq's own names is refused.
+    let unnamed = w
+        .board
+        .skill_folder(&key, "Plan", None, None)
+        .await
+        .unwrap_err();
+    assert!(unnamed.to_string().contains("--name"), "{unnamed}");
+    let own = w
+        .board
+        .skill_folder(&key, "Plan", Some("validate"), None)
+        .await
+        .unwrap_err();
+    assert!(own.to_string().contains("own skills"), "{own}");
+    let odd = w
+        .board
+        .skill_folder(&key, "Plan", Some("../x"), None)
+        .await
+        .unwrap_err();
+    assert!(odd.to_string().contains("can't name a skill"), "{odd}");
+
+    // The folder is in the checkout, where Claude Code reads skills.
+    let given = w
+        .board
+        .skill_folder(&key, "Plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
     let folder = PathBuf::from(&given.folder);
-    assert!(folder.starts_with(w.data.root()), "{}", folder.display());
-    assert!(!folder.starts_with(&checkout));
+    assert_eq!(
+        folder,
+        checkout.join(".claude").join("skills").join("plan-ticket")
+    );
     assert!(folder.is_dir());
+    assert!(given.text.contains("name: plan-ticket"), "{}", given.text);
     assert!(
         given.text.contains("flow write-skill plan --done"),
         "{}",
         given.text
     );
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    assert_eq!(
+        draft.writing[0].agent.as_deref(),
+        Some("pa-1"),
+        "still the agent asked"
+    );
+    assert_eq!(
+        draft.writing[0].folder.as_deref(),
+        Some(".claude/skills/plan-ticket")
+    );
+    // Asking again keeps the folder this write made.
+    w.board
+        .skill_folder(&key, "plan", None, None)
+        .await
+        .unwrap();
 
     // Handing in an empty folder is refused, and the folder stays for the agent to fix.
     let empty = w
@@ -168,123 +177,202 @@ async fn a_written_skill_is_otaqs_copy_never_in_the_repo() {
         .await
         .unwrap();
     assert_eq!(written.skill.as_deref(), Some("plan-ticket"));
-    assert!(!folder.exists(), "the folder the agent wrote in goes");
-    let copies = skill_copies(&w);
-    assert_eq!(copies.len(), 1, "one copy, Otaq's");
-    let copy = w.data.skill_path(&copies[0]).unwrap();
-    assert!(copy.join("SKILL.md").is_file());
+    assert!(
+        written
+            .text
+            .contains(&saved_text(".claude/skills/plan-ticket")),
+        "{}",
+        written.text
+    );
+    assert_eq!(
+        saved_text(".claude/skills/plan-ticket"),
+        "Saved in `.claude/skills/plan-ticket` in this project. Commit it so agents get it in their worktrees."
+    );
+    assert!(
+        folder.join("SKILL.md").is_file(),
+        "the skill stays where it was written"
+    );
+    assert!(
+        !w.data.root().join("skills").exists(),
+        "nothing is copied into Otaq's data folder"
+    );
+    let status = git(
+        &checkout,
+        &["status", "--porcelain", "--untracked-files=all"],
+    );
+    assert!(
+        status.contains("?? .claude/skills/plan-ticket/SKILL.md"),
+        "not committed: {status}"
+    );
 
-    // The draft names it, tinted as written; the stage's agent brings the copy, and Apply is on.
+    // The draft names it, tinted as written, with its folder; Apply is on.
     let draft = w.board.draft(&key, &models()).await.unwrap();
     assert!(draft.writing.is_empty());
     assert_eq!(draft.written.len(), 1);
     assert_eq!(draft.written[0].skill, "plan-ticket");
     assert_eq!(draft.written[0].by, "Checkout slowness");
-    assert_eq!(draft.written[0].copy, copies[0]);
+    assert_eq!(draft.written[0].folder, ".claude/skills/plan-ticket");
     let file = yaml::read(&draft.proposal.yaml).unwrap();
     assert_eq!(
         file.flow.stage("plan").unwrap().skill.as_deref(),
         Some("plan-ticket")
-    );
-    let developer = file.agents.iter().find(|a| a.name == "Developer").unwrap();
-    assert!(
-        developer.skills.contains(&copy.display().to_string()),
-        "{developer:?}"
     );
     assert!(
         draft.proposal.problems.is_empty(),
         "{:?}",
         draft.proposal.problems
     );
-
-    // Nothing was written in the checkout, and no worktree exists for it.
-    assert_eq!(files(&checkout), before, "the checkout is untouched");
     assert!(
-        files(&w.data.worktrees_dir()).is_empty(),
-        "no worktree holds it"
+        draft
+            .proposal
+            .diff
+            .warnings
+            .iter()
+            .all(|w| !w.text.contains("plan-ticket")),
+        "the user has it now: {:?}",
+        draft.proposal.diff.warnings
     );
 
-    // A restart's clean-up keeps the copy the open draft names.
-    otaq_core::agents::skills::remove_unreferenced(&w.board)
-        .await
-        .unwrap();
-    assert_eq!(skill_copies(&w), copies);
-
-    // Apply: the Developer holds that very copy (not copied again), and the stage runs it.
-    let applied = w
-        .board
+    // Apply: the stage runs it by its name; no agent gets a skill.
+    w.board
         .apply_proposal(&key, draft.proposal.id, &ApplyChoices::default(), &models())
         .await
         .unwrap();
-    assert!(
-        applied.agents.contains(&"Developer".to_owned()),
-        "{applied:?}"
-    );
-    assert_eq!(skill_copies(&w), copies, "the same copy, no second one");
-    let developer = w
-        .board
-        .store()
-        .agent_named("Developer")
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        developer
-            .skills
-            .contains(&SkillRef::Imported(copies[0].clone())),
-        "{developer:?}"
-    );
-    assert_eq!(
-        developer.imported_skill(&copies[0]).unwrap().name,
-        "plan-ticket"
-    );
     let flow = w.board.effective_flow(&key).await.unwrap();
     assert_eq!(
         flow.stage("plan").unwrap().skill.as_deref(),
         Some("plan-ticket")
     );
-    assert_eq!(files(&checkout), before, "still untouched");
+
+    // Another write can't take a folder that is already there.
+    let taken = w
+        .board
+        .skill_folder(&key, "dev", Some("plan-ticket"), None)
+        .await
+        .unwrap_err();
+    assert!(
+        taken.to_string().contains("already in this project"),
+        "{taken}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn undo_deletes_the_copy_and_stop_drops_the_folder() {
+async fn a_codex_agents_skill_goes_in_the_agents_folder() {
     let w = TestService::start().await;
-    let key = w.add_project("shop-web").await.key;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    w.set_agent_model(
+        "Developer",
+        AgentModel::Tool {
+            tool: Tool::Codex,
+            model: None,
+        },
+    )
+    .await;
     with_plan(&w, &key).await;
-
-    let given = w.board.skill_folder(&key, "plan", None).await.unwrap();
-    write_plan_skill(Path::new(&given.folder));
-    w.board.skill_written(&key, "plan", "you").await.unwrap();
-    assert_eq!(skill_copies(&w).len(), 1);
-
-    // Undo: Plan has no skill again, the copy is gone, Apply waits again.
-    let draft = w
-        .board
-        .update_draft(
-            &key,
-            &DraftEdit::UndoSkill {
-                stage: "plan".into(),
-            },
-            &models(),
-        )
-        .await
-        .unwrap();
-    assert!(draft.written.is_empty());
-    assert!(skill_copies(&w).is_empty(), "Otaq's copy is deleted");
-    let file = yaml::read(&draft.proposal.yaml).unwrap();
-    assert_eq!(file.flow.stage("plan").unwrap().skill, None);
-    assert!(
-        file.agents
-            .iter()
-            .all(|a| a.skills.iter().all(|s| !s.starts_with('/'))),
-        "no agent brings it"
-    );
-    assert_eq!(draft.proposal.problems[0].message, "Plan needs a skill");
-
-    // Stop: the field is empty again and the agent's folder goes; handing in then has nothing to import.
     let given = w
         .board
-        .skill_folder(&key, "plan", Some("pa-1"))
+        .skill_folder(&key, "plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        PathBuf::from(&given.folder),
+        PathBuf::from(&project.repo_path)
+            .join(".agents")
+            .join("skills")
+            .join("plan-ticket")
+    );
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "you").await.unwrap();
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    assert_eq!(draft.written[0].folder, ".agents/skills/plan-ticket");
+    let file = yaml::read(&draft.proposal.yaml).unwrap();
+    assert_eq!(
+        file.flow.stage("plan").unwrap().skill.as_deref(),
+        Some("plan-ticket")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn undo_deletes_an_untracked_folder_and_keeps_a_committed_one() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    with_plan(&w, &key).await;
+    let undo = |w: &TestService| {
+        let key = key.clone();
+        let board = w.board.clone();
+        async move {
+            board
+                .update_draft(
+                    &key,
+                    &DraftEdit::UndoSkill {
+                        stage: "plan".into(),
+                    },
+                    &models(),
+                )
+                .await
+                .unwrap()
+        }
+    };
+
+    // Untracked and as written: Undo deletes the folder and Plan has no skill again.
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "you").await.unwrap();
+    let draft = undo(&w).await;
+    assert!(draft.written.is_empty());
+    assert!(
+        !Path::new(&given.folder).exists(),
+        "the untracked folder goes"
+    );
+    let file = yaml::read(&draft.proposal.yaml).unwrap();
+    assert_eq!(file.flow.stage("plan").unwrap().skill, None);
+    assert_eq!(draft.proposal.problems[0].message, "Plan needs a skill");
+
+    // Committed: Undo only clears the field.
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-steps"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "you").await.unwrap();
+    git(&checkout, &["add", ".claude"]);
+    git(&checkout, &["commit", "-q", "-m", "Plan skill"]);
+    let draft = undo(&w).await;
+    assert!(draft.written.is_empty());
+    assert!(
+        Path::new(&given.folder).join("SKILL.md").is_file(),
+        "a committed folder stays"
+    );
+    let file = yaml::read(&draft.proposal.yaml).unwrap();
+    assert_eq!(file.flow.stage("plan").unwrap().skill, None);
+
+    // Untracked but changed since it was handed in: Undo keeps it too.
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-later"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "you").await.unwrap();
+    std::fs::write(Path::new(&given.folder).join("notes.md"), "mine").unwrap();
+    undo(&w).await;
+    assert!(
+        Path::new(&given.folder).join("notes.md").is_file(),
+        "the user's edit stays"
+    );
+
+    // Stop: the field is empty again and the untracked folder being written goes; handing in then has nothing.
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-stopped"), Some("pa-1"))
         .await
         .unwrap();
     let draft = w.board.draft(&key, &models()).await.unwrap();
@@ -312,10 +400,132 @@ async fn undo_deletes_the_copy_and_stop_drops_the_folder() {
     // A stage no agent runs has no skill to write.
     let none = w
         .board
-        .skill_folder(&key, "review", None)
+        .skill_folder(&key, "review", Some("x"), None)
         .await
         .unwrap_err();
     assert!(none.to_string().contains("runs no agent"), "{none}");
+}
+
+/// Undo and Stop also take away the folders above the skill's that the write made (`.claude/`, `.claude/skills/`), once
+/// nothing else is in them; a folder that was there before the write stays, empty or not.
+#[tokio::test(flavor = "multi_thread")]
+async fn undo_and_stop_leave_no_empty_folders_the_write_made() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    with_plan(&w, &key).await;
+    let claude = checkout.join(".claude");
+    let skills = claude.join("skills");
+    assert!(!claude.exists(), "the checkout starts without .claude");
+    let edit = |edit: DraftEdit| {
+        let key = key.clone();
+        let board = w.board.clone();
+        async move { board.update_draft(&key, &edit, &models()).await.unwrap() }
+    };
+    let undo = || {
+        edit(DraftEdit::UndoSkill {
+            stage: "plan".into(),
+        })
+    };
+    let stop = || {
+        edit(DraftEdit::StopWriting {
+            stage: "plan".into(),
+        })
+    };
+
+    // Written and undone: the skill's folder, `.claude/skills` and `.claude` all go.
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "you").await.unwrap();
+    undo().await;
+    assert!(
+        !claude.exists(),
+        ".claude was made by the write and is empty"
+    );
+
+    // Asked for a folder, nothing written, stopped: no empty folder stays behind.
+    w.board
+        .skill_folder(&key, "plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
+    assert!(skills.join("plan-ticket").is_dir());
+    stop().await;
+    assert!(
+        !claude.exists(),
+        "nothing is left of the folder made for it"
+    );
+
+    // Renamed before anything was written: the first name's folder goes, the folders above stay for the new one.
+    w.board
+        .skill_folder(&key, "plan", Some("plan-a"), None)
+        .await
+        .unwrap();
+    w.board
+        .skill_folder(&key, "plan", Some("plan-b"), None)
+        .await
+        .unwrap();
+    assert!(!skills.join("plan-a").exists());
+    assert!(skills.join("plan-b").is_dir());
+    stop().await;
+    assert!(!claude.exists(), "the renamed write made them, so they go");
+
+    // `.claude` was there before (empty): only `.claude/skills`, which the write made, goes.
+    std::fs::create_dir(&claude).unwrap();
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "you").await.unwrap();
+    undo().await;
+    assert!(!skills.exists(), ".claude/skills was made by the write");
+    assert!(
+        claude.is_dir(),
+        "the .claude that was there stays, though empty"
+    );
+
+    // Something else landed in `.claude/skills` meanwhile: it stays, and so does `.claude`.
+    std::fs::remove_dir(&claude).unwrap();
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), None)
+        .await
+        .unwrap();
+    std::fs::create_dir_all(skills.join("mine")).unwrap();
+    std::fs::write(
+        skills.join("mine").join("SKILL.md"),
+        "---\nname: mine\n---\n",
+    )
+    .unwrap();
+    stop().await;
+    assert!(!Path::new(&given.folder).exists());
+    assert!(
+        skills.join("mine").join("SKILL.md").is_file(),
+        "not empty, so kept"
+    );
+}
+
+/// Otaq keeps no skills: the folders an older Otaq kept them in (`$OTAQ_HOME/skills/`, `skill-writes/`) are gone after
+/// the service starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_old_skill_folders_go_at_the_services_start() {
+    let w = TestService::start().await;
+    let old = w.data.root().join("skills").join("0199-copy");
+    let writes = w.data.root().join("skill-writes").join("SHOP").join("plan");
+    for dir in [&old, &writes] {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), "---\nname: x\n---\n").unwrap();
+    }
+    let w = w.restart().await;
+    assert!(!w.data.root().join("skills").exists());
+    assert!(!w.data.root().join("skill-writes").exists());
+    w.stop().await;
 }
 
 /// Sends one raw request from inside the agent shell and returns the answer.
@@ -356,4 +566,6 @@ async fn a_tickets_agent_cant_write_a_stages_skill() {
         "{answer}"
     );
     assert!(!w.data.root().join("skill-writes").exists());
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    assert!(draft.writing.is_empty(), "nothing is being written");
 }

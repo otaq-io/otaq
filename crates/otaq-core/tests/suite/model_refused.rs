@@ -35,6 +35,12 @@ fn refused_payload() -> Value {
 const TOOL_MESSAGE: &str = "There's an issue with the selected model (claude-fable-5-1). It may not exist or you \
                             may not have access to it. Run /model to pick a different model.";
 
+/// The tool's message an Idle a failed turn left shows (F10).
+async fn idle_error(w: &otaq_core::service::testing::TestService, key: &str) -> Option<String> {
+    let text = w.board.ticket(key).await.unwrap().signal?.text?;
+    otaq_core::signals::tool_error(&text).map(str::to_owned)
+}
+
 /// An ordinary command standing in for `claude`: it waits like an interactive program.
 fn stand_in() -> LaunchContext {
     LaunchContext {
@@ -86,10 +92,7 @@ async fn world() -> World {
     w.add_project("shop-web").await;
     let agents = Agents::new(w.board.clone(), Arc::new(FixedModels::sample()));
     let fable = w.set_agent_model("Developer", claude(Some("fable"))).await;
-    let light = agents
-        .add(&page("Light", Some("haiku"), Vec::new()))
-        .await
-        .unwrap();
+    let light = agents.add(&page("Light", Some("haiku"))).await.unwrap();
     World {
         w,
         agents,
@@ -107,11 +110,10 @@ fn claude(model: Option<&str>) -> AgentModel {
 }
 
 /// An agent's page on Claude Code with `model`.
-fn page(name: &str, model: Option<&str>, skills: Vec<otaq_core::agents::SkillRef>) -> AgentFields {
+fn page(name: &str, model: Option<&str>) -> AgentFields {
     AgentFields {
         name: name.into(),
         instructions: String::new(),
-        skills,
         model: claude(model),
         effort: None,
     }
@@ -327,10 +329,7 @@ async fn a_new_model_alone_does_not_start_it_again() {
     // Saving a new model on the agent starts nothing (and clears the mark); Retry start is the click.
     let developer = w.agents.agent(&w.fable.id).await.unwrap();
     w.agents
-        .edit(
-            &w.fable.id,
-            &page(&developer.name, Some("sonnet"), developer.skills.clone()),
-        )
+        .edit(&w.fable.id, &page(&developer.name, Some("sonnet")))
         .await
         .unwrap();
     assert_eq!(mark_text(&w, &w.fable).await, None);
@@ -480,7 +479,12 @@ async fn a_refused_resume_or_later_turn_is_a_failed_turn_with_the_mark() {
         hook(&w.w, &caller, "StopFailure", &refused_payload()).await,
         std::slice::from_ref(&failed)
     );
-    assert_eq!(w.w.status("SHOP-1").await, Status::Working);
+    // The failed turn stops the card on Idle with the tool's message (F10); the session stays.
+    assert_eq!(w.w.status("SHOP-1").await, Status::Idle);
+    assert_eq!(
+        idle_error(&w.w, "SHOP-1").await.as_deref(),
+        Some(TOOL_MESSAGE)
+    );
     assert!(w.w.sessions.info(&shell.session).unwrap().is_running());
     assert_eq!(
         mark_text(&w, &w.fable).await.as_deref(),
@@ -511,7 +515,7 @@ async fn a_refused_resume_or_later_turn_is_a_failed_turn_with_the_mark() {
         hook(&w.w, &caller, "StopFailure", &refused_payload()).await,
         [failed]
     );
-    assert_eq!(w.w.status("SHOP-2").await, Status::Working);
+    assert_eq!(w.w.status("SHOP-2").await, Status::Idle);
     assert!(
         w.w.board
             .store()
@@ -573,8 +577,7 @@ async fn the_mark_clears_on_a_model_edit_or_a_later_first_turn_on_its_model_only
     assert_eq!(mark_text(&w, &w.fable).await.as_deref(), Some(marked));
 
     // A rename keeps it.
-    let skills = w.agents.agent(&w.fable.id).await.unwrap().skills;
-    let renamed = page("Fable trial", Some("fable"), skills);
+    let renamed = page("Fable trial", Some("fable"));
     w.agents.edit(&w.fable.id, &renamed).await.unwrap();
     assert_eq!(mark_text(&w, &w.fable).await.as_deref(), Some(marked));
 

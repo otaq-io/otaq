@@ -49,9 +49,8 @@ types a reminder into this session.
    a choice that only changes how it's built is yours. With nothing to ask, go straight on to step 6. Shape the
    design as "Shaping the design" says: start from the caller, design it twice when the shape matters, and check it
    against the warning signs.
-6. **Write the architecture decisions and docs** there, then **commit everything** on the ticket's branch with the
-   commit skill `prime` names (`otaq-commit`, or your agent's own commit skill); when it names none, commit with
-   `git add -A` and `git commit -m "SHOP-40: …"`. You may edit any file the spec needs (an architecture doc, a schema
+6. **Write the architecture decisions and docs** there, then **commit everything** on the ticket's branch with
+   Otaq's `commit` skill. You may edit any file the spec needs (an architecture doc, a schema
    sketch, a config sample), but don't build the feature: Dev does that. Nothing may stay uncommitted:
    `otaq stage next` is refused while files are uncommitted. **Never push.**
 7. **End your stage** with a short comment on stdin, then end your turn. It names **each file and decision you

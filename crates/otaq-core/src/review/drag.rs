@@ -13,7 +13,7 @@
 //!   comment.
 //! - **Back onto a human check**: no dialog; the card waits there, "Moved back by you".
 //! - **Forward**: the very next stage is Move to next stage (a human check's Pass); further, the stages between are
-//!   marked skipped by you ("Skipped Security · by you") and the Delivery then waits for a click.
+//!   marked skipped by you ("Skipped Security · by you"); the Delivery then does what the flow says.
 
 use serde_json::json;
 
@@ -347,7 +347,10 @@ impl Review {
                 .start(&ticket.key.to_string(), actor, Start::Auto)
                 .await?
             {
-                StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
+                StartOutcome::Started(_)
+                | StartOutcome::Skipped
+                | StartOutcome::Kept
+                | StartOutcome::InCheck => {}
                 StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                     tracing::warn!(ticket = %ticket.key, %message, "the stage dragged back to didn't start");
                 }
@@ -414,7 +417,7 @@ impl Review {
         } else if waits {
             self.inner.scheduler.wake();
         } else {
-            // Into a Delivery: it waits for the click, as for any card moved past a check (FLW-15).
+            // Into a Delivery: an automatic one delivers now, as the flow says (FLW-15).
             board.delivery().arrived(&after.id).await;
         }
         Ok(())

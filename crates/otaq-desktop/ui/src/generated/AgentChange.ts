@@ -3,4 +3,4 @@
 /**
  * One change on the page.
  */
-export type AgentChange = { "field": "name", "value": string } | { "field": "instructions", "value": string } | { "field": "tool", "value": string | null } | { "field": "model", "value": string | null } | { "field": "effort", "value": string | null } | { "field": "add_skill", "value": string } | { "field": "remove_skill", "value": string };
+export type AgentChange = { "field": "name", "value": string } | { "field": "instructions", "value": string } | { "field": "tool", "value": string | null } | { "field": "model", "value": string | null } | { "field": "effort", "value": string | null };

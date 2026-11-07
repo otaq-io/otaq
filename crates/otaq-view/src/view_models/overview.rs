@@ -293,8 +293,8 @@ pub struct OverviewView {
     pub leave: LeaveDialog,
     /// "Mark as usage limit" in what it needs from you, while its agent is Idle (USG-07).
     pub usage_limit: Option<UsageLimitButton>,
-    /// "Before you · Validate, round 1 of 3": each check agent's verdict and comment, on a human check after a Check
-    /// stage with several check agents (d0130, `s30-05`); set by the service's facts ([`with_before_you`]).
+    /// "Before you · Validate, round 1 of 3": each check agent's verdict and comment, on a human check after a round
+    /// stored from when a check could have several agents (`s30-05`); set by the service's facts ([`with_before_you`]).
     pub before_you: Option<crate::view_models::validation_report::BeforeYou>,
     /// The PLAN section under the description (d0133, `s30-01`); set by the service's facts ([`with_plan`]).
     pub plan: Option<crate::view_models::plan::PlanSection>,

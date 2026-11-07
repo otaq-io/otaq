@@ -37,7 +37,6 @@ read_only: boolean,
  */
 strips: Array<TerminalTabStrip>, 
 /**
- * `otaq attach SHOP-19 --stage security` while it runs; `otaq attach SHOP-33 --stage validate --agent "Security
- * reviewer"` for one of several check agents (d0130 row 17).
+ * `otaq attach SHOP-19 --stage security` while it runs.
  */
 attach_command: string, };

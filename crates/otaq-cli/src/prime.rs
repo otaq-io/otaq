@@ -1,5 +1,5 @@
 //! `otaq prime` (PLG-02; d0032, d0040): the current ticket's context for its agent, as Markdown. Every skill
-//! runs it first; a helper (`$OTAQ_PIECE` set) gets its piece's context (d0133). `--validate` prints the validator's context instead (d0063); `--project` a Project agent's (d0068).
+//! runs it first; a helper (`$OTAQ_PIECE` set) gets its piece's context (d0133). `--validate` prints the validator's context instead (d0063), as plain `prime` does in the ticket's validator's session; `--project` a Project agent's (d0068).
 //! `--json` prints the context itself (`otaq_core::prime::PrimeContext`).
 
 use otaq_core::data_dir::DataDir;
@@ -60,6 +60,7 @@ pub fn run(
             );
             return Ok(());
         }
+        // The ticket's validator gets its own context from plain `prime` too (no-skill-copies F11).
         let context = match client
             .request(Request::TicketPrime(KeyParams {
                 key: key.to_string(),
@@ -68,6 +69,14 @@ pub fn run(
             .map_err(client_error)?
         {
             Reply::Prime(context) => *context,
+            Reply::PrimeValidate(context) => {
+                out.print(
+                    &with_shell_rule(render_validate(&context).trim_end()),
+                    &context,
+                    Some(&context.ticket.key.to_string()),
+                );
+                return Ok(());
+            }
             other => return Err(unexpected(&other)),
         };
         out.print(

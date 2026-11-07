@@ -1,40 +1,42 @@
-//! A ticket's stage choices (AGM-08, AGM-11; d0108's "Options", d0087): a stage of the flow may list `options`
-//! (other agents, or `skip`), and a ticket keeps **one choice per such stage** (table `ticket_stage_choices`) with
-//! who set it. No choice = the stage's usual agent ("Product spec: Spec writer"), "required" on a stage that runs no
-//! agent ("Code review: required"; FLW-22, Q290).
+//! A ticket's stage choices (AGM-08, AGM-11; d0087): a ticket keeps **one choice per stage** (table
+//! `ticket_stage_choices`) with who set it. A stage doesn't list the agents it allows: for any stage an agent runs (an
+//! Agent stage, an agent check) a ticket may pick **any agent whose tool has the stage's skill**
+//! ([`Board::skill_tools`]); a stage running one of Otaq's own skills allows every agent. A stage the flow marks
+//! skippable (`options: [skip]`, the only thing `options` holds) may be skipped. No choice = the stage's own agent
+//! ("Product spec: Spec writer"), "required" on a skippable human check: you check it ("Spec review: required").
 //!
-//! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins. Noyan is intake
-//! only: the Project agent sets only the choices the user names, with `--by-user` (d0087), which makes them the
-//! user's, and any choice of its own is refused ([`NOYAN_USER_CHOICES_ONLY`], T1). Only Noyan passes on the user's
-//! choices: a ticket's own agent (a helper too) that sends `--by-user` is refused ([`ONLY_NOYAN_PASSES_ON`], T9).
-//! A ticket's own agent may pick another agent (or `required`) only with a reason, never over the user's choice, and
-//! once the ticket has started only for a **later** stage; before the ticket starts it may set any stage's. Only the
-//! user skips a stage: a ticket agent's `skip` is refused ([`ONLY_THE_USER_SKIPS`]). So every skip on the board was
-//! set by the user, in the app or through Noyan. Which tickets each agent may change at all is the policy's
-//! ([`crate::policy::Action::SetChoices`], CLI-06; d0129): the Project agent its Backlog tickets, a ticket agent its
-//! own ticket and the never-started tickets it created. A choice **locks** when its stage starts (the ticket has a
-//! run of it, STG-05). A choice must be one of the stage's options, else it is refused naming them; a stage without
-//! options refuses any.
+//! **Who may set what** ([`judge`]): only the user, for any stage until it starts, and the user's choice wins. Noyan
+//! is intake only: the Project agent sets only the choices the user names, with `--by-user` (d0087), which makes them
+//! the user's, and any choice of its own is refused ([`NOYAN_USER_CHOICES_ONLY`]). Only Noyan passes on the user's
+//! choices: a ticket's own agent (a helper too) that sends `--by-user` is refused ([`ONLY_NOYAN_PASSES_ON`]), and any
+//! choice of its own is refused too ([`ONLY_THE_USER_PICKS`], [`ONLY_THE_USER_SKIPS`]): picking an agent for a later
+//! stage would move work to a tool the user didn't choose. Which tickets each agent may change at all is the
+//! policy's ([`crate::policy::Action::SetChoices`], CLI-06). A choice **locks** when its stage starts (the ticket has
+//! a run of it, STG-05), except while that stage waits for its agent's tool (held before its session started): a
+//! waiting stage hasn't started, so the waiting card's Change agent… is this same choice ([`StageOptions::held`]).
+//! A word that isn't a choice of the stage is refused naming them; an agent whose tool lacks the stage's skill is
+//! refused saying so.
 //!
 //! **What a choice does:** the running agent of a stage is its choice, else the stage's agent
 //! ([`crate::agents::resolve::running_agent`]); a skipped stage is passed with a run of result `skipped`
-//! ([`Board::ticket_skips`] feeds the flow engine), and a ticket that skipped a human check reaches its Delivery in
-//! click mode (the engine's [`crate::flow::engine::At::skips`]). A stored choice for a stage the flow no longer has,
-//! or for an agent the stage no longer offers, is ignored.
+//! ([`Board::ticket_skips`] feeds the flow engine, [`crate::flow::engine::At::skips`]); its Delivery still does what
+//! the flow says. A stored choice for a stage the flow no longer has, or a skip of a stage no longer skippable, is
+//! ignored; a chosen agent that is deleted takes its choices with it.
 //!
-//! **Skipped on its own** (0129 row 4): a skippable human check after Agent stages the ticket all skips is skipped
-//! too ("Spec review: skipped · nothing before it runs"), unless the ticket chose it ("Spec review=required"); as
-//! soon as one of them runs, the check runs. A set of choices that leaves a check that must run (required in the
-//! flow, or chosen) with no Agent stage before it that runs is refused, naming them ([`strands_check_refusal`]).
+//! **Nothing is skipped on its own:** a skippable human check runs unless the ticket skips it, even when every Agent
+//! stage before it is skipped (the ticket waits there; the user skips the check too if they want). A set of choices
+//! that leaves a human check the flow doesn't mark skippable with no Agent stage before it that runs is refused,
+//! naming them ([`strands_check_refusal`]).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::agents::Agent;
+use crate::agent_tools::Tool;
 use crate::agents::resolve;
-use crate::domain::{Actor, Place, TicketKey};
+use crate::agents::{Agent, SessionRole};
+use crate::domain::{Actor, TicketKey};
 use crate::flow::engine;
 use crate::flow::{Flow, Stage, StageOption};
 use crate::store::now_ms;
@@ -42,31 +44,32 @@ use crate::store::now_ms;
 /// The word for skipping a stage (`--stage QA=skip`).
 pub const SKIP: &str = StageOption::SKIP;
 
-/// The word for a skippable stage's usual choice (`--stage QA=required`): it runs.
+/// The usual choice of a skippable human check (`--stage QA=required`): the check happens, as the flow says.
 pub const REQUIRED: &str = "required";
-
-/// An agent's choice without a reason (AGM-08).
-pub const SAY_WHY: &str = "Say why with --reason";
 
 /// The refusal of a stage choice the Project agent makes on its own (T1): Noyan is intake only and passes on only
 /// the choices the user names.
 pub const NOYAN_USER_CHOICES_ONLY: &str = "Noyan sets only the stage choices the user names: add --by-user, or leave the stage's own agent";
 
-/// The refusal of a ticket agent's `skip` (T1): only the user skips a stage.
+/// The refusal of a ticket agent's `skip`: only the user skips a stage.
 pub const ONLY_THE_USER_SKIPS: &str =
-    "Only the user skips a stage: pick another agent for it, or leave it";
+    "Only the user skips a stage: leave it, or ask the user to skip it";
 
-/// The refusal of a ticket agent's `--by-user` (T9): only Noyan passes on the user's choices, so a ticket agent picks
-/// another agent with a reason, or leaves the choice to the user.
-pub const ONLY_NOYAN_PASSES_ON: &str = "Only Noyan passes on the user's choices: pick another agent with --reason, or ask the user to set it";
+/// The refusal of a ticket agent's pick of an agent (or of a stage's own one): only the user picks a stage's agent, so the
+/// work never moves to a tool the user didn't choose.
+pub const ONLY_THE_USER_PICKS: &str = "Only the user picks a stage's agent: leave the stage's own agent, or ask the user to change it";
 
-/// One choice a request sets: `{"stage": "Dev", "choice": "Quick developer", "reason": "typo fix"}`. `stage` is a
-/// stage's name (ignoring case) or id; `choice` an agent's name (ignoring case), [`SKIP`] or [`REQUIRED`].
+/// The refusal of a ticket agent's `--by-user`: only Noyan passes on the user's choices.
+pub const ONLY_NOYAN_PASSES_ON: &str =
+    "Only Noyan passes on the user's choices: ask the user to set it";
+
+/// One choice a request sets: `{"stage": "Dev", "choice": "Quick developer"}`. `stage` is a stage's name (ignoring
+/// case) or id; `choice` an agent's name (ignoring case), [`SKIP`], or [`REQUIRED`] on a human check.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChoicePick {
     pub stage: String,
     pub choice: String,
-    /// An agent's reason ("typo fix"); unused for the user's.
+    /// An agent's reason ("typo fix"); only an agent sends one, and only the user's choices are taken.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -97,17 +100,16 @@ impl ChoicePick {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Choice {
-    /// The stage's own agent; "required" on a stage that runs no agent.
+    /// The stage's own agent; "required" on a human check.
     Usual,
-    /// Another agent of the stage's options.
+    /// Another agent, one whose tool has the stage's skill.
     Agent { id: String, name: String },
     /// The ticket skips the stage.
     Skip,
 }
 
-/// How a stage's usual choice reads: its agent ("Rust developer", "Spec writer" on a skippable Product spec), an agent check's
-/// check agents ("Security reviewer + Performance reviewer", d0130), or "required" for a stage that runs no agent (a
-/// human check; FLW-22, Q290).
+/// How a stage's usual choice reads: its agent ("Rust developer", "Spec writer" on a skippable Product spec, "Validator"
+/// on an agent check), or "required" for a stage that runs no agent (a human check: you check it).
 fn usual_word(stage: &Stage) -> String {
     match stage.has_agent() {
         true => stage.agents_line(),
@@ -142,7 +144,8 @@ pub enum SetBy {
     User,
     /// The Project agent, by its name ("Checkout slowness").
     ProjectAgent { name: String, reason: String },
-    /// A ticket's own agent, by the agent it runs ("Architect").
+    /// A ticket's own agent, by the agent it runs ("Architect"): only read from choices stored before only the user
+    /// picked.
     Agent { name: String, reason: String },
 }
 
@@ -199,26 +202,6 @@ pub enum Chooser {
     },
 }
 
-impl Chooser {
-    /// Who the choice is recorded as: the user for the user and for the Project agent's `by_user` (d0087), else the
-    /// agent with `reason`. Only Noyan passes on the user's choices: [`judge`] refuses a ticket agent's `by_user`.
-    fn set_by(&self, by_user: bool, reason: &str) -> SetBy {
-        let reason = reason.trim().to_owned();
-        match self {
-            Self::User => SetBy::User,
-            Self::ProjectAgent { .. } if by_user => SetBy::User,
-            Self::ProjectAgent { name } => SetBy::ProjectAgent {
-                name: name.clone(),
-                reason,
-            },
-            Self::TicketAgent { name } => SetBy::Agent {
-                name: name.clone(),
-                reason,
-            },
-        }
-    }
-}
-
 /// A ticket's choice for one stage, as stored (and still valid in its flow).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageChoice {
@@ -231,16 +214,20 @@ pub struct StageChoice {
     pub from: Option<String>,
 }
 
-/// One agent a stage offers, as the flow names it, and the agent that name stands for (`None` when it isn't one of
-/// the agents: a check error of the flow).
+/// One agent a stage offers, by name, and the agent that name stands for (`None` for a stage's own agent that isn't
+/// one of the agents: a check error of the flow), with the tool it runs on now (its own, or the default model's;
+/// `None` while it runs on the default model and none is set).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OptionAgent {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Tool>,
 }
 
-/// A stage with options, and the ticket's choice for it (AGM-09's pickers; T-0411 draws them).
+/// A stage a ticket may choose for (one an agent runs, or one the flow marks skippable), and the ticket's choice for
+/// it (AGM-09's pickers; T-0411 draws them).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageOptions {
     pub stage_id: String,
@@ -249,18 +236,19 @@ pub struct StageOptions {
     /// The stage's own agent ("Spec writer"); `None` for a stage that runs none (a human check). See
     /// [`Self::usual_label`] for how the usual choice reads.
     pub usual: Option<OptionAgent>,
-    /// The other agents a ticket may pick, in the flow's order.
+    /// The other agents a ticket may pick: every agent whose tool has the stage's skill, in the agents' order; none
+    /// for a stage that runs no agent.
     pub agents: Vec<OptionAgent>,
-    /// `skip` is one of the options.
+    /// The flow marks the stage skippable.
     pub can_skip: bool,
     /// The ticket's choice; `None` = the usual one, nobody chose.
     pub choice: Option<StageChoice>,
     /// The stage has started: its choice can't change any more.
     pub locked: bool,
-    /// A human check the ticket skips on its own: no Agent stage before it runs (0129 row 4, "Spec review: skipped ·
-    /// nothing before it runs"); not a choice anyone can change while it holds.
+    /// The stage waits for its agent's tool (its session is held before it started): its choice can change, and the
+    /// waiting card's Change agent… changes it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub on_its_own: bool,
+    pub held: bool,
 }
 
 impl StageOptions {
@@ -272,7 +260,7 @@ impl StageOptions {
     }
 
     /// The usual choice as it reads: its agent ("Rust developer", "Spec writer"), or [`REQUIRED`] for a stage that runs no
-    /// agent (FLW-22, Q290).
+    /// agent (a human check).
     pub fn usual_label(&self) -> String {
         match &self.usual {
             Some(agent) => agent.name.clone(),
@@ -280,12 +268,8 @@ impl StageOptions {
         }
     }
 
-    /// The ticket's choice as it reads ("Quick developer", "skip"), the usual one when nobody chose; "skipped · nothing
-    /// before it runs" while the check skips on its own.
+    /// The ticket's choice as it reads ("Quick developer", "skip"), the usual one when nobody chose.
     pub fn label(&self) -> String {
-        if self.on_its_own {
-            return on_its_own_label();
-        }
         match self.choice.as_ref().map(|c| &c.choice) {
             None | Some(Choice::Usual) => self.usual_label(),
             Some(Choice::Agent { name, .. }) => name.clone(),
@@ -304,8 +288,8 @@ impl StageOptions {
     }
 }
 
-/// The answer to `ticket.choices`: a ticket's (or, with no key, a new ticket's in a project) stages with options, in
-/// flow order; empty on the default flow.
+/// The answer to `ticket.choices`: a ticket's (or, with no key, a new ticket's in a project) stages it may choose
+/// for, in flow order: every stage an agent runs, and every stage the flow marks skippable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketChoices {
     pub key: Option<TicketKey>,
@@ -318,16 +302,8 @@ pub fn skipped_mark(stage: &str) -> String {
     format!("Skipped {stage} · this ticket's choice")
 }
 
-/// Why a check is skipped on its own (0129 row 4): "Spec review: skipped · nothing before it runs".
-pub const NOTHING_BEFORE_IT_RUNS: &str = "nothing before it runs";
-
-/// A check's choice while it is skipped on its own: "skipped · nothing before it runs" (0129 row 4).
-pub fn on_its_own_label() -> String {
-    format!("skipped \u{b7} {NOTHING_BEFORE_IT_RUNS}")
-}
-
-/// The refusal of a set of choices that leaves `check` with no Agent stage before it that runs (0129 row 4): "Spec
-/// review needs one of Product spec, Tech spec or Milestone plan to run; it can't be skipped on this flow".
+/// The refusal of a set of choices that leaves `check`, a human check the flow doesn't mark skippable, with no Agent
+/// stage before it that runs: "Code review needs one of Product spec, Tech spec or Milestone plan to run; it can't be skipped on this flow".
 pub fn strands_check_refusal(check: &str, before: &[&str]) -> String {
     let needs = match before {
         [one] => one.to_string(),
@@ -342,22 +318,21 @@ pub fn strands_check_refusal(check: &str, before: &[&str]) -> String {
 pub struct Target<'a> {
     /// "SHOP-5", or "the new ticket \"Fix README typo\"".
     pub label: &'a str,
-    pub started: bool,
-    /// The first stage (an index into the flow) an agent may still choose for once the ticket has started: the one
-    /// after the stage it is in, or the one it waits before.
-    pub later_from: usize,
     /// The stages that have started for it (it has a run of each).
     pub ran: &'a [String],
+    /// The stage that waits for its agent's tool, held before its session started: not locked.
+    pub held: Option<&'a str>,
 }
 
-/// The refusal of an agent's choice over the user's (d0108, d0129): "You set Dev for SHOP-5; the agent's choice
-/// doesn't replace yours".
-pub fn set_by_you_refusal(label: &str, stage: &str) -> String {
-    format!("You set {stage} for {label}; the agent's choice doesn't replace yours")
+impl Target<'_> {
+    /// `stage` has started for the ticket and doesn't wait for its tool: its choice is locked.
+    pub fn locks(&self, stage: &str) -> bool {
+        self.ran.iter().any(|s| s == stage) && self.held != Some(stage)
+    }
 }
 
-/// The stage `name` names in `flow`: its id, or its name ignoring case. An unknown one lists the stages that have
-/// options.
+/// The stage `name` names in `flow`: its id, or its name ignoring case. An unknown one lists the stages a ticket may
+/// choose for.
 pub fn find_stage<'f>(flow: &'f Flow, project: &str, name: &str) -> Result<&'f Stage, BoardError> {
     let name = name.trim();
     let folded = name.to_lowercase();
@@ -368,103 +343,121 @@ pub fn find_stage<'f>(flow: &'f Flow, project: &str, name: &str) -> Result<&'f S
             let with: Vec<&str> = flow
                 .stages
                 .iter()
-                .filter(|s| !s.options.is_empty())
+                .filter(|s| has_choices(s))
                 .map(|s| s.name.as_str())
                 .collect();
             let listed = if with.is_empty() {
-                "none of its stages has options".to_owned()
+                "none of its stages has choices".to_owned()
             } else {
-                format!("stages with options: {}", with.join(", "))
+                format!("stages with choices: {}", with.join(", "))
             };
             BoardError::NotFound(format!("{project}'s flow has no stage {name} ({listed})"))
         })
 }
 
-/// What a stage offers, in the words a choice uses: its usual agent (or [`REQUIRED`]), its other agents, [`SKIP`].
-fn option_words(stage: &Stage) -> Vec<String> {
-    let mut words = vec![usual_word(stage)];
-    words.extend(stage.options.iter().map(|o| o.as_str().to_owned()));
-    words
+/// Whether a ticket may choose for `stage`: an agent runs it (an Agent stage, an agent check), or the flow marks it
+/// skippable. A Delivery's agent and a human check that can't be skipped run as the flow says.
+pub fn has_choices(stage: &Stage) -> bool {
+    stage.is_agent_stage() || stage.is_agent_check() || stage.can_skip()
 }
 
-/// The choice `word` means for `stage`, among its `options` (resolved): refused when the stage has no options or
-/// `word` isn't one of them ("Quick dev isn't one of Dev's options: Rust developer, Quick developer"). A skip of a
-/// stage without options says how the flow allows it (#62, d0108: a flow adds `skip` to a stage's options).
+/// Whether an agent may be picked for `stage`: an agent runs it.
+fn runs_agent(stage: &Stage) -> bool {
+    stage.is_agent_stage() || stage.is_agent_check()
+}
+
+/// The refusal of a skip of a stage the flow doesn't mark skippable (#62: a flow adds `skip` to a stage's options).
+pub fn not_skippable(stage: &str) -> String {
+    format!("{stage} can't be skipped; add `{SKIP}` to its options in the flow to allow it.")
+}
+
+/// The refusal of an agent whose tool lacks the stage's skill: "Strong runs on Codex, which doesn't have the skill
+/// `/team-validate` for Validate".
+pub fn lacks_skill(agent: &str, tool: Tool, skill: &str, stage: &str) -> String {
+    format!(
+        "{agent} runs on {}, which doesn't have the skill `/{skill}` for {stage}",
+        tool.display_name()
+    )
+}
+
+/// The choice `word` means for `stage`, among what it offers (`options`): refused when the stage has no choices,
+/// when `word` asks a skip of a stage that isn't skippable, or when it isn't one of its choices ("Quick dev isn't
+/// one of Dev's choices: Rust developer, Quick developer"). An agent whose tool lacks the skill isn't one of them
+/// ([`Board::check_choices`] says why).
 pub fn choice_of(stage: &Stage, options: &StageOptions, word: &str) -> Result<Choice, BoardError> {
     let word = word.trim();
-    if stage.options.is_empty() {
-        let text = if word.eq_ignore_ascii_case(SKIP) {
-            format!(
-                "{} has no options; add `{SKIP}` to its options in the flow to allow it.",
-                stage.name
-            )
-        } else {
-            format!(
-                "{} has no options: every ticket runs it as the flow says",
-                stage.name
-            )
-        };
-        return Err(BoardError::refused(Refusal::NotAnOption, text));
-    }
     let folded = word.to_lowercase();
+    if folded == SKIP && !options.can_skip {
+        return Err(BoardError::refused(
+            Refusal::NotAnOption,
+            not_skippable(&stage.name),
+        ));
+    }
+    if !has_choices(stage) {
+        return Err(BoardError::refused(
+            Refusal::NotAnOption,
+            format!(
+                "{} has no choices: every ticket runs it as the flow says",
+                stage.name
+            ),
+        ));
+    }
     let usual = match &options.usual {
-        Some(agent) => agent.name.to_lowercase() == folded || folded == REQUIRED,
+        Some(agent) => agent.name.to_lowercase() == folded,
         None => folded == REQUIRED,
     };
     if usual {
         return Ok(Choice::Usual);
     }
-    if options.can_skip && folded == SKIP {
+    if folded == SKIP {
         return Ok(Choice::Skip);
     }
     if let Some(agent) = options
         .agents
         .iter()
         .find(|a| a.name.to_lowercase() == folded)
+        && let Some(id) = agent.agent_id.clone()
     {
-        // A name the flow lists that isn't one of the agents can't run: the flow's check names it.
-        let id = agent.agent_id.clone().ok_or_else(|| {
-            BoardError::refused(
-                Refusal::UnknownAgent,
-                crate::flow::check::unknown_agent_message(stage, &agent.name),
-            )
-        })?;
         return Ok(Choice::Agent {
             id,
             name: agent.name.clone(),
         });
     }
+    if !runs_agent(stage) {
+        return Err(BoardError::refused(
+            Refusal::NotAnOption,
+            format!(
+                "{} runs no agent: its choices are {REQUIRED} (you check it) and {SKIP}",
+                stage.name
+            ),
+        ));
+    }
     Err(BoardError::refused(
         Refusal::NotAnOption,
         format!(
-            "{word} isn't one of {}'s options: {}",
+            "{word} isn't one of {}'s choices: {}",
             stage.name,
-            option_words(stage).join(", ")
+            options.words().join(", ")
         ),
     ))
 }
 
-/// Judges one choice (AGM-08; d0108, d0087) of `choice` for `target` at flow position `index`, over `current` (the
-/// choice it has). `by_user` makes the Project agent's choice the user's.
+/// Judges one choice (AGM-08; d0087) of `choice` for `stage` of `target`. `by_user` makes the Project agent's
+/// choice the user's.
 ///
-/// - a stage that started is locked, for everyone;
+/// - a stage that started is locked, for everyone, unless it waits for its tool ([`Target::locks`]);
+/// - the user may set any other;
 /// - the Project agent sets only the user's choices (`by_user`): its own are refused;
 /// - only Noyan passes on the user's choices: a ticket agent's `by_user` is refused;
-/// - only the user skips a stage: a ticket agent's own `skip` is refused;
-/// - a ticket agent's own choice needs a reason, never overrides the user's, and once the ticket has started is only
-///   for a later stage.
-#[allow(clippy::too_many_arguments)]
+/// - a ticket agent's own choice is refused: only the user skips a stage, and only the user picks its agent.
 pub fn judge(
     target: Target<'_>,
     stage: &Stage,
-    index: usize,
-    current: Option<&StageChoice>,
     choice: &Choice,
     chooser: &Chooser,
     by_user: bool,
-    reason: Option<&str>,
 ) -> Result<(), BoardError> {
-    if target.ran.contains(&stage.id) {
+    if target.locks(&stage.id) {
         return Err(BoardError::refused(
             Refusal::ChoiceLocked,
             format!(
@@ -473,48 +466,15 @@ pub fn judge(
             ),
         ));
     }
+    let refused = |text| Err(BoardError::refused(Refusal::NotAllowed, text));
     match chooser {
-        Chooser::User => return Ok(()),
-        Chooser::ProjectAgent { .. } if by_user => return Ok(()),
-        Chooser::TicketAgent { .. } if by_user => {
-            return Err(BoardError::refused(
-                Refusal::NotAllowed,
-                ONLY_NOYAN_PASSES_ON,
-            ));
-        }
-        _ => {}
+        Chooser::User => Ok(()),
+        Chooser::ProjectAgent { .. } if by_user => Ok(()),
+        Chooser::ProjectAgent { .. } => refused(NOYAN_USER_CHOICES_ONLY),
+        Chooser::TicketAgent { .. } if by_user => refused(ONLY_NOYAN_PASSES_ON),
+        Chooser::TicketAgent { .. } if *choice == Choice::Skip => refused(ONLY_THE_USER_SKIPS),
+        Chooser::TicketAgent { .. } => refused(ONLY_THE_USER_PICKS),
     }
-    if matches!(chooser, Chooser::ProjectAgent { .. }) {
-        return Err(BoardError::refused(
-            Refusal::NotAllowed,
-            NOYAN_USER_CHOICES_ONLY,
-        ));
-    }
-    if *choice == Choice::Skip {
-        return Err(BoardError::refused(
-            Refusal::NotAllowed,
-            ONLY_THE_USER_SKIPS,
-        ));
-    }
-    if reason.is_none_or(|r| r.trim().is_empty()) {
-        return Err(BoardError::refused(Refusal::EmptyField, SAY_WHY));
-    }
-    if current.is_some_and(|c| c.set_by.is_user()) {
-        return Err(BoardError::refused(
-            Refusal::NotAllowed,
-            set_by_you_refusal(target.label, &stage.name),
-        ));
-    }
-    if target.started && index < target.later_from {
-        return Err(BoardError::refused(
-            Refusal::NotAllowed,
-            format!(
-                "{} has started: an agent can only change the choice of a stage it hasn't reached, not {}",
-                target.label, stage.name
-            ),
-        ));
-    }
-    Ok(())
 }
 
 /// A checked choice, ready to write.
@@ -528,16 +488,6 @@ pub struct ChoiceWrite {
     pub set_by: SetBy,
 }
 
-/// The first stage an agent may still choose for on a started ticket at `place` (see [`Target::later_from`]).
-fn later_from(flow: &Flow, place: &Place) -> usize {
-    match place {
-        Place::InStage(id) => flow.position(id).map_or(0, |i| i + 1),
-        Place::Waiting(Some(id)) => flow.position(id).unwrap_or(0),
-        Place::Done => flow.stages.len(),
-        Place::Backlog | Place::Waiting(None) => 0,
-    }
-}
-
 type ChoiceRow = (
     String,
     String,
@@ -548,27 +498,78 @@ type ChoiceRow = (
     i64,
 );
 
-impl Board {
-    /// What `stage` offers, resolved to the agents (a name that isn't one of them has no id).
-    async fn options_of(&self, stage: &Stage) -> Result<StageOptions, BoardError> {
-        let resolve = async |name: &str| -> Result<OptionAgent, BoardError> {
-            Ok(OptionAgent {
-                name: name.to_owned(),
-                agent_id: resolve::named(self.store(), name).await?.map(|a| a.id),
-            })
-        };
-        // T-0527: every check agent (the usual choice is one agent: an agent check's first).
-        let usual = match stage.named_agents().next() {
-            Some(name) => Some(resolve(name).await?),
-            None => None,
-        };
-        let mut agents = Vec::new();
-        for option in &stage.options {
-            if let StageOption::Agent(name) = option {
-                agents.push(resolve(name).await?);
-            }
+/// The agents and the default model [`Board::options_of`] reads once for a whole flow.
+struct Roster {
+    agents: Vec<Agent>,
+    default: Option<crate::agents::ModelRef>,
+}
+
+impl Roster {
+    fn option(&self, name: &str, agent: Option<&Agent>) -> OptionAgent {
+        OptionAgent {
+            name: agent.map_or_else(|| name.to_owned(), |a| a.name.clone()),
+            agent_id: agent.map(|a| a.id.clone()),
+            tool: agent.and_then(|a| self.tool_of(a)),
         }
-        Ok(StageOptions {
+    }
+
+    /// The tool `agent` runs on now: its own, or the default model's.
+    fn tool_of(&self, agent: &Agent) -> Option<Tool> {
+        agent.model.on(self.default.as_ref()).map(|m| m.tool)
+    }
+
+    fn named(&self, name: &str) -> Option<&Agent> {
+        let name = name.trim().to_lowercase();
+        self.agents
+            .iter()
+            .find(|a| a.name.trim().to_lowercase() == name)
+    }
+}
+
+impl Board {
+    async fn roster(&self) -> Result<Roster, BoardError> {
+        Ok(Roster {
+            agents: self.store().agents().await?,
+            default: self.store().default_model().await?,
+        })
+    }
+
+    /// The tools that have `stage`'s skill for `ticket` (a key) of `project`, or the project's new tickets: every tool
+    /// for a stage running one of Otaq's own skills.
+    async fn stage_tools(&self, project: &str, ticket: Option<&str>, stage: &Stage) -> Vec<Tool> {
+        match stage.skill.as_deref() {
+            Some(skill) => self.skill_tools(project, ticket, skill).await,
+            None => Tool::ALL.to_vec(),
+        }
+    }
+
+    /// What `stage` offers to `ticket` (a key) of `project`: its own agent, and every other agent whose tool has the
+    /// stage's skill (an agent whose tool isn't known yet is offered too). The agent holding the Project agent role
+    /// answers as Noyan and isn't offered for a ticket's stage.
+    async fn options_of(
+        &self,
+        project: &str,
+        ticket: Option<&str>,
+        stage: &Stage,
+        roster: &Roster,
+    ) -> StageOptions {
+        let usual = stage
+            .agent
+            .as_deref()
+            .filter(|_| runs_agent(stage))
+            .map(|name| roster.option(name, roster.named(name)));
+        let mut agents = Vec::new();
+        if let Some(usual) = &usual {
+            let tools = self.stage_tools(project, ticket, stage).await;
+            agents = roster
+                .agents
+                .iter()
+                .filter(|a| usual.agent_id.as_deref() != Some(a.id.as_str()) && a.role.is_none())
+                .filter(|a| roster.tool_of(a).is_none_or(|t| tools.contains(&t)))
+                .map(|a| roster.option(&a.name, Some(a)))
+                .collect();
+        }
+        StageOptions {
             stage_id: stage.id.clone(),
             stage: stage.name.clone(),
             usual,
@@ -576,21 +577,27 @@ impl Board {
             can_skip: stage.can_skip(),
             choice: None,
             locked: false,
-            on_its_own: false,
-        })
+            held: false,
+        }
     }
 
-    /// The stages of `flow` with options, each with what it offers.
-    async fn flow_options(&self, flow: &Flow) -> Result<Vec<StageOptions>, BoardError> {
+    /// The stages of `flow` a ticket may choose for, each with what it offers to `ticket` (a key) of `project`.
+    async fn flow_options(
+        &self,
+        flow: &Flow,
+        project: &str,
+        ticket: Option<&str>,
+    ) -> Result<Vec<StageOptions>, BoardError> {
+        let roster = self.roster().await?;
         let mut stages = Vec::new();
-        for stage in flow.stages.iter().filter(|s| !s.options.is_empty()) {
-            stages.push(self.options_of(stage).await?);
+        for stage in flow.stages.iter().filter(|s| has_choices(s)) {
+            stages.push(self.options_of(project, ticket, stage, &roster).await);
         }
         Ok(stages)
     }
 
-    /// The stages the ticket has run for real: a run that wasn't skipped (0129 row 4: a drag back into a skipped stage
-    /// runs it once).
+    /// The stages the ticket has run for real: a run that wasn't skipped (a drag back into a skipped stage runs it
+    /// once).
     async fn stages_run(&self, ticket_id: &str) -> Result<Vec<String>, BoardError> {
         Ok(sqlx::query_scalar(
             "SELECT DISTINCT stage_id FROM stage_runs WHERE ticket_id = ? AND (result IS NULL OR result <> 'skipped')",
@@ -610,8 +617,37 @@ impl Board {
         )
     }
 
-    /// The ticket's stored choices that still hold in `options` (the stage is still there and still offers what was
-    /// chosen), by stage id.
+    /// The stage of `flow` that waits for its agent's tool on `ticket`: the stage of a held session that hasn't
+    /// started (a held Developer's Agent stage, a held validator's check). A waiting stage hasn't started, so its
+    /// choice can still change.
+    pub async fn held_stage(
+        &self,
+        ticket: &Ticket,
+        flow: &Flow,
+    ) -> Result<Option<String>, BoardError> {
+        let holds = self.store().ticket_holds(&ticket.id).await?;
+        if holds.is_empty() {
+            return Ok(None);
+        }
+        let skips = self.ticket_skips(ticket, flow).await?;
+        for hold in holds {
+            if !crate::agents::gate::still_waits(ticket, hold.role) {
+                continue;
+            }
+            let stage = match hold.role {
+                SessionRole::Developer => resolve::agent_stage_of(flow, ticket, &skips),
+                SessionRole::Validator => resolve::check_stage_of(flow, ticket, &skips),
+                SessionRole::ProjectAgent => None,
+            };
+            if let Some(stage) = stage {
+                return Ok(Some(stage.id.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The ticket's stored choices that still hold in `options` (the stage is still there, still runs an agent for an
+    /// agent's choice, still skippable for a skip), by stage id.
     async fn stored_choices(
         &self,
         ticket_id: &str,
@@ -657,17 +693,22 @@ impl Board {
             let choice = match (choice.as_str(), agent_id) {
                 ("skip", _) if offered.can_skip => Choice::Skip,
                 ("usual", _) => Choice::Usual,
-                ("agent", Some(id)) => match offered
-                    .agents
-                    .iter()
-                    .find(|a| a.agent_id.as_deref() == Some(id.as_str()))
-                {
-                    Some(agent) => Choice::Agent {
-                        id,
-                        name: agent.name.clone(),
-                    },
-                    None => continue,
-                },
+                // Kept while the agent is there (a deleted agent takes its choices with it), even when its tool no
+                // longer has the stage's skill.
+                ("agent", Some(id)) if offered.usual.is_some() => {
+                    let name = match offered
+                        .agents
+                        .iter()
+                        .find(|a| a.agent_id.as_deref() == Some(id.as_str()))
+                    {
+                        Some(agent) => agent.name.clone(),
+                        None => match self.store().agent(&id).await? {
+                            Some(agent) => agent.name,
+                            None => continue,
+                        },
+                    };
+                    Choice::Agent { id, name }
+                }
                 _ => continue,
             };
             choices.push(StageChoice {
@@ -681,21 +722,28 @@ impl Board {
         Ok(choices)
     }
 
-    /// `ticket.choices` for an existing ticket: its stages with options, its choices and locks.
+    /// `ticket.choices` for an existing ticket: the stages it may choose for, its choices and locks.
     pub async fn ticket_choices(&self, key: &str) -> Result<TicketChoices, BoardError> {
         let ticket = self.ticket(key).await?;
-        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let mut stages = self.flow_options(&flow).await?;
+        let project = ticket.key.project.to_string();
+        let flow = self.effective_flow(&project).await?;
+        let key = ticket.key.to_string();
+        let mut stages = self.flow_options(&flow, &project, Some(&key)).await?;
         let stored = self.stored_choices(&ticket.id, &stages).await?;
         let ran = self.stages_ran(&ticket.id).await?;
-        let on_its_own = self.skipped_on_its_own(&ticket, &flow).await?;
+        let held = self.held_stage(&ticket, &flow).await?;
+        let target = Target {
+            label: &key,
+            ran: &ran,
+            held: held.as_deref(),
+        };
         for stage in &mut stages {
             stage.choice = stored
                 .iter()
                 .find(|c| c.stage_id == stage.stage_id)
                 .cloned();
-            stage.locked = ran.contains(&stage.stage_id);
-            stage.on_its_own = on_its_own.contains(&stage.stage_id);
+            stage.locked = target.locks(&stage.stage_id);
+            stage.held = held.as_deref() == Some(stage.stage_id.as_str());
         }
         Ok(TicketChoices {
             key: Some(ticket.key),
@@ -703,86 +751,48 @@ impl Board {
         })
     }
 
-    /// `ticket.choices` for a ticket not created yet in `project` (the ⌘N form): its flow's stages with options.
+    /// `ticket.choices` for a ticket not created yet in `project` (the ⌘N form): the stages of its flow it may choose
+    /// for, with the agents whose tools have each stage's skill for the project.
     pub async fn new_ticket_choices(&self, project: &str) -> Result<TicketChoices, BoardError> {
         let flow = self.effective_flow(project).await?;
         Ok(TicketChoices {
             key: None,
-            stages: self.flow_options(&flow).await?,
+            stages: self.flow_options(&flow, project, None).await?,
         })
     }
 
-    /// The stages `ticket` skips (the flow engine's [`crate::flow::engine::At::skips`]): by its choices, and the
-    /// checks it skips on its own ([`Board::skipped_on_its_own`]); none on a flow without `skip` options.
+    /// The stages `ticket` chose to skip (the flow engine's [`crate::flow::engine::At::skips`]), in flow order: only
+    /// stages the flow marks skippable; none on a flow without `skip` options. Nothing is skipped on its own.
     pub async fn ticket_skips(
         &self,
         ticket: &Ticket,
         flow: &Flow,
     ) -> Result<Vec<String>, BoardError> {
-        let (mut skips, on_its_own) = self.skip_sets(&ticket.id, flow).await?;
-        skips.extend(on_its_own);
-        Ok(skips)
-    }
-
-    /// The human checks `ticket` skips on its own (0129 row 4): no Agent stage before them runs
-    /// ([`crate::flow::engine::skipped_on_its_own`]).
-    pub async fn skipped_on_its_own(
-        &self,
-        ticket: &Ticket,
-        flow: &Flow,
-    ) -> Result<Vec<String>, BoardError> {
-        Ok(self.skip_sets(&ticket.id, flow).await?.1)
-    }
-
-    /// The stages the ticket `ticket_id` chose to skip, and the checks it skips on its own.
-    pub(crate) async fn skip_sets(
-        &self,
-        ticket_id: &str,
-        flow: &Flow,
-    ) -> Result<(Vec<String>, Vec<String>), BoardError> {
         if !flow.stages.iter().any(Stage::can_skip) {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(Vec::new());
         }
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT stage_id, choice FROM ticket_stage_choices WHERE ticket_id = ? AND choice IN ('skip', 'usual')",
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT stage_id FROM ticket_stage_choices WHERE ticket_id = ? AND choice = 'skip'",
         )
-        .bind(ticket_id)
+        .bind(&ticket.id)
         .fetch_all(self.store().pool())
         .await?;
-        // In flow order.
-        let of = |kind: &str| -> Vec<String> {
-            flow.stages
-                .iter()
-                .filter(|s| s.can_skip() && rows.iter().any(|(id, c)| *id == s.id && c == kind))
-                .map(|s| s.id.clone())
-                .collect()
-        };
-        let (skips, kept) = (of("skip"), of("usual"));
-        // Only a check whose earlier Agent stages are all skipped can skip on its own: read the runs only then.
-        if engine::skipped_on_its_own(flow, &skips, &[], &kept).is_empty() {
-            return Ok((skips, Vec::new()));
-        }
-        let ran = self.stages_run(ticket_id).await?;
-        let on_its_own = engine::skipped_on_its_own(flow, &skips, &ran, &kept)
-            .into_iter()
-            .filter(|s| !skips.contains(&s.id))
+        Ok(flow
+            .stages
+            .iter()
+            .filter(|s| s.can_skip() && rows.contains(&s.id))
             .map(|s| s.id.clone())
-            .collect();
-        Ok((skips, on_its_own))
+            .collect())
     }
 
-    /// The agent `ticket` chose for `stage` instead of its usual one (AGM-05, AGM-08), if it chose one the stage
-    /// still offers.
+    /// The agent `ticket` chose for `stage` instead of its own (AGM-05, AGM-08), if it chose one and the stage runs
+    /// an agent.
     pub async fn chosen_agent(
         &self,
         ticket: &Ticket,
         stage: &Stage,
     ) -> Result<Option<Agent>, BoardError> {
-        if !stage
-            .options
-            .iter()
-            .any(|o| matches!(o, StageOption::Agent(_)))
-        {
+        if !runs_agent(stage) {
             return Ok(None);
         }
         let id: Option<Option<String>> = sqlx::query_scalar(
@@ -792,22 +802,14 @@ impl Board {
         .bind(&stage.id)
         .fetch_optional(self.store().pool())
         .await?;
-        let Some(id) = id.flatten() else {
-            return Ok(None);
-        };
-        for option in &stage.options {
-            if let StageOption::Agent(name) = option
-                && let Some(agent) = resolve::named(self.store(), name).await?
-                && agent.id == id
-            {
-                return Ok(Some(agent));
-            }
+        match id.flatten() {
+            Some(id) => Ok(self.store().agent(&id).await?),
+            None => Ok(None),
         }
-        Ok(None)
     }
 
-    /// Checks every pick for `ticket` (`None`: a ticket a batch is about to create in `project`, labelled `new`) and returns what to write; nothing is written, so a refused pick leaves the ticket (or the whole
-    /// batch) as it was.
+    /// Checks every pick for `ticket` (`None`: a ticket a batch is about to create in `project`, labelled `new`) and
+    /// returns what to write; nothing is written, so a refused pick leaves the ticket (or the whole batch) as it was.
     pub async fn check_choices(
         &self,
         project: &str,
@@ -821,26 +823,26 @@ impl Board {
             return Ok(Vec::new());
         }
         let flow = self.effective_flow(project).await?;
-        let options = self.flow_options(&flow).await?;
-        let (stored, ran, run, label) = match ticket {
+        let key = ticket.map(|t| t.key.to_string());
+        let options = self.flow_options(&flow, project, key.as_deref()).await?;
+        let (stored, ran, run, held, label) = match ticket {
             Some(t) => (
                 self.stored_choices(&t.id, &options).await?,
                 self.stages_ran(&t.id).await?,
                 self.stages_run(&t.id).await?,
+                self.held_stage(t, &flow).await?,
                 t.key.to_string(),
             ),
-            None => (Vec::new(), Vec::new(), Vec::new(), new.to_owned()),
+            None => (Vec::new(), Vec::new(), Vec::new(), None, new.to_owned()),
         };
         let target = Target {
             label: &label,
-            started: ticket.is_some_and(Ticket::has_started),
-            later_from: ticket.map_or(0, |t| later_from(&flow, &t.place)),
             ran: &ran,
+            held: held.as_deref(),
         };
         let mut writes: Vec<ChoiceWrite> = Vec::with_capacity(picks.len());
         for pick in picks {
             let stage = find_stage(&flow, project, &pick.stage)?;
-            let index = flow.position(&stage.id).expect("a stage of the flow");
             let offered = options
                 .iter()
                 .find(|o| o.stage_id == stage.id)
@@ -853,33 +855,26 @@ impl Board {
                     can_skip: false,
                     choice: None,
                     locked: false,
-                    on_its_own: false,
+                    held: false,
                 });
-            let choice = choice_of(stage, &offered, &pick.choice)?;
-            let current = stored.iter().find(|c| c.stage_id == stage.id);
-            judge(
-                target,
-                stage,
-                index,
-                current,
-                &choice,
-                chooser,
-                by_user,
-                pick.reason.as_deref(),
-            )?;
+            let choice = match choice_of(stage, &offered, &pick.choice) {
+                Ok(choice) => choice,
+                Err(e) => return Err(self.why_not(stage, &offered, &pick.choice, e).await?),
+            };
+            judge(target, stage, &choice, chooser, by_user)?;
             let write = ChoiceWrite {
                 stage_id: stage.id.clone(),
                 stage: stage.name.clone(),
                 label: choice.label(stage),
                 choice,
-                set_by: chooser.set_by(by_user, pick.reason.as_deref().unwrap_or_default()),
+                set_by: SetBy::User,
             };
             // A later pick for the same stage replaces an earlier one.
             writes.retain(|w| w.stage_id != write.stage_id);
             writes.push(write);
         }
-        // 0129 row 4: refused when the choices leave a check that must run with nothing before it (one that already
-        // did, after a change of the flow, doesn't refuse an unrelated choice).
+        // Refused when the choices leave a check that can't be skipped with nothing before it (one that already did,
+        // after a change of the flow, doesn't refuse an unrelated choice).
         let before: Vec<(String, Choice)> = stored
             .iter()
             .map(|c| (c.stage_id.clone(), c.choice.clone()))
@@ -906,6 +901,31 @@ impl Board {
         Ok(writes)
     }
 
+    /// Why `word` isn't a choice of `stage`: an agent whose tool lacks the stage's skill says so ([`lacks_skill`]);
+    /// anything else is `refused` as [`choice_of`] worded it.
+    async fn why_not(
+        &self,
+        stage: &Stage,
+        offered: &StageOptions,
+        word: &str,
+        refused: BoardError,
+    ) -> Result<BoardError, BoardError> {
+        let (Some(skill), true) = (stage.skill.as_deref(), offered.usual.is_some()) else {
+            return Ok(refused);
+        };
+        let roster = self.roster().await?;
+        let lacking = roster
+            .named(word)
+            .and_then(|agent| roster.tool_of(agent).map(|tool| (agent, tool)));
+        Ok(match lacking {
+            Some((agent, tool)) => BoardError::refused(
+                Refusal::NotAnOption,
+                lacks_skill(&agent.name, tool, skill, &stage.name),
+            ),
+            None => refused,
+        })
+    }
+
     /// Writes checked choices on `ticket`, skipping those that already read so. Returns whether one changed.
     pub async fn write_choices(
         &self,
@@ -916,8 +936,11 @@ impl Board {
         if writes.is_empty() {
             return Ok(false);
         }
-        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let options = self.flow_options(&flow).await?;
+        let project = ticket.key.project.to_string();
+        let flow = self.effective_flow(&project).await?;
+        let options = self
+            .flow_options(&flow, &project, Some(&ticket.key.to_string()))
+            .await?;
         let stored = self.stored_choices(&ticket.id, &options).await?;
         let mut changed = false;
         let mut tx = self.store().begin_write().await?;
@@ -965,26 +988,23 @@ impl Board {
     }
 }
 
-/// The human checks that must run on a ticket with `choices` (required in the flow, or chosen to run) and have no
-/// Agent stage before them that runs ([`engine::nothing_runs_before`]), each with those stages. `run`: the stages
-/// the ticket has run.
+/// The human checks the flow doesn't mark skippable that have no Agent stage before them that runs on a ticket with
+/// `choices` ([`engine::nothing_runs_before`]), each with those stages. `run`: the stages the ticket has run. A
+/// skippable check isn't one: the ticket waits there with nothing before it, or the user skips it too.
 fn stranded_checks<'f>(
     flow: &'f Flow,
     choices: &[(String, Choice)],
     run: &[String],
 ) -> Vec<(&'f Stage, Vec<&'f Stage>)> {
-    let of = |kind: &Choice| -> Vec<String> {
-        choices
-            .iter()
-            .filter(|(id, c)| c == kind && flow.stage(id).is_some_and(Stage::can_skip))
-            .map(|(id, _)| id.clone())
-            .collect()
-    };
-    let (skips, kept) = (of(&Choice::Skip), of(&Choice::Usual));
+    let skips: Vec<String> = choices
+        .iter()
+        .filter(|(id, c)| *c == Choice::Skip && flow.stage(id).is_some_and(Stage::can_skip))
+        .map(|(id, _)| id.clone())
+        .collect();
     flow.stages
         .iter()
         .enumerate()
-        .filter(|(_, s)| s.is_human_check() && (!s.can_skip() || kept.contains(&s.id)))
+        .filter(|(_, s)| s.is_human_check() && !s.can_skip())
         .filter_map(|(i, s)| engine::nothing_runs_before(flow, i, &skips, run).map(|b| (s, b)))
         .collect()
 }
@@ -1007,7 +1027,7 @@ mod tests {
     use super::*;
     use crate::flow::{CheckBy, StageKind};
 
-    fn stage(id: &str, agent: Option<&str>, options: &[&str]) -> Stage {
+    fn stage(id: &str, agent: Option<&str>, skippable: bool) -> Stage {
         Stage {
             id: id.into(),
             name: format!("{}{}", id[..1].to_uppercase(), &id[1..]),
@@ -1017,15 +1037,8 @@ mod tests {
             },
             column: Default::default(),
             agent: agent.map(Into::into),
-            agents: Vec::new(),
             skill: None,
-            options: options
-                .iter()
-                .map(|o| match *o {
-                    SKIP => StageOption::Skip,
-                    name => StageOption::Agent(name.into()),
-                })
-                .collect(),
+            options: skippable.then_some(StageOption::Skip).into_iter().collect(),
             rounds: None,
             fail_to: None,
             delivery: None,
@@ -1033,27 +1046,25 @@ mod tests {
         }
     }
 
-    fn offered(stage: &Stage) -> StageOptions {
+    /// What `stage` offers with `others` (the agents whose tools have its skill) besides its own agent.
+    fn offered(stage: &Stage, others: &[&str]) -> StageOptions {
         let agent = |name: &str| OptionAgent {
             name: name.into(),
             agent_id: Some(format!("id-{}", name.to_lowercase())),
+            tool: None,
         };
         StageOptions {
             stage_id: stage.id.clone(),
             stage: stage.name.clone(),
             usual: stage.agent.as_deref().map(agent),
-            agents: stage
-                .options
-                .iter()
-                .filter_map(|o| match o {
-                    StageOption::Agent(name) => Some(agent(name)),
-                    StageOption::Skip => None,
-                })
-                .collect(),
+            agents: match stage.agent {
+                Some(_) => others.iter().map(|n| agent(n)).collect(),
+                None => Vec::new(),
+            },
             can_skip: stage.can_skip(),
             choice: None,
             locked: false,
-            on_its_own: false,
+            held: false,
         }
     }
 
@@ -1076,15 +1087,15 @@ mod tests {
         assert!(ChoicePick::parse("=skip", None).is_err());
     }
 
-    /// A choice must be one of the stage's options (the usual agent, its other agents, skip); a stage without
-    /// options refuses any.
+    /// A choice is the stage's own agent, another agent it offers (one whose tool has its skill), or `skip` on a
+    /// stage the flow marks skippable; a human check that can't be skipped has none.
     #[test]
-    fn a_choice_is_one_of_the_options() {
-        let dev = stage("dev", Some("Rust developer"), &["Quick developer"]);
-        let spec = stage("spec", Some("Spec writer"), &[SKIP]);
-        let qa = stage("qa", None, &[SKIP]);
-        let security = stage("security", Some("Security reviewer"), &[]);
-        let of = |s: &Stage, word: &str| choice_of(s, &offered(s), word);
+    fn a_choice_is_one_the_stage_offers() {
+        let dev = stage("dev", Some("Rust developer"), false);
+        let spec = stage("spec", Some("Spec writer"), true);
+        let qa = stage("qa", None, true);
+        let review = stage("review", None, false);
+        let of = |s: &Stage, word: &str| choice_of(s, &offered(s, &["Quick developer"]), word);
         assert_eq!(
             of(&dev, "quick developer").unwrap(),
             Choice::Agent {
@@ -1094,34 +1105,40 @@ mod tests {
         );
         assert_eq!(of(&dev, "Rust developer").unwrap(), Choice::Usual);
         assert_eq!(of(&spec, "skip").unwrap(), Choice::Skip);
+        assert_eq!(
+            of(&spec, "Quick developer").unwrap().label(&spec),
+            "Quick developer"
+        );
         assert_eq!(of(&qa, "required").unwrap(), Choice::Usual);
+        assert_eq!(of(&qa, "Required").unwrap(), Choice::Usual);
+        // "required" is a human check's word only; an Agent stage's usual choice is its agent.
+        assert!(of(&spec, "required").is_err());
         assert_eq!(
             refusal(of(&dev, "skip")),
             (
                 Refusal::NotAnOption,
-                "skip isn't one of Dev's options: Rust developer, Quick developer".into()
+                "Dev can't be skipped; add `skip` to its options in the flow to allow it.".into()
+            )
+        );
+        assert_eq!(
+            refusal(of(&dev, "Quick dev")),
+            (
+                Refusal::NotAnOption,
+                "Quick dev isn't one of Dev's choices: Rust developer, Quick developer".into()
             )
         );
         assert_eq!(
             refusal(of(&qa, "Spec writer")),
             (
                 Refusal::NotAnOption,
-                "Spec writer isn't one of Qa's options: required, skip".into()
+                "Qa runs no agent: its choices are required (you check it) and skip".into()
             )
         );
         assert_eq!(
-            refusal(of(&security, "Quick developer")),
+            refusal(of(&review, "Quick developer")),
             (
                 Refusal::NotAnOption,
-                "Security has no options: every ticket runs it as the flow says".into()
-            )
-        );
-        assert_eq!(
-            refusal(of(&security, "skip")),
-            (
-                Refusal::NotAnOption,
-                "Security has no options; add `skip` to its options in the flow to allow it."
-                    .into()
+                "Review has no choices: every ticket runs it as the flow says".into()
             )
         );
         assert_eq!(Choice::Usual.label(&qa), "required");
@@ -1129,49 +1146,32 @@ mod tests {
         assert_eq!(Choice::Usual.label(&spec), "Spec writer");
         assert_eq!(of(&spec, "Spec writer").unwrap(), Choice::Usual);
         assert_eq!(Choice::Usual.label(&dev), "Rust developer");
+        assert_eq!(
+            lacks_skill("Strong", Tool::Codex, "team-validate", "Validate"),
+            "Strong runs on Codex, which doesn't have the skill `/team-validate` for Validate"
+        );
     }
 
-    /// Who may set what (AGM-08): the user until the stage starts; Noyan only the user's choices; a ticket agent
-    /// another agent with a reason, never over the user, later stages only once the ticket started, and never a skip
-    /// (only the user skips a stage); only Noyan passes on the user's choices (`--by-user`).
+    /// Who may set what (AGM-08): the user until the stage starts (a stage waiting for its tool hasn't); Noyan only
+    /// the user's choices; a ticket's own agent nothing (only the user picks an agent or skips), and only Noyan
+    /// passes on the user's choices (`--by-user`).
     #[test]
     fn the_choice_rule() {
-        let dev = stage("dev", Some("Rust developer"), &["Quick developer"]);
-        let user_choice = StageChoice {
-            stage_id: "dev".into(),
-            choice: Choice::Usual,
-            set_by: SetBy::User,
-            set_at: 0,
-            from: None,
-        };
-        let agent_choice = StageChoice {
-            set_by: SetBy::ProjectAgent {
-                name: "Noyan".into(),
-                reason: "typo fix".into(),
-            },
-            ..user_choice.clone()
-        };
+        let dev = stage("dev", Some("Rust developer"), true);
         let none: [String; 0] = [];
-        let spec_ran = ["spec".to_owned()];
         let dev_ran = ["spec".to_owned(), "dev".to_owned()];
         let fresh = Target {
             label: "SHOP-5",
-            started: false,
-            later_from: 0,
             ran: &none,
-        };
-        // In Spec (index 0): Dev (index 1) is later.
-        let in_spec = Target {
-            started: true,
-            later_from: 1,
-            ran: &spec_ran,
-            ..fresh
+            held: None,
         };
         let in_dev = Target {
-            started: true,
-            later_from: 2,
             ran: &dev_ran,
             ..fresh
+        };
+        let held_in_dev = Target {
+            held: Some("dev"),
+            ..in_dev
         };
         let noyan = Chooser::ProjectAgent {
             name: "Noyan".into(),
@@ -1183,161 +1183,77 @@ mod tests {
             id: "quick".into(),
             name: "Quick developer".into(),
         };
-        let judged_as = |choice: &Choice, target, current, chooser: &Chooser, by_user, reason| {
-            judge(target, &dev, 1, current, choice, chooser, by_user, reason)
+        let judged = |choice: &Choice, target, chooser: &Chooser, by_user| {
+            judge(target, &dev, choice, chooser, by_user)
                 .map_err(|e| (e.refusal().unwrap(), e.to_string()))
         };
-        let judged = |target, current, chooser: &Chooser, by_user, reason| {
-            judged_as(&quick, target, current, chooser, by_user, reason)
-        };
         let refused = |code, text: &str| Err((code, text.to_owned()));
-        let set_by_you = "You set Dev for SHOP-5; the agent's choice doesn't replace yours";
         let locked = "Dev has started on SHOP-5: its choice is locked";
         let rows = [
             (
                 "user, fresh",
-                judged(fresh, None, &Chooser::User, false, None),
-                Ok(()),
-            ),
-            (
-                "user over an agent's choice",
-                judged(in_spec, Some(&agent_choice), &Chooser::User, false, None),
+                judged(&quick, fresh, &Chooser::User, false),
                 Ok(()),
             ),
             (
                 "user, Dev started",
-                judged(in_dev, None, &Chooser::User, false, None),
+                judged(&quick, in_dev, &Chooser::User, false),
                 refused(Refusal::ChoiceLocked, locked),
             ),
             (
-                "Noyan's own choice, even with a reason",
-                judged(fresh, None, &noyan, false, Some("typo fix")),
-                refused(Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY),
+                "user, Dev waits for its tool",
+                judged(&quick, held_in_dev, &Chooser::User, false),
+                Ok(()),
             ),
             (
-                "Noyan's own required",
-                judged_as(&Choice::Usual, fresh, None, &noyan, false, Some("x")),
+                "Noyan's own choice",
+                judged(&quick, fresh, &noyan, false),
                 refused(Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY),
             ),
             (
                 "Noyan's own skip",
-                judged_as(&Choice::Skip, fresh, None, &noyan, false, Some("x")),
+                judged(&Choice::Skip, fresh, &noyan, false),
                 refused(Refusal::NotAllowed, NOYAN_USER_CHOICES_ONLY),
             ),
             (
                 "Noyan passes on the user's choice",
-                judged(fresh, None, &noyan, true, None),
+                judged(&quick, fresh, &noyan, true),
                 Ok(()),
             ),
             (
                 "Noyan passes on the user's skip",
-                judged_as(&Choice::Skip, fresh, None, &noyan, true, None),
+                judged(&Choice::Skip, fresh, &noyan, true),
                 Ok(()),
             ),
             (
-                "ticket agent, no reason",
-                judged(fresh, None, &spec_writer, false, Some(" ")),
-                refused(Refusal::EmptyField, SAY_WHY),
+                "ticket agent picks an agent for a later stage",
+                judged(&quick, fresh, &spec_writer, false),
+                refused(Refusal::NotAllowed, ONLY_THE_USER_PICKS),
             ),
             (
-                "ticket agent over the user's choice",
-                judged(fresh, Some(&user_choice), &spec_writer, false, Some("x")),
-                refused(Refusal::NotAllowed, set_by_you),
-            ),
-            (
-                "ticket agent over the user's choice, in the user's words",
-                judged(fresh, Some(&user_choice), &spec_writer, true, None),
-                refused(Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON),
-            ),
-            (
-                "ticket agent picks an agent in the user's words",
-                judged(in_spec, None, &spec_writer, true, Some("x")),
-                refused(Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON),
-            ),
-            (
-                "ticket agent picks a later agent with a reason",
-                judged(in_spec, None, &spec_writer, false, Some("risky change")),
-                Ok(()),
+                "ticket agent sets a stage back to its own agent",
+                judged(&Choice::Usual, fresh, &spec_writer, false),
+                refused(Refusal::NotAllowed, ONLY_THE_USER_PICKS),
             ),
             (
                 "ticket agent skips a later stage",
-                judged_as(&Choice::Skip, in_spec, None, &spec_writer, false, Some("x")),
+                judged(&Choice::Skip, fresh, &spec_writer, false),
                 refused(Refusal::NotAllowed, ONLY_THE_USER_SKIPS),
             ),
             (
-                "ticket agent skips in the user's words",
-                judged_as(&Choice::Skip, in_spec, None, &spec_writer, true, None),
+                "ticket agent picks in the user's words",
+                judged(&quick, fresh, &spec_writer, true),
                 refused(Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON),
             ),
             (
-                "ticket agent sets a later stage back to required",
-                judged_as(
-                    &Choice::Usual,
-                    in_spec,
-                    None,
-                    &spec_writer,
-                    false,
-                    Some("x"),
-                ),
-                Ok(()),
-            ),
-            (
-                "Spec writer changes the later Dev",
-                judged(
-                    in_spec,
-                    Some(&agent_choice),
-                    &spec_writer,
-                    false,
-                    Some("touches session handling"),
-                ),
-                Ok(()),
-            ),
-            (
                 "an agent, Dev started",
-                judged(in_dev, None, &spec_writer, false, Some("x")),
+                judged(&quick, in_dev, &spec_writer, false),
                 refused(Refusal::ChoiceLocked, locked),
             ),
         ];
         for (name, got, expected) in rows {
             assert_eq!(got, expected, "{name}");
         }
-        // A started ticket waiting before Dev: an agent may still choose for it; not for a stage before.
-        let waiting = Target {
-            later_from: 1,
-            ..in_spec
-        };
-        assert!(
-            judge(
-                waiting,
-                &dev,
-                1,
-                None,
-                &quick,
-                &spec_writer,
-                false,
-                Some("x")
-            )
-            .is_ok()
-        );
-        let spec = stage("spec", Some("Spec writer"), &[SKIP]);
-        let past = Target {
-            ran: &none,
-            ..in_dev
-        };
-        assert_eq!(
-            refusal(judge(
-                past,
-                &spec,
-                0,
-                None,
-                &Choice::Usual,
-                &spec_writer,
-                false,
-                Some("x")
-            ))
-            .0,
-            Refusal::NotAllowed
-        );
     }
 
     #[test]

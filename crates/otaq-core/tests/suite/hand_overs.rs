@@ -428,7 +428,7 @@ async fn in_review_with_line_comments(w: &TestService, title: &str, n: u32) -> T
 }
 
 /// Send back (a human check's Fail): the note is the user's comment, with a pasted report, posted before the live
-/// session is typed `/otaq-address-review` and what came back, never the note. An empty note posts nothing; a note
+/// session is typed `/otaq:address-review` and what came back, never the note. An empty note posts nothing; a note
 /// over the limit refuses the whole Send back.
 #[tokio::test(flavor = "multi_thread")]
 async fn send_back_posts_the_note_before_the_agent_is_told() {
@@ -870,6 +870,8 @@ async fn a_fresh_start_and_a_check_run_again_wait_for_prime() {
     ] {
         let w = launching_world().await;
         w.board.use_flow_for_tests("SHOP", &every_kind()).await;
+        // Security names the user's `team-security-review`: Claude Code has it, so its check starts.
+        w.claude_has_skill("team-security-review").await;
         let t = w.create("SHOP", "Saved carts").await;
         let worktree = w.start_worktree(&t).await;
         otaq_core::git::testing::commit(&worktree, "notes.txt", "carts\n");

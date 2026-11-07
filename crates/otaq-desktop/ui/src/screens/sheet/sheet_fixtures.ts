@@ -88,6 +88,7 @@ export const SHEET: SheetFrame = {
   ],
   steps: [
     { stage: "Product spec", state: "done", attention: false },
+    { stage: "Design", state: "skipped", attention: false },
     { stage: "Dev", state: "current", attention: false },
     { stage: "Review", state: "to_come", attention: false },
   ],
@@ -168,7 +169,6 @@ export const VIEW: SheetView = {
   stages_heading: "Stages",
   open_agent: null,
   build_aside: null,
-  check_round: null,
   refusal: null,
   holds: [],
 };

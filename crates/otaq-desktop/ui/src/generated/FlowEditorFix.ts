@@ -7,7 +7,7 @@ import type { FlowEditorFixControl } from "./FlowEditorFixControl";
  */
 export type FlowEditorFix = { 
 /**
- * "security-review isn’t on this machine", "Security reviewer: opus isn’t in Claude Code’s model list",
+ * "Security reviewer: opus isn’t in Claude Code’s model list",
  * "Security reviewer is in the file and already here, with other instructions."
  */
 text: string, 

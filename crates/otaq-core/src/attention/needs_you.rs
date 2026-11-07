@@ -169,13 +169,8 @@ struct Inner {
     project_agents: Mutex<Option<crate::project_agents::ProjectAgents>>,
     /// The helpers, whose passed-on questions the user answers here (set by the service, d0133).
     helpers: std::sync::OnceLock<crate::helpers::Helpers>,
-    /// The tools that aren't available while tickets wait on them or moved off them, since when (USG-10):
-    /// notified once each.
+    /// The tools that aren't available while tickets wait on them, since when (USG-10): notified once each.
     unavailable: Mutex<HashMap<Tool, i64>>,
-    /// When each tool was last seen available; moves off a tool count from then (USG-10).
-    available_at: Mutex<HashMap<Tool, i64>>,
-    /// When Needs you started: the floor for a tool never seen available.
-    started_at: i64,
     /// The check before every launch (which tools aren't available) and the tools' states (set by the service).
     tools: std::sync::OnceLock<(crate::agents::gate::LaunchGate, ConnectedTools)>,
 }
@@ -216,8 +211,6 @@ impl NeedsYouQueue {
                 project_agents: Mutex::new(None),
                 helpers: std::sync::OnceLock::new(),
                 unavailable: Mutex::new(HashMap::new()),
-                available_at: Mutex::new(HashMap::new()),
-                started_at: now_ms(),
                 tools: std::sync::OnceLock::new(),
             }),
         }
@@ -322,18 +315,7 @@ impl NeedsYouQueue {
         let _ = self.inner.tools.set((gate, connected));
     }
 
-    /// When `tool` was last seen available (or Needs you started): moves off it count from then.
-    pub fn available_floor(&self, tool: Tool) -> i64 {
-        self.inner
-            .available_at
-            .lock()
-            .expect("available tools")
-            .get(&tool)
-            .copied()
-            .unwrap_or(self.inner.started_at)
-    }
-
-    /// Since when tickets wait on `tool` (or moved off it) while it isn't available, as last derived; `None` when
+    /// Since when tickets wait on `tool` while it isn't available, as last derived; `None` when
     /// none do.
     pub fn unavailable_since(&self, tool: Tool) -> Option<i64> {
         self.inner
@@ -398,26 +380,9 @@ impl NeedsYouQueue {
             out.extend(notify::plan_agents(agents, &mut seen, &choices));
             out
         };
-        // A tool that isn't available while tickets wait on it or moved off it: one notification when it first
-        // happens (the first hold or the first move), none per ticket, and none again until it clears (USG-10).
-        let unavailable = match self.inner.tools.get() {
-            Some((gate, _)) => gate.facts().await?.unavailable,
-            None => HashMap::new(),
-        };
-        {
-            let now = now_ms();
-            let mut seen = self.inner.available_at.lock().expect("available tools");
-            for &tool in Tool::ALL {
-                if !unavailable.contains_key(&tool) {
-                    seen.insert(tool, now);
-                }
-            }
-        }
-        let waiting_tools =
-            crate::agents::limits::unavailable_situations(board, &unavailable, |tool| {
-                self.available_floor(tool)
-            })
-            .await?;
+        // A tool that isn't available while tickets wait on it: one notification when it first happens (the first
+        // hold), none per ticket, and none again until it clears (USG-10).
+        let waiting_tools = crate::agents::limits::unavailable_situations(board).await?;
         let (new_tools, tools_waiting): (Vec<_>, Vec<String>) = {
             let mut known = self.inner.unavailable.lock().expect("unavailable tools");
             known.retain(|tool, _| waiting_tools.iter().any(|w| w.tool == *tool));
@@ -439,7 +404,7 @@ impl NeedsYouQueue {
         };
         if choices.allows(Kind::ToolUnavailable) {
             fresh.extend(new_tools.into_iter().map(|w| {
-                let mut notification = notify::tool_unavailable(w.tool, w.tickets, w.on_fallback);
+                let mut notification = notify::tool_unavailable(w.tool, w.tickets);
                 notification.sound = choices.sound;
                 Planned {
                     notification,
@@ -912,6 +877,7 @@ mod tests {
             waiting_in: None,
             piece: None,
             helpers_to_resume: Vec::new(),
+            missing_skill: None,
         }
     }
 

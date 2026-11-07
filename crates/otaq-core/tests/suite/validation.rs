@@ -17,6 +17,7 @@ use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::service::testing::said;
 use otaq_core::session::SessionKind;
+use otaq_core::skills::testing::claude_skill;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 
@@ -114,10 +115,7 @@ async fn submit_starts_a_validator_in_the_worktree() {
         .expect("a validator runs");
     // The stand-in prints its arguments, its environment and then its folder: wait for the last line.
     let out = w.wait_for_output(&validator.id, "CWD=").await;
-    assert!(
-        out.contains(&format!("/{}", naming::copy_name("validate"))),
-        "{out}"
-    );
+    assert!(out.contains(&claude_skill("validate")), "{out}");
     assert!(
         out.contains(&format!(
             "ROLE={} TICKET={} PORT=none",
@@ -198,22 +196,22 @@ async fn uncommitted_files_refuse_before_any_validator() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_validators_imported_skill_is_the_prompt() {
+async fn the_validate_stages_skill_is_the_prompt() {
     let w = world().await;
     w.add_project("shop-web").await;
-    // An imported skill runs by its copy's name (AGM-07): Validator's, in place of `validate`.
+    // The skill the Validate stage names runs by its own name, in place of `validate`.
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-validate");
-    w.import_step_skill(WorkflowStep::Validate, &folder).await;
+    w.use_step_skill(WorkflowStep::Validate, &folder).await;
     let t = working(&w, "Cart totals").await;
     submit(&w, &t).await.unwrap();
     let validator = w
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .unwrap();
-    let named = format!("/{}", naming::copy_name("my-validate"));
+    let named = claude_skill("my-validate");
     let out = w.wait_for_output(&validator.id, &named).await;
     assert!(
-        !out.contains(&format!("/{} ", naming::copy_name("validate"))),
+        !out.contains(&format!("{} ", claude_skill("validate"))),
         "{out}"
     );
     w.stop().await;
@@ -258,11 +256,8 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .expect("started on Resume");
-    w.wait_for_output(
-        &validator.id,
-        &format!("/{}", naming::copy_name("validate")),
-    )
-    .await;
+    w.wait_for_output(&validator.id, &claude_skill("validate"))
+        .await;
     assert_eq!(
         rounds(&w, &t).await[0].2.as_deref(),
         Some(validator.id.as_str())
@@ -792,12 +787,60 @@ async fn the_users_move_to_next_stage() {
     w.stop().await;
 }
 
+async fn skippable_validate(w: &TestService) {
+    w.board
+        .edit_flow_for_tests(
+            "SHOP",
+            otaq_core::flow::default::testing::skippable_validate,
+        )
+        .await;
+}
+
+/// Skip this check and Move on anyway only on a check the flow marks skippable: on the default flow (Validate not
+/// skippable) the service refuses both, saying why, and the ticket stays where it is; with Validate marked skippable
+/// both are accepted.
+#[tokio::test(flavor = "multi_thread")]
+async fn skip_and_move_on_only_on_a_skippable_check() {
+    use otaq_core::domain::ValidationAction as A;
+    let w = world().await;
+    w.add_project("shop-web").await;
+    set_rounds(&w, 1).await;
+    let refused = |e: otaq_core::board::BoardError| {
+        let text = e.to_string();
+        assert!(
+            text.contains(
+                "Validate can\u{2019}t be skipped: the flow doesn\u{2019}t mark it skippable"
+            ),
+            "{text}"
+        );
+    };
+
+    let t = working(&w, "Skipped").await;
+    submit(&w, &t).await.unwrap();
+    refused(act(&w, &t, A::Skip, "").await.unwrap_err());
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Checking);
+    verdict(&w, &t, false, FINDINGS).await;
+    assert_eq!(w.status(&t.key.to_string()).await, Status::CheckFailed);
+    refused(act(&w, &t, A::MoveOnAnyway, "").await.unwrap_err());
+    assert_eq!(w.status(&t.key.to_string()).await, Status::CheckFailed);
+
+    skippable_validate(&w).await;
+    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
+    assert_eq!(after.status, Status::WaitingForYou);
+    let t = working(&w, "Skipped again").await;
+    submit(&w, &t).await.unwrap();
+    let after = act(&w, &t, A::Skip, "").await.unwrap();
+    assert_eq!(after.status, Status::WaitingForYou);
+    w.stop().await;
+}
+
 /// Stop this check and Skip this check, only while validating.
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_and_skip() {
     use otaq_core::domain::{ReviewEntry, ValidationAction as A};
     let w = world().await;
     w.add_project("shop-web").await;
+    skippable_validate(&w).await;
     let t = working(&w, "Cart totals").await;
     for action in [A::Stop, A::Skip] {
         assert!(
@@ -834,6 +877,7 @@ async fn after_a_failed_or_empty_validation() {
     let w = world().await;
     w.add_project("shop-web").await;
     set_rounds(&w, 1).await;
+    skippable_validate(&w).await;
 
     // Failed 1 time → moved by the user.
     let t = working(&w, "Moved").await;

@@ -690,8 +690,8 @@ impl Recovery {
                 let key = self
                     .interrupt_validation(&ticket.id, ticket.status, ended_payload(info))
                     .await?;
-                // The whole round is interrupted (0108 rule 9: a crash restarts it fresh): the other check agents
-                // stop with it.
+                // The whole round is interrupted (0108 rule 9: a crash restarts it fresh): any other checker of the
+                // ticket stops with it.
                 if key.is_some() {
                     for other in self
                         .inner

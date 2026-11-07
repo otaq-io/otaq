@@ -338,6 +338,9 @@ stored_enum! {
         ToolUnavailable = "tool_unavailable",
         /// Not a step: the Developer's model is no longer in its tool's list; nothing started (§7.2, d0088).
         ModelUnavailable = "model_unavailable",
+        /// Not a step: the Developer's tool doesn't have the skill its Agent stage names; nothing started. Set with
+        /// the ticket's `agent_holds` row, which says which tool and skill.
+        MissingSkill = "missing_skill",
     }
 }
 
@@ -357,6 +360,7 @@ impl StartStep {
             Self::ToolLimit => "the tool is at its limit",
             Self::ToolUnavailable => "the tool isn't available",
             Self::ModelUnavailable => "Model unavailable",
+            Self::MissingSkill => "the tool doesn't have the stage's skill",
         }
     }
 }

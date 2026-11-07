@@ -27,10 +27,9 @@ const SHOP_22: TicketCardView = {
   fresh: false,
   open_sheet: "Open panel",
   open_sheet_keys: "↵",
-  action_note: null,
+  skill_warning: null,
   plan: null,
   pieces: null,
-  check: null,
   open_terminal: "Open terminal",
 };
 
@@ -89,6 +88,21 @@ describe("the one-line card draws its view (BRD-03)", () => {
     expect(out).toContain('<span class="card-time">8m</span>');
     expect(out).not.toContain("data-edge");
     expect(out).not.toContain("card-action");
+    expect(out).not.toContain("card-skill-warning");
+  });
+
+  it("a running stage whose skill Otaq can't find: one amber line under the status, the name as code", () => {
+    const out = html(
+      createElement(TicketCard, {
+        card: { ...SHOP_29, skill_warning: "You don't have the skill `team-validate`" },
+      }),
+    );
+    expect(out).toContain('class="card-skill-warning"');
+    expect(out).toContain(
+      '<span class="card-skill-warning-text">You don&#x27;t have the skill <code>team-validate</code></span>',
+    );
+    // Under the status line, which keeps saying what the card is doing.
+    expect(out.indexOf("card-status-text")).toBeLessThan(out.indexOf("card-skill-warning"));
   });
 
   it("a calm Backlog card is its key and title only", () => {

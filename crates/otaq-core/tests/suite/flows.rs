@@ -5,8 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use otaq_core::flow::{
-    self, CheckBy, Column, Delivers, Delivery, DeliveryMode, Rule, StageKind, StageOption, check,
-    yaml,
+    self, CheckBy, Column, Delivers, Delivery, DeliveryMode, Rule, StageKind, check, yaml,
 };
 use otaq_core::naming;
 
@@ -83,15 +82,13 @@ fn the_default_flow_is_dev_validate_review_done() {
             validate.kind,
             validate.column,
             validate.agent.as_deref(),
-            validate.check_agents(),
             validate.skill.as_deref(),
             validate.rounds
         ),
         (
             StageKind::Check { by: CheckBy::Agent },
             Column::Own,
-            None,
-            &["Validator".to_owned()][..],
+            Some("Validator"),
             Some("validate"),
             Some(3)
         )
@@ -130,11 +127,7 @@ fn the_default_and_the_test_flow_pass_the_checks() {
     assert_eq!(check(&flow::default_flow()), Ok(()));
     let every = yaml::read(&every_kind()).unwrap();
     assert_eq!(check(&every.flow), Ok(()));
-    let dev = every.flow.stage("dev").unwrap();
-    assert_eq!(
-        dev.options,
-        [StageOption::Agent("Quick developer".to_owned())]
-    );
+    assert!(every.flow.stage("dev").unwrap().options.is_empty());
     assert!(every.flow.stage("product-spec").unwrap().can_skip());
     // Validate shows in Dev's column; Security has its own.
     assert_eq!(every.flow.column_owner(2), Some(1));
@@ -280,20 +273,12 @@ fn each_rule_refuses_its_broken_file() {
             ],
         ),
         (
-            // The editor's draft holds an agent check with no check agent yet (d0130: one or more).
+            // The editor's draft holds an agent check with no agent yet: a check has one.
             "no-check-agent",
             &[(
                 Rule::NoCheckAgent,
                 Some("validate"),
-                "Validate is an agent check with no check agent: name one or more",
-            )],
-        ),
-        (
-            "check-agent-twice",
-            &[(
-                Rule::Duplicate,
-                Some("validate"),
-                "Validate lists validator twice: each check agent runs once",
+                "Validate is an agent check with no agent: name one",
             )],
         ),
         (
@@ -387,7 +372,7 @@ fn folding_follows_the_chain_to_its_owner() {
     let text = "flow:
   - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}
   - {name: Review, kind: check, by: you}
-  - {name: Polish, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 1}
+  - {name: Polish, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 1}
   - {name: Done, kind: delivery, column: with-previous, mode: click, delivers: local}
 ";
     let problems = check(&yaml::read(text).unwrap().flow).unwrap_err();
@@ -434,9 +419,10 @@ fn the_format_refuses_what_isnt_a_flow() {
             "Dev is an Agent stage: `rounds` belongs to an agent check",
         ),
         (
-            // d0130: an agent check lists its agents; `agent:` on one is refused, never read.
-            "{name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}",
-            "Validate is an agent check: an agent check lists its agents: `agents: [Validator]`",
+            // A check has one agent: named both ways is refused.
+            "{name: Validate, kind: check, by: agent, agent: Validator, agents: [Validator], skill: validate, \
+             rounds: 3}",
+            "Validate is an agent check: name its agent once, with `agent:`",
         ),
         (
             "{name: Dev, kind: agent, agent: D, agents: [D], skill: s}",
@@ -462,10 +448,6 @@ fn the_format_refuses_what_isnt_a_flow() {
         (
             "{name: Review, kind: check, by: you, agent: Developer}",
             "Review is a check by you: `agent` belongs to a stage an agent runs",
-        ),
-        (
-            "{name: Review, kind: check, by: you, options: [Quick developer]}",
-            "Review is a check by you: no agent runs it, so its only option can be `skip`",
         ),
         (
             "{name: Review, kind: check, by: you, mode: click}",
@@ -498,6 +480,25 @@ fn the_format_refuses_what_isnt_a_flow() {
     }
 }
 
+/// A stage lists no agents: the agent names an older file lists in `options` are read and ignored, so `options` holds
+/// only `skip`, and the file writes back without them.
+#[test]
+fn the_agents_in_options_are_read_and_ignored() {
+    let text = "flow:
+  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket, options: [Quick developer]}
+  - {name: Review, kind: check, by: you, options: [Quick developer, skip]}
+  - {name: Done, kind: delivery, mode: click, delivers: local}
+";
+    let read = yaml::read(text).unwrap();
+    assert!(read.flow.stages[0].options.is_empty());
+    assert_eq!(
+        read.flow.stages[1].options,
+        [otaq_core::flow::StageOption::Skip]
+    );
+    let written = yaml::write(&read);
+    assert!(!written.contains("Quick developer"), "{written}");
+}
+
 #[test]
 fn ids_are_kept_as_written_and_given_when_left_out() {
     let text = "flow:
@@ -515,10 +516,10 @@ fn ids_are_kept_as_written_and_given_when_left_out() {
     assert_eq!(yaml::write(&yaml::read(&written).unwrap()), written);
 }
 
-/// d0130, d0131: an agent check's `agents` and a check's `fail_to` read and write back in their place in the field
-/// order (`agents` where `agent` sits, `fail_to` after `rounds`); `fail_to` is read by name and kept as the stage's id.
+/// An agent check's `agent` (one, like an Agent stage's) and a check's `fail_to` (d0131) read and write back in their
+/// place in the field order (`fail_to` after `rounds`); `fail_to` is read by name and kept as the stage's id.
 #[test]
-fn check_agents_and_fails_go_to_round_trip() {
+fn a_check_agent_and_fails_go_to_round_trip() {
     let text = "flow:
   - id: plan
     name: Product spec
@@ -537,7 +538,7 @@ fn check_agents_and_fails_go_to_round_trip() {
     kind: check
     by: agent
     column: with-previous
-    agents: [Security reviewer, Performance reviewer]
+    agent: Security reviewer
     skill: validate
     options: [skip]
     rounds: 2
@@ -557,11 +558,8 @@ fn check_agents_and_fails_go_to_round_trip() {
 ";
     let read = yaml::read(text).unwrap();
     let checks = read.flow.stage("checks").unwrap();
-    assert_eq!(
-        checks.check_agents(),
-        ["Security reviewer", "Performance reviewer"]
-    );
-    assert_eq!(checks.agent, None);
+    assert_eq!(checks.agent.as_deref(), Some("Security reviewer"));
+    assert_eq!(checks.check_agent(), Some("Security reviewer"));
     assert_eq!(checks.fail_to.as_deref(), Some("plan"), "kept by id");
     // A name is matched ignoring case when no stage has it exactly; written back as the stage's own name.
     assert_eq!(
@@ -574,14 +572,147 @@ fn check_agents_and_fails_go_to_round_trip() {
     );
     assert_eq!(check(&read.flow), Ok(()));
 
-    // The test flow: Security has two check agents, QA's fails go to Product spec rather than the nearest (Dev).
+    // The test flow: Security has its own agent, QA's fails go to Product spec rather than the nearest (Dev).
     let every = yaml::read(&every_kind()).unwrap();
     let security = every.flow.stage("security").unwrap();
-    assert_eq!(security.check_agents(), ["Security reviewer", "Validator"]);
+    assert_eq!(security.check_agent(), Some("Security reviewer"));
     let qa = every.flow.stage("qa").unwrap();
     assert_eq!(
         every.flow.fail_to_of(qa).map(|s| s.id.as_str()),
         Some("product-spec")
+    );
+}
+
+/// A check has one agent: an older file's list form with one name, `agents: [Validator]`, still reads as `agent:
+/// Validator` and is written back as `agent:`; naming it both ways is refused.
+#[test]
+fn a_check_reads_its_one_agent_from_the_old_list_form() {
+    let old = every_kind().replace("agent: Validator\n", "agents: [Validator]\n");
+    assert!(old.contains("agents: [Validator]"));
+    let read = yaml::read(&old).unwrap();
+    let validate = read.flow.stage("validate").unwrap();
+    assert_eq!(validate.agent.as_deref(), Some("Validator"));
+    let written = yaml::write(&read);
+    assert!(!written.contains("agents: ["), "{written}");
+    assert_eq!(yaml::read(&written).unwrap(), read);
+
+    let both = every_kind().replace(
+        "agent: Validator\n",
+        "agent: Validator\n    agents: [Validator]\n",
+    );
+    assert_eq!(
+        yaml::read(&both).unwrap_err().to_string(),
+        "Validate is an agent check: name its agent once, with `agent:`"
+    );
+}
+
+/// An older flow whose check lists several agents (`tests/flows/several-check-agents.yaml`: Security runs Security
+/// reviewer and Validator) reads as one check stage per agent, in order: the first keeps the id and name, the other
+/// is `security-validator`, "Security · Validator", in Security's column, with its skill, rounds and fails go to.
+/// Every read gives the same split; the document written from it holds the split and reads back the same, with no
+/// split left. A name or id the flow already has gets " 2" or "-2".
+#[test]
+fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
+    let several = file(&flows().join("several-check-agents.yaml"));
+    let (read, splits) = yaml::read_split(&several).unwrap();
+    let row = |s: &otaq_core::flow::Stage| {
+        (
+            s.id.clone(),
+            s.name.clone(),
+            s.column,
+            s.agent.clone().unwrap_or_default(),
+        )
+    };
+    let security: Vec<_> = read
+        .flow
+        .stages
+        .iter()
+        .filter(|s| s.id.starts_with("security"))
+        .map(row)
+        .collect();
+    assert_eq!(
+        security,
+        [
+            (
+                "security".to_owned(),
+                "Security".to_owned(),
+                Column::Own,
+                "Security reviewer".to_owned()
+            ),
+            (
+                "security-validator".to_owned(),
+                "Security · Validator".to_owned(),
+                Column::WithPrevious,
+                "Validator".to_owned()
+            ),
+        ]
+    );
+    let ids: Vec<&str> = read.flow.stages.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "product-spec",
+            "dev",
+            "validate",
+            "security",
+            "security-validator",
+            "qa",
+            "ship"
+        ]
+    );
+    assert_eq!(
+        splits,
+        [yaml::Split {
+            stage: "security".into(),
+            copies: vec!["security-validator".into()],
+        }]
+    );
+    let (first, copy) = (
+        read.flow.stage("security").unwrap(),
+        read.flow.stage("security-validator").unwrap(),
+    );
+    assert!(copy.is_agent_check());
+    assert_eq!(
+        (
+            &copy.skill,
+            copy.rounds,
+            &copy.fail_to,
+            &copy.options,
+            &copy.why
+        ),
+        (
+            &first.skill,
+            first.rounds,
+            &first.fail_to,
+            &first.options,
+            &first.why
+        )
+    );
+    assert_eq!(
+        read.flow.fail_to_of(copy).map(|s| s.id.as_str()),
+        Some("dev")
+    );
+    assert_eq!(check(&read.flow), Ok(()));
+    assert_eq!(yaml::read(&several).unwrap(), read, "every read the same");
+    let written = yaml::write(&read);
+    assert!(!written.contains("agents: ["), "{written}");
+    let (again, none) = yaml::read_split(&written).unwrap();
+    assert_eq!(again, read);
+    assert!(none.is_empty());
+    // A proposal matches the copy by its id when the stage's was written, by its name when it wasn't.
+    let (_, ids_written) = yaml::read_with_written_ids(&several).unwrap();
+    assert!(ids_written[4]);
+
+    // Taken: another stage is already named "Security · Validator" with the id `security-validator`.
+    let taken = several.replace(
+        "  - id: qa\n    name: QA\n",
+        "  - id: security-validator\n    name: Security · Validator\n",
+    );
+    let read = yaml::read(&taken).unwrap();
+    let copy = &read.flow.stages[4];
+    assert_eq!(
+        (copy.id.as_str(), copy.name.as_str()),
+        ("security-validator-2", "Security · Validator 2")
     );
 }
 
@@ -620,7 +751,7 @@ fn fails_go_to_the_named_stage_else_the_nearest() {
     assert!(!written.contains("fail_to"), "{written}");
 }
 
-/// d0130: each listed check agent is checked against the agents (AGM-01), every one named.
+/// An agent check's one agent is checked against the agents (AGM-01), as an Agent stage's is.
 #[test]
 fn every_check_agent_must_be_an_agent() {
     let every = yaml::read(&every_kind()).unwrap();
@@ -632,17 +763,26 @@ fn every_check_agent_must_be_an_agent() {
         .collect();
     assert_eq!(
         got,
-        [
-            (
-                Rule::UnknownAgent,
-                Some("validate"),
-                "Validate names the agent Validator, which isn't one of your agents"
-            ),
-            (
-                Rule::UnknownAgent,
-                Some("security"),
-                "Security names the agent Validator, which isn't one of your agents"
-            ),
-        ]
+        [(
+            Rule::UnknownAgent,
+            Some("validate"),
+            "Validate names the agent Validator, which isn't one of your agents"
+        ),]
     );
+}
+
+/// An agent has no skills (T6): an old file's agent `skills:` still reads, so the file opens, and is ignored: writing
+/// the file back leaves it out.
+#[test]
+fn an_old_files_agent_skills_read_and_are_never_written() {
+    let old = naming::DEFAULT_FLOW_YAML.replacen(
+        "    model: default\n",
+        "    skills: [work-ticket, commit, /Users/me/team/my-commit]\n    model: default\n",
+        1,
+    );
+    assert_ne!(old, naming::DEFAULT_FLOW_YAML);
+    let read = otaq_core::flow::yaml::read(&old).expect("an old file still opens");
+    let written = otaq_core::flow::yaml::write(&read);
+    assert!(!written.contains("skills:"), "{written}");
+    assert_eq!(written, naming::DEFAULT_FLOW_YAML);
 }

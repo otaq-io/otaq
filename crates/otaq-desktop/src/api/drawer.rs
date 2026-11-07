@@ -263,7 +263,6 @@ fn gallery_terminal(number: u32, running: bool) -> ProjectTerminal {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             model_ran: None,
             size: None,
         },

@@ -222,7 +222,7 @@ async fn a_forward_wait_before_dev_starts_a_new_conversation() {
     let dev = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&dev.id, "ARGS").await;
     assert!(!out.contains("--resume"), "{out}");
-    assert!(out.contains("/otaq-work-ticket"), "{out}");
+    assert!(out.contains("/otaq:work-ticket"), "{out}");
     assert_ne!(
         dev.tool_session_id.as_deref(),
         Some(product_spec_conversation.as_str())

@@ -1062,17 +1062,12 @@ pub fn drag_back_dialog(
     let key = ticket.key.to_string();
     let stops = working.map(|here| {
         let who = agent(here).unwrap_or_else(|| here.name.clone());
-        // Several check agents (d0130): "Security reviewer and Performance reviewer are working on it now."
-        let verb = match here.check_agents().len() > 1 && who.contains(" and ") {
-            true => "are",
-            false => "is",
-        };
         let after = match (here.is_agent_check(), action) {
             (true, MoveAction::SendBack) => format!("the check runs again after {}", to.name),
             (false, MoveAction::SendBack) => format!("{} runs again after {}", here.name, to.name),
             _ => format!("{} runs again with your note", to.name),
         };
-        format!("{who} {verb} working on it now. It stops, and {after}.")
+        format!("{who} is working on it now. It stops, and {after}.")
     });
     Some(match action {
         MoveAction::SendBack => DragBackDialog {
@@ -1143,13 +1138,7 @@ fn agent_of(stage: &Stage, choices: &[StageOptions]) -> Option<String> {
             Choice::Agent { name, .. } => Some(name.clone()),
             Choice::Usual | Choice::Skip => None,
         });
-    // Several check agents (d0130): all of them, "Security reviewer and Performance reviewer".
-    let named: Vec<String> = stage.named_agents().cloned().collect();
-    picked.or_else(|| match named.len() {
-        0 => None,
-        1 => named.into_iter().next(),
-        _ => Some(crate::view_models::check_agents::joined(&named)),
-    })
+    picked.or_else(|| stage.agent.clone())
 }
 
 /// "Then it goes on to Security, Review and Done as usual.": the stages after `to` the ticket runs.
@@ -1577,8 +1566,7 @@ mod tests {
         assert_eq!(
             dialog.stops.as_deref(),
             Some(
-                "Security reviewer and Validator are working on it now. It stops, and the check runs again \
-                 after Dev."
+                "Security reviewer is working on it now. It stops, and the check runs again after Dev."
             )
         );
         assert_eq!(dialog.then, None);
@@ -1590,7 +1578,7 @@ mod tests {
         assert_eq!(dialog.title, "Run Security again on SHOP-18?");
         assert_eq!(
             dialog.comment.label.as_deref(),
-            Some("Comment for Security (Security reviewer and Validator)")
+            Some("Comment for Security (Security reviewer)")
         );
         assert_eq!(
             dialog.comment.footer.as_deref(),
@@ -2714,27 +2702,6 @@ mod tests {
         assert!(planning.chains.iter().all(|c| c.key != "SHOP-22"));
     }
 
-    /// d0130: dragging a card back out of a check of two agents stops both, and the dialog names them.
-    #[test]
-    fn a_drag_back_out_of_two_check_agents_names_both() {
-        let yaml = "\
-flow:
-  - {id: dev, name: Dev, kind: agent, agent: Developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agents: [Security reviewer, Performance reviewer], skill: validate, rounds: 3}
-  - {id: review, name: Review, kind: check, by: you}
-";
-        let flow = otaq_core::flow::yaml::read(yaml).unwrap().flow;
-        let running = on_test_flow("SHOP-33", "validate", Status::Checking);
-        let dialog = drag_back_dialog(&flow, &running, &DropTargetId::DEV, &[]).unwrap();
-        assert_eq!(
-            dialog.stops.as_deref(),
-            Some(
-                "Security reviewer and Performance reviewer are working on it now. It stops, and the check runs \
-                 again after Dev."
-            )
-        );
-    }
-
     /// The example's shop-web flow (*24 · The two views*): Product spec, Dev with Validate shown in it, Security,
     /// Review and the PR; seven columns and Done's line.
     fn shop_web() -> Flow {
@@ -2742,8 +2709,8 @@ flow:
 flow:
   - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
   - {id: pr, name: PR open, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
 ";
@@ -2758,11 +2725,11 @@ flow:
   - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec}
   - {id: plan, name: Plan, kind: agent, agent: Planner, skill: plan}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, agents: [Validator], skill: validate, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
   - {id: tests, name: Tests, kind: agent, agent: Test runner, skill: e2e}
-  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
-  - {id: perf, name: Perf, kind: check, by: agent, agents: [Perf reviewer], skill: perf, rounds: 3}
-  - {id: a11y, name: A11y, kind: check, by: agent, agents: [A11y reviewer], skill: a11y, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: perf, name: Perf, kind: check, by: agent, agent: Perf reviewer, skill: perf, rounds: 3}
+  - {id: a11y, name: A11y, kind: check, by: agent, agent: A11y reviewer, skill: a11y, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
   - {id: pr, name: PR, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}

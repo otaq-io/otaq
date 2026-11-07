@@ -19,8 +19,8 @@
 //!
 //! **Tool problems** (SHL-04, d0087; *Its tool isn't available*, *Its tool is at its limit*): a running or ended
 //! agent whose tool can't run now shows the notice "Codex isn't available · logged out. This agent continues after
-//! you sign in." with Sign in… and "New agent on Sonnet" (its named agent's fallback, else the project default, on
-//! another tool), since a conversation never moves tools; a first message held before its start shows its notice in
+//! you sign in." with Sign in… and "New agent on Sonnet" (the Project agent default, else the first agent on a tool
+//! that can run), since a conversation never moves tools; a first message held before its start shows its notice in
 //! the empty agent panel (Model unavailable · Change agent opens Settings → Agents at the Project agent default, Q-O).
 
 use otaq_core::agent_tools::Tool;
@@ -912,7 +912,6 @@ fn session_on(name: &str) -> otaq_core::session::SessionInfo {
         }),
         model_ran: None,
         effort: None,
-        fallback: None,
         size: None,
     }
 }

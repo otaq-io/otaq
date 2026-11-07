@@ -71,7 +71,6 @@ async fn setup() -> Setup {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -368,7 +367,6 @@ async fn deliver_now_over_the_socket() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await

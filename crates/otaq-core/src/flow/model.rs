@@ -18,8 +18,8 @@ pub struct FlowFile {
     pub flow: Flow,
 }
 
-/// An agent a flow file defines (d0108: "instructions, skill folders, model"). Read and written as given; nothing
-/// uses it until M32.
+/// An agent a flow file defines (d0108): its instructions, model and role. An agent has no skills: an old file's
+/// `skills:` still reads, and is ignored and never written (T6).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowAgent {
     pub name: String,
@@ -27,7 +27,6 @@ pub struct FlowAgent {
     pub role: Option<String>,
     /// Empty when it has none.
     pub instructions: String,
-    pub skills: Vec<String>,
     /// `default` (the account's default model, as shipped files say) or a model as M32 names it.
     pub model: String,
     /// Why the flow has it, naming its source (FLW-04, the flow editor); nothing else reads it.
@@ -42,8 +41,8 @@ pub struct Flow {
 
 /// One stage. Which fields are set depends on the kind ([`crate::flow::yaml`] refuses the others):
 /// `agent` and `skill` for an Agent stage, `agent` (and an optional `skill`) for a Delivery that can open a PR;
-/// `agents`, `skill` and `rounds` for an agent check (d0130); `fail_to` for a check (d0131); `delivery` for the
-/// Delivery stage.
+/// `agent`, `skill` and `rounds` for an agent check; `fail_to` for a check (d0131); `delivery` for the Delivery
+/// stage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stage {
     /// Permanent: kept as written, so a rename changes nothing (d0108). Otaq writes it; a file without one gets
@@ -52,16 +51,15 @@ pub struct Stage {
     pub name: String,
     pub kind: StageKind,
     pub column: Column,
-    /// The agent of an Agent stage or a Delivery that can open a PR; never an agent check's ([`Self::agents`]).
+    /// The agent that runs the stage: an Agent stage's, an agent check's (a check has one agent, like an Agent
+    /// stage; two checks are two stages), a Delivery's that can open a PR. A draft's agent check may have none yet.
     pub agent: Option<String>,
-    /// An agent check's check agents, one or more (d0130), side by side, each running the stage's skill; empty on
-    /// every other kind. Read them with [`Self::check_agents`].
-    pub agents: Vec<String>,
     pub skill: Option<String>,
-    /// What a ticket may pick instead of the usual agent: another agent, or skipping the stage (its choices,
-    /// [`crate::board::stage_choices`]).
+    /// What a ticket may do besides running the stage as the flow says: only skipping it. A stage doesn't list the
+    /// agents it allows: a ticket may pick any agent whose tool has the stage's skill
+    /// ([`crate::board::stage_choices`]); the agent names older files list here are read and ignored.
     pub options: Vec<StageOption>,
-    /// An agent check's fails in a row before the card stops for the user (1–5), whichever check agent failed.
+    /// An agent check's fails in a row before the card stops for the user (1–5).
     pub rounds: Option<u32>,
     /// A check's "fails go to" stage, by id (d0131), so it follows a rename; `None` for the nearest Agent stage
     /// before the check. Resolve it with [`Flow::fail_to_of`].
@@ -102,9 +100,7 @@ pub enum Column {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StageOption {
-    /// Another agent a ticket may use for this stage.
-    Agent(String),
-    /// The ticket may skip the stage.
+    /// The ticket may skip the stage (the flow marks it skippable).
     Skip,
 }
 
@@ -176,7 +172,6 @@ impl StageOption {
 
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Agent(name) => name,
             Self::Skip => Self::SKIP,
         }
     }
@@ -216,43 +211,30 @@ impl Stage {
         (self.is_agent_stage() || self.is_agent_check()) && self.skill.is_none()
     }
 
-    /// An agent check's check agents (d0130), in the flow's order; empty for every other kind.
-    pub fn check_agents(&self) -> &[String] {
-        &self.agents
+    /// An agent check's agent; `None` for every other kind, and for a draft's check with none yet.
+    pub fn check_agent(&self) -> Option<&str> {
+        self.agent.as_deref().filter(|_| self.is_agent_check())
     }
 
-    /// Every agent the stage itself names (not its options): an Agent stage's or a Delivery's agent, an agent check's
-    /// check agents.
+    /// The agent the stage names: an Agent stage's, an agent check's or a Delivery's.
     pub fn named_agents(&self) -> impl Iterator<Item = &String> {
-        self.agent.iter().chain(&self.agents)
+        self.agent.iter()
     }
 
-    /// The agents of the stage's options (another agent a ticket may pick).
-    pub fn option_agents(&self) -> impl Iterator<Item = &String> {
-        self.options.iter().filter_map(|o| match o {
-            StageOption::Agent(name) => Some(name),
-            StageOption::Skip => None,
-        })
-    }
-
-    /// Every agent the stage names: [`Self::named_agents`], then its options' ([`Self::option_agents`]).
+    /// Every agent the stage names: its own agent ([`Self::named_agents`]); a stage lists no others.
     pub fn every_agent(&self) -> impl Iterator<Item = &String> {
-        self.named_agents().chain(self.option_agents())
-    }
-
-    /// The agents the stage itself names, as one line: "Developer", "Security reviewer + Performance reviewer" (an
-    /// agent check's, d0130); empty when it names none.
-    pub fn agents_line(&self) -> String {
         self.named_agents()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(" + ")
     }
 
-    /// The stage names an agent of its own: an Agent stage, a Delivery that can open a PR, an agent check with a check
+    /// The agent the stage itself names ("Developer"); empty when it names none.
+    pub fn agents_line(&self) -> String {
+        self.agent.clone().unwrap_or_default()
+    }
+
+    /// The stage names an agent of its own: an Agent stage, a Delivery that can open a PR, an agent check with its
     /// agent.
     pub fn has_agent(&self) -> bool {
-        self.named_agents().next().is_some()
+        self.agent.is_some()
     }
 
     /// The flow lets a ticket skip this stage.

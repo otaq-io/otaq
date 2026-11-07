@@ -5,12 +5,4 @@ import type { FlowEditorModelFix } from "./FlowEditorModelFix";
 /**
  * What a fix offers (Q426). `FlowEditorFixControl` on the page.
  */
-export type FlowEditorFixControl = { "kind": "clash", agent: string, options: Array<AgentOption>, } | { "kind": "folder", skill: string, label: string, 
-/**
- * The folder picker's title.
- */
-picker_title: string, 
-/**
- * The folder picked.
- */
-picked: string | null, } | { "kind": "model", fix: FlowEditorModelFix, };
+export type FlowEditorFixControl = { "kind": "clash", agent: string, options: Array<AgentOption>, } | { "kind": "model", fix: FlowEditorModelFix, };

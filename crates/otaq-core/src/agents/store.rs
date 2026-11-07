@@ -1,4 +1,4 @@
-//! Thin access to the `agents`, `agent_skills` and `agent_holds` tables and the agent settings (AGM-01, AGM-03;
+//! Thin access to the `agents` and `agent_holds` tables and the agent settings (AGM-01, AGM-03;
 //! d0108, d0088). The rules (names, models from the tool's list, roles, delete while in use) live in [`super`].
 //!
 //! A row of a tool this build doesn't know is skipped when read as an [`Agent`].
@@ -6,12 +6,11 @@
 use sqlx::{FromRow, Sqlite, Transaction};
 
 use super::{
-    Agent, AgentHold, AgentModel, CameFrom, Fallbacks, HoldReason, ImportedSkill, Mark, ModelRef,
-    Role, SessionRole, SkillRef,
+    Agent, AgentHold, AgentModel, CameFrom, HoldReason, Mark, ModelRef, Role, SessionRole,
 };
 use crate::agent_tools::Tool;
 use crate::session::END_MODEL_REFUSED;
-use crate::store::settings::{AGENT_FALLBACK, DEFAULT_MODEL};
+use crate::store::settings::DEFAULT_MODEL;
 use crate::store::{Store, StoreError, new_id, now_ms};
 
 /// The query's session (its columns prefixed with the literal, `"s."`) started: it didn't end "not started", that is
@@ -31,13 +30,11 @@ macro_rules! started {
     };
 }
 
-/// A new agent's fields as stored (checked by the rules): `imported` the records of its imported skills.
+/// A new agent's fields as stored (checked by the rules).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewAgent {
     pub name: String,
     pub instructions: String,
-    pub skills: Vec<SkillRef>,
-    pub imported: Vec<ImportedSkill>,
     pub model: AgentModel,
     pub effort: Option<String>,
     pub role: Option<Role>,
@@ -63,20 +60,8 @@ struct AgentRecord {
     updated_at: i64,
 }
 
-#[derive(Debug, Clone, FromRow)]
-struct SkillRecord {
-    agent_id: String,
-    shipped: Option<String>,
-    imported_id: Option<String>,
-    name: Option<String>,
-    original: Option<String>,
-    imported_at: Option<i64>,
-    fingerprint: Option<String>,
-    warnings_json: String,
-}
-
 impl AgentRecord {
-    fn into_agent(self, skills: &[SkillRecord]) -> Option<Agent> {
+    fn into_agent(self) -> Option<Agent> {
         let model = match self.tool.as_deref() {
             None => AgentModel::Default,
             Some(tool) => {
@@ -108,31 +93,10 @@ impl AgentRecord {
             },
             _ => CameFrom::You,
         };
-        let mut refs = Vec::new();
-        let mut imported = Vec::new();
-        for skill in skills.iter().filter(|s| s.agent_id == self.id) {
-            match (&skill.shipped, &skill.imported_id) {
-                (Some(name), _) => refs.push(SkillRef::Shipped(name.clone())),
-                (None, Some(id)) => {
-                    refs.push(SkillRef::Imported(id.clone()));
-                    imported.push(ImportedSkill {
-                        id: id.clone(),
-                        name: skill.name.clone().unwrap_or_default(),
-                        original: skill.original.clone().unwrap_or_default(),
-                        imported_at: skill.imported_at.unwrap_or_default(),
-                        fingerprint: skill.fingerprint.clone().unwrap_or_default(),
-                        warnings: serde_json::from_str(&skill.warnings_json).unwrap_or_default(),
-                    });
-                }
-                (None, None) => {}
-            }
-        }
         Some(Agent {
             id: self.id,
             name: self.name,
             instructions: self.instructions,
-            skills: refs,
-            imported,
             model,
             effort: self.effort,
             role: self.role.and_then(|r| r.parse().ok()),
@@ -160,13 +124,9 @@ impl Store {
             sqlx::query_as("SELECT * FROM agents ORDER BY created_at, rowid")
                 .fetch_all(self.pool())
                 .await?;
-        let skills: Vec<SkillRecord> =
-            sqlx::query_as("SELECT * FROM agent_skills ORDER BY agent_id, position")
-                .fetch_all(self.pool())
-                .await?;
         Ok(rows
             .into_iter()
-            .filter_map(|r| r.into_agent(&skills))
+            .filter_map(AgentRecord::into_agent)
             .collect())
     }
 
@@ -175,13 +135,7 @@ impl Store {
             .bind(id)
             .fetch_optional(self.pool())
             .await?;
-        let Some(row) = row else { return Ok(None) };
-        let skills: Vec<SkillRecord> =
-            sqlx::query_as("SELECT * FROM agent_skills WHERE agent_id = ? ORDER BY position")
-                .bind(id)
-                .fetch_all(self.pool())
-                .await?;
-        Ok(row.into_agent(&skills))
+        Ok(row.and_then(AgentRecord::into_agent))
     }
 
     /// The agent called `name`, ignoring case.
@@ -248,7 +202,6 @@ impl Store {
         .bind(now)
         .execute(&mut **tx)
         .await?;
-        write_skills(tx, &id, &new.skills, &new.imported).await?;
         Ok(id)
     }
 
@@ -292,39 +245,8 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         }
-        sqlx::query("DELETE FROM agent_skills WHERE agent_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        write_skills(&mut tx, id, &fields.skills, &fields.imported).await?;
         tx.commit().await?;
         Ok(())
-    }
-
-    /// Updates every agent's record of the imported skill `skill.id` (a Re-import: the copy changed in place).
-    pub async fn update_imported_skill(&self, skill: &ImportedSkill) -> Result<(), StoreError> {
-        sqlx::query(
-            "UPDATE agent_skills SET name = ?, original = ?, imported_at = ?, fingerprint = ?, warnings_json = ?
-             WHERE imported_id = ?",
-        )
-        .bind(&skill.name)
-        .bind(&skill.original)
-        .bind(skill.imported_at)
-        .bind(&skill.fingerprint)
-        .bind(serde_json::to_string(&skill.warnings).expect("warnings serialize"))
-        .bind(&skill.id)
-        .execute(self.pool())
-        .await?;
-        Ok(())
-    }
-
-    /// The ids of every imported skill an agent holds (Otaq's copies to keep).
-    pub async fn imported_skill_ids(&self) -> Result<Vec<String>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT DISTINCT imported_id FROM agent_skills WHERE imported_id IS NOT NULL",
-        )
-        .fetch_all(self.pool())
-        .await?)
     }
 
     pub async fn delete_agent(&self, id: &str) -> Result<(), StoreError> {
@@ -367,20 +289,6 @@ impl Store {
         self.set_setting(DEFAULT_MODEL, &json).await
     }
 
-    /// Each tool's fallback (AGM-03).
-    pub async fn fallbacks(&self) -> Result<Fallbacks, StoreError> {
-        Ok(self
-            .setting(AGENT_FALLBACK)
-            .await?
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default())
-    }
-
-    pub async fn set_fallbacks(&self, fallbacks: &Fallbacks) -> Result<(), StoreError> {
-        let json = serde_json::to_string(fallbacks).expect("fallbacks serialize");
-        self.set_setting(AGENT_FALLBACK, &json).await
-    }
-
     /// Whether the ticket's agent has started: it has an Agent stage's session that didn't end in "not started" (its
     /// first turn refused on the model, T-0337, or the tool ended before its conversation's id arrived, T-0349).
     pub async fn developer_started(&self, ticket_id: &str) -> Result<bool, StoreError> {
@@ -397,15 +305,14 @@ impl Store {
 
     /// The agent of each running session of a project's tickets, by ticket id: the developer's side (agent, answer,
     /// delivery) or the validator's (the board's footer names whoever has the turn, T-0345), with the tool it runs on
-    /// and its model (the one the tool reported, else the one passed; the card's avatar, T-0362) and the fallback it
-    /// runs on (AGM-03).
+    /// and its model (the one the tool reported, else the one passed; the card's avatar, T-0362).
     pub async fn running_agent_names(
         &self,
         project_id: &str,
     ) -> Result<Vec<RunningAgent>, StoreError> {
         let rows: Vec<RunningRecord> = sqlx::query_as(
             "SELECT s.ticket_id, s.kind, s.agent_name AS name, s.tool, COALESCE(s.model_ran, s.model) AS model,
-                    s.model AS passed, s.fallback_from, s.fallback_reason
+                    s.model AS passed
              FROM sessions s JOIN tickets t ON t.id = s.ticket_id
              WHERE t.project_id = ? AND s.state = 'running' AND s.agent_name IS NOT NULL
                AND s.kind IN ('agent', 'answer', 'delivery', 'validator')
@@ -426,7 +333,6 @@ impl Store {
                 tool: r.tool.and_then(|t| t.parse().ok()),
                 model: r.model,
                 passed: r.passed,
-                fallback: fallback_of(r.fallback_from.as_deref(), r.fallback_reason.as_deref()),
             })
             .collect())
     }
@@ -458,14 +364,6 @@ impl Store {
     }
 }
 
-/// The fallback a session's columns say it runs on.
-pub(crate) fn fallback_of(tool: Option<&str>, reason: Option<&str>) -> Option<super::FallbackFrom> {
-    Some(super::FallbackFrom {
-        tool: tool?.parse().ok()?,
-        reason: reason?.parse().ok()?,
-    })
-}
-
 fn model_columns(model: &AgentModel) -> (Option<&'static str>, Option<&str>) {
     match model {
         AgentModel::Default => (None, None),
@@ -473,80 +371,30 @@ fn model_columns(model: &AgentModel) -> (Option<&'static str>, Option<&str>) {
     }
 }
 
-async fn write_skills(
-    tx: &mut Transaction<'_, Sqlite>,
-    agent_id: &str,
-    skills: &[SkillRef],
-    imported: &[ImportedSkill],
-) -> Result<(), StoreError> {
-    for (position, skill) in skills.iter().enumerate() {
-        let position = i64::try_from(position).unwrap_or(i64::MAX);
-        match skill {
-            SkillRef::Shipped(name) => {
-                sqlx::query(
-                    "INSERT INTO agent_skills (agent_id, position, shipped) VALUES (?, ?, ?)",
-                )
-                .bind(agent_id)
-                .bind(position)
-                .bind(name)
-                .execute(&mut **tx)
-                .await?;
-            }
-            SkillRef::Imported(id) => {
-                let Some(record) = imported.iter().find(|s| &s.id == id) else {
-                    continue;
-                };
-                sqlx::query(
-                    "INSERT INTO agent_skills (agent_id, position, imported_id, name, original, imported_at,
-                                               fingerprint, warnings_json)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                )
-                .bind(agent_id)
-                .bind(position)
-                .bind(id)
-                .bind(&record.name)
-                .bind(&record.original)
-                .bind(record.imported_at)
-                .bind(&record.fingerprint)
-                .bind(serde_json::to_string(&record.warnings).expect("warnings serialize"))
-                .execute(&mut **tx)
-                .await?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Where an agent hold belongs: a ticket's session, one check agent of a ticket's agent check (d0130
-/// row 17), or a project's Project agent. A ticket's scope covers every check agent of it.
+/// Where an agent hold belongs: a ticket's session (its agent's or its check's), or a project's Project agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldScope<'a> {
     Ticket(&'a str),
-    Check { ticket: &'a str, agent: &'a str },
     Project(&'a str),
 }
 
 impl Store {
-    /// Holds `hold`'s session (SCH-04 `[M23]`): one row per ticket (or project), session role and check agent,
-    /// replacing an earlier hold of it. A hold that stays for the same reason keeps its `since` and the user's Use
-    /// fallback.
+    /// Holds `hold`'s session (SCH-04 `[M23]`): one row per ticket (or project) and session role, replacing an
+    /// earlier hold of it. A hold that stays for the same reason keeps its `since`.
     pub async fn set_agent_hold(&self, hold: &AgentHold) -> Result<(), StoreError> {
         let conflict = if hold.ticket_id.is_some() {
-            "(ticket_id, role, check_agent) WHERE ticket_id IS NOT NULL"
+            "(ticket_id, role) WHERE ticket_id IS NOT NULL"
         } else {
             "(project_id, role) WHERE project_id IS NOT NULL"
         };
         let sql = format!(
-            "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, agent_id, fallback_tool,
-                                      fallback_held, fallback_asked, since, check_agent)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, agent_id, skill, since)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT {conflict} DO UPDATE SET
                  since = CASE WHEN agent_holds.reason = excluded.reason THEN agent_holds.since
                               ELSE excluded.since END,
                  reason = excluded.reason, tool = excluded.tool, model = excluded.model,
-                 agent_id = excluded.agent_id, fallback_tool = excluded.fallback_tool,
-                 fallback_held = excluded.fallback_held,
-                 fallback_asked = agent_holds.fallback_asked OR excluded.fallback_asked"
+                 agent_id = excluded.agent_id, skill = excluded.skill"
         );
         sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(&hold.id)
@@ -557,24 +405,11 @@ impl Store {
             .bind(hold.tool.as_str())
             .bind(&hold.model)
             .bind(&hold.agent_id)
-            .bind(hold.fallback_tool.map(Tool::as_str))
-            .bind(hold.fallback_held)
-            .bind(hold.fallback_asked)
+            .bind(&hold.skill)
             .bind(hold.since)
-            .bind(hold.check_agent.as_deref().unwrap_or_default())
             .execute(self.pool())
             .await?;
         Ok(())
-    }
-
-    /// The user's Use fallback on one held session (the hold `hold_id`): its next start launches on its tool's
-    /// fallback; a round's other check agents are left as they are (d0130 row 17).
-    pub async fn ask_fallback(&self, hold_id: &str) -> Result<bool, StoreError> {
-        let done = sqlx::query("UPDATE agent_holds SET fallback_asked = TRUE WHERE id = ?")
-            .bind(hold_id)
-            .execute(self.pool())
-            .await?;
-        Ok(done.rows_affected() > 0)
     }
 
     /// Lifts the hold of `role` in `scope`. Returns whether there was one.
@@ -583,19 +418,14 @@ impl Store {
         scope: HoldScope<'_>,
         role: SessionRole,
     ) -> Result<bool, StoreError> {
-        let (column, id, agent) = match scope {
-            HoldScope::Ticket(id) => ("ticket_id", id, None),
-            HoldScope::Check { ticket, agent } => ("ticket_id", ticket, Some(agent)),
-            HoldScope::Project(id) => ("project_id", id, None),
+        let (column, id) = match scope {
+            HoldScope::Ticket(id) => ("ticket_id", id),
+            HoldScope::Project(id) => ("project_id", id),
         };
-        let sql = format!(
-            "DELETE FROM agent_holds WHERE {column} = ? AND role = ? AND (? IS NULL OR check_agent = ?)"
-        );
+        let sql = format!("DELETE FROM agent_holds WHERE {column} = ? AND role = ?");
         let done = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(id)
             .bind(role.as_str())
-            .bind(agent)
-            .bind(agent)
             .execute(self.pool())
             .await?;
         Ok(done.rows_affected() > 0)
@@ -607,14 +437,11 @@ impl Store {
         scope: HoldScope<'_>,
         role: SessionRole,
     ) -> Result<Option<AgentHold>, StoreError> {
-        let (holds, agent) = match scope {
-            HoldScope::Ticket(id) => (self.ticket_holds(id).await?, None),
-            HoldScope::Check { ticket, agent } => (self.ticket_holds(ticket).await?, Some(agent)),
-            HoldScope::Project(id) => (self.project_holds(id).await?, None),
+        let holds = match scope {
+            HoldScope::Ticket(id) => self.ticket_holds(id).await?,
+            HoldScope::Project(id) => self.project_holds(id).await?,
         };
-        Ok(holds
-            .into_iter()
-            .find(|h| h.role == role && agent.is_none_or(|a| h.check_agent.as_deref() == Some(a))))
+        Ok(holds.into_iter().find(|h| h.role == role))
     }
 
     /// The holds of a ticket, by role.
@@ -639,7 +466,7 @@ impl Store {
         .await
     }
 
-    /// Every hold on a tool, oldest first (the banner's line, Resume and Use fallback now per tool).
+    /// Every hold on a tool, oldest first (the banner's line and Resume per tool).
     pub async fn holds_on_tool(&self, tool: Tool) -> Result<Vec<AgentHold>, StoreError> {
         self.holds_where("tool = ?", tool.as_str()).await
     }
@@ -672,11 +499,8 @@ struct AgentHoldRecord {
     tool: String,
     model: Option<String>,
     agent_id: Option<String>,
-    fallback_tool: Option<String>,
-    fallback_held: bool,
-    fallback_asked: bool,
+    skill: Option<String>,
     since: i64,
-    check_agent: String,
 }
 
 impl AgentHoldRecord {
@@ -689,12 +513,9 @@ impl AgentHoldRecord {
             id: self.id,
             ticket_id: self.ticket_id,
             project_id: self.project_id,
-            check_agent: Some(self.check_agent).filter(|a| !a.is_empty()),
             model: self.model,
             agent_id: self.agent_id,
-            fallback_tool: self.fallback_tool.and_then(|t| t.parse().ok()),
-            fallback_held: self.fallback_held,
-            fallback_asked: self.fallback_asked,
+            skill: self.skill,
             since: self.since,
         })
     }
@@ -708,8 +529,6 @@ struct RunningRecord {
     tool: Option<String>,
     model: Option<String>,
     passed: Option<String>,
-    fallback_from: Option<String>,
-    fallback_reason: Option<String>,
 }
 
 /// One running session of a ticket ([`Store::running_agent_names`]).
@@ -725,8 +544,6 @@ pub struct RunningAgent {
     pub model: Option<String>,
     /// The model as passed (`None`: the tool's default).
     pub passed: Option<String>,
-    /// It runs on its tool's fallback (AGM-03).
-    pub fallback: Option<super::FallbackFrom>,
 }
 
 /// One agent session of a ticket and the agent it ran on ([`Store::session_agents`]).

@@ -12,7 +12,7 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Priority, Status, StatusSet, TicketKey};
 use crate::naming;
 use crate::policy::BACKLOG_ONLY;
-use crate::prime::{AgentReader, Instructions, PrimeChoice, render_choices};
+use crate::prime::{Instructions, PrimeChoice, render_choices};
 
 /// Everything `prime --project` prints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,11 +129,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
         }
     }
 
-    out.push_str(&render_choices(
-        &ctx.choices,
-        AgentReader::ProjectAgent,
-        None,
-    ));
+    out.push_str(&render_choices(&ctx.choices));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
     let rules = [

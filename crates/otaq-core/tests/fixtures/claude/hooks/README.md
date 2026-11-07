@@ -19,8 +19,8 @@ real-shaped: their texts follow the error reference and the messages Claude Code
 | `Stop-background.json` | a background shell and a helper agent (and a finished task, left out) → Working in background |
 | `Stop-cron.json` | a scheduled wakeup → Working in background |
 | `StopFailure-session_limit.json`, `StopFailure-weekly_limit.json` | the usage limit → Waiting for limit reset |
-| `StopFailure-capacity.json` | a 429 that isn't the plan's limit → a logged failure |
-| `StopFailure-other.json` | another failure → a logged failure |
+| `StopFailure-capacity.json` | a 429 that isn't the plan's limit → Idle with the tool's message (F10) |
+| `StopFailure-other.json` | another failure → Idle with the tool's message (F10) |
 | `UserPromptSubmit.json` | a new turn → Working |
 | `SessionStart-startup.json` | the model that ran → *model known* (M22, AGT-04) |
 | `StopFailure-model_not_found.json` | a model Claude Code can't use → *model refused* (M22, AGT-05) |

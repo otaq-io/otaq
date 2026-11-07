@@ -45,8 +45,8 @@ Backlog ──► Ready for Dev ──► Dev ───────────�
 1. **Write tickets.** A title and a description in a rich Markdown editor. Acceptance criteria are just text in the
    description. Give a ticket a priority (Urgent, High, Normal, Low) and the tickets it depends on.
 2. **Drag a ticket to Dev** (or Ready for Dev). If its dependencies are merged, Otaq creates a worktree from your base
-   branch, runs your setup command (for example `pnpm install`), and starts the ticket's agent: the tool and model
-   picked for it, or the project's default.
+   branch, runs your setup command (for example `pnpm install`), and starts the Dev stage's agent: the one the flow
+   names, or the one you picked for this ticket.
 3. **The agent works.** It reads its ticket through the `otaq` command, plans, implements and commits. If it hits a
    question it can't answer from the code or docs, it asks you (the card turns turquoise, with answer options). Smaller
    product choices it makes on its own and records on the ticket, so you can see them in review. It proves each
@@ -81,23 +81,91 @@ for:
 default model.) The model picker reads each tool's own model list, with "always the newest" choices such as `opus`, so
 a new model needs no Otaq update.
 
-- **Pick per ticket.** Every ticket has a **Developer** and a **Validator** row. `SHOP-18` can be written by Opus in
-  Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. A ticket's helpers run on the same
-  agent as the one in charge.
-- **Defaults per role, overridable per project.** Choose which named agent writes code, validates and answers as
-  Noyan; a project can change any of the three.
-- **Stage choices are yours.** Noyan passes on only the choices you name ("2: Dev: Light"); otherwise every ticket
-  runs every stage of its flow with that stage's own agent. A ticket's agent may pick another agent for a later stage
-  of its ticket, with a reason (a stronger Validator when the change turned out risky), but it never skips one: only
-  you skip a stage. Your own choice always wins.
-- **Limits per tool, with fallbacks.** When one tool hits its usage limit or is logged out, only its agents wait; the
-  rest keep going. The banner offers **Move waiting to…** another tool, and with **Use fallback agents automatically**
-  on, waiting tickets start on each agent's fallback by themselves. A running conversation never changes tools.
+- **One agent per stage.** Each stage of your flow names the agent that runs it: Dev on Strong, Validate on
+  Verifier. A check has one agent too. Two checks are two stages, one after the other, each with its own agent,
+  skill and rounds. A ticket's helpers run on the same agent as the one in charge. The agent holding the **Noyan**
+  role in Settings → Agents answers as Noyan.
+- **Stage choices are yours.** For any stage of a ticket that hasn't started you can pick any agent whose tool has
+  the stage's skill (a stage running one of Otaq's own skills takes every agent): `SHOP-18` can be written by Opus in
+  Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. You can also skip the stages the
+  flow marks skippable; a skippable check of yours offers "required" (it happens) and "skip". Noyan passes on only
+  the choices you name ("2: Dev: Light"); otherwise every ticket runs every stage of its flow with that stage's own
+  agent. A ticket's own agent never picks or skips: only you do. A card waiting for its tool offers **Change
+  agent…**, the same choice for the waiting stage.
+- **Nothing is skipped on its own.** A stage runs unless you skip it for that ticket, even when every stage before
+  it was skipped. **Skip this check** and **Move on anyway** show only on checks the flow marks skippable; on other
+  checks you wait, pick another agent, or send the ticket back. A skipped or moved-past check doesn't change the
+  Delivery: it does what the flow says, so an automatic one still delivers on its own, and its card says
+  "Delivered without all checks".
+- **Limits per tool.** When one tool hits its usage limit, is logged out, not installed, hidden or needs an update,
+  only its agents wait; the rest keep going, and the banner says so. An agent whose model its tool no longer lists
+  waits the same way. The card says why and offers **Open agent…** and **Change agent…**. Otaq never moves their
+  work to another tool. A running conversation never changes tools.
 - **Tokens per tool.** Cards and the header show the tokens each tool reports, split by tool. Otaq shows no dollar
   estimates.
 
 Asking you questions, recording decisions and submitting for review all go through the `otaq` command, so they work
 the same in every tool. Cards show Working, Needs you and Idle from each tool's own hooks or plugin events.
+
+**A tool that stops on an error** doesn't leave its card on Working. A usage or quota limit (Claude Code's plan
+limit, a Codex or Copilot limit, an OpenCode provider's quota or rate limit) is that tool's limit: its agents wait
+for the reset, with the retry time the error gives. Any other error (a refused key, a server error the tool gave up
+on) stops the card on Idle with the tool's own message, "Stopped on an error: …". A message waiting for the agent
+stays with the card until its session continues, or until you click **Deliver now**.
+
+### Skills
+
+**Your skills stay where they are.** Each agent tool finds them the way it always does: your personal skills
+(`~/.claude/skills` and the like) and the project skills committed to your repository, which git puts in every
+worktree. Otaq doesn't copy, import or rename them, and writes no skill folder into a worktree or your checkout. A
+project skill you haven't committed reaches a worktree only in Claude Code, which falls back to your checkout's
+`.claude/skills`.
+
+**Otaq's own skills come with its plugin**, the same plugin that carries its hooks, so every session has all of them
+from its start (they're listed under [the `otaq` command](otaq-command.md)). A session names a skill in its tool's
+form:
+
+| Tool | Otaq's own skill | Your own skill |
+|---|---|---|
+| Claude Code | `/otaq:<name>` | `/<name>` |
+| Copilot | `/otaq:<name>` | `/<name>` |
+| Codex | `$otaq:<name>` | `$<name>` |
+| OpenCode | `<name>` | `<name>` |
+
+OpenCode has no typed command for a skill: its model loads a skill with its skill tool when it decides to. So a
+message Otaq types into an OpenCode session names the skill as an instruction, "Load the skill `<name>` with your
+skill tool and follow it. If you don't have a skill with that name, say so and stop.", followed by the usual text.
+
+**A flow stage names the skill it runs.** Agents have no skill list; the stage's Skill field is the one place a skill
+is picked. **Pick a skill…** lists the skills Otaq finds in your tools' folders and in the project, plus Otaq's own,
+and you can also type a name. A stage that names no skill runs Otaq's own skill for it (`validate` on Validate,
+`open-pr` on the Delivery stage). A stage that names a skill you don't have still applies, with the warning
+"You don't have the skill `<name>`". A stage can't name a tool's built-in command, such as Claude Code's
+`/security-review`, as its skill unless you have a skill of that name: the flow is refused, so write a small skill
+that runs the command and name that skill instead.
+
+**A stage runs only on a tool that has its skill.** A stage due to start on a tool that doesn't have the skill it
+names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `/team-validate`", **Check
+again** (Otaq looks for the skill again and starts the stage if it is found) and **Change agent…** (only agents
+whose tool has the skill). A tool has a skill when it finds it in the ticket's worktree: in its own personal
+folder, in the project's folders when the skill is committed, or, for Claude Code, in the checkout's
+`.claude/skills`. To give another tool a skill, link it into that tool's folder or commit it to the project. The
+same goes for a skill typed into a session that is already running: Open PR into the Dev session, with a Delivery
+skill that session's tool doesn't have, types nothing and says why.
+
+Otaq only reads these folders, never writes them. Your personal ones: `$CLAUDE_CONFIG_DIR/skills` (else
+`~/.claude/skills`), `~/.agents/skills`, `$CODEX_HOME/skills` (else `~/.codex/skills`), `$COPILOT_HOME/skills`
+(else `~/.copilot/skills`) and `$XDG_CONFIG_HOME/opencode/skills` (else `~/.config/opencode/skills`), each
+variable followed as its tool follows it. The project's: `.claude/skills`, `.agents/skills`, `.github/skills` and
+`.opencode/skills` in its checkout. Every folder in them holding a `SKILL.md` is a skill: its name is the front
+matter's `name:`, else the folder's name. Links are followed, so a skill kept in your own repository and linked
+into `~/.claude/skills` is found, and a skill linked into several folders is listed once.
+
+**"Ask the agent to write it" saves into the project.** Noyan writes the new skill into the project's checkout:
+`.agents/skills/<name>/` when the stage's agent runs on Codex, `.claude/skills/<name>/` otherwise. Otaq doesn't
+commit it, and the field says "Saved in `<folder>` in this project. Commit it so agents get it in their worktrees."
+A ticket's worktree is made from a commit, so commit the skill before tickets need it. Undo deletes the folder
+while it's still uncommitted and holds only what Noyan wrote; otherwise it just clears the field.
 
 ### Bigger features: a Plan and helpers
 

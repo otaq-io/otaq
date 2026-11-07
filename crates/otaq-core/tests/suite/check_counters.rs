@@ -1,9 +1,9 @@
 //! Agent checks in any flow (T-0417; FLW-13, Q259, Q277; d0108, d0063, d0083): on the test flow
 //! (`tests/flows/every-kind.yaml`: Product spec · Dev · Validate · Security · QA · Done), each agent check counts its
 //! own fails in a row and stops at its own rounds; a pass into the next check starts that check's own checker; a human
-//! Fail resets every counter; Move on anyway and Skip this check take the card to the engine's next stage, and its
-//! Delivery is then in click mode with the reason. Skip this check is offered on a check held for the plan limit only
-//! when no fallback can take it, never on a held Agent stage. `claude` stands in as `sh` printing its arguments.
+//! Fail resets every counter; Move on anyway and Skip this check take the card to the engine's next stage, its card
+//! saying so, and its Delivery does what the flow says. Skip this check is offered on a check held for the plan
+//! limit, never on a held Agent stage. `claude` stands in as `sh` printing its arguments.
 
 use otaq_core::service::testing::said;
 use std::path::Path;
@@ -33,7 +33,15 @@ fn every_kind_file() -> FlowFile {
     yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// A service whose `claude` keeps running, with shop-web (SHOP) on the test flow, edited by `edit`.
+/// Security marked skippable (`options: [skip]`): Skip this check and Move on anyway are the user's there.
+fn skippable_security(file: &mut FlowFile) {
+    for stage in file.flow.stages.iter_mut().filter(|s| s.id == "security") {
+        stage.options.push(otaq_core::flow::StageOption::Skip);
+    }
+}
+
+/// A service whose `claude` keeps running, with shop-web (SHOP) on the test flow (Security on Otaq's `validate`),
+/// edited by `edit`.
 async fn world(edit: impl FnOnce(&mut FlowFile)) -> TestService {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
@@ -50,6 +58,10 @@ async fn world(edit: impl FnOnce(&mut FlowFile)) -> TestService {
     .await;
     w.add_project("shop-web").await;
     let mut file = every_kind_file();
+    // Security runs the shipped `validate`: a stage runs only on a tool that has its skill, and nobody here has
+    // `team-security-review`.
+    let security = file.flow.stages.iter_mut().find(|s| s.id == "security");
+    security.unwrap().skill = Some("validate".into());
     edit(&mut file);
     w.board.use_flow_for_tests("SHOP", &file).await;
     w
@@ -93,44 +105,36 @@ async fn checker(w: &TestService, t: &Ticket) -> SessionInfo {
     panic!("{} has no checker", t.key);
 }
 
-/// The running checkers of the ticket's check, one per check agent (Security lists two, d0130), in the stage's order.
+/// The running checker of the ticket's check (a check has one agent), as a list.
 async fn checkers(w: &TestService, t: &Ticket) -> Vec<SessionInfo> {
-    let stage = ticket(w, t).await.place.stage().unwrap().to_owned();
-    let flow = w.board.effective_flow("SHOP").await.unwrap();
-    let agents = flow.stage(&stage).unwrap().check_agents().len();
     for _ in 0..500 {
         let running = w.sessions.running_all_of(&t.id, SessionKind::Validator);
-        if running.len() == agents {
+        if running.len() == 1 {
             return running;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("{} has no {agents} checkers", t.key);
+    panic!("{} has no checker", t.key);
 }
 
-/// The round's verdict: every checker passes, or the first fails and the others pass.
+/// The round's verdict, its one checker's.
 async fn verdict(w: &TestService, t: &Ticket, pass: bool) -> Ticket {
-    let mut after = None;
-    for (i, session) in checkers(w, t).await.into_iter().enumerate() {
-        after = Some(
-            w.validation
-                .verdict(
-                    &t.key.to_string(),
-                    pass || i > 0,
-                    said(
-                        &w.board,
-                        &t.key.to_string(),
-                        "- src/search.rs:3 unescaped SQL",
-                    )
-                    .await
-                    .as_ref(),
-                    &session.id,
-                )
-                .await
-                .unwrap(),
-        );
-    }
-    after.unwrap()
+    let session = checkers(w, t).await.remove(0);
+    w.validation
+        .verdict(
+            &t.key.to_string(),
+            pass,
+            said(
+                &w.board,
+                &t.key.to_string(),
+                "- src/search.rs:3 unescaped SQL",
+            )
+            .await
+            .as_ref(),
+            &session.id,
+        )
+        .await
+        .unwrap()
 }
 
 /// (fails in a row, passed round) of each check that counted, by stage id.
@@ -203,15 +207,15 @@ async fn two_checks_in_a_row_count_separately() {
         security_checkers
             .iter()
             .all(|s| s.id != validate_checker.id),
-        "Security's own checkers"
+        "Security's own checker"
     );
     assert_eq!(
         security_checkers
             .iter()
             .map(|s| s.agent.as_ref().map(|a| a.name.as_str()))
             .collect::<Vec<_>>(),
-        [Some("Security reviewer"), Some("Validator")],
-        "one per check agent (d0130)"
+        [Some("Security reviewer")],
+        "its one agent"
     );
     assert_eq!(
         security.flags.validating_round.map(|r| (r.round, r.of)),
@@ -253,15 +257,10 @@ async fn two_checks_in_a_row_count_separately() {
         ],
         "Security's limit stops only Security"
     );
-    // One run per check agent per round: Security reviewer failed, Validator passed (d0130).
+    // One run per round, its one agent's.
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [
-            Some(RunResult::Failed),
-            Some(RunResult::Passed),
-            Some(RunResult::Failed),
-            Some(RunResult::Passed)
-        ]
+        [Some(RunResult::Failed), Some(RunResult::Failed)]
     );
     w.stop().await;
 }
@@ -269,7 +268,7 @@ async fn two_checks_in_a_row_count_separately() {
 /// A human Fail (Fail on QA) resets both checks' counters, and the marks of checks the card was moved past.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_human_fail_resets_both_checks_counters() {
-    let w = world(|_| {}).await;
+    let w = world(skippable_security).await;
     let t = in_dev(&w, "Search notes").await;
     submit(&w, &t).await;
     verdict(&w, &t, false).await;
@@ -308,7 +307,11 @@ async fn a_human_fail_resets_both_checks_counters() {
     assert_eq!(back.flags.moved_past_check, None);
     assert_eq!(back.validation_round, 0);
     assert_eq!(
-        w.board.forced_click_reason(&back).await.unwrap(),
+        w.board
+            .check_counts(&t.id)
+            .await
+            .unwrap()
+            .moved_past_reason(&w.board.effective_flow("SHOP").await.unwrap()),
         None,
         "the card walks every check again"
     );
@@ -316,10 +319,12 @@ async fn a_human_fail_resets_both_checks_counters() {
 }
 
 /// Security's third fail (its rounds set to 3): Move on anyway goes to the engine's next stage (QA, a check by you,
-/// not "the next human check" by luck: without QA it is the Delivery) and says why the Delivery waits for a click.
+/// not "the next human check" by luck: without QA it is the Delivery), its card saying it was moved past Security; the
+/// automatic Delivery stays automatic, without that check.
 #[tokio::test(flavor = "multi_thread")]
 async fn move_on_anyway_from_failed_three_times_at_security() {
     let three = |file: &mut FlowFile| {
+        skippable_security(file);
         let security = file.flow.stages.iter_mut().find(|s| s.id == "security");
         security.unwrap().rounds = Some(3);
     };
@@ -342,17 +347,9 @@ async fn move_on_anyway_from_failed_three_times_at_security() {
     assert_eq!(at(&moved), (Some("qa"), Status::WaitingForYou));
     let reason = "Failed Security 3 times · moved by you";
     assert_eq!(moved.flags.moved_past_check.as_deref(), Some(reason));
-    assert_eq!(
-        w.board
-            .forced_click_reason(&moved)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(reason)
-    );
     w.stop().await;
 
-    // Without QA the next stage is the Delivery: the card waits there for a click (its mode is automatic).
+    // Without QA the next stage is the Delivery: automatic, as the flow says, recorded as without checks.
     let w = world(|file| {
         three(file);
         file.flow.stages.retain(|s| s.id != "qa");
@@ -371,28 +368,18 @@ async fn move_on_anyway_from_failed_three_times_at_security() {
         .await
         .unwrap();
     assert_eq!(at(&moved), (Some("ship"), Status::ToDeliver));
-    assert_eq!(
-        w.board
-            .forced_click_reason(&moved)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some(reason)
-    );
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(
-        w.status(&t.key.to_string()).await,
-        Status::ToDeliver,
-        "nothing delivers by itself"
-    );
+    assert_eq!(moved.flags.moved_past_check.as_deref(), Some(reason));
+    let delivery = w.board.delivery_now(&moved).await.unwrap().unwrap();
+    assert!(delivery.automatic, "no forced click");
+    assert!(delivery.without_checks, "Security didn't pass");
     w.stop().await;
 }
 
-/// Skip this check on a running Security: its checker stops, its run is skipped, the card goes to QA, and its
-/// Delivery will wait for a click ("Skipped Security · by you").
+/// Skip this check on a running Security: its checker stops, its run is skipped, the card goes to QA, and its card
+/// says so ("Skipped Security · by you").
 #[tokio::test(flavor = "multi_thread")]
 async fn a_running_check_is_skipped() {
-    let w = world(|_| {}).await;
+    let w = world(skippable_security).await;
     let t = in_dev(&w, "Search notes").await;
     submit(&w, &t).await;
     verdict(&w, &t, true).await;
@@ -408,8 +395,8 @@ async fn a_running_check_is_skipped() {
     );
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [Some(RunResult::Skipped), Some(RunResult::Skipped)],
-        "both check agents' runs"
+        [Some(RunResult::Skipped)],
+        "its one checker's run"
     );
     assert_eq!(
         skipped.flags.moved_past_check.as_deref(),
@@ -419,14 +406,8 @@ async fn a_running_check_is_skipped() {
 }
 
 /// Puts the ticket in `stage`, held for its tool's plan limit with an open round and no checker (as
-/// `Validation::hold_round` leaves it), with the hold of `role` and the given fallback.
-async fn held_at_limit(
-    w: &TestService,
-    t: &Ticket,
-    stage: &str,
-    role: SessionRole,
-    fallback: Option<Tool>,
-) {
+/// `Validation::hold_round` leaves it), with the hold of `role`.
+async fn held_at_limit(w: &TestService, t: &Ticket, stage: &str, role: SessionRole) {
     w.force_stage(t, stage, Status::WaitingForLimitReset).await;
     let checking = role == SessionRole::Validator;
     sqlx::query("UPDATE tickets SET interrupted_from = ? WHERE id = ?")
@@ -453,15 +434,12 @@ async fn held_at_limit(
             id: new_id(),
             ticket_id: Some(t.id.clone()),
             project_id: None,
-            check_agent: None,
             role,
             reason: HoldReason::ToolLimit,
             tool: Tool::Claude,
             model: None,
             agent_id: None,
-            fallback_tool: fallback,
-            fallback_held: false,
-            fallback_asked: false,
+            skill: None,
             since: now_ms(),
         })
         .await
@@ -478,17 +456,17 @@ async fn hold_of(w: &TestService, t: &Ticket) -> Option<AgentHold> {
         .next()
 }
 
-/// Q277: a check held for the plan limit with no fallback set offers Skip this check (the card's hold says so); the
-/// skip ends its round as skipped, lifts the hold and goes on to QA.
+/// Q277: a check held for the plan limit offers Skip this check (the card's hold says so); the skip ends its round as
+/// skipped, lifts the hold and goes on to QA.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_held_check_with_no_fallback_is_skipped() {
-    let w = world(|_| {}).await;
+async fn a_held_check_is_skipped() {
+    let w = world(skippable_security).await;
     let t = in_dev(&w, "Search notes").await;
-    held_at_limit(&w, &t, "security", SessionRole::Validator, None).await;
+    held_at_limit(&w, &t, "security", SessionRole::Validator).await;
     let hold = hold_of(&w, &t).await.unwrap();
     assert!(otaq_core::validation::skip_at_limit(&hold));
-    let card = otaq_core::agents::facts::CardHold::of(&hold, &[], &Default::default());
-    assert!(card.can_skip_check && !card.can_use_fallback);
+    let card = otaq_core::agents::facts::CardHold::of(&hold, &[]);
+    assert!(card.can_skip_check);
 
     let skipped = action(&w, &t, ValidationAction::Skip).await.unwrap();
     assert_eq!(at(&skipped), (Some("qa"), Status::WaitingForYou));
@@ -499,11 +477,7 @@ async fn a_held_check_with_no_fallback_is_skipped() {
         Some(&Some(RunResult::Skipped))
     );
     assert_eq!(
-        w.board
-            .forced_click_reason(&skipped)
-            .await
-            .unwrap()
-            .as_deref(),
+        skipped.flags.moved_past_check.as_deref(),
         Some("Skipped Security · by you")
     );
     let counts = w.board.check_counts(&t.id).await.unwrap();
@@ -511,29 +485,37 @@ async fn a_held_check_with_no_fallback_is_skipped() {
     w.stop().await;
 }
 
-/// With a fallback that can take it, a held check offers Use fallback, not Skip this check; an Agent stage held for
-/// the limit never offers the skip.
+/// A check the flow doesn't mark skippable, held for the plan limit: Skip this check is refused, and the ticket keeps
+/// waiting for its tool with its hold.
 #[tokio::test(flavor = "multi_thread")]
-async fn no_skip_with_a_fallback_nor_on_a_held_agent_stage() {
+async fn a_held_check_not_marked_skippable_is_not_skipped() {
     let w = world(|_| {}).await;
     let t = in_dev(&w, "Search notes").await;
-    held_at_limit(
-        &w,
-        &t,
-        "security",
-        SessionRole::Validator,
-        Some(Tool::Codex),
-    )
-    .await;
-    let hold = hold_of(&w, &t).await.unwrap();
-    assert!(!otaq_core::validation::skip_at_limit(&hold));
-    let e = action(&w, &t, ValidationAction::Skip).await.unwrap_err();
-    assert!(e.contains("fallback"), "{e}");
-    let still = ticket(&w, &t).await;
-    assert_eq!(at(&still), (Some("security"), Status::WaitingForLimitReset));
+    held_at_limit(&w, &t, "security", SessionRole::Validator).await;
+    let refused = action(&w, &t, ValidationAction::Skip).await.unwrap_err();
+    assert!(
+        refused.contains(
+            "Security can\u{2019}t be skipped: the flow doesn\u{2019}t mark it skippable"
+        ),
+        "{refused}"
+    );
+    assert_eq!(
+        at(&ticket(&w, &t).await),
+        (Some("security"), Status::WaitingForLimitReset)
+    );
+    assert!(
+        hold_of(&w, &t).await.is_some(),
+        "it still waits for its tool"
+    );
+    w.stop().await;
+}
 
+/// An Agent stage held for the limit never offers the skip.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_skip_on_a_held_agent_stage() {
+    let w = world(|_| {}).await;
     let dev = in_dev(&w, "Export notes").await;
-    held_at_limit(&w, &dev, "dev", SessionRole::Developer, None).await;
+    held_at_limit(&w, &dev, "dev", SessionRole::Developer).await;
     let hold = hold_of(&w, &dev).await.unwrap();
     assert!(!otaq_core::validation::skip_at_limit(&hold));
     assert!(action(&w, &dev, ValidationAction::Skip).await.is_err());
@@ -562,8 +544,8 @@ async fn a_cancel_and_stop_this_check_on_security_count_nothing() {
     assert_eq!(counters(&w, &t).await, [("validate".into(), 0, Some(1))]);
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [Some(RunResult::Cancelled), Some(RunResult::Cancelled)],
-        "both check agents' runs"
+        [Some(RunResult::Cancelled)],
+        "its one checker's run"
     );
 
     submit(&w, &t).await;
@@ -604,7 +586,7 @@ async fn a_plan_edit_cancels_a_check() {
     assert_eq!(at(&ticket(&w, &t).await), (Some("dev"), Status::Working));
     assert_eq!(
         runs_of(&w, &t, "security").await,
-        [Some(RunResult::Cancelled), Some(RunResult::Cancelled)]
+        [Some(RunResult::Cancelled)]
     );
     w.stop().await;
 }
@@ -634,9 +616,7 @@ async fn the_messages_to_dev_name_the_check() {
     verdict(&w, &t, false).await;
     assert_eq!(
         told(&w).await.last().map(String::as_str),
-        Some(
-            "Security failed round 1: Security reviewer failed, Validator passed. Run `otaq prime`."
-        )
+        Some("Security failed round 1. Run `otaq prime`.")
     );
 
     submit(&w, &t).await;

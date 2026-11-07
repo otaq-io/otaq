@@ -10,10 +10,10 @@ use otaq_core::decisions::outcome::{self, ChangeOutcome, change_message};
 use otaq_core::decisions::{self, NewDecision, Outcome};
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::commit;
-use otaq_core::naming;
 use otaq_core::protocol::{DecisionChangeParams, LocalMergeParams, Reply, Request};
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
+use otaq_core::skills::testing::claude_skill;
 use serde_json::json;
 
 fn me() -> Actor {
@@ -235,11 +235,8 @@ async fn change_on_a_ticket_sends_it_back_with_the_message_and_pending_comments(
     assert_eq!(ticket.status, Status::Working);
     let sent = ticket.flags.sent_back.unwrap();
     assert_eq!((sent.comments, sent.round, sent.decisions), (1, 1, 1));
-    w.wait_for_output(
-        &agent.session,
-        &format!("/{}", naming::copy_name("address-review")),
-    )
-    .await;
+    w.wait_for_output(&agent.session, &claude_skill("address-review"))
+        .await;
 
     let message = "Review feedback on a recorded decision: \u{201c}Split fullName everywhere, or only in the \
                    profile form?\u{201d} You built: only in the profile form. Change it to: Split fullName \

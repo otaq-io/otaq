@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::store::SessionAgentRun;
-use super::{Agent, AgentHold, FallbackFrom, HoldReason, ModelRef, SessionRole, resolve};
+use super::{Agent, AgentHold, HoldReason, ModelRef, SessionRole, resolve};
 use crate::agent_tools::Tool;
 use crate::board::stage_choices::StageOptions;
 use crate::board::stage_runs::StageRun;
@@ -168,7 +168,7 @@ pub struct CardAgents {
     /// The agent of the running Agent stage session (agent, answer, delivery) and of the running check.
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
-    /// The tool and model each runs on (T-0362), and the fallback it runs on (AGM-03).
+    /// The tool and model each runs on (T-0362).
     #[serde(default)]
     pub running_developer_on: Option<RunsOnTool>,
     #[serde(default)]
@@ -196,8 +196,7 @@ pub struct CardStart {
     pub model: Option<ModelRef>,
 }
 
-/// A tool and the model a session runs (the one the tool reported, else the one passed), and the fallback it runs on
-/// ("on Codex · Claude Code limit").
+/// A tool and the model a session runs (the one the tool reported, else the one passed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunsOnTool {
     pub tool: Tool,
@@ -205,11 +204,9 @@ pub struct RunsOnTool {
     /// The model as passed (`None`: the tool's default): what the footer names ("Rust developer · sonnet").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passed: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<FallbackFrom>,
 }
 
-/// A hold ([`super::AgentHold`]) as a card says it: the agent it would have started and its tool's fallback.
+/// A hold ([`super::AgentHold`]) as a card says it: the agent it would have started, waiting for its tool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardHold {
     pub role: SessionRole,
@@ -218,31 +215,23 @@ pub struct CardHold {
     pub model: Option<String>,
     /// The agent it would have started ("Developer").
     pub agent: Option<String>,
-    /// The held check agent of a round of several, as its stage lists it: Use fallback moves it only (d0130 row
-    /// 17, `ticket.use_fallback`'s `agent`). `None` for every other hold.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check_agent: Option<String>,
     /// Its agent's id, for Open agent….
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// The tool's fallback, also when it can't start either (`fallback_held`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<ModelRef>,
-    /// Use fallback is offered: the fallback can take it now.
-    pub can_use_fallback: bool,
-    /// The fallback is blocked as well: "Claude Code and its fallback Codex are both at their limits".
-    pub fallback_held: bool,
-    /// **Skip this check** is offered: an agent check held for its tool's plan limit with no usable fallback (none
-    /// set, or the fallback at its limit too; FLW-13, Q277). Never on a held Agent stage.
+    /// **Skip this check** is offered: an agent check held for its tool's plan limit (FLW-13, Q277). Never on a
+    /// held Agent stage.
     #[serde(default)]
     pub can_skip_check: bool,
     /// A limit's hold: when the tool's limit resets, when known ("Claude Code limit · resets 3:45 pm", Q154).
     #[serde(default)]
     pub resets_at: Option<i64>,
+    /// A hold for its skill: the skill its tool doesn't have ("Codex doesn't have the skill `/team-validate`").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
 }
 
 impl CardHold {
-    pub fn of(hold: &AgentHold, agents: &[Agent], fallbacks: &super::Fallbacks) -> Self {
+    pub fn of(hold: &AgentHold, agents: &[Agent]) -> Self {
         let agent = hold
             .agent_id
             .as_ref()
@@ -253,13 +242,10 @@ impl CardHold {
             tool: hold.tool,
             model: hold.model.clone(),
             agent: agent.map(|a| a.name.clone()),
-            check_agent: hold.check_agent.clone(),
             agent_id: hold.agent_id.clone(),
-            can_use_fallback: hold.fallback_tool.is_some() && !hold.fallback_held,
-            fallback: fallbacks.get(&hold.tool).cloned(),
-            fallback_held: hold.fallback_held,
             can_skip_check: crate::validation::skip_at_limit(hold),
             resets_at: None,
+            skill: hold.skill.clone(),
         }
     }
 }
@@ -337,7 +323,6 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
     let project = board.project(project).await?;
     let store = board.store();
     let agents = store.agents().await?;
-    let fallbacks = store.fallbacks().await?;
     let running = store.running_agent_names(&project.id).await?;
     let holds = store.project_ticket_holds(&project.id).await?;
     // The tools at their limits and when each resets (a limit's hold says it).
@@ -366,7 +351,6 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
                     tool: r.tool?,
                     model: r.model.clone(),
                     passed: r.passed.clone(),
-                    fallback: r.fallback.clone(),
                 })
             })
         };
@@ -394,7 +378,7 @@ pub async fn board_agents(board: &Board, project: &str) -> Result<BoardAgents, B
                 .filter(|h| h.ticket_id.as_deref() == Some(ticket.id.as_str()))
                 .map(|h| CardHold {
                     resets_at: resets_of(h),
-                    ..CardHold::of(h, &agents, &fallbacks)
+                    ..CardHold::of(h, &agents)
                 })
                 .collect(),
             starts,

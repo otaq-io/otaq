@@ -3,7 +3,7 @@
 //! Security · QA · Done) and the default flow, each drop the board takes: back to an Agent stage with instructions (its
 //! session resumes; a skipped one runs once in a fresh session), stopping a running checker; back to an agent check
 //! with a note; back onto a human check with no dialog; forward to the next stage (Move to next stage) and past stages
-//! (they are skipped by you and the Delivery waits for a click); a parked card back to the stage it left. Every drag
+//! (they are skipped by you; the Delivery does what the flow says); a parked card back to the stage it left. Every drag
 //! back resets the agent checks' counters. `claude` is stood in for by ordinary commands.
 
 use otaq_core::service::testing::said;
@@ -69,7 +69,6 @@ fn with_review() -> FlowFile {
             kind: StageKind::Check { by: CheckBy::You },
             column: Column::Own,
             agent: None,
-            agents: Vec::new(),
             skill: None,
             options: Vec::new(),
             rounds: None,
@@ -253,6 +252,8 @@ async fn back_from_a_running_check_stops_the_checker() {
     let mut file = every_kind();
     file.flow.stages.retain(|s| s.id != "validate");
     w.board.use_flow_for_tests("SHOP", &file).await;
+    // Security names the user's `team-security-review`: Claude Code has it, so its check starts.
+    w.claude_has_skill("team-security-review").await;
     let t = ran_dev_then(&w, "Price table", "dev", Status::Working).await;
     w.validation
         .submit(
@@ -387,9 +388,9 @@ async fn back_onto_a_human_check_needs_no_dialog() {
 }
 
 /// Forward from Dev past Validate and Security (s03-54, "Drag forward"): both get skipped runs and are marked, the
-/// card waits in QA ("Skipped Security · by you"), and its Delivery will wait for a click.
+/// card waits in QA ("Skipped Security · by you"); its Delivery stays automatic, as the flow says.
 #[tokio::test(flavor = "multi_thread")]
-async fn forward_past_checks_marks_them_and_delivers_on_a_click() {
+async fn forward_past_checks_marks_them_and_delivers_as_the_flow_says() {
     let w = world().await;
     w.board.use_flow_for_tests("SHOP", &every_kind()).await;
     ran_dev_then(&w, "Split user full name", "dev", Status::Idle).await;
@@ -414,11 +415,7 @@ async fn forward_past_checks_marks_them_and_delivers_on_a_click() {
         );
     }
     assert_eq!(
-        w.board
-            .forced_click_reason(&after)
-            .await
-            .unwrap()
-            .as_deref(),
+        after.flags.moved_past_check.as_deref(),
         Some("Skipped Validate \u{b7} by you \u{b7} Skipped Security \u{b7} by you")
     );
     let event = dragged(&w, "SHOP-1").await;
@@ -427,22 +424,22 @@ async fn forward_past_checks_marks_them_and_delivers_on_a_click() {
         serde_json::json!(["Validate", "Security"])
     );
 
-    // Straight to the automatic Delivery, past QA too: it waits for the click.
+    // Straight to the automatic Delivery, past QA too: it stays automatic, without those checks.
     ran_dev_then(&w, "Wishlist sort", "dev", Status::Idle).await;
     drag(&w, "SHOP-2", DropOn::stage("ship"), "").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
     let delivered = w.board.ticket("SHOP-2").await.unwrap();
-    assert_eq!(
-        (delivered.place.clone(), delivered.status),
-        (Place::stage_of("ship"), Status::ToDeliver),
-        "an automatic Delivery waits for the click after a forward drag"
-    );
+    assert_eq!(delivered.place, Place::stage_of("ship"));
     assert!(
-        w.board
-            .forced_click_reason(&delivered)
-            .await
-            .unwrap()
+        delivered
+            .flags
+            .moved_past_check
+            .as_deref()
             .is_some_and(|r| r.contains("Skipped QA")),
+    );
+    let delivery = w.board.delivery_now(&delivered).await.unwrap().unwrap();
+    assert!(
+        delivery.automatic && delivery.without_checks,
+        "no forced click after a forward drag"
     );
     w.stop().await;
 }
@@ -516,10 +513,7 @@ async fn the_next_stage_is_move_to_next_stage() {
         "{}",
         after.status
     );
-    assert!(
-        w.board.forced_click_reason(&after).await.unwrap().is_none(),
-        "nothing skipped"
-    );
+    assert!(after.flags.moved_past_check.is_none(), "nothing skipped");
     w.stop().await;
 }
 
@@ -552,7 +546,7 @@ async fn back_into_a_skipped_stage_runs_it_once() {
     // The stage's skill, then what came back (CMT-05): the instructions are the user's comment, not typed.
     assert!(
         out.contains(
-            "/otaq-product-spec SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
+            "/otaq:product-spec SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
         ),
         "{out}"
     );

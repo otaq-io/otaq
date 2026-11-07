@@ -17,6 +17,7 @@ pub mod launch;
 pub mod models;
 pub mod oneoff;
 pub mod permissions;
+mod plugins;
 pub mod trust;
 pub mod usage;
 
@@ -34,6 +35,7 @@ use super::{
 use crate::agent_tools::events::LimitWindow;
 
 use crate::usage::limit::LimitKind;
+pub use plugins::plugin_skills;
 
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "GitHub Copilot";
@@ -67,14 +69,51 @@ pub struct CopilotContext {
 
 impl CopilotContext {
     pub fn new(tool: ToolContext) -> Self {
-        let copilot_home = tool.home.as_ref().map(|home| {
-            std::env::var_os("COPILOT_HOME")
-                .filter(|dir| !dir.is_empty())
-                .map_or_else(|| home.join(".copilot"), PathBuf::from)
-        });
+        let copilot_home = tool
+            .home
+            .as_deref()
+            .map(|home| copilot_home(home, &super::process_var));
         Self { tool, copilot_home }
     }
 }
+
+/// Copilot's home folder under `home`: `$COPILOT_HOME` (read with `var`; empty is unset), else `~/.copilot`.
+pub fn copilot_home(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    var("COPILOT_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| home.join(".copilot"), PathBuf::from)
+}
+
+/// Copilot's personal skills folder: `skills` in its home ([`copilot_home`]).
+pub fn skills_folder(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    copilot_home(home, var).join("skills")
+}
+
+/// The personal skills folders Copilot reads (S6): its home's ([`skills_folder`]) and the shared
+/// `~/.agents/skills`; not `~/.claude/skills`.
+pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBuf> {
+    vec![
+        skills_folder(home, var),
+        home.join(".agents").join("skills"),
+    ]
+}
+
+/// Whether Copilot loads a `SKILL.md` that starts with a UTF-8 byte order mark. Not checked
+/// yet, so counted as loaded.
+pub const READS_SKILL_WITH_BOM: bool = true;
+
+/// GitHub Copilot's built-in commands that do work a stage could want, so a flow could take them for skills: `/review`,
+/// `/init` and `/plan`, from its CLI command reference (docs.github.com/en/copilot/reference/cli-command-reference). A
+/// stage can't name one as its skill (it isn't a skill file the tool loads). This is what GitHub Copilot had when the
+/// list was written (2026-11); its other commands (model, clear, …) do no work a stage would want.
+pub const BUILT_IN_COMMANDS: &[&str] = &["review", "init", "plan"];
+
+/// The project's skills folders Copilot reads in its worktree: `.claude/skills`, `.agents/skills`, `.github/skills`.
+pub const PROJECT_SKILL_FOLDERS: &[&[&str]] = &[
+    &[".claude", "skills"],
+    &[".agents", "skills"],
+    &[".github", "skills"],
+];
 
 /// What a running GitHub Copilot session sets on the commands it runs (1.0.105), dropped by the service at start
 /// ([`crate::agent_tools::parent_session_vars`]): `COPILOT_AGENT_SESSION_ID` scopes MCP sign-ins to that session,
@@ -261,7 +300,7 @@ impl AgentTool for Copilot {
         EFFORT_LEVELS
     }
 
-    /// `/otaq-commit` ([`launch::skill_reference`]).
+    /// `/otaq:commit`, `/team-validate` ([`launch::skill_reference`]).
     fn skill_reference(&self, skill: &str) -> String {
         launch::skill_reference(skill)
     }

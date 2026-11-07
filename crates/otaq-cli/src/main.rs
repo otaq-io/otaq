@@ -50,7 +50,10 @@ fn main() -> ExitCode {
             return uninstall::run(keep_data, &cli.global, &out);
         }
         Some(Command::RestoreDatabase { yes }) => restore::run(yes, &cli.global, &out),
-        Some(Command::Attach { key, stage, agent }) => attach::run(key, stage, agent, &cli.global),
+        Some(Command::Attach { key, stage, agent }) => {
+            cli::agent_ignored(agent.as_deref());
+            attach::run(key, stage, &cli.global)
+        }
         Some(Command::Prime {
             key: None,
             validate: false,
@@ -63,7 +66,10 @@ fn main() -> ExitCode {
             stage,
             agent,
             ..
-        }) => read::terminal(key, stage, agent, &cli.global, &out),
+        }) => {
+            cli::agent_ignored(agent.as_deref());
+            read::terminal(key, stage, &cli.global, &out)
+        }
         Some(Command::Show {
             key,
             piece: Some(piece),

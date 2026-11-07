@@ -374,17 +374,6 @@ function Menus({ s, store, b, t }: DemoProps & { b: BoardView; t: TicketView | n
                 )}
                 <div className="at">{at.tokens}</div>
               </div>
-              {at.hasFallback && (
-                <button
-                  className="btn btn-s btn-sm"
-                  type="button"
-                  onClick={() => {
-                    store.useFallback();
-                  }}
-                >
-                  Use fallback now
-                </button>
-              )}
             </div>
           ))}
           <div className="n">

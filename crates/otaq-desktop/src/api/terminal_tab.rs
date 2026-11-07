@@ -149,8 +149,7 @@ pub struct Check {
     pub read_only: bool,
     /// The state label and hint for every phase and focus, as [`View::strips`].
     pub strips: Vec<Strip>,
-    /// `otaq attach SHOP-19 --stage security` while it runs; `otaq attach SHOP-33 --stage validate --agent "Security
-    /// reviewer"` for one of several check agents (d0130 row 17).
+    /// `otaq attach SHOP-19 --stage security` while it runs.
     pub attach_command: String,
 }
 
@@ -707,7 +706,6 @@ mod tests {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             model_ran: None,
             size: None,
         }
@@ -986,8 +984,8 @@ mod tests {
         assert_eq!(live.state.label, "Waiting for you");
     }
 
-    /// d0130 row 17 (`s29-04`): one terminal per check agent, each with its verdict, its line and typing, and
-    /// attaching with `--stage <id> --agent <name>`.
+    /// A round stored from when a check could have several agents (`s29-04`): one terminal per check agent, each with
+    /// its verdict, its line and typing, and attaching with `--stage <id>`.
     #[test]
     fn two_check_agents_have_a_terminal_each() {
         use otaq_core::board::stage_runs::StageRun;
@@ -1038,7 +1036,7 @@ mod tests {
                 (
                     "Performance reviewer",
                     Some("Performance reviewer"),
-                    &*format!("{attach} --stage validate --agent \"Performance reviewer\""),
+                    &*format!("{attach} --stage validate"),
                     false
                 ),
             ]

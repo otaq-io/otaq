@@ -13,6 +13,7 @@ import type { RestartDialog } from "../../generated/RestartDialog";
 import type { Toast as ToastView } from "../../generated/Toast";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { openStageSkill } from "../flow_editor/logic";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
 import { ApplyNowOverlay } from "./ApplyNow";
@@ -128,6 +129,14 @@ function linkOf(toast: ToastView) {
         label: link.label,
         onClick: () => {
           request("updates.release_notes", { version: link.version }).catch(warnOnFailure(link.label));
+        },
+      };
+    // Open PR refused on a remote the built-in skill can't use: the Delivery stage's Skill field in the flow editor.
+    case "stage_skill":
+      return {
+        label: link.label,
+        onClick: () => {
+          openStageSkill(link.project, link.stage);
         },
       };
   }

@@ -34,18 +34,18 @@ async fn prime_prints_the_context_and_changes_no_status() {
     let ran = agent.run(&format!("'{CB}' prime --json")).await;
     let context: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(context["ticket"]["key"], "SHOP-12");
-    assert_eq!(context["commit_skill"], "/otaq-commit");
+    assert_eq!(context["commit_skill"], "/otaq:commit");
     w.stop().await;
 }
 
-/// AGM-07: Developer's imported Commit skill (its SKILL.md named `commit`, in place of the shipped one) is the skill
-/// prime names, by its copy's name in the caller's tool's syntax, the same whether or not the copy is written yet.
+/// A skill folder named `commit` of the user's doesn't replace Otaq's: agents have no skills, so prime names Otaq's
+/// own Commit skill in the caller's tool's syntax.
 #[tokio::test(flavor = "multi_thread")]
-async fn prime_names_developers_imported_commit_skill() {
+async fn prime_names_otaqs_commit_skill_not_a_users_folder() {
     let w = TestService::start().await;
     w.shop_sample().await;
     let folder = skill_folder(w.data.root(), "commit");
-    w.import_step_skill(WorkflowStep::Commit, &folder).await;
+    w.use_step_skill(WorkflowStep::Commit, &folder).await;
     let shop12 = w.board.ticket("SHOP-12").await.unwrap();
     w.give_worktree(&shop12).await;
     let agent = w.agent_shell(&shop12).await;
@@ -58,12 +58,90 @@ async fn prime_names_developers_imported_commit_skill() {
         .expect("the commit rule");
     assert_eq!(
         rule,
-        "2. Commit everything with `/otaq-commit` before you end your stage. Never push and never open a PR: the \
+        "2. Commit everything with `/otaq:commit` before you end your stage. Never push and never open a PR: the \
          user does that."
     );
     let ran = agent.run(&format!("'{CB}' prime --json")).await;
     let context: Value = serde_json::from_str(&ran.stdout).unwrap();
-    assert_eq!(context["commit_skill"], "/otaq-commit");
+    assert_eq!(context["commit_skill"], "/otaq:commit");
+    w.stop().await;
+}
+
+/// No-skill-copies F11: plain `otaq prime` in the ticket's validator's session prints the validator's prime (the same
+/// as `prime --validate`, its stage named) and clears the refused verdict; the working session's prime is unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn plain_prime_in_a_validators_session_is_the_validate_prime() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Export orders as CSV").await;
+    w.give_worktree(&t).await;
+    w.board
+        .post_ticket_comment(
+            &t.key.to_string(),
+            &otaq_core::board::ticket_comments::CommentAuthor::User { name: "me".into() },
+            "Done. Excel not added.",
+            Vec::new(),
+            &otaq_core::domain::Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let dev = w.agent_shell(&t).await;
+    let working = dev.run(&format!("'{CB}' prime")).await;
+    assert_eq!(working.status, 0, "{working:?}");
+    assert!(
+        working
+            .stdout
+            .starts_with("# SHOP-1 · Export orders as CSV\n"),
+        "{}",
+        working.stdout
+    );
+    assert!(
+        working.stdout.contains("## Your stage\n\nDev, as "),
+        "{}",
+        working.stdout
+    );
+
+    let checker = w
+        .shell(&t, otaq_core::session::SessionKind::Validator)
+        .await;
+    w.validating_with(&t, &checker.session).await;
+    let verdict = checker
+        .run_with_stdin(&format!("'{CB}' check pass --stdin"), "All good.\n")
+        .await;
+    assert_ne!(verdict.status, 0, "{verdict:?}");
+    assert!(
+        format!("{}{}", verdict.stdout, verdict.stderr)
+            .contains("Run `otaq prime` first: SHOP-1 has 1 comment you haven't read."),
+        "{verdict:?}"
+    );
+
+    let plain = checker.run(&format!("'{CB}' prime")).await;
+    assert_eq!(plain.status, 0, "{plain:?}");
+    assert!(
+        plain
+            .stdout
+            .starts_with("# Validate SHOP-1 · Export orders as CSV\n"),
+        "{}",
+        plain.stdout
+    );
+    assert!(
+        plain
+            .stdout
+            .contains("## Your stage\n\nValidate, as Validator, with the skill `/otaq:validate`."),
+        "{}",
+        plain.stdout
+    );
+    let flagged = checker.run(&format!("'{CB}' prime --validate")).await;
+    assert_eq!(flagged.stdout, plain.stdout);
+    let json = checker.run(&format!("'{CB}' prime --json")).await;
+    let context: Value = serde_json::from_str(&json.stdout).unwrap();
+    assert_eq!(context["ticket"]["key"], "SHOP-1");
+    assert!(context.get("round").is_some(), "{context}");
+
+    let verdict = checker
+        .run_with_stdin(&format!("'{CB}' check pass --stdin"), "All good.\n")
+        .await;
+    assert_eq!(verdict.status, 0, "{verdict:?}");
     w.stop().await;
 }
 

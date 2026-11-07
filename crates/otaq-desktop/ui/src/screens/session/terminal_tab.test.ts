@@ -161,7 +161,7 @@ describe("one terminal per check agent (d0130)", () => {
         session: "v2",
         agent: "Performance reviewer",
         label: "Performance reviewer",
-        attach_command: 'otaq attach SHOP-33 --stage validate --agent "Performance reviewer"',
+        attach_command: "otaq attach SHOP-33 --stage validate",
       },
     ],
   };

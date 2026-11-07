@@ -260,10 +260,25 @@ async fn answered(
         }
         Ok(other) => Err(unexpected("ticket.open_pr", &other)),
         Err(e) => {
-            app.notices.toast(NewToast::new(
-                ToastLevel::Error,
-                format!("Open PR for {key} didn\u{2019}t go through"),
-                Some(e.message.clone()),
+            // The built-in skill can't open a PR on this remote: the toast links to the Delivery stage's Skill field.
+            let refused = e.refusal.as_deref() == Some("not_allowed");
+            let blocked = match ticket(app, key).await {
+                Ok(t) if refused => provider(app, &t)
+                    .await
+                    .is_some_and(|p| p.open_pr_blocked().is_some())
+                    .then(|| t.key.project.to_string()),
+                _ => None,
+            };
+            let delivery = match &blocked {
+                Some(project) => super::board::delivery_stage(app, project)
+                    .await
+                    .map(|stage| (project.clone(), stage)),
+                None => None,
+            };
+            app.notices.toast(page::refused_toast(
+                key,
+                e.message.clone(),
+                delivery.as_ref().map(|(p, s)| (p.as_str(), s.as_str())),
             ));
             if click == Click::OpenPr {
                 forget(app, key);

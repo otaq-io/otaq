@@ -61,6 +61,70 @@ stored_enum! {
 
 /// The names a view shows for a tool's sessions, without the registry (the view models have none). Each is the
 /// same as the adapter's own method.
+/// Which skills folders each tool reads (S6), as its adapter knows them: the skill finder asks these to say which
+/// tools have a skill ([`crate::skills::found`]).
+impl Tool {
+    /// The personal skills folders the tool reads under `home`, each tool's variables read with `var`.
+    pub fn personal_skill_folders(self, home: &Path, var: EnvVar<'_>) -> Vec<PathBuf> {
+        match self {
+            Self::Claude => claude::personal_skill_folders(home, var),
+            Self::Codex => codex::personal_skill_folders(home, var),
+            Self::Copilot => copilot::personal_skill_folders(home, var),
+            Self::OpenCode => opencode::personal_skill_folders(home, var),
+        }
+    }
+
+    /// The project's skills folders the tool reads in the ticket's worktree, each as its parts (`.agents`, `skills`).
+    pub fn project_skill_folders(self) -> &'static [&'static [&'static str]] {
+        match self {
+            Self::Claude => claude::PROJECT_SKILL_FOLDERS,
+            Self::Codex => codex::PROJECT_SKILL_FOLDERS,
+            Self::Copilot => copilot::PROJECT_SKILL_FOLDERS,
+            Self::OpenCode => opencode::PROJECT_SKILL_FOLDERS,
+        }
+    }
+
+    /// Whether the tool loads a `SKILL.md` that starts with a UTF-8 byte order mark (Windows PowerShell 5 writes
+    /// one): Codex doesn't, so such a skill isn't Codex's.
+    pub fn reads_skill_with_bom(self) -> bool {
+        match self {
+            Self::Claude => claude::READS_SKILL_WITH_BOM,
+            Self::Codex => codex::READS_SKILL_WITH_BOM,
+            Self::Copilot => copilot::READS_SKILL_WITH_BOM,
+            Self::OpenCode => opencode::READS_SKILL_WITH_BOM,
+        }
+    }
+
+    /// The tool's built-in commands a flow could take for skills (`review`, `init`), without their `/`.
+    pub fn built_in_commands(self) -> &'static [&'static str] {
+        match self {
+            Self::Claude => claude::BUILT_IN_COMMANDS,
+            Self::Codex => codex::BUILT_IN_COMMANDS,
+            Self::Copilot => copilot::BUILT_IN_COMMANDS,
+            Self::OpenCode => opencode::BUILT_IN_COMMANDS,
+        }
+    }
+
+    /// The tools that have `name` (with or without its `/`) as a built-in command, in [`Tool::ALL`]'s order.
+    pub fn with_built_in_command(name: &str) -> Vec<Tool> {
+        let name = name.trim().trim_start_matches('/');
+        Tool::ALL
+            .iter()
+            .copied()
+            .filter(|tool| tool.built_in_commands().contains(&name))
+            .collect()
+    }
+
+    /// The project's skills folders the tool also reads in the main checkout from a worktree, committed or not:
+    /// Claude Code's `.claude/skills`; none for the others.
+    pub fn checkout_skill_folders(self) -> &'static [&'static [&'static str]] {
+        match self {
+            Self::Claude => claude::CHECKOUT_SKILL_FOLDERS,
+            Self::Codex | Self::Copilot | Self::OpenCode => &[],
+        }
+    }
+}
+
 impl Tool {
     /// [`AgentTool::display_name`]: "Claude Code", "GitHub Copilot".
     pub fn display_name(self) -> &'static str {
@@ -174,6 +238,11 @@ pub fn plugin_dir_next_to(bin_dir: &Path) -> Option<PathBuf> {
     claude::find_plugin_dir(bin_dir)
 }
 
+/// The tools' plugins (folders inside Otaq's plugin folder) that carry Otaq's own skills as their own `skills/`,
+/// filled when the plugin is copied ([`crate::runtime::fill_skills`]): Claude Code's and Copilot's. Codex's fixed
+/// folder gets them in [`refresh_fixed_plugins`]; OpenCode's launch config names `<plugin>/skills` itself.
+pub const PLUGINS_WITH_SKILLS: [&str; 2] = [claude::PLUGIN_FOLDER, copilot::launch::PLUGIN_FOLDER];
+
 /// Copies the tools' plugins that live in a fixed folder over it, at every service start (UPD-02): Codex's
 /// (gap review R4), whose marketplace is registered machine-wide with a folder path. A failure is logged; Codex's
 /// setup then says its plugin wasn't found.
@@ -274,12 +343,116 @@ pub enum LaunchRole {
     Delivery,
 }
 
+/// How an adapter reads one of the environment's variables: [`process_var`] in the service, a fixed map in tests.
+pub type EnvVar<'a> = &'a dyn Fn(&str) -> Option<OsString>;
+
+/// This process's `name` variable.
+pub fn process_var(name: &str) -> Option<OsString> {
+    std::env::var_os(name)
+}
+
+/// Each tool's personal skills folder, read only by the skill finder ([`crate::skills::found`], S6). Each adapter
+/// finds it as its tool does, its own variable followed (an empty one is unset).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonalSkillFolders {
+    /// `$CLAUDE_CONFIG_DIR/skills`, else `~/.claude/skills`.
+    pub claude: PathBuf,
+    /// `$CODEX_HOME/skills`, else `~/.codex/skills`.
+    pub codex: PathBuf,
+    /// `$COPILOT_HOME/skills`, else `~/.copilot/skills`.
+    pub copilot: PathBuf,
+    /// `$XDG_CONFIG_HOME/opencode/skills`, else `~/.config/opencode/skills`.
+    pub opencode: PathBuf,
+    /// Claude Code's own folder (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), where its installed plugins are listed.
+    pub claude_config: PathBuf,
+    /// Codex's home (`$CODEX_HOME`, else `~/.codex`), where its installed plugins are.
+    pub codex_home: PathBuf,
+    /// Copilot's home (`$COPILOT_HOME`, else `~/.copilot`), where its installed plugins are.
+    pub copilot_home: PathBuf,
+}
+
+/// The tools' personal skills folders under the user's `home`, the variables read with `var`.
+pub fn personal_skill_folders(home: &Path, var: EnvVar<'_>) -> PersonalSkillFolders {
+    PersonalSkillFolders {
+        claude: claude::skills_folder(home, var),
+        codex: codex::skills_folder(home, var),
+        copilot: copilot::skills_folder(home, var),
+        opencode: opencode::skills_folder(home, var),
+        claude_config: claude::config_folder(home, var),
+        codex_home: codex::codex_home(home, var),
+        copilot_home: copilot::copilot_home(home, var),
+    }
+}
+
+/// The skills folder of one plugin installed in a tool, read only by the skill finder (S6): the tool runs its skills
+/// as `<plugin>:<skill>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSkills {
+    /// The plugin's name: `tuq` for `tuq@team-marketplace`.
+    pub plugin: String,
+    /// Its `skills/` folder.
+    pub folder: PathBuf,
+}
+
+/// The skills folders of the plugins each tool has installed (Claude Code, Codex, Copilot; OpenCode has no plugin
+/// skills), each read as its adapter knows its tool keeps them. `checkout` is the project's checkout: a Claude Code
+/// plugin installed for one project counts only there. Otaq's own plugin isn't among them: its skills are Otaq's.
+pub fn plugin_skill_folders(
+    folders: &PersonalSkillFolders,
+    checkout: Option<&Path>,
+) -> Vec<(Tool, PluginSkills)> {
+    let own = |p: &PluginSkills| p.plugin != crate::naming::PLUGIN_NAMESPACE;
+    let mut found = Vec::new();
+    for (tool, plugins) in [
+        (
+            Tool::Claude,
+            claude::plugin_skills(&folders.claude_config, checkout),
+        ),
+        (Tool::Codex, codex::plugin_skills(&folders.codex_home)),
+        (Tool::Copilot, copilot::plugin_skills(&folders.copilot_home)),
+    ] {
+        found.extend(plugins.into_iter().filter(own).map(|p| (tool, p)));
+    }
+    found
+}
+
+/// The name in a plugin's manifest, the first of `manifests` (paths under `root`) that reads and has one.
+pub(crate) fn plugin_manifest_name(root: &Path, manifests: &[&[&str]]) -> Option<String> {
+    manifests.iter().find_map(|parts| {
+        let file = parts
+            .iter()
+            .fold(root.to_path_buf(), |p, part| p.join(part));
+        let text = std::fs::read_to_string(file).ok()?;
+        let manifest: Value = serde_json::from_str(&text).ok()?;
+        manifest["name"]
+            .as_str()
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+    })
+}
+
+/// Whether `skill` names one of Otaq's own skills ([`crate::agents::shipped::SKILLS`]). A name that matches one always
+/// means Otaq's skill, from its plugin; any other name is the user's.
+pub fn is_own_skill(skill: &str) -> bool {
+    crate::agents::shipped::SKILLS.contains(&skill)
+}
+
+/// `skill` behind `sigil` (`/`, `$`), in Otaq's plugin namespace when it is one of Otaq's own skills
+/// ([`is_own_skill`]): `/otaq:commit`, `/team-validate`.
+pub(crate) fn namespaced_reference(sigil: &str, skill: &str) -> String {
+    if is_own_skill(skill) {
+        format!("{sigil}{}:{skill}", crate::naming::PLUGIN_NAMESPACE)
+    } else {
+        format!("{sigil}{skill}")
+    }
+}
+
 /// The first prompt of a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FirstPrompt {
-    /// A skill by its own name (`work-ticket`, `address-review`, an imported `team-validate`…), already copied into
-    /// the launch's folder as `otaq-<name>` ([`crate::skills`], AGM-07) and named in the tool's syntax by the adapter
-    /// ([`AgentTool::skill_reference`]), optionally followed by a message (the Project agent's first request).
+    /// A skill by its own name (`work-ticket`, `address-review`, the user's `team-validate`…), named in the tool's
+    /// syntax by the adapter ([`AgentTool::skill_prompt`]), optionally followed by a message (the Project agent's
+    /// first request).
     Skill {
         name: String,
         message: Option<String>,
@@ -289,11 +462,11 @@ pub enum FirstPrompt {
 }
 
 impl FirstPrompt {
-    /// The prompt as typed for `tool`: `/otaq-noyan <message>`, or the text.
+    /// The prompt as typed for `tool` ([`AgentTool::skill_prompt`]): `/otaq:noyan <message>`, or the text.
     pub fn text(&self, tool: &dyn AgentTool) -> String {
         match self {
             Self::Skill { name, message } => {
-                let skill = tool.skill_reference(name);
+                let skill = tool.skill_prompt(name);
                 match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
                     Some(message) => format!("{skill} {message}"),
                     None => skill,
@@ -678,9 +851,10 @@ pub trait AgentTool: Send + Sync {
     /// trust stays on every tool (d0086). Claude Code and Copilot have no Otaq-only entries (an empty report).
     fn remove_setup(&self) -> SetupReport;
 
-    /// Whether a Connected tool's one-time setup is missing from its config (cheap: one file read, no process), so
-    /// the next check runs [`Self::set_up_tool`] again. Codex: Otaq's plugin isn't installed from this plugin
-    /// folder, or one of its hooks has no recorded trust. The others: never.
+    /// Whether a Connected tool's one-time setup is missing from its config (cheap: file reads, no process), so the
+    /// next check runs [`Self::set_up_tool`] again. Codex: Otaq's plugin isn't installed from this plugin folder,
+    /// one of its hooks has no recorded trust, or Codex's installed copy of the plugin has other skills than this
+    /// build's. The others: never.
     fn setup_needed(&self) -> bool {
         false
     }
@@ -780,17 +954,19 @@ pub trait AgentTool: Send + Sync {
 
     // 7. Skills (ADP-05).
 
-    /// A skill named for the agent by its copy in the working folder (AGM-07, d0098): `skill_reference("commit")`
-    /// → `/otaq-commit` (Claude Code, Copilot), `$otaq-commit` (Codex), `otaq-commit` (OpenCode). Every skill
-    /// reaches every tool the same way, as a project skill in the folder the session runs in ([`crate::skills`]);
-    /// the tools' plugins carry only Otaq's hooks.
+    /// A skill as the agent's tool names it in typed text. Otaq's own skill ([`is_own_skill`]) comes from Otaq's
+    /// plugin, under its namespace: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit` (Codex), `commit`
+    /// (OpenCode, which has no namespace). The user's own skill is one the tool finds itself, by its own name:
+    /// `/team-validate`, `$team-validate`, `team-validate`. Otaq never copies or renames a skill ([`crate::skills`]).
     fn skill_reference(&self, skill: &str) -> String;
 
-    /// Of the two folders Otaq writes a copy into ([`crate::skills::copy::SKILL_ROOTS`]), the one this tool reads:
-    /// `.agents/skills` (Codex, Copilot, OpenCode), `.claude/skills` for Claude Code. A hand-off names the copy's
-    /// SKILL.md in it when the session didn't start with that skill (d0118).
-    fn skill_root(&self) -> &'static str {
-        crate::skills::copy::SKILL_ROOTS[0]
+    /// A skill as typed into a session to run it: the start of a first prompt or a hand-off line, with the usual text
+    /// after it. The [`Self::skill_reference`] itself, except on OpenCode, which has no typed command for a skill: its
+    /// model loads one with its skill tool when it decides to, and a bare name was mostly ignored (hands-on check,
+    /// 2026-11-06), so OpenCode's is an instruction naming the skill. Prime, the flow editor and the warnings name a
+    /// skill by [`Self::skill_reference`].
+    fn skill_prompt(&self, skill: &str) -> String {
+        self.skill_reference(skill)
     }
 
     // Model families (AGT-02, d0086).
@@ -851,7 +1027,7 @@ impl Adapters {
         )
     }
 
-    /// Where the shipped skills are read from for a session's copies (AGM-07): the installed app's bundle.
+    /// Where the shipped skills are read from to show what an agent reads: the installed app's bundle.
     pub fn shipped_skills(&self) -> Option<&Path> {
         self.shipped_skills.as_deref()
     }

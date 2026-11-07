@@ -234,7 +234,6 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -309,7 +308,6 @@ async fn show_terminal_stage_reads_the_check_running_it() {
         model: None,
         agent: None,
         effort: None,
-        fallback: None,
         theme: None,
     };
     let agent = w
@@ -368,57 +366,23 @@ async fn show_terminal_stage_reads_the_check_running_it() {
         "error: SHOP-1 isn't in Dev\n"
     );
 
-    // In Security: two check agents, one terminal each.
-    let reviewer = w
-        .sessions
-        .spawn(print(SessionKind::Validator, "the reviewer<end>"))
-        .await
-        .unwrap();
-    w.wait_for_output(&reviewer.id, "<end>").await;
-    w.validating_with_agents(
-        &ticket,
+    // `--agent` is kept for one release and ignored, with a note: a check has one agent, so `--stage` names it.
+    let out = cb(
+        &w,
         &[
-            ("Security reviewer", &reviewer.id),
-            ("Validator", &check.id),
+            "show",
+            "SHOP-1",
+            "--terminal",
+            "--stage",
+            "validate",
+            "--agent",
+            "Security reviewer",
         ],
-    )
-    .await;
-    w.force_stage(&ticket, "security", Status::Checking).await;
-    let out = cb(&w, &["show", "SHOP-1", "--terminal", "--stage", "security"]);
-    assert_eq!(out.status.code(), Some(1));
+    );
+    assert_eq!(stdout(&out), "the check<end>\n");
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
-        "error: Security has 2 check agents; add --agent\n"
-    );
-    assert_eq!(
-        stdout(&cb(
-            &w,
-            &[
-                "show",
-                "SHOP-1",
-                "--terminal",
-                "--stage",
-                "security",
-                "--agent",
-                "Security reviewer"
-            ]
-        )),
-        "the reviewer<end>\n"
-    );
-    assert_eq!(
-        stdout(&cb(
-            &w,
-            &[
-                "show",
-                "SHOP-1",
-                "--terminal",
-                "--stage",
-                "security",
-                "--agent",
-                "validator"
-            ]
-        )),
-        "the check<end>\n"
+        "note: --agent is ignored: a check has one agent, so --stage names its session\n"
     );
 
     // `--validator` is gone: a usage error.

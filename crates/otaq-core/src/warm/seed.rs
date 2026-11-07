@@ -204,7 +204,7 @@ impl Seeder {
                 return None;
             }
         };
-        // Otaq's skill copies are never seeded either ([`plan`] leaves them out of any seed, d0082).
+        // Skill copies an older Otaq left are never seeded either ([`plan`] leaves them out of any seed, d0082).
         let leave_out: Vec<PathBuf> = env_files
             .iter()
             .map(|f| f.trim())
@@ -685,9 +685,9 @@ impl Plan {
 }
 
 /// The paths of `seed` to clone into `worktree`: each candidate that isn't there yet, and inside a folder both
-/// have, its entries the same way. `leave_out` (env files) is never cloned, nor are Otaq's skill copies in the seed
-/// (a checkout holds them while a Project agent runs, AGM-07; each session writes its own); a folder holding one is
-/// gone into.
+/// have, its entries the same way. `leave_out` (env files) is never cloned, nor are the skill copies an older Otaq
+/// left in the seed (the service-start tidy removes them; Otaq writes none any more); a folder holding one is gone
+/// into.
 pub(crate) fn plan(
     seed: &Path,
     worktree: &Path,
