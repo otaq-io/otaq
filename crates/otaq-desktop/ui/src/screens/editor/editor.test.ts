@@ -24,7 +24,6 @@ import {
   formReport,
   isSaveKey,
   isStartKey,
-  quickKey,
   refusalFor,
   shownPriority,
 } from "./logic";
@@ -113,14 +112,6 @@ describe("Copy as Markdown", () => {
 });
 
 describe("the editor's form state", () => {
-  it("quick-create: ↵ creates, ⇧↵ opens the full form, Esc cancels", () => {
-    expect(quickKey({ key: "Enter", shiftKey: false })).toBe("create");
-    expect(quickKey({ key: "Enter", shiftKey: true })).toBe("full");
-    expect(quickKey({ key: "Escape", shiftKey: false })).toBe("cancel");
-    expect(quickKey({ key: "Enter", shiftKey: false, isComposing: true })).toBeNull();
-    expect(quickKey({ key: "a", shiftKey: false })).toBeNull();
-  });
-
   it("⌘↵ saves from any field; save needs a title", () => {
     expect(isSaveKey({ key: "Enter", metaKey: true, ctrlKey: false })).toBe(true);
     expect(isSaveKey({ key: "Enter", metaKey: false, ctrlKey: true })).toBe(true);
@@ -679,7 +670,7 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("registers quick-create, the edit modal, the full-window view, the report view and the image view from its folder", () => {
+  it("registers the new-ticket form, the edit modal, the full-window view, the report view and the image view from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
       overlays: ["new_ticket", "edit_ticket", "full_view", "report", "image"],
     });

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { type Registries, useRegistries } from "../../app/registry";
+import { shellLayout } from "../../app/layout";
 import { selectProject, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { AnchoredMenu, type Anchor, Tooltip } from "../../components";
@@ -17,12 +18,12 @@ import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
 import type { ShellParams } from "../../generated/ShellParams";
 import type { IconName } from "../../generated/IconName";
-import type { AskAgentButton } from "../../generated/AskAgentButton";
+import type { NoyanButton } from "../../generated/NoyanButton";
+import type { NoyanButtonParams } from "../../generated/NoyanButtonParams";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { askBar } from "../ask_bar/logic";
-import { toggleAgentPanel } from "../agent_panel/logic";
+import { chosenAgent, lookedCount, shownAgents, toggleAgentPanel } from "../agent_panel/logic";
 import { updatesStore, watchUpdates } from "../settings/updates";
 import { railMenuChoice } from "./projectMenu";
 
@@ -77,8 +78,8 @@ function bottomButton(button: RailButton, icon: IconName, onClick: () => void, d
   );
 }
 
-/** The Project agent button: opens the panel (and focuses it), or closes it; its look is the Ask bar's view's. */
-export function RailAgentButton({ button }: { button: AskAgentButton }) {
+/** The Noyan button: opens the panel (and focuses it), or closes it; its look is `noyan_button.view`'s. */
+export function RailAgentButton({ button }: { button: NoyanButton }) {
   return (
     <Tooltip text={button.label} detail={[button.hint]}>
       <button
@@ -101,8 +102,8 @@ export function RailAgentButton({ button }: { button: AskAgentButton }) {
 export interface RailProps {
   view: RailView;
   actions?: RailActions;
-  /** The open project's Project agent button; none before its Ask bar loaded. */
-  agent?: AskAgentButton | undefined;
+  /** The open project's Noyan button; none before it loaded. */
+  agent?: NoyanButton | undefined;
   /** The project menu open from a right-click on a tile (#11), and its owner's setter. */
   menu?: TileMenu | null;
   onMenu?: (menu: TileMenu | null) => void;
@@ -197,6 +198,29 @@ export function RailTiles({ view, actions, agent, menu = null, onMenu, updateDot
   );
 }
 
+/** The service events that change the Noyan button's tint or dot. */
+export const NOYAN_BUTTON_EVENTS = [
+  "project_agent_changed",
+  "projects_changed",
+  // The user's keys in its tooltip (KEY-08).
+  "settings_changed",
+] as const;
+
+/** The shown project's Noyan button: follows its conversations, the panel and the conversation the user looked at. */
+function useNoyanButton(project: string | null): NoyanButton | undefined {
+  const open = useStore(shellLayout).agentOpen;
+  const shownByProject = useStore(shownAgents);
+  const shown = project === null ? null : chosenAgent(shownByProject, project);
+  const looked = useStore(lookedCount);
+  const load = useCallback(async () => {
+    if (project === null) return undefined;
+    const params: NoyanButtonParams = { project, open, ...(shown !== null && { shown }) };
+    return (await request("noyan_button.view", params)) as NoyanButton;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new look is a new load: the reply just seen goes
+  }, [project, open, shown, looked]);
+  return useServiceView(load, NOYAN_BUTTON_EVENTS).view;
+}
+
 /** The rail slot: follows the service and keeps the page's selection on a project that exists. */
 export function ShellRail() {
   const app = useRegistries();
@@ -208,7 +232,7 @@ export function ShellRail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: a ring that is over stops drawing
   }, [project, tick]);
   const { view } = useServiceView(load, RAIL_EVENTS);
-  const agent = useStore(askBar)?.button;
+  const agent = useNoyanButton(project);
   const updateDot = useStore(updatesStore)?.dot ?? null;
   useEffect(() => watchUpdates(updatesStore.set), []);
   const [menu, setMenu] = useState<TileMenu | null>(null);

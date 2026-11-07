@@ -62,6 +62,7 @@ import { FilesView } from "../files_view/FilesView";
 import { filesViewWanted } from "../files_view/logic";
 import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
+import { filesShown as filesStore, openNewWork } from "../new_work/logic";
 import { NeedsYouStrip } from "../strip/Strip";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
@@ -388,6 +389,10 @@ export function Board() {
     useCallback(() => showView("files"), [showView]),
   );
   const filesShown = view?.prefs.view === "files";
+  // The box for new work is on the board and the List, never in Files.
+  useEffect(() => {
+    filesStore.set(filesShown);
+  }, [filesShown]);
   // A terminal's path link asked for this project's Files view (d0117 point 8).
   const wanted = useStore(filesViewWanted);
   const wantedShown = useRef(0);
@@ -798,7 +803,9 @@ export function Board() {
           onView={changeView}
           onAllTickets={requestSearchFocus}
           onNewTicket={() => {
-            openOverlay("new_ticket", { full: true });
+            openNewWork(() => {
+              openOverlay("new_ticket");
+            });
           }}
           onSettings={() => {
             if (project !== null) openOverlay("settings", { project });
@@ -869,7 +876,9 @@ export function Board() {
                 onScroll={onScroll}
                 onView={changeView}
                 onAdd={() => {
-                  openOverlay("new_ticket");
+                  openNewWork(() => {
+                    openOverlay("new_ticket");
+                  });
                 }}
                 doneLine={column.id === lastOpen ? view.done : null}
                 element={element$}

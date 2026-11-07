@@ -56,7 +56,7 @@ screens. A screen touches only its own folders plus **one line in the screens in
 
 | Registry                          | Ids (fixed in)                                                                                                             | A screen registers                                 |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `app.slots`                       | `slots.ts`: title bar ends, header, header search, header pause, rail, banners, agent panel, board, Ask bar, sheet, toasts | the component that fills the slot                  |
+| `app.slots`                       | `slots.ts`: title bar ends, header, header search, header pause, rail, banners, agent panel, board, the box, sheet, toasts | the component that fills the slot                  |
 | `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                                               | its overlay's component (gets `params`, `close`)   |
 | `app.sheetTabs`                   | the generated `SheetTab` (Rust `sheet::SheetTab`), in the order of `sheet.ts`                                              | its tab's body (gets the open `ticket`)            |
 | `app.sheetSections`               | `sheet.ts`: Overview's sections (Stack) and the open PR's box under its top                                                | its section (gets the open `ticket`)               |

@@ -21,11 +21,7 @@ save_word: string, discard_word: string, close_word: string, cancel: string, clo
  * The new-ticket form's second button, "Create & start" (`null` when editing a ticket), its key hint's word
  * ("create & start"), and its label once a refusal left the form on the created ticket ("Save & start").
  */
-create_and_start: string | null, start_word: string, save_and_start: string, 
-/**
- * Quick-create: "↵ create · ⇧↵ full form".
- */
-quick_create: string, quick_full: string, open_terminal: string, marker: string, compare: string, before: string, after: string, nothing_written: string, 
+create_and_start: string | null, start_word: string, save_and_start: string, open_terminal: string, marker: string, compare: string, before: string, after: string, nothing_written: string, 
 /**
  * The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied" after a copy.
  */

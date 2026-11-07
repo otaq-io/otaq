@@ -6,7 +6,7 @@
 // conversation ▾), the state pill, …, Recently ended, +, Expand (T-0502) and the close icon (a narrow panel folds
 // Recently ended and + into … and shows the pill's icon only, `agent_panel.css`); then the agent line,
 // Created and changed, its real terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L
-// and Esc (outside the terminal) fold it back into the Ask bar. Everything it says comes from `agent_panel.view`.
+// and Esc (outside the terminal) close it. Everything it says comes from `agent_panel.view`.
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { shellLayout, useSizeClass, useWindowWidth } from "../../app/layout";
@@ -46,7 +46,6 @@ import { AgentQuestionBox } from "./AgentQuestion";
 import { Icon } from "../../theme/Icon";
 import { showAgentOnBoard } from "../board/filter";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
-import { lookedAt } from "../ask_bar/logic";
 import {
   chosenAgent,
   closeAgentPanel,
@@ -56,6 +55,7 @@ import {
   foldedAway,
   hasChoice,
   leaveExpand,
+  lookedAt,
   moreMenu,
   NEW_ITEM,
   newProjectAgent,
@@ -837,7 +837,7 @@ function ProjectAgentPanel({ project }: { project: string }) {
   // Added after the fold, so tried before it: Esc leaves Expand first.
   useShortcut("close_sheet", leaveExpandKey);
   // The user looks at the shown conversation while the panel is open, until it closes or shows another: its replies
-  // until then aren't new on the Ask bar (SHB-03).
+  // until then aren't new on the rail's Noyan button (SHB-03).
   const open = useStore(shellLayout).agentOpen;
   const shownAgent = view?.agent ?? null;
   useEffect(() => {

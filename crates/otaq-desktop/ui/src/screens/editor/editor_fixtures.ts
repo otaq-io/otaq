@@ -41,8 +41,6 @@ export const TEXTS: EditorTexts = {
   edit: "Edit",
   back: "Back",
   in_word: "in",
-  quick_create: "create",
-  quick_full: "full form",
   open_terminal: "Open terminal",
   marker: "Updated by agent",
   compare: "Compare",

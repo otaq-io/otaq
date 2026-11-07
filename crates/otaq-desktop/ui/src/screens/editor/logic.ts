@@ -9,18 +9,6 @@ import type { BoxValue } from "./commentRules";
 /** The service events that change what the editor shows. */
 export const EDITOR_EVENTS = ["ticket_changed", "ticket_deleted", "session_state"] as const;
 
-/** What a key does in quick-create: ↵ creates, ⇧↵ opens the full form with the title kept, Esc cancels. */
-export function quickKey(e: {
-  key: string;
-  shiftKey: boolean;
-  isComposing?: boolean;
-}): "create" | "full" | "cancel" | null {
-  if (e.isComposing) return null;
-  if (e.key === "Escape") return "cancel";
-  if (e.key !== "Enter") return null;
-  return e.shiftKey ? "full" : "create";
-}
-
 /** ⌘↵ (Ctrl+↵ off the Mac) saves the form from any field, the description too. */
 /** ⌘↵ on macOS, Ctrl+↵ elsewhere. */
 export const SAVE_KEYS = navigator.userAgent.includes("Mac") ? "⌘↵" : "Ctrl+↵";
