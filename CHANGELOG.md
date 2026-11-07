@@ -5,6 +5,19 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Reviewing a ticket.** A ticket in Review opens on Overview: what the agent did, what the checker found, the
+  decisions it made, then the ticket. The bar under every tab names Approve by what it does ("Approve & merge into
+  main", "Approve & open PR"); the button beside it holds the other ways to finish (open a PR instead, Merge into
+  another ticket…, Done, nothing to merge, Done, don't merge).
+- **Nobody waits for the merge message.** When a ticket reaches Review, the agent the flow's `delivery:` names writes
+  its message while it waits: the squash commit's for a merge, the branch, title and description for a PR (`otaq pr
+  message`). Approve & merge opens its confirmation at once; if the message isn't there yet it starts from a plain
+  one and fills in when it arrives, unless you typed. Approve & open PR opens the PR dialog at once the same way, and
+  the Open PR skill only runs after you confirm. A local merge may name a delivery agent too; without one, the
+  confirmation starts from the plain message. It is asked for again only when the ticket comes back with new commits.
+- **When GitHub or Azure DevOps isn't set up on this machine**, the PR dialog says so with **Set up…** and, when the
+  flow delivers either way, **Or merge into main instead**; Push & open PR stays off until it is. An open PR's box
+  has **Mark closed** and **Mark merged**.
 - **Search lists the tickets it finds.** Typing in the board's search (`/`) still filters the board, and the list
   under the field now also shows the matching tickets with their column and status, Done ones included; ↵ or a
   click opens one. Two new filters: `in:<stage>` keeps one column's tickets (`in:review`, `in:backlog`, `in:done`;
