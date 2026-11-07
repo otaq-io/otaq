@@ -826,11 +826,11 @@ async fn prime_shows_a_comment_of_only_attachments_without_an_empty_line() {
     );
     let expected = format!(
         "\n## Reports from you \u{b7} read these before you start\n\n\
-         - shot.png \u{b7} 8 bytes \u{b7} open this path to view it: {path}\n  \
+         - shot.png \u{b7} 8 bytes \u{b7} open this path to view it: `{path}`\n  \
          With comment 1 (You \u{b7} 9:05 am)\n\
          \n## Comments\n\n\
          ### You \u{b7} 9:05 am\n\n\
-         Image: shot.png \u{b7} 8 bytes \u{b7} open this path to view it: {path}\n"
+         Image: shot.png \u{b7} 8 bytes \u{b7} open this path to view it: `{path}`\n"
     );
     assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
     w.stop().await;

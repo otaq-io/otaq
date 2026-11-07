@@ -1120,7 +1120,7 @@ pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> S
             let open = match a.kind {
                 AttachmentKind::Text => format!("`{}`", c.report_command(key, a.n)),
                 AttachmentKind::Image | AttachmentKind::Other => {
-                    format!("{OPEN_PATH}: {}", a.path)
+                    format!("{OPEN_PATH}: `{}`", a.path)
                 }
             };
             // A comment of only attachments (tuq 007) has no line to quote: "With comment 3 (You · 3:05 pm)".
