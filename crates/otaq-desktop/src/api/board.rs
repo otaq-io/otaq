@@ -817,9 +817,10 @@ mod tests {
         };
         let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0 });
 
-        // No tickets yet: the empty board over the five columns.
+        // No tickets yet on a new user's board: its columns, with "Your first ticket" in Backlog.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
-        assert_eq!(view["empty"]["title"], "shop-web is ready");
+        assert_eq!(view["first_ticket"]["title"], "Tidy the README");
+        assert_eq!(view["hint"], Value::Null);
         // Validate has its own column (FLW-01): Backlog · Dev · Validate · Review · Done.
         assert_eq!(view["columns"].as_array().map(Vec::len), Some(5));
         // The view preferences are the service's (SHB-05): Done folded at first, a fold from Dev's ⋯ comes back.
