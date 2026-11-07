@@ -3933,6 +3933,9 @@
         "notifications": {
           "ty": "bool"
         },
+        "os_dark": {
+          "ty": "bool"
+        },
         "sheet_width": {
           "ty": "Option<u32>"
         },
@@ -10552,26 +10555,28 @@
         "tokyo-night"
       ]
     },
+    "ThemeMode": {
+      "kind": "strings",
+      "values": [
+        "dark",
+        "light",
+        "system"
+      ]
+    },
     "ThemeSetting": {
-      "kind": "enum",
-      "attrs": [
-        "untagged"
-      ],
-      "variants": {
-        "ByOs": {
-          "fields": {
-            "dark": {
-              "ty": "Theme",
-              "required": true
-            },
-            "light": {
-              "ty": "Theme",
-              "required": true
-            }
-          }
+      "kind": "struct",
+      "fields": {
+        "dark": {
+          "ty": "Theme",
+          "required": true
         },
-        "Picked": {
-          "newtype": "Theme"
+        "light": {
+          "ty": "Theme",
+          "required": true
+        },
+        "mode": {
+          "ty": "ThemeMode",
+          "required": true
         }
       }
     },

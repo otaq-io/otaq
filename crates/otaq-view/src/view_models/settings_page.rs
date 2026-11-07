@@ -866,7 +866,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             row(
                 "theme",
                 "Theme",
-                "One theme, used all the time. Click a card to recolor the window; it saves at once.",
+                "Match system shows the light theme while your system is light and the dark one while it is dark. Pick one of each; it saves at once.",
                 Control::Themes,
             ),
             row(

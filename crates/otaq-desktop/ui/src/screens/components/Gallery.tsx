@@ -25,6 +25,7 @@ import {
   AnchoredMenu,
   Banner,
   Button,
+  chooseThemeMode,
   type ButtonVariant,
   Checkbox,
   CountBadge,
@@ -848,9 +849,12 @@ function ThemeSection() {
   return (
     <div className="gallery-picker">
       <ThemePicker
-        sections={picker.view}
+        view={picker.view}
         onPick={(key) => {
           void pickTheme(key);
+        }}
+        onMode={(mode) => {
+          void chooseThemeMode(mode);
         }}
       />
     </div>
